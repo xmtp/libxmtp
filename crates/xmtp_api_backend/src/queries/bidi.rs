@@ -328,7 +328,7 @@ impl<B: BidiBinding> Connection<B> {
     /// pong. We deliberately don't fail-fast on a full command queue: a transient
     /// burst of `mutate`s is "busy," not "dead."
     pub async fn probe_within(&self, timeout: Duration) -> Result<(), BidiError> {
-        match tokio::time::timeout(timeout, self.probe_inner()).await {
+        match xmtp_common::time::timeout(timeout, self.probe_inner()).await {
             Ok(result) => result,
             Err(_elapsed) => Err(BidiError::ProbeTimedOut),
         }
@@ -937,18 +937,18 @@ mod tests {
         let mut actor = spawn_actor();
         actor.inbound.send(Ok(150)).await?; // Started: 150ms keepalive
         assert!(matches!(
-            tokio::time::timeout(WAIT, actor.events.recv()).await?,
+            xmtp_common::time::timeout(WAIT, actor.events.recv()).await?,
             Some(Event::Started { .. })
         ));
 
-        let ping = tokio::time::timeout(WAIT, actor.wire.recv()).await?;
+        let ping = xmtp_common::time::timeout(WAIT, actor.wire.recv()).await?;
         assert_eq!(
             ping,
             Some(WATCHDOG_NONCE),
             "the watchdog must probe before giving up"
         );
         assert_eq!(
-            tokio::time::timeout(WAIT, actor.events.recv()).await?,
+            xmtp_common::time::timeout(WAIT, actor.events.recv()).await?,
             None,
             "an unanswered watchdog ping must tear the connection down"
         );
@@ -960,11 +960,11 @@ mod tests {
     async fn an_answered_watchdog_probe_keeps_the_wire_alive() {
         let mut actor = spawn_actor();
         actor.inbound.send(Ok(150)).await?;
-        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+        xmtp_common::time::timeout(WAIT, actor.events.recv()).await?;
 
         // Ride out three whole silence windows, answering each probe.
         for _ in 0..3 {
-            let ping = tokio::time::timeout(WAIT, actor.wire.recv()).await?;
+            let ping = xmtp_common::time::timeout(WAIT, actor.wire.recv()).await?;
             assert_eq!(ping, Some(WATCHDOG_NONCE));
             actor.inbound.send(Ok(ACTIVITY_FRAME)).await?;
         }
@@ -977,7 +977,10 @@ mod tests {
         );
 
         // Stop answering: the next unanswered ping tears it down.
-        assert_eq!(tokio::time::timeout(WAIT, actor.events.recv()).await?, None);
+        assert_eq!(
+            xmtp_common::time::timeout(WAIT, actor.events.recv()).await?,
+            None
+        );
     }
 
     /// A steady trickle of frames well inside the probe threshold never
@@ -986,11 +989,11 @@ mod tests {
     async fn inbound_activity_resets_the_watchdog() {
         let mut actor = spawn_actor();
         actor.inbound.send(Ok(200)).await?; // probe would fire at 400ms silent
-        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+        xmtp_common::time::timeout(WAIT, actor.events.recv()).await?;
 
         for _ in 0..20 {
             actor.inbound.send(Ok(ACTIVITY_FRAME)).await?;
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
         assert!(
             matches!(actor.wire.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
@@ -1011,26 +1014,26 @@ mod tests {
     async fn consumer_backpressure_is_not_wire_silence() {
         let mut actor = spawn_actor();
         actor.inbound.send(Ok(200)).await?; // probe at 400ms, teardown at 600ms
-        tokio::time::timeout(WAIT, actor.events.recv()).await?;
+        xmtp_common::time::timeout(WAIT, actor.events.recv()).await?;
 
         // Fill the event buffer plus one: the actor parks mid-emit.
         for _ in 0..(EVENT_BUFFER + 1) {
             actor.inbound.send(Ok(MSG_FRAME)).await?;
         }
         // Hold the park well past the full teardown budget, draining nothing.
-        tokio::time::sleep(Duration::from_millis(800)).await;
+        xmtp_common::time::sleep(Duration::from_millis(800)).await;
 
         // Drain; the actor unparks with a fresh silence window. If the park
         // had counted as silence, both watchdog deadlines are long past and
         // teardown would be immediate.
         let mut delivered = 0;
         while delivered < EVENT_BUFFER + 1 {
-            match tokio::time::timeout(WAIT, actor.events.recv()).await? {
+            match xmtp_common::time::timeout(WAIT, actor.events.recv()).await? {
                 Some(Event::GroupMessages { .. }) => delivered += 1,
                 other => panic!("unexpected event while draining: {other:?}"),
             }
         }
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        xmtp_common::time::sleep(Duration::from_millis(150)).await;
         assert!(
             matches!(
                 actor.events.try_recv(),

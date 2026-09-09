@@ -2609,7 +2609,7 @@ where
                                 return Err(err.processing_error);
                             }
                             if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.0, envelope.message.epoch(), &err.processing_error) {
-                                tracing::error!(group_id = %self.group_id, cursor = cursor.0, "Error inserting commit entry for failed self commit: {}", accounting_error);
+                                tracing::error!(group_id = %self.group_id.short_hex(), cursor = cursor.0, "Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             if err.next_intent_state == IntentState::Error {
                                 error_cause = Some(err.processing_error);

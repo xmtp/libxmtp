@@ -13,19 +13,16 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt;
-use futures::stream::BoxStream;
 use proptest::prelude::*;
+use xmtp_proto::backend_v1::SubscribeRequest;
 
 use super::{
     BackendBinding, BidiConnection, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     MAX_MUTATE_BYTES, MAX_MUTATE_TOPICS, OpenError, TopicLease,
 };
-use xmtp_proto::api::ApiClientError;
-use xmtp_proto::api_client::XmtpMlsBidiStreams;
 use xmtp_proto::backend_v1::subscribe_request::Update;
 use xmtp_proto::backend_v1::{
-    self, CatchupTarget, ServerEnvelope, SubscribeRequest, SubscribeResponse, subscribe_request,
-    subscribe_response,
+    self, CatchupTarget, ServerEnvelope, subscribe_request, subscribe_response,
 };
 use xmtp_proto::types::Topic;
 
@@ -33,57 +30,7 @@ const N_TOPICS: usize = 3;
 const NO_KEEPALIVE: u32 = 3_600_000;
 const STALL: Duration = Duration::from_secs(10);
 
-struct MockApi {
-    inbound: Mutex<
-        Option<tokio::sync::mpsc::UnboundedReceiver<Result<SubscribeResponse, ApiClientError>>>,
-    >,
-    captured: tokio::sync::mpsc::UnboundedSender<SubscribeRequest>,
-}
-
-struct MockServer {
-    to_client: tokio::sync::mpsc::UnboundedSender<Result<SubscribeResponse, ApiClientError>>,
-    from_client: tokio::sync::mpsc::UnboundedReceiver<SubscribeRequest>,
-}
-
-#[xmtp_common::async_trait]
-impl XmtpMlsBidiStreams for MockApi {
-    type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
-    type Error = ApiClientError;
-
-    fn host(&self) -> &str {
-        "mock://bidi"
-    }
-
-    async fn subscribe_bidi(
-        &self,
-        requests: BoxStream<'static, SubscribeRequest>,
-    ) -> Result<Self::SubscribeStream, Self::Error> {
-        let captured = self.captured.clone();
-        xmtp_common::spawn(None, async move {
-            let mut requests = requests;
-            while let Some(frame) = futures::StreamExt::next(&mut requests).await {
-                let _ = captured.send(frame);
-            }
-        });
-        let mut inbound = self
-            .inbound
-            .lock()
-            .unwrap()
-            .take()
-            .expect("subscribe_bidi called twice on one mock session");
-        Ok(Box::pin(futures::stream::poll_fn(move |cx| {
-            inbound.poll_recv(cx)
-        })))
-    }
-}
-
-impl MockServer {
-    fn send(&self, response: subscribe_response::Response) {
-        let _ = self.to_client.send(Ok(SubscribeResponse {
-            response: Some(response),
-        }));
-    }
-}
+use crate::test::bidi::{MockServer, mock_pair};
 
 type Servers = Arc<Mutex<Vec<MockServer>>>;
 
@@ -95,16 +42,7 @@ fn model_transport(
     let sink = servers.clone();
     let transport = BidiTransport::new_with_chunk_limits(
         move |initial| {
-            let (to_client, inbound) = tokio::sync::mpsc::unbounded_channel();
-            let (captured, from_client) = tokio::sync::mpsc::unbounded_channel();
-            let api = MockApi {
-                inbound: Mutex::new(Some(inbound)),
-                captured,
-            };
-            let server = MockServer {
-                to_client,
-                from_client,
-            };
+            let (api, server) = mock_pair();
             server.send(subscribe_response::Response::Started(
                 subscribe_response::Started {
                     keepalive_interval_ms: NO_KEEPALIVE,
@@ -251,7 +189,7 @@ impl Driver {
 
     fn send(&self, response: subscribe_response::Response) {
         if let Some(session) = &self.session {
-            session.send(response);
+            session.send_if_open(response);
         }
     }
 
@@ -430,7 +368,7 @@ impl Driver {
             } else {
                 stable += 1;
             }
-            tokio::time::sleep(Duration::from_millis(1)).await;
+            xmtp_common::time::sleep(Duration::from_millis(1)).await;
         }
     }
 
@@ -445,7 +383,7 @@ impl Driver {
             if self.session.is_some() {
                 break;
             }
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            xmtp_common::time::sleep(Duration::from_millis(5)).await;
         }
     }
 

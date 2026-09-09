@@ -175,81 +175,7 @@ mod tests {
     use xmtp_proto::backend_v1::subscribe_request::Update as Mutate;
     use xmtp_proto::types::TopicKind;
 
-    /// A scripted peer: captures every frame the client sends and lets the test
-    /// play server frames into the connection.
-    struct MockBidiApi {
-        inbound: Mutex<Option<mpsc::UnboundedReceiver<Result<SubscribeResponse, ApiClientError>>>>,
-        captured: mpsc::UnboundedSender<SubscribeRequest>,
-    }
-
-    struct MockServer {
-        to_client: mpsc::UnboundedSender<Result<SubscribeResponse, ApiClientError>>,
-        from_client: mpsc::UnboundedReceiver<SubscribeRequest>,
-    }
-
-    fn mock_pair() -> (MockBidiApi, MockServer) {
-        let (to_client, inbound) = mpsc::unbounded_channel();
-        let (captured, from_client) = mpsc::unbounded_channel();
-        (
-            MockBidiApi {
-                inbound: Mutex::new(Some(inbound)),
-                captured,
-            },
-            MockServer {
-                to_client,
-                from_client,
-            },
-        )
-    }
-
-    #[xmtp_common::async_trait]
-    impl XmtpMlsBidiStreams for MockBidiApi {
-        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
-        type Error = ApiClientError;
-
-        fn host(&self) -> &str {
-            "mock://bidi"
-        }
-
-        async fn subscribe_bidi(
-            &self,
-            requests: BoxStream<'static, SubscribeRequest>,
-        ) -> Result<Self::SubscribeStream, Self::Error> {
-            let captured = self.captured.clone();
-            xmtp_common::spawn(None, async move {
-                let mut requests = requests;
-                while let Some(frame) = requests.next().await {
-                    let _ = captured.send(frame);
-                }
-            });
-            let mut inbound = self
-                .inbound
-                .lock()
-                .unwrap()
-                .take()
-                .expect("subscribe_bidi called twice");
-            Ok(Box::pin(futures::stream::poll_fn(move |cx| {
-                inbound.poll_recv(cx)
-            })))
-        }
-    }
-
-    impl MockServer {
-        fn send(&self, response: subscribe_response::Response) {
-            self.send_raw(SubscribeResponse {
-                response: Some(response),
-            });
-        }
-
-        fn send_raw(&self, response: SubscribeResponse) {
-            self.to_client.send(Ok(response)).unwrap();
-        }
-
-        async fn next_request(&mut self) -> subscribe_request::Request {
-            let frame = self.from_client.recv().await.expect("client closed");
-            frame.request.expect("client sent empty request")
-        }
-    }
+    use crate::test::bidi::mock_pair;
 
     #[derive(Debug, thiserror::Error)]
     #[error("boom")]
@@ -646,7 +572,7 @@ mod tests {
         // stream: it must yield the WIRE_BUFFER frames the wire had accepted and
         // then END — proof the actor dropped the request half rather than
         // parking forever with Finish stuck behind the backlog.
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        xmtp_common::time::sleep(Duration::from_secs(2)).await;
         let mut outbound = api.held.lock().unwrap().take().expect("wire was opened");
         let mut flushed = 0usize;
         while let Some(_frame) = outbound.next().await {

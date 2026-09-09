@@ -548,7 +548,7 @@ where
             if !seen.insert(typed.cursor) {
                 continue;
             }
-            let (topic, cursor) = (Topic::new_group_message(typed.group_id), typed.cursor);
+            let (topic, cursor) = (xmtp_common::fmt::debug_hex(typed.group_id), typed.cursor);
             let started = Instant::now();
             let result = process_one(factory, typed)
                 .instrument(tracing::debug_span!("process_envelope", %topic, ?cursor))
