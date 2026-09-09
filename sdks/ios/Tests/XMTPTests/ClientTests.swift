@@ -927,8 +927,9 @@ class ClientTests: XCTestCase {
 		print("Aggregate Stats Create:\n\(aggregateStats2)")
 
 		let apiStats2 = alix.debugInformation.apiStatistics
-		XCTAssertEqual(3, apiStats2.publish)
-		XCTAssertEqual(3, apiStats2.query)
+		// Backend totals include commit log publishes and all query topic kinds.
+		XCTAssertEqual(4, apiStats2.publish)
+		XCTAssertEqual(9, apiStats2.query)
 		XCTAssertEqual(0, apiStats2.queryNewest)
 		XCTAssertEqual(0, apiStats2.get)
 		XCTAssertEqual(1, apiStats2.subscribe)
