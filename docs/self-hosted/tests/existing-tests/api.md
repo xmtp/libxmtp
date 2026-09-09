@@ -51,7 +51,7 @@
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/delivery.rs` | `queries::bidi_transport::tests::delivery::shared_topic_fans_out_to_every_lease` | Backend protocol; native test | `API-REQ-063` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/delivery.rs` | `queries::bidi_transport::tests::delivery::markers_route_to_their_owners` | Backend protocol; native test | `API-REQ-063` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/delivery.rs` | `queries::bidi_transport::tests::delivery::deref_is_refcounted_and_last_lease_closes_the_wire` | Backend protocol; native test | `API-REQ-065` |
-| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/delivery.rs` | `queries::bidi_transport::tests::delivery::slow_lease_is_dropped_without_blocking_siblings` | Backend protocol; native test | `API-REQ-065`, `API-REQ-077` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/backpressure.rs` | `queries::bidi_transport::tests::backpressure::slow_lease_is_dropped_without_blocking_siblings` | Backend protocol; native test | `API-REQ-065`, `API-REQ-077` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/reconnect.rs` | `queries::bidi_transport::tests::reconnect::wire_death_reopens_from_lease_floors` | Backend protocol; native test | `API-REQ-066` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/reconnect.rs` | `queries::bidi_transport::tests::reconnect::command_traffic_does_not_postpone_the_reconnect` | Backend protocol; native test | `API-REQ-066` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/reconnect.rs` | `queries::bidi_transport::tests::reconnect::half_open_wire_is_reaped_and_reconnected` | Backend protocol; native test | `API-REQ-066` |
@@ -63,7 +63,7 @@
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::dropping_the_last_lease_settles_resume_waiters` | Backend protocol; native test | `API-REQ-068` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::suspend_preempts_a_stuck_dial` | Backend protocol; native test | `API-REQ-068` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::a_preempting_suspend_outranks_a_deferred_resume` | Backend protocol; native test | `API-REQ-068` |
-| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::a_resume_burst_during_an_outage_dials_once` | Backend protocol; native test | `API-REQ-069` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/backoff.rs` | `queries::bidi_transport::tests::backoff::a_resume_burst_during_an_outage_dials_once` | Backend protocol; native test | `API-REQ-069` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::resume_with_nothing_to_do_resolves_immediately` | Backend protocol; native test | `API-REQ-069` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/reconnect.rs` | `queries::bidi_transport::tests::reconnect::reconnect_folds_a_caught_up_holders_floor_when_nothing_was_delivered` | Backend protocol; native test | `API-REQ-072` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/suspend.rs` | `queries::bidi_transport::tests::suspend::lease_during_a_dead_wire_rides_the_resume_open` | Backend protocol; native test | `API-REQ-074` |
