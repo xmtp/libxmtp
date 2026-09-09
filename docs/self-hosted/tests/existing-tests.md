@@ -58,7 +58,6 @@ this list as test coverage. Restoring tests is outside Task 14's consolidation s
 | `MLS-REQ-064` | The orphan history worker's database reconnect test was removed. General reconnect tests do not prove its manual sync-group change assertion. |
 | `MLS-REQ-066` | The orphan external sync-group handle test was removed. Group membership tests do not directly prove this particular handle path. |
 | `MLS-REQ-076` | The orphan consent metric and source-event-isolation test was removed. Active message-based consent tests stay, but they do not prove that exact old metric sequence. |
-| `RUST-REQ-099` | The old cursor constructor/order tests were removed. Scalar cursor storage tests exist; no direct conversion/order test remains in `types/cursor.rs`. |
 
 IOS-REQ-136 and IOS-REQ-137 still declare their tests and still skip before setup.
 The Phase 3 plan's DELETE disposition is corrected to KEEP for these two IDs.

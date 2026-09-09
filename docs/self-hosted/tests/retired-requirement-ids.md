@@ -589,6 +589,7 @@ No surviving test covers the removed subject. The old test rows are removed from
 | `RUST-REQ-036` | Subject removed: xnet cluster orchestration. |
 | `RUST-REQ-037` | Subject removed: xnet cluster orchestration. |
 | `RUST-REQ-055` | Subject removed: predefined remote environments and URL selection. |
+| `RUST-REQ-099` | Subject removed: originator cursor constructors and originator-derived ordering. |
 | `RUST-REQ-100` | Subject removed: originator vector cursors and message dependencies. |
 | `SHARED-SYNC-REQ-007` | Subject removed: history-sync server and archive-transfer protocol. |
 
