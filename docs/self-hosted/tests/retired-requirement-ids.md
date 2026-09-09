@@ -2,7 +2,7 @@
 
 [← Test inventory](existing-tests.md) · [Requirements](existing-requirements.md)
 
-This file maps each requirement ID retired by the adversarial review to its replacement. Test rows were not removed.
+The first table maps IDs merged during the Phase 0 review. The Phase 3 table records removed subjects and has no replacement ID.
 
 | Retired ID | Replacement ID | Change |
 | --- | --- | --- |
@@ -507,3 +507,97 @@ This file maps each requirement ID retired by the adversarial review to its repl
 | `RUST-REQ-104` | `RUST-REQ-103` | same-surface fold |
 | `RUST-REQ-105` | `RUST-REQ-103` | same-surface fold |
 | `RUST-REQ-106` | `RUST-REQ-103` | same-surface fold |
+
+## Phase 3: removed subjects
+
+Each ID below was checked with `git grep` against tracked source and its catalogue test names.
+No surviving test covers the removed subject. The old test rows are removed from the catalogue.
+
+| Retired ID | Reason |
+| --- | --- |
+| `ANDROID-REQ-046` | Subject removed: predefined remote environments and URL selection. |
+| `ANDROID-REQ-104` | Subject removed: history-sync server and archive-transfer protocol. |
+| `ANDROID-REQ-107` | Subject removed: history-sync server and archive-transfer protocol. |
+| `ANDROID-REQ-108` | Subject removed: history-sync server and archive-transfer protocol. |
+| `ANDROID-REQ-112` | Subject removed: predefined remote environments and URL selection. |
+| `API-REQ-011` | Subject removed: v3 endpoint adapter. |
+| `API-REQ-012` | Subject removed: v3 endpoint adapter. |
+| `API-REQ-013` | Subject removed: v3 endpoint adapter. |
+| `API-REQ-014` | Subject removed: v3 endpoint adapter. |
+| `API-REQ-015` | Subject removed: v3 endpoint adapter. |
+| `API-REQ-016` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-017` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-018` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-019` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-020` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-022` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-023` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-024` | Subject removed: d14n endpoint, payer, or multi-node client. |
+| `API-REQ-028` | Subject removed: legacy envelope visitor and extractor types. |
+| `API-REQ-030` | Subject removed: legacy envelope visitor and extractor types. |
+| `API-REQ-032` | Subject removed: legacy envelope visitor and extractor types. |
+| `API-REQ-038` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-039` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-040` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-041` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-042` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-043` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-044` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-047` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-048` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-049` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-050` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-052` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-053` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-054` | Subject removed: legacy ordering, migration, or client selection. |
+| `API-REQ-073` | Subject removed: wave supersession and completion protocol. |
+| `CORE-REQ-052` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-110` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-111` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-123` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-124` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-125` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-126` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-127` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `CORE-REQ-128` | Subject removed: icebox or incremental client migration chain; one baseline remains. |
+| `GTEST-REQ-132` | Subject removed: originator vector cursors and message dependencies. |
+| `IOS-REQ-134` | Subject removed: history-sync server and archive-transfer protocol. |
+| `IOS-REQ-135` | Subject removed: history-sync server and archive-transfer protocol. |
+| `IOS-REQ-139` | Subject removed: history-sync server and archive-transfer protocol. |
+| `JSDK-REQ-124` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-041` | Subject removed: pre-transition database and network migration. |
+| `MLS-REQ-042` | Subject removed: pre-transition database and network migration. |
+| `MLS-REQ-063` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-065` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-067` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-069` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-073` | Subject removed: history-sync server and archive-transfer protocol. |
+| `MLS-REQ-077` | Subject removed: legacy stream format, history-only mode, or fallback latch. |
+| `MLS-REQ-098` | Subject removed: legacy stream format, history-only mode, or fallback latch. |
+| `MLS-REQ-099` | Subject removed: legacy stream format, history-only mode, or fallback latch. |
+| `MLS-REQ-111` | Subject removed: legacy stream format, history-only mode, or fallback latch. |
+| `MLS-REQ-113` | Subject removed: legacy stream format, history-only mode, or fallback latch. |
+| `RELEASE-REQ-026` | Subject removed: pre-transition cross-version release gate. |
+| `RUST-REQ-012` | Subject removed: standalone validation-service RPC or placeholder. |
+| `RUST-REQ-014` | Subject removed: standalone validation-service RPC or placeholder. |
+| `RUST-REQ-015` | Subject removed: standalone validation-service RPC or placeholder. |
+| `RUST-REQ-024` | Subject removed: xdbg payer and gateway selection. |
+| `RUST-REQ-027` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-028` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-032` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-033` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-036` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-037` | Subject removed: xnet cluster orchestration. |
+| `RUST-REQ-055` | Subject removed: predefined remote environments and URL selection. |
+| `RUST-REQ-100` | Subject removed: originator vector cursors and message dependencies. |
+| `SHARED-SYNC-REQ-007` | Subject removed: history-sync server and archive-transfer protocol. |
+
+`JSDK-REQ-124` and `MLS-REQ-063` were already absent from the live requirement table at the Task 14 base. Their stale test rows remained; this record closes that gap.
+
+### Subjects kept after source verification
+
+- `API-REQ-070` keeps interrupted catch-up recovery with backend updates.
+- `MLS-REQ-045` keeps registration visibility and a bounded severed-network wait. Quorum configuration is removed.
+- `BIND-REQ-073` keeps archive metadata conversion and supported-element filtering. Only its PIN and sender conversion subject is removed.
+- `RUST-REQ-043` keeps the bundled-root reqwest constructor test.
+- `IOS-REQ-136` and `IOS-REQ-137` keep their consent and preference test declarations. Both still have a pre-existing unconditional `XCTSkip`; they provide no active runtime coverage.

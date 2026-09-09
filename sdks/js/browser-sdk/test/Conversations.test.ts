@@ -13,6 +13,31 @@ describe("Conversations", () => {
     expect(client.conversations.topic).toBe(`01${client.installationId}`);
   });
 
+  it("should expose topic and debug info for groups and DMs", async () => {
+    const { signer: signer1 } = createSigner();
+    const { signer: signer2 } = createSigner();
+    const client1 = await createRegisteredClient(signer1);
+    const client2 = await createRegisteredClient(signer2);
+    const group = await client1.conversations.createGroup([client2.inboxId]);
+    const dm = await client1.conversations.createDm(client2.inboxId);
+    for (const conversation of [group, dm]) {
+      expect(conversation.topic).toBe(`00${conversation.id}`);
+      const debugInfo = await conversation.debugInfo();
+      expect(debugInfo).toBeDefined();
+      expect(debugInfo.epoch).toBeDefined();
+      expect(debugInfo.maybeForked).toBe(false);
+      expect(debugInfo.forkDetails).toBe("");
+      expect(debugInfo.isCommitLogForked).toBeUndefined();
+      expect(debugInfo.localCommitLog).toBeDefined();
+      expect(debugInfo.remoteCommitLog).toBeDefined();
+      expect(debugInfo.cursor).toBeDefined();
+      expect(debugInfo.cursor.length).toBeGreaterThan(0);
+      for (const cursor of debugInfo.cursor) {
+        expect(cursor.sequenceId).toBeDefined();
+      }
+    }
+  });
+
   it("should not have initial conversations", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
@@ -425,6 +450,16 @@ describe("Conversations", () => {
         expect(value.key.length).toBe(42);
         expect(value.epoch).toBeDefined();
         expect(typeof value.epoch).toBe("bigint");
+      }
+    }
+    for (const conversation of [group, dm]) {
+      const conversationKeys = conversation.hmacKeys();
+      expect(Object.keys(conversationKeys)).toEqual([conversation.id]);
+      const values = conversationKeys[conversation.id];
+      expect(values.length).toBe(3);
+      for (const value of values) {
+        expect(value.key).toBeDefined();
+        expect(value.epoch).toBeDefined();
       }
     }
   });

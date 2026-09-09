@@ -17,15 +17,6 @@ import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
 const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Dm", () => {
-  it("should have a topic", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const dm = await client1.conversations.createDm(client2.inboxId);
-    expect(dm.topic).toBe(`00${dm.id}`);
-  });
-
   it("should create a dm", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
@@ -347,48 +338,6 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const conversation = await client1.conversations.createDm(client2.inboxId);
     expect(conversation.pausedForVersion()).toBeUndefined();
-  });
-
-  it("should get hmac keys", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-
-    const dm = await client1.conversations.createDm(client2.inboxId);
-
-    const hmacKeys = dm.hmacKeys();
-    const groupIds = Object.keys(hmacKeys);
-    for (const groupId of groupIds) {
-      expect(hmacKeys[groupId].length).toBe(3);
-      expect(hmacKeys[groupId][0].key).toBeDefined();
-      expect(hmacKeys[groupId][0].epoch).toBeDefined();
-      expect(hmacKeys[groupId][1].key).toBeDefined();
-      expect(hmacKeys[groupId][1].epoch).toBeDefined();
-      expect(hmacKeys[groupId][2].key).toBeDefined();
-      expect(hmacKeys[groupId][2].epoch).toBeDefined();
-    }
-  });
-
-  it("should get debug info", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const dm = await client1.conversations.createDm(client2.inboxId);
-    const debugInfo = await dm.debugInfo();
-    expect(debugInfo).toBeDefined();
-    expect(debugInfo.epoch).toBeDefined();
-    expect(debugInfo.maybeForked).toBe(false);
-    expect(debugInfo.forkDetails).toBe("");
-    expect(debugInfo.isCommitLogForked).toBeUndefined();
-    expect(debugInfo.localCommitLog).toBeDefined();
-    expect(debugInfo.remoteCommitLog).toBeDefined();
-    expect(debugInfo.cursor).toBeDefined();
-    expect(debugInfo.cursor.length).toBeGreaterThan(0);
-    for (const cursor of debugInfo.cursor) {
-      expect(cursor.sequenceId).toBeDefined();
-    }
   });
 
   it("should filter messages by content type", async () => {

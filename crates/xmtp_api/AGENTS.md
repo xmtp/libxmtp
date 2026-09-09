@@ -9,8 +9,10 @@ dev/nix-shell 'cargo clippy -p xmtp_api --all-targets -- -D warnings'
 
 The real RPC test needs the backend at `http://localhost:5050` and PostgreSQL.
 Set `XMTP_BACKEND_URL` to use another test instance.
-Use `just backend-db-up`, `just build-backend`, then start the backend with its
-local configuration. The other tests use `MockBackendClient`.
+Use `just backend up` for the Docker stack and its reduced query row limit.
+Use `just backend db-up`, `just backend build`, and `just backend run` to run
+outside Docker. Mock tests use `MockBackendClient`.
+Run one test with `dev/nix-shell 'cargo nextest run --profile ci -p xmtp_api read_topic_boundaries'`.
 
 Keep each commit and its proposals in one `PublishUnit`. The unit retains
 canonical bytes and cannot be split. All request limits come from

@@ -47,7 +47,6 @@
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `unit_tests::test_ffi_archive_options_empty_elements` | Rust unit; empty and default options | `BIND-REQ-072` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `unit_tests::test_backup_metadata_to_ffi_backup_metadata` | Rust unit; full metadata | `BIND-REQ-073` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `unit_tests::test_backup_metadata_filters_unspecified_elements` | Rust unit; supported and Unspecified | `BIND-REQ-073` |
-| `bindings/mobile/src/mls/device_sync/mod.rs` | `unit_tests::test_available_archive_to_ffi_available_archive` | Rust unit; PIN, sender, and nested metadata | `BIND-REQ-073` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_create_new_installation_without_breaking_group` | Tokio multi-thread, 5 workers; local backend | `BIND-REQ-064`, `BIND-REQ-042` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_create_new_installations_does_not_fork_group` | Tokio multi-thread, 5 workers; streams and second Bo installation | `BIND-REQ-064`, `BIND-REQ-055` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_sync_all_groups` | Tokio multi-thread, 5 workers; 30 groups; ignored with d14n | `SHARED-GROUP-REQ-038` |
@@ -57,8 +56,6 @@
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_add_members_when_out_of_sync` | Tokio multi-thread, 5 workers; stale by 3 epochs | `BIND-REQ-063`, `SHARED-GROUP-REQ-011` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_two_users_and_group_modification` | Tokio multi-thread, 5 workers; two-member group | `BIND-REQ-065`, `SHARED-IDENTITY-REQ-006` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_one_user_and_group_modification` | Tokio multi-thread, 5 workers; solo group | `BIND-REQ-065`, `SHARED-IDENTITY-REQ-006` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_send_sync_request_flow` | Tokio async; sync workers and local archive URL | `SHARED-SYNC-REQ-007` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_new_installation_group_message_visibility` | Tokio async; PIN archive and messages before or after install | `SHARED-SYNC-REQ-007`, `BIND-REQ-042` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_sync_consent` | Tokio async; two installations and sync groups | `BIND-REQ-067`, `SHARED-GROUP-REQ-021` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_group_consent` | Tokio multi-thread, 5 workers; creator and invitee | `SHARED-GROUP-REQ-021` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_member_consent` | Tokio multi-thread, 5 workers; inbox entity and member projection | `SHARED-GROUP-REQ-022` |
@@ -92,7 +89,6 @@
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | Tokio multi-thread, 5 workers; bidi env on; ignored with d14n; nextest isolation | `BIND-REQ-060` |
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | Tokio multi-thread, 5 workers; bidi env on; two runs | `BIND-REQ-061` |
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | Tokio multi-thread, 5 workers; bidi env on; 1 ms, full, and drained runs | `BIND-REQ-061` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `catch_up_to_live_falls_back_when_bidi_disabled` | Tokio multi-thread, 5 workers; bidi env unset | `BIND-REQ-061` |
 | `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | Tokio multi-thread, 5 workers; two exports and imports | `BIND-REQ-068` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_find_or_create_dm` | Tokio async; repeated and opposite-side calls | `SHARED-GROUP-REQ-001` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dms_sync_but_do_not_list` | Tokio multi-thread, 5 workers; DM versus group filters and summaries | `SHARED-GROUP-REQ-001`, `SHARED-GROUP-REQ-038` |
@@ -170,7 +166,6 @@
 
 | File | Qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
-| `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should build a Backend with default settings` | Vitest async; serial file | `BIND-REQ-002` |
 | `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should build with custom app version` | Vitest async | `BIND-REQ-002`, `BIND-REQ-006` |
 | `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should reject double build` | Vitest async; second build | `BIND-REQ-002` |
 | `bindings/node/test/Builder.test.ts` | `NapiTestBuilder :: should set required fields and apply defaults` | Vitest sync; binding built with test-utils | `BIND-REQ-001` |
@@ -220,7 +215,6 @@
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should create a new group with options` | Vitest async; name, image, both, admin-only, and description | `SHARED-GROUP-REQ-008`, `SHARED-GROUP-REQ-018` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should update group metadata` | Vitest async; name, image, and description | `SHARED-GROUP-REQ-009` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should stream all groups` | Vitest async; two groups and one DM; order | `SHARED-GROUP-REQ-028` |
-| `bindings/node/test/Conversations.test.ts` | `Conversations :: should error when connection dies` | Vitest async; 45-second timeout; toxic proxy; keepalive 10/10 seconds | `BIND-REQ-059` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should only stream group chats` | Vitest async; Group filter | `SHARED-GROUP-REQ-028` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should only stream dm groups` | Vitest async; DM filter | `SHARED-GROUP-REQ-028` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should stream all messages` | Vitest async; three conversation types and four participants | `BIND-REQ-055` |
@@ -279,7 +273,7 @@
 | `bindings/node/test/RemoteAttachmentEncryption.test.ts` | `RemoteAttachment encryption compatibility :: should produce unique encryption each time` | Vitest sync; two runs | `BIND-REQ-090` |
 | `bindings/node/test/inboxId.test.ts` | `generateInboxId :: should generate an inbox id` | Vitest sync; valid Ethereum address | `SHARED-IDENTITY-REQ-001` |
 | `bindings/node/test/inboxId.test.ts` | `generateInboxId :: should throw error with [ErrorType::Variant] format for invalid address` | Vitest sync; invalid address | `BIND-REQ-005`, `SHARED-IDENTITY-REQ-001` |
-| `bindings/node/test/inboxId.test.ts` | `getInboxIdByIdentity :: should return`null`inbox ID for unregistered address` | Vitest async | `SHARED-IDENTITY-REQ-001` |
+| `bindings/node/test/inboxId.test.ts` | `getInboxIdByIdentity :: should return null inbox ID for unregistered address` | Vitest async | `SHARED-IDENTITY-REQ-001` |
 | `bindings/node/test/inboxId.test.ts` | `getInboxIdByIdentity :: should return inbox ID for registered address` | Vitest async | `SHARED-IDENTITY-REQ-001` |
 | `bindings/node/test/inboxId.test.ts` | `isInstallationAuthorized :: should return true if installation is authorized` | Vitest async | `SHARED-IDENTITY-REQ-002` |
 | `bindings/node/test/inboxId.test.ts` | `isAddressAuthorized :: should return true if address is authorized` | Vitest async | `SHARED-IDENTITY-REQ-002` |
@@ -382,3 +376,15 @@
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Content types > Leave Request :: should have correct content type` | Vitest sync descriptor; Chromium and Firefox | `BIND-REQ-089` |
 
 Runner notes: the Node suite builds the N-API binding with `test-utils`, uses Node 22 or later, local xmtpd, and a 30-second default timeout. The Wasm Vitest suite builds with `test-utils` and runs every declaration in headless Chromium and Firefox with a 60-second timeout. Wasm OPFS cases use a dedicated Worker. The Rust Wasm case uses a dedicated wasm-bindgen worker. No executable doctests or parameterized or property declarations exist. The Android example tests are source declarations but have no Gradle project under `bindings/mobile`.
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `bindings/mobile/src/mls/tests/networking.rs` | `backend_url_is_required` | XMTP async; mobile FFI URL validation and cache key | `P3-CFG-001` |
+| `bindings/mobile/src/mls/tests/networking.rs` | `api_client_cache_key_uses_backend_url_and_app_version` | XMTP async; mobile FFI URL validation and cache key | `P3-CFG-002` |
+| `bindings/node/test/Builder.test.ts` | `BackendBuilder > backend URL is required` | Vitest; omitted and empty URL | `P3-CFG-001` |
+| `bindings/node/test/Builder.test.ts` | `BackendBuilder > API-client cache key uses backend URL and app version` | Vitest; URL/version differences; env does not change key | `BIND-REQ-002`, `P3-CFG-002` |
+| `bindings/wasm/test/Builder.test.ts` | `BackendBuilder > backend URL is required` | Vitest; omitted and empty URL | `P3-CFG-001` |
+| `bindings/wasm/test/Builder.test.ts` | `BackendBuilder > API-client cache key uses backend URL and app version` | Vitest; URL/version differences; env does not change key | `BIND-REQ-002`, `P3-CFG-002` |
+| `bindings/node/test/Conversations.test.ts` | `Conversations > should reconnect and resume after a black hole` | Vitest; native stream stays open, resumes ordered delivery, and has no duplicate callbacks | `BIND-REQ-059`, `P3-STR-015` |

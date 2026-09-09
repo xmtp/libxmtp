@@ -19,7 +19,7 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/client.rs | client::tests::test_leaf_node_lifetime_validation_disabled | async XMTP multi-thread; native only | `MLS-REQ-017` |
 | crates/xmtp_mls/src/client.rs | client::tests::test_sync_all_groups | async rstest and XMTP; 10 worker threads | `SHARED-GROUP-REQ-038` |
 | crates/xmtp_mls/src/client.rs | client::tests::test_sync_all_groups_and_welcomes | async XMTP multi-thread | `MLS-REQ-019` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_sync_100_allowed_groups_performance | async XMTP; ignored on d14n plus wasm; creates 100 invites, discards sync count, samples only the first group for one welcome, and asserts no time limit | `SHARED-GROUP-REQ-038` |
+| `crates/xmtp_mls/src/client.rs` | `client::tests::test_sync_100_allowed_groups_performance` | async XMTP plus wasm; creates 100 invites, discards sync count, samples only the first group for one welcome, and asserts no time limit | `SHARED-GROUP-REQ-038` |
 | crates/xmtp_mls/src/client.rs | client::tests::test_add_remove_then_add_again | async rstest and XMTP | `SHARED-GROUP-REQ-015` |
 | crates/xmtp_mls/src/client.rs | client::tests::test_key_package_rotation | async XMTP; worker timing | `MLS-REQ-012` |
 | crates/xmtp_mls/src/client.rs | client::tests::test_find_or_create_dm_by_inbox_id | async XMTP | `MLS-REQ-015` |
@@ -50,14 +50,6 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/identity_updates.rs | identity_updates::tests::revoke_installation_with_malformed_keypackage | Tokio multi-thread; native only | `MLS-REQ-039` |
 | crates/xmtp_mls/src/identity_updates.rs | identity_updates::tests::revoke_good_installation_with_other_malformed_keypackage | Tokio multi-thread; native only | `MLS-REQ-039` |
 | crates/xmtp_mls/src/identity_updates.rs | identity_updates::tests::change_recovery_address | async rstest and XMTP | `MLS-REQ-040` |
-| crates/xmtp_mls/src/migration_tests.rs | migration_tests::migration_client_delivers_a_group_message_on_the_d14n_backend | async XMTP; native and d14n module; live backends | `MLS-REQ-041` |
-| crates/xmtp_mls/src/migration_tests.rs | migration_tests::migration_client_commit_log_round_trips_through_v3 | async XMTP; native and d14n module; live backends | `MLS-REQ-041` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::quorum_percentage_ceiling | sync XMTP; totals 4, 5, 1, and 0 | `MLS-REQ-045` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::quorum_absolute | sync XMTP; totals 10 and 2 | `MLS-REQ-045` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::visibility_confirmation_options_defaults | sync XMTP | `MLS-REQ-045` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::check_node_visibility_returns_not_yet_visible_when_no_envelopes | async XMTP; `localhost:1`; asserts only `EnvelopesNotYetVisible { node_id: 1 }`; no success case | `MLS-REQ-045` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::test_wait_for_registration_visible_after_registration | async XMTP | `MLS-REQ-045` |
-| crates/xmtp_mls/src/registration_visible/tests.rs | registration_visible::tests::test_wait_for_registration_visible_fails_when_network_severed | async XMTP; d14n feature; toxiproxy; configured 3-second timeout; asserts an error but does not measure elapsed time | `MLS-REQ-045` |
 | crates/xmtp_mls/src/test/builder.rs | test::builder::builder_test | async XMTP | `MLS-REQ-001` |
 | crates/xmtp_mls/src/test/builder.rs | test::builder::test_client_creation | async XMTP; six table cases in body | `MLS-REQ-001` |
 | crates/xmtp_mls/src/test/builder.rs | test::builder::test_2nd_time_client_creation | async XMTP | `MLS-REQ-003` |
@@ -72,8 +64,6 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/test/builder_native_only.rs | test::builder_native_only::test_invalid_scw_prevents_db_storage | async rstest and Tokio; native module; verifier false | `MLS-REQ-005` |
 | crates/xmtp_mls/src/test/builder_native_only.rs | test::builder_native_only::test_invalid_scw_then_valid_scw_recovery | async rstest and Tokio; native module; false then remote verifier | `MLS-REQ-005` |
 | crates/xmtp_mls/src/test/builder_native_only.rs | test::builder_native_only::test_operations_fail_when_not_ready | async XMTP; native module | `MLS-REQ-006` |
-| crates/xmtp_mls/src/tests/test_data_migration.rs | tests::test_data_migration::setup_migration_test | async XMTP; native module; ignored fixture generator; DM traffic is pre-snapshot | `MLS-REQ-042` |
-| crates/xmtp_mls/src/tests/test_data_migration.rs | tests::test_data_migration::test_existing_client_db | async XMTP; native module; snapshot assets; post-load existing-peer groups and fresh-Caro DM/groups; old-peer DM block is commented out | `MLS-REQ-042` |
 | crates/xmtp_mls/src/utils/cleanup_duplicate_updates.rs | utils::cleanup_duplicate_updates::tests::test_cleanup_works_as_expected | async XMTP | `MLS-REQ-043` |
 | crates/xmtp_mls/src/utils/test/tester_utils.rs | utils::test::tester_utils::tests::test_snapshots | async XMTP | `MLS-REQ-044` |
 | crates/xmtp_mls/src/worker.rs | worker::disconnect_propagation_tests::group_error_forwards_disconnect | sync XMTP; native-only module | `MLS-REQ-048` |
@@ -114,27 +104,13 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/worker/device_sync/archive.rs | worker::device_sync::archive::tests::test_legacy_archive_import | async XMTP; native only; fixture | `MLS-REQ-060` |
 | crates/xmtp_mls/src/worker/device_sync/archive.rs | worker::device_sync::archive::tests::test_archive_includes_migrated_groups | async XMTP; migrated and legacy groups | `MLS-REQ-061` |
 | crates/xmtp_mls/src/worker/device_sync/preference_sync.rs | worker::device_sync::preference_sync::tests::test_hmac_sync | async rstest and XMTP | `MLS-REQ-062` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_message_history_sync | async XMTP; ignored on wasm; orphan file; not in crate module tree; source has 1 group/2 messages; destination starts with 0 groups and reaches at least 3 published intents without kind checks; final assertion requires different group or message counts | `MLS-REQ-063` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_sync_continues_during_db_disconnect | async XMTP; orphan file; not in crate module tree; post-reconnect absolute intent threshold 2 is already satisfied by the pre-disconnect count of at least 3; manual `sync_welcomes()` changes the sync-group ID | `MLS-REQ-064` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_prepare_groups_to_sync | async XMTP; orphan file; not in crate module tree; after two group creations asserts only `syncable_groups().len() == 2` | `MLS-REQ-065` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_externals_cant_join_sync_group | async XMTP; orphan file; not in crate module tree; external handle add attempt asserts only a generic error, not an error type or cause | `MLS-REQ-066` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_new_pin | wasm_bindgen_test with unsupported=test; custom sync; orphan file; not in crate module tree | `MLS-REQ-067` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_new_request_id | wasm_bindgen_test with unsupported=test; custom sync; orphan file; not in crate module tree | `MLS-REQ-067` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_new_key | wasm_bindgen_test with unsupported=test; custom sync; orphan file; not in crate module tree | `MLS-REQ-067` |
-| crates/xmtp_mls/src/worker/device_sync/message_sync.rs | worker::device_sync::message_sync::tests::test_generate_nonce | wasm_bindgen_test with unsupported=test; custom sync; orphan file; not in crate module tree | `MLS-REQ-067` |
-| crates/xmtp_mls/src/worker/device_sync/consent_sync.rs | worker::device_sync::consent_sync::tests::test_consent_sync | async XMTP; ignored on wasm; orphan file; not in crate module tree; metric-only sync assertions; no destination consent-state assertion; source local-event subscription stays empty | `MLS-REQ-076` |
-| crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::basic_sync | async rstest and XMTP; ignored on wasm | `SHARED-SYNC-REQ-007` |
-| crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_sync_request | async rstest and XMTP; native only | `MLS-REQ-069` |
-| crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_double_sync_works_fine | async rstest and XMTP; ignored on wasm | `SHARED-SYNC-REQ-007` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_hmac_and_consent_preference_sync | async rstest and XMTP; ignored on wasm; compares only the first of three HMAC keys, then verifies Denied DM and Allowed group consent propagation | `MLS-REQ-070` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_only_added_to_correct_groups | async rstest and XMTP; ignored on wasm | `MLS-REQ-071` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_new_devices_not_added_to_old_sync_groups | async rstest and XMTP; ignored on wasm; 15-second cap | `MLS-REQ-072` |
-| crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_manual_sync_flow | async rstest and XMTP; ignored on wasm; 60-second cap | `MLS-REQ-073` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_incremental_consent | async rstest and XMTP; ignored on wasm; 60-second cap | `MLS-REQ-074` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_task_runner_adds_new_installation_to_groups | async rstest and XMTP; ignored on wasm; live worker | `MLS-REQ-075` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_sync_group_creation_leaves_no_reconcile_task | async rstest and XMTP; ignored on wasm; TaskRunner disabled | `MLS-REQ-075` |
 | crates/xmtp_mls/src/worker/device_sync/tests.rs | worker::device_sync::tests::test_welcome_schedules_add_installation_tasks | async rstest and XMTP; ignored on wasm; first schedule creates at least one matching task; second identical schedule leaves total add-task count unchanged | `MLS-REQ-075` |
-| crates/xmtp_mls/src/subscriptions/d14n_compat.rs | subscriptions::d14n_compat::tests::decode_compat_messages_table_driven | rstest-only; four cases: welcome or group and v3 or d14n | `MLS-REQ-077` |
 | crates/xmtp_mls/src/subscriptions/process_message.rs | subscriptions::process_message::tests::test_process_returns_correct_cursor | async rstest and XMTP; values 5, 8, 10, 11, 13, and 18 | `MLS-REQ-078` |
 | crates/xmtp_mls/src/subscriptions/process_message.rs | subscriptions::process_message::tests::test_process_returns_correct_cursor_on_err | async XMTP with seven-case rstest-reuse template | `MLS-REQ-078` |
 | crates/xmtp_mls/src/subscriptions/process_message.rs | subscriptions::process_message::tests::test_process_surfaces_decrypt_between_failed_cursors | async XMTP; regression cursors 10, 11, and 12 | `MLS-REQ-079` |
@@ -152,11 +128,11 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/subscriptions/stream_conversations.rs | subscriptions::stream_conversations::test::test_self_group_creation | async rstest and XMTP; 10-second cap | `SHARED-GROUP-REQ-028` |
 | crates/xmtp_mls/src/subscriptions/stream_conversations.rs | subscriptions::stream_conversations::test::test_add_remove_re_add | async rstest and XMTP; 5-second cap | `MLS-REQ-086` |
 | crates/xmtp_mls/src/subscriptions/stream_conversations.rs | subscriptions::stream_conversations::test::test_duplicate_dm_not_streamed | async rstest and XMTP; 15-second cap | `MLS-REQ-087` |
-| crates/xmtp_mls/src/subscriptions/stream_conversations.rs | subscriptions::stream_conversations::test::test_many_concurrent_dm_invites | async rstest and XMTP; cases 5 and 100; ignored on d14n plus wasm; 120 seconds; discards task handles and N stream-poll Option/Result/value outputs | `MLS-REQ-088` |
+| `crates/xmtp_mls/src/subscriptions/stream_conversations.rs` | `subscriptions::stream_conversations::test::test_many_concurrent_dm_invites` | async rstest and XMTP; cases 5 and 100 plus wasm; 120 seconds; discards task handles and N stream-poll Option/Result/value outputs | `MLS-REQ-088` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_stream_all_messages_changing_group_list | async rstest and XMTP; ignored on wasm | `MLS-REQ-089` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_stream_all_messages_unchanging_group_list | async rstest and XMTP | `MLS-REQ-089` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_dm_stream_all_messages | async rstest and XMTP | `SHARED-GROUP-REQ-030` |
-| crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_stream_all_messages_does_not_lose_messages | async rstest and XMTP; ignored on d14n or wasm; 45 messages | `MLS-REQ-089` |
+| `crates/xmtp_mls/src/subscriptions/stream_all/tests.rs` | `subscriptions::stream_all::tests::test_stream_all_messages_does_not_lose_messages` | async rstest and XMTP; ignored on wasm; 45 messages | `MLS-REQ-089` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_stream_all_messages_detached_group_changes | async rstest and XMTP; five new groups | `MLS-REQ-089` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::test_stream_all_messages_filters_by_consent_state | async rstest and XMTP; Allowed, Denied, and Unknown; ignored on wasm | `SHARED-GROUP-REQ-030` |
 | crates/xmtp_mls/src/subscriptions/stream_all/tests.rs | subscriptions::stream_all::tests::stream_messages_keeps_track_of_cursor | async rstest and XMTP; old epochs and new installation | `MLS-REQ-092` |
@@ -184,17 +160,11 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/subscriptions/catch_up.rs | subscriptions::catch_up::tests::catch_up_replays_the_missed_tail_idempotently | async XMTP; native v3 module; repeated run | `SHARED-GROUP-REQ-039` |
 | crates/xmtp_mls/src/subscriptions/catch_up.rs | subscriptions::catch_up::tests::catch_up_with_nothing_owed_completes | async XMTP; native v3 module | `SHARED-GROUP-REQ-039` |
 | crates/xmtp_mls/src/subscriptions/catch_up.rs | subscriptions::catch_up::tests::legacy_catch_up_counts_the_same_way | async XMTP; native v3 module; repeated run | `SHARED-GROUP-REQ-039` |
-| crates/xmtp_mls/src/subscriptions/catch_up.rs | subscriptions::catch_up::plan_tests::plan_splits_a_large_subscription_set_into_bounded_waves | sync XMTP; 5,000 topics | `MLS-REQ-101` |
-| crates/xmtp_mls/src/subscriptions/catch_up.rs | subscriptions::catch_up::plan_tests::plan_keeps_a_small_set_in_one_wave | sync XMTP; three topics | `MLS-REQ-101` |
+| `crates/xmtp_mls/src/subscriptions/catch_up.rs` | `subscriptions::catch_up::plan_tests::plan_splits_a_large_subscription_set_into_bounded_updates` | sync XMTP; 5,000 topics | `MLS-REQ-101` |
+| `crates/xmtp_mls/src/subscriptions/catch_up.rs` | `subscriptions::catch_up::plan_tests::plan_keeps_a_small_set_in_one_update` | sync XMTP; three topics | `MLS-REQ-101` |
 | crates/xmtp_mls/src/subscriptions/bidi_tests.rs | subscriptions::bidi_tests::bidi_connection_delivers_live_welcome_over_the_wire | async XMTP; native v3 module; live backend | `MLS-REQ-096` |
-| crates/xmtp_mls/src/subscriptions/bidi_tests.rs | subscriptions::bidi_tests::bidi_catch_up_precedes_live_marker_then_streams_live | async XMTP; native v3; 5 plus 3 plus 4 messages | `MLS-REQ-097` |
-| crates/xmtp_mls/src/subscriptions/bidi_tests.rs | subscriptions::bidi_tests::bidi_history_only_catches_up_then_delivers_nothing_live | async XMTP; native v3; four history messages | `MLS-REQ-098` |
-| crates/xmtp_mls/src/subscriptions/bidi_tests.rs | subscriptions::bidi_tests::bidi_history_only_half_close_drains_then_server_closes | async XMTP; native v3; half-close | `MLS-REQ-099` |
-| crates/xmtp_mls/src/subscriptions/d14n_bidi_tests.rs | subscriptions::d14n_bidi_tests::d14n_bidi_delivers_live_welcome_over_the_wire | async XMTP; native d14n module; live backend | `MLS-REQ-096` |
-| crates/xmtp_mls/src/subscriptions/d14n_bidi_tests.rs | subscriptions::d14n_bidi_tests::d14n_bidi_catch_up_precedes_live_marker_then_streams_live | async XMTP; native d14n; 5 plus 3 plus 4 messages | `MLS-REQ-097` |
-| crates/xmtp_mls/src/subscriptions/d14n_bidi_tests.rs | subscriptions::d14n_bidi_tests::d14n_bidi_history_only_catches_up_then_delivers_nothing_live | async XMTP; native d14n; four history messages | `MLS-REQ-098` |
-| crates/xmtp_mls/src/subscriptions/d14n_bidi_tests.rs | subscriptions::d14n_bidi_tests::d14n_bidi_history_only_half_close_drains_then_server_closes | async XMTP; native d14n; half-close | `MLS-REQ-099` |
-| crates/xmtp_mls/src/subscriptions/bidi_fuzz_tests.rs | subscriptions::bidi_fuzz_tests::fuzz_server_honors_the_bidi_wave_contract | async fuzz-style XMTP; native v3; seed and rounds environment; 300 seconds | `MLS-REQ-102` |
+| `crates/xmtp_mls/src/subscriptions/bidi_tests.rs` | `subscriptions::bidi_tests::bidi_reaches_applied_target_then_streams_live` | async XMTP; native v3; 5 plus 3 plus 4 messages | `MLS-REQ-097` |
+| `crates/xmtp_mls/src/subscriptions/bidi_fuzz_tests.rs` | `subscriptions::bidi_fuzz_tests::fuzz_server_honors_update_acknowledgements_and_targets` | async fuzz-style XMTP; native v3; seed and rounds environment; 300 seconds | `MLS-REQ-102` |
 | crates/xmtp_mls/src/subscriptions/bidi_fuzz_tests.rs | subscriptions::bidi_fuzz_tests::fuzz_transport_delivery_never_loses_above_the_floor | async fuzz-style XMTP; native v3; toxiproxy; seed and rounds environment; 300 seconds | `MLS-REQ-103` |
 | crates/xmtp_mls/src/subscriptions/stream_router.rs | subscriptions::stream_router::tests::window_dedups_by_stored_identity_only | async XMTP; stream-router module is native | `MLS-REQ-106` |
 | crates/xmtp_mls/src/subscriptions/stream_router.rs | subscriptions::stream_router::tests::windows_close_per_topic | async XMTP; native | `MLS-REQ-106` |
@@ -216,14 +186,15 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::suspend_before_the_first_stream_parks_the_wire | async XMTP; native v3 module; process-isolated | `MLS-REQ-109` |
 | crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::lifecycle_helpers_are_noops_without_a_transport | async XMTP; native v3 module; process-isolated | `MLS-REQ-109` |
 | crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::sync_group_messages_are_intercepted_not_delivered | async XMTP; native v3 module; device-sync worker | `MLS-REQ-110` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::only_a_backend_refusal_latches | sync XMTP; native v3 module; synthetic errors | `MLS-REQ-111` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::latched_dispatch_delivers_via_legacy | async XMTP; native v3 module; pre-set latch | `MLS-REQ-111` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::pump_latches_and_serves_the_fallback_on_a_grpc_refusal | async XMTP; native v3 module; gRPC UNIMPLEMENTED | `MLS-REQ-111` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::pump_latches_and_serves_the_fallback_on_the_stub_refusal | async XMTP; native v3 module; stub refusal | `MLS-REQ-111` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::pump_serves_the_fallback_without_latching_on_a_dead_end | async XMTP; native v3 module; decode error | `MLS-REQ-111` |
 | crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::stream_all_with_no_conversations_stays_open | async XMTP; native v3 module; empty account | `MLS-REQ-107` |
 | crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::transports_key_by_destination | async XMTP; native v3 module; same and different fake host | `MLS-REQ-108` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::destinations_latch_independently | sync XMTP; native v3 module; two fake hosts | `MLS-REQ-111` |
-| crates/xmtp_mls/src/subscriptions/router_callbacks_tests.rs | subscriptions::router_callbacks_tests::a_resume_time_refusal_latches_at_the_next_lifecycle_fold | async XMTP; native v3 module; refusing fake API | `MLS-REQ-113` |
-| crates/xmtp_mls/src/subscriptions/mod.rs | subscriptions::tests::test_process_streamed_welcome_message_v3 | async XMTP multi-thread; not feature d14n | `MLS-REQ-114` |
-| crates/xmtp_mls/src/subscriptions/mod.rs | subscriptions::tests::test_process_streamed_welcome_message_d14n | async XMTP multi-thread; feature d14n | `MLS-REQ-114` |
+| `crates/xmtp_mls/src/subscriptions/mod.rs` | `subscriptions::tests::test_process_streamed_welcome_message` | async XMTP multi-thread; not feature d14n | `MLS-REQ-114` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/identity_updates.rs` | `identity_updates::conflict_tests::conflict_reloads_validates_and_bounds_identical_resends` | XMTP async; bounded conflict cases and real backend race | `P3-API-011` |
+| `crates/xmtp_mls/src/identity_updates.rs` | `identity_updates::conflict_tests::two_clients_racing_identity_updates_keep_both_associations` | XMTP async; bounded conflict cases and real backend race | `P3-API-011` |
+| `crates/xmtp_mls/src/client.rs` | `client::tests::registration_visibility_deadline_bounds_a_severed_connection` | Native XMTP async; success first, then disabled proxy; 250 ms wait and 2 s outer bound; proxy restored on panic | `MLS-REQ-045`, `P3-API-015` |
+| `crates/xmtp_mls/src/worker/device_sync/tests.rs` | `worker::device_sync::tests::unknown_device_sync_content_is_ignored` | XMTP test; removed protobuf field is ignored | `P3-CFG-005` |

@@ -16,7 +16,7 @@ dev/nix-shell 'cd bindings/node && yarn vitest run -t "should generate an inbox 
 
 ## Gotchas
 
-- Needs `just backend up`.
+- Needs `just backend up`. Tests use `XMTP_BACKEND_URL` or `http://localhost:5050`.
 - Tests import `../dist`. Run `just node test` once before a single-file run.
 - `test-ci` makes the copied Nix output writable so later runs can replace it.
 - `check` builds `--release`. `test` rebuilds with `--features test-utils`. Each switch is a full rebuild.

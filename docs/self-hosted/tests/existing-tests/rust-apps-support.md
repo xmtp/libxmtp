@@ -10,24 +10,10 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `apps/db_tools/src/tasks/clear_messages.rs` | `tasks::clear_messages::tests::test_clear_messages_retention_days` | custom async; unwrap_try | `RUST-REQ-001` |
 | `apps/db_tools/src/tasks/db_bench.rs` | `tasks::db_bench::tests::test_bench_works` | custom async; unwrap_try; all returned results must be Ok; no values or timing threshold. | `RUST-REQ-002` |
 | `apps/db_tools/src/tasks/group_management.rs` | `tasks::group_management::tests::test_disable_groups` | custom async; unwrap_try | `RUST-REQ-003` |
-| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::test_rollback_and_run_pending_migrations` | ignored unit; persistent DB | `RUST-REQ-004` |
-| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::test_applied_migrations_returns_versions` | custom async; unwrap_try | `RUST-REQ-004` |
-| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::test_run_and_revert_specific_migration` | custom async; unwrap_try | `RUST-REQ-004` |
-| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::test_migration_status_applied_and_pending` | custom async; unwrap_try | `RUST-REQ-004` |
 | `apps/keepalive-probe/src/main.rs` | `main::tests::percentile_basics` | unit; 4 percentiles | `RUST-REQ-005` |
 | `apps/keepalive-probe/src/main.rs` | `main::tests::percentile_empty_is_zero` | unit | `RUST-REQ-005` |
 | `apps/keepalive-probe/src/main.rs` | `main::tests::round_secs_rounds_to_nearest` | unit | `RUST-REQ-006` |
 | `apps/keepalive-probe/src/main.rs` | `main::tests::classify_buckets` | unit; 3 message cases | `RUST-REQ-007` |
-| `apps/mls_validation_service/src/cached_signature_verifier.rs` | `cached_signature_verifier::tests::test_is_valid_signature` | rstest fixture; Tokio; Docker fixture; 60-second timeout | `RUST-REQ-008` |
-| `apps/mls_validation_service/src/cached_signature_verifier.rs` | `cached_signature_verifier::tests::test_cache_eviction` | Tokio unit; tests bare third-party `LruCache`, not production wrapper caching. | `RUST-REQ-009` |
-| `apps/mls_validation_service/src/cached_signature_verifier.rs` | `cached_signature_verifier::tests::test_cache_key_includes_all_params` | Tokio unit | `RUST-REQ-010` |
-| `apps/mls_validation_service/src/cached_signature_verifier.rs` | `cached_signature_verifier::tests::test_missing_verifier` | Tokio unit | `RUST-REQ-008` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::test_get_association_state` | unit; should panic placeholder; no successful association-state assertion. | `RUST-REQ-012` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::test_validate_inbox_id_key_package_happy_path` | Tokio unit | `RUST-REQ-013` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::test_validate_inbox_id_key_package_failure` | Tokio unit | `RUST-REQ-013` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::test_validate_scw` | rstest fixture; Tokio; Docker fixture; 30-second timeout | `RUST-REQ-014` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::deserialization_error_maps_to_invalid_argument` | unit | `RUST-REQ-015` |
-| `apps/mls_validation_service/src/handlers.rs` | `handlers::tests::retryable_signature_error_maps_to_unavailable` | unit | `RUST-REQ-015` |
 | `apps/xmtp_debug/src/app/health/ops/add_members.rs` | `app::health::ops::add_members::tests::names_are_stable` | unit | `RUST-REQ-016` |
 | `apps/xmtp_debug/src/app/health/ops/bootstrap.rs` | `app::health::ops::bootstrap::tests::name_is_stable` | unit | `RUST-REQ-016` |
 | `apps/xmtp_debug/src/app/health/ops/create_dm.rs` | `app::health::ops::create_dm::tests::name_is_stable` | unit | `RUST-REQ-016` |
@@ -69,49 +55,8 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `apps/xmtp_debug/src/app/store.rs` | `app::store::identity_key_tests::roundtrips_through_redb_value` | unit | `RUST-REQ-021` |
 | `apps/xmtp_debug/src/app/store.rs` | `app::store::identity_key_tests::compare_orders_by_network_then_version_then_inbox` | table-driven unit; 6 cases | `RUST-REQ-021` |
 | `apps/xmtp_debug/src/app/store.rs` | `app::store::identity_database_tests::set_then_load_returns_all_versions_for_network` | unit | `RUST-REQ-022` |
-| `apps/xmtp_debug/src/args.rs` | `args::tests::perf_with_d14n_and_backend_is_valid` | unit | `RUST-REQ-024` |
-| `apps/xmtp_debug/src/args.rs` | `args::tests::explicit_gateway_url_overrides_perf` | unit | `RUST-REQ-024` |
 | `apps/xmtp_debug/src/metrics.rs` | `metrics::tests::csv_metrics_toggle_roundtrip` | unit | `RUST-REQ-025` |
 | `apps/xmtp_debug/tests/healthcheck.rs` | `healthcheck::healthcheck_passes_on_local_backend` | ignored integration; requires local dev/up | `RUST-REQ-026` |
-| `apps/xnet/lib/src/config/address_mode.rs` | `config::address_mode::tests::local_hostname` | unit | `RUST-REQ-027` |
-| `apps/xnet/lib/src/config/address_mode.rs` | `config::address_mode::tests::dns_domain` | unit | `RUST-REQ-027` |
-| `apps/xnet/lib/src/config/address_mode.rs` | `config::address_mode::tests::is_remote` | unit | `RUST-REQ-027` |
-| `apps/xnet/lib/src/config/address_mode.rs` | `config::address_mode::tests::remote_domain_hostname` | unit | `RUST-REQ-027` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::paused_defaults_to_false` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::paused_parses_true` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::paused_parses_false_explicit` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::node_use_standard_port_defaults_to_false` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::node_use_standard_port_parses_true` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::validation_rejects_two_standard_port_nodes` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::validation_rejects_standard_port_with_explicit_port` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::validation_allows_one_standard_port_node` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::validation_allows_zero_standard_port_nodes` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::extra_traefik_routes_defaults_to_empty` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::extra_traefik_routes_parses_single_route` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::remote_domain_is_valid` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::no_remote_domain_is_valid` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::remote_domain_rejects_empty` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::remote_domain_rejects_leading_dot` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::remote_domain_rejects_trailing_dot` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/config/toml_config_test.rs` | `config::toml_config_test::extra_traefik_routes_parses_multiple_routes` | unit | `RUST-REQ-028` |
-| `apps/xnet/lib/src/node_provisioner.rs` | `node_provisioner::tests::derive_signers_index_formula` | table-driven unit; node IDs 100/200/300 | `RUST-REQ-032` |
-| `apps/xnet/lib/src/node_provisioner.rs` | `node_provisioner::tests::derive_signers_first_node_indices` | unit | `RUST-REQ-032` |
-| `apps/xnet/lib/src/node_provisioner.rs` | `node_provisioner::tests::derive_signers_zero_id` | unit | `RUST-REQ-032` |
-| `apps/xnet/lib/src/node_provisioner.rs` | `node_provisioner::tests::derive_signers_max_node_within_bounds` | unit | `RUST-REQ-032` |
-| `apps/xnet/lib/src/node_provisioner.rs` | `node_provisioner::tests::derive_signers_overflow_detection` | unit | `RUST-REQ-032` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::write_with_no_routes_produces_empty_config` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::extra_routes_appear_in_dynamic_yaml` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::extra_routes_without_priority_omit_priority_field` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::extra_routes_merge_with_auto_routes` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::extra_routes_not_lost_after_add_route` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::load_from_file_ignores_extra_routes_in_yaml` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::routes_listen_on_http_entrypoint` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/services/traefik_config.rs` | `services::traefik_config::tests::extra_routes_listen_on_http_entrypoint` | unit | `RUST-REQ-033` |
-| `apps/xnet/lib/src/types.rs` | `types::tests::resolve_port_standard_port_none_returns_5050` | unit | `RUST-REQ-036` |
-| `apps/xnet/lib/src/types.rs` | `types::tests::resolve_port_auto_allocates_in_range` | unit | `RUST-REQ-036` |
-| `apps/xnet/lib/src/types.rs` | `types::tests::resolve_port_explicit_port_returns_that_port` | unit | `RUST-REQ-036` |
-| `apps/xnet/lib/src/types.rs` | `types::tests::resolve_port_standard_port_and_explicit_errors` | unit | `RUST-REQ-036` |
-| `apps/xnet/lib/src/wallet_funding.rs` | `wallet_funding::tests::test_fund_wallet` | ignored integration; requires Anvil localhost:8545 | `RUST-REQ-037` |
 | `crates/xmtp_common/src/error_code.rs` | `error_code::tests::test_struct_error_code` | unit | `RUST-REQ-038` |
 | `crates/xmtp_common/src/error_code.rs` | `error_code::tests::test_enum_error_code` | unit | `RUST-REQ-038` |
 | `crates/xmtp_common/src/error_code.rs` | `error_code::tests::test_inherited_error_code` | unit | `RUST-REQ-038` |
@@ -158,9 +103,6 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `crates/xmtp_common/tests/xmtp_macro_integration.rs` | `xmtp_macro_integration::try_test_flavor` | custom async | `RUST-REQ-053` |
 | `crates/xmtp_common/tests/xmtp_macro_integration.rs` | `xmtp_macro_integration::try_unwrap_try` | unit; should panic | `RUST-REQ-053` |
 | `crates/xmtp_common/tests/xmtp_macro_integration.rs` | `xmtp_macro_integration::try_disable_logging` | custom sync | `RUST-REQ-053` |
-| `crates/xmtp_configuration/src/common/env.rs` | `common::env::tests::centralized_envs_have_api_url` | unit | `RUST-REQ-055` |
-| `crates/xmtp_configuration/src/common/env.rs` | `common::env::tests::d14n_envs_have_no_api_url` | unit | `RUST-REQ-055` |
-| `crates/xmtp_configuration/src/common/env.rs` | `common::env::tests::is_d14n_returns_correct_values` | unit | `RUST-REQ-055` |
 | `crates/xmtp_content_types/src/actions.rs` | `actions::tests::encode_decode_actions` | custom sync; unwrap_try | `RUST-REQ-056` |
 | `crates/xmtp_content_types/src/actions.rs` | `actions::tests::expires_at_serializes_as_utc_with_millis` | custom sync; unwrap_try | `RUST-REQ-056` |
 | `crates/xmtp_content_types/src/attachment.rs` | `attachment::tests::test_encode_decode_attachment` | native unit or wasm-bindgen test | `RUST-REQ-058` |
@@ -253,12 +195,6 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `crates/xmtp_proto/src/traits/combinators/retry.rs` | `traits::combinators::retry::tests::test_grpc_endpoint_delegates_to_wrapped_endpoint` | custom sync | `RUST-REQ-092` |
 | `crates/xmtp_proto/src/traits/combinators/retry.rs` | `traits::combinators::retry::tests::test_body_delegates_to_wrapped_endpoint` | custom sync | `RUST-REQ-092` |
 | `crates/xmtp_proto/src/traits/combinators/retry.rs` | `traits::combinators::retry::tests::retries_with_strategy` | custom async | `RUST-REQ-092` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::pages_endpoint` | rstest fixture; cross-target async | `RUST-REQ-093` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::pages_endpoint_can_be_retried` | rstest fixture; cross-target async | `RUST-REQ-093` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::test_grpc_endpoint_delegates_to_wrapped_endpoint` | custom sync | `RUST-REQ-093` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::test_body_delegates_to_wrapped_endpoint` | custom sync | `RUST-REQ-093` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::test_pageable_test_endpoint_body_encodes_protobuf_message` | custom sync | `RUST-REQ-093` |
-| `crates/xmtp_proto/src/traits/combinators/v3_paged.rs` | `traits::combinators::v3_paged::tests::endpoints_can_be_chained` | custom async | `RUST-REQ-093`, `RUST-REQ-097` |
 | `crates/xmtp_proto/src/traits/mock.rs` | `traits::mock::tests::test_grpc_endpoint_returns_empty_string` | custom sync | `RUST-REQ-094` |
 | `crates/xmtp_proto/src/traits/short_hex.rs` | `traits::short_hex::tests::test_short_hex` | unit | `RUST-REQ-095` |
 | `crates/xmtp_proto/src/traits/short_hex.rs` | `traits::short_hex::tests::test_short_hex_group_id` | unit | `RUST-REQ-095` |
@@ -268,9 +204,6 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `crates/xmtp_proto/src/types/app_version.rs` | `types::app_version::tests::test_from_conversions` | rstest; 4 cases; cross-target async | `RUST-REQ-098` |
 | `crates/xmtp_proto/src/types/app_version.rs` | `types::app_version::tests::test_metadata_value_conversion` | rstest; 3 cases; cross-target async | `RUST-REQ-098` |
 | `crates/xmtp_proto/src/types/app_version.rs` | `types::app_version::tests::test_complex_versions` | rstest; 5 cases; cross-target async | `RUST-REQ-098` |
-| `crates/xmtp_proto/src/types/cursor.rs` | `types::cursor::test::test_originator_constructors` | rstest; 6 cases; cross-target async | `RUST-REQ-099` |
-| `crates/xmtp_proto/src/types/cursor.rs` | `types::cursor::test::test_ordering` | rstest; 4 cases; cross-target async | `RUST-REQ-099` |
-| `crates/xmtp_proto/src/types/global_cursor.rs` | `types::global_cursor::tests::dominates_empty` | custom sync | `RUST-REQ-100` |
 | `crates/xmtp_proto/src/types/group_message.rs` | `types::group_message::test::test_is_commit` | custom sync | `RUST-REQ-101` |
 | `crates/xmtp_proto/src/types/group_message.rs` | `types::group_message::test::test_timestamp` | custom sync | `RUST-REQ-101` |
 | `crates/xmtp_proto/src/types/ids/group_id.rs` | `types::ids::group_id::test::test_group_id_from_array` | rstest; 3 cases; cross-target async | `RUST-REQ-103` |
@@ -324,3 +257,10 @@ This fragment excludes `apps/android/**`. It records one row per source declarat
 | `crates/xmtp_macro/src/span_macro.rs` | `span_macro::expand_with_prefix (doctest line 10)` | rustdoc; ignored; canonical tracing attribute | `RUST-REQ-052` |
 | `crates/xmtp_macro/src/test_macro.rs` | `test_macro::test (doctest line 18)` | rustdoc; ignored; async test example | `RUST-REQ-053` |
 | `crates/xmtp_macro/src/timeout_macro.rs` | `timeout_macro::timeout (doctest line 13)` | rustdoc; ignored; async timeout example | `RUST-REQ-085` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::baseline_migration_status_and_rollback` | XMTP async; single baseline and tracking table | `RUST-REQ-004` |
+| `apps/db_tools/src/tasks/migrations.rs` | `tasks::migrations::tests::direct_baseline_run_and_revert_preserve_tracking` | XMTP async; single baseline and tracking table | `RUST-REQ-004` |

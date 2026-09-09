@@ -163,15 +163,6 @@
 | `dev/release-tools/tests/sdk-config.test.ts` | `SDK configs :: declares notes globs for every SDK` | Vitest sync loop over enum | `RELEASE-REQ-027` |
 | `dev/release-tools/tests/commands/list-sdks.test.ts` | `listSdksForChannel :: returns fan-out targets for nightly, excluding the hub` | Vitest sync; seven rows | `RELEASE-REQ-028` |
 | `dev/release-tools/tests/commands/list-sdks.test.ts` | `listSdksForChannel :: each row carries the data the fan-out needs` | Vitest sync; iOS row | `RELEASE-REQ-028` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: passes when a completed successful run exists for the exact SHA` | Vitest sync mocked API payload | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: fails (skip) when no run matches the SHA` | Vitest sync | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: fails (skip) when the matching run did not succeed` | Vitest sync; failure | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: fails (skip) when the matching run is not completed` | Vitest sync; in_progress and null | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: fails (skip) on an empty run list` | Vitest sync | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: passes when any green run for the SHA exists despite a later failed re-run` | Vitest sync; failure and success | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: does not pass on a 'skipped' conclusion (only 'success' counts)` | Vitest sync | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: does not let a green run on a DIFFERENT sha unblock this sha` | Vitest sync | `RELEASE-REQ-026` |
-| `dev/release-tools/tests/cross-test-gate.test.ts` | `evaluateGate :: tolerates a missing workflow_runs key (fail-closed)` | Vitest sync | `RELEASE-REQ-026` |
 | `dev/release-tools/tests/git.test.ts` | `git helpers > listTags :: returns all tags` | Vitest sync; real temporary Git repository; three tags | `RELEASE-REQ-025` |
 | `dev/release-tools/tests/git.test.ts` | `git helpers > listTags :: returns empty array for repo with no tags` | Vitest sync; real Git | `RELEASE-REQ-025` |
 | `dev/release-tools/tests/git.test.ts` | `git helpers > getShortSha :: returns a 7-character hash` | Vitest sync; real Git | `RELEASE-REQ-025` |

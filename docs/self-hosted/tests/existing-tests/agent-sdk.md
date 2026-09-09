@@ -43,9 +43,7 @@
 | `sdks/js/agent-sdk/src/core/filter.test.ts` | `Filters > usesCodec :: should return true for messages using a custom codec` | Vitest async; registered TestCodec; type assertion | `AGENTSDK-REQ-010` |
 | `sdks/js/agent-sdk/src/core/filter.test.ts` | `Filters > usesCodec :: should return false for messages using a different codec` | Vitest async; text | `AGENTSDK-REQ-010` |
 | `sdks/js/agent-sdk/src/core/MessageContext.test.ts` | `MessageContext :: should properly type the content when using reply as input` | Vitest async integration and compile-time assertion | `AGENTSDK-REQ-011` |
-| `sdks/js/agent-sdk/src/core/Agent.reconnect.test.ts` | `Agent reconnect :: should reconnect after a mid-stream disconnect` | Vitest async; Toxiproxy; 5-second outage; 10-second abort | `AGENTSDK-REQ-013` |
 | `sdks/js/agent-sdk/src/core/Agent.reconnect.test.ts` | `Agent reconnect :: should reconnect when start() fails initially` | Vitest async; proxy initially down; 5-second delay | `AGENTSDK-REQ-013` |
-| `sdks/js/agent-sdk/src/core/Agent.reconnect.test.ts` | `Agent reconnect :: should emit unhandledError on stream disconnect` | Vitest async; proxy left down; 10-second abort | `AGENTSDK-REQ-013` |
 | `sdks/js/agent-sdk/src/core/Agent.test.ts` | `Agent > types :: infers additional content types from given codecs` | Vitest sync compile-time assertion; asserts only `Agent<BuiltInContentTypes>` despite the source title | `AGENTSDK-REQ-011` |
 | `sdks/js/agent-sdk/src/core/Agent.test.ts` | `Agent > types :: types the content in message event listener` | Vitest sync compile-time assertion | `AGENTSDK-REQ-011` |
 | `sdks/js/agent-sdk/src/core/Agent.test.ts` | `Agent > types :: types content for 'attachment' events` | Vitest sync compile-time assertion | `AGENTSDK-REQ-011` |
@@ -124,3 +122,9 @@
 | `sdks/js/agent-sdk/src/middleware/CommandRouter.test.ts` | `CommandRouter > helpCommand config :: should not register help command when helpCommand is not provided` | Vitest sync | `AGENTSDK-REQ-028` |
 
 Runner requirements: Node 22 or later; `yarn test` runs `tsc --noEmit` and `vitest run --typecheck`; Vitest uses the Node environment, a 120-second test timeout, and a 60-second hook timeout. Integration cases require local xmtpd. Reconnect cases also require Toxiproxy. Global teardown removes SQLite files. No source declaration uses `.each`, skip, todo, or only.
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `sdks/js/agent-sdk/src/core/Agent.reconnect.test.ts` | `Agent reconnect > should reconnect and resume in order after a %s without closing or errors` | Vitest each; disconnect and black-hole cases; one start, no errors or stop during fault, one explicit stop | `AGENTSDK-REQ-013`, `P3-STR-015` |

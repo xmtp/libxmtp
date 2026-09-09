@@ -174,15 +174,9 @@
 | crates/xmtp_mls/src/groups/tests/test_libxmtp_version.rs | groups::tests::test_libxmtp_version::test_build_metadata_parses | plain test | `GTEST-REQ-129` |
 | crates/xmtp_mls/src/groups/tests/test_libxmtp_version.rs | groups::tests::test_libxmtp_version::test_parse_invalid_format | plain test; loop has 6 inputs | `GTEST-REQ-130` |
 | crates/xmtp_mls/src/groups/tests/test_libxmtp_version.rs | groups::tests::test_libxmtp_version::proposals_min_protocol_version_does_not_exceed_workspace_version | plain test | `GTEST-REQ-131` |
-| crates/xmtp_mls/src/groups/tests/test_message_dependencies.rs | groups::tests::test_message_dependencies::messages_have_dependencies | d14n-only module | `GTEST-REQ-132` |
-| crates/xmtp_mls/src/groups/tests/test_message_dependencies.rs | groups::tests::test_message_dependencies::messages_dependencies_out_of_order_invites | d14n-only module | `GTEST-REQ-132` |
 | crates/xmtp_mls/src/groups/tests/test_message_disappearing_settings.rs | groups::tests::test_message_disappearing_settings::test_disappearing_message_update_message_in_group | — | `GTEST-REQ-107` |
 | crates/xmtp_mls/src/groups/tests/test_metadata_read_amplification.rs | groups::tests::test_metadata_read_amplification::metadata_read_amplification | native module | `GTEST-REQ-134` |
 | crates/xmtp_mls/src/groups/tests/test_network.rs | groups::tests::test_network::test_bad_network | native module; toxiproxy | `GTEST-REQ-135` |
-| crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_prepare_message_stores_unpublished | — | `GTEST-REQ-136` |
-| crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_publish_messages_does_not_publish_prepared_messages | — | `GTEST-REQ-136` |
-| crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_publish_stored_message_publishes_prepared_message | — | `GTEST-REQ-136` |
-| crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_publish_stored_message_is_idempotent | three publish calls | `GTEST-REQ-136` |
 | crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_selective_publish_of_prepared_messages | publish 2 of 3 | `GTEST-REQ-136` |
 | crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_explicit_idempotency_key_produces_deterministic_id | — | `SHARED-CONTENT-REQ-003` |
 | crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs | groups::tests::test_prepare_message_for_later_publish::test_default_idempotency_key_is_unique_per_send | — | `GTEST-REQ-139` |
@@ -283,3 +277,9 @@
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_welcome_cursor | — | `GTEST-REQ-212` |
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_inviting_members_results_in_consistent_state | — | `GTEST-REQ-213` |
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_spoofed_inbox_id | adversarial internal construction | `GTEST-REQ-214` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs` | `groups::tests::test_prepare_message_for_later_publish::test_prepared_message_requires_explicit_idempotent_publish` | XMTP async; local count/ID/status before and after bulk publish; explicit publish and repeated publish | `GTEST-REQ-136` |

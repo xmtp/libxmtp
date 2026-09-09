@@ -30,23 +30,22 @@ async fn test_something() {
 - `tester!(name)` creates a registered test client with logging
 - `group.invite(&other).await?` and `group.send_msg(b"msg").await` from `MlsGroupExt` trait
 
-**Exception:** `bindings/mobile` tests use `#[tokio::test(flavor = "multi_thread")]` directly (never targets WASM).
+Existing mobile tests can use Tokio attributes. New tests use the project macro.
 
 ## Running Tests
 
 All `just test` and `just wasm test` variants pass extra args through to `cargo nextest run`:
 
 ```bash
-just test                           # All (v3 + d14n)
-just test v3                        # V3 only
-just test v3 test_send_message      # Specific test in v3
+just test                           # Workspace client tests
+just test workspace test_send_message # One test name
 just test crate xmtp_mls            # Single crate
-just wasm test                      # All WASM (v3 + d14n)
+just wasm test                      # Configured WebAssembly crates
 ```
 
 Tests that create clients need the backend: `just backend up` / `just backend down`
 
-See [Running Tests](running.md) for nextest filter syntax, profiles, WASM/d14n targeting, and CI commands.
+See [Running Tests](running.md) for nextest filter syntax, profiles, WebAssembly targeting, and CI commands.
 
 ## Writing Philosophy
 
