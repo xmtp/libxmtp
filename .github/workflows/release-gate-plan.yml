@@ -28,6 +28,11 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
+      # Phase 3 deleted the cross-version test harness: it compares two
+      # post-transition releases and none exist yet, so there is no result to
+      # gate on. Releases stay disabled (`release.yml` is guarded off), which is
+      # what keeps this safe. Phase 4.9 restores the harness and must derive
+      # this value from its result again before any release is re-enabled.
       gate-skip: "false"
     steps:
       - uses: actions/checkout@v6
