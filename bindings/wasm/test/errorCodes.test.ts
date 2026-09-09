@@ -42,10 +42,11 @@ describe("Error Codes", () => {
       expect.unreachable("Should have thrown an error");
     } catch (error: unknown) {
       const err = error as Error & { code?: string };
+      // Assert the shape the binding guarantees, not the wording of a layer
+      // below it: an invalid inbox id is rejected locally now, so the tail of
+      // this message belongs to the API layer and is free to change.
       expect(
-        err.message.startsWith(
-          "[GroupError::Client] client: API error: api client error api client at endpoint",
-        ),
+        err.message.startsWith("[GroupError::Client] "),
         'Error message should contain an error "code" prefix in brackets',
       ).toBe(true);
       expect(err.code, 'The "code" property should be set').toBe(
