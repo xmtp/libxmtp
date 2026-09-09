@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 hex.workspace = true
+http.workspace = true
+opentelemetry.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
@@ -21,7 +23,19 @@ tracing-subscriber = { workspace = true, features = [
 ] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-opentelemetry.workspace = true
+tokio = { workspace = true, features = ["rt", "time"] }
+# Local OTLP receiver for tests in this crate and its bindings.
+opentelemetry-proto = { version = "0.32", default-features = false, features = [
+  "gen-tonic",
+  "trace",
+  "logs",
+], optional = true }
+tonic = { workspace = true, features = [
+  "transport",
+  "router",
+], optional = true }
+tokio-stream = { workspace = true, features = ["net"], optional = true }
+metrics = { workspace = true, optional = true }
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
@@ -36,6 +50,9 @@ sha2 = { workspace = true, optional = true }
 rustls = { workspace = true, optional = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+metrics-util.workspace = true
+futures = { workspace = true, features = ["executor"] }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 sentry = { workspace = true, features = ["test"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -51,10 +68,16 @@ tracing_android_trace = "0.1"
 tracing-oslog = "0.3"
 
 [features]
+metrics = ["dep:metrics"]
 # The test subscriber installed by `#[xmtp_common::test]`. On wasm this pulls in
-# `console_error_panic_hook` for readable panic output; on native it only needs
-# `tracing-subscriber`, which is already a non-optional dependency.
-test-utils = ["dep:console_error_panic_hook"]
+# `console_error_panic_hook` for readable panic output. Native tests also get a
+# local OTLP receiver shared with binding tests.
+test-utils = [
+  "dep:console_error_panic_hook",
+  "dep:opentelemetry-proto",
+  "dep:tonic",
+  "dep:tokio-stream",
+]
 # Sentry telemetry backend. Native-only; the deps it pulls in do not build on wasm.
 sentry = [
   "dep:sentry",

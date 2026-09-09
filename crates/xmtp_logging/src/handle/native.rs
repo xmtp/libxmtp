@@ -45,8 +45,7 @@ pub(crate) fn empty_file_layer() -> FileLayer {
 pub(crate) fn build_telemetry_layer(
     cfg: TelemetryConfig,
 ) -> Result<(BoxLayer, BoxLayer, TelemetryGuard), Error> {
-    let (trace_layer, appender, guard) =
-        telemetry::init::<Registry>(cfg.endpoint, cfg.resource_attributes)?;
+    let (trace_layer, appender, guard) = telemetry::init::<Registry>(cfg)?;
     Ok((trace_layer.boxed(), appender, guard))
 }
 
@@ -208,6 +207,25 @@ impl LoggingHandle {
         // it outside the lock, as `enable_sentry` does.
         drop(previous);
         Ok(())
+    }
+
+    /// Remove OTLP export and free its slot. Leave a Sentry-owned slot unchanged.
+    pub fn disable_telemetry(&self) -> Result<(), Error> {
+        let previous = {
+            let mut guards = self.guards.lock();
+            if guards.telemetry.is_none() {
+                return Ok(());
+            }
+            self.telemetry.reload(None)?;
+            guards.telemetry.take()
+        };
+        drop(previous);
+        Ok(())
+    }
+
+    /// Return whether this handle owns an active OTLP exporter.
+    pub fn telemetry_enabled(&self) -> bool {
+        self.guards.lock().telemetry.is_some()
     }
 
     /// Flush pending telemetry spans (best-effort) **without** stopping the

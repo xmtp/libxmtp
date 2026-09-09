@@ -152,6 +152,10 @@ pub struct LogOptions {
   /// exported via OTLP to this endpoint. A downstream OpenTelemetry Collector
   /// derives metrics from the spans and forwards the correlated logs.
   pub otel_endpoint: Option<String>,
+  /// Service name attached to exported telemetry.
+  pub otel_service_name: Option<String>,
+  /// Fraction of root spans sampled, from 0 to 1.
+  pub otel_sample_ratio: Option<f64>,
   /// Resource attributes attached to all exported spans (e.g.
   /// { "service.instance.id": "herald-7", "deployment.environment": "prod" }).
   /// Use these to attribute telemetry to its source.

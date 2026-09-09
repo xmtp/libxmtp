@@ -92,6 +92,8 @@ impl XmtpLoggingBuilder {
             primary_layer,
             file_layer.boxed(),
             otel_layer.boxed(),
+            #[cfg(feature = "metrics")]
+            crate::span_metrics::SpanMetricsLayer.boxed(),
         ];
 
         // Only fallible step left is the global-default install itself.

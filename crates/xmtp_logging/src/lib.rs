@@ -14,6 +14,9 @@ mod error;
 mod filter;
 mod handle;
 mod layers;
+pub mod propagation;
+#[cfg(all(feature = "metrics", not(target_arch = "wasm32")))]
+pub mod span_metrics;
 
 pub use builder::{XmtpLogging, XmtpLoggingBuilder};
 pub use config::*;

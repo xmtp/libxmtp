@@ -189,6 +189,43 @@ pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
     Ok(())
 }
 
+/// OTLP trace export configuration.
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiOtlpConfig {
+    pub endpoint: String,
+    pub service_name: Option<String>,
+    pub sample_ratio: f64,
+    pub resource_attributes: std::collections::HashMap<String, String>,
+}
+
+impl From<FfiOtlpConfig> for xmtp_logging::TelemetryConfig {
+    fn from(config: FfiOtlpConfig) -> Self {
+        Self {
+            endpoint: Some(config.endpoint),
+            service_name: config.service_name,
+            sample_ratio: config.sample_ratio,
+            resource_attributes: config.resource_attributes.into_iter().collect(),
+            logs: false,
+        }
+    }
+}
+
+/// Enable OTLP traces. Return the existing slot-conflict error when Sentry is active.
+#[uniffi::export(async_runtime = "tokio")]
+#[xmtp_common::err_span]
+pub async fn enable_otlp_telemetry(config: FfiOtlpConfig) -> Result<(), FfiError> {
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.enable_telemetry(config.into()).map_err(sentry_err)
+}
+
+/// Stop OTLP export and free its telemetry slot.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn disable_otlp_telemetry() -> Result<(), FfiError> {
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.disable_telemetry().map_err(sentry_err)
+}
+
 /// Sentry telemetry configuration. `user_stable_id` is the app-computed HKDF
 /// stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
 #[derive(uniffi::Record, Debug, Clone)]

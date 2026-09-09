@@ -59,7 +59,12 @@ fn init_logging(options: LogOptions) -> Result<()> {
       .collect();
     TelemetryConfig {
       endpoint: Some(endpoint),
+      service_name: options.otel_service_name.clone(),
+      sample_ratio: options
+        .otel_sample_ratio
+        .unwrap_or(TelemetryConfig::default().sample_ratio),
       resource_attributes,
+      ..TelemetryConfig::default()
     }
   });
 

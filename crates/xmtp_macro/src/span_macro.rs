@@ -23,7 +23,7 @@ pub(crate) fn expand_with_prefix(prefix: &str, input_fn: syn::ItemFn) -> TokenSt
     // sentry.op/sentry.name are static vendor hints (same pattern as otel.*):
     // without them every Sentry span arrives as op = "default".
     quote! {
-        #[tracing::instrument(err, skip_all, fields(operation = #operation, sentry.op = #prefix, sentry.name = #operation))]
+        #[tracing::instrument(err, skip_all, fields(operation = #operation, sentry.op = #prefix, sentry.name = #operation, otel.name = #operation))]
         #input_fn
     }
 }

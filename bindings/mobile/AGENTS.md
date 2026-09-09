@@ -7,6 +7,7 @@ uniffi bindings. Feeds `sdks/android` and `sdks/ios`.
 ```bash
 just check crate xmtpv3
 just lint-rust                          # workspace-wide. No per-crate lint.
+dev/nix-shell 'cargo test --locked -p xmtpv3 --test otlp_logger' # isolated OTLP logger lifecycle
 just test crate xmtpv3
 dev/nix-shell 'cargo nextest run --profile ci -p xmtpv3 --ignore-default-filter test_can_send_and_receive_reaction'   # one test
 dev/nix-shell "cargo nextest run --profile ci -p xmtpv3 -E 'test(/mls::/)'"   # one module

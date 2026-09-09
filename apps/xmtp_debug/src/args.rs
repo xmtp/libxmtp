@@ -329,6 +329,9 @@ pub enum LogFormat {
 /// specify the log output
 #[derive(Args, Debug)]
 pub struct LogOptions {
+    /// Export traces to this OTLP gRPC endpoint.
+    #[arg(long)]
+    pub otel_endpoint: Option<String>,
     /// Stdout log format: "text" (default, colored in terminals) or "json" (for Docker/Datadog).
     /// Can also be set via XDBG_LOG_FORMAT env var.
     #[arg(long, env = "XDBG_LOG_FORMAT", default_value = "text")]

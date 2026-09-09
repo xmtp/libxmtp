@@ -1,54 +1,97 @@
-//! OpenTelemetry trace + log export (native only — OTLP/tonic is not wasm-compatible).
-//!
-//! [`init`] builds an OTLP span exporter and a [`tracing_opentelemetry`] layer, and
-//! also wires up an OTLP log exporter so `tracing` events are forwarded as OTLP logs.
-//! Both exporters share the same Resource, so logs correlate to spans automatically.
-//! Metrics are derived downstream by an OpenTelemetry Collector's `spanmetrics` connector.
-
-use opentelemetry::KeyValue;
-use opentelemetry::trace::TracerProvider as _;
+//! Native OTLP span and optional log export.
+use crate::TelemetryConfig;
+use opentelemetry::{KeyValue, trace::TracerProvider as _};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
-use opentelemetry_sdk::Resource;
-use opentelemetry_sdk::logs::SdkLoggerProvider;
-use opentelemetry_sdk::trace::SdkTracerProvider;
+use opentelemetry_sdk::{
+    Resource,
+    error::OTelSdkResult,
+    logs::SdkLoggerProvider,
+    trace::{Sampler, SdkTracerProvider, SpanData, SpanExporter},
+};
+use std::time::Duration;
 
-/// The OTel instrumentation scope / tracer name used for libxmtp spans.
+/// Instrumentation scope for libxmtp spans.
 pub const SCOPE: &str = "libxmtp";
+const OTLP_FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Owns the OTel tracer + logger providers. Call [`TelemetryGuard::force_flush`] to
-/// push queued spans and logs without tearing anything down, or drop (or call
-/// [`TelemetryGuard::shutdown`]) to flush-and-stop both exporters before exit.
+/// Owns the providers. Keep this guard until all operation spans close.
 pub struct TelemetryGuard {
     tracer_provider: SdkTracerProvider,
-    logger_provider: SdkLoggerProvider,
+    logger_provider: Option<SdkLoggerProvider>,
+    stopped: std::sync::atomic::AtomicBool,
 }
 
 impl TelemetryGuard {
-    /// Push any queued spans **and** logs to their exporters **without** shutting them
-    /// down. Both providers stay live after the call. Best-effort: logs rather than
-    /// panics on error. Use this for periodic / pre-checkpoint flushes; use
-    /// [`Self::shutdown`] only when you're done exporting.
+    /// Flush queued telemetry without stopping export. The wait is bounded.
     pub fn force_flush(&self) {
-        if let Err(e) = self.tracer_provider.force_flush() {
-            tracing::debug!("otel tracer force_flush: {e}");
-        }
-        if let Err(e) = self.logger_provider.force_flush() {
-            tracing::debug!("otel logger force_flush: {e}");
+        if !self.stopped.load(std::sync::atomic::Ordering::Acquire) {
+            self.flush_providers(false);
         }
     }
 
-    /// Flush and **shut down** both the span and log exporters. Terminal: both
-    /// providers stop, so telemetry created afterwards is dropped. Idempotent-safe
-    /// to call once; the `Drop` impl calls this if you don't.
+    /// Flush and stop export. Repeated calls do nothing. The wait is bounded,
+    /// including when the caller has no Tokio runtime.
     pub fn shutdown(&self) {
-        // Best-effort flush; log rather than panic on exporter shutdown error.
-        if let Err(e) = self.tracer_provider.shutdown() {
-            tracing::debug!("otel tracer shutdown: {e}");
-        }
-        if let Err(e) = self.logger_provider.shutdown() {
-            tracing::debug!("otel logger shutdown: {e}");
+        if !self.stopped.swap(true, std::sync::atomic::Ordering::AcqRel) {
+            self.flush_providers(true);
         }
     }
+
+    /// Clone providers into the worker so a timeout does not borrow the guard.
+    fn flush_providers(&self, shutdown: bool) {
+        let tracer = self.tracer_provider.clone();
+        let logger = self.logger_provider.clone();
+        if !wait_for_flush(OTLP_FLUSH_TIMEOUT, move || {
+            if let Err(error) = tracer.force_flush() {
+                tracing::warn!(%error, "OTLP trace flush failed");
+            }
+            if let Some(logger) = &logger
+                && let Err(error) = logger.force_flush()
+            {
+                tracing::warn!(%error, "OTLP log flush failed");
+            }
+            if shutdown {
+                if let Err(error) = tracer.shutdown_with_timeout(OTLP_FLUSH_TIMEOUT) {
+                    tracing::warn!(%error, "OTLP trace shutdown failed");
+                }
+                if let Some(logger) = logger
+                    && let Err(error) = logger.shutdown_with_timeout(OTLP_FLUSH_TIMEOUT)
+                {
+                    tracing::warn!(%error, "OTLP log shutdown failed");
+                }
+            }
+        }) {
+            tracing::warn!("OTLP flush did not complete before the deadline");
+        }
+    }
+}
+
+/// Run blocking SDK calls on a worker with an independent Tokio timer. This keeps
+/// the synchronous binding APIs safe to call both inside and outside a runtime.
+/// A timed-out SDK call cannot be cancelled; it finishes on the detached worker.
+fn wait_for_flush(timeout: Duration, flush: impl FnOnce() + Send + 'static) -> bool {
+    const COMPLETION_CAPACITY: usize = 1;
+    let (done_tx, done_rx) = std::sync::mpsc::sync_channel(COMPLETION_CAPACITY);
+    let worker = std::thread::Builder::new()
+        .name("xmtp-otel-flush".into())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+            else {
+                return;
+            };
+            let completed = runtime.block_on(async {
+                matches!(
+                    tokio::time::timeout(timeout, tokio::task::spawn_blocking(flush)).await,
+                    Ok(Ok(()))
+                )
+            });
+            // Runtime drop would join blocking workers and defeat the deadline.
+            runtime.shutdown_background();
+            let _ = done_tx.send(completed);
+        });
+    worker.is_ok() && done_rx.recv_timeout(timeout).unwrap_or(false)
 }
 
 impl Drop for TelemetryGuard {
@@ -57,92 +100,242 @@ impl Drop for TelemetryGuard {
     }
 }
 
-/// Build the OTel resource (service.name + version + caller-supplied attrs)
-/// attached to all exported spans.
-fn resource(extra: Vec<(String, String)>) -> Resource {
-    let service_name = std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "libxmtp".to_string());
-    let mut builder = Resource::builder()
+/// Caller attributes cannot replace service identity.
+fn resource(config: &TelemetryConfig) -> Resource {
+    let service_name = config
+        .service_name
+        .clone()
+        .unwrap_or_else(|| std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "libxmtp".into()));
+    Resource::builder()
+        .with_attributes(
+            config
+                .resource_attributes
+                .iter()
+                .map(|(k, v)| KeyValue::new(k.clone(), v.clone())),
+        )
         .with_service_name(service_name)
-        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")));
-    for (k, v) in extra {
-        builder = builder.with_attribute(KeyValue::new(k, v));
-    }
-    builder.build()
+        .with_attribute(KeyValue::new("service.version", env!("CARGO_PKG_VERSION")))
+        .build()
 }
 
-/// The layers and guard returned by [`init`]: the OpenTelemetry trace layer, the
-/// OTLP-logs appender layer, and the guard owning both providers.
+/// Trace layer, optional log bridge (a no-op layer when disabled), and provider guard.
 pub type TelemetryLayers<S> = (
     tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
     Box<dyn tracing_subscriber::Layer<S> + Send + Sync>,
     TelemetryGuard,
 );
 
-/// Initialize OTLP trace and log export.
-///
-/// `endpoint` sets the OTLP gRPC endpoint for both exporters (e.g.
-/// `http://collector:4317`). When `None`, each exporter falls back to its
-/// standard env-var (`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` /
-/// `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`), then `OTEL_EXPORTER_OTLP_ENDPOINT`,
-/// then `http://localhost:4317`. `resource_attrs` are merged into the shared OTel
-/// resource and attached to every exported span and log — the log appender bridges
-/// `tracing` events to OTLP logs carrying the active span's trace/span IDs.
-///
-/// Returns the tracing layer + log appender layer to register on the subscriber
-/// and a guard that must be kept alive for the process lifetime (shut down before
-/// exit to flush — see [`TelemetryGuard::shutdown`]). Returns `Err` only if
-/// either exporter fails to build (e.g. a malformed endpoint).
+#[derive(Debug)]
+struct CountingExporter<E>(E);
+impl<E: SpanExporter> SpanExporter for CountingExporter<E> {
+    async fn export(&self, batch: Vec<SpanData>) -> OTelSdkResult {
+        let result = self.0.export(batch).await;
+        #[cfg(feature = "metrics")]
+        if result.is_err() {
+            const FAILED_BATCH: u64 = 1;
+            metrics::counter!("xmtp_telemetry_export_failures_total").increment(FAILED_BATCH);
+        }
+        result
+    }
+    fn shutdown_with_timeout(&self, timeout: Duration) -> OTelSdkResult {
+        self.0.shutdown_with_timeout(timeout)
+    }
+    fn force_flush(&self) -> OTelSdkResult {
+        self.0.force_flush()
+    }
+    fn set_resource(&mut self, resource: &Resource) {
+        self.0.set_resource(resource);
+    }
+}
+
+/// Build OTLP layers on a Tokio runtime. Endpoint defaults follow OTLP environment
+/// variables. The caller must install the returned layers and retain the guard.
 pub fn init<S>(
-    endpoint: Option<String>,
-    resource_attrs: Vec<(String, String)>,
+    config: TelemetryConfig,
 ) -> Result<TelemetryLayers<S>, opentelemetry_otlp::ExporterBuildError>
 where
     S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
 {
     use opentelemetry_otlp::WithExportConfig as _;
     use tracing_subscriber::Layer as _;
-
-    let resource = resource(resource_attrs);
-
+    let resource = resource(&config);
     let mut builder = opentelemetry_otlp::SpanExporter::builder().with_tonic();
-    if let Some(endpoint) = endpoint.clone() {
-        // Pass the endpoint straight to the exporter (no env-var round-trip).
-        builder = builder.with_endpoint(endpoint);
+    if let Some(endpoint) = &config.endpoint {
+        builder = builder.with_endpoint(endpoint.clone());
     }
     let span_exporter = builder.build()?;
+    let logger_provider = if config.logs {
+        let mut builder = opentelemetry_otlp::LogExporter::builder().with_tonic();
+        if let Some(endpoint) = &config.endpoint {
+            builder = builder.with_endpoint(endpoint.clone());
+        }
+        Some(
+            SdkLoggerProvider::builder()
+                .with_batch_exporter(builder.build()?)
+                .with_resource(resource.clone())
+                .build(),
+        )
+    } else {
+        None
+    };
+    let appender = logger_provider
+        .as_ref()
+        .map(OpenTelemetryTracingBridge::new)
+        .boxed();
     let tracer_provider = SdkTracerProvider::builder()
-        .with_batch_exporter(span_exporter)
-        .with_resource(resource.clone())
+        .with_batch_exporter(CountingExporter(span_exporter))
+        .with_sampler(sampler(config.sample_ratio))
+        .with_resource(resource)
         .build();
-
-    // OTLP log exporter -> logger provider, sharing the SAME resource as the
-    // tracer so exported logs carry identical service.name / deployment.environment
-    // (the unified-tag match Datadog needs to correlate logs to traces). Build the
-    // log exporter BEFORE registering the tracer provider globally, so a log-build
-    // failure returns `Err` without leaving a leaked global exporter running.
-    let mut log_builder = opentelemetry_otlp::LogExporter::builder().with_tonic();
-    if let Some(endpoint) = endpoint {
-        log_builder = log_builder.with_endpoint(endpoint);
-    }
-    let log_exporter = log_builder.build()?;
-    let logger_provider = SdkLoggerProvider::builder()
-        .with_batch_exporter(log_exporter)
-        .with_resource(resource.clone())
-        .build();
-    let appender = OpenTelemetryTracingBridge::new(&logger_provider).boxed();
-
-    // Both exporters built successfully — now register the tracer provider
-    // globally and build the trace layer.
     let tracer = tracer_provider.tracer(SCOPE);
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
-    let layer = tracing_opentelemetry::layer().with_tracer(tracer);
-
+    crate::propagation::install();
     Ok((
-        layer,
+        tracing_opentelemetry::layer().with_tracer(tracer),
         appender,
         TelemetryGuard {
             tracer_provider,
             logger_provider,
+            stopped: std::sync::atomic::AtomicBool::new(false),
         },
     ))
+}
+
+fn sampler(ratio: f64) -> Sampler {
+    Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(ratio)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use opentelemetry::trace::{Span, Tracer};
+    use opentelemetry_sdk::trace::InMemorySpanExporter;
+
+    #[test]
+    fn resource_identity_wins() {
+        let config = TelemetryConfig {
+            service_name: Some("client".into()),
+            resource_attributes: vec![
+                ("service.name".into(), "wrong".into()),
+                ("service.version".into(), "wrong".into()),
+                ("region".into(), "west".into()),
+            ],
+            ..Default::default()
+        };
+        let resource = resource(&config);
+        assert_eq!(
+            resource.get(&"service.name".into()).unwrap().as_str(),
+            "client"
+        );
+        assert_eq!(
+            resource.get(&"service.version".into()).unwrap().as_str(),
+            env!("CARGO_PKG_VERSION")
+        );
+        assert_eq!(resource.get(&"region".into()).unwrap().as_str(), "west");
+    }
+
+    #[test]
+    fn root_sampling_extremes_are_deterministic() {
+        const NONE: f64 = 0.0;
+        const ALL: f64 = 1.0;
+        const SPANS: usize = 8;
+        for (ratio, expected) in [(NONE, 0), (ALL, SPANS)] {
+            let exporter = InMemorySpanExporter::default();
+            let provider = SdkTracerProvider::builder()
+                .with_sampler(sampler(ratio))
+                .with_simple_exporter(exporter.clone())
+                .build();
+            let tracer = provider.tracer("test");
+            for _ in 0..SPANS {
+                tracer
+                    .start_with_context("root", &opentelemetry::Context::new())
+                    .end();
+            }
+            assert_eq!(exporter.get_finished_spans().unwrap().len(), expected);
+        }
+    }
+
+    #[test]
+    fn flush_wait_is_bounded() {
+        const TEST_TIMEOUT: Duration = Duration::from_millis(20);
+        const TEST_DEADLINE: Duration = Duration::from_secs(2);
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+        let start = std::time::Instant::now();
+        assert!(!wait_for_flush(TEST_TIMEOUT, move || {
+            release_rx.recv().unwrap();
+            finished_tx.send(()).unwrap();
+        }));
+        assert!(start.elapsed() < TEST_DEADLINE);
+        release_tx.send(()).unwrap();
+        finished_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    }
+
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn export_failure_counts_once_per_batch() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+        #[derive(Debug)]
+        struct Exporter(bool);
+        impl SpanExporter for Exporter {
+            async fn export(&self, _: Vec<SpanData>) -> OTelSdkResult {
+                if self.0 {
+                    Err(opentelemetry_sdk::error::OTelSdkError::InternalFailure(
+                        "test failure".into(),
+                    ))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let recorder = DebuggingRecorder::new();
+        let snapshots = recorder.snapshotter();
+        metrics::with_local_recorder(&recorder, || {
+            for failed in [true, false, true] {
+                let result =
+                    futures::executor::block_on(CountingExporter(Exporter(failed)).export(vec![]));
+                assert_eq!(result.is_err(), failed);
+            }
+        });
+        let values = snapshots.snapshot().into_vec();
+        const COUNTERS: usize = 1;
+        const FAILED_BATCHES: u64 = 2;
+        assert_eq!(values.len(), COUNTERS);
+        let (key, _, _, value) = values.first().unwrap();
+        assert_eq!(key.key().name(), "xmtp_telemetry_export_failures_total");
+        assert!(key.key().labels().next().is_none());
+        assert_eq!(*value, DebugValue::Counter(FAILED_BATCHES));
+    }
+
+    #[cfg(feature = "test-utils")]
+    #[tokio::test]
+    async fn otlp_logs_are_optional() {
+        use tracing_subscriber::prelude::*;
+        let collector = crate::test_logging::OtlpCollector::start().await.unwrap();
+        for logs in [false, true] {
+            let (trace, appender, guard) = init(TelemetryConfig {
+                endpoint: Some(collector.endpoint()),
+                logs,
+                ..Default::default()
+            })
+            .unwrap();
+            tracing::subscriber::with_default(
+                tracing_subscriber::registry().with(vec![trace.boxed(), appender]),
+                || {
+                    let _span = tracing::info_span!(
+                        "operation",
+                        operation = "test.logs",
+                        otel.name = "test.logs"
+                    )
+                    .entered();
+                    tracing::info!("log event");
+                },
+            );
+            tokio::task::spawn_blocking(move || guard.shutdown())
+                .await
+                .unwrap();
+            assert!(!collector.take_spans().is_empty());
+            assert_eq!(!collector.take_logs().is_empty(), logs);
+        }
+    }
 }

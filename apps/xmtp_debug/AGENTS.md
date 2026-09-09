@@ -22,6 +22,7 @@ dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-pa
 - Queries use `ApiClientWrapper`. Streams use the `xmtp_mls` stream methods.
 - `MessageBackendBuilder` builds the API client. Do not add a local builder.
 - The Docker monitor requires `XMTP_BACKEND_URL`.
+- `--otel-endpoint <URL>` exports traces through the shared OTLP pipeline. The logger holds the provider guard until exit.
 - `--metrics` keeps CSV output. `PUSHGATEWAY_URL` keeps optional Prometheus output.
 
 ## Gotchas
