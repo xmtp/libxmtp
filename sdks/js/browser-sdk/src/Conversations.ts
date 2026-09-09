@@ -65,8 +65,7 @@ export class Conversations<ContentTypes = unknown> {
 
   /**
    * Synchronizes all conversations and messages from the network with optional
-   * consent state filtering, then uploads conversation and message history to
-   * message delivery
+   * consent state filtering
    *
    * @param consentStates - Optional array of consent states to filter by
    * @returns Promise that resolves when sync is complete

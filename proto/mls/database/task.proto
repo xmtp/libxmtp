@@ -10,6 +10,7 @@ option java_package = "org.xmtp.proto.mls.database";
 
 message Task {
   reserved 2;
+  reserved "send_sync_archive";
 
   oneof task {
     xmtp.mls.message_contents.WelcomePointer process_welcome_pointer = 1;
