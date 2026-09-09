@@ -97,7 +97,7 @@ Specs 001 and 002 must be completed and approved before this phase begins. This 
 
 ### Phase 3: Client Support And Cleanup
 
-Status: implementation complete. Tasks 1 to 14 implement the backend transition. Final acceptance remains blocked by the identifier sweep and the five coverage gaps recorded in `tests/existing-tests.md`. Full CI verification is still required. The follow-ups below remain outside Phase 3.
+Status: implementation complete. Tasks 1 to 14 implement the backend transition. The identifier sweep passes with documented historical and archive-format exceptions. The five coverage gaps remain explicit in `tests/existing-tests.md`. Full CI verification is still required. The follow-ups below remain outside Phase 3.
 
 Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
 

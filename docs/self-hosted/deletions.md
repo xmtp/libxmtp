@@ -16,7 +16,7 @@ counts identify deleted code. This record overrides their original actions.
 | Shared HTTP client | Keep `xmtp_common::http`, its Android rustls workaround, and `reqwest` for backend tests and debug metrics. |
 | Test services | Done. `db`, `backend`, `anvil`, and `toxiproxy` remain. The owner kept anvil on 2026-09-08. |
 | Test catalogue | See `tests/existing-tests.md` and `tests/retired-requirement-ids.md`. The Phase 0 test-deletion document is removed. |
-| Final identifier sweep | Incomplete at Task 14 base: generated iOS legacy protobuf files and the archive protobuf still contain old identifiers. Historical node-binding release notes also match the sweep. These files are outside Task 14's code boundary. |
+| Final identifier sweep | Done in Task 14 fix round 1. Remove the six unused generated iOS legacy protobuf files. The sweep excludes the released Node 1.11.0 notes and the archive protobuf plus its generated iOS mapping. The archive field stays for backward compatibility. |
 
 Phase 5.1 must add durable-progress feedback to the lease ledger. Reopen after
 wire failure or resume currently replays from each lease's floor. It must also
