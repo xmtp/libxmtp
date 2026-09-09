@@ -12,7 +12,6 @@
 		_env("XMTP_NODE_ADDRESS")
 	}
 
-
 	public enum TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
 		// TODO: change Client constructor to accept these explicitly (so we can config CI):

@@ -102,7 +102,6 @@ class HistorySyncTests: XCTestCase {
 		}
 	}
 
-
 	func testStreamConsent() async throws {
 		throw XCTSkip("Skipped: Test is flaky")
 		let fixtures = try await fixtures()
@@ -275,3 +274,4 @@ class HistorySyncTests: XCTestCase {
 			XCTAssertEqual(try dm2.consentState(), .allowed)
 		}
 	}
+}

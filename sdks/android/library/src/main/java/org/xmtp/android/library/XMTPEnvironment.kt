@@ -28,5 +28,4 @@ enum class XMTPEnvironment(
             PRODUCTION -> "https://${getValue()}:443"
             LOCAL -> "http://${getValue()}:5556"
         }
-
 }

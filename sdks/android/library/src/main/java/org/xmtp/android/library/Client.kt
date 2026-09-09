@@ -854,7 +854,6 @@ class Client(
             InboxState(ffiClient.inboxState(refreshFromNetwork))
         }
 
-
     /**
      * Manually sync all device sync groups.
      */

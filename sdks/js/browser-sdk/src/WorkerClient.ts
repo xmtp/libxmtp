@@ -215,7 +215,6 @@ export class WorkerClient {
     ) as Promise<Map<string, KeyPackageStatus>>;
   }
 
-
   async createArchive(
     opts: ArchiveOptions,
     key: Uint8Array,

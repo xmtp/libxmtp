@@ -1101,7 +1101,6 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     };
   }
 
-
   /**
    * Archive application elements to file for later restoration
    *

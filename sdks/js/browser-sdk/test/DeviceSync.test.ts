@@ -10,7 +10,6 @@ import { createRegisteredClient, createSigner } from "@test/helpers";
 // on loaded CI runners.
 const WAIT = { timeout: 30_000, interval: 1000 };
 
-
 describe("DeviceSync", () => {
   it("should sync consent across installations", async () => {
     const { signer: boSigner } = createSigner();
@@ -116,6 +115,8 @@ describe("DeviceSync", () => {
 
     const restored = await alix2.conversations.getConversationById(group.id);
     expect(restored).toBeTruthy();
-    expect((await restored!.messages()).some((entry) => entry.id === message)).toBe(true);
+    expect(
+      (await restored!.messages()).some((entry) => entry.id === message),
+    ).toBe(true);
   });
 });

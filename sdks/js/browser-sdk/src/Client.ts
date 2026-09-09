@@ -949,7 +949,6 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     };
   }
 
-
   /**
    * Export archive data to bytes for later restoration
    *

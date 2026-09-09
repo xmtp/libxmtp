@@ -988,7 +988,6 @@ public final class Client {
 		try await ffiClient.findInboxId(identifier: identity.ffiPrivate)
 	}
 
-
 	public func signWithInstallationKey(message: String) throws -> Data {
 		try ffiClient.signWithInstallationKey(text: message)
 	}
@@ -1033,7 +1032,6 @@ public final class Client {
 			refreshFromNetwork: refreshFromNetwork, inboxIds: inboxIds
 		).map { InboxState(ffiInboxState: $0) }
 	}
-
 
 	/// Manually sync all device sync groups.
 	public func syncAllDeviceSyncGroups() async throws -> GroupSyncSummary {

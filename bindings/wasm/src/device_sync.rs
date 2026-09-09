@@ -156,7 +156,6 @@ impl DeviceSync {
 
 #[wasm_bindgen]
 impl DeviceSync {
-
   /// Export archive data to bytes for later restoration.
   #[wasm_bindgen(js_name = createArchive)]
   pub async fn create_archive(

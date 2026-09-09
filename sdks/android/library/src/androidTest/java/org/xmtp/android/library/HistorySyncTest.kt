@@ -90,7 +90,6 @@ class HistorySyncTest : BaseInstrumentedTest() {
             assertEquals(group2.consentState(), ConsentState.DENIED)
         }
 
-
     @Test
     fun testStreamConsent() {
         val alixClient2 =
@@ -222,5 +221,4 @@ class HistorySyncTest : BaseInstrumentedTest() {
 
             assertEquals(ConsentState.DENIED, c2Group.consentState())
         }
-
 }
