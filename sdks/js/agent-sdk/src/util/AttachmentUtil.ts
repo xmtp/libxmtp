@@ -6,6 +6,7 @@ import {
   type RemoteAttachment,
 } from "@xmtp/node-sdk";
 
+/** Uploads encrypted attachment bytes and returns their public URL. */
 export type AttachmentUploadCallback = (
   attachment: EncryptedAttachment,
 ) => Promise<string>;
@@ -14,7 +15,6 @@ export type AttachmentUploadCallback = (
  * Downloads and decrypts a remote attachment.
  *
  * @param remoteAttachment - The remote attachment metadata containing the downloadd URL and encryption keys
- * @param agent - The agent instance used to lookup the necessary decoding codec
  * @returns A promise that resolves with the decrypted attachment
  */
 export async function downloadRemoteAttachment(

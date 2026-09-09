@@ -12,6 +12,7 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs dev`: start the local site.
 - `just docs build`: build the site.
 - `just docs check-examples`: check source examples against the built local SDKs.
+- `just docs check-agent-docs`: check all reachable public Agent SDK declarations for TSDoc.
 - `just docs lint`: lint the site code and Markdown.
 - `just docs format-check`: check formatting.
 - `just docs format`: format the site files.
@@ -32,6 +33,7 @@ Do not keep one-time migration checks or copies of old page prose.
 - `check-search.mjs` and `search-config.mjs`: define search regression cases and ranking settings.
 - `check-ts-regions.mjs`, `example-config.mjs`, and `example-regions.mjs`: check SDK examples and render their source regions.
 - `typedoc-validation.mjs`: fail API reference builds on TypeDoc warnings or errors.
+- `agent-doc-coverage.mjs`: require TSDoc for reachable public Agent SDK declarations in CI.
 
 The files in `parity/` keep old URLs working and set Lighthouse score limits.
 They do not freeze page text or require access to the old site.

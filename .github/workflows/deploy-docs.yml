@@ -93,6 +93,7 @@ jobs:
           YARN_ENABLE_IMMUTABLE_INSTALLS: "true"
         run: just js build
       - run: just docs install
+      - run: just docs check-agent-docs
       - run: just docs build
       - uses: actions/upload-artifact@v7
         with:
@@ -159,6 +160,7 @@ jobs:
             'apps/docs/_site/terms/**/*.html'
             'apps/docs/_site/reference/browser-sdk/**/*.html'
             'apps/docs/_site/reference/node-sdk/**/*.html'
+            'apps/docs/_site/reference/agent-sdk/**/*.html'
             'apps/docs/_site/reference/error-glossary/**/*.html'
             'apps/docs/_site/reference/limits/**/*.html'
           fail: true

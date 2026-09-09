@@ -59,6 +59,7 @@ const resolveName = async (
   return address;
 };
 
+/** Create a resolver for Ethereum addresses and Web3.bio names. */
 export const createNameResolver = (apiKey?: string) => {
   return (name: string) => resolveName(name, apiKey);
 };

@@ -10,6 +10,7 @@
     "dev": "astro dev --host 127.0.0.1",
     "build": "npm run check:examples && astro build",
     "check:examples": "node scripts/check-ts-regions.mjs && node --test tests/sdk-examples.integration.mjs",
+    "check:agent-docs": "node scripts/agent-doc-coverage.mjs",
     "preview": "astro preview --host 127.0.0.1",
     "lint": "eslint . && markdownlint '**/*.md' '**/*.mdx' --ignore node_modules --ignore dist --ignore .astro --ignore generated --ignore '_site/**' --ignore 'src/content/docs/reference/*-sdk/**' --ignore CLAUDE.md",
     "format": "prettier --write .",
