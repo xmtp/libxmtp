@@ -17,6 +17,9 @@ build:
 check-examples:
     npm run check:examples
 
+check-agent-docs:
+    npm run check:agent-docs
+
 lint:
     npm run lint
 

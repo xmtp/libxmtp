@@ -1,5 +1,6 @@
 {
   "/reference/node-sdk": "/reference/node-sdk/readme/",
+  "/reference/agent-sdk": "/reference/agent-sdk/readme/",
   "/reference/browser-sdk": "/reference/browser-sdk/readme/",
   "/agents/build-agents/create-a-client": "/sdk/client/",
   "/agents/build-agents/create-conversations": "/sdk/conversations/",

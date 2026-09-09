@@ -2,15 +2,23 @@ import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import v8 from "node:v8";
 import type { AgentMiddleware } from "@/core/Agent";
 
+/** CPU, event-loop, and memory measurements for one report interval. */
 export interface HealthReport {
+  /** CPU use during the reporting interval, as a percentage. */
   cpuPercent: number;
+  /** Mean event-loop delay during the interval, in milliseconds. Defaults to 0 when no samples exist. */
   eventLoopDelayMs: number;
+  /** Used V8 heap, in megabytes. */
   heapMB: number;
+  /** Used V8 heap as a percentage of the heap limit. */
   heapPercent: number;
+  /** V8 heap limit, in megabytes. */
   heapLimitMB: number;
+  /** Resident process memory, in megabytes. */
   totalMB: number;
 }
 
+/** Reporting intervals and callbacks for {@link PerformanceMonitor}. */
 export interface PerformanceMonitorConfig {
   /** Interval in ms between health reports (default: 60000). Set to 0 to disable. */
   healthReportInterval?: number;
@@ -46,6 +54,7 @@ export class PerformanceMonitor<ContentTypes = unknown> {
   #onShutdown: () => void;
   #eventLoopHistogram: ReturnType<typeof monitorEventLoopDelay>;
 
+  /** Start monitoring immediately using the configured reporting interval. */
   constructor(config: PerformanceMonitorConfig = {}) {
     const {
       healthReportInterval = 60_000,
@@ -130,6 +139,7 @@ export class PerformanceMonitor<ContentTypes = unknown> {
     });
   }
 
+  /** Stop timers and event-loop sampling. Repeated calls are safe. */
   shutdown() {
     if (this.#isShutdown) {
       return;
@@ -141,6 +151,7 @@ export class PerformanceMonitor<ContentTypes = unknown> {
     this.#onShutdown();
   }
 
+  /** Return middleware that measures each message handler duration. */
   middleware(): AgentMiddleware<ContentTypes> {
     return async (_, next) => {
       const start = performance.now();

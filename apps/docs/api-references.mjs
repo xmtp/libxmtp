@@ -57,16 +57,10 @@ const references = [
       "ClientWorkerAction",
     ],
   }),
+  sdkReference("agent-sdk", "Agent SDK", "agent-sdk", {
+    exclude: [fileURLToPath(new URL("node-sdk/src/**", sdkRoot))],
+  }),
 ];
-
-// Enable this reference after the Agent SDK public API has documentation comments.
-if (process.env.XMTP_DOCS_INCLUDE_AGENT_REFERENCE === "true") {
-  references.push(
-    sdkReference("agent-sdk", "Agent SDK", "agent-sdk", {
-      exclude: [fileURLToPath(new URL("node-sdk/src/**", sdkRoot))],
-    }),
-  );
-}
 
 export const referencePlugins = references.flatMap(({ validator, plugin }) => [
   validator,

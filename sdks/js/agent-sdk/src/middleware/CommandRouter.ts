@@ -9,15 +9,18 @@ interface CommandEntry {
   description?: string;
 }
 
+/** Optional behavior for a command router. */
 export interface CommandRouterConfig {
   /** Command string to trigger help output (e.g., "/help") */
   helpCommand?: `/${string}`;
 }
 
+/** Routes slash commands and unmatched text to agent handlers. */
 export class CommandRouter<ContentTypes = unknown> {
   #commandMap = new Map<string, CommandEntry>();
   #defaultHandler: AgentMessageHandler<SupportedType> | null = null;
 
+  /** Create a router. A help command is registered when configured. */
   constructor(config: CommandRouterConfig = {}) {
     if (config.helpCommand) {
       this.#registerHelpCommand(config.helpCommand);
@@ -46,16 +49,20 @@ export class CommandRouter<ContentTypes = unknown> {
     this.command(command, "Show available commands", helpHandler);
   }
 
+  /** Return registered commands in insertion order. */
   get commandList(): string[] {
     return Array.from(this.#commandMap.keys());
   }
 
+  /** Register a slash command. Commands are matched case-insensitively. */
   command(command: string, handler: AgentMessageHandler<SupportedType>): this;
+  /** Register a command with a description shown by the help command. */
   command(
     command: string,
     description: string,
     handler: AgentMessageHandler<SupportedType>,
   ): this;
+  /** Register the command using the normalized handler arguments. */
   command(
     command: string,
     handlerOrDescription: AgentMessageHandler<SupportedType> | string,
@@ -87,11 +94,13 @@ export class CommandRouter<ContentTypes = unknown> {
     return this;
   }
 
+  /** Register the handler for text that does not match a command. */
   default(handler: AgentMessageHandler<SupportedType>): this {
     this.#defaultHandler = handler;
     return this;
   }
 
+  /** Handle one text context and return whether a handler ran. */
   async handle(ctx: MessageContext<SupportedType>): Promise<boolean> {
     const messageText = ctx.message.content;
     const parts = messageText.split(" ");
@@ -122,6 +131,7 @@ export class CommandRouter<ContentTypes = unknown> {
     return false;
   }
 
+  /** Return middleware that routes text messages to registered handlers. */
   middleware(): AgentMiddleware<ContentTypes> {
     return async (ctx, next) => {
       if (ctx.isText()) {

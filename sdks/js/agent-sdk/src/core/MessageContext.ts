@@ -26,19 +26,23 @@ import { filter, type DecodedMessageWithContent } from "@/core/filter";
 import type { AgentBaseContext } from "./Agent";
 import { ConversationContext } from "./ConversationContext";
 
+/** Constructor values for a message context. */
 export type MessageContextParams<
   MessageContentType = unknown,
   ContentTypes = unknown,
 > = Omit<AgentBaseContext<ContentTypes>, "message"> & {
+  /** The decoded message that emitted the event. */
   message: DecodedMessageWithContent<MessageContentType>;
 };
 
+/** Context for a decoded message delivered to agent middleware. */
 export class MessageContext<
   MessageContentType = unknown,
   ContentTypes = unknown,
 > extends ConversationContext<ContentTypes> {
   #message: DecodedMessageWithContent<MessageContentType>;
 
+  /** Create a context from a decoded message and its conversation. */
   constructor({
     message,
     conversation,
@@ -48,44 +52,54 @@ export class MessageContext<
     this.#message = message;
   }
 
+  /** Narrow the message when its encoded type id matches the supplied codec. */
   usesCodec<T extends ContentCodec>(
     codecClass: new () => T,
   ): this is MessageContext<ReturnType<T["decode"]>> {
     return filter.usesCodec(this.#message, codecClass);
   }
 
+  /** Narrow the message to Markdown content. */
   isMarkdown(): this is MessageContext<string> {
     return isMarkdown(this.#message);
   }
 
+  /** Narrow the message to plain text content. */
   isText(): this is MessageContext<string> {
     return isText(this.#message);
   }
 
+  /** Narrow the message to a reply. */
   isReply(): this is MessageContext<Reply> {
     return isReply(this.#message);
   }
 
+  /** Narrow the message to a reaction. */
   isReaction(): this is MessageContext<Reaction> {
     return isReaction(this.#message);
   }
 
+  /** Narrow the message to a read receipt. */
   isReadReceipt(): this is MessageContext<ReadReceipt> {
     return isReadReceipt(this.#message);
   }
 
+  /** Narrow the message to a remote attachment. */
   isRemoteAttachment(): this is MessageContext<RemoteAttachment> {
     return isRemoteAttachment(this.#message);
   }
 
+  /** Narrow the message to a transaction reference. */
   isTransactionReference(): this is MessageContext<TransactionReference> {
     return isTransactionReference(this.#message);
   }
 
+  /** Narrow the message to wallet send calls. */
   isWalletSendCalls(): this is MessageContext<WalletSendCalls> {
     return isWalletSendCalls(this.#message);
   }
 
+  /** Send an `added` reaction that references this message. */
   async sendReaction(
     content: string,
     schema: Reaction["schema"] = ReactionSchema.Unicode,
@@ -108,14 +122,17 @@ export class MessageContext<
     });
   }
 
+  /** Reply to this message with Markdown content. */
   async sendMarkdownReply(markdown: string) {
     await this.#sendReply(encodeMarkdown(markdown));
   }
 
+  /** Reply to this message with plain text content. */
   async sendTextReply(text: string) {
     await this.#sendReply(encodeText(text));
   }
 
+  /** Resolve the sender's first identifier from the local inbox state. */
   async getSenderAddress() {
     const inboxState = await this.client.preferences.getInboxStates([
       this.#message.senderInboxId,
@@ -123,6 +140,7 @@ export class MessageContext<
     return inboxState[0]?.identifiers[0]?.identifier;
   }
 
+  /** Return the decoded message. */
   get message() {
     return this.#message;
   }

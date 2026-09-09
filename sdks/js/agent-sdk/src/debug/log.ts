@@ -14,10 +14,12 @@ const isLogLevel = (level: string): level is LogLevel => {
   return validLogLevels.includes(level as LogLevel);
 };
 
+/** Return the log levels accepted by the Agent SDK. */
 export const getValidLogLevels = (): LogLevel[] => {
   return [...validLogLevels];
 };
 
+/** Parse a case-insensitive log level, returning `null` for invalid input. */
 export const parseLogLevel = (rawLevel: string) => {
   const normalizedLevel =
     rawLevel.charAt(0).toUpperCase() + rawLevel.slice(1).toLowerCase();
@@ -29,6 +31,7 @@ export const parseLogLevel = (rawLevel: string) => {
   return null;
 };
 
+/** Log client, installation, and key-package details for operational debugging. */
 export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
   const xmtp = `\x1b[38;2;252;76;52m
     ██╗  ██╗███╗   ███╗████████╗██████╗
@@ -87,13 +90,19 @@ export const getTestUrl = <ContentTypes>(client: Client<ContentTypes>) => {
   return `http://xmtp.chat/dm/${address}`;
 };
 
-type InstallationInfo = {
+/** Registration details for the client's inbox and installation. */
+export type InstallationInfo = {
+  /** Number of registered installations in the inbox. */
   totalInstallations: number;
+  /** This client's installation ID. */
   installationId: string;
+  /** ID of the newest registered installation, or null if none is found. */
   mostRecentInstallationId: null | string;
+  /** Whether this client is the newest registered installation. */
   isMostRecent: boolean;
 };
 
+/** Read installation count and determine whether this client is newest. */
 export const getInstallationInfo = async <ContentTypes>(
   client: Client<ContentTypes>,
 ): Promise<InstallationInfo> => {

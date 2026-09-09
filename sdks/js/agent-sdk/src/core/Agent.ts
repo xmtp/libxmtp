@@ -63,80 +63,123 @@ type MessageStream<ContentTypes> = Awaited<
   ReturnType<Client<ContentTypes>["conversations"]["streamAllMessages"]>
 >;
 
-type EventHandlerMap<ContentTypes> = {
+/** Event names and handler arguments emitted by an agent. */
+export type EventHandlerMap<ContentTypes> = {
+  /** Actions message event. */
   actions: [ctx: MessageContext<Actions, ContentTypes>];
+  /** Remote attachment message event. */
   attachment: [ctx: MessageContext<RemoteAttachment, ContentTypes>];
+  /** Any conversation event. */
   conversation: [ctx: ConversationContext<ContentTypes>];
+  /** Group update event. */
   "group-update": [ctx: MessageContext<GroupUpdated, ContentTypes>];
+  /** Direct-message conversation event. */
   dm: [ctx: ConversationContext<ContentTypes, Dm<ContentTypes>>];
+  /** Group conversation event. */
   group: [ctx: ConversationContext<ContentTypes, Group<ContentTypes>>];
+  /** Inline attachment event. */
   "inline-attachment": [ctx: MessageContext<Attachment, ContentTypes>];
+  /** Intent event. */
   intent: [ctx: MessageContext<Intent, ContentTypes>];
+  /** Leave request event. */
   "leave-request": [ctx: MessageContext<LeaveRequest, ContentTypes>];
+  /** Markdown message event. */
   markdown: [ctx: MessageContext<string, ContentTypes>];
+  /** Generic message event. */
   message: [ctx: MessageContext<unknown, ContentTypes>];
+  /** Multiple attachment event. */
   "multi-attachment": [
     ctx: MessageContext<MultiRemoteAttachment, ContentTypes>,
   ];
+  /** Reaction message event. */
   reaction: [ctx: MessageContext<Reaction, ContentTypes>];
+  /** Read receipt event. */
   "read-receipt": [ctx: MessageContext<ReadReceipt, ContentTypes>];
+  /** Reply event. */
   reply: [ctx: MessageContext<EnrichedReply, ContentTypes>];
+  /** Agent start event. */
   start: [ctx: ClientContext<ContentTypes>];
+  /** Agent stop event. */
   stop: [ctx: ClientContext<ContentTypes>];
+  /** Plain-text message event. */
   text: [ctx: MessageContext<string, ContentTypes>];
+  /** Transaction reference event. */
   "transaction-reference": [
     ctx: MessageContext<TransactionReference, ContentTypes>,
   ];
+  /** Error that was not handled by error middleware. */
   unhandledError: [error: Error];
+  /** Undecodable or unsupported message event. */
   unknownMessage: [ctx: MessageContext<unknown, ContentTypes>];
+  /** Wallet send calls event. */
   "wallet-send-calls": [ctx: MessageContext<WalletSendCalls, ContentTypes>];
 };
 
 type EventName<ContentTypes> = keyof EventHandlerMap<ContentTypes>;
 
+/** Ethereum address encoded as a prefixed hexadecimal string. */
 type EthAddress = HexString;
 
+/** Values available to a handler for the current message. */
 export type AgentBaseContext<ContentTypes = unknown> = {
+  /** The client that received the message. */
   client: Client<ContentTypes>;
+  /** The conversation that contains the message. */
   conversation: Conversation;
+  /** The decoded message being handled. */
   message: DecodedMessage;
 };
 
+/** Context passed to error middleware; message and conversation may be absent. */
 export type AgentErrorContext<ContentTypes = unknown> = Partial<
   AgentBaseContext<ContentTypes>
 > & {
+  /** The client associated with the error. */
   client: Client<ContentTypes>;
 };
 
+/** Inputs used to wrap an already-created XMTP client. */
 export type AgentOptions<ContentTypes> = {
+  /** Client to wrap. */
   client: Client<ContentTypes>;
 };
 
+/** Handles a decoded message in normal middleware or command routing. */
 export type AgentMessageHandler<ContentTypes = unknown> = (
   ctx: MessageContext<ContentTypes>,
 ) => Promise<void> | void;
 
+/** Processes a message and calls `next` to continue the middleware chain. */
 export type AgentMiddleware<ContentTypes = unknown> = (
   ctx: MessageContext<unknown, ContentTypes>,
   next: () => Promise<void> | void,
 ) => Promise<void>;
 
+/** Handles an error and calls `next` with no argument to resume processing. */
 export type AgentErrorMiddleware<ContentTypes = unknown> = (
   error: unknown,
   ctx: AgentErrorContext<ContentTypes>,
   next: (err?: unknown) => Promise<void> | void,
 ) => Promise<void> | void;
 
+/** Client options used by `Agent.create`; `appVersion` and device sync have defaults. */
 export type AgentCreateOptions<ContentCodecs extends ContentCodec[] = []> =
-  Omit<ClientOptions & NetworkOptions, "codecs"> & { codecs?: ContentCodecs };
+  Omit<ClientOptions & NetworkOptions, "codecs"> & {
+    /** Custom content codecs registered with the client. */
+    codecs?: ContentCodecs;
+  };
 
+/** Stream options passed to both the conversation and message streams. */
 export type AgentStreamingOptions = Omit<StreamOptions, "onValue" | "onError">;
 
+/** Message-stream options exposed for callers that need the Node SDK shape. */
 export type StreamAllMessagesOptions<ContentTypes> = Parameters<
   Client<ContentTypes>["conversations"]["streamAllMessages"]
 >[0];
 
+/** Registration API returned by `agent.errors`. */
 export type AgentErrorRegistrar<ContentTypes> = {
+  /** Append one or more error middleware functions to the error chain. */
   use(
     ...errorMiddleware: Array<
       AgentErrorMiddleware<ContentTypes> | AgentErrorMiddleware<ContentTypes>[]
@@ -149,6 +192,7 @@ type ErrorFlow =
   | { kind: "continue"; error: unknown } // next(err) or handler throws
   | { kind: "stopped" }; // handler returns without next()
 
+/** Event-driven XMTP agent that routes conversations and messages to middleware. */
 export class Agent<ContentTypes = unknown> extends EventEmitter<
   EventHandlerMap<ContentTypes>
 > {
@@ -192,11 +236,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   #stopped: boolean = false;
   #streamOptions?: AgentStreamingOptions;
 
+  /** Wrap an existing client without starting streams. */
   constructor({ client }: AgentOptions<ContentTypes>) {
     super();
     this.#client = client;
   }
 
+  /** Create an agent and client. Device sync defaults to disabled for agents. */
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Parameters<typeof Client.create>[0],
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
@@ -236,6 +282,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     return new Agent({ client });
   }
 
+  /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backendUrl`; one must be supplied. */
   static async createFromEnv<ContentCodecs extends ContentCodec[] = []>(
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
     options?: Partial<AgentCreateOptions<ContentCodecs>>,
@@ -292,10 +339,12 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     });
   }
 
+  /** Return the libxmtp version used by the wrapped client. */
   get libxmtpVersion() {
     return this.#client.libxmtpVersion;
   }
 
+  /** Add message middleware. Middleware runs in registration order. */
   use(
     ...middleware: Array<
       AgentMiddleware<ContentTypes> | AgentMiddleware<ContentTypes>[]
@@ -494,6 +543,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     });
   }
 
+  /** Start conversation and message streams. Calling this while running is a no-op. */
   async start(options?: AgentStreamingOptions) {
     if (this.#isLocked || this.#conversationsStream || this.#messageStream)
       return;
@@ -645,14 +695,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     return false;
   }
 
+  /** Return the wrapped client for operations outside agent middleware. */
   get client() {
     return this.#client;
   }
 
+  /** Return the error-middleware registrar. */
   get errors() {
     return this.#errors;
   }
 
+  /** Stop both streams and emit the `stop` event. Calling this is safe repeatedly. */
   async stop() {
     this.#stopped = true;
     this.#isLocked = true;
@@ -664,6 +717,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#isLocked = false;
   }
 
+  /** Create a DM with an Ethereum address. The address is converted to an identifier. */
   createDmWithAddress(address: EthAddress, options?: CreateDmOptions) {
     return this.#client.conversations.createDmWithIdentifier(
       {
@@ -674,6 +728,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     );
   }
 
+  /** Create a group from Ethereum addresses. */
   createGroupWithAddresses(
     addresses: EthAddress[],
     options?: CreateGroupOptions,
@@ -690,6 +745,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     );
   }
 
+  /** Add Ethereum addresses to an existing group. */
   addMembersWithAddresses<ContentTypes>(
     group: Group<ContentTypes>,
     addresses: EthAddress[],
@@ -704,6 +760,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     return group.addMembersByIdentifiers(identifiers);
   }
 
+  /** Resolve a conversation context, or return `undefined` when it is not local. */
   async getConversationContext(conversationId: string) {
     const conversation =
       await this.client.conversations.getConversationById(conversationId);
@@ -716,6 +773,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
   }
 
+  /** Return the agent account address, when the client has one. */
   get address() {
     return this.#client.accountIdentifier?.identifier;
   }

@@ -36,20 +36,24 @@ type ActionWizardSession = {
   conversation: Conversation;
 };
 
-type ActionWizardCompleteHandler<ContentTypes> = (
+/** Callback after a user supplies an answer to every wizard step. */
+export type ActionWizardCompleteHandler<ContentTypes> = (
   answers: Record<string, string>,
   ctx: MessageContext<unknown, ContentTypes>,
 ) => Promise<void> | void;
 
-type ActionWizardCancelHandler<ContentTypes> = (
+/** Callback when a user cancels or restarts a wizard session. */
+export type ActionWizardCancelHandler<ContentTypes> = (
   ctx: MessageContext<unknown, ContentTypes>,
 ) => Promise<void> | void;
 
+/** Options for the cancel action added to select steps. */
 export type ActionWizardCancelOptions = {
   /** Custom label for the cancel button (default: "Cancel") */
   label?: string;
 };
 
+/** Configuration for an interactive action wizard. */
 export type ActionWizardOptions = {
   /**
    * When true, the wizard sends all steps via DM to the user.
@@ -80,6 +84,7 @@ export class ActionWizard<ContentTypes = unknown> {
   #completeHandler?: ActionWizardCompleteHandler<ContentTypes>;
   #cancelHandler?: ActionWizardCancelHandler<ContentTypes>;
 
+  /** Create a wizard identified by the slash command `id`. */
   constructor(id: string, options?: ActionWizardOptions) {
     this.#id = id;
     this.#dm = options?.dm ?? false;
@@ -91,17 +96,25 @@ export class ActionWizard<ContentTypes = unknown> {
     }
   }
 
+  /** Build the key used to isolate one sender's session in one conversation. */
   static sessionKey(conversationId: string, senderInboxId: string): string {
     return `${conversationId}:${senderInboxId}`;
   }
 
+  /** Build the action id used for a wizard step. */
   static stepKey(wizardId: string, stepId: string): string {
     return `${wizardId}:${stepId}`;
   }
 
+  /** Add a button-selection step. */
   select(
     id: string,
-    options: { description: string; actions: Action[] },
+    options: {
+      /** Prompt shown with the action buttons. */
+      description: string;
+      /** Action buttons offered for this step. */
+      actions: Action[];
+    },
   ): this {
     this.#steps.push({
       type: "select",
@@ -112,9 +125,15 @@ export class ActionWizard<ContentTypes = unknown> {
     return this;
   }
 
+  /** Add a free-text step. */
   text(
     id: string,
-    options: { description: string; isMarkdown?: boolean },
+    options: {
+      /** Prompt shown before the user enters text. */
+      description: string;
+      /** Send the prompt as Markdown when true. */
+      isMarkdown?: boolean;
+    },
   ): this {
     this.#steps.push({
       type: "text",
@@ -125,16 +144,19 @@ export class ActionWizard<ContentTypes = unknown> {
     return this;
   }
 
+  /** Register the callback invoked after the final answer. */
   onComplete(handler: ActionWizardCompleteHandler<ContentTypes>): this {
     this.#completeHandler = handler;
     return this;
   }
 
+  /** Register the callback invoked when a session is cancelled or restarted. */
   onCancel(handler: ActionWizardCancelHandler<ContentTypes>): this {
     this.#cancelHandler = handler;
     return this;
   }
 
+  /** Start or replace the session for the message sender. */
   async start(ctx: MessageContext<unknown, ContentTypes>): Promise<void> {
     const { senderInboxId } = ctx.message;
     const conversation = this.#dm
@@ -150,6 +172,7 @@ export class ActionWizard<ContentTypes = unknown> {
     await this.#sendCurrentStep(key);
   }
 
+  /** Return whether this sender has an active session in the conversation. */
   isActive(conversationId: string, senderInboxId: string): boolean {
     return this.#sessions.has(
       ActionWizard.sessionKey(conversationId, senderInboxId),
@@ -207,6 +230,7 @@ export class ActionWizard<ContentTypes = unknown> {
     }
   }
 
+  /** Return middleware that starts and advances wizard sessions. */
   middleware(): AgentMiddleware<ContentTypes> {
     return async (ctx, next) => {
       const key = ActionWizard.sessionKey(

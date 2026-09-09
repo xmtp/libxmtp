@@ -17,31 +17,85 @@ import {
  */
 export const erc20Abi = [
   {
+    /** ABI entry kind. */
     type: "function",
+    /** ERC-20 function name. */
     name: "transfer",
+    /** Recipient and amount parameters. */
     inputs: [
-      { name: "to", type: "address" },
-      { name: "amount", type: "uint256" },
+      {
+        /** Recipient parameter name. */
+        name: "to",
+        /** Solidity address type. */
+        type: "address",
+      },
+      {
+        /** Token amount parameter name. */
+        name: "amount",
+        /** Unsigned 256-bit integer type. */
+        type: "uint256",
+      },
     ],
-    outputs: [{ name: "", type: "bool" }],
+    /** Transfer success result. */
+    outputs: [
+      {
+        /** The ABI does not name this return value. */
+        name: "",
+        /** Boolean result type. */
+        type: "bool",
+      },
+    ],
+    /** This function does not accept native tokens. */
     stateMutability: "nonpayable",
   },
   {
+    /** ABI entry kind. */
     type: "function",
+    /** ERC-20 balance lookup function name. */
     name: "balanceOf",
-    inputs: [{ name: "account", type: "address" }],
-    outputs: [{ name: "", type: "uint256" }],
+    /** Account whose balance is requested. */
+    inputs: [
+      {
+        /** Account parameter name. */
+        name: "account",
+        /** Solidity address type. */
+        type: "address",
+      },
+    ],
+    /** Balance in the token's base units. */
+    outputs: [
+      {
+        /** The ABI does not name this return value. */
+        name: "",
+        /** Unsigned 256-bit integer type. */
+        type: "uint256",
+      },
+    ],
+    /** This function does not change contract state. */
     stateMutability: "view",
   },
   {
+    /** ABI entry kind. */
     type: "function",
+    /** ERC-20 decimal precision function name. */
     name: "decimals",
+    /** This function has no parameters. */
     inputs: [],
-    outputs: [{ name: "", type: "uint8" }],
+    /** Number of decimal places used by the token. */
+    outputs: [
+      {
+        /** The ABI does not name this return value. */
+        name: "",
+        /** Unsigned 8-bit integer type. */
+        type: "uint8",
+      },
+    ],
+    /** This function does not change contract state. */
     stateMutability: "view",
   },
 ] as const;
 
+/** Parameters for creating an ERC-20 transfer call payload. */
 export type CreateERC20TransferCallsOptions = {
   /** The viem Chain object (e.g., baseSepolia from "viem/chains"). */
   chain: Chain;
@@ -57,11 +111,13 @@ export type CreateERC20TransferCallsOptions = {
   description: string;
 };
 
+/** Parameters for creating a native-token transfer call payload. */
 export type CreateNativeTransferCallsOptions = Omit<
   CreateERC20TransferCallsOptions,
   "tokenAddress"
 >;
 
+/** Parameters for reading an ERC-20 balance. */
 export type GetERC20BalanceOptions = {
   /** The viem Chain object. */
   chain: Chain;
@@ -73,6 +129,7 @@ export type GetERC20BalanceOptions = {
   transport?: Transport;
 };
 
+/** Parameters for reading ERC-20 token decimals. */
 export type GetERC20DecimalsOptions = {
   /** The viem Chain object. */
   chain: Chain;
