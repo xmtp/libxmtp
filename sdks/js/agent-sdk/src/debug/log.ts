@@ -1,4 +1,4 @@
-import { Client, LogLevel } from "@xmtp/node-sdk";
+import { type Client, LogLevel } from "@xmtp/node-sdk";
 import type { Agent } from "@/core/Agent";
 
 const validLogLevels: LogLevel[] = [

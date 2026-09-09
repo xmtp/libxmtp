@@ -17,6 +17,8 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
       codecs?: ContentCodecs;
     },
 ) => {
+  const backendUrl = options?.backendUrl ?? process.env.XMTP_BACKEND_URL;
+  if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
   const signer = createSigner(createUser());
   const identifier = await signer.getIdentifier();
   const inboxId = generateInboxId(identifier);
@@ -29,7 +31,7 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   }
 
   return Client.create<ContentCodecs>(signer, {
-    backendUrl: process.env.XMTP_BACKEND_URL!,
+    backendUrl,
     ...options,
     dbPath,
     disableDeviceSync: true,

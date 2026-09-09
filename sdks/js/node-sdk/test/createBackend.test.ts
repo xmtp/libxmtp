@@ -17,7 +17,7 @@ describe("createBackend", () => {
     });
     expect(backend).toBeDefined();
     expect(backend.backendUrl).toBe("https://custom-api.example.com");
-    expect(backend.env).toBeUndefined();
+    expect(backend.env).toBeNull();
   });
 
   it("should key API clients by backend URL and app version only", async () => {

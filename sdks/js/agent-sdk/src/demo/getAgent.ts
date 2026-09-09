@@ -11,10 +11,12 @@ try {
 }
 
 export async function getAgent() {
+  const backendUrl = process.env.XMTP_BACKEND_URL;
+  if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
   const agent = process.env.XMTP_WALLET_KEY
     ? await Agent.createFromEnv()
     : await Agent.create(createSigner(createUser()), {
-        backendUrl: process.env.XMTP_BACKEND_URL!,
+        backendUrl,
         dbPath: null,
       });
 

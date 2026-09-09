@@ -9,8 +9,10 @@ export const createRegisteredClient = async (
   user: User,
   dbPath?: string | null,
 ) => {
+  const backendUrl = process.env.XMTP_BACKEND_URL;
+  if (!backendUrl) throw new Error("XMTP_BACKEND_URL is required");
   const options: NetworkOptions & StorageOptions = {
-    backendUrl: process.env.XMTP_BACKEND_URL!,
+    backendUrl,
     env: "local",
     dbPath,
   };
