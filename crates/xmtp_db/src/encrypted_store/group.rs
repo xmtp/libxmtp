@@ -2029,9 +2029,10 @@ pub(crate) mod tests {
                 "skip_all contract violated: the `id` arg leaked into the find_group \
                  span as a field (cardinality risk), got:\n{logged}"
             );
-            // Stronger: only `operation` plus the static `sentry.*` vendor hints
-            // (emitted by the span macros for Sentry op/name mapping) may appear —
-            // still no per-call values, so the cardinality contract holds.
+            // Stronger: only `operation` plus the static `sentry.*` and `otel.*`
+            // vendor hints (emitted by the span macros for Sentry op/name mapping
+            // and for the exported OpenTelemetry span name) may appear — every one
+            // is a compile-time literal, so the cardinality contract holds.
             let fields = logged
                 .split_once('{')
                 .and_then(|(_, rest)| rest.split_once('}'))
@@ -2039,8 +2040,10 @@ pub(crate) mod tests {
                 .unwrap_or("");
             assert_eq!(
                 fields,
-                "operation=\"db.find_group\" sentry.op=\"db\" sentry.name=\"db.find_group\"",
-                "find_group span must carry only operation + static sentry.* fields, got: {fields:?}"
+                "operation=\"db.find_group\" sentry.op=\"db\" sentry.name=\"db.find_group\" \
+                 otel.name=\"db.find_group\"",
+                "find_group span must carry only operation + static sentry.*/otel.* fields, \
+                 got: {fields:?}"
             );
         })
     }
