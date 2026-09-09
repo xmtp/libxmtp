@@ -1,3 +1,4 @@
+import { toBytes } from 'viem'
 import { describe, expect, it } from 'vitest'
 import {
   AuthCallback,
@@ -8,6 +9,7 @@ import {
   getInboxIdByIdentity,
   IdentifierKind,
   NapiTestBuilder,
+  SyncWorkerMode,
 } from '../dist/index'
 import { createUser, TEST_API_URL } from './helpers'
 
@@ -109,18 +111,27 @@ describe('Backend authentication', () => {
     const backend = await new BackendBuilder(TEST_API_URL)
       .setReadonly(true)
       .build()
+    const user = createUser()
     const identifier = {
-      identifier: createUser().account.address,
+      identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
     }
-    await expect(
-      createClientWithBackend(
-        backend,
-        {},
-        generateInboxId(identifier),
-        identifier
-      )
-    ).rejects.toThrow('WritesDisabled')
+    const client = await createClientWithBackend(
+      backend,
+      {},
+      generateInboxId(identifier),
+      identifier,
+      SyncWorkerMode.Disabled
+    )
+    const request = await client.createInboxSignatureRequest()
+    expect(request).toBeDefined()
+    const signature = await user.wallet.signMessage({
+      message: await request!.signatureText(),
+    })
+    await request!.addEcdsaSignature(toBytes(signature))
+    await expect(client.registerIdentity(request!)).rejects.toThrow(
+      'Writes are disabled on this client.'
+    )
   })
 })
 

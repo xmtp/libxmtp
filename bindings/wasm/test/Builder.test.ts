@@ -45,10 +45,9 @@ describe("WasmTestBuilder", () => {
 describe("BackendBuilder", () => {
   it("API-client cache key uses backend URL and app version", () => {
     const url = "http://127.0.0.1:5050";
-    const first = new BackendBuilder(url)
-      .setEnv("local")
-      .setAppVersion("TestApp/1.0")
-      .build();
+    const builder = new BackendBuilder(url);
+    expect(builder.backendUrl).toBe(url);
+    const first = builder.setEnv("local").setAppVersion("TestApp/1.0").build();
     const otherEnv = new BackendBuilder(url)
       .setEnv("custom")
       .setAppVersion("TestApp/1.0")

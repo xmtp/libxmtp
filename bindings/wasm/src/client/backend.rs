@@ -12,6 +12,7 @@ pub(crate) struct BackendBuilderError(#[from] pub xmtp_api_backend::MessageBacke
 #[xmtp_macro::wasm_builder]
 pub struct BackendBuilder {
   #[builder(required)]
+  #[wasm_bindgen(js_name = backendUrl)]
   pub backend_url: String,
 
   pub env: Option<String>,
