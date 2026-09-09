@@ -46,8 +46,6 @@ wasm_or_native! {
 ## Feature Gate Macros
 
 ```rust
-if_d14n! { /* compiled only with d14n feature */ }
-if_v3! { /* compiled only without d14n feature */ }
 if_test! { /* compiled in #[cfg(test)] or feature = "test-utils" */ }
 if_only_test! { /* compiled only in #[cfg(test)] */ }
 if_not_test! { /* compiled only outside test */ }

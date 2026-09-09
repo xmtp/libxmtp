@@ -1,6 +1,5 @@
 use super::GroupError;
 use xmtp_common::{Retry, retry_async};
-use xmtp_proto::prelude::XmtpMlsClient;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessageType, WelcomeMessageV1};
 
 /// Returns none if the welcome pointer is not found
@@ -25,15 +24,10 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
             Retry::default(),
             (context
                 .api()
-                .api_client
                 // TODO: limit this to a single message somehow (maybe an earliest_welcome_message fn)
-                .query_welcome_messages(decrypted_v1.destination.as_slice().try_into()?))
+                .query_welcome_messages(decrypted_v1.destination.as_slice()))
         );
-        if let Some(first) = welcome
-            .map_err(|e| xmtp_api::ApiError::Api(Box::new(e)))?
-            .into_iter()
-            .next()
-        {
+        if let Some(first) = welcome?.into_iter().next() {
             break first;
         }
         retries += 1;

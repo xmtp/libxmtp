@@ -13,7 +13,7 @@ use xmtp_proto::xmtp::mls::database::{Task as TaskProto, task::Task as TaskKind}
 pub struct Task {
     pub id: i32,
     pub originating_message_sequence_id: i64,
-    pub originating_message_originator_id: i32,
+
     pub created_at_ns: i64,
     pub expires_at_ns: i64,
     pub attempts: i32,
@@ -32,7 +32,7 @@ pub struct Task {
 #[builder(build_fn(skip))]
 pub struct NewTask {
     pub originating_message_sequence_id: i64,
-    pub originating_message_originator_id: i32,
+
     pub created_at_ns: i64,
     pub expires_at_ns: i64,
     pub attempts: i32,
@@ -64,9 +64,6 @@ impl NewTaskBuilder {
             originating_message_sequence_id: self
                 .originating_message_sequence_id
                 .ok_or_else(|| err("originating_message_sequence_id"))?,
-            originating_message_originator_id: self
-                .originating_message_originator_id
-                .ok_or_else(|| err("originating_message_originator_id"))?,
             created_at_ns: self.created_at_ns.unwrap_or_else(now_ns),
             expires_at_ns: self
                 .expires_at_ns
@@ -408,7 +405,6 @@ pub(crate) mod tests {
             // 1. Create first task (should be next to run)
             let task1 = NewTaskBuilder::default()
                 .originating_message_sequence_id(1)
-                .originating_message_originator_id(1)
                 .created_at_ns(now)
                 .expires_at_ns(now + 3_600_000_000_000)
                 .attempts(0)
@@ -424,7 +420,6 @@ pub(crate) mod tests {
             // 2. Create second task (should be first to run)
             let task2 = NewTaskBuilder::default()
                 .originating_message_sequence_id(2)
-                .originating_message_originator_id(1)
                 .created_at_ns(now)
                 .expires_at_ns(now + 7_200_000_000_000) // 2 hours from now
                 .attempts(0)
@@ -538,7 +533,6 @@ pub(crate) mod tests {
         let proto = gen_task_data();
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .build(proto.clone())
             .unwrap();
         assert_eq!(task.data_hash, data_hash_for(&proto).as_ref());
@@ -610,7 +604,6 @@ pub(crate) mod tests {
             let mk = || {
                 NewTask::builder()
                     .originating_message_sequence_id(0)
-                    .originating_message_originator_id(0)
                     .build(proto.clone())
                     .unwrap()
             };
@@ -629,7 +622,6 @@ pub(crate) mod tests {
             let now = now_ns();
             let task = NewTask::builder()
                 .originating_message_sequence_id(0)
-                .originating_message_originator_id(0)
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto.clone())
                 .unwrap();
@@ -673,7 +665,6 @@ pub(crate) mod tests {
             };
             NewTask::builder()
                 .originating_message_sequence_id(0)
-                .originating_message_originator_id(0)
                 .build(proto)
                 .unwrap()
         };
@@ -704,7 +695,6 @@ pub(crate) mod tests {
             let now = now_ns();
             let live = NewTask::builder()
                 .originating_message_sequence_id(0)
-                .originating_message_originator_id(0)
                 .attempts(2)
                 .next_attempt_at_ns(now + NS_IN_DAY)
                 .build(proto(&GroupId::ONE))?;
@@ -714,7 +704,6 @@ pub(crate) mod tests {
             conn.upsert_pending_self_remove_task(&GroupId::ONE, {
                 NewTask::builder()
                     .originating_message_sequence_id(0)
-                    .originating_message_originator_id(0)
                     .next_attempt_at_ns(now)
                     .build(proto(&GroupId::ONE))?
             })?;
@@ -726,7 +715,6 @@ pub(crate) mod tests {
             // A dead task (attempts exhausted) IS replaced with a fresh retry.
             let dead = NewTask::builder()
                 .originating_message_sequence_id(0)
-                .originating_message_originator_id(0)
                 .attempts(20)
                 .max_attempts(20)
                 .build(proto(&GroupId::TWO))?;
@@ -734,7 +722,6 @@ pub(crate) mod tests {
             conn.upsert_pending_self_remove_task(&GroupId::TWO, {
                 NewTask::builder()
                     .originating_message_sequence_id(0)
-                    .originating_message_originator_id(0)
                     .attempts(0)
                     .build(proto(&GroupId::TWO))?
             })?;

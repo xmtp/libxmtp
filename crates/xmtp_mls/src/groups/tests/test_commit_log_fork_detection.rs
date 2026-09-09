@@ -6,7 +6,6 @@ use crate::groups::validated_commit::ValidatedCommit;
 use crate::tester;
 use openmls::group::MlsGroup as OpenMlsGroup;
 use openmls::prelude::{ProcessedMessageContent, Sender};
-use xmtp_configuration::Originators;
 use xmtp_db::Store;
 use xmtp_db::TransactionOutcome::Rollback;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
@@ -18,7 +17,6 @@ use xmtp_db::{
 };
 use xmtp_proto::types::Cursor;
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -98,7 +96,6 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -178,7 +175,6 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -214,19 +210,17 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     remote_entry.store(&alix.context.db())?;
 
     // Get initial cursor values (should be 0)
-    let initial_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let initial_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let initial_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let initial_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
 
-    assert_eq!(initial_local_cursor, Cursor::commit_log(0));
-    assert_eq!(initial_remote_cursor, Cursor::commit_log(0));
+    assert_eq!(initial_local_cursor, Cursor(0));
+    assert_eq!(initial_remote_cursor, Cursor(0));
 
     // Test fork detection
     let mut worker = CommitLogWorker::new(alix.context.clone());
@@ -252,24 +246,22 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let updated_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
 
     // Cursors should be updated to the rowids of the matching entries
     assert!(
-        updated_local_cursor > Cursor::commit_log(0),
+        updated_local_cursor > Cursor(0),
         "Local cursor should be updated"
     );
     assert!(
-        updated_remote_cursor > Cursor::commit_log(0),
+        updated_remote_cursor > Cursor(0),
         "Remote cursor should be updated"
     );
 
@@ -325,15 +317,13 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     );
 
     // Verify cursors were updated
-    let updated_two_local_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_two_local_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckLocal,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
-    let updated_two_remote_cursor = alix.context.db().get_last_cursor_for_originator(
+    let updated_two_remote_cursor = alix.context.db().get_last_cursor(
         group_id,
         xmtp_db::refresh_state::EntityKind::CommitLogForkCheckRemote,
-        Originators::REMOTE_COMMIT_LOG,
     )?;
     let latest_two_local_log = alix.context.db().get_latest_log_for_group(&group_id)?;
     let latest_two_remote_log = alix
@@ -343,11 +333,11 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
 
     assert_eq!(
         updated_two_local_cursor,
-        Cursor::commit_log(latest_two_local_log.unwrap().rowid as u64)
+        Cursor(latest_two_local_log.unwrap().rowid as u64)
     );
     assert_eq!(
         updated_two_remote_cursor,
-        Cursor::commit_log(latest_two_remote_log.unwrap().rowid as u64)
+        Cursor(latest_two_remote_log.unwrap().rowid as u64)
     );
 
     // Verify that the cursor positions are different
@@ -357,7 +347,6 @@ async fn test_commit_log_fork_detection_cursor_updates() -> Result<(), Box<dyn s
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -433,7 +422,6 @@ async fn test_commit_log_fork_detection_returns_none_when_no_matching_remote()
     Ok(())
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_status_persistence_no_new_commits()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -614,7 +602,7 @@ async fn test_commit_log_fork_status_persistence_no_new_commits()
 /// 3. After re-adding via a new welcome, the `commit_sequence_id == 0` anchor
 ///    stops comparison at the rejoin boundary and reports `None` (unknown) —
 ///    never `Some(true)`.
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_fork_detection_not_triggered_by_removal_and_readd()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -796,7 +784,7 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
 /// the real receive path the cursor advance, merge, and log write share one
 /// transaction, so the rollback is safe and the message converges via cursor
 /// dedup on retry.
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
 -> Result<(), Box<dyn std::error::Error>> {
@@ -882,9 +870,9 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         .await?;
     let commit_envelope = messages
         .into_iter()
-        .max_by_key(|m| m.cursor.sequence_id)
+        .max_by_key(|m| m.cursor.0)
         .expect("the add-caro commit must be on the network");
-    let commit_sequence_id = commit_envelope.cursor.sequence_id as i64;
+    let commit_sequence_id = commit_envelope.cursor.0 as i64;
 
     // Bo's group is at epoch E; snapshot the raw epoch-E GroupContext and
     // epoch-keypair kv rows so they can be written back after the sync.

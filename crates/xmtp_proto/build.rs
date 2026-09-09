@@ -12,18 +12,7 @@ const SERVER_CFG: &str =
     r#"#[cfg(any(not(target_arch = "wasm32"), feature = "grpc_server_impls"))]"#;
 
 fn codegen_configure(mut builder: Builder) -> Builder {
-    for package in [
-        "xmtp.backend.v1",
-        "xmtp.identity.api.v1",
-        "xmtp.message_api.v1",
-        "xmtp.mls.api.v1",
-        "xmtp.xmtpv4",
-        "xmtp.xmtpv4.gateway_api",
-        "xmtp.xmtpv4.payer_api",
-        "xmtp.xmtpv4.message_api",
-        "xmtp.xmtpv4.metadata_api",
-        "xmtp.migration.api.v1",
-    ] {
+    for package in ["xmtp.backend.v1", "xmtp.identity.api.v1"] {
         builder = builder.server_mod_attribute(package, SERVER_CFG);
     }
     builder

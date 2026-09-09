@@ -1,8 +1,10 @@
 //! Tests for network connectivity, offline behavior, and API statistics
 
 use super::*;
+use xmtp_mls::context::XmtpSharedContext;
+use xmtp_proto::api::HasStats;
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 1)]
 async fn radio_silence() {
     let alex = TesterBuilder::new().sync_worker().stream().build().await;
 
@@ -11,13 +13,11 @@ async fn radio_silence() {
 
     let worker = alex.client.inner_client.context.sync_metrics().unwrap();
 
-    let stats = alex.inner_client.api_stats();
-    let ident_stats = alex.inner_client.identity_api_stats();
+    let stats = alex.inner_client.context.api().api_client.mls_stats();
+    let ident_stats = alex.inner_client.context.api().api_client.identity_stats();
 
-    // One identity update pushed. Zero interaction with groups.
-    assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
-    assert_eq!(stats.send_welcome_messages.get_count(), 0);
-    assert_eq!(stats.send_group_messages.get_count(), 1);
+    // Publish the key package, identity, and sync group.
+    assert_eq!(stats.publish.get_count(), 3);
 
     let bo = Tester::new().await;
     let conversation = alex
@@ -38,23 +38,17 @@ async fn radio_silence() {
         .await
         .unwrap();
 
-    // One identity update pushed. Zero interaction with groups.
-    assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
     assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
-    assert_eq!(stats.send_welcome_messages.get_count(), 1);
-    let group_message_count = stats.send_group_messages.get_count();
+    let publish_count = stats.publish.get_count();
 
     // Sleep for a bit and make sure nothing else has sent
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    // One identity update pushed. Zero interaction with groups.
-    assert_eq!(ident_stats.publish_identity_update.get_count(), 1);
     assert_eq!(ident_stats.get_inbox_ids.get_count(), 2);
-    assert_eq!(stats.send_welcome_messages.get_count(), 1);
-    assert_eq!(stats.send_group_messages.get_count(), group_message_count);
+    assert_eq!(stats.publish.get_count(), publish_count);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 1)]
 async fn create_client_does_not_hit_network() {
     let ffi_inbox_owner = FfiWalletInboxOwner::new();
     let nonce = 1;
@@ -93,18 +87,14 @@ async fn create_client_does_not_hit_network() {
     println!("Aggregate Stats Create:\n{}", aggregate_str);
 
     let api_stats = client.api_statistics();
-    assert_eq!(api_stats.upload_key_package, 1);
-    assert_eq!(api_stats.fetch_key_package, 0);
+    // The sync worker also publishes its group.
+    assert_eq!(api_stats.publish, 3);
+    assert_eq!(api_stats.query_newest, 0);
 
     let identity_stats = client.api_identity_statistics();
-    assert_eq!(identity_stats.publish_identity_update, 1);
-    // Was 2 before collapsing the two gRPC connections into one. With a single
-    // client, identity-update reads that previously landed on the separate
-    // (never-inspected) sync client's counter now all count on the one api
-    // client — so the observable total is 3. Same network calls, one bucket.
-    assert_eq!(identity_stats.get_identity_updates_v2, 3);
+    assert_eq!(api_stats.query, 5);
     assert_eq!(identity_stats.get_inbox_ids, 1);
-    assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+    assert_eq!(identity_stats.verify_smart_contract_wallet_signatures, 0);
 
     client.clear_all_statistics();
 
@@ -129,17 +119,16 @@ async fn create_client_does_not_hit_network() {
     println!("Aggregate Stats Build:\n{}", aggregate_str);
 
     let api_stats = build.api_statistics();
-    assert_eq!(api_stats.upload_key_package, 0);
-    assert_eq!(api_stats.fetch_key_package, 0);
+    assert_eq!(api_stats.publish, 0);
+    assert_eq!(api_stats.query_newest, 0);
 
     let identity_stats = build.api_identity_statistics();
-    assert_eq!(identity_stats.publish_identity_update, 0);
-    assert_eq!(identity_stats.get_identity_updates_v2, 0);
+    assert_eq!(api_stats.query, 0);
     assert_eq!(identity_stats.get_inbox_ids, 0);
-    assert_eq!(identity_stats.verify_smart_contract_wallet_signature, 0);
+    assert_eq!(identity_stats.verify_smart_contract_wallet_signatures, 0);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 1)]
 async fn ffi_api_stats_exposed_correctly() {
     let tester = Tester::new().await;
     let client: &FfiXmtpClient = &tester.client;
@@ -159,31 +148,22 @@ async fn ffi_api_stats_exposed_correctly() {
         .list(FfiListConversationsOptions::default());
 
     let api_stats = client.api_statistics();
-    tracing::info!(
-        "api_stats.send_group_messages {}",
-        api_stats.send_group_messages
-    );
-    assert!(api_stats.send_group_messages == 1);
-    assert!(api_stats.send_welcome_messages == 1);
-
+    assert_eq!(api_stats.publish, 4);
     let identity_stats = client.api_identity_statistics();
-    assert_eq!(identity_stats.publish_identity_update, 1);
     assert!(identity_stats.get_inbox_ids >= 1);
 
     let aggregate_str = client.api_aggregate_statistics();
     println!("Aggregate Stats:\n{}", aggregate_str);
 
-    assert!(aggregate_str.contains("UploadKeyPackage"));
-    assert!(aggregate_str.contains("PublishIdentityUpdate"));
+    assert!(aggregate_str.contains("publish"));
+    assert!(aggregate_str.contains("get_inbox_ids"));
 
     client.clear_all_statistics();
 
     let api_stats = client.api_statistics();
-    assert!(api_stats.send_group_messages == 0);
-    assert!(api_stats.send_welcome_messages == 0);
+    assert_eq!(api_stats.publish, 0);
 
     let identity_stats = client.api_identity_statistics();
-    assert_eq!(identity_stats.publish_identity_update, 0);
     assert!(identity_stats.get_inbox_ids == 0);
 
     let aggregate_str = client.api_aggregate_statistics();
@@ -199,18 +179,16 @@ async fn ffi_api_stats_exposed_correctly() {
         .unwrap();
 
     let api_stats = client.api_statistics();
-    assert!(api_stats.send_group_messages == 1);
-    assert!(api_stats.send_welcome_messages == 1);
+    assert_eq!(api_stats.publish, 2);
 
     let identity_stats = client.api_identity_statistics();
-    assert_eq!(identity_stats.publish_identity_update, 0);
     assert!(identity_stats.get_inbox_ids == 1);
 
     let aggregate_str = client.api_aggregate_statistics();
     println!("Aggregate Stats:\n{}", aggregate_str);
 }
 
-#[tokio::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_is_connected_after_connect() {
     let api_backend = connect_to_backend_test().await;
 
@@ -218,19 +196,32 @@ async fn test_is_connected_after_connect() {
 
     assert!(connected, "Expected API client to report as connected");
 
-    let api = connect_to_backend(
-        "http://127.0.0.1:59999".to_string(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await
-    .unwrap();
+    let api = connect_to_backend("http://127.0.0.1:59999".to_string(), None, None, None, None)
+        .await
+        .unwrap();
     let result = api
         .wrapper
         .query_group_messages(xmtp_common::rand_array::<16>().into())
         .await;
     assert!(result.is_err(), "Expected connection to fail");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn backend_url_is_required() {
+    let result = connect_to_backend(String::new(), None, None, None, None).await;
+    assert!(result.is_err());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn api_client_cache_key_uses_backend_url_and_app_version() {
+    let url = std::env::var("XMTP_BACKEND_URL")
+        .unwrap_or_else(|_| xmtp_configuration::BACKEND_TEST_URL.into());
+    let client =
+        connect_to_backend(url.clone(), None, Some("TestApp/1.0".into()), None, None).await?;
+    assert_eq!(client.cache_key(), format!("{url}|TestApp/1.0"));
+    let default = connect_to_backend(url.clone(), None, None, None, None).await?;
+    assert_eq!(default.cache_key(), format!("{url}|"));
+    assert_ne!(default.cache_key(), client.cache_key());
+    let other = connect_to_backend("http://127.0.0.1:59999".into(), None, None, None, None).await?;
+    assert_ne!(default.cache_key(), other.cache_key());
 }

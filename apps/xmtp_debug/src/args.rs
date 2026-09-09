@@ -3,17 +3,11 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use color_eyre::eyre;
 use std::path::PathBuf;
-use xmtp_configuration::PAYER_WRITE_FILTER;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
-use xmtp_api_grpc::GrpcClient;
-use xmtp_proto::{
-    api::Client,
-    prelude::{ApiBuilder, NetConnectConfig},
-    types::GroupId,
-};
+use xmtp_api_backend::MessageBackendBuilder;
+use xmtp_proto::types::GroupId;
 
 /// Debug & Generate data on the XMTP Network
 #[derive(Parser, Debug)]
@@ -96,10 +90,6 @@ pub struct Generate {
     /// Defaults to the number of available CPU cores if not specified.
     #[arg(long, short, default_value_t = Concurrency::default())]
     pub concurrency: Concurrency,
-    /// enable reading publishes from the backend
-    /// _NOTE:_ feature is experimental
-    #[arg(long, short)]
-    pub ryow: bool,
 }
 
 #[derive(Args, Copy, Debug, Clone)]
@@ -363,209 +353,41 @@ pub struct LogOptions {
     pub trace_openmls_kv: bool,
 }
 
-/// Specify which backend to use
-#[derive(Args, Clone, Debug, Default)]
+/// Backend connection options.
+#[derive(Args, Clone, Debug)]
 pub struct BackendOpts {
-    #[arg(
-         value_enum,
-         short,
-         long,
-         conflicts_with_all = &["url", "xmtpd_gateway_url"],
-         default_value_t = BackendKind::Local
-     )]
-    pub backend: BackendKind,
-    /// URL Pointing to a backend. Conflicts with `backend`
+    /// Required self-hosted backend URL.
     #[arg(short, long)]
-    pub url: Option<url::Url>,
-    #[arg(short, long)]
-    pub xmtpd_gateway_url: Option<url::Url>,
-    /// Enable the decentralization backend
-    #[arg(short, long)]
-    pub d14n: bool,
-    /// Connect reads directly to a single xmtpd node for D14n, bypassing MultiNodeClient
-    /// gateway discovery. Writes still route through --xmtpd-gateway-url.
-    /// Requires --d14n.
-    #[arg(long, requires = "d14n")]
-    pub d14n_host: Option<url::Url>,
-    /// Use the perf gateway (closest-node selection) instead of the default gateway.
-    /// Requires --d14n.
-    #[arg(short, long, requires = "d14n")]
-    pub perf: bool,
-    /// enable the v3 -> d14n cutover client
-    #[arg(short = 'm', long, conflicts_with_all = &["d14n"])]
-    pub enable_migration: bool,
-    /// Timeout for reading writes to the decentralized backend
-    #[arg(long, short, default_value_t = default_ryow_timeout())]
-    pub ryow_timeout: humantime::Duration,
-}
-
-fn default_ryow_timeout() -> humantime::Duration {
-    "5s".parse::<humantime::Duration>().unwrap()
+    pub url: url::Url,
 }
 
 impl BackendOpts {
     pub fn hash(&self) -> u64 {
-        (self).into()
-    }
-
-    pub fn xmtpd_gateway_url(&self) -> eyre::Result<url::Url> {
-        use BackendKind::*;
-
-        if let Some(p) = &self.xmtpd_gateway_url {
-            return Ok(p.clone());
-        }
-
-        if self.perf {
-            debug_assert!(self.d14n, "--perf requires --d14n");
-            return match self.backend {
-                Dev => Ok((*crate::constants::XMTP_DEV_PERF_GATEWAY).clone()),
-                Staging => Ok((*crate::constants::XMTP_STAGING_PERF_GATEWAY).clone()),
-                Production => Ok((*crate::constants::XMTP_PRODUCTION_PERF_GATEWAY).clone()),
-                Local => Ok((*crate::constants::XMTP_LOCAL_PERF_GATEWAY).clone()),
-            };
-        }
-
-        match (self.backend, self.d14n, self.enable_migration) {
-            (Dev, false, false) => eyre::bail!("No gateway for V3"),
-            (Staging, false, false) => eyre::bail!("No gateway for V3"),
-            (Production, false, false) => eyre::bail!("No gateway for V3"),
-            (Local, false, false) => eyre::bail!("No gateway for V3"),
-            (Dev, true, false) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, true, false) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, true, false) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-            (Local, true, false) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
-            (Local, _, true) => Ok((*crate::constants::XMTP_LOCAL_GATEWAY).clone()),
-            (Dev, _, true) => Ok((*crate::constants::XMTP_DEV_GATEWAY).clone()),
-            (Staging, _, true) => Ok((*crate::constants::XMTP_STAGING_GATEWAY).clone()),
-            (Production, _, true) => Ok((*crate::constants::XMTP_PRODUCTION_GATEWAY).clone()),
-        }
-    }
-
-    pub fn network_url(&self) -> url::Url {
-        if let Some(n) = &self.url {
-            return n.clone();
-        }
-        self.backend.to_network_url(self.d14n)
+        xxh3::xxh3_64(self.url.as_str().as_bytes())
     }
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
-        let mut builder = MessageBackendBuilder::default();
-        let bundle = self.client_bundle()?;
-        Ok(builder.from_bundle(bundle)?)
-    }
-
-    pub fn client_bundle(&self) -> eyre::Result<xmtp_mls::XmtpClientBundle> {
-        let network = self.network_url();
-        let mut builder = ClientBundle::builder();
-        builder.v3_host(network.as_str());
-        if self.enable_migration {
-            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            trace!(url = %network, xmtpd_gateway = %xmtpd_gateway_host, "create grpc");
-            return Ok(builder.gateway_host(xmtpd_gateway_host.as_str()).build()?);
-        }
-        if self.d14n {
-            let xmtpd_gateway_host = self.xmtpd_gateway_url()?;
-            Ok(builder
-                .maybe_xmtpd_host(self.d14n_host.clone())
-                .gateway_host(xmtpd_gateway_host.as_str())
-                .build_d14n()?)
-        } else {
-            trace!(url = %network, "create grpc");
-            Ok(builder.build_v3()?)
-        }
-    }
-
-    pub fn xmtpd(&self) -> eyre::Result<impl Client> {
-        let mut gateway_client_builder = GrpcClient::builder();
-        gateway_client_builder.set_host(self.xmtpd_gateway_url()?);
-        let gateway_client = gateway_client_builder.build()?;
-        let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
-            .gateway_client(gateway_client.clone())
-            .node_client_template(GrpcClient::builder())
-            .build()?;
-
-        let rw = ReadWriteClient::builder()
-            .read(multi_node)
-            .write(gateway_client)
-            .filter(PAYER_WRITE_FILTER)
-            .build()?;
-        Ok(rw)
+        Ok(MessageBackendBuilder::default()
+            .host(self.url.as_str())
+            .build()?)
     }
 }
 
-// this decides the folder/prefix for network
-// each network gets an isolated folder/database for redb and also sqlite clients
-// if the numbers are the same, clients will conflict on network
-// custom network URLS are hashed with xxh3_64
-impl<'a> From<&'a BackendOpts> for u64 {
-    fn from(value: &'a BackendOpts) -> Self {
-        use BackendKind::*;
-
-        if let Some(ref url) = value.url {
-            xxh3::xxh3_64(url.as_str().as_bytes())
-        } else {
-            match (value.backend, value.d14n, value.enable_migration) {
-                (Production, false, false) => 2,
-                (Staging, false, false) => 1,
-                (Dev, false, false) => 1,
-                (Local, false, false) => 0,
-                (Production, true, false) => 5,
-                (Staging, true, false) => 6,
-                (Dev, true, false) => 4,
-                (Local, true, false) => 3,
-                // Migration cases, where the client is both d14n and v3
-                (Local, _, true) => 7,
-                (Dev, _, true) => 8,
-                (Staging, _, true) => 9,
-                (Production, _, true) => 10,
-            }
-        }
+impl From<&BackendOpts> for u64 {
+    fn from(value: &BackendOpts) -> Self {
+        value.hash()
     }
 }
 
 impl From<BackendOpts> for u64 {
     fn from(value: BackendOpts) -> Self {
-        (&value).into()
+        value.hash()
     }
 }
 
 impl From<BackendOpts> for url::Url {
     fn from(value: BackendOpts) -> Self {
-        let BackendOpts {
-            backend, url, d14n, ..
-        } = value;
-        url.unwrap_or(backend.to_network_url(d14n))
-    }
-}
-
-#[derive(ValueEnum, Debug, Copy, Clone, Default)]
-pub enum BackendKind {
-    Dev,
-    Staging,
-    Production,
-    #[default]
-    Local,
-}
-
-impl BackendKind {
-    pub fn to_network_url(self, d14n: bool) -> url::Url {
-        use BackendKind::*;
-        match (self, d14n) {
-            (Dev, false) => (*crate::constants::XMTP_DEV).clone(),
-            (Staging, false) => (*crate::constants::XMTP_STAGING).clone(),
-            (Production, false) => (*crate::constants::XMTP_PRODUCTION).clone(),
-            (Local, false) => (*crate::constants::XMTP_LOCAL).clone(),
-            (Dev, true) => (*crate::constants::XMTP_DEV_D14N).clone(),
-            (Staging, true) => (*crate::constants::XMTP_STAGING_D14N).clone(),
-            (Production, true) => (*crate::constants::XMTP_PRODUCTION_D14N).clone(),
-            (Local, true) => (*crate::constants::XMTP_LOCAL_D14N).clone(),
-        }
-    }
-}
-
-impl From<BackendKind> for url::Url {
-    fn from(value: BackendKind) -> Self {
-        value.to_network_url(false)
+        value.url
     }
 }
 
@@ -581,20 +403,6 @@ pub struct TestOpts {
     /// Number of messages for group-sync scenario
     #[arg(long, short, default_value = "10")]
     pub message_count: usize,
-    /// V4/D14N replication node URL for migration-latency scenario.
-    /// Must be a D14N node (e.g. https://grpc.testnet.xmtp.network:443),
-    /// NOT the payer gateway — the gateway doesn't serve QueryEnvelopes reads.
-    #[arg(long)]
-    pub v4_node_url: Option<url::Url>,
-    /// Timeout in seconds for waiting for migrated message on V4 (default 120)
-    #[arg(long, default_value = "120")]
-    pub migration_timeout: u64,
-    /// Number of messages to send for content-parity scenario (default 5)
-    #[arg(long, default_value = "5")]
-    pub parity_messages: usize,
-    /// Number of messages to send for wallet-continuity scenario (default 5)
-    #[arg(long, default_value = "5")]
-    pub continuity_messages: usize,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -603,12 +411,6 @@ pub enum TestScenario {
     MessageVisibility,
     /// Measure group sync latency after N messages
     GroupSync,
-    /// Measure V3→V4 migration latency (write to V3, poll V4)
-    MigrationLatency,
-    /// Validate V3→V4 content parity (write structured payloads, diff on V4)
-    ContentParity,
-    /// Validate wallet continuity: V3 data readable on V4 with same wallet
-    WalletContinuity,
 }
 
 /// Cross-version libxmtp health check.

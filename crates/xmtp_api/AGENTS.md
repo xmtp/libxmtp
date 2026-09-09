@@ -1,17 +1,22 @@
 # xmtp_api
 
-API traits. `default = ["v3"]`. `d14n` feature selects the xmtpd backend.
-
-## Commands
+Backend API wrapper. It owns retries, request limits, paging, and result maps.
 
 ```bash
-just check crate xmtp_api
-just lint-rust                          # workspace-wide. No per-crate lint.
-just test crate xmtp_api
-just test v3 -p xmtp_api --ignore-default-filter publish_identity_update   # one test
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_api -E 'test(/identity::/)'"   # one module
+dev/nix-shell 'cargo test -p xmtp_api'
+dev/nix-shell 'cargo clippy -p xmtp_api --all-targets -- -D warnings'
 ```
 
-## Gotchas
+The real RPC test needs the backend at `http://localhost:5050` and PostgreSQL.
+Set `XMTP_BACKEND_URL` to use another test instance.
+Use `just backend-db-up`, `just build-backend`, then start the backend with its
+local configuration. The other tests use `MockBackendClient`.
 
-- `d14n` feature and `xmtp_api_d14n` get deleted this project. Add nothing d14n-only.
+Keep each commit and its proposals in one `PublishUnit`. The unit retains
+canonical bytes and cannot be split. All request limits come from
+`xmtp_configuration::BACKEND_DEFAULT_MAX_*`.
+
+`query_all` advances a separate cursor for each topic and reads until
+`has_more` is false. Key-package results include `None` for missing keys.
+Inbox results keep input order and duplicates. Match gRPC codes and structured
+publish details; do not inspect error message text.

@@ -50,7 +50,7 @@ let
     CARGO_PROFILE = "wasm-test";
   };
 
-  wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types";
+  wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types";
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
     (removeAttrs commonArgs [ "src" ])

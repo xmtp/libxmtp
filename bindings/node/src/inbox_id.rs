@@ -4,7 +4,6 @@ use crate::identity::Identifier;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
 use xmtp_proto::types::ApiIdentifier;
@@ -15,9 +14,7 @@ pub async fn get_inbox_id_by_identity(
   backend: &Backend,
   identifier: Identifier,
 ) -> Result<Option<String>> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
 
   let identifier: xmtp_id::associations::Identifier = identifier.try_into()?;
@@ -27,7 +24,7 @@ pub async fn get_inbox_id_by_identity(
     .await
     .map_err(ErrorWrapper::from)?;
 
-  Ok(results.get(&api_ident).cloned())
+  Ok(results.into_iter().next().flatten())
 }
 
 #[napi]
@@ -85,9 +82,7 @@ async fn is_member_of_association_state(
   inbox_id: &str,
   identifier: &MemberIdentifier,
 ) -> Result<bool> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
 
   let is_member =

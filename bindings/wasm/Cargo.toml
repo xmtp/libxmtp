@@ -49,7 +49,7 @@ web-sys = { workspace = true, features = [
   "ReadableStream",
 ] }
 xmtp_api.workspace = true
-xmtp_api_d14n.workspace = true
+xmtp_api_backend.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true

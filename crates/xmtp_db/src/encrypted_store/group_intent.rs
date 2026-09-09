@@ -154,7 +154,6 @@ pub struct StoredGroupIntent {
     pub published_in_epoch: Option<i64>,
     pub should_push: bool,
     pub sequence_id: Option<i64>,
-    pub originator_id: Option<i64>,
 }
 
 impl std::fmt::Debug for StoredGroupIntent {
@@ -495,8 +494,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                 .filter(dsl::state.eq(IntentState::Published))
                 .set((
                     dsl::state.eq(IntentState::Committed),
-                    dsl::sequence_id.eq(cursor.sequence_id as i64),
-                    dsl::originator_id.eq(cursor.originator_id as i64),
+                    dsl::sequence_id.eq(cursor.0 as i64),
                 ))
                 .execute(conn)
         })?;
@@ -613,7 +611,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     /// Find the commit message refresh state for each intent by payload hash.
-    /// Returns a map from payload hash to a vector of dependencies (one per originator).
+    /// Returns a map from payload hash to a vector of group dependencies.
     #[xmtp_common::db_span]
     fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
@@ -638,15 +636,14 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                 .select((
                     dsl::payload_hash.assume_not_null(),
                     refresh_state::sequence_id,
-                    refresh_state::originator_id,
                     dsl::group_id,
                 ))
-                .load_iter::<(Vec<u8>, i64, i32, GroupId), DefaultLoadingMode>(conn)?
-                .map_ok(|(hash, sequence_id, originator_id, group_id)| {
+                .load_iter::<(Vec<u8>, i64, GroupId), DefaultLoadingMode>(conn)?
+                .map_ok(|(hash, sequence_id, group_id)| {
                     (
                         PayloadHash::from(hash),
                         IntentDependency {
-                            cursor: Cursor::new(sequence_id as u64, originator_id as u32),
+                            cursor: Cursor(sequence_id as u64),
                             group_id,
                         },
                     )
@@ -1228,7 +1225,7 @@ pub(crate) mod tests {
             conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
                 .unwrap();
 
-            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor::new(100, 42u32))
+            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor(100))
                 .unwrap();
 
             let result = conn
@@ -1239,15 +1236,15 @@ pub(crate) mod tests {
             let dep1 = result
                 .get(&PayloadHash::from(payload_hash1.clone()))
                 .unwrap();
-            assert_eq!(dep1.cursor.sequence_id, 100);
-            assert_eq!(dep1.cursor.originator_id, 42);
+            assert_eq!(dep1.cursor.0, 100);
+
             assert_eq!(dep1.group_id.as_ref(), &group_id);
 
             let dep2 = result
                 .get(&PayloadHash::from(payload_hash2.clone()))
                 .unwrap();
-            assert_eq!(dep2.cursor.sequence_id, 100);
-            assert_eq!(dep2.cursor.originator_id, 42);
+            assert_eq!(dep2.cursor.0, 100);
+
             assert_eq!(dep2.group_id.as_ref(), &group_id);
         })
     }

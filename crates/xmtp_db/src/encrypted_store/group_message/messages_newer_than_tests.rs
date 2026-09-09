@@ -1,397 +1,71 @@
+use super::tests::generate_message;
 use super::*;
 use crate::{Store, group::tests::generate_group, test_utils::with_connection};
-use xmtp_common::{assert_ok, rand_vec};
-use xmtp_proto::types::GroupId;
 
-// Helper function to create a message with specific sequence_id and originator_id
-fn generate_message_with_cursor(
-    group_id: &GroupId,
-    originator_id: i64,
-    sequence_id: i64,
-    sent_at_ns: i64,
-) -> StoredGroupMessage {
-    StoredGroupMessage {
-        id: rand_vec::<24>(),
-        group_id: *group_id,
-        decrypted_message_bytes: rand_vec::<24>(),
-        sent_at_ns,
-        sender_installation_id: rand_vec::<24>(),
-        sender_inbox_id: "0x0".to_string(),
-        kind: GroupMessageKind::Application,
-        delivery_status: DeliveryStatus::Published,
-        content_type: ContentType::Text,
-        version_major: 0,
-        version_minor: 0,
-        authority_id: "unknown".to_string(),
-        reference_id: None,
-        inserted_at_ns: sent_at_ns,
-        sequence_id,
-        originator_id,
-        expire_at_ns: None,
-        should_push: true,
-        idempotency_key: sent_at_ns.to_string(),
-    }
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_basic() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
+#[rstest::rstest]
+#[case(0, vec![5, 10, 20])]
+#[case(5, vec![10, 20])]
+#[case(10, vec![20])]
+#[case(20, vec![])]
+#[case(30, vec![])]
+#[xmtp_common::test(unwrap_try = true)]
+fn messages_newer_than_scalar(#[case] floor: u64, #[case] expected: Vec<u64>) {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
-
-        // Create messages with different originator_ids and sequence_ids
-        let messages = vec![
-            generate_message_with_cursor(&group.id, 1, 10, 1000),
-            generate_message_with_cursor(&group.id, 1, 20, 2000),
-            generate_message_with_cursor(&group.id, 2, 15, 3000),
-            generate_message_with_cursor(&group.id, 2, 25, 4000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Set cursor to originator 1: seq 10, originator 2: seq 15
-        let mut cursor = GlobalCursor::default();
-        cursor.insert(1, 10);
-        cursor.insert(2, 15);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        // Should return messages newer than cursor
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 2);
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group.id && c.originator_id == 1 && c.sequence_id == 20)
-        );
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group.id && c.originator_id == 2 && c.sequence_id == 25)
-        );
-    })
+        for sequence in [5, 10, 20] {
+            let mut message =
+                generate_message(None, Some(&group.id), Some(sequence), None, None, None);
+            message.sequence_id = sequence;
+            message.store(conn).unwrap();
+        }
+        let mut found: Vec<_> = conn
+            .messages_newer_than(&HashMap::from([(group.id.to_vec(), Cursor(floor))]))
+            .unwrap()
+            .into_iter()
+            .map(|(id, cursor)| {
+                assert_eq!(id, group.id);
+                cursor.0
+            })
+            .collect();
+        found.sort_unstable();
+        assert_eq!(found, expected);
+    });
 }
 
-#[xmtp_common::test]
-fn test_messages_newer_than_new_originator() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
+#[xmtp_common::test(unwrap_try = true)]
+fn messages_newer_than_keeps_group_positions_separate() {
     with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        // Create messages from originator 1 and 2
-        let messages = vec![
-            generate_message_with_cursor(&group.id, 1, 10, 1000),
-            generate_message_with_cursor(&group.id, 2, 5, 2000),
-            generate_message_with_cursor(&group.id, 2, 10, 3000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Cursor only knows about originator 1
-        let mut cursor = GlobalCursor::default();
-        cursor.insert(1, 10);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        // Should return all messages from originator 2 (new originator)
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 2);
-        assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 5)
-        );
-        assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 10)
-        );
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_multiple_groups() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group1 = generate_group(None);
-        let group2 = generate_group(None);
-        group1.store(conn).unwrap();
-        group2.store(conn).unwrap();
-
-        // Create messages in both groups
-        let messages = vec![
-            generate_message_with_cursor(&group1.id, 1, 10, 1000),
-            generate_message_with_cursor(&group1.id, 1, 20, 2000),
-            generate_message_with_cursor(&group2.id, 1, 5, 3000),
-            generate_message_with_cursor(&group2.id, 1, 15, 4000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Set different cursors for each group
-        let mut cursor1 = GlobalCursor::default();
-        cursor1.insert(1, 10);
-
-        let mut cursor2 = GlobalCursor::default();
-        cursor2.insert(1, 5);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.to_vec(), cursor1);
-        cursors_by_group.insert(group2.id.to_vec(), cursor2);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 2);
-        // Each cursor is attributed to the group it came from.
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group1.id && c.sequence_id == 20)
-        );
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group2.id && c.sequence_id == 15)
-        );
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_batching() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        // Create more than 100 groups to test batching
-        let mut groups = Vec::new();
-        for _ in 0..150 {
+        let mut cursors = HashMap::new();
+        let mut expected = Vec::new();
+        for index in 0..150 {
             let group = generate_group(None);
             group.store(conn).unwrap();
-            groups.push(group);
+            let floor = index * 10 + 1;
+            cursors.insert(group.id.to_vec(), Cursor(floor as u64));
+            for sequence in [floor - 1, floor, floor + 1] {
+                let mut message =
+                    generate_message(None, Some(&group.id), Some(sequence), None, None, None);
+                message.sequence_id = sequence;
+                message.store(conn).unwrap();
+            }
+            expected.push((group.id, Cursor((floor + 1) as u64)));
         }
-
-        // Create one message per group
-        let mut messages = Vec::new();
-        for (i, group) in groups.iter().enumerate() {
-            let msg = generate_message_with_cursor(&group.id, 1, (i + 1) as i64, 1000 + i as i64);
-            messages.push(msg);
-        }
-        assert_ok!(messages.store(conn));
-
-        // Set cursor to 0 for all groups (all messages are newer)
-        let mut cursors_by_group = HashMap::new();
-        for group in &groups {
-            let cursor = GlobalCursor::default();
-            cursors_by_group.insert(group.id.to_vec(), cursor);
-        }
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        // Should get all 150 messages
-        assert_eq!(newer.len(), 150);
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_empty_cursor() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        let messages = vec![
-            generate_message_with_cursor(&group.id, 1, 10, 1000),
-            generate_message_with_cursor(&group.id, 2, 5, 2000),
-            generate_message_with_cursor(&group.id, 3, 8, 3000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Empty cursor - all messages should be newer
-        let cursor = GlobalCursor::default();
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 3);
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_no_new_messages() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        let messages = vec![
-            generate_message_with_cursor(&group.id, 1, 10, 1000),
-            generate_message_with_cursor(&group.id, 2, 15, 2000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Cursor is already at or past all messages
-        let mut cursor = GlobalCursor::default();
-        cursor.insert(1, 10);
-        cursor.insert(2, 15);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 0);
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_mixed_originators() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        // Messages from 3 originators
-        let messages = vec![
-            generate_message_with_cursor(&group.id, 1, 5, 1000),
-            generate_message_with_cursor(&group.id, 1, 10, 2000),
-            generate_message_with_cursor(&group.id, 2, 3, 3000),
-            generate_message_with_cursor(&group.id, 2, 7, 4000),
-            generate_message_with_cursor(&group.id, 3, 2, 5000),
-            generate_message_with_cursor(&group.id, 3, 4, 6000),
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Cursor knows about originator 1 (seq 5) and originator 2 (seq 3)
-        // Does not know about originator 3
-        let mut cursor = GlobalCursor::default();
-        cursor.insert(1, 5);
-        cursor.insert(2, 3);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 4);
-        // From originator 1: seq 10 (newer than 5)
+        let mut found = conn.messages_newer_than(&cursors).unwrap();
+        found.sort_unstable();
+        expected.sort_unstable();
+        assert_eq!(found, expected);
         assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 1 && c.sequence_id == 10)
+            conn.messages_newer_than(&HashMap::new())
+                .unwrap()
+                .is_empty()
         );
-        // From originator 2: seq 7 (newer than 3)
+        let empty = generate_group(None);
+        empty.store(conn).unwrap();
         assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 7)
+            conn.messages_newer_than(&HashMap::from([(empty.id.to_vec(), Cursor(0))]))
+                .unwrap()
+                .is_empty()
         );
-        // From originator 3: both messages (new originator)
-        assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 2)
-        );
-        assert!(
-            newer
-                .iter()
-                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 4)
-        );
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_empty_groups() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group = generate_group(None);
-        group.store(conn).unwrap();
-
-        // No messages in group
-        let cursor = GlobalCursor::default();
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.to_vec(), cursor);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        assert_eq!(newer.len(), 0);
-    })
-}
-
-#[xmtp_common::test]
-fn test_messages_newer_than_per_group_cursors() {
-    use std::collections::HashMap;
-    use xmtp_proto::types::GlobalCursor;
-
-    with_connection(|conn| {
-        let group1 = generate_group(None);
-        let group2 = generate_group(None);
-        group1.store(conn).unwrap();
-        group2.store(conn).unwrap();
-
-        // Create messages in both groups from the same originator
-        let messages = vec![
-            // Group 1 messages from originator 1
-            generate_message_with_cursor(&group1.id, 1, 50, 1000),
-            generate_message_with_cursor(&group1.id, 1, 150, 2000), // newer than cursor (100)
-            // Group 2 messages from originator 1
-            generate_message_with_cursor(&group2.id, 1, 200, 3000), // older than cursor (300)
-            generate_message_with_cursor(&group2.id, 1, 400, 4000), // newer than cursor (300)
-        ];
-        assert_ok!(messages.store(conn));
-
-        // Group 1 has cursor {originator_1: 100}
-        let mut cursor1 = GlobalCursor::default();
-        cursor1.insert(1, 100);
-
-        // Group 2 has cursor {originator_1: 300}
-        let mut cursor2 = GlobalCursor::default();
-        cursor2.insert(1, 300);
-
-        let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.to_vec(), cursor1);
-        cursors_by_group.insert(group2.id.to_vec(), cursor2);
-
-        let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
-
-        // Should only get messages newer than each group's specific cursor
-        assert_eq!(newer.len(), 2);
-
-        // From group 1: sequence_id 150 (> 100)
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group1.id && c.sequence_id == 150)
-        );
-
-        // From group 2: sequence_id 400 (> 300)
-        assert!(
-            newer
-                .iter()
-                .any(|(g, c)| *g == group2.id && c.sequence_id == 400)
-        );
-
-        // Should NOT include group 2's message with sequence_id 200 (< 300)
-        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 200));
-
-        // Should NOT include group 1's message with sequence_id 50 (< 100)
-        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 50));
-    })
+    });
 }

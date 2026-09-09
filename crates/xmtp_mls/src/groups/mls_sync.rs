@@ -44,7 +44,6 @@ use crate::{
     },
     worker::WorkerKind,
 };
-use futures::future::try_join_all;
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
 use openmls::prelude::BasicCredentialError;
@@ -77,15 +76,15 @@ use std::{
 use thiserror::Error;
 use tracing::debug;
 use update_group_membership::apply_update_group_membership_intent;
+use xmtp_api::PublishUnit;
 use xmtp_common::{
     Event, ExponentialBackoff, Retry, RetryableError, Strategy, log_event, retry_async,
     time::now_ns,
 };
 use xmtp_configuration::{
-    GRPC_PAYLOAD_LIMIT, HMAC_SALT, MAX_GROUP_SIZE, MAX_GROUP_SYNC_RETRIES,
-    MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS, SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS,
-    SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS, SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS,
-    WELCOME_HPKE_LABEL,
+    HMAC_SALT, MAX_GROUP_SYNC_RETRIES, MAX_INTENT_PUBLISH_ATTEMPTS, MAX_PAST_EPOCHS,
+    SYNC_BACKOFF_TOTAL_WAIT_MAX_SECS, SYNC_BACKOFF_WAIT_MS, SYNC_JITTER_MS,
+    SYNC_UPDATE_INSTALLATIONS_INTERVAL_NS, WELCOME_HPKE_LABEL,
 };
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
@@ -113,20 +112,21 @@ use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
 };
+use xmtp_proto::backend_v1::{
+    ClientEnvelope, GroupMessage as BackendGroupMessage, WelcomeMessage as WelcomeMessageInput,
+    client_envelope::Payload,
+    welcome_message::{
+        V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion,
+        WelcomePointer as WelcomePointerInput,
+    },
+};
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
-    api::v1::{
-        GroupMessageInput, WelcomeMessageInput, WelcomeMetadata,
-        group_message_input::{V1 as GroupMessageInputV1, Version as GroupMessageInputVersion},
-        welcome_message_input::{
-            V1 as WelcomeMessageInputV1, Version as WelcomeMessageInputVersion,
-            WelcomePointer as WelcomePointerInput,
-        },
-    },
     database::{ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind},
     message_contents::{
-        GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
+        GroupUpdated, PlaintextEnvelope, WelcomeMetadata, WelcomePointer as WelcomePointerProto,
+        group_updated,
         plaintext_envelope::{Content, V1, V2},
     },
 };
@@ -1024,7 +1024,7 @@ where
                 intent_id = intent.id,
                 intent_kind = %intent.kind,
                 intent_state = ?intent.state,
-                cursor = envelope.cursor.sequence_id,
+                cursor = envelope.cursor.0,
                 "Skipping already processed intent {} of kind {} because it is in state {:?}",
                 intent.id,
                 intent.kind,
@@ -1078,7 +1078,7 @@ where
                 &XmtpOpenMlsProviderRef::new(storage),
                 staged_commit,
                 &validated_commit,
-                cursor.sequence_id as i64,
+                cursor.0 as i64,
             ) {
                 tracing::error!("error merging commit: {err}");
                 return Err(IntentResolutionError {
@@ -1093,7 +1093,7 @@ where
                 storage,
                 &self.group_id,
                 &validated_commit.readded_installations,
-                cursor.sequence_id as i64,
+                cursor.0 as i64,
             )
             .map_err(|err| IntentResolutionError {
                 processing_error: err.into(),
@@ -1137,8 +1137,8 @@ where
                     removed_inboxes = $payload.removed_inboxes,
                     left_inboxes = $payload.left_inboxes,
                     metadata_changes = $payload.metadata_field_changes,
-                    cursor = cursor.sequence_id,
-                    originator_id = cursor.originator_id
+                    cursor = cursor.0,
+
                 );
             }
 
@@ -1477,8 +1477,8 @@ where
                     *cursor
                 );
                 let current_cursor = db
-                    .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
-                current_cursor.sequence_id < envelope.cursor.sequence_id
+                    .get_last_cursor(envelope.group_id, envelope.entity_kind())?;
+                current_cursor.0 < envelope.cursor.0
             };
             if !requires_processing {
                 // early return if the message is already processed
@@ -1581,8 +1581,9 @@ where
                             version_minor: queryable_content_fields.version_minor,
                             authority_id: queryable_content_fields.authority_id,
                             reference_id: queryable_content_fields.reference_id,
-                            sequence_id: cursor.sequence_id as i64,
-                            originator_id: cursor.originator_id as i64,
+                            sequence_id: cursor.0 as i64,
+                            envelope_hash: None,
+                            expiry_ns: None,
                             expire_at_ns: Self::get_message_expire_at_ns(mls_group),
                             inserted_at_ns: 0, // Will be set by database
                             should_push: true,
@@ -1716,14 +1717,14 @@ where
                     &XmtpOpenMlsProviderRef::new(storage),
                     staged_commit,
                     &validated_commit,
-                    cursor.sequence_id as i64,
+                    cursor.0 as i64,
                 )?;
 
                 Self::mark_readd_requests_as_responded(
                     storage,
                     &self.group_id,
                     &validated_commit.readded_installations,
-                    cursor.sequence_id as i64,
+                    cursor.0 as i64,
                 )?;
 
                 let transcript = self.save_transcript_message(
@@ -1759,8 +1760,8 @@ where
                         removed_inboxes = $payload.removed_inboxes,
                         left_inboxes = $payload.left_inboxes,
                         metadata_changes = $payload.metadata_field_changes,
-                        cursor = cursor.sequence_id,
-                        originator_id = cursor.originator_id
+                        cursor = cursor.0,
+
                     );
                 }
 
@@ -1863,7 +1864,6 @@ where
         };
         let task = xmtp_db::tasks::NewTask::builder()
             .originating_message_sequence_id(message.sequence_id)
-            .originating_message_originator_id(message.originator_id as i32)
             .created_at_ns(now)
             .next_attempt_at_ns(now)
             .build(proto)?;
@@ -2223,13 +2223,38 @@ where
         }
     }
 
-    /// This function is idempotent. No need to wrap in a transaction.
-    ///
-    /// # Parameters
-    /// * `envelope` - The message envelope to process
-    /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
-    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
-    ///   processing from potentially out-of-order sources like streams.
+    /// Store available backend metadata without clearing fields absent from this envelope.
+    fn save_envelope_metadata(
+        &self,
+        envelope: &GroupMessage,
+    ) -> Result<(), GroupMessageProcessingError> {
+        if envelope.envelope_hash.is_none() && envelope.expiry_ns.is_none() {
+            return Ok(());
+        }
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::group_messages::dsl;
+        let expiry_ns = envelope
+            .expiry_ns
+            .map(i64::try_from)
+            .transpose()
+            .map_err(|_| xmtp_proto::ConversionError::Unspecified("expiry_ns exceeds i64"))?;
+        self.context.db().raw_query(|conn| {
+            xmtp_db::diesel::update(dsl::group_messages)
+                .filter(dsl::group_id.eq(envelope.group_id.as_slice()))
+                .filter(dsl::sequence_id.eq(envelope.cursor.0 as i64))
+                .set((
+                    envelope
+                        .envelope_hash
+                        .as_ref()
+                        .map(|hash| dsl::envelope_hash.eq(hash)),
+                    expiry_ns.map(|expiry| dsl::expiry_ns.eq(expiry)),
+                ))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     #[cfg_attr(
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip(self), fields(envelope = %envelope))
@@ -2241,13 +2266,12 @@ where
         trust_message_order: bool,
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         if trust_message_order {
-            let last_cursor = self.context.db().get_last_cursor_for_originator(
-                envelope.group_id,
-                envelope.entity_kind(),
-                envelope.originator_id(),
-            )?;
+            let last_cursor = self
+                .context
+                .db()
+                .get_last_cursor(envelope.group_id, envelope.entity_kind())?;
             tracing::info!("last cursor of processed = {}", last_cursor);
-            if last_cursor.sequence_id >= envelope.sequence_id() {
+            if last_cursor.0 >= envelope.sequence_id() {
                 tracing::info!(
                     inbox_id = self.context.inbox_id(),
                     installation_id = %self.context.installation_id(),
@@ -2259,6 +2283,7 @@ where
                 // early return if the message is already processed
                 // _NOTE_: Not early returning and re-processing a message that
                 // has already been processed, has the potential to result in forks.
+                self.save_envelope_metadata(envelope)?;
                 let identifier = MessageIdentifierBuilder::from(envelope).build()?;
                 return Ok(ProcessedMessageOutcome::new(identifier));
             }
@@ -2296,6 +2321,9 @@ where
                     result = self
                         .post_process_message(&mls_group, result, envelope)
                         .await;
+                }
+                if result.is_ok() {
+                    self.save_envelope_metadata(envelope)?;
                 }
                 // Both reads must have succeeded to claim a change. Comparing a
                 // good `before` against a failed `after` would report a clear
@@ -2462,12 +2490,8 @@ where
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())
             .map_err(GroupMessageProcessingError::Storage)?;
 
-        let group_cursor = db.get_last_cursor_for_originator(
-            self.group_id,
-            envelope.entity_kind(),
-            envelope.originator_id(),
-        )?;
-        if group_cursor.sequence_id >= envelope.sequence_id() {
+        let group_cursor = db.get_last_cursor(self.group_id, envelope.entity_kind())?;
+        if group_cursor.0 >= envelope.sequence_id() {
             // early return if the message is already processed
             // _NOTE_: Not early returning and re-processing a message that
             // has already been processed, has the potential to result in forks.
@@ -2531,8 +2555,8 @@ where
                             cursor
                         );
                         let current_cursor = db
-                            .get_last_cursor_for_originator(envelope.group_id, envelope.entity_kind(), envelope.originator_id())?;
-                        current_cursor.sequence_id < envelope.sequence_id()
+                            .get_last_cursor(envelope.group_id, envelope.entity_kind())?;
+                        current_cursor.0 < envelope.sequence_id()
                     };
                     if !requires_processing {
                         tracing::debug!("message @cursor=[{}] for group=[{}] created_at=[{}] no longer require processing, should be available in database",
@@ -2584,8 +2608,8 @@ where
                                 // Rollback the transaction so that we can retry
                                 return Err(err.processing_error);
                             }
-                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.sequence_id, envelope.message.epoch(), &err.processing_error) {
-                                tracing::error!(group_id = %self.group_id, cursor = cursor.sequence_id, "Error inserting commit entry for failed self commit: {}", accounting_error);
+                            if envelope.is_commit() && let Err(accounting_error) = mls_group.mark_failed_commit_logged(&provider, cursor.0, envelope.message.epoch(), &err.processing_error) {
+                                tracing::error!(group_id = %self.group_id.short_hex(), cursor = cursor.0, "Error inserting commit entry for failed self commit: {}", accounting_error);
                             }
                             if err.next_intent_state == IntentState::Error {
                                 error_cause = Some(err.processing_error);
@@ -2747,7 +2771,6 @@ where
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let message = match process_result {
             Ok(m) => {
-                self.context.db().prune_icebox()?;
                 tracing::info!(
                     "Transaction completed successfully: process for group [{}] envelope cursor[{}]",
                     &envelope.group_id,
@@ -2906,11 +2929,26 @@ where
     /// cursor ids, so that streams do not unintentionally retry O(n^2) messages.
     #[tracing::instrument(skip_all, level = "trace")]
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
+        use xmtp_db::refresh_state::EntityKind;
+        let db = self.context.db();
+        let previous = db
+            .get_last_cursor(self.group_id, EntityKind::ApplicationMessage)?
+            .max(db.get_last_cursor(self.group_id, EntityKind::CommitMessage)?);
         let messages = MlsStore::new(self.context.clone())
             .query_group_messages(self.group_id)
             .await?;
-
+        let last_cursor = messages
+            .last()
+            .map(|message| message.cursor)
+            .unwrap_or(previous)
+            .max(previous);
+        let message_count = messages.len();
         let summary = self.process_messages(messages).await;
+        if !summary.is_errored() && summary.new_messages.len() == message_count {
+            // The complete ordered query scanned both kinds through this cursor.
+            db.update_cursor(self.group_id, EntityKind::ApplicationMessage, last_cursor)?;
+            db.update_cursor(self.group_id, EntityKind::CommitMessage, last_cursor)?;
+        }
         Ok(summary)
     }
 
@@ -2926,8 +2964,7 @@ where
                 Event::GroupCursorUpdate,
                 self.context.installation_id(),
                 group_id = message.group_id.as_slice(),
-                cursor = message.cursor.sequence_id,
-                originator_id = message.cursor.originator_id
+                cursor = message.cursor.0,
             );
         } else {
             tracing::debug!("no cursor update required");
@@ -2992,8 +3029,9 @@ where
             version_minor: content_type.version_minor as i32,
             authority_id: content_type.authority_id.to_string(),
             reference_id: None,
-            sequence_id: cursor.sequence_id as i64,
-            originator_id: cursor.originator_id as i64,
+            sequence_id: cursor.0 as i64,
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0, // Will be set by database
             should_push: true,
@@ -3197,7 +3235,28 @@ where
                             .await;
 
                         match (intent.kind, result) {
-                            (IntentKind::SendMessage, Ok(_)) => {
+                            (IntentKind::SendMessage, Ok(metas)) => {
+                                // SendMessage produces one envelope. The wrapper checks response
+                                // order and its canonical hash. Use the same local ID as intent
+                                // resolution; this row does not yet need a sequence ID.
+                                let [meta] = metas.as_slice() else {
+                                    return Err(xmtp_api::ApiError::InvalidResponse("send message metadata count").into());
+                                };
+                                let message_id = calculate_message_id_for_intent(&intent)?
+                                    .ok_or(GroupError::UninitializedResult)?;
+                                let hash = xmtp_api_backend::envelope::message_hash(meta)?;
+                                let expiry_ns = i64::try_from(meta.expiry_ns)
+                                    .map_err(|_| xmtp_proto::ConversionError::Unspecified("expiry_ns exceeds i64"))?;
+                                use xmtp_db::ConnectionExt;
+                                use xmtp_db::diesel::prelude::*;
+                                use xmtp_db::schema::group_messages::dsl;
+                                db.raw_query(|conn| {
+                                    xmtp_db::diesel::update(dsl::group_messages)
+                                        .filter(dsl::group_id.eq(intent.group_id.as_slice()))
+                                        .filter(dsl::id.eq(message_id))
+                                        .set((dsl::envelope_hash.eq(hash), dsl::expiry_ns.eq(expiry_ns)))
+                                        .execute(conn)
+                                })?;
                                 log_event!(
                                     Event::GroupSyncApplicationMessagePublishSuccess,
                                     self.context.installation_id(),
@@ -4607,45 +4666,10 @@ where
             total_installations + usize::from(welcome_pointer_bytes.is_some())
         );
 
-        let welcome = welcomes.first().ok_or(GroupError::NoWelcomesToSend)?;
-
-        // Compute the estimated bytes for one welcome message.
-        let welcome_calculated_payload_size = welcome
-            .version
-            .as_ref()
-            .map(|w| match w {
-                WelcomeMessageInputVersion::V1(w) => {
-                    let size = w.installation_key.len()
-                        + w.data.len()
-                        + w.hpke_public_key.len()
-                        + w.welcome_metadata.len();
-                    tracing::debug!("total welcome message proto bytes={size}");
-                    size
-                }
-                WelcomeMessageInputVersion::WelcomePointer(welcome_pointer) => {
-                    let size = welcome_pointer.installation_key.len()
-                        + welcome_pointer.welcome_pointer.len()
-                        + welcome_pointer.hpke_public_key.len();
-                    tracing::debug!("total welcome pointer proto bytes={size}");
-                    size
-                }
-            })
-            // Fallback if the version is missing
-            .unwrap_or(GRPC_PAYLOAD_LIMIT / MAX_GROUP_SIZE);
-
-        // Ensure the denominator is at least 1 to avoid div-by-zero.
-        let per_welcome = welcome_calculated_payload_size.max(1);
-
-        // Compute chunk_size and ensure it's at least 1 so chunks(n) won't panic.
-        let chunk_size = (GRPC_PAYLOAD_LIMIT / per_welcome).clamp(1, 50);
-
-        tracing::debug!("welcome chunk_size={chunk_size}");
-        let api = self.context.api();
-        let mut futures = vec![];
-        for welcomes in welcomes.chunks(chunk_size) {
-            futures.push(api.send_welcome_messages(welcomes));
+        if welcomes.is_empty() {
+            return Err(GroupError::NoWelcomesToSend);
         }
-        try_join_all(futures).await?;
+        self.context.api().send_welcome_messages(&welcomes).await?;
         Ok(())
     }
 
@@ -4692,7 +4716,7 @@ where
     pub(super) fn prepare_group_messages(
         &self,
         payloads: Vec<(&[u8], bool)>,
-    ) -> Result<Vec<GroupMessageInput>, GroupError> {
+    ) -> Result<Vec<PublishUnit>, GroupError> {
         let hmac_key = self
             .hmac_keys(0..=0)?
             .pop()
@@ -4706,8 +4730,8 @@ where
             sender_hmac.update(payload);
             let sender_hmac = sender_hmac.finalize();
 
-            result.push(GroupMessageInput {
-                version: Some(GroupMessageInputVersion::V1(GroupMessageInputV1 {
+            result.push(ClientEnvelope {
+                payload: Some(Payload::GroupMessage(BackendGroupMessage {
                     data: payload.to_vec(),
                     sender_hmac: sender_hmac.into_bytes().to_vec(),
                     should_push,
@@ -4715,7 +4739,7 @@ where
             });
         }
 
-        Ok(result)
+        Ok(vec![PublishUnit::new(result)?])
     }
 }
 
@@ -5035,6 +5059,91 @@ pub(crate) mod tests {
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::mock::MockDbQuery;
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publish_stores_envelope_metadata_without_sync() {
+        use crate::tester;
+        use xmtp_proto::types::Topic;
+
+        tester!(alix, disable_workers);
+        // Rotate the group key before the message exists.
+        let group = alix.create_group(None, None)?;
+        group.key_update().await?;
+        let id = group.send_message_optimistic(b"publish metadata", Default::default())?;
+        group.publish_intents().await?;
+        let published = alix.context.db().find_group_intents(
+            group.group_id,
+            Some(vec![IntentState::Published]),
+            Some(vec![IntentKind::SendMessage]),
+        )?;
+        assert_eq!(published.len(), 1);
+
+        // Read the local row before any query. Publishing must fill both fields.
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.sequence_id, 0);
+        assert!(
+            stored.envelope_hash.is_some(),
+            "publish left envelope_hash NULL"
+        );
+        assert!(stored.expiry_ns.is_some(), "publish left expiry_ns NULL");
+
+        // Read the wire envelope without processing it into the local database.
+        let envelopes = alix
+            .context
+            .api()
+            .query_all(
+                [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
+                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            )
+            .await?;
+        let envelope = envelopes.last().unwrap();
+        let canonical = xmtp_mls_validation::parse_envelope(envelope.envelope.clone().unwrap())?;
+        assert_eq!(
+            stored.envelope_hash,
+            Some(canonical.canonical.hash.to_vec())
+        );
+        assert_eq!(
+            stored.expiry_ns,
+            Some(i64::try_from(envelope.meta.as_ref().unwrap().expiry_ns)?)
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn partial_envelope_metadata_preserves_stored_fields() {
+        use crate::tester;
+        use xmtp_proto::types::Topic;
+
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let id = group
+            .send_message(b"partial metadata", Default::default())
+            .await?;
+        let original: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert!(original.envelope_hash.is_some());
+        assert!(original.expiry_ns.is_some());
+        let mut envelopes = alix
+            .context
+            .api()
+            .query_all(
+                [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
+                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            )
+            .await?;
+        let mut envelope =
+            xmtp_api_backend::envelope::decode_group_message(envelopes.pop().unwrap())?;
+        envelope.envelope_hash = None;
+        group.save_envelope_metadata(&envelope)?;
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.envelope_hash, original.envelope_hash);
+        assert_eq!(stored.expiry_ns, original.expiry_ns);
+
+        envelope.envelope_hash = original.envelope_hash.clone();
+        envelope.expiry_ns = None;
+        group.save_envelope_metadata(&envelope)?;
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.envelope_hash, original.envelope_hash);
+        assert_eq!(stored.expiry_ns, original.expiry_ns);
+    }
+
     /// This test is not reproducible in webassembly, b/c webassembly has only one thread.
     #[cfg_attr(
         not(target_arch = "wasm32"),
@@ -5124,7 +5233,6 @@ pub(crate) mod tests {
             published_in_epoch: Some(7),
             should_push: false,
             sequence_id: None,
-            originator_id: None,
         };
 
         let mut db = MockDbQuery::new();
@@ -5169,7 +5277,8 @@ pub(crate) mod tests {
             reference_id: None,
             expire_at_ns: None,
             sequence_id: 1,
-            originator_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
             inserted_at_ns: 0,
             should_push: false,
             idempotency_key: String::new(),
@@ -5237,7 +5346,8 @@ pub(crate) mod tests {
             reference_id: None,
             expire_at_ns: None,
             sequence_id: 2,
-            originator_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
             inserted_at_ns: 0,
             should_push: false,
             idempotency_key: String::new(),
@@ -5312,7 +5422,8 @@ pub(crate) mod tests {
             reference_id: None,
             expire_at_ns: None,
             sequence_id: 3,
-            originator_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
             inserted_at_ns: 0,
             should_push: false,
             idempotency_key: String::new(),

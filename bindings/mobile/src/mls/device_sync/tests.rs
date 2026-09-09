@@ -226,7 +226,6 @@ async fn test_create_new_installations_does_not_fork_group() {
     assert_eq!(bo2_messages.len(), 4);
 }
 
-#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_sync_all_groups() {
     let alix = new_test_client().await;
@@ -250,10 +249,6 @@ async fn test_can_sync_all_groups() {
         .conversations()
         .list(FfiListConversationsOptions::default())
         .unwrap();
-
-    if cfg!(feature = "d14n") {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    }
 
     let alix_group1 = alix_groups[0].clone();
     let alix_group5 = alix_groups[5].clone();
@@ -299,7 +294,6 @@ async fn test_can_sync_all_groups() {
     assert_eq!(bo_messages5.len(), 2);
 }
 
-#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_sync_all_groups_active_only() {
     let alix = new_test_client().await;

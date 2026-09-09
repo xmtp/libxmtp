@@ -6,7 +6,7 @@ fail-fast = false
 
 [profile.ci]
 slow-timeout = "90sec"
-default-filter = "not package(xmtp_backend) & (not (test(test_stream_all_messages_does_not_lose_messages)|test(test_can_stream_group_messages_for_updates)))"
+default-filter = "not package(xmtp_backend) & (not test(test_stream_all_messages_does_not_lose_messages))"
 failure-output = "immediate-final"
 fail-fast = false
 

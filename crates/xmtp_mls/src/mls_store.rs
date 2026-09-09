@@ -9,7 +9,7 @@ use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
-use xmtp_proto::types::{GroupId, GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessage, InstallationId, Topic, WelcomeMessage};
 
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
@@ -74,10 +74,16 @@ where
     ) -> Result<Vec<WelcomeMessage>, MlsStoreError> {
         let installation_id = self.context.installation_id();
 
+        let cursor = self
+            .context
+            .db()
+            .get_last_cursor(installation_id, xmtp_db::refresh_state::EntityKind::Welcome)?;
         let welcomes = self
             .context
             .api()
-            .query_welcome_messages(installation_id)
+            .query_welcome_messages_with_cursors(
+                [(Topic::new_welcome_message(installation_id), cursor)].into(),
+            )
             .await?;
         tracing::debug!("returning {} welcomes", welcomes.len());
         Ok(welcomes)
@@ -89,7 +95,29 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let messages = self.context.api().query_group_messages(group_id).await?;
+        use xmtp_db::refresh_state::EntityKind;
+        let db = self.context.db();
+        let application = db.get_last_cursor(group_id, EntityKind::ApplicationMessage)?;
+        let commit = db.get_last_cursor(group_id, EntityKind::CommitMessage)?;
+        let messages = self
+            .context
+            .api()
+            .query_group_messages_with_cursors(
+                [(Topic::new_group_message(group_id), application.min(commit))].into(),
+            )
+            .await?;
+        // One topic contains both kinds. Discard each kind's stored prefix.
+        let messages = messages
+            .into_iter()
+            .filter(|message| {
+                message.cursor
+                    > if message.is_commit() {
+                        commit
+                    } else {
+                        application
+                    }
+            })
+            .collect();
 
         Ok(messages)
     }
@@ -103,10 +131,15 @@ where
         HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>>,
         MlsStoreError,
     > {
+        let installation_ids = installation_ids
+            .into_iter()
+            .map(InstallationId::try_from)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(ApiError::from)?;
         let key_package_results = self
             .context
             .api()
-            .fetch_key_packages(installation_ids.clone())
+            .fetch_key_packages(&installation_ids)
             .await?;
 
         let crypto_provider = XmtpOpenMlsProvider::<()>::new_crypto();
@@ -114,11 +147,15 @@ where
         let results: HashMap<Vec<u8>, Result<VerifiedKeyPackageV2, KeyPackageVerificationError>> =
             key_package_results
                 .iter()
-                .map(|(id, bytes)| {
-                    (
-                        id.clone(),
-                        VerifiedKeyPackageV2::from_bytes(&crypto_provider, bytes),
-                    )
+                .filter_map(|(id, package)| {
+                    let package = package.as_ref()?;
+                    Some((
+                        id.to_vec(),
+                        VerifiedKeyPackageV2::from_bytes(
+                            &crypto_provider,
+                            &package.key_package_tls_serialized,
+                        ),
+                    ))
                 })
                 .collect();
 

@@ -378,53 +378,112 @@ mod tests {
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_db_migrates() {
-        let db_path = tmp_path();
-        {
-            let key = EncryptedMessageStore::<()>::generate_enc_key();
-            {
-                let conn = &mut SqliteConnection::establish(&db_path).unwrap();
-                conn.batch_execute(&format!(
-                    r#"
-            {}
-            PRAGMA busy_timeout = 5000;
-            PRAGMA journal_mode = WAL;
-            "#,
-                    pragma_key(hex::encode(key))
-                ))
-                .unwrap();
-                conn.run_pending_migrations(crate::MIGRATIONS).unwrap();
-            }
+        use crate::{ConnectionExt, XmtpDb};
+        use diesel::sql_types::{Integer, Text};
+        use std::collections::BTreeMap;
 
-            // no plaintext header before migration
-            let mut plaintext_header = [0; 16];
-            let mut file = File::open(&db_path).unwrap();
-            file.read_exact(&mut plaintext_header).unwrap();
-            assert!(String::from_utf8_lossy(&plaintext_header) != SQLITE3_PLAINTEXT_HEADER);
-
-            tracing::info!("Creating store with file at {}", &db_path);
-            let db = NativeDb::builder()
-                .persistent(db_path.clone())
-                .key(key)
-                .build()
-                .unwrap();
-            let _ = EncryptedMessageStore::new(db);
-
-            assert!(EncryptedConnection::salt_file(&db_path).unwrap().exists());
-            let bytes = std::fs::read(EncryptedConnection::salt_file(&db_path).unwrap()).unwrap();
-            let salt = hex::decode(bytes).unwrap();
-            assert_eq!(salt.len(), 16);
-
-            let mut plaintext_header = [0; 16];
-            let mut file = File::open(&db_path).unwrap();
-            file.read_exact(&mut plaintext_header).unwrap();
-
-            assert_eq!(
-                SQLITE3_PLAINTEXT_HEADER,
-                String::from_utf8(plaintext_header.into()).unwrap()
-            );
+        #[derive(QueryableByName)]
+        struct TableName {
+            #[diesel(sql_type = Text)]
+            name: String,
         }
-        EncryptedMessageStore::<()>::remove_db_files(db_path)
+        #[derive(QueryableByName)]
+        struct Column {
+            #[diesel(sql_type = Text)]
+            name: String,
+            #[diesel(sql_type = Text)]
+            r#type: String,
+            #[diesel(sql_type = Integer)]
+            notnull: i32,
+            #[diesel(sql_type = Integer)]
+            pk: i32,
+        }
+
+        let db = NativeDb::builder().ephemeral().build_unencrypted()?;
+        db.init()?;
+        let actual = db.conn().raw_query(|conn| {
+            let tables = diesel::sql_query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != '__diesel_schema_migrations' ORDER BY name",
+            ).load::<TableName>(conn)?;
+            let mut schema = BTreeMap::new();
+            for table in tables {
+                let columns = diesel::sql_query(format!("PRAGMA table_info('{}')", table.name))
+                    .load::<Column>(conn)?;
+                let has_primary_key = columns.iter().any(|column| column.pk != 0);
+                let mut columns: Vec<_> = columns.into_iter().map(|column| {
+                    let sql_type = match column.r#type.to_uppercase().as_str() {
+                        "INT" | "INTEGER" => "Integer",
+                        "BIGINT" => "BigInt",
+                        "BLOB" => "Binary",
+                        "TEXT" => "Text",
+                        "BOOL" | "BOOLEAN" => "Bool",
+                        "REAL" => "Float",
+                        other => panic!("unexpected SQL type {other}"),
+                    };
+                    let sql_type = if column.notnull == 0 {
+                        format!("Nullable<{sql_type}>")
+                    } else { sql_type.to_string() };
+                    (column.name, sql_type)
+                }).collect();
+                if !has_primary_key { columns.insert(0, ("rowid".into(), "Integer".into())); }
+                schema.insert(table.name, columns);
+            }
+            diesel::sql_query("SELECT * FROM conversation_list").execute(conn)?;
+            assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+            Ok(schema)
+        })?;
+
+        let mut expected = BTreeMap::new();
+        let mut table = None;
+        for line in include_str!("../../schema_gen.rs").lines().map(str::trim) {
+            if line.ends_with("{") && line.contains(" (") {
+                let name = line.split_once(" (").unwrap().0.to_string();
+                expected.insert(name.clone(), Vec::new());
+                table = Some(name);
+            } else if line == "}" {
+                table = None;
+            } else if table.is_some()
+                && let Some((name, sql_type)) = line.split_once(" -> ")
+            {
+                expected
+                    .get_mut(table.as_ref().unwrap())
+                    .unwrap()
+                    .push((name.to_string(), sql_type.trim_end_matches(',').to_string()));
+            }
+        }
+        assert_eq!(actual, expected);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejects_pre_transition_database_before_migration() {
+        use crate::{ConnectionExt, StorageError, XmtpDb};
+        use xmtp_common::{ErrorCode, RetryableError};
+
+        let path = tmp_path();
+        let db = NativeDb::builder()
+            .persistent(path.clone())
+            .build_unencrypted()?;
+        db.conn().raw_query(|conn| conn.batch_execute(
+            "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); INSERT INTO __diesel_schema_migrations (version) VALUES ('20250820174800');",
+        ))?;
+        let result = EncryptedMessageStore::new(db);
+        let error = match result {
+            Err(error) => error,
+            Ok(_) => panic!("legacy database was accepted"),
+        };
+        assert!(matches!(error, StorageError::PreTransitionDatabase));
+        assert_eq!(error.error_code(), "StorageError::PreTransitionDatabase");
+        assert!(!error.is_retryable());
+        let mut conn = SqliteConnection::establish(&path)?;
+        assert!(
+            diesel::sql_query("SELECT * FROM group_messages")
+                .execute(&mut conn)
+                .is_err()
+        );
+        assert_eq!(conn.applied_migrations()?.len(), 1);
+        drop(conn);
+        std::fs::remove_file(path)?;
     }
 }

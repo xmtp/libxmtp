@@ -4,7 +4,6 @@
 pub mod builder;
 pub mod client;
 pub mod context;
-pub mod cursor_store;
 mod definitions;
 pub mod groups;
 pub mod identity;
@@ -13,7 +12,7 @@ mod intents;
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
-pub mod registration_visible;
+pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;
 pub mod utils;
 pub mod worker;
@@ -21,8 +20,6 @@ pub use definitions::*;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test;
-#[cfg(test)]
-mod tests;
 mod traits;
 
 use crate::groups::GroupError;

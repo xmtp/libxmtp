@@ -1,6 +1,7 @@
 #![allow(unused)]
 pub use xmtp_id::utils::passkey::{PKClient, PKCredential, PasskeyUser, PkUserValidationMethod};
 
+use super::DefaultTestClientCreator;
 use super::FullXmtpClient;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric};
 use crate::{
@@ -8,7 +9,6 @@ use crate::{
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
     client::ClientError,
     context::XmtpSharedContext,
-    cursor_store::SqliteCursorStore,
     groups::{GroupError, intents::UpdateGroupMembershipResult},
     identity::{Identity, IdentityStrategy, pq_key_package_references_key},
     identity_updates::load_identity_updates,
@@ -36,12 +36,11 @@ use std::{
     },
 };
 use tokio::{runtime::Handle, sync::OnceCell};
-use toxiproxy_rust::proxy::{Proxy, ProxyPack};
+xmtp_common::if_native! {
+    use toxiproxy_rust::proxy::{Proxy, ProxyPack};
+    use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
+}
 use xmtp_api::{ApiError, XmtpApi};
-use xmtp_api_d14n::{
-    DevOnlyTestClientCreator, LocalOnlyTestClientCreator, XmtpTestClientExt,
-    protocol::InMemoryCursorStore,
-};
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_configuration::DockerUrls;
@@ -73,7 +72,7 @@ use xmtp_id::{
 };
 use xmtp_proto::{
     api::ApiClientError,
-    api_client::{ApiBuilder, ToxicProxies, ToxicTestClient, XmtpIdentityClient},
+    api_client::ApiBuilder,
     identity_v1::PublishIdentityUpdateRequest,
     prelude::XmtpTestClient,
     xmtp::{
@@ -99,6 +98,7 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: Option<ToxicProxies>,
 }
 
@@ -194,21 +194,26 @@ where
             client = client.temp_store().await;
         }
 
+        let api_client;
+        #[cfg(not(target_arch = "wasm32"))]
         let mut proxy = None;
-        let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let local_client = match (&self.api_endpoint, self.proxy) {
-            (ApiEndpoint::Local, false) => {
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone())
+        xmtp_common::wasm_or_native! {
+            native => {
+                api_client = if self.proxy {
+                    proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
+                    ToxicOnlyTestClientCreator::create().build().unwrap()
+                } else {
+                    DefaultTestClientCreator::create().build().unwrap()
+                };
+            },
+            wasm => {
+                api_client = DefaultTestClientCreator::create().build().unwrap();
             }
-            (ApiEndpoint::Dev, false) => DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-            (ApiEndpoint::Local, true) => {
-                proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
-                ToxicOnlyTestClientCreator::with_cursor_store(store.clone())
-            }
-            (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
-        };
-
-        let api_client = local_client.build().unwrap();
+        }
+        let api_client = self
+            .api_client
+            .clone()
+            .unwrap_or_else(|| Arc::new(api_client));
 
         let mut client = client
             .api_client(api_client)
@@ -220,10 +225,6 @@ where
             .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default())
             .worker_config(self.worker_config.clone().unwrap_or_default())
             .unstable_change_callbacks(self.change_callbacks.clone());
-
-        if self.in_memory_cursors {
-            client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
-        }
 
         if self.triggers {
             client = client.enable_sqlite_triggers();
@@ -249,6 +250,7 @@ where
             client,
             worker,
             stream_handle: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy,
         };
 
@@ -291,15 +293,13 @@ where
             .unwrap();
         for update in updates {
             let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
-            let update: IdentityUpdate = update.into();
-            let result = self
-                .context
-                .api_client
-                .api_client
-                .publish_identity_update(PublishIdentityUpdateRequest {
-                    identity_update: Some(update),
-                })
-                .await;
+            let result = crate::identity_updates::publish_with_conflict_retry(
+                self.context.api(),
+                &self.db(),
+                update,
+                &self.context.scw_verifier(),
+            )
+            .await;
 
             if let Err(err) = result {
                 tracing::warn!("{err:?}");
@@ -369,19 +369,21 @@ where
         self.worker.as_ref().unwrap()
     }
 
-    pub fn proxies(&self) -> &ToxicProxies {
-        self.proxy.as_ref().unwrap()
-    }
+    xmtp_common::if_native! {
+        pub fn proxies(&self) -> &ToxicProxies {
+            self.proxy.as_ref().unwrap()
+        }
 
-    pub fn proxy(&self, n: usize) -> &Proxy {
-        self.proxy.as_ref().unwrap().proxy(n)
-    }
+        pub fn proxy(&self, n: usize) -> &Proxy {
+            self.proxy.as_ref().unwrap().proxy(n)
+        }
 
-    pub async fn for_each_proxy<F>(&self, f: F)
-    where
-        F: AsyncFn(&Proxy),
-    {
-        self.proxy.as_ref().unwrap().for_each(f).await
+        pub async fn for_each_proxy<F>(&self, f: F)
+        where
+            F: AsyncFn(&Proxy),
+        {
+            self.proxy.as_ref().unwrap().for_each(f).await
+        }
     }
 }
 
@@ -408,9 +410,10 @@ where
     pub stream: bool,
     pub name: Option<String>,
     pub version: Option<VersionInfo>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: bool,
+    pub api_client: Option<crate::utils::TestClient>,
     pub commit_log_worker: bool,
-    pub in_memory_cursors: bool,
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
     pub triggers: bool,
@@ -446,10 +449,11 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             stream: false,
             name: None,
             version: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: false,
+            api_client: None,
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
-            in_memory_cursors: false,
             ephemeral_db: true,
             triggers: false,
             api_endpoint: ApiEndpoint::Local,
@@ -479,10 +483,11 @@ where
             stream: self.stream,
             name: self.name,
             version: self.version,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: self.proxy,
+            api_client: self.api_client,
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
-            in_memory_cursors: self.in_memory_cursors,
             ephemeral_db: self.ephemeral_db,
             api_endpoint: self.api_endpoint,
             triggers: self.triggers,
@@ -493,6 +498,11 @@ where
             worker_config: self.worker_config,
             change_callbacks: self.change_callbacks,
         }
+    }
+
+    pub fn api_client(mut self, api_client: crate::utils::TestClient) -> Self {
+        self.api_client = Some(api_client);
+        self
     }
 
     /// Assign a name to this tester
@@ -640,11 +650,7 @@ where
         self
     }
 
-    pub fn in_memory_cursors(mut self) -> Self {
-        self.in_memory_cursors = true;
-        self
-    }
-
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self) -> Self {
         self.proxy = true;
         self

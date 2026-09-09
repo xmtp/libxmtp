@@ -8,7 +8,6 @@ use crate::{groups::MlsGroup, subscriptions::WelcomeOrGroup};
 use std::collections::HashSet;
 use xmtp_common::{Retry, retry_async};
 use xmtp_db::{consent_record::ConsentState, group::ConversationType, prelude::*};
-use xmtp_proto::types::OriginatorId;
 use xmtp_proto::types::SequenceId;
 use xmtp_proto::types::{Cursor, WelcomeMessage};
 
@@ -38,7 +37,6 @@ pub enum ProcessWelcomeResult<Context> {
     NewStored {
         group: MlsGroup<Context>,
         maybe_sequence_id: Option<i64>,
-        maybe_originator: Option<i64>,
     },
     /// Skip this welcome but add and id to known welcome ids
     IgnoreId { id: Cursor },
@@ -76,14 +74,9 @@ impl<Context> ProcessWelcomeResult<Context> {
             ProcessWelcomeResult::NewStored {
                 group,
                 maybe_sequence_id,
-                maybe_originator,
             } => WelcomeOutcome {
                 group: Some(group),
-                seen: maybe_sequence_id
-                    .zip(maybe_originator)
-                    .map(|(id, originator)| {
-                        Cursor::new(id as SequenceId, originator as OriginatorId)
-                    }),
+                seen: maybe_sequence_id.map(|id| Cursor(id as SequenceId)),
             },
             ProcessWelcomeResult::IgnoreId { id } => WelcomeOutcome {
                 group: None,
@@ -217,7 +210,6 @@ where
                 ProcessWelcomeResult::NewStored {
                     group,
                     maybe_sequence_id: stored_group.sequence_id,
-                    maybe_originator: stored_group.originator_id,
                 }
             }
         };
@@ -312,20 +304,16 @@ where
             NewStored {
                 group,
                 maybe_sequence_id,
-                maybe_originator,
             } => {
                 // For stored groups, don't filter out virtual groups
                 if self.should_include_group(&group, false).await? {
                     Ok(ProcessWelcomeResult::NewStored {
                         group,
                         maybe_sequence_id,
-                        maybe_originator,
                     })
-                } else if let Some(id) = maybe_sequence_id
-                    && let Some(originator) = maybe_originator
-                {
+                } else if let Some(id) = maybe_sequence_id {
                     Ok(ProcessWelcomeResult::IgnoreId {
-                        id: Cursor::new(id as SequenceId, originator as OriginatorId),
+                        id: Cursor(id as SequenceId),
                     })
                 } else {
                     Ok(ProcessWelcomeResult::Ignore)
@@ -434,7 +422,7 @@ mod tests {
     /// `IgnoreId` surfaces no group but records the welcome cursor for dedup.
     #[xmtp_common::test(unwrap_try = true)]
     async fn into_outcome_ignore_id_records_seen_without_group() {
-        let cursor = Cursor::new(42, 7u32);
+        let cursor = Cursor(42);
         let outcome = ProcessWelcomeResult::<()>::IgnoreId { id: cursor }.into_outcome();
         assert!(outcome.group.is_none());
         assert_eq!(outcome.seen, Some(cursor));

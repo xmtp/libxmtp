@@ -147,7 +147,6 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
     let now = xmtp_common::time::now_ns();
     let task = xmtp_db::tasks::NewTask::builder()
         .originating_message_sequence_id(0)
-        .originating_message_originator_id(0)
         .next_attempt_at_ns(now) // the pull-in itself is due immediately
         .expires_at_ns(expires_at_ns)
         .max_attempts(i32::MAX) // lifetime bounded by expires_at_ns, not retries
@@ -514,10 +513,7 @@ where
         context: &Context,
     ) -> Result<(), TaskWorkerError> {
         let decrypted_welcome_pointer = WelcomeMessage {
-            cursor: xmtp_proto::types::Cursor::new(
-                task.originating_message_sequence_id as u64,
-                task.originating_message_originator_id as u32,
-            ),
+            cursor: xmtp_proto::types::Cursor(task.originating_message_sequence_id as u64),
             created_ns: chrono::DateTime::from_timestamp_nanos(task.created_at_ns),
             variant: WelcomeMessageType::DecryptedWelcomePointer(
                 welcome_pointer
@@ -580,7 +576,6 @@ mod tests {
         let hash = data_hash_for(&proto);
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .next_attempt_at_ns(next)
             .expires_at_ns(expires)
             .attempts(attempts)

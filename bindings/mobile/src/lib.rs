@@ -19,7 +19,7 @@ pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
 use std::error::Error;
-use xmtp_api_d14n::MessageBackendBuilderError;
+use xmtp_api_backend::MessageBackendBuilderError;
 use xmtp_common::ErrorCode;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_mls::{
@@ -118,8 +118,8 @@ pub enum GenericError {
     /// Operation timed out. Retryable.
     #[error("Timer duration expired")]
     Expired,
+    /// Backend configuration failed. This error is not retryable.
     #[error(transparent)]
-    #[error_code(inherit)]
     BackendBuilder(#[from] MessageBackendBuilderError),
     #[error(transparent)]
     #[error_code(inherit)]

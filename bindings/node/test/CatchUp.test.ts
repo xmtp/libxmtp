@@ -23,6 +23,8 @@ describe('catchUpToLive', () => {
     expect(client2.conversations().list().length).toBe(0)
 
     const summary = await client2.catchUpToLive()
+    expect(summary.completed).toBe(true)
+    expect(summary.failed).toBe(0)
     expect(Number(summary.conversations)).toBeGreaterThanOrEqual(1)
     expect(Number(summary.messages)).toBeGreaterThanOrEqual(1)
 
@@ -41,6 +43,8 @@ describe('catchUpToLive', () => {
     // Nothing owed now: a second run persists nothing new — neither the
     // already-delivered message nor the already-known conversation.
     const again = await client2.catchUpToLive()
+    expect(again.completed).toBe(true)
+    expect(again.failed).toBe(0)
     expect(Number(again.messages)).toBe(0)
     expect(Number(again.conversations)).toBe(0)
     expect(client2.conversations().list().length).toBe(1)

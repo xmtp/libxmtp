@@ -1,19 +1,21 @@
 use crate::ErrorWrapper;
-use crate::client::gateway_auth::{AuthCallback, AuthHandle};
-use crate::client::options::XmtpEnv;
+use crate::client::auth::{AuthCallback, AuthHandle};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
-use xmtp_api_d14n::ClientBundleBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
+
+/// Backend configuration failed. This error is not retryable.
+#[derive(Debug, thiserror::Error, xmtp_common::ErrorCode)]
+#[error(transparent)]
+pub(crate) struct BackendBuilderError(#[from] pub xmtp_api_backend::MessageBackendBuilderError);
 
 #[xmtp_macro::napi_builder]
 pub struct BackendBuilder {
   #[builder(required)]
-  pub env: XmtpEnv,
+  pub backend_url: String,
 
-  pub api_url: Option<String>,
-
-  pub gateway_host: Option<String>,
+  pub env: Option<String>,
 
   pub readonly: Option<bool>,
 
@@ -72,25 +74,24 @@ impl BackendBuilder {
       .take();
 
     let app_version = self.app_version.clone().unwrap_or_default();
-    let mut builder = ClientBundleBuilder::default();
+    let mut builder = MessageBackendBuilder::default();
     builder
-      .env(self.env.into())
-      .maybe_v3_host(self.api_url.clone())
-      .maybe_gateway_host(self.gateway_host.clone())
+      .host(&self.backend_url)
       .readonly(self.readonly.unwrap_or(false))
       .app_version(app_version.clone())
       .maybe_auth_callback(
-        auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
+        auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_backend::AuthCallback>),
       )
       .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 
-    let v3_host = builder.get_v3_host().map(ToString::to_string);
-    let bundle = builder.build_optional_d14n().map_err(ErrorWrapper::from)?;
+    let api_client = builder
+      .build()
+      .map_err(BackendBuilderError)
+      .map_err(ErrorWrapper::from)?;
     Ok(Backend {
-      bundle,
-      env: self.env,
-      v3_host,
-      gateway_host: self.gateway_host.clone(),
+      api_client,
+      env: self.env.clone(),
+      backend_url: self.backend_url.clone(),
       app_version,
     })
   }
@@ -99,28 +100,28 @@ impl BackendBuilder {
 #[napi]
 #[derive(Clone)]
 pub struct Backend {
-  pub(crate) bundle: xmtp_mls::XmtpClientBundle,
-  env: XmtpEnv,
-  v3_host: Option<String>,
-  gateway_host: Option<String>,
+  pub(crate) api_client: xmtp_mls::XmtpApiClient,
+  env: Option<String>,
+  backend_url: String,
   app_version: String,
 }
 
 #[napi]
 impl Backend {
   #[napi(getter)]
-  pub fn env(&self) -> XmtpEnv {
-    self.env
+  pub fn env(&self) -> Option<String> {
+    self.env.clone()
   }
 
-  #[napi(getter, js_name = "v3Host")]
-  pub fn v3_host(&self) -> Option<String> {
-    self.v3_host.clone()
+  #[napi(getter, js_name = "backendUrl")]
+  pub fn backend_url(&self) -> String {
+    self.backend_url.clone()
   }
 
-  #[napi(getter, js_name = "gatewayHost")]
-  pub fn gateway_host(&self) -> Option<String> {
-    self.gateway_host.clone()
+  /// Key for an SDK cache of API clients. The environment does not change it.
+  #[napi(getter, js_name = "cacheKey")]
+  pub fn cache_key(&self) -> String {
+    format!("{}|{}", self.backend_url, self.app_version)
   }
 
   #[napi(getter, js_name = "appVersion")]

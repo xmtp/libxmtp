@@ -7,12 +7,12 @@ use crate::context::XmtpSharedContext;
 use crate::subscriptions::stream_router::{DEFAULT_STREAM_DEPTH, StreamRouter};
 use crate::tester;
 use crate::utils::MlsGroupExt;
-use xmtp_api_d14n::{BidiConnection, BidiTransport, OpenError, V3Binding};
+use xmtp_api_backend::{BackendBinding, BidiConnection, BidiTransport, OpenError};
 
 const WAIT: Duration = Duration::from_secs(20);
 
 /// A transport whose opener dials the client's own v3 api client.
-fn transport_for<C>(api: C) -> BidiTransport<V3Binding>
+fn transport_for<C>(api: C) -> BidiTransport<BackendBinding>
 where
     C: xmtp_proto::api_client::XmtpMlsBidiStreams + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
@@ -57,6 +57,18 @@ async fn router_delivers_live_messages() {
         .expect("stream ended unexpectedly")?;
     assert_eq!(delivered.group_id, bo_group.group_id.to_vec());
     assert_eq!(delivered.decrypted_message_bytes, b"over the shared wire");
+    let envelope = alix
+        .context
+        .api()
+        .query_latest_group_message(group.group_id)
+        .await?
+        .unwrap();
+    assert!(envelope.envelope_hash.is_some());
+    assert_eq!(delivered.envelope_hash, envelope.envelope_hash);
+    assert_eq!(
+        delivered.expiry_ns,
+        envelope.expiry_ns.map(|expiry| expiry as i64)
+    );
 }
 
 /// Catch-up: history sent while nobody streams is replayed from the durable

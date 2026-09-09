@@ -9,14 +9,15 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;
 use xmtp_mls::builder::DeviceSyncMode as XmtpDeviceSyncMode;
-use xmtp_mls::cursor_store::SqliteCursorStore;
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::MlsGroup;
 use xmtp_mls::identity::IdentityStrategy;
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api_client::AggregateStats;
 
 use crate::ErrorWrapper;
@@ -28,9 +29,9 @@ use crate::inbox_state::InboxState;
 pub type RustXmtpClient = MlsClient<xmtp_mls::MlsContext>;
 pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 
+pub mod auth;
 pub mod backend;
 pub mod change_callbacks;
-pub mod gateway_auth;
 
 #[wasm_bindgen]
 pub struct Client {
@@ -183,31 +184,6 @@ pub enum ClientMode {
   Notification = 1,
 }
 
-#[wasm_bindgen_numbered_enum]
-pub enum XmtpEnv {
-  Local = 0,
-  Dev = 1,
-  Production = 2,
-  TestnetStaging = 3,
-  TestnetDev = 4,
-  Testnet = 5,
-  Mainnet = 6,
-}
-
-impl From<XmtpEnv> for xmtp_configuration::XmtpEnv {
-  fn from(env: XmtpEnv) -> Self {
-    match env {
-      XmtpEnv::Local => Self::Local,
-      XmtpEnv::Dev => Self::Dev,
-      XmtpEnv::Production => Self::Production,
-      XmtpEnv::TestnetStaging => Self::TestnetStaging,
-      XmtpEnv::TestnetDev => Self::TestnetDev,
-      XmtpEnv::Testnet => Self::Testnet,
-      XmtpEnv::Mainnet => Self::Mainnet,
-    }
-  }
-}
-
 /// Specify options for the logger
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -246,41 +222,20 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
 
 /// Options for `waitForRegistrationVisible`.
 ///
-/// Both `quorumPercentage` and `quorumAbsolute` are optional; if neither is
-/// provided, the default of 50 % is used.  When both are provided,
-/// `quorumAbsolute` takes precedence.
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct WasmVisibilityConfirmationOptions {
-  /// Fraction of nodes that must confirm (e.g. 0.5 for 50 %).
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub quorum_percentage: Option<f32>,
-  /// Exact number of nodes that must confirm.
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub quorum_absolute: Option<u32>,
   /// Maximum wait time in milliseconds (default: 30 000).
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub timeout_ms: Option<u32>,
 }
 
-impl From<WasmVisibilityConfirmationOptions>
-  for xmtp_mls::registration_visible::VisibilityConfirmationOptions
-{
+impl From<WasmVisibilityConfirmationOptions> for xmtp_mls::client::VisibilityConfirmationOptions {
   fn from(opts: WasmVisibilityConfirmationOptions) -> Self {
-    use xmtp_mls::registration_visible::Quorum;
-
     let defaults = Self::default();
-    let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
-      (Some(n), _) => Quorum::Absolute(n as usize),
-      (_, Some(p)) => Quorum::percentage(p),
-      _ => defaults.quorum,
-    };
     Self {
-      quorum,
       timeout_ms: opts
         .timeout_ms
         .map(|t| t as u64)
@@ -395,7 +350,6 @@ pub(crate) async fn create_client_inner(
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_client(api_client)
-    .enable_api_stats()?
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .store(store);
@@ -439,24 +393,22 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
   #[wasm_bindgen(js_name = appVersion)] app_version: Option<String>,
-  #[wasm_bindgen(js_name = gatewayHost)] gateway_host: Option<String>,
   nonce: Option<u64>,
-  #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<gateway_auth::AuthCallback>,
-  #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<gateway_auth::AuthHandle>,
+  #[wasm_bindgen(js_name = authCallback)] auth_callback: Option<auth::AuthCallback>,
+  #[wasm_bindgen(js_name = authHandle)] auth_handle: Option<auth::AuthHandle>,
   #[wasm_bindgen(js_name = clientMode)] client_mode: Option<ClientMode>,
   #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
     change_callbacks::UnstableChangeCallbacks,
   >,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
-  tracing::info!(host, gateway_host, "Creating client in rust");
+  tracing::info!(host, "Creating client in rust");
 
   let client_mode = client_mode.unwrap_or_default();
 
   let mut backend = MessageBackendBuilder::default();
   backend
-    .v3_host(&host)
-    .maybe_gateway_host(gateway_host)
+    .host(&host)
     .app_version(app_version.clone().unwrap_or_default())
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c) as _))
@@ -464,9 +416,10 @@ pub async fn create_client(
 
   let store = build_store(db_path, encryption_key).await?;
 
-  let cursor_store = SqliteCursorStore::new(store.db());
-  backend.cursor_store(cursor_store);
-  let api_client = backend.build_optional_d14n().map_err(ErrorWrapper::js)?;
+  let api_client = backend
+    .build()
+    .map_err(backend::BackendBuilderError)
+    .map_err(ErrorWrapper::js)?;
 
   create_client_inner(
     api_client,
@@ -603,33 +556,54 @@ impl Client {
 
   #[wasm_bindgen(js_name = apiStatistics)]
   pub fn api_statistics(&self) -> ApiStats {
-    self.inner_client.api_stats().into()
+    self
+      .inner_client
+      .context
+      .api()
+      .api_client
+      .mls_stats()
+      .into()
   }
 
   #[wasm_bindgen(js_name = apiIdentityStatistics)]
   pub fn api_identity_statistics(&self) -> IdentityStats {
-    self.inner_client.identity_api_stats().into()
+    self
+      .inner_client
+      .context
+      .api()
+      .api_client
+      .identity_stats()
+      .into()
   }
 
   #[wasm_bindgen(js_name = apiAggregateStatistics)]
   pub fn api_aggregate_statistics(&self) -> String {
-    let api = self.inner_client.api_stats();
-    let identity = self.inner_client.identity_api_stats();
+    let api = self.inner_client.context.api().api_client.mls_stats();
+    let identity = self.inner_client.context.api().api_client.identity_stats();
     let aggregate = AggregateStats { mls: api, identity };
     format!("{:?}", aggregate)
   }
 
   #[wasm_bindgen(js_name = clearAllStatistics)]
   pub fn clear_all_statistics(&self) {
-    self.inner_client.clear_stats()
+    self
+      .inner_client
+      .context
+      .api()
+      .api_client
+      .mls_stats()
+      .clear();
+    self
+      .inner_client
+      .context
+      .api()
+      .api_client
+      .identity_stats()
+      .clear();
   }
 
   /// Wait until this client's registration is visible on the network.
   ///
-  /// For V3 clients (no cursor stored) this falls back to checking
-  /// `isRegistered`.  For D14n clients it polls each node directly and
-  /// returns once a quorum confirms both the identity-update and
-  /// key-package envelopes are visible.
   #[wasm_bindgen(js_name = waitForRegistrationVisible)]
   pub async fn wait_for_registration_visible(
     &self,

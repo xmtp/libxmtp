@@ -22,7 +22,7 @@ use mockall::mock;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::MockApiClient;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
@@ -33,15 +33,22 @@ pub use generate::*;
 mod openmls_mock;
 pub use openmls_mock::*;
 
-pub type MockApiWrapper = Arc<ApiClientWrapper<MockApiClient>>;
+pub type MockApiWrapper = Arc<ApiClientWrapper<Arc<MockBackendClient>>>;
 pub type MockStoreAndContext =
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
+    XmtpMlsLocalContext<Arc<MockBackendClient>, xmtp_db::MockXmtpDb, MockSqlKeyStore>;
 pub type MockContext = Arc<
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>,
+    XmtpMlsLocalContext<
+        Arc<MockBackendClient>,
+        xmtp_db::MockXmtpDb,
+        xmtp_db::test_utils::MlsMemoryStorage,
+    >,
 >;
 /// A mock context type that hasn't yet been added into an Arc type.
-pub type NewMockContext =
-    XmtpMlsLocalContext<MockApiClient, xmtp_db::MockXmtpDb, xmtp_db::test_utils::MlsMemoryStorage>;
+pub type NewMockContext = XmtpMlsLocalContext<
+    Arc<MockBackendClient>,
+    xmtp_db::MockXmtpDb,
+    xmtp_db::test_utils::MlsMemoryStorage,
+>;
 pub type MockProcessMessageFuture = ProcessMessageFuture<MockContext>;
 pub type MockMlsGroup = MlsGroup<MockContext>;
 
@@ -102,7 +109,7 @@ impl Clone for NewMockContext {
 impl XmtpSharedContext for NewMockContext {
     type Db = xmtp_db::MockXmtpDb;
 
-    type ApiClient = MockApiClient;
+    type ApiClient = Arc<MockBackendClient>;
 
     type MlsStorage = xmtp_db::test_utils::MlsMemoryStorage;
     type ContextReference = Self;

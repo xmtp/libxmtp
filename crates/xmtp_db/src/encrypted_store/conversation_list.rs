@@ -59,8 +59,6 @@ pub struct ConversationListItem {
     pub authority_id: Option<String>,
     /// sequence id of the message
     pub sequence_id: Option<i64>,
-    /// originator id of the message null if no messages for a group yet
-    pub originator_id: Option<i64>,
 }
 
 pub trait QueryConversationList {

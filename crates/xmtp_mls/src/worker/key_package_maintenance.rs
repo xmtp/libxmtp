@@ -75,7 +75,6 @@ pub(crate) fn kp_deletion_hash() -> TaskDataHash {
 pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageError> {
     NewTask::builder()
         .originating_message_sequence_id(0)
-        .originating_message_originator_id(0)
         .expires_at_ns(NEVER_EXPIRES)
         .max_attempts(i32::MAX)
         .next_attempt_at_ns(now)

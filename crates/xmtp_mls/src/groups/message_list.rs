@@ -69,7 +69,6 @@ mod tests {
     use crate::messages::decoded_message::MessageBody;
     use hex::ToHexExt;
     use xmtp_common::time::now_ns;
-    use xmtp_configuration::Originators;
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::test_utils::TestContentGenerator;
     use xmtp_content_types::text::TextCodec;
@@ -115,7 +114,8 @@ mod tests {
             authority_id: queryable_fields.authority_id,
             reference_id: queryable_fields.reference_id,
             sequence_id: 0,
-            originator_id: Originators::APPLICATION_MESSAGES.into(),
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,
@@ -160,7 +160,8 @@ mod tests {
             authority_id: queryable_fields.3,
             reference_id,
             sequence_id: 0,
-            originator_id: Originators::APPLICATION_MESSAGES.into(),
+            envelope_hash: None,
+            expiry_ns: None,
             expire_at_ns: None,
             inserted_at_ns: 0,
             should_push: true,

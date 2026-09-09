@@ -1,0 +1,148 @@
+//! We define a very simple strategy for disabling writes on certain clients.
+
+xmtp_common::if_test! {
+    mod test;
+}
+
+use derive_builder::Builder;
+use prost::bytes::Bytes;
+use xmtp_proto::api::{ApiClientError, Client};
+use xmtp_proto::api::{BytesStream, IsConnectedCheck};
+
+const PUBLISH_PATH: &str = "/xmtp.backend.v1.PublishService/Publish";
+
+/// A client that will error on requests that write to the network.
+#[derive(Debug, Builder, Default, Clone)]
+#[builder(public)]
+pub struct ReadonlyClient<Client> {
+    #[builder(public)]
+    pub(crate) inner: Client,
+}
+
+impl<C: Clone> ReadonlyClient<C> {
+    pub fn builder() -> ReadonlyClientBuilder<C> {
+        ReadonlyClientBuilder::default()
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C> Client for ReadonlyClient<C>
+where
+    C: Client,
+{
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
+    async fn request(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
+        let p = path.path();
+        if p == PUBLISH_PATH {
+            return Err(ApiClientError::WritesDisabled);
+        }
+
+        self.inner.request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let p = path.path();
+        if p == PUBLISH_PATH {
+            return Err(ApiClientError::WritesDisabled);
+        }
+
+        self.inner.stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: http::request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        let p = path.path();
+        if p == PUBLISH_PATH {
+            return Err(ApiClientError::WritesDisabled);
+        }
+
+        self.inner.bidi_stream(request, path, body).await
+    }
+}
+
+#[xmtp_common::async_trait]
+impl<C> IsConnectedCheck for ReadonlyClient<C>
+where
+    C: IsConnectedCheck,
+{
+    async fn is_connected(&self) -> bool {
+        self.inner.is_connected().await
+    }
+}
+
+xmtp_common::if_test! {
+    use derive_builder::UninitializedFieldError;
+    use xmtp_proto::prelude::ApiBuilder;
+    #[allow(clippy::unwrap_used)]
+    impl<C> ReadonlyClientBuilder<C>
+    where
+        C: ApiBuilder,
+    {
+        pub(crate) fn build_builder(
+            self,
+        ) -> Result<ReadonlyClient<C::Output>, UninitializedFieldError> {
+            Ok(ReadonlyClient {
+                inner: <C as ApiBuilder>::build(
+                    self.inner
+                        .ok_or(UninitializedFieldError::new("read"))
+                        .unwrap(),
+                )
+                .unwrap(),
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::backend::{GetInboxIds, Publish};
+
+    use super::*;
+    use rstest::*;
+
+    use xmtp_proto::api::{Query, mock::MockNetworkClient};
+    type MockClient = ReadonlyClient<MockNetworkClient>;
+
+    #[fixture]
+    fn ro() -> MockClient {
+        ReadonlyClient {
+            inner: MockNetworkClient::default(),
+        }
+    }
+
+    #[rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_forwards_to_inner(mut ro: MockClient) {
+        ro.inner
+            .expect_request()
+            .times(1)
+            .returning(|_, _, _| Ok(http::Response::new(vec![].into())));
+        let mut e = GetInboxIds(Default::default());
+        e.query(&ro).await?;
+    }
+
+    #[rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_errors_on_write(ro: MockClient) {
+        let mut e = Publish(Default::default());
+        let result = e.query(&ro).await;
+        assert!(matches!(result, Err(ApiClientError::WritesDisabled)));
+    }
+}

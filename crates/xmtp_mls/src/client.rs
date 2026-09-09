@@ -76,6 +76,21 @@ pub enum Network {
     Prod,
 }
 
+/// Timeout for waiting until a registration publish can be read.
+#[derive(Debug, Clone)]
+pub struct VisibilityConfirmationOptions {
+    pub timeout_ms: u64,
+}
+
+const REGISTRATION_INITIAL_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+const REGISTRATION_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
+
+impl Default for VisibilityConfirmationOptions {
+    fn default() -> Self {
+        Self { timeout_ms: 30_000 }
+    }
+}
+
 #[derive(Debug, Error, ErrorCode)]
 pub enum ClientError {
     #[error(transparent)]
@@ -174,14 +189,9 @@ pub enum ClientError {
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Registration not visible.
     ///
-    /// Registration was not visible on the required number of nodes within the timeout. Not retryable.
-    #[error("Registration not visible on required nodes: {failed_nodes:?}")]
-    RegistrationNotVisible { failed_nodes: Vec<u32> },
-    /// Envelopes not yet visible.
-    ///
-    /// Registration envelopes haven't propagated to the node yet. Retryable.
-    #[error("Envelopes not yet visible on node {node_id}")]
-    EnvelopesNotYetVisible { node_id: u32 },
+    /// Registration has no publish cursor or is not visible before the timeout. Not retryable.
+    #[error("Registration is not visible")]
+    RegistrationNotVisible,
     /// Client is closed.
     ///
     /// Operation was attempted on a client that has been shut down via
@@ -224,7 +234,6 @@ impl xmtp_common::RetryableError for ClientError {
             // See xmtp/libxmtp#3394.
             ClientError::SignatureValidation(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
-            ClientError::EnvelopesNotYetVisible { .. } => true,
             _ => false,
         }
     }
@@ -454,8 +463,8 @@ where
                 ))
             })
             .try_collect()?;
-        let mut cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
-        let mut new_inbox_ids = HashMap::default();
+        let cached_inbox_ids = conn.fetch_cached_inbox_ids(&ids)?;
+        let mut new_inbox_ids: HashMap<&Identifier, Option<String>> = HashMap::new();
 
         let missing: Vec<_> = identifiers
             .iter()
@@ -463,21 +472,22 @@ where
             .collect();
 
         if !missing.is_empty() {
-            let identifiers = identifiers.iter().map(Into::into).collect();
-            new_inbox_ids = self.context.api().get_inbox_ids(identifiers).await?;
+            let requests = missing
+                .iter()
+                .map(|identifier| (*identifier).into())
+                .collect();
+            let results = self.context.api().get_inbox_ids(requests).await?;
+            new_inbox_ids = missing.into_iter().zip(results).collect();
         }
 
         let inbox_ids = identifiers
             .iter()
             .map(|ident| {
                 let cache_key = format!("{ident}");
-                if let Some(inbox_id) = cached_inbox_ids.remove(&cache_key) {
-                    return Some(inbox_id);
+                if let Some(inbox_id) = cached_inbox_ids.get(&cache_key) {
+                    return Some(inbox_id.clone());
                 }
-                if let Some(inbox_id) = new_inbox_ids.remove(&ident.into()) {
-                    return Some(inbox_id);
-                }
-                None
+                new_inbox_ids.get(ident).cloned().flatten()
             })
             .collect();
         Ok(inbox_ids)
@@ -744,12 +754,12 @@ where
             group_id = group.group_id,
             target_inbox = target_inbox_id
         );
-        group.add_members(&[target_inbox_id]).await?;
-
         // notify any streams of the new group
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id));
+
+        group.add_members(&[target_inbox_id]).await?;
 
         Ok(group)
     }
@@ -979,7 +989,8 @@ where
                         authority_id: conversation_item.authority_id?,
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: conversation_item.sequence_id?,
-                        originator_id: conversation_item.originator_id?,
+                        envelope_hash: None,
+                        expiry_ns: None,
                         expire_at_ns: None, //Question: do we need to include this in conversation last message?
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
@@ -1040,17 +1051,16 @@ where
             .await?;
 
         // Step 3: Upload key package first (prevents race condition)
-        self.context
-            .api()
-            .upload_key_package(kp_bytes, true)
-            .await?;
+        self.context.api().upload_key_package(kp_bytes).await?;
 
         // Step 4: Publish identity update (makes installation visible)
-        let registration_cursor = self
-            .context
-            .api()
-            .publish_identity_update(identity_update)
-            .await?;
+        let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
+            self.context.api(),
+            &self.context.db(),
+            identity_update,
+            &self.context.scw_verifier(),
+        )
+        .await?;
 
         // Step 5: Fetch and store in local DB (needed for group operations)
         let inbox_id = self.inbox_id().to_string();
@@ -1080,13 +1090,46 @@ where
 
         // Mark identity as ready
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
-        if let Some(cursor) = registration_cursor {
-            stored_identity.registration_cursor_originator_id = Some(cursor.originator_id as i64);
-            stored_identity.registration_cursor_sequence_id = Some(cursor.sequence_id as i64);
-        }
+        stored_identity.registration_cursor_sequence_id = Some(registration_cursor.0 as i64);
         stored_identity.store(&self.context.db())?;
         self.identity().set_ready();
         Ok(())
+    }
+
+    /// Wait for the registration publish to become visible in the serving database.
+    /// Only NOT_FOUND is polled. The timeout also bounds an in-flight request.
+    pub async fn wait_for_registration_visible(
+        &self,
+        options: VisibilityConfirmationOptions,
+    ) -> Result<(), ClientError> {
+        use xmtp_common::time::{Duration, sleep, timeout};
+        if !self.identity().is_ready() {
+            return Err(ClientError::RegistrationNotVisible);
+        }
+        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        let sequence_id = stored
+            .and_then(|identity| identity.registration_cursor_sequence_id)
+            .and_then(|sequence_id| u64::try_from(sequence_id).ok())
+            .filter(|sequence_id| *sequence_id != 0)
+            .ok_or(ClientError::RegistrationNotVisible)?;
+        timeout(Duration::from_millis(options.timeout_ms), async {
+            let mut delay = REGISTRATION_INITIAL_BACKOFF;
+            loop {
+                match self.context.api().get_envelope(sequence_id).await {
+                    Ok(_) => return Ok(()),
+                    Err(error)
+                        if xmtp_proto::api::grpc_status(&error)
+                            .is_some_and(|status| status.code() == tonic::Code::NotFound) =>
+                    {
+                        sleep(delay).await;
+                        delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        })
+        .await
+        .map_err(|_| ClientError::RegistrationNotVisible)?
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
@@ -1243,1120 +1286,14 @@ where
     ) -> Result<HashMap<Identifier, bool>, ClientError> {
         let requests = account_identifiers.iter().map(Into::into).collect();
 
-        // Get the identities that are on the network, set those to true
-        let mut can_message: HashMap<Identifier, bool> = self
-            .context
-            .api()
-            .get_inbox_ids(requests)
-            .await?
-            .into_keys()
-            .filter_map(|ident| Some((ident.try_into().ok()?, true)))
-            .collect();
-
-        // Fill in the rest with false
-        for ident in account_identifiers {
-            if !can_message.contains_key(ident) {
-                can_message.insert(ident.clone(), false);
-            }
-        }
-
-        Ok(can_message)
+        let results = self.context.api().get_inbox_ids(requests).await?;
+        Ok(account_identifiers
+            .iter()
+            .cloned()
+            .zip(results.into_iter().map(|inbox_id| inbox_id.is_some()))
+            .collect())
     }
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::Client;
-    use crate::context::XmtpSharedContext;
-    use crate::groups::send_message_opts::SendMessageOpts;
-    use crate::identity::IdentityError;
-    use crate::subscriptions::StreamMessages;
-    use crate::tester;
-    use crate::utils::{LocalTester, LocalTesterBuilder, Tester};
-    use crate::{builder::ClientBuilder, identity::serialize_key_package_hash_ref};
-    use diesel::RunQueryDsl;
-    use futures::TryStreamExt;
-    use futures::stream::StreamExt;
-    use prost::Message;
-    use std::time::Duration;
-    use xmtp_common::time::now_ns;
-    use xmtp_common::{NS_IN_SEC, toxiproxy_test};
-    use xmtp_content_types::ContentCodec;
-    use xmtp_content_types::text::TextCodec;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::consent_record::{ConsentType, StoredConsentRecord};
-    use xmtp_db::identity::StoredIdentity;
-    use xmtp_db::prelude::*;
-    use xmtp_db::{
-        ConnectionExt, Fetch, consent_record::ConsentState, group::GroupQueryArgs,
-        group_message::MsgQueryArgs, schema::identity_updates,
-    };
-    use xmtp_id::associations::test_utils::WalletTestExt;
-
-    #[xmtp_common::test]
-    async fn test_group_member_recovery() {
-        tester!(amal);
-        tester!(bola_a);
-        tester!(bola_b, from: bola_a);
-
-        let group = amal.create_group(None, None).unwrap();
-
-        // Add both of Bola's installations to the group
-        group
-            .add_members(&[bola_a.inbox_id(), bola_b.inbox_id()])
-            .await
-            .unwrap();
-
-        let conn = amal.context.store().conn();
-        conn.raw_query(|conn| diesel::delete(identity_updates::table).execute(conn))
-            .unwrap();
-
-        let members = group.members().await.unwrap();
-        // The three installations should count as two members
-        assert_eq!(members.len(), 2);
-    }
-
-    #[xmtp_common::test]
-    fn test_client_error_signature_validation_retryability_propagates() {
-        use xmtp_common::RetryableError;
-        use xmtp_id::associations::signature::SignatureError;
-        use xmtp_id::scw_verifier::VerifierError;
-
-        // A retryable verifier error (transient RPC failure) must surface as
-        // retryable at the ClientError layer so the welcome sync path does not
-        // advance the cursor past welcomes involving SCW users. See xmtp/libxmtp#3394.
-        let retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
-            VerifierError::NoVerifier("eip155:1".to_string()),
-        ));
-        assert!(retryable.is_retryable());
-
-        // A terminal verifier error (malformed input) must remain non-retryable
-        // so we don't spin forever on bad data.
-        let non_retryable = super::ClientError::SignatureValidation(SignatureError::VerifierError(
-            VerifierError::MalformedEipUrl,
-        ));
-        assert!(!non_retryable.is_retryable());
-    }
-
-    #[xmtp_common::test]
-    async fn test_mls_error() {
-        tester!(client);
-        let result = client
-            .context
-            .api()
-            .upload_key_package(vec![1, 2, 3], false)
-            .await;
-
-        assert!(result.is_err());
-        let error_string = result.err().unwrap().to_string();
-        assert!(error_string.contains("invalid identity") || error_string.contains("EndOfStream"));
-    }
-
-    #[xmtp_common::test]
-    async fn test_register_installation() {
-        tester!(client);
-        tester!(client_2);
-        // Make sure the installation is actually on the network
-        let association_state = client_2
-            .identity_updates()
-            .get_latest_association_state(&client_2.context.db(), client.inbox_id())
-            .await
-            .unwrap();
-
-        assert_eq!(association_state.installation_ids().len(), 1);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(
-        not(target_arch = "wasm32"),
-        tokio::test(flavor = "multi_thread", worker_threads = 1)
-    )]
-    async fn test_rotate_key_package() {
-        tester!(client);
-
-        let installation_public_key = client.installation_public_key().to_vec();
-        // Get original KeyPackage.
-        let mut kp1 = client
-            .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
-            .await
-            .unwrap();
-        assert_eq!(kp1.len(), 1);
-        let binding = kp1.remove(&installation_public_key).unwrap().unwrap();
-        let init1 = binding.inner.hpke_init_key();
-        let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
-        // Rotate and fetch again.
-        client.queue_key_rotation().unwrap();
-        //check the rotation value has been set
-        let fetched_identity: StoredIdentity = client.context.db().fetch(&()).unwrap().unwrap();
-        assert!(fetched_identity.next_key_package_rotation_ns.is_some());
-
-        xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
-
-        let mut kp2 = client
-            .get_key_packages_for_installation_ids(vec![installation_public_key.clone()])
-            .await
-            .unwrap();
-        assert_eq!(kp2.len(), 1);
-        let binding = kp2.remove(&installation_public_key).unwrap().unwrap();
-        let init2 = binding.inner.hpke_init_key();
-
-        assert_ne!(init1, init2);
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_groups() {
-        tester!(client);
-        let group_1 = client.create_group(None, None).unwrap();
-        let group_2 = client.create_group(None, None).unwrap();
-
-        let groups = client.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(groups.len(), 2);
-        assert!(groups.iter().any(|g| g.group_id == group_1.group_id));
-        assert!(groups.iter().any(|g| g.group_id == group_2.group_id));
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_inbox_id() {
-        tester!(client);
-        assert_eq!(
-            client
-                .find_inbox_id_from_identifier(&client.context.db(), client.identifier())
-                .await
-                .unwrap(),
-            Some(client.inbox_id().to_string())
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_double_dms() {
-        tester!(alice);
-        tester!(bob);
-
-        let alice_dm = alice
-            .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
-            .await?;
-        alice_dm
-            .send_message(b"Welcome 1", SendMessageOpts::default())
-            .await?;
-
-        let bob_dm = bob
-            .create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
-            .await?;
-
-        tester!(alice2, from: alice);
-        let alice_dm2 = alice
-            .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
-            .await?;
-        alice_dm2
-            .send_message(b"Welcome 2", SendMessageOpts::default())
-            .await?;
-
-        alice_dm.update_installations().await?;
-        alice.sync_welcomes().await?;
-        bob.sync_welcomes().await?;
-
-        alice_dm
-            .send_message(b"Welcome from 1", SendMessageOpts::default())
-            .await?;
-
-        // This message will set bob's dm as the primary DM for all clients
-        bob_dm
-            .send_message(b"Bob says hi 1", SendMessageOpts::default())
-            .await?;
-        // Alice will sync, pulling in Bob's DM message, which will cause
-        // a database trigger to update `last_message_ns`, putting bob's DM to the top.
-        alice_dm.sync().await?;
-
-        alice2.sync_welcomes().await?;
-        let mut groups = alice2.find_groups(GroupQueryArgs::default())?;
-
-        assert_eq!(groups.len(), 1);
-        let group = groups.pop()?;
-
-        group.sync().await?;
-        let messages = group.find_messages(&MsgQueryArgs::default())?;
-
-        assert_eq!(messages.len(), 6);
-
-        // Reload alice's DM. This will load the DM that Bob just created and sent a message on.
-        let new_alice_dm = alice.stitched_group(&alice_dm.group_id)?;
-
-        // The group_id should not be what we asked for because it was stitched
-        assert_ne!(alice_dm.group_id, new_alice_dm.group_id);
-        // They should be the same, due the the message that Bob sent above.
-        assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test(flavor = "multi_thread")]
-    async fn only_test_sync_welcomes() {
-        let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-        let bob = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
-
-        let alice_bob_group = alice.create_group(None, None).unwrap();
-        alice_bob_group
-            .add_members(&[bob.inbox_id()])
-            .await
-            .unwrap();
-
-        let bob_received_groups = bob.sync_welcomes().await.unwrap();
-        assert_eq!(bob_received_groups.len(), 1);
-        assert_eq!(
-            bob_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-
-        let duplicate_received_groups = bob.sync_welcomes().await.unwrap();
-        assert_eq!(duplicate_received_groups.len(), 0);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_leaf_node_lifetime_validation_disabled() {
-        use crate::utils::test_mocks_helpers::set_test_mode_limit_key_package_lifetime;
-
-        // Create a client with default KP lifetime
-        tester!(alice);
-
-        // Create a client with default KP lifetime
-        set_test_mode_limit_key_package_lifetime(false, 0);
-        tester!(cat);
-
-        let alice_bob_group = alice.create_group(None, None).unwrap();
-        alice_bob_group
-            .add_members(&[cat.inbox_id()])
-            .await
-            .unwrap();
-
-        let cat_received_groups = cat.sync_welcomes().await.unwrap();
-        assert_eq!(cat_received_groups.len(), 1);
-        assert_eq!(
-            cat_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-
-        // Create a client with a KP that expires in 5 seconds
-        set_test_mode_limit_key_package_lifetime(true, 5);
-        tester!(bob);
-
-        // Alice invites Bob with short living KP
-        alice_bob_group
-            .add_members(&[bob.inbox_id()])
-            .await
-            .unwrap();
-
-        // Since Bob's KP is still valid, Bob should successfully process the Welcome
-        let bob_received_groups = bob.sync_welcomes().await.unwrap();
-
-        // Wait for Bob's KP and their leafnode's lifetime to expire
-        xmtp_common::time::sleep(Duration::from_secs(7)).await;
-
-        assert_eq!(bob_received_groups.len(), 1);
-        assert_eq!(
-            bob_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-
-        let bob_duplicate_received_groups = bob.sync_welcomes().await.unwrap();
-        let cat_duplicate_received_groups = cat.sync_welcomes().await.unwrap();
-        assert_eq!(bob_duplicate_received_groups.len(), 0);
-        assert_eq!(cat_duplicate_received_groups.len(), 0);
-
-        set_test_mode_limit_key_package_lifetime(false, 0);
-        tester!(dave);
-        alice_bob_group
-            .add_members(&[dave.inbox_id()])
-            .await
-            .unwrap();
-        // Dave should be okay receiving a welcome where members of the group are expired
-        let dave_received_groups = dave.sync_welcomes().await.unwrap();
-        assert_eq!(dave_received_groups.len(), 1);
-        assert_eq!(
-            dave_received_groups.first().unwrap().group_id,
-            alice_bob_group.group_id
-        );
-        let dave_duplicate_received_groups = dave.sync_welcomes().await.unwrap();
-        assert_eq!(dave_duplicate_received_groups.len(), 0);
-
-        // Cat receives commits to add expired group members, they should pass validation and be added
-        let cat_group = cat_received_groups.first().unwrap();
-        cat_group.sync().await.unwrap();
-        assert_eq!(cat_group.members().await.unwrap().len(), 4);
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 10)]
-    async fn test_sync_all_groups() {
-        tester!(alix);
-        tester!(bo);
-
-        let alix_bo_group1 = alix.create_group(None, None).unwrap();
-        let alix_bo_group2 = alix.create_group(None, None).unwrap();
-        alix_bo_group1.add_members(&[bo.inbox_id()]).await.unwrap();
-        alix_bo_group2.add_members(&[bo.inbox_id()]).await.unwrap();
-
-        let bob_received_groups = bo.sync_welcomes().await.unwrap();
-        assert_eq!(bob_received_groups.len(), 2);
-
-        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
-        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 1);
-        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
-        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 1);
-        alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-        alix_bo_group2
-            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-
-        let summary = bo.sync_all_groups(bo_groups).await.unwrap();
-        assert_eq!(summary.num_synced, 2);
-
-        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 2);
-        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
-        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 2);
-    }
-
-    #[xmtp_common::test(flavor = "multi_thread")]
-    async fn test_sync_all_groups_and_welcomes() {
-        tester!(alix);
-        tester!(bo, passkey);
-
-        // Create two groups and add Bob
-        let alix_bo_group1 = alix.create_group(None, None).unwrap();
-        let alix_bo_group2 = alix.create_group(None, None).unwrap();
-
-        alix_bo_group1.add_members(&[bo.inbox_id()]).await.unwrap();
-        alix_bo_group2.add_members(&[bo.inbox_id()]).await.unwrap();
-
-        // Initial sync (None): Bob should fetch both groups
-        let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
-        assert_eq!(bob_received_groups.num_synced, 0);
-
-        xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
-        // Verify Bo initially has no messages
-        let bo_group1 = bo.group(&alix_bo_group1.group_id).unwrap();
-        assert_eq!(
-            bo_group1
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1
-        );
-        let bo_group2 = bo.group(&alix_bo_group2.group_id).unwrap();
-        assert_eq!(
-            bo_group2
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1
-        );
-
-        // Alix sends a message to both groups
-        alix_bo_group1
-            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-        alix_bo_group2
-            .send_message(vec![4, 5, 6].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-
-        // Sync with `Unknown`: Bob should not fetch new messages
-        let bob_received_groups_unknown = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Allowed].to_vec()))
-            .await
-            .unwrap();
-        assert_eq!(bob_received_groups_unknown.num_synced, 0);
-
-        // Verify Bob still has no messages
-        assert_eq!(
-            bo_group1
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1
-        );
-        assert_eq!(
-            bo_group2
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1
-        );
-
-        // Alix sends another message to both groups
-        alix_bo_group1
-            .send_message(vec![7, 8, 9].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-        alix_bo_group2
-            .send_message(vec![10, 11, 12].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-
-        // Sync with `None`: Bob should fetch all messages
-        let bo_sync_summary = bo
-            .sync_all_welcomes_and_groups(Some([ConsentState::Unknown].to_vec()))
-            .await
-            .unwrap();
-        assert_eq!(bo_sync_summary.num_synced, 2);
-
-        // Verify Bob now has all messages
-        let bo_messages1 = bo_group1.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages1.len(), 3);
-
-        let bo_messages2 = bo_group2.find_messages(&MsgQueryArgs::default()).unwrap();
-        assert_eq!(bo_messages2.len(), 3);
-    }
-
-    #[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
-    #[xmtp_common::test]
-    async fn test_sync_100_allowed_groups_performance() {
-        tester!(alix);
-        tester!(bo, passkey);
-
-        let group_count = 100;
-        let mut groups = Vec::with_capacity(group_count);
-
-        for _ in 0..group_count {
-            let group = alix.create_group(None, None).unwrap();
-            group.add_members(&[bo.inbox_id()]).await.unwrap();
-            groups.push(group);
-        }
-
-        xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
-        let start = xmtp_common::time::Instant::now();
-        let _synced_count = bo.sync_all_welcomes_and_groups(None).await.unwrap();
-        let elapsed = start.elapsed();
-
-        let test_group = groups.first().unwrap();
-        let bo_group = bo.group(&test_group.group_id).unwrap();
-        assert_eq!(
-            bo_group
-                .find_messages(&MsgQueryArgs::default())
-                .unwrap()
-                .len(),
-            1,
-            "Expected 1 welcome message synced"
-        );
-
-        println!(
-            "Synced {} groups in {:?} (avg per group: {:?})",
-            group_count,
-            elapsed,
-            elapsed / group_count as u32
-        );
-
-        let start = xmtp_common::time::Instant::now();
-        bo.sync_all_welcomes_and_groups(None).await.unwrap();
-        let elapsed = start.elapsed();
-
-        println!(
-            "Synced {} groups in {:?} (avg per group: {:?})",
-            group_count,
-            elapsed,
-            elapsed / group_count as u32
-        );
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test]
-    async fn test_add_remove_then_add_again() {
-        let amal = Tester::new().await;
-        let bola = Tester::new().await;
-
-        // Create a group and invite bola
-        let amal_group = amal.create_group(None, None).unwrap();
-        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
-        assert_eq!(amal_group.members().await.unwrap().len(), 2);
-
-        // Now remove bola
-        amal_group.remove_members(&[bola.inbox_id()]).await.unwrap();
-        assert_eq!(amal_group.members().await.unwrap().len(), 1);
-
-        // See if Bola can see that they were added to the group
-        bola.sync_welcomes().await.unwrap();
-        let bola_groups = bola.find_groups(Default::default()).unwrap();
-        assert_eq!(bola_groups.len(), 1);
-        let bola_group = bola_groups.first().unwrap();
-        bola_group.sync().await.unwrap();
-
-        assert!(!bola_group.is_active().unwrap());
-
-        // Bola should have one readable message (them being added to the group)
-        let mut bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
-
-        assert_eq!(bola_messages.len(), 2);
-
-        // Add Bola back to the group
-        amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
-        bola.sync_welcomes().await.unwrap();
-
-        // Send a message from Amal, now that Bola is back in the group
-        amal_group
-            .send_message(vec![1, 2, 3].as_slice(), SendMessageOpts::default())
-            .await
-            .unwrap();
-
-        // Sync Bola's state to get the latest
-        if let Err(err) = bola_group.sync().await {
-            panic!("Error syncing group: {:?}", err);
-        }
-        // Find Bola's updated list of messages
-        bola_messages = bola_group.find_messages(&MsgQueryArgs::default()).unwrap();
-        // Bola should have been able to decrypt the last message
-        assert_eq!(bola_messages.len(), 4);
-        assert_eq!(
-            bola_messages.get(3).unwrap().decrypted_message_bytes,
-            vec![1, 2, 3]
-        )
-    }
-
-    async fn get_key_package_init_key<Context: XmtpSharedContext, Id: AsRef<[u8]>>(
-        client: &Client<Context>,
-        installation_id: Id,
-    ) -> Result<Vec<u8>, IdentityError> {
-        let mut kps_map = client
-            .get_key_packages_for_installation_ids(vec![installation_id.as_ref().to_vec()])
-            .await
-            .map_err(|_| IdentityError::NewIdentity("Failed to fetch key packages".to_string()))?;
-
-        let kp_result = kps_map.remove(installation_id.as_ref()).ok_or_else(|| {
-            IdentityError::NewIdentity(format!(
-                "Missing key package for {}",
-                hex::encode(installation_id.as_ref())
-            ))
-        })??;
-
-        serialize_key_package_hash_ref(&kp_result.inner, &client.context.mls_provider())
-    }
-
-    #[xmtp_common::test]
-    async fn test_key_package_rotation() {
-        let alix_wallet = generate_local_wallet();
-        let bo_wallet = generate_local_wallet();
-        let alix = ClientBuilder::new_test_client(&alix_wallet).await;
-        let bo = ClientBuilder::new_test_client(&bo_wallet).await;
-
-        let alix_original_init_key =
-            get_key_package_init_key(&alix, alix.installation_public_key())
-                .await
-                .unwrap();
-        let bo_original_init_key = get_key_package_init_key(&bo, bo.installation_public_key())
-            .await
-            .unwrap();
-
-        let alix_fetched_identity: StoredIdentity = alix.context.db().fetch(&()).unwrap().unwrap();
-        assert!(alix_fetched_identity.next_key_package_rotation_ns.is_some());
-        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
-        // Bo's original key should be deleted
-        let bo_original_from_db = bo
-            .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
-        assert!(bo_original_from_db.is_ok());
-
-        alix.create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
-            .await
-            .unwrap();
-        let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
-        assert!(!bo_keys_queued_for_rotation);
-
-        bo.sync_welcomes().await.unwrap();
-
-        //check the rotation value has been set and less than Queue rotation interval
-        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.is_some());
-        let updated_at = bo
-            .context
-            .db()
-            .key_package_rotation_history()
-            .into_iter()
-            .map(|(_, updated_at)| updated_at)
-            .next_back()
-            .unwrap();
-        assert!(
-            bo_fetched_identity.next_key_package_rotation_ns.unwrap() - updated_at < 5 * NS_IN_SEC
-        );
-
-        //check original keys must not be marked to be deleted
-        let bo_keys = bo
-            .context
-            .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
-        assert!(bo_keys.unwrap().delete_at_ns.is_none());
-        //wait for worker to rotate the keypackage
-        xmtp_common::time::sleep(std::time::Duration::from_secs(11)).await;
-        //check the rotation queue must be cleared
-        let bo_keys_queued_for_rotation = bo.context.db().is_identity_needs_rotation().unwrap();
-        assert!(!bo_keys_queued_for_rotation);
-
-        let bo_fetched_identity: StoredIdentity = bo.context.db().fetch(&()).unwrap().unwrap();
-        assert!(bo_fetched_identity.next_key_package_rotation_ns.unwrap() > 0);
-
-        let bo_new_key = get_key_package_init_key(&bo, bo.installation_public_key())
-            .await
-            .unwrap();
-        // Bo's key should have changed
-        assert_ne!(bo_original_init_key, bo_new_key);
-
-        // Depending on timing, old key should already be deleted, or marked to be deleted
-        let bo_keys = bo
-            .context
-            .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone())
-            .ok();
-        if let Some(key) = bo_keys {
-            assert!(key.delete_at_ns.is_some());
-        }
-
-        xmtp_common::time::sleep(std::time::Duration::from_secs(10)).await;
-        let bo_keys = bo
-            .context
-            .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key.clone());
-        assert!(bo_keys.is_err());
-
-        bo.sync_welcomes().await.unwrap();
-        let bo_new_key_2 = get_key_package_init_key(&bo, bo.installation_public_key())
-            .await
-            .unwrap();
-        // Bo's key should not have changed syncing the second time.
-        assert_eq!(bo_new_key, bo_new_key_2);
-
-        let alix_keys_queued_for_rotation = alix.context.db().is_identity_needs_rotation().unwrap();
-        assert!(!alix_keys_queued_for_rotation);
-
-        alix.sync_welcomes().await.unwrap();
-        let alix_key_2 = get_key_package_init_key(&alix, alix.installation_public_key())
-            .await
-            .unwrap();
-
-        // Alix's key should not have changed at all
-        assert_eq!(alix_original_init_key, alix_key_2);
-
-        alix.create_group_with_identifiers(&[bo_wallet.identifier()], None, None)
-            .await
-            .unwrap();
-        bo.sync_welcomes().await.unwrap();
-
-        // Bo should have two groups now
-        let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(bo_groups.len(), 2);
-
-        // Bo's original key should be deleted
-        let bo_original_after_delete = bo
-            .db()
-            .find_key_package_history_entry_by_hash_ref(bo_original_init_key);
-        assert!(bo_original_after_delete.is_err());
-    }
-
-    #[xmtp_common::test]
-    async fn test_find_or_create_dm_by_inbox_id() {
-        let user1 = generate_local_wallet();
-        let user2 = generate_local_wallet();
-        let client1 = ClientBuilder::new_test_client(&user1).await;
-        let client2 = ClientBuilder::new_test_client(&user2).await;
-
-        // First call should create a new DM
-        let dm1 = client1
-            .find_or_create_dm(client2.inbox_id().to_string(), None)
-            .await
-            .unwrap();
-
-        // Verify DM was created with correct properties
-        let metadata = dm1.metadata().await.unwrap();
-        assert_eq!(
-            metadata.dm_members.clone().unwrap().member_one_inbox_id,
-            client1.inbox_id()
-        );
-        assert_eq!(
-            metadata.dm_members.unwrap().member_two_inbox_id,
-            client2.inbox_id()
-        );
-
-        // Second call should find the existing DM
-        let dm2 = client1
-            .find_or_create_dm(client2.inbox_id().to_string(), None)
-            .await
-            .unwrap();
-
-        // Verify we got back the same DM
-        assert_eq!(dm1.group_id, dm2.group_id);
-        assert_eq!(dm1.created_at_ns, dm2.created_at_ns);
-
-        // Verify the DM appears in conversations list
-        let conversations = client1.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(conversations.len(), 1);
-        assert_eq!(conversations[0].group_id, dm1.group_id);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn should_stream_consent() {
-        let alix = Tester::builder().sync_worker().build().await;
-        let bo = Tester::new().await;
-
-        let receiver = alix.local_events.subscribe();
-        let stream = receiver.stream_consent_updates();
-        futures::pin_mut!(stream);
-
-        let group = alix
-            .create_group_with_members(&[bo.inbox_id().to_string()], None, None)
-            .await
-            .unwrap();
-        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        // first record is denied consent to the group.
-        group.update_consent_state(ConsentState::Denied).unwrap();
-
-        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        // second is allowing consent for the group
-        alix.set_consent_states(&[StoredConsentRecord {
-            entity: hex::encode(group.group_id),
-            state: ConsentState::Allowed,
-            entity_type: ConsentType::ConversationId,
-            consented_at_ns: now_ns(),
-        }])
-        .await
-        .unwrap();
-
-        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-        // third allowing consent for bo inbox id
-        alix.set_consent_states(&[StoredConsentRecord {
-            entity: bo.inbox_id().to_string(),
-            entity_type: ConsentType::InboxId,
-            state: ConsentState::Allowed,
-            consented_at_ns: now_ns(),
-        }])
-        .await
-        .unwrap();
-
-        // First consent update from creating the group
-        let item = stream.next().await??;
-        assert_eq!(item.len(), 1);
-        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(group.group_id));
-        assert_eq!(item[0].state, ConsentState::Allowed);
-
-        let item = stream.next().await??;
-        assert_eq!(item.len(), 1);
-        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(group.group_id));
-        assert_eq!(item[0].state, ConsentState::Denied);
-
-        let item = stream.next().await??;
-        assert_eq!(item.len(), 1);
-        assert_eq!(item[0].entity_type, ConsentType::ConversationId);
-        assert_eq!(item[0].entity, hex::encode(group.group_id));
-        assert_eq!(item[0].state, ConsentState::Allowed);
-
-        let item = stream.next().await??;
-        assert_eq!(item.len(), 1);
-        assert_eq!(item[0].entity_type, ConsentType::InboxId);
-        assert_eq!(item[0].entity, bo.inbox_id());
-        assert_eq!(item[0].state, ConsentState::Allowed);
-    }
-
-    #[xmtp_common::timeout(Duration::from_secs(100))]
-    #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = true)]
-    // Detection of the black-holed connection comes from the h2 transport keepalive.
-    // Pin it fast (5s ping / 5s ack) so the failure lands in seconds under nextest,
-    // whose process-per-test isolation guarantees the pin is read before the
-    // process-wide config latches. Under a plain `cargo test`, a sibling test may
-    // latch the library defaults (45s/20s) first and the pin becomes a no-op, so
-    // the timeout budget also covers their ~65s worst-case detection.
-    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
-    async fn should_reconnect() {
-        unsafe {
-            std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
-            std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
-        }
-        toxiproxy_test(async || {
-            let alix = Tester::builder().proxy().build().await;
-            let bo = Tester::builder().build().await;
-
-            let start_new_convo = || async {
-                bo.create_group_with_members(&[alix.inbox_id().to_string()], None, None)
-                    .await
-                    .unwrap()
-            };
-
-            let stream = alix.client.stream_conversations(None, false).await.unwrap();
-            futures::pin_mut!(stream);
-
-            start_new_convo().await;
-
-            let success_res = stream.try_next().await;
-            assert!(success_res.is_ok());
-
-            // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
-            alix.for_each_proxy(async |p| {
-                p.with_timeout("downstream".into(), 60_000, 1.0).await;
-            })
-            .await;
-
-            start_new_convo().await;
-
-            let should_fail = stream.try_next().await;
-            assert!(should_fail.is_err());
-
-            start_new_convo().await;
-
-            alix.for_each_proxy(async |p| {
-                p.delete_all_toxics().await.unwrap();
-            })
-            .await;
-            xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
-
-            // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
-            futures_test::assert_stream_done!(stream);
-            xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-            let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
-            let new_res = new_stream.try_next().await;
-            assert!(new_res.is_ok());
-            assert!(new_res.unwrap().is_some());
-        })
-        .await
-    }
-
-    #[rstest::rstest]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn test_list_conversations_pagination() {
-        use prost::Message;
-        use xmtp_mls_common::group::GroupMetadataOptions;
-
-        let alix = Tester::builder().build().await;
-        let bo = Tester::builder().build().await;
-
-        // Create 15 groups with small delays to ensure different created_at_ns values
-        let mut all_group_ids = Vec::new();
-        for i in 0..15 {
-            let group = alix
-                .create_group_with_members(
-                    &[bo.inbox_id().to_string()],
-                    None,
-                    Some(GroupMetadataOptions {
-                        name: Some(format!("Group {}", i + 1)),
-                        ..Default::default()
-                    }),
-                )
-                .await
-                .unwrap();
-            all_group_ids.push(group.group_id);
-            group
-                .send_message(
-                    TextCodec::encode("hello".to_string())
-                        .unwrap()
-                        .encode_to_vec()
-                        .as_slice(),
-                    SendMessageOpts::default(),
-                )
-                .await
-                .unwrap();
-            // Small delay to ensure different timestamps
-            xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-
-        let mut before_ns = None;
-        let mut all_conversation_ids = Vec::new();
-        loop {
-            let results = alix
-                .list_conversations(GroupQueryArgs {
-                    limit: Some(5),
-                    last_activity_before_ns: before_ns,
-                    ..Default::default()
-                })
-                .unwrap();
-
-            if results.is_empty() {
-                break;
-            }
-            assert_eq!(results.len(), 5);
-
-            all_conversation_ids.extend(results.iter().map(|item| item.group.group_id));
-
-            before_ns = Some(
-                results
-                    .last()
-                    .unwrap()
-                    .last_message
-                    .as_ref()
-                    .unwrap()
-                    .sent_at_ns,
-            );
-        }
-
-        assert_eq!(
-            all_conversation_ids.len(),
-            15,
-            "Should have 15 total conversations"
-        );
-        all_conversation_ids.dedup();
-
-        // Check that we got all 15 unique groups
-        assert_eq!(
-            all_conversation_ids.len(),
-            15,
-            "Should have 15 total conversations after deduping"
-        );
-    }
-
-    #[xmtp_common::test]
-    async fn test_delete_message() {
-        tester!(alix);
-        tester!(bo);
-
-        // Create a group with both users
-        let group = alix
-            .create_group_with_members(&[bo.inbox_id().to_string()], None, None)
-            .await
-            .unwrap();
-
-        // Send a message
-        let message_id = group
-            .send_message(
-                TextCodec::encode("test message".to_string())
-                    .unwrap()
-                    .encode_to_vec()
-                    .as_slice(),
-                SendMessageOpts::default(),
-            )
-            .await
-            .unwrap();
-
-        // Verify the message exists
-        let message = alix.message(message_id.clone()).unwrap();
-        assert_eq!(message.id, message_id);
-
-        // Delete the message
-        let deleted_count = alix.delete_message(message_id.clone()).unwrap();
-        assert_eq!(deleted_count, 1, "Should delete exactly 1 message");
-
-        // Verify the message no longer exists
-        let result = alix.message(message_id.clone());
-        assert!(result.is_err(), "Message should not exist after deletion");
-
-        // Test idempotency - deleting again should not error and return 0
-        let deleted_count = alix.delete_message(message_id).unwrap();
-        assert_eq!(
-            deleted_count, 0,
-            "Deleting non-existent message should return 0"
-        );
-    }
-
-    // ============================================================
-    // Client::close coordinated-shutdown tests
-    // ============================================================
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn close_stops_workers() {
-        tester!(client);
-        assert!(
-            client.workers.is_running(),
-            "worker supervisor must be running before close"
-        );
-
-        client.close().await?;
-
-        assert!(
-            !client.workers.is_running(),
-            "supervisor handle should be taken after close"
-        );
-        assert!(
-            client.context.is_closed(),
-            "context closed flag must be set after close"
-        );
-        assert!(
-            client.context.cancellation_token().is_cancelled(),
-            "cancellation token must be cancelled after close"
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn close_is_idempotent() {
-        tester!(client);
-        client.close().await?;
-        // second call must return Ok(()) without panic
-        client.close().await?;
-    }
-
-    // persistent_db: ephemeral in-memory stores no-op on disconnect, so the
-    // pool-released assertion only meaningfully tests against a real SQLite
-    // file. Skipped on WASM where file-backed test stores aren't wired in.
-    #[xmtp_common::test(unwrap_try = true)]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
-    async fn close_disconnects_db() {
-        use diesel::RunQueryDsl;
-        use diesel::sql_query;
-
-        tester!(client, persistent_db);
-        client.close().await?;
-
-        let conn = client.context.store().conn();
-        let result = conn.raw_query(|c| sql_query("SELECT 1").execute(c));
-        assert!(
-            result.is_err(),
-            "raw_query after close should surface a ConnectionError; got Ok"
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    #[cfg_attr(target_arch = "wasm32", ignore)]
-    async fn close_cancels_callback_stream() {
-        use std::sync::Arc;
-        use std::sync::atomic::{AtomicBool, Ordering};
-
-        tester!(client);
-
-        let closed_flag = Arc::new(AtomicBool::new(false));
-        let flag_for_cb = closed_flag.clone();
-
-        let _handle = super::Client::stream_conversations_with_callback(
-            Arc::new((*client).clone()),
-            None,
-            move |_| {},
-            move || {
-                flag_for_cb.store(true, Ordering::SeqCst);
-            },
-            false,
-        );
-
-        client.close().await?;
-
-        xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
-            while !closed_flag.load(Ordering::SeqCst) {
-                xmtp_common::time::sleep(std::time::Duration::from_millis(25)).await;
-            }
-        })
-        .await
-        .expect("on_close must fire within 1s of Client::close");
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn reconnect_after_close_errors() {
-        tester!(client);
-        client.close().await?;
-
-        let err = client
-            .reconnect_db()
-            .expect_err("reconnect_db after close must fail");
-        assert!(
-            matches!(err, super::ClientError::AlreadyClosed),
-            "expected ClientError::AlreadyClosed, got {err:?}"
-        );
-    }
-}
+pub(crate) mod tests;

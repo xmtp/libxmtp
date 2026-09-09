@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::tmp_path;
-use xmtp_configuration::GrpcUrls;
+use xmtp_configuration::BACKEND_TEST_URL;
 use xmtp_id::InboxOwner;
 use xmtp_mls::{
     builder::DeviceSyncMode,
@@ -124,22 +124,15 @@ impl LocalTester for Tester<PrivateKeySigner, FfiXmtpClient> {
 }
 
 pub async fn connect_to_backend_test() -> Arc<super::XmtpApiClient> {
-    if cfg!(feature = "d14n") {
-        connect_to_backend(
-            GrpcUrls::NODE.to_string(),
-            Some(GrpcUrls::GATEWAY.to_string()),
-            None,
-            None,
-            None,
-            None,
-        )
-        .await
-        .unwrap()
-    } else {
-        connect_to_backend(GrpcUrls::NODE.to_string(), None, None, None, None, None)
-            .await
-            .unwrap()
-    }
+    connect_to_backend(
+        std::env::var("XMTP_BACKEND_URL").unwrap_or_else(|_| BACKEND_TEST_URL.into()),
+        None,
+        None,
+        None,
+        None,
+    )
+    .await
+    .unwrap()
 }
 
 async fn create_raw_client<Owner>(builder: &TesterBuilder<Owner>) -> FfiXmtpClient

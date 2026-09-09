@@ -13,7 +13,8 @@ pub use xmtp_proto::api_client::XmtpApi;
 
 pub use identity::*;
 pub use mls::*;
-mod xmtp_query;
+pub mod chunk;
+pub use chunk::PublishUnit;
 
 pub type Result<T> = std::result::Result<T, ApiError>;
 
@@ -26,7 +27,7 @@ pub mod strategies {
 
 // Erases Api Error type (which may be Http or Grpc)
 pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
-    ApiError::Api(Box::new(e))
+    ApiError::Api(xmtp_proto::api::NetworkError::new(e))
 }
 
 #[derive(Debug, thiserror::Error, ErrorCode)]
@@ -35,19 +36,34 @@ pub enum ApiError {
     ///
     /// API operation error (network, deserialization, or other). May be retryable.
     #[error("api client error {0}")]
-    Api(Box<dyn RetryableError>),
-    /// Mismatched key packages.
-    ///
-    /// Number of key packages doesn't match installation keys. Not retryable.
-    #[error(
-        "mismatched number of results, key packages {} != installation_keys {}",
-        .key_packages,
-        .installation_keys
-    )]
-    MismatchedKeyPackages {
-        key_packages: usize,
-        installation_keys: usize,
-    },
+    Api(#[source] xmtp_proto::api::NetworkError),
+    /// The backend rejected a stale identity update. Not retryable here.
+    #[error("identity history changed")]
+    IdentityUpdateConflict,
+    /// The backend hash differs from the retained envelope hash. Not retryable.
+    #[error("publish response hash does not match the envelope")]
+    HashMismatch,
+    /// One envelope exceeds the configured byte limit. Not retryable.
+    #[error("envelope exceeds the byte limit")]
+    EnvelopeTooLarge,
+    /// One atomic publish unit exceeds a request limit. Not retryable.
+    #[error("atomic publish unit exceeds a request limit")]
+    UnitTooLarge,
+    /// A single-topic response still exceeds a backend limit. Not retryable.
+    #[error("one envelope response exceeds a backend limit")]
+    ResponseTooLarge,
+    /// The request has invalid input. Not retryable.
+    #[error("invalid backend request: {0}")]
+    InvalidRequest(&'static str),
+    /// A response does not match the request. Not retryable.
+    #[error("invalid backend response: {0}")]
+    InvalidResponse(&'static str),
+    /// The payload cannot be parsed. Not retryable.
+    #[error(transparent)]
+    InvalidEnvelope(#[from] xmtp_mls_validation::ValidationError),
+    /// A returned backend envelope cannot be decoded. Not retryable.
+    #[error(transparent)]
+    Envelope(#[from] xmtp_api_backend::envelope::EnvelopeError),
     /// Proto conversion error.
     ///
     /// Protobuf conversion failed. Not retryable.
@@ -106,3 +122,6 @@ xmtp_common::if_native! {
         xmtp_common::logger()
     }
 }
+
+#[cfg(test)]
+mod tests;

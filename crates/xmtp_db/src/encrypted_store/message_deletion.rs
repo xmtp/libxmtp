@@ -192,7 +192,7 @@ mod tests {
             paused_for_version: None,
             maybe_forked: false,
             fork_details: "[]".to_string(),
-            originator_id: None,
+
             should_publish_commit_log: false,
             commit_log_public_key: None,
             is_commit_log_forked: None,
@@ -223,7 +223,9 @@ mod tests {
             reference_id: None,
             expire_at_ns: None,
             sequence_id: 1,
-            originator_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
+
             inserted_at_ns: 0,
             should_push: false,
             idempotency_key: 1000.to_string(),

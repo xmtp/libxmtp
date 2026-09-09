@@ -8,11 +8,11 @@ gRPC transport for the `xmtp_api` traits.
 just check crate xmtp_api_grpc
 just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_api_grpc
-just test v3 -p xmtp_api_grpc --ignore-default-filter does_not_starve_s2   # one test
+dev/nix-shell 'cargo test -p xmtp_api_grpc does_not_starve_s2'   # one test
 dev/nix-shell "cargo nextest run --profile ci -p xmtp_api_grpc -E 'test(/streams::/)'"   # one module
 ```
 
 ## Gotchas
 
-- Needs `just backend up` (`node`, `toxiproxy`).
+- Needs `just backend up` (`backend`, `toxiproxy`).
 - `test-utils` pulls `toxiproxy_rust`. Fault tests talk to the `toxiproxy` container.

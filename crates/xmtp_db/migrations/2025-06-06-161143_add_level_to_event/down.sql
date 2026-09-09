@@ -1,2 +1,0 @@
-ALTER TABLE events DROP COLUMN icon;
-ALTER TABLE events DROP COLUMN level;

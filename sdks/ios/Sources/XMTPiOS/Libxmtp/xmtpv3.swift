@@ -5721,8 +5721,7 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
     /**
      * Wait until this client's registration is visible on the network.
      *
-     * `options` controls the quorum, timeout, and polling interval.
-     * Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+     * Pass `None` to use the default timeout.
      */
     func waitForRegistrationVisible(options: FfiVisibilityConfirmationOptions?) async throws 
     
@@ -5741,7 +5740,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      * Import a previous archive from file.
      */
     func importArchive(path: String, key: Data) async throws 
-    
     
     /**
      * Manually sync all device sync groups.
@@ -6366,8 +6364,7 @@ open func verifySignedWithPublicKey(signatureText: String, signatureBytes: Data,
     /**
      * Wait until this client's registration is visible on the network.
      *
-     * `options` controls the quorum, timeout, and polling interval.
-     * Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+     * Pass `None` to use the default timeout.
      */
 open func waitForRegistrationVisible(options: FfiVisibilityConfirmationOptions?)async throws   {
     return
@@ -6443,7 +6440,6 @@ open func importArchive(path: String, key: Data)async throws   {
         )
 }
     
-    
     /**
      * Manually sync all device sync groups.
      */
@@ -6518,6 +6514,11 @@ public func FfiConverterTypeFfiXmtpClient_lower(_ value: FfiXmtpClient) -> UInt6
  */
 public protocol XmtpApiClientProtocol: AnyObject, Sendable {
     
+    /**
+     * Key for an SDK cache of API clients.
+     */
+    func cacheKey()  -> String
+    
 }
 /**
  * the opaque Xmtp Api Client for iOS/Android bindings
@@ -6574,6 +6575,18 @@ open class XmtpApiClient: XmtpApiClientProtocol, @unchecked Sendable {
 
     
 
+    
+    /**
+     * Key for an SDK cache of API clients.
+     */
+open func cacheKey() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_method_xmtpapiclient_cache_key(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
     
 
     
@@ -6828,26 +6841,22 @@ public func FfiConverterTypeFfiActions_lower(_ value: FfiActions) -> RustBuffer 
 
 
 public struct FfiApiStats: Equatable, Hashable {
-    public var uploadKeyPackage: UInt64
-    public var fetchKeyPackage: UInt64
-    public var sendGroupMessages: UInt64
-    public var sendWelcomeMessages: UInt64
-    public var queryGroupMessages: UInt64
-    public var queryWelcomeMessages: UInt64
-    public var subscribeMessages: UInt64
-    public var subscribeWelcomes: UInt64
+    public var publish: UInt64
+    public var query: UInt64
+    public var queryNewest: UInt64
+    public var get: UInt64
+    public var subscribe: UInt64
+    public var subscribeStatic: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(uploadKeyPackage: UInt64, fetchKeyPackage: UInt64, sendGroupMessages: UInt64, sendWelcomeMessages: UInt64, queryGroupMessages: UInt64, queryWelcomeMessages: UInt64, subscribeMessages: UInt64, subscribeWelcomes: UInt64) {
-        self.uploadKeyPackage = uploadKeyPackage
-        self.fetchKeyPackage = fetchKeyPackage
-        self.sendGroupMessages = sendGroupMessages
-        self.sendWelcomeMessages = sendWelcomeMessages
-        self.queryGroupMessages = queryGroupMessages
-        self.queryWelcomeMessages = queryWelcomeMessages
-        self.subscribeMessages = subscribeMessages
-        self.subscribeWelcomes = subscribeWelcomes
+    public init(publish: UInt64, query: UInt64, queryNewest: UInt64, get: UInt64, subscribe: UInt64, subscribeStatic: UInt64) {
+        self.publish = publish
+        self.query = query
+        self.queryNewest = queryNewest
+        self.get = get
+        self.subscribe = subscribe
+        self.subscribeStatic = subscribeStatic
     }
 
     
@@ -6866,26 +6875,22 @@ public struct FfiConverterTypeFfiApiStats: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiApiStats {
         return
             try FfiApiStats(
-                uploadKeyPackage: FfiConverterUInt64.read(from: &buf), 
-                fetchKeyPackage: FfiConverterUInt64.read(from: &buf), 
-                sendGroupMessages: FfiConverterUInt64.read(from: &buf), 
-                sendWelcomeMessages: FfiConverterUInt64.read(from: &buf), 
-                queryGroupMessages: FfiConverterUInt64.read(from: &buf), 
-                queryWelcomeMessages: FfiConverterUInt64.read(from: &buf), 
-                subscribeMessages: FfiConverterUInt64.read(from: &buf), 
-                subscribeWelcomes: FfiConverterUInt64.read(from: &buf)
+                publish: FfiConverterUInt64.read(from: &buf), 
+                query: FfiConverterUInt64.read(from: &buf), 
+                queryNewest: FfiConverterUInt64.read(from: &buf), 
+                get: FfiConverterUInt64.read(from: &buf), 
+                subscribe: FfiConverterUInt64.read(from: &buf), 
+                subscribeStatic: FfiConverterUInt64.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiApiStats, into buf: inout [UInt8]) {
-        FfiConverterUInt64.write(value.uploadKeyPackage, into: &buf)
-        FfiConverterUInt64.write(value.fetchKeyPackage, into: &buf)
-        FfiConverterUInt64.write(value.sendGroupMessages, into: &buf)
-        FfiConverterUInt64.write(value.sendWelcomeMessages, into: &buf)
-        FfiConverterUInt64.write(value.queryGroupMessages, into: &buf)
-        FfiConverterUInt64.write(value.queryWelcomeMessages, into: &buf)
-        FfiConverterUInt64.write(value.subscribeMessages, into: &buf)
-        FfiConverterUInt64.write(value.subscribeWelcomes, into: &buf)
+        FfiConverterUInt64.write(value.publish, into: &buf)
+        FfiConverterUInt64.write(value.query, into: &buf)
+        FfiConverterUInt64.write(value.queryNewest, into: &buf)
+        FfiConverterUInt64.write(value.get, into: &buf)
+        FfiConverterUInt64.write(value.subscribe, into: &buf)
+        FfiConverterUInt64.write(value.subscribeStatic, into: &buf)
     }
 }
 
@@ -7104,8 +7109,6 @@ public func FfiConverterTypeFfiAttachment_lower(_ value: FfiAttachment) -> RustB
 }
 
 
-
-
 public struct FfiBackupMetadata: Equatable, Hashable {
     public var backupVersion: UInt16
     public var elements: [FfiBackupElementSelection]
@@ -7266,6 +7269,10 @@ public struct FfiCatchUpSummary: Equatable, Hashable {
      * call resumes from durable state.
      */
     public var completed: Bool
+    /**
+     * Processing failures during this run.
+     */
+    public var failed: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -7283,10 +7290,14 @@ public struct FfiCatchUpSummary: Equatable, Hashable {
          * Whether catch-up finished before the deadline. `false` means `timeout_ms`
          * elapsed first; messages processed before then are persisted, and a later
          * call resumes from durable state.
-         */completed: Bool) {
+         */completed: Bool, 
+        /**
+         * Processing failures during this run.
+         */failed: UInt64) {
         self.messages = messages
         self.conversations = conversations
         self.completed = completed
+        self.failed = failed
     }
 
     
@@ -7307,7 +7318,8 @@ public struct FfiConverterTypeFfiCatchUpSummary: FfiConverterRustBuffer {
             try FfiCatchUpSummary(
                 messages: FfiConverterUInt64.read(from: &buf), 
                 conversations: FfiConverterUInt64.read(from: &buf), 
-                completed: FfiConverterBool.read(from: &buf)
+                completed: FfiConverterBool.read(from: &buf), 
+                failed: FfiConverterUInt64.read(from: &buf)
         )
     }
 
@@ -7315,6 +7327,7 @@ public struct FfiConverterTypeFfiCatchUpSummary: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.messages, into: &buf)
         FfiConverterUInt64.write(value.conversations, into: &buf)
         FfiConverterBool.write(value.completed, into: &buf)
+        FfiConverterUInt64.write(value.failed, into: &buf)
     }
 }
 
@@ -7777,13 +7790,11 @@ public func FfiConverterTypeFfiCredential_lower(_ value: FfiCredential) -> RustB
 
 
 public struct FfiCursor: Equatable, Hashable {
-    public var originatorId: UInt32
     public var sequenceId: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(originatorId: UInt32, sequenceId: UInt64) {
-        self.originatorId = originatorId
+    public init(sequenceId: UInt64) {
         self.sequenceId = sequenceId
     }
 
@@ -7803,13 +7814,11 @@ public struct FfiConverterTypeFfiCursor: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiCursor {
         return
             try FfiCursor(
-                originatorId: FfiConverterUInt32.read(from: &buf), 
                 sequenceId: FfiConverterUInt64.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiCursor, into buf: inout [UInt8]) {
-        FfiConverterUInt32.write(value.originatorId, into: &buf)
         FfiConverterUInt64.write(value.sequenceId, into: &buf)
     }
 }
@@ -8593,18 +8602,14 @@ public func FfiConverterTypeFfiIdentifier_lower(_ value: FfiIdentifier) -> RustB
 
 
 public struct FfiIdentityStats: Equatable, Hashable {
-    public var publishIdentityUpdate: UInt64
-    public var getIdentityUpdatesV2: UInt64
     public var getInboxIds: UInt64
-    public var verifySmartContractWalletSignature: UInt64
+    public var verifySmartContractWalletSignatures: UInt64
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(publishIdentityUpdate: UInt64, getIdentityUpdatesV2: UInt64, getInboxIds: UInt64, verifySmartContractWalletSignature: UInt64) {
-        self.publishIdentityUpdate = publishIdentityUpdate
-        self.getIdentityUpdatesV2 = getIdentityUpdatesV2
+    public init(getInboxIds: UInt64, verifySmartContractWalletSignatures: UInt64) {
         self.getInboxIds = getInboxIds
-        self.verifySmartContractWalletSignature = verifySmartContractWalletSignature
+        self.verifySmartContractWalletSignatures = verifySmartContractWalletSignatures
     }
 
     
@@ -8623,18 +8628,14 @@ public struct FfiConverterTypeFfiIdentityStats: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiIdentityStats {
         return
             try FfiIdentityStats(
-                publishIdentityUpdate: FfiConverterUInt64.read(from: &buf), 
-                getIdentityUpdatesV2: FfiConverterUInt64.read(from: &buf), 
                 getInboxIds: FfiConverterUInt64.read(from: &buf), 
-                verifySmartContractWalletSignature: FfiConverterUInt64.read(from: &buf)
+                verifySmartContractWalletSignatures: FfiConverterUInt64.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiIdentityStats, into buf: inout [UInt8]) {
-        FfiConverterUInt64.write(value.publishIdentityUpdate, into: &buf)
-        FfiConverterUInt64.write(value.getIdentityUpdatesV2, into: &buf)
         FfiConverterUInt64.write(value.getInboxIds, into: &buf)
-        FfiConverterUInt64.write(value.verifySmartContractWalletSignature, into: &buf)
+        FfiConverterUInt64.write(value.verifySmartContractWalletSignatures, into: &buf)
     }
 }
 
@@ -9400,13 +9401,12 @@ public struct FfiMessage: Equatable, Hashable {
     public var kind: FfiConversationMessageKind
     public var deliveryStatus: FfiDeliveryStatus
     public var sequenceId: UInt64
-    public var originatorId: UInt32
     public var insertedAtNs: Int64
     public var expireAtNs: Int64?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: Data, sentAtNs: Int64, conversationId: Data, senderInboxId: String, content: Data, kind: FfiConversationMessageKind, deliveryStatus: FfiDeliveryStatus, sequenceId: UInt64, originatorId: UInt32, insertedAtNs: Int64, expireAtNs: Int64?) {
+    public init(id: Data, sentAtNs: Int64, conversationId: Data, senderInboxId: String, content: Data, kind: FfiConversationMessageKind, deliveryStatus: FfiDeliveryStatus, sequenceId: UInt64, insertedAtNs: Int64, expireAtNs: Int64?) {
         self.id = id
         self.sentAtNs = sentAtNs
         self.conversationId = conversationId
@@ -9415,7 +9415,6 @@ public struct FfiMessage: Equatable, Hashable {
         self.kind = kind
         self.deliveryStatus = deliveryStatus
         self.sequenceId = sequenceId
-        self.originatorId = originatorId
         self.insertedAtNs = insertedAtNs
         self.expireAtNs = expireAtNs
     }
@@ -9444,7 +9443,6 @@ public struct FfiConverterTypeFfiMessage: FfiConverterRustBuffer {
                 kind: FfiConverterTypeFfiConversationMessageKind.read(from: &buf), 
                 deliveryStatus: FfiConverterTypeFfiDeliveryStatus.read(from: &buf), 
                 sequenceId: FfiConverterUInt64.read(from: &buf), 
-                originatorId: FfiConverterUInt32.read(from: &buf), 
                 insertedAtNs: FfiConverterInt64.read(from: &buf), 
                 expireAtNs: FfiConverterOptionInt64.read(from: &buf)
         )
@@ -9459,7 +9457,6 @@ public struct FfiConverterTypeFfiMessage: FfiConverterRustBuffer {
         FfiConverterTypeFfiConversationMessageKind.write(value.kind, into: &buf)
         FfiConverterTypeFfiDeliveryStatus.write(value.deliveryStatus, into: &buf)
         FfiConverterUInt64.write(value.sequenceId, into: &buf)
-        FfiConverterUInt32.write(value.originatorId, into: &buf)
         FfiConverterInt64.write(value.insertedAtNs, into: &buf)
         FfiConverterOptionInt64.write(value.expireAtNs, into: &buf)
     }
@@ -10216,6 +10213,198 @@ public func FfiConverterTypeFfiSendMessageOpts_lower(_ value: FfiSendMessageOpts
 }
 
 
+/**
+ * Sentry telemetry configuration. `user_stable_id` is the app-computed HKDF
+ * stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
+ */
+public struct FfiSentryConfig: Equatable, Hashable {
+    /**
+     * The app's Sentry DSN.
+     */
+    public var dsn: String
+    /**
+     * Sentry environment name (e.g. "production", "staging").
+     */
+    public var environment: String?
+    /**
+     * Release identifier reported to Sentry. Defaults to the libxmtp version
+     * when `None`.
+     */
+    public var release: String?
+    /**
+     * Fraction of transactions sampled for tracing. Valid range is
+     * `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+     */
+    public var tracesSampleRate: Float
+    /**
+     * Number of breadcrumbs kept in the rolling buffer before the oldest are
+     * evicted; pass 100 to match the underlying crate default.
+     */
+    public var maxBreadcrumbs: UInt32
+    /**
+     * The app-computed HKDF stable id, never a raw inbox id.
+     */
+    public var userStableId: String?
+    /**
+     * Tags attached to every event. `component=libxmtp` is always added.
+     */
+    public var tags: [FfiSentryTag]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The app's Sentry DSN.
+         */dsn: String, 
+        /**
+         * Sentry environment name (e.g. "production", "staging").
+         */environment: String?, 
+        /**
+         * Release identifier reported to Sentry. Defaults to the libxmtp version
+         * when `None`.
+         */release: String?, 
+        /**
+         * Fraction of transactions sampled for tracing. Valid range is
+         * `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+         */tracesSampleRate: Float, 
+        /**
+         * Number of breadcrumbs kept in the rolling buffer before the oldest are
+         * evicted; pass 100 to match the underlying crate default.
+         */maxBreadcrumbs: UInt32, 
+        /**
+         * The app-computed HKDF stable id, never a raw inbox id.
+         */userStableId: String?, 
+        /**
+         * Tags attached to every event. `component=libxmtp` is always added.
+         */tags: [FfiSentryTag]) {
+        self.dsn = dsn
+        self.environment = environment
+        self.release = release
+        self.tracesSampleRate = tracesSampleRate
+        self.maxBreadcrumbs = maxBreadcrumbs
+        self.userStableId = userStableId
+        self.tags = tags
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSentryConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSentryConfig: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSentryConfig {
+        return
+            try FfiSentryConfig(
+                dsn: FfiConverterString.read(from: &buf), 
+                environment: FfiConverterOptionString.read(from: &buf), 
+                release: FfiConverterOptionString.read(from: &buf), 
+                tracesSampleRate: FfiConverterFloat.read(from: &buf), 
+                maxBreadcrumbs: FfiConverterUInt32.read(from: &buf), 
+                userStableId: FfiConverterOptionString.read(from: &buf), 
+                tags: FfiConverterSequenceTypeFfiSentryTag.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSentryConfig, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.dsn, into: &buf)
+        FfiConverterOptionString.write(value.environment, into: &buf)
+        FfiConverterOptionString.write(value.release, into: &buf)
+        FfiConverterFloat.write(value.tracesSampleRate, into: &buf)
+        FfiConverterUInt32.write(value.maxBreadcrumbs, into: &buf)
+        FfiConverterOptionString.write(value.userStableId, into: &buf)
+        FfiConverterSequenceTypeFfiSentryTag.write(value.tags, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryConfig_lift(_ buf: RustBuffer) throws -> FfiSentryConfig {
+    return try FfiConverterTypeFfiSentryConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryConfig_lower(_ value: FfiSentryConfig) -> RustBuffer {
+    return FfiConverterTypeFfiSentryConfig.lower(value)
+}
+
+
+public struct FfiSentryTag: Equatable, Hashable {
+    /**
+     * Tag name.
+     */
+    public var key: String
+    /**
+     * Tag value.
+     */
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Tag name.
+         */key: String, 
+        /**
+         * Tag value.
+         */value: String) {
+        self.key = key
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSentryTag: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSentryTag: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSentryTag {
+        return
+            try FfiSentryTag(
+                key: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSentryTag, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.key, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryTag_lift(_ buf: RustBuffer) throws -> FfiSentryTag {
+    return try FfiConverterTypeFfiSentryTag.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSentryTag_lower(_ value: FfiSentryTag) -> RustBuffer {
+    return FfiConverterTypeFfiSentryTag.lower(value)
+}
+
+
 public struct FfiTextContent: Equatable, Hashable {
     public var content: String
 
@@ -10479,14 +10668,30 @@ public struct FfiUpdateAppDataOptions: Equatable, Hashable {
      * The new value for the group's opaque `APP_DATA` string slot.
      */
     public var value: String
+    /**
+     * Optional compare-and-swap guard. When set, the update is abandoned
+     * with an `AppDataSuperseded` error — rather than overwriting — if the
+     * committed value is no longer this, including when another member's
+     * commit wins the race after this update was published. Leave unset for
+     * the historical last-writer-wins behavior.
+     */
+    public var expectedValue: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
     public init(
         /**
          * The new value for the group's opaque `APP_DATA` string slot.
-         */value: String) {
+         */value: String, 
+        /**
+         * Optional compare-and-swap guard. When set, the update is abandoned
+         * with an `AppDataSuperseded` error — rather than overwriting — if the
+         * committed value is no longer this, including when another member's
+         * commit wins the race after this update was published. Leave unset for
+         * the historical last-writer-wins behavior.
+         */expectedValue: String? = nil) {
         self.value = value
+        self.expectedValue = expectedValue
     }
 
     
@@ -10505,12 +10710,14 @@ public struct FfiConverterTypeFfiUpdateAppDataOptions: FfiConverterRustBuffer {
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUpdateAppDataOptions {
         return
             try FfiUpdateAppDataOptions(
-                value: FfiConverterString.read(from: &buf)
+                value: FfiConverterString.read(from: &buf), 
+                expectedValue: FfiConverterOptionString.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiUpdateAppDataOptions, into buf: inout [UInt8]) {
         FfiConverterString.write(value.value, into: &buf)
+        FfiConverterOptionString.write(value.expectedValue, into: &buf)
     }
 }
 
@@ -10589,23 +10796,11 @@ public func FfiConverterTypeFfiUpdateGroupMembershipResult_lower(_ value: FfiUpd
 
 
 /**
- * Options for `wait_for_registration_visible`.
- *
- * All fields are optional. Omitted fields use their default values:
- * - `quorum_percentage` / `quorum_absolute`: 1 node (`quorum_absolute` takes precedence if both are provided)
- * - `timeout_ms`: 30 000 ms
+ * Timeout for `wait_for_registration_visible`.
  */
 public struct FfiVisibilityConfirmationOptions: Equatable, Hashable {
     /**
-     * Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
-     */
-    public var quorumPercentage: Float?
-    /**
-     * Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
-     */
-    public var quorumAbsolute: UInt64?
-    /**
-     * How long to wait in total before returning an error (milliseconds).
+     * Maximum wait time in milliseconds.
      */
     public var timeoutMs: UInt64?
 
@@ -10613,16 +10808,8 @@ public struct FfiVisibilityConfirmationOptions: Equatable, Hashable {
     // declare one manually.
     public init(
         /**
-         * Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
-         */quorumPercentage: Float?, 
-        /**
-         * Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
-         */quorumAbsolute: UInt64?, 
-        /**
-         * How long to wait in total before returning an error (milliseconds).
+         * Maximum wait time in milliseconds.
          */timeoutMs: UInt64?) {
-        self.quorumPercentage = quorumPercentage
-        self.quorumAbsolute = quorumAbsolute
         self.timeoutMs = timeoutMs
     }
 
@@ -10642,15 +10829,11 @@ public struct FfiConverterTypeFfiVisibilityConfirmationOptions: FfiConverterRust
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiVisibilityConfirmationOptions {
         return
             try FfiVisibilityConfirmationOptions(
-                quorumPercentage: FfiConverterOptionFloat.read(from: &buf), 
-                quorumAbsolute: FfiConverterOptionUInt64.read(from: &buf), 
                 timeoutMs: FfiConverterOptionUInt64.read(from: &buf)
         )
     }
 
     public static func write(_ value: FfiVisibilityConfirmationOptions, into buf: inout [UInt8]) {
-        FfiConverterOptionFloat.write(value.quorumPercentage, into: &buf)
-        FfiConverterOptionUInt64.write(value.quorumAbsolute, into: &buf)
         FfiConverterOptionUInt64.write(value.timeoutMs, into: &buf)
     }
 }
@@ -14582,30 +14765,6 @@ fileprivate struct FfiConverterOptionInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
-    typealias SwiftType = Float?
-
-    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-        guard let value = value else {
-            writeInt(&buf, Int8(0))
-            return
-        }
-        writeInt(&buf, Int8(1))
-        FfiConverterFloat.write(value, into: &buf)
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-        switch try readInt(&buf) as Int8 {
-        case 0: return nil
-        case 1: return try FfiConverterFloat.read(from: &buf)
-        default: throw UniffiInternalError.unexpectedOptionalTag
-        }
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterOptionBool: FfiConverterRustBuffer {
     typealias SwiftType = Bool?
 
@@ -15665,7 +15824,6 @@ fileprivate struct FfiConverterSequenceTypeFfiAction: FfiConverterRustBuffer {
     }
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -16011,6 +16169,31 @@ fileprivate struct FfiConverterSequenceTypeFfiRemoteAttachment: FfiConverterRust
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeFfiRemoteAttachment.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFfiSentryTag: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSentryTag]
+
+    public static func write(_ value: [FfiSentryTag], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSentryTag.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSentryTag] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSentryTag]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSentryTag.read(from: &buf))
         }
         return seq
     }
@@ -16657,6 +16840,28 @@ public func generateInboxId(accountIdentifier: FfiIdentifier, nonce: UInt64)thro
 })
 }
 /**
+ * Disable Sentry export: remove the layer, then, if this handle owns the
+ * installed client, flush and drop it. Clears the stamped user id.
+ */
+public func disableSentryTelemetry()throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_disable_sentry_telemetry(uniffiCallStatus
+    )
+}
+}
+/**
+ * Enable Sentry error/trace export. Errors if logging is owned by the host
+ * process, the DSN is invalid, `traces_sample_rate` is outside `[0.0, 1.0]`,
+ * or OTLP telemetry is already active.
+ */
+public func enableSentryTelemetry(config: FfiSentryConfig)throws   {try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_enable_sentry_telemetry(
+        FfiConverterTypeFfiSentryConfig_lower(config),uniffiCallStatus
+    )
+}
+}
+/**
  * turns on logging to a file on-disk in the directory specified.
  * files will be prefixed with 'libxmtp-v{version}.{commit}.{process_type}.{pid}.log' and suffixed with the timestamp,
  * i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
@@ -16702,6 +16907,15 @@ public func exitDebugWriter()throws   {try rustCallWithError(FfiConverterTypeFfi
 }
 }
 /**
+ * Flush pending telemetry (file, OTLP, and Sentry). Call on app background.
+ */
+public func flushTelemetry()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_flush_telemetry(uniffiCallStatus
+    )
+}
+}
+/**
  * Updates the log level of the native log layer (oslog on iOS, logcat on Android).
  * Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
  * activity in Console.app / Instruments. No-op on non-mobile builds.
@@ -16710,6 +16924,17 @@ public func setNativeLogLevel(logLevel: FfiLogLevel)throws   {try rustCallWithEr
         uniffiCallStatus in
     uniffi_xmtpv3_fn_func_set_native_log_level(
         FfiConverterTypeFfiLogLevel_lower(logLevel),uniffiCallStatus
+    )
+}
+}
+/**
+ * Late identify: stamp (or clear) the pseudonymous user id on future events.
+ * Call at inbox-ready with the HKDF stable id.
+ */
+public func setSentryUser(stableId: String?)  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_xmtpv3_fn_func_set_sentry_user(
+        FfiConverterOptionString.lower(stableId),uniffiCallStatus
     )
 }
 }
@@ -16731,16 +16956,13 @@ public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSigna
         )
 }
 /**
- * connect to the XMTP backend
- * specifying `gateway_host` enables the D14n backend
- * and assumes `host` is set to the correct
- * d14n backend url.
+ * Connect to the backend at the supplied URL.
  */
-public func connectToBackend(v3Host: String, gatewayHost: String?, clientMode: FfiClientMode?, appVersion: String?, authCallback: FfiAuthCallback?, authHandle: FfiAuthHandle?)async throws  -> XmtpApiClient  {
+public func connectToBackend(backendUrl: String, clientMode: FfiClientMode?, appVersion: String?, authCallback: FfiAuthCallback?, authHandle: FfiAuthHandle?)async throws  -> XmtpApiClient  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(v3Host),FfiConverterOptionString.lower(gatewayHost),FfiConverterOptionTypeFfiClientMode.lower(clientMode),FfiConverterOptionString.lower(appVersion),FfiConverterOptionTypeFfiAuthCallback.lower(authCallback),FfiConverterOptionTypeFfiAuthHandle.lower(authHandle)
+                uniffi_xmtpv3_fn_func_connect_to_backend(FfiConverterString.lower(backendUrl),FfiConverterOptionTypeFfiClientMode.lower(clientMode),FfiConverterOptionString.lower(appVersion),FfiConverterOptionTypeFfiAuthCallback.lower(authCallback),FfiConverterOptionTypeFfiAuthHandle.lower(authHandle)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_u64,
@@ -17182,6 +17404,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_generate_inbox_id() != 52479) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_disable_sentry_telemetry() != 23771) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_enable_sentry_telemetry() != 15966) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_enter_debug_writer() != 36615) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -17191,13 +17419,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_exit_debug_writer() != 6014) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_func_flush_telemetry() != 29131) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_func_set_native_log_level() != 52757) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_func_set_sentry_user() != 52914) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 53548) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 62885) {
+    if (uniffi_xmtpv3_checksum_func_connect_to_backend() != 61897) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_create_client() != 59600) {
@@ -17815,7 +18049,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 15617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_wait_for_registration_visible() != 22192) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_wait_for_registration_visible() != 42932) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 23305) {
@@ -17830,22 +18064,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 13615) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_xmtpv3_checksum_method_xmtpapiclient_cache_key() != 64586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 55505) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 49095) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 30533) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_xmtpv3_checksum_method_ffiappdatachangecallback_on_app_data_changed() != 13210) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 21493) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 63414) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 18120) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 61589) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_constructor_ffiauthhandle_new() != 52428) {
+    if (uniffi_xmtpv3_checksum_constructor_ffiauthhandle_new() != 36323) {
         return InitializationResult.apiChecksumMismatch
     }
 

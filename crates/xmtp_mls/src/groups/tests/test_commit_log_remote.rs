@@ -9,8 +9,6 @@ use crate::{context::XmtpSharedContext, tester};
 use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
 use openmls_traits::OpenMlsProvider;
 use prost::Message;
-use rand::RngExt;
-use xmtp_configuration::Originators;
 use xmtp_db::MlsProviderExt;
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::GroupQueryArgs;
@@ -21,10 +19,10 @@ use xmtp_db::prelude::*;
 use xmtp_db::remote_commit_log::CommitResult;
 use xmtp_db::remote_commit_log::RemoteCommitLog;
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::mls_v1::{PublishCommitLogRequest, QueryCommitLogRequest};
+use xmtp_proto::backend_v1::CommitLogEntry;
 use xmtp_proto::types::Cursor;
+use xmtp_proto::types::Topic;
 use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
-use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry;
 use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
 use xmtp_proto::types::GroupId;
@@ -55,7 +53,6 @@ fn assert_commit_sequence(logs: &[LocalCommitLog], expected: &[CommitType]) {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_signer_on_group_creation() {
     tester!(alix);
@@ -100,7 +97,6 @@ async fn test_commit_log_signer_on_group_creation() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_device_sync_mutable_metadata_is_overwritten() {
     tester!(alix);
@@ -141,7 +137,6 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_publish_and_query_apis() {
     use openmls::prelude::{OpenMlsCrypto, SignatureScheme};
@@ -153,7 +148,7 @@ async fn test_commit_log_publish_and_query_apis() {
     // a new random group_id for each test iteration in case local node state has not been cleared
 
     // Generate a random 20-byte group_id for this test
-    let group_id: Vec<u8> = (0..20).map(|_| rand::rng().random_range(0..=255)).collect();
+    let group_id = xmtp_common::rand_vec::<{ xmtp_configuration::BACKEND_GROUP_ID_BYTES }>();
 
     // Test publishing commit log
     let commit_log_entry = PlaintextCommitLogEntry {
@@ -185,8 +180,7 @@ async fn test_commit_log_publish_and_query_apis() {
     let result = alix
         .context
         .api()
-        .publish_commit_log(vec![PublishCommitLogRequest {
-            group_id: group_id.clone(),
+        .publish_commit_log(vec![CommitLogEntry {
             serialized_commit_log_entry: serialized_entry,
             signature: Some(RecoverableEd25519Signature {
                 bytes: signature,
@@ -197,20 +191,16 @@ async fn test_commit_log_publish_and_query_apis() {
     assert!(result.is_ok());
 
     // Test querying commit log
-    let query = QueryCommitLogRequest {
-        group_id: group_id.clone(),
-        ..Default::default()
-    };
+    let query = [(Topic::new_commit_log(group_id.clone()), Cursor(0))].into();
 
-    let query_result = alix.context.api().query_commit_log(vec![query]).await;
+    let query_result = alix.context.api().query_commit_log(query).await;
     assert!(query_result.is_ok());
 
     // Extract the entries from the response
     let response = query_result.unwrap();
     assert_eq!(response.len(), 1);
-    assert_eq!(response[0].commit_log_entries.len(), 1);
 
-    let returned_entry = &response[0].commit_log_entries[0];
+    let returned_entry = &response[0].payload;
     let raw_bytes = &returned_entry.serialized_commit_log_entry;
 
     // Verify the backend preserved the signature
@@ -243,7 +233,6 @@ async fn test_commit_log_publish_and_query_apis() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_publish_commit_log() {
     tester!(alix);
@@ -275,7 +264,6 @@ async fn test_should_publish_commit_log() {
     assert_eq!(bo_should_publish_commit_log_groups.len(), 0);
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_publish_commit_log_to_remote() {
     // Disable background CommitLogWorker for deterministic testing
@@ -303,13 +291,12 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_originator(
+        .get_last_cursor(
             alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
-    assert_eq!(published_commit_log_cursor, Cursor::commit_log(0));
+    assert_eq!(published_commit_log_cursor, Cursor(0));
 
     // Alix runs the commit log worker, which will publish the commit log entry to the remote commit log
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -321,35 +308,34 @@ async fn test_publish_commit_log_to_remote() {
     let published_commit_log_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_originator(
+        .get_last_cursor(
             alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
     tracing::info!("{}", published_commit_log_cursor);
-    assert!(published_commit_log_cursor > Cursor::commit_log(0));
+    assert!(published_commit_log_cursor > Cursor(0));
     let last_commit_log_entry = commit_log_entries.last().unwrap();
     // Verify that the local cursor has now been updated to the last commit log entry's sequence id
     assert_eq!(
-        Cursor::commit_log(last_commit_log_entry.rowid as u64),
+        Cursor(last_commit_log_entry.rowid as u64),
         published_commit_log_cursor
     );
 
     // Query the remote commit log to make sure it matches the local commit log entry
-    let query = QueryCommitLogRequest {
-        group_id: alix_group.group_id.to_vec(),
-        ..Default::default()
-    };
+    let query = [(
+        Topic::new_commit_log(alix_group.group_id.to_vec()),
+        Cursor(0),
+    )]
+    .into();
 
-    let query_result = alix.context.api().query_commit_log(vec![query]).await;
+    let query_result = alix.context.api().query_commit_log(query).await;
     assert!(query_result.is_ok());
 
     // Extract the entries from the response
     let response = query_result.unwrap();
     assert_eq!(response.len(), 1);
-    assert_eq!(response[0].commit_log_entries.len(), 1);
-    let raw_bytes = &response[0].commit_log_entries[0].serialized_commit_log_entry;
+    let raw_bytes = &response[0].payload.serialized_commit_log_entry;
 
     // TODO: this will require decryption once encrypted key is added
     let entry = PlaintextCommitLogEntry::decode(raw_bytes.as_slice()).unwrap();
@@ -359,7 +345,6 @@ async fn test_publish_commit_log_to_remote() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_download_commit_log_from_remote() {
     // Disable background CommitLogWorker for deterministic testing
@@ -405,13 +390,12 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_originator(
+        .get_last_cursor(
             alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
-    assert_eq!(alix_group_1_cursor, Cursor::commit_log(0));
+    assert_eq!(alix_group_1_cursor, Cursor(0));
 
     // Verify that publish works as expected
     let mut commit_log_worker = CommitLogWorker::new(alix.context.clone());
@@ -465,10 +449,9 @@ async fn test_download_commit_log_from_remote() {
     let alix_group_1_cursor = alix
         .context
         .db()
-        .get_last_cursor_for_originator(
+        .get_last_cursor(
             alix_group.group_id,
             xmtp_db::refresh_state::EntityKind::CommitLogUpload,
-            Originators::REMOTE_COMMIT_LOG,
         )
         .unwrap();
 
@@ -476,10 +459,7 @@ async fn test_download_commit_log_from_remote() {
         test_results[0].publish_commit_log_results.clone().unwrap()[0].last_entry_published_rowid;
     assert_eq!(
         alix_group_1_cursor,
-        Cursor::new(
-            alix_group1_publish_result_upload_cursor as u64,
-            Originators::REMOTE_COMMIT_LOG
-        )
+        Cursor(alix_group1_publish_result_upload_cursor as u64)
     );
 
     // Verify that when we save remote commit log entries for alix and bo, that we get the same results
@@ -667,7 +647,6 @@ async fn test_download_commit_log_from_remote() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_skip_remote_log_entry() {
     // Disable background CommitLogWorker for deterministic testing
@@ -692,7 +671,6 @@ async fn test_should_skip_remote_log_entry() {
             )?;
 
             Ok(CommitLogEntry {
-                sequence_id: 1, // This can be any value for the test
                 serialized_commit_log_entry: serialized_entry,
                 signature: Some(RecoverableEd25519Signature {
                     bytes: signature,
@@ -939,7 +917,6 @@ async fn test_should_skip_remote_log_entry() {
     ));
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_all_users_use_same_signing_key_for_publishing() {
     tester!(alix);
@@ -1021,7 +998,6 @@ async fn test_all_users_use_same_signing_key_for_publishing() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_consecutive_entries_verification_happy_case() {
     // Disable background CommitLogWorker for deterministic testing
@@ -1163,15 +1139,15 @@ async fn test_consecutive_entries_verification_happy_case() {
 /// Covers two scenarios:
 /// 1. Entry where signature doesn't match the claimed public key (should fail)
 /// 2.
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_bad_signature_handling() {
     use crate::groups::commit_log_key::CommitLogKeyCrypto;
     use openmls::prelude::OpenMlsCrypto;
     use openmls_traits::OpenMlsProvider;
     use prost::Message;
+    use xmtp_proto::backend_v1::CommitLogEntry as CommitLogEntryProto;
     use xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature;
-    use xmtp_proto::xmtp::mls::message_contents::CommitLogEntry as CommitLogEntryProto;
     use xmtp_proto::xmtp::mls::message_contents::PlaintextCommitLogEntry;
 
     tester!(alice);
@@ -1201,7 +1177,6 @@ async fn test_bad_signature_handling() {
     )?;
 
     let bad_entry = CommitLogEntryProto {
-        sequence_id: 1,
         serialized_commit_log_entry: serialized_entry.clone(),
         signature: Some(RecoverableEd25519Signature {
             bytes: bad_signature,
@@ -1226,7 +1201,6 @@ async fn test_bad_signature_handling() {
     )?;
 
     let valid_entry_with_correct_key = CommitLogEntryProto {
-        sequence_id: 1,
         serialized_commit_log_entry: serialized_entry.clone(),
         signature: Some(RecoverableEd25519Signature {
             bytes: valid_signature.clone(),
@@ -1235,7 +1209,6 @@ async fn test_bad_signature_handling() {
     };
 
     let valid_entry_with_wrong_key = CommitLogEntryProto {
-        sequence_id: 2,
         serialized_commit_log_entry: serialized_entry,
         signature: Some(RecoverableEd25519Signature {
             bytes: provider.crypto().sign(
@@ -1277,7 +1250,6 @@ async fn test_bad_signature_handling() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_commit_log_signer_sync_across_parties() {
     tester!(alix);
@@ -1411,7 +1383,6 @@ async fn test_update_commit_log_signer_sync_across_parties() {
     println!("Test passed: update_commit_log_signer properly syncs across all parties");
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_updating_group_name_preserves_commit_log_signer() {
     tester!(alix);
@@ -1479,7 +1450,6 @@ async fn test_updating_group_name_preserves_commit_log_signer() {
     println!("Test passed: Updating group name preserves commit log signing key");
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     // Disable background CommitLogWorker for deterministic testing
@@ -1602,8 +1572,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
     println!("✓ Consensus public key correctly stored in database");
 
     // Final verification: all parties should be able to verify signatures with this key
-    let test_entry = xmtp_proto::xmtp::mls::message_contents::CommitLogEntry {
-        sequence_id: 999,
+    let test_entry = xmtp_proto::backend_v1::CommitLogEntry {
         serialized_commit_log_entry: b"test message".to_vec(),
         signature: None,
     };
@@ -1616,8 +1585,7 @@ async fn test_legacy_group_signing_key_discovery_via_remote_commit_log() {
         )
         .unwrap();
 
-    let signed_entry = xmtp_proto::xmtp::mls::message_contents::CommitLogEntry {
-        sequence_id: 999,
+    let signed_entry = xmtp_proto::backend_v1::CommitLogEntry {
         serialized_commit_log_entry: test_entry.serialized_commit_log_entry.clone(),
         signature: Some(
             xmtp_proto::xmtp::identity::associations::RecoverableEd25519Signature {

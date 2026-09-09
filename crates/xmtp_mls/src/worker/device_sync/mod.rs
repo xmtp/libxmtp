@@ -376,7 +376,6 @@ where
     ) -> Result<(), DeviceSyncError> {
         let task = NewTask::builder()
             .originating_message_sequence_id(0)
-            .originating_message_originator_id(0)
             .build(TaskProto {
                 task: Some(TaskKindProto::AddMissingInstallations(
                     AddMissingInstallationsProto {

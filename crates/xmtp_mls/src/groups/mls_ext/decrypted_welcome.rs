@@ -18,11 +18,11 @@ use xmtp_db::{
 use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
 use xmtp_proto::{
-    mls_v1::WelcomeMetadata,
     types::{
         DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
         WelcomePointer,
     },
+    xmtp::mls::message_contents::WelcomeMetadata,
 };
 
 pub(crate) struct DecryptedWelcome {
@@ -147,8 +147,8 @@ impl DecryptedWelcome {
                         };
                         #[allow(clippy::unwrap_used)]
                         let task = xmtp_db::tasks::NewTask::builder()
-                            .originating_message_sequence_id(welcome.cursor.sequence_id as i64)
-                            .originating_message_originator_id(welcome.cursor.originator_id as i32)
+                            .originating_message_sequence_id(welcome.cursor.0 as i64)
+
                             // use created_ns from the welcome so we can reuse it when reprocessing
                             .created_at_ns(welcome.timestamp())
                             .expires_at_ns(now + NS_IN_DAY * 3)

@@ -10,7 +10,6 @@ mod tester_utils_trait_ext;
 pub use tester_utils_trait_ext::*;
 
 use crate::XmtpApi;
-use crate::cursor_store::SqliteCursorStore;
 use crate::{
     Client, InboxOwner,
     builder::{ClientBuilder, DeviceSyncMode},
@@ -19,13 +18,11 @@ use crate::{
 };
 use std::{sync::Arc, time::Duration};
 use tokio::sync::Notify;
-use xmtp_api_d14n::XmtpTestClientExt;
-use xmtp_api_d14n::protocol::XmtpQuery;
 use xmtp_common::time::Expired;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::{ConnectionExt, DbConnection, XmtpTestDb};
 use xmtp_id::associations::{Identifier, test_utils::MockSmartContractSignatureVerifier};
-use xmtp_proto::api_client::ApiBuilder;
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 use xmtp_proto::types::ApiIdentifier;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -41,23 +38,19 @@ impl<A, S> ClientBuilder<A, S> {
     }
 
     pub fn dev(self) -> ClientBuilder<TestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = DevOnlyTestClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
+        self.local()
     }
 
     pub fn local(self) -> ClientBuilder<TestClient, S> {
-        let s = Arc::new(SqliteCursorStore::new(self.store.as_ref().unwrap().db()));
-        let a = LocalOnlyTestClientCreator::with_cursor_store(s);
-        let api_client = a.build().unwrap();
-        self.api_client(api_client)
+        self.api_client(Arc::new(
+            DefaultTestClientCreator::create().build().unwrap(),
+        ))
     }
 }
 
 impl<Api, Storage, Db> ClientBuilder<Api, Storage, Db>
 where
-    Api: XmtpApi + XmtpQuery + 'static,
+    Api: XmtpApi + 'static,
     Storage: XmtpMlsStorageProvider + 'static,
     Db: xmtp_db::XmtpDb + 'static,
 {
@@ -161,7 +154,7 @@ where
             .get_inbox_ids(vec![identifier.clone()])
             .await
             .unwrap();
-        ids.contains_key(&identifier)
+        ids.first().is_some_and(Option::is_some)
     }
 }
 

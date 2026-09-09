@@ -1,23 +1,16 @@
 use std::{collections::HashSet, sync::Arc};
 
+use crate::app::register_client;
 use crate::app::store::{Database, IdentityStore};
 use crate::app::{self, types::Identity};
-use crate::app::{App, register_client};
 use crate::metrics::{
     csv_metric, push_metrics, record_latency, record_phase_metric, record_throughput,
 };
 
-use color_eyre::eyre::{self, Result, WrapErr, bail, eyre};
-use futures::{FutureExt, StreamExt, TryFutureExt, TryStreamExt, future, stream};
+use color_eyre::eyre::{self, Result, bail, eyre};
+use futures::{StreamExt, TryFutureExt, TryStreamExt, stream};
 use indicatif::{ProgressBar, ProgressStyle};
-use openmls_rust_crypto::RustCrypto;
-use tokio::sync::Mutex;
-use tokio::time::{Instant, timeout};
-use xmtp_api_d14n::d14n::SubscribeTopics;
-use xmtp_api_d14n::protocol::{CollectionExtractor, Extractor, KeyPackagesExtractor};
-use xmtp_proto::api::QueryStreamExt;
-use xmtp_proto::types::{InstallationId, TopicCursor, TopicKind};
-use xmtp_proto::xmtp::xmtpv4::message_api::subscribe_topics_response::Response as SubscribeTopicsResponse;
+use tokio::time::Instant;
 
 /// Identity Generation
 pub struct GenerateIdentity {
@@ -29,12 +22,7 @@ impl GenerateIdentity {
         Self { identity_store }
     }
 
-    pub async fn create_identities(
-        &self,
-        n: usize,
-        concurrency: usize,
-        ryow: bool,
-    ) -> Result<Vec<Identity>> {
+    pub async fn create_identities(&self, n: usize, concurrency: usize) -> Result<Vec<Identity>> {
         let loop_pause_secs: Option<u64> = std::env::var("XDBG_LOOP_PAUSE")
             .ok()
             .and_then(|v| v.parse().ok());
@@ -58,14 +46,12 @@ impl GenerateIdentity {
         });
 
         let semaphore = Arc::new(tokio::sync::Semaphore::new(concurrency));
-        let s = Arc::new(Mutex::new(TopicCursor::default()));
 
         tracing::info!("creating clients");
         let clients = stream::iter((0..n).collect::<Vec<_>>())
             .map(|_| {
                 tokio::spawn({
                     let sem = semaphore.clone();
-                    let s = s.clone();
                     let bar_pointer = bar.clone();
                     async move {
                         let _permit = sem.acquire().await?;
@@ -84,11 +70,6 @@ impl GenerateIdentity {
 
                         bar_pointer
                             .set_message(format!("generated client {}", c.identity().inbox_id()));
-                        let mut s = s.lock().await;
-                        s.add(
-                            TopicKind::KeyPackagesV1.create(c.identity().installation_id()),
-                            Default::default(),
-                        );
                         bar_pointer.inc(1);
                         Ok::<_, eyre::Report>((c, wallet))
                     }
@@ -103,78 +84,6 @@ impl GenerateIdentity {
 
         bar.finish();
         bar.reset();
-
-        let topic_cursor =
-            Arc::into_inner(s).expect("only one reference exists after tasks finish");
-        let topic_cursor = Mutex::into_inner(topic_cursor);
-        // try to read a key package for each installation id we created
-        // only for D14n
-        let (tx, rx) = tokio::sync::oneshot::channel();
-        let network = App::network();
-        let read_writes = if network.d14n && ryow {
-            let mut needed_installations = clients
-                .clone()
-                .iter()
-                .map(|(c, _)| c.context.installation_id())
-                .collect::<HashSet<_>>();
-            tokio::spawn(async move {
-                let n = App::network();
-                let api = n.xmtpd()?;
-                let mut s = SubscribeTopics::builder().topics(topic_cursor).build()?;
-                let s = s.subscribe(&api).await?;
-                let bar_ref = bar.clone();
-                let _ = tx.send(());
-                bar_ref.set_message("waiting for identities to be written");
-                futures::pin_mut!(s);
-                while let Some(kp) = timeout(n.ryow_timeout.into(), s.try_next())
-                    .await
-                    .wrap_err("timeout reached for reading writes on key package published")??
-                {
-                    let envelopes = match kp.response {
-                        Some(SubscribeTopicsResponse::Envelopes(e)) => e.envelopes,
-                        _ => continue,
-                    };
-                    // TODO: we can deserialize key packages in extractors possibly
-                    let extractor =
-                        CollectionExtractor::new(envelopes, KeyPackagesExtractor::new());
-                    let key_packages = extractor.get()?;
-                    let key_packages = key_packages
-                        .into_iter()
-                        .map(|kp| {
-                            let inst = xmtp_id::key_package::VerifiedKeyPackageV2::from_bytes(
-                                &RustCrypto::default(),
-                                kp.key_package_tls_serialized.as_slice(),
-                            )?
-                            .installation_public_key;
-                            Ok(InstallationId::try_from(inst)?)
-                        })
-                        .inspect(|v| {
-                            let _ = v.as_ref().inspect(|v| {
-                                bar_ref
-                                    .set_message(format!("got key package for installation {}", v));
-                            });
-                        })
-                        .collect::<Result<HashSet<_>, eyre::Report>>()?;
-                    bar.inc(key_packages.len() as u64);
-                    needed_installations = needed_installations
-                        .difference(&key_packages)
-                        .copied()
-                        .collect();
-                    if needed_installations.is_empty() {
-                        break;
-                    }
-                }
-                Ok(())
-            })
-            .map_err(|_| eyre!("failed to read own writes"))
-            .map(|s| s.flatten())
-            .boxed()
-        } else {
-            let _ = tx.send(());
-            future::ready(Ok(())).boxed()
-        };
-        // ensure our ryow task is spawned
-        let _ = rx.await;
 
         let identities = stream::iter(clients.into_iter().map(Ok))
             .map_ok(|(c, wallet)| {
@@ -207,7 +116,6 @@ impl GenerateIdentity {
 
         self.identity_store.set_all(identities.as_slice())?;
 
-        //TODO: this can be removed once we're d14n-only
         let tmp = Arc::new(app::temp_client(None).await?);
         let states = stream::iter(identities.iter().copied().map(Ok))
             .map_ok(|identity| {
@@ -256,7 +164,6 @@ impl GenerateIdentity {
         // -- verify all identities are readable from a fresh temp client --
         verify_identities_readable(&identities).await?;
 
-        read_writes.await?;
         Ok(identities)
     }
 }

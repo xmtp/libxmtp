@@ -7,7 +7,7 @@ use crate::local_commit_log::{LocalCommitLog, LocalCommitLogOrder};
 use crate::remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder};
 use std::collections::HashMap;
 use std::sync::Arc;
-use xmtp_proto::types::{Cursor, GlobalCursor, GroupId, OrphanedEnvelope};
+use xmtp_proto::types::{Cursor, GroupId};
 use xmtp_proto::xmtp::identity::associations::AssociationState as AssociationStateProto;
 
 use crate::SqliteConnection;
@@ -494,7 +494,7 @@ mock! {
 
         fn messages_newer_than(
             &self,
-            cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::GlobalCursor>,
+            cursors_by_group: &HashMap<Vec<u8>, xmtp_proto::types::Cursor>,
         ) -> Result<Vec<(GroupId, Cursor)>, crate::ConnectionError>;
 
         fn clear_messages<'a>(
@@ -593,50 +593,29 @@ mock! {
 
     impl QueryRefreshState for DbQuery {
         #[mockall::concretize]
-        fn get_refresh_state<EntityId: AsRef<[u8]>>(
-            &self,
-            entity_id: EntityId,
-            entity_kind: crate::refresh_state::EntityKind,
-            originator_id: u32,
+        fn get_refresh_state<Id: AsRef<[u8]>>(
+            &self, entity_id: Id, entity_kind: crate::refresh_state::EntityKind,
         ) -> Result<Option<crate::refresh_state::RefreshState>, StorageError>;
-
         #[mockall::concretize]
-        fn get_last_cursor_for_originators<Id: AsRef<[u8]>>(
-            &self,
-            id: Id,
-            entity_kind: crate::refresh_state::EntityKind,
-            originator_id: &[u32]
-        ) -> Result<Vec<Cursor>, StorageError>;
-
+        fn get_last_cursor<Id: AsRef<[u8]>>(
+            &self, id: Id, entity_kind: crate::refresh_state::EntityKind,
+        ) -> Result<Cursor, StorageError>;
         #[mockall::concretize]
         fn get_last_cursor_for_ids<Id: AsRef<[u8]>>(
-            &self,
-            ids: &[Id],
-            entities: &[crate::refresh_state::EntityKind],
-        ) -> Result<std::collections::HashMap<Vec<u8>, GlobalCursor>, StorageError>;
-
+            &self, ids: &[Id], entities: &[crate::refresh_state::EntityKind],
+        ) -> Result<HashMap<Vec<u8>, Cursor>, StorageError>;
         #[mockall::concretize]
         fn update_cursor<Id: AsRef<[u8]>>(
-            &self,
-            entity_id: Id,
-            entity_kind: crate::refresh_state::EntityKind,
-            cursor: xmtp_proto::types::Cursor
+            &self, entity_id: Id, entity_kind: crate::refresh_state::EntityKind, cursor: Cursor,
         ) -> Result<bool, StorageError>;
-
         #[mockall::concretize]
         fn get_remote_log_cursors(
-            &self,
-            conversation_ids: &[&[u8]],
-        ) -> Result<HashMap<Vec<u8>, Cursor>, crate::ConnectionError>;
-
+            &self, conversation_ids: &[&[u8]],
+        ) -> Result<HashMap<Vec<u8>, Cursor>, StorageError>;
         #[mockall::concretize]
         fn latest_cursor_for_id<Id: AsRef<[u8]>>(
-            &self,
-            entity: Id,
-            entities: &[crate::refresh_state::EntityKind],
-            originators: Option<&[&xmtp_proto::types::OriginatorId]>
-        ) -> Result<xmtp_proto::types::GlobalCursor, StorageError>;
-
+            &self, entity: Id, entities: &[crate::refresh_state::EntityKind],
+        ) -> Result<Cursor, StorageError>;
     }
 
     impl QueryIdentityUpdates for DbQuery {
@@ -786,25 +765,6 @@ mock! {
         ) -> Result<bool, crate::ConnectionError>;
     }
 
-    impl QueryIcebox for DbQuery {
-        fn past_dependents(
-            &self,
-            cursors: &[xmtp_proto::types::Cursor],
-        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
-
-        fn future_dependents(
-            &self,
-            cursors: &[xmtp_proto::types::Cursor],
-        ) -> Result<Vec<OrphanedEnvelope>, crate::ConnectionError>;
-
-        fn ice(
-            &self,
-            orphans: Vec<OrphanedEnvelope>,
-        ) -> Result<usize, crate::ConnectionError>;
-
-        fn prune_icebox(&self) -> Result<usize, crate::ConnectionError>;
-    }
-
     impl crate::migrations::QueryMigrations for DbQuery {
         fn applied_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
 
@@ -827,18 +787,6 @@ mock! {
 
         fn run_pending_migrations(&self) -> Result<Vec<String>, crate::ConnectionError>;
     }
-    impl crate::d14n_migration_cutover::QueryMigrationCutover for DbQuery {
-        fn get_migration_cutover(&self) -> Result<crate::d14n_migration_cutover::StoredMigrationCutover, StorageError>;
-
-        fn set_cutover_ns(&self, cutover_ns: i64) -> Result<(), StorageError>;
-
-        fn get_last_checked_ns(&self) -> Result<i64, StorageError>;
-
-        fn set_last_checked_ns(&self, last_checked_ns: i64) -> Result<(), StorageError>;
-
-        fn set_has_migrated(&self, has_migrated: bool) -> Result<(), StorageError>;
-    }
-
     impl crate::message_deletion::QueryMessageDeletion for DbQuery {
         fn get_message_deletion(
             &self,

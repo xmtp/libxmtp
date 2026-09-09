@@ -6,15 +6,14 @@ All `just test` and `just wasm test` variants pass extra args through to `cargo 
 
 ```bash
 # By test name substring
-just test v3 test_send_message
-just test d14n test_send_message
-just wasm test-v3 test_send_message
+just test workspace test_send_message
+just wasm test test_send_message
 
 # By crate + test name
-just test v3 -p xmtp_mls test_send_message
+just test workspace -p xmtp_mls test_send_message
 
 # Run a test the profile's default-filter excludes (see Profiles)
-just test v3 -p xmtp_mls --ignore-default-filter test_can_stream_group_messages_for_updates
+just test workspace -p xmtp_mls --ignore-default-filter test_can_stream_group_messages_for_updates
 ```
 
 `just` does not preserve shell quoting in `{{ args }}`, so `-E '<expr>'` breaks
@@ -31,18 +30,13 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/groups::test
 dev/nix-shell "cargo nextest run --profile ci -E 'package(xmtp_mls)'"
 ```
 
-**Note:** `just test d14n` already scopes to `xmtp_mls` and its reverse deps via `-E 'package(xmtp_mls)' -E 'rdeps(xmtp_mls)'`. Any additional filters you pass are combined with this scope (both conditions must match).
-
 ## Direct cargo nextest (when you need full control)
 
 Wrap in `dev/nix-shell '<cmd>'` so the pinned toolchain is used.
 
 ```bash
-# V3 with specific test
+# Backend with specific test
 dev/nix-shell 'cargo nextest run --profile ci test_send_message'
-
-# d14n with specific test
-dev/nix-shell 'cargo nextest run --features d14n --profile ci-d14n test_send_message'
 
 # WASM with specific test
 NIX_DEVSHELL=wasm dev/nix-shell 'cargo nextest run --profile ci --cargo-profile wasm-test \
@@ -74,8 +68,7 @@ Combine with `&` (and), `|` (or), `not`:
 
 | Profile | Usage | Notes |
 | ------- | ----- | ----- |
-| `ci` | V3 tests | Skips flaky streaming tests, 90s slow timeout |
-| `ci-d14n` | d14n tests | Skips commit_log tests |
+| `ci` | Backend tests | Skips flaky streaming tests, 90s slow timeout |
 | `default` | Local dev | 3x exponential retries |
 
 Config: `.config/nextest.toml`
@@ -83,17 +76,17 @@ Config: `.config/nextest.toml`
 ## Test Logging
 
 ```bash
-RUST_LOG=xmtp_mls=debug just test v3 test_name       # Filter by crate
-CONTEXTUAL=1 just test v3 test_name                    # Tree-format logs
-STRUCTURED=1 just test v3 test_name                    # JSON logs
+RUST_LOG=xmtp_mls=debug just test workspace test_name       # Filter by crate
+CONTEXTUAL=1 just test workspace test_name                    # Tree-format logs
+STRUCTURED=1 just test workspace test_name                    # JSON logs
 ```
 
 ## Backend Services
 
-Tests creating clients or exchanging messages require the local XMTP node:
+Tests creating clients or exchanging messages require the local backend:
 
 ```bash
-just backend up      # Build validation service + start Docker containers
+just backend up      # Build the backend and start Docker containers
 just backend down    # Stop containers
 ```
 
@@ -102,7 +95,7 @@ just backend down    # Stop containers
 CI uses Nix derivations for hermetic test builds:
 
 ```bash
-just nix-test                                          # Build + run v3 and d14n via Nix
+just nix-test                                          # Build and run native tests through Nix
 just wasm test-ci                                      # WASM tests via Nix
 just node test-ci                                      # Node tests via Nix
 ```

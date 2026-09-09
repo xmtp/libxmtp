@@ -9,9 +9,10 @@ pub struct CatchUpSummary {
   pub messages: u32,
   /// Conversations newly joined during this run.
   pub conversations: u32,
-  /// Whether the run reached the live edge. Always `true` here — the node
-  /// binding has no caller deadline (see `catchUpToLive`).
+  /// Whether the run completed without a processing failure.
   pub completed: bool,
+  /// Processing failures during this run.
+  pub failed: u32,
 }
 
 impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for CatchUpSummary {
@@ -24,6 +25,7 @@ impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for CatchUpSummary 
       messages: u32::try_from(summary.messages).unwrap_or(u32::MAX),
       conversations: u32::try_from(summary.conversations).unwrap_or(u32::MAX),
       completed: summary.completed,
+      failed: u32::try_from(summary.failed).unwrap_or(u32::MAX),
     }
   }
 }

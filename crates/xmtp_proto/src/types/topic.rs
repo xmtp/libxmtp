@@ -6,7 +6,7 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::{ConversionError, types::InstallationId, xmtp::xmtpv4::envelopes::AuthenticatedData};
+use crate::{ConversionError, types::InstallationId};
 
 /// the max size of an item in a [`TopicKind`] is 32 bytes (installation id).
 /// the 1st byte is interpreted as the prefixed [`TopicKind`] byte.
@@ -302,15 +302,6 @@ where
 impl AsRef<Topic> for Topic {
     fn as_ref(&self) -> &Topic {
         self
-    }
-}
-
-impl AuthenticatedData {
-    pub fn with_topic(topic: Topic) -> AuthenticatedData {
-        AuthenticatedData {
-            target_topic: topic.into(),
-            depends_on: None,
-        }
     }
 }
 

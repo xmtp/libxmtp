@@ -15,9 +15,8 @@ dev/nix-shell 'cargo update-schema'      # regen schema.rs after a migration
 
 ## Gotchas
 
-- Migrations: `crates/xmtp_db/migrations/`. Add one, then refresh `schema.rs` with the `update-schema` command above.
-- `test_db_migrates` is flaky (sqlcipher). CI retries it 3x.
-- `update-schema` emits `id -> Nullable<Integer>` for `d14n_migration_cutover`. Keep it `Integer` or `xmtp_db` stops compiling. Check the diff.
+- One baseline lives in `crates/xmtp_db/migrations/`. Pre-transition databases are rejected before migrations run.
+- Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply the baseline to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
 
 ## Conventions
 

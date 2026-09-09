@@ -8,15 +8,16 @@ Core client. Groups, messages, sync, streams.
 just check crate xmtp_mls
 just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_mls                # needs `just backend up` (anvil)
-just test v3 -p xmtp_mls --ignore-default-filter test_valid_deletion_by_sender   # one test
+dev/nix-shell "cargo nextest run -p xmtp_mls --profile ci -E 'test(test_valid_deletion_by_sender)'"
 dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/messages::/)'"   # one module
 ```
 
 ## Gotchas
 
 - Needs `just backend up`.
-- `just test crate` = nextest `default` profile. `just test v3` = `ci` profile (CI). Both skip flaky stream tests. `--ignore-default-filter` runs them.
-- `just test d14n <test_name>` = d14n lane. Builds with `--features d14n`. Separate artifacts, slow.
+- Tests use one backend client. Native callback streams use backend bidi streams.
+- Use the `ci` nextest profile for the backend suite. `--ignore-default-filter` includes tests excluded by the default filter.
+- Set `XMTP_BACKEND_URL=http://127.0.0.1:5050` if localhost selects IPv6.
 
 ## Conventions
 

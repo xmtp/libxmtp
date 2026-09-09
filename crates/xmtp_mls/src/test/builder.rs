@@ -6,7 +6,7 @@ use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::DefaultTestClientCreator;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::MockApiClient;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
 use xmtp_db::sql_key_store::SqlKeyStore;
@@ -29,13 +29,8 @@ use xmtp_proto::xmtp::message_contents::{
     Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey, signature,
 };
 
-use xmtp_proto::xmtp::identity::api::v1::{
+use xmtp_proto::backend_v1::{
     GetInboxIdsResponse, get_inbox_ids_response::Response as GetInboxIdsResponseItem,
-};
-
-use xmtp_proto::identity_v1::{
-    GetIdentityUpdatesResponse,
-    get_identity_updates_response::{IdentityUpdateLog, Response},
 };
 
 use xmtp_proto::xmtp::identity::associations::{
@@ -309,7 +304,7 @@ async fn test_2nd_time_client_creation() {
 // Should return error if inbox associated with given account_address doesn't match the provided one.
 #[xmtp_common::test]
 async fn api_identity_mismatch() {
-    let mut mock_api = MockApiClient::new();
+    let mut mock_api = MockBackendClient::new();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
     let store = xmtp_db::TestDb::create_persistent_store(None).await;
@@ -347,7 +342,7 @@ async fn api_identity_mismatch() {
 // Use the account_address associated inbox
 #[xmtp_common::test]
 async fn api_identity_happy_path() {
-    let mut mock_api = MockApiClient::new();
+    let mut mock_api = MockBackendClient::new();
     let tmpdb = tmp_path();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
@@ -372,48 +367,56 @@ async fn api_identity_happy_path() {
     });
 
     let mut wrapper = ApiClientWrapper::new(mock_api, retry());
-    wrapper
-        .api_client
-        .expect_get_identity_updates_v2()
-        .returning({
-            let ident = ident.clone();
-            move |req| {
-                let kind: IdentifierKind = (&ident).into();
+    wrapper.api_client.expect_query().returning({
+        let ident = ident.clone();
+        let inbox_id = inbox_id.clone();
+        move |req| {
+            let kind: IdentifierKind = (&ident).into();
 
-                let update = IdentityUpdate {
-                    actions: vec![IdentityAction {
-                        kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
-                            initial_identifier: format!("{ident}"),
-                            nonce,
-                            initial_identifier_signature: Some(ProtoSignature {
-                                signature: Some(SignatureEnum::Erc191(RecoverableEcdsaSignature {
-                                    bytes: vec![1; 65], // dummy but structurally valid
-                                })),
-                            }),
-                            initial_identifier_kind: kind as i32,
-                            relying_party: None,
-                        })),
-                    }],
-                    client_timestamp_ns: 0,
-                    inbox_id: req.requests[0].inbox_id.clone(),
-                };
+            let update = IdentityUpdate {
+                actions: vec![IdentityAction {
+                    kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
+                        initial_identifier: format!("{ident}"),
+                        nonce,
+                        initial_identifier_signature: Some(ProtoSignature {
+                            signature: Some(SignatureEnum::Erc191(RecoverableEcdsaSignature {
+                                bytes: vec![1; 65], // dummy but structurally valid
+                            })),
+                        }),
+                        initial_identifier_kind: kind as i32,
+                        relying_party: None,
+                    })),
+                }],
+                client_timestamp_ns: 0,
+                inbox_id: inbox_id.clone(),
+            };
 
-                Ok(GetIdentityUpdatesResponse {
-                    responses: req
-                        .requests
-                        .iter()
-                        .map(|r| Response {
-                            inbox_id: r.inbox_id.clone(),
-                            updates: vec![IdentityUpdateLog {
-                                sequence_id: 1,
-                                server_timestamp_ns: 0,
-                                update: Some(update.clone()),
-                            }],
-                        })
-                        .collect(),
-                })
-            }
-        });
+            Ok(xmtp_proto::backend_v1::QueryResponse {
+                envelopes: vec![xmtp_proto::backend_v1::ServerEnvelope {
+                    meta: Some(xmtp_proto::backend_v1::EnvelopeMeta {
+                        topic: req.queries[0].topic.clone(),
+                        cursor: Some(xmtp_proto::backend_v1::Cursor { sequence_id: 1 }),
+                        server_ns: 0,
+                        message_hash: Some(xmtp_proto::backend_v1::MessageHash {
+                            hash: Some(xmtp_proto::backend_v1::message_hash::Hash::Sha256(vec![
+                                1;
+                                32
+                            ])),
+                        }),
+                        ..Default::default()
+                    }),
+                    envelope: Some(xmtp_proto::backend_v1::ClientEnvelope {
+                        payload: Some(
+                            xmtp_proto::backend_v1::client_envelope::Payload::IdentityUpdate(
+                                update,
+                            ),
+                        ),
+                    }),
+                }],
+                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
+            })
+        }
+    });
 
     let stored: StoredIdentity = (&Identity {
         inbox_id: inbox_id.clone(),
@@ -440,7 +443,7 @@ async fn api_identity_happy_path() {
 // Use a stored identity as long as the inbox_id matches the one provided.
 #[xmtp_common::test]
 async fn stored_identity_happy_path() {
-    let mock_api = MockApiClient::new();
+    let mock_api = MockBackendClient::new();
     let tmpdb = tmp_path();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
@@ -473,7 +476,7 @@ async fn stored_identity_happy_path() {
 
 #[xmtp_common::test]
 async fn stored_identity_mismatch() {
-    let mock_api = MockApiClient::new();
+    let mock_api = MockBackendClient::new();
     let scw_verifier = MockSmartContractSignatureVerifier::new(true);
 
     let nonce = 0;

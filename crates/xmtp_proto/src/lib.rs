@@ -44,8 +44,7 @@ pub mod prelude {
         pub use super::api_client::XmtpTestClient;
     }
     pub use super::api_client::{
-        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpIdentityClient,
-        XmtpMlsClient, XmtpMlsStreams,
+        ApiBuilder, ArcedXmtpApi, BoxedXmtpApi, NetConnectConfig, XmtpBackendClient, XmtpMlsStreams,
     };
     pub use super::traits::{ApiClientError, BytesStream, Client, Endpoint, Query, QueryStream};
 }
@@ -56,8 +55,4 @@ pub mod identity_v1 {
 
 pub mod backend_v1 {
     pub use super::xmtp::backend::v1::*;
-}
-
-pub mod mls_v1 {
-    pub use super::xmtp::mls::api::v1::*;
 }

@@ -14,10 +14,10 @@ use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
 };
-use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::database::Task as DbTask;
 use xmtp_proto::xmtp::mls::database::task::Task as DbTaskKind;
+use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,
@@ -27,7 +27,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
     test_welcome_pointer_round_trip(
         || true,
@@ -50,7 +50,7 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
 #[xmtp_common::timeout(Duration::from_secs(80))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     test_welcome_pointer_round_trip(
         || false,
@@ -73,7 +73,7 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
     let random_vec = xmtp_common::rand_vec::<1024>();
     let mut random_vec = random_vec
@@ -410,10 +410,10 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
         welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
     };
 
-    let welcome_message = xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput {
+    let welcome_message = xmtp_proto::backend_v1::WelcomeMessage {
         version: Some(
-            xmtp_proto::xmtp::mls::api::v1::welcome_message_input::Version::WelcomePointer(
-                xmtp_proto::xmtp::mls::api::v1::welcome_message_input::WelcomePointer {
+            xmtp_proto::backend_v1::welcome_message::Version::WelcomePointer(
+                xmtp_proto::backend_v1::welcome_message::WelcomePointer {
                     installation_key: welcome_pointer.destination.to_vec(),
                     welcome_pointer: xmtp_common::rand_vec::<32>(),
                     hpke_public_key: xmtp_common::rand_vec::<32>(),
@@ -480,8 +480,8 @@ async fn test_welcome_pointer_task_retry_resolution() {
 
     tracing::info!("Sending welcome pointer to nowhere to bo");
     alix.context.api()
-        .send_welcome_messages(&[xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput {
-            version: Some(xmtp_proto::xmtp::mls::api::v1::welcome_message_input::Version::WelcomePointer(xmtp_proto::xmtp::mls::api::v1::welcome_message_input::WelcomePointer {
+        .send_welcome_messages(&[xmtp_proto::backend_v1::WelcomeMessage {
+            version: Some(xmtp_proto::backend_v1::welcome_message::Version::WelcomePointer(xmtp_proto::backend_v1::welcome_message::WelcomePointer {
                 installation_key: bo.context.installation_id().to_vec(),
                 welcome_pointer: welcome_pointer_encrypted_bytes.clone(),
                 hpke_public_key: bo_hpke_public_key.to_vec(),
@@ -557,10 +557,6 @@ async fn test_welcome_pointer_task_retry_resolution() {
         task.originating_message_sequence_id,
         welcome_from_api.sequence_id() as i64
     );
-    assert_eq!(
-        task.originating_message_originator_id,
-        welcome_from_api.originator_id() as i32
-    );
     assert_eq!(task.created_at_ns, welcome_from_api.timestamp());
     tracing::info!("Asserted tasks for bo are correct");
 
@@ -620,10 +616,10 @@ async fn test_welcome_pointer_task_retry_resolution() {
     )
     .unwrap();
 
-    let welcome_data = xmtp_proto::xmtp::mls::api::v1::WelcomeMessageInput {
+    let welcome_data = xmtp_proto::backend_v1::WelcomeMessage {
         version: Some(
-            xmtp_proto::xmtp::mls::api::v1::welcome_message_input::Version::V1(
-                xmtp_proto::xmtp::mls::api::v1::welcome_message_input::V1 {
+            xmtp_proto::backend_v1::welcome_message::Version::V1(
+                xmtp_proto::backend_v1::welcome_message::V1 {
                     installation_key:welcome_pointer_v1.destination.clone(),
                     data,
                     hpke_public_key:bo_hpke_public_key.to_vec(),

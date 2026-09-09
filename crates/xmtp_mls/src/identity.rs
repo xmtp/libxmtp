@@ -164,7 +164,7 @@ impl IdentityStrategy {
                         legacy_signed_private_key,
                         api_client,
                         mls_storage,
-                        scw_signature_verifier,
+                        &scw_signature_verifier,
                     )
                     .await
                 }
@@ -288,6 +288,9 @@ pub enum IdentityError {
     #[error(transparent)]
     #[error_code(inherit)]
     ApiClient(#[from] xmtp_api::ApiError),
+    /// Identity publication failed. Retryability depends on the cause.
+    #[error(transparent)]
+    IdentityUpdate(#[from] crate::identity_updates::IdentityUpdateError),
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
@@ -430,7 +433,7 @@ impl Identity {
         let inbox_ids = api_client
             .get_inbox_ids(vec![identifier.clone().into()])
             .await?;
-        let associated_inbox_id = inbox_ids.get(&(&identifier).into());
+        let associated_inbox_id = inbox_ids.first().and_then(Option::as_ref);
         let installation_keys = XmtpInstallationCredential::new();
 
         if let Some(associated_inbox_id) = associated_inbox_id {
@@ -487,7 +490,7 @@ impl Identity {
                         signature,
                         installation_keys.verifying_key(),
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
 
@@ -541,7 +544,7 @@ impl Identity {
                         signature_request.signature_text(),
                         legacy_signed_private_key,
                     )?),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
 
@@ -557,7 +560,19 @@ impl Identity {
             identity.register(api_client, mls_storage).await?;
 
             let identity_update = signature_request.build_identity_update()?;
-            api_client.publish_identity_update(identity_update).await?;
+            let cursor = crate::identity_updates::publish_with_conflict_retry(
+                api_client,
+                &mls_storage.db(),
+                identity_update,
+                &scw_signature_verifier,
+            )
+            .await?;
+            use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::identity::dsl};
+            mls_storage.db().raw_query(|conn| {
+                xmtp_db::diesel::update(dsl::identity)
+                    .set(dsl::registration_cursor_sequence_id.eq(cursor.0 as i64))
+                    .execute(conn)
+            })?;
 
             Ok(identity)
         } else {
@@ -586,7 +601,7 @@ impl Identity {
                         sig,
                         installation_keys.verifying_key(),
                     ),
-                    scw_signature_verifier,
+                    &scw_signature_verifier,
                 )
                 .await?;
 
@@ -709,8 +724,8 @@ impl Identity {
             self.generate_and_store_key_package(mls_storage, include_post_quantum)?;
 
         // Upload to network
-        match api_client.upload_key_package(kp_bytes, true).await {
-            Ok(()) => {
+        match api_client.upload_key_package(kp_bytes).await {
+            Ok(_) => {
                 // Successfully uploaded. Delete previous KPs
                 let provider = XmtpOpenMlsProviderRef::new(mls_storage);
                 provider
@@ -942,7 +957,6 @@ mod tests {
     use openmls::prelude::{KeyPackageBundle, KeyPackageRef};
     use openmls_traits::{OpenMlsProvider, storage::StorageProvider};
     use tls_codec::Serialize;
-    use xmtp_api_d14n::protocol::XmtpQuery;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::XmtpMlsStorageProvider;
     use xmtp_db::XmtpOpenMlsProviderRef;
@@ -953,7 +967,6 @@ mod tests {
     };
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::group::DMMetadataOptions;
-    use xmtp_proto::types::TopicKind;
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
         let mut kp_mapping = client
@@ -971,13 +984,8 @@ mod tests {
         let welcomes = client
             .context
             .api()
-            .query_at(
-                TopicKind::WelcomeMessagesV1.create(client.context.installation_id()),
-                None,
-            )
+            .query_welcome_messages(client.context.installation_id())
             .await
-            .unwrap()
-            .welcome_messages()
             .unwrap();
 
         welcomes[0].clone()

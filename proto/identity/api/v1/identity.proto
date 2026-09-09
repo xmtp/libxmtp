@@ -2,54 +2,30 @@
 syntax = "proto3";
 package xmtp.identity.api.v1;
 
-import "google/api/annotations.proto";
 import "identity/associations/association.proto";
-import "protoc-gen-openapiv2/options/annotations.proto";
 
 option go_package = "github.com/xmtp/proto/v3/go/mls/api/v1";
 option java_package = "org.xmtp.proto.mls.api.v1";
-option (grpc.gateway.protoc_gen_openapiv2.options.openapiv2_swagger) = {
-  info: {
-    title: "IdentityApi"
-    version: "1.0"
-  }
-};
 
 // RPCs for the new MLS API
 service IdentityApi {
   // Publishes an identity update for an XID or wallet. An identity update may
   // consist of multiple identity actions that have been batch signed.
   rpc PublishIdentityUpdate(PublishIdentityUpdateRequest) returns (PublishIdentityUpdateResponse) {
-    option (google.api.http) = {
-      post: "/identity/v1/publish-identity-update"
-      body: "*"
-    };
   }
 
   // Used to check for changes related to members of a group.
   // Would return an array of any new installations associated with the wallet
   // address, and any revocations that have happened.
   rpc GetIdentityUpdates(GetIdentityUpdatesRequest) returns (GetIdentityUpdatesResponse) {
-    option (google.api.http) = {
-      post: "/identity/v1/get-identity-updates"
-      body: "*"
-    };
   }
 
   // Retrieve the XIDs for the given addresses
   rpc GetInboxIds(GetInboxIdsRequest) returns (GetInboxIdsResponse) {
-    option (google.api.http) = {
-      post: "/identity/v1/get-inbox-ids"
-      body: "*"
-    };
   }
 
   // Verify an unverified smart contract wallet signature
   rpc VerifySmartContractWalletSignatures(VerifySmartContractWalletSignaturesRequest) returns (VerifySmartContractWalletSignaturesResponse) {
-    option (google.api.http) = {
-      post: "/identity/v1/verify-smart-contract-wallet-signatures"
-      body: "*"
-    };
   }
 }
 

@@ -231,7 +231,7 @@ bindings-wasm = { path = "bindings/wasm" }
 bindings_wasm_macros = { path = "crates/wasm_macros" }
 xmtp-workspace-hack = "0.1.0"
 xmtp_api = { path = "crates/xmtp_api" }
-xmtp_api_d14n = { path = "crates/xmtp_api_d14n" }
+xmtp_api_backend = { path = "crates/xmtp_api_backend" }
 xmtp_api_grpc = { path = "crates/xmtp_api_grpc" }
 xmtp_archive = { path = "crates/xmtp_archive" }
 xmtp_common = { path = "crates/xmtp_common" }

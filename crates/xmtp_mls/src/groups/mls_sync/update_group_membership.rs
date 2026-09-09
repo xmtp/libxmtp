@@ -494,8 +494,7 @@ async fn compute_publish_data_for_proposal_based_update(
 
     // Build all payloads with commit last (for intent hash matching)
     let mut payloads_to_publish = proposal_payloads;
-    // There is currently no feasible way to include dependencies on the previous payloads for the icebox.
-    // We may want to revisit this in the future by allowing something like `originator_id = same_as_message` and `sequence_id = this_sequence_id - n`.
+    // The publish unit stores all proposals and the commit atomically.
     payloads_to_publish.push(commit.tls_serialize_detached()?);
 
     let post_commit_action = match maybe_welcome_message {

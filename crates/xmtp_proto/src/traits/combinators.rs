@@ -6,8 +6,5 @@
 mod retry;
 pub use retry::*;
 
-mod v3_paged;
-pub use v3_paged::*;
-
 mod ignore;
 pub use ignore::*;

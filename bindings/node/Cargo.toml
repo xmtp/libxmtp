@@ -20,6 +20,7 @@ chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true
 hex.workspace = true
 mimalloc = { version = "0.1.52", default-features = false }
+thiserror.workspace = true
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 napi = { version = "3.11.0", default-features = false, features = [
   "napi6",
@@ -33,7 +34,7 @@ tokio.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
-xmtp_api_d14n.workspace = true
+xmtp_api_backend.workspace = true
 xmtp_api_grpc = { workspace = true, optional = true }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true

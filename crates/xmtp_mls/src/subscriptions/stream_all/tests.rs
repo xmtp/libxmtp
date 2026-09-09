@@ -191,7 +191,7 @@ fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
 #[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test]
-#[cfg_attr(any(feature = "d14n", target_arch = "wasm32"), ignore)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_stream_all_messages_does_not_lose_messages() {
     let caro = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
     let alix = Arc::new(ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await);
@@ -384,11 +384,6 @@ async fn test_stream_all_messages_filters_by_consent_state(
         .await
         .unwrap();
     futures::pin_mut!(stream);
-    //  if cfg!(feature = "d14n") {
-    //      // group updated codec b/c group hasn't written to db so lcc is 0
-    //      use futures_test::assert_stream_next;
-    //      let _ = stream.next().await.unwrap();
-    //  }
     allowed_group
         .send_message("msg in allowed".as_bytes(), SendMessageOpts::default())
         .await

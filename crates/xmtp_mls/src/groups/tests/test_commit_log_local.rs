@@ -7,6 +7,7 @@ use crate::{
     tester,
     utils::{FullXmtpClient, TestMlsGroup},
 };
+#[cfg(not(target_arch = "wasm32"))]
 use xmtp_common::toxiproxy_test;
 use xmtp_db::{
     local_commit_log::{CommitType, LocalCommitLog},
@@ -43,7 +44,6 @@ async fn last_commit_type_matches(
         && log_2.commit_type.unwrap() == expected.to_string()
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_successful_commit_log_types() {
     tester!(alix);
@@ -105,7 +105,6 @@ async fn test_successful_commit_log_types() {
     assert_eq!(b.local_commit_log().await?.len(), 7);
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_failed_application_message_not_added_to_commit_log() {
     tester!(alix);
@@ -150,7 +149,6 @@ async fn test_failed_application_message_not_added_to_commit_log() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_commit_log() {
     tester!(alix);
@@ -194,6 +192,7 @@ async fn test_welcome_commit_log() {
 }
 
 // TODO(rich): Fix intent publishing on bad network conditions
+#[cfg(not(target_arch = "wasm32"))]
 #[ignore]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_retriable_error() {
@@ -237,7 +236,6 @@ async fn test_commit_log_retriable_error() {
     .await;
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_non_retriable_error() {
     tester!(alix);

@@ -6,7 +6,7 @@ use crate::{
 use xmtp_db::{consent_record::ConsentState, group::QueryGroup, prelude::QueryReaddStatus};
 
 use xmtp_proto::types::GroupId;
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
+
 #[xmtp_common::test]
 async fn test_request_readd() {
     tester!(alix, enable_fork_recovery_requests);
@@ -101,7 +101,6 @@ async fn test_request_readd() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_request_readd_dm() {
     tester!(alix, enable_fork_recovery_requests);
@@ -166,7 +165,6 @@ async fn test_request_readd_dm() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_readd_installation_succeeds() {
     tester!(alix);
@@ -209,7 +207,6 @@ async fn test_readd_installation_succeeds() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_readd_bookkeeping() {
     tester!(alix, enable_fork_recovery_requests);
@@ -334,7 +331,6 @@ async fn test_readd_bookkeeping() {
     );
 }
 
-#[cfg_attr(all(feature = "d14n", target_arch = "wasm32"), ignore)]
 #[xmtp_common::test]
 async fn test_request_readd_with_allowlisted_groups() {
     // Step 1: Bo creates a group

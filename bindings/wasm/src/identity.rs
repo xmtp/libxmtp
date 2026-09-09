@@ -60,27 +60,23 @@ impl IdentityExt<Identifier, XmtpIdentifier> for Vec<Identifier> {
 #[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct ApiStats {
-  pub upload_key_package: u64,
-  pub fetch_key_package: u64,
-  pub send_group_messages: u64,
-  pub send_welcome_messages: u64,
-  pub query_group_messages: u64,
-  pub query_welcome_messages: u64,
-  pub subscribe_messages: u64,
-  pub subscribe_welcomes: u64,
+  pub publish: u64,
+  pub query: u64,
+  pub query_newest: u64,
+  pub get: u64,
+  pub subscribe: u64,
+  pub subscribe_static: u64,
 }
 
 impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
   fn from(stats: xmtp_proto::api_client::ApiStats) -> Self {
     Self {
-      upload_key_package: stats.upload_key_package.get_count() as u64,
-      fetch_key_package: stats.fetch_key_package.get_count() as u64,
-      send_group_messages: stats.send_group_messages.get_count() as u64,
-      send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
-      query_group_messages: stats.query_group_messages.get_count() as u64,
-      query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
-      subscribe_messages: stats.subscribe_messages.get_count() as u64,
-      subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
+      publish: stats.publish.get_count() as u64,
+      query: stats.query.get_count() as u64,
+      query_newest: stats.query_newest.get_count() as u64,
+      get: stats.get.get_count() as u64,
+      subscribe: stats.subscribe.get_count() as u64,
+      subscribe_static: stats.subscribe_static.get_count() as u64,
     }
   }
 }
@@ -89,20 +85,16 @@ impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
 #[tsify(into_wasm_abi, from_wasm_abi, large_number_types_as_bigints)]
 #[serde(rename_all = "camelCase")]
 pub struct IdentityStats {
-  pub publish_identity_update: u64,
-  pub get_identity_updates_v2: u64,
   pub get_inbox_ids: u64,
-  pub verify_smart_contract_wallet_signature: u64,
+  pub verify_smart_contract_wallet_signatures: u64,
 }
 
 impl From<xmtp_proto::api_client::IdentityStats> for IdentityStats {
   fn from(stats: xmtp_proto::api_client::IdentityStats) -> Self {
     Self {
-      publish_identity_update: stats.publish_identity_update.get_count() as u64,
-      get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as u64,
       get_inbox_ids: stats.get_inbox_ids.get_count() as u64,
-      verify_smart_contract_wallet_signature: stats
-        .verify_smart_contract_wallet_signature
+      verify_smart_contract_wallet_signatures: stats
+        .verify_smart_contract_wallet_signatures
         .get_count() as u64,
     }
   }

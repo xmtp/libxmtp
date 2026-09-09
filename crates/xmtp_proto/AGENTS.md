@@ -23,7 +23,7 @@ dev/nix-shell 'buf lint proto'          # lint owned protobuf sources
 
 ## Conventions
 
-- Generated prost code is surfaced by `pub use generated::*` in `src/lib.rs` and the aliases `xmtp_proto::backend_v1`, `mls_v1`, and `identity_v1`.
+- Generated prost code is surfaced by `pub use generated::*` in `src/lib.rs` and the aliases `xmtp_proto::backend_v1` and `identity_v1`.
 - Use the newtypes in `src/types/`, not `Vec<u8>` / `String`:
   - `types/ids/group_id.rs:22 GroupId`: `[u8; 16]`; `as_slice`, `as_bytes`, `into_bytes`, `to_vec`, `to_openmls`, `random(rand)`, `ZERO` / `ONE`.. `FOUR`, `Deref`, `FromStr` (error `GroupIdParseError:175`). Its Diesel `ToSql` / `FromSql<Binary, Sqlite>` needs the crate feature `diesel` (`group_id.rs:3`, `Cargo.toml:78`).
   - `types/ids/installation_id.rs:6 InstallationId`: `[u8; 32]` with a smaller API than `GroupId`: only `to_vec`, `Deref` / `AsRef`, `From<[u8; 32]>`, `Into<Vec<u8>>`, `TryFrom<Vec<u8>>` / `TryFrom<&[u8]>` (error `ConversionError`). No `as_bytes`, `into_bytes`, `to_openmls`, `random`, `FromStr`, or Diesel impl.

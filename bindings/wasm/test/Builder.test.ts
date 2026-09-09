@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import init, { WasmTestBuilder } from "../";
+import init, { BackendBuilder, WasmTestBuilder } from "../";
 
 await init();
 
@@ -39,5 +39,32 @@ describe("WasmTestBuilder", () => {
     const b = new WasmTestBuilder("defaults").setPort(9090).setEnabled(false);
     expect(b.port).toBe(9090);
     expect(b.enabled).toBe(false);
+  });
+});
+
+describe("BackendBuilder", () => {
+  it("API-client cache key uses backend URL and app version", () => {
+    const url = "http://127.0.0.1:5050";
+    const builder = new BackendBuilder(url);
+    expect(builder.backendUrl).toBe(url);
+    const first = builder.setEnv("local").setAppVersion("TestApp/1.0").build();
+    const otherEnv = new BackendBuilder(url)
+      .setEnv("custom")
+      .setAppVersion("TestApp/1.0")
+      .build();
+    expect(first.cacheKey).toBe(`${url}|TestApp/1.0`);
+    expect(otherEnv.cacheKey).toBe(first.cacheKey);
+    expect(otherEnv.env).toBe("custom");
+    const noVersion = new BackendBuilder(url).build();
+    expect(noVersion.cacheKey).toBe(`${url}|`);
+    expect(noVersion.cacheKey).not.toBe(first.cacheKey);
+    const otherUrl = new BackendBuilder("http://127.0.0.1:59999").build();
+    expect(otherUrl.cacheKey).not.toBe(noVersion.cacheKey);
+  });
+
+  it("backend URL is required", () => {
+    // @ts-expect-error The backend URL is required.
+    expect(() => new BackendBuilder()).toThrow();
+    expect(() => new BackendBuilder("").build()).toThrow();
   });
 });

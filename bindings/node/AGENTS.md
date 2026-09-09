@@ -18,6 +18,7 @@ dev/nix-shell 'cd bindings/node && yarn vitest run -t "should generate an inbox 
 
 - Needs `just backend up`.
 - Tests import `../dist`. Run `just node test` once before a single-file run.
+- `test-ci` makes the copied Nix output writable so later runs can replace it.
 - `check` builds `--release`. `test` rebuilds with `--features test-utils`. Each switch is a full rebuild.
 
 ## Conventions

@@ -1,27 +1,10 @@
-pub use super::xmtp::message_api::v1::{
-    BatchQueryRequest, BatchQueryResponse, Envelope, PublishRequest, PublishResponse, QueryRequest,
-    QueryResponse, SubscribeRequest,
-};
 use crate::api::IsConnectedCheck;
-use crate::mls_v1::{
-    BatchPublishCommitLogRequest, BatchQueryCommitLogRequest, BatchQueryCommitLogResponse,
-    GetNewestGroupMessageRequest, PagingInfo,
+pub use crate::backend_v1::{
+    GetInboxIdsRequest, GetInboxIdsResponse, GetRequest, PublishRequest, PublishResponse,
+    QueryNewestRequest, QueryNewestResponse, QueryRequest, QueryResponse, ServerEnvelope,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use crate::types::{
-    Cursor, GroupId, GroupMessage, GroupMessageMetadata, InstallationId, TopicCursor,
-    WelcomeMessage,
-};
-use crate::xmtp::identity::api::v1::{
-    GetIdentityUpdatesRequest as GetIdentityUpdatesV2Request,
-    GetIdentityUpdatesResponse as GetIdentityUpdatesV2Response, GetInboxIdsRequest,
-    GetInboxIdsResponse, PublishIdentityUpdateRequest, VerifySmartContractWalletSignaturesRequest,
-    VerifySmartContractWalletSignaturesResponse,
-};
-use crate::xmtp::mls::api::v1::{
-    FetchKeyPackagesRequest, FetchKeyPackagesResponse, GroupMessage as ProtoGroupMessage,
-    QueryWelcomeMessagesResponse, SendGroupMessagesRequest, SendWelcomeMessagesRequest,
-    UploadKeyPackageRequest, WelcomeMessage as ProtoWelcomeMessage,
-};
+use crate::types::{GroupId, GroupMessage, InstallationId, TopicCursor, WelcomeMessage};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -46,7 +29,7 @@ xmtp_common::if_native! {
     pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
     pub type BoxedWelcomeS<Err> = Pin<Box<dyn Stream<Item = Result<WelcomeMessage, Err>> + Send>>;
     pub type BoxedSubscribeS<Err> =
-        Pin<Box<dyn Stream<Item = Result<crate::mls_v1::SubscribeResponse, Err>> + Send>>;
+        Pin<Box<dyn Stream<Item = Result<crate::backend_v1::SubscribeResponse, Err>> + Send>>;
 }
 
 xmtp_common::if_wasm! {
@@ -56,8 +39,7 @@ xmtp_common::if_wasm! {
 
 pub trait BoxableXmtpApi<Err>
 where
-    Self: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
+    Self: XmtpBackendClient<Error = Err>
         + XmtpMlsStreams<
             Error = Err,
             WelcomeMessageStream = BoxedWelcomeS<Err>,
@@ -69,8 +51,7 @@ where
 }
 
 impl<T, Err> BoxableXmtpApi<Err> for T where
-    T: XmtpMlsClient<Error = Err>
-        + XmtpIdentityClient<Error = Err>
+    T: XmtpBackendClient<Error = Err>
         + XmtpMlsStreams<
             Error = Err,
             WelcomeMessageStream = BoxedWelcomeS<Err>,
@@ -84,65 +65,31 @@ impl<T, Err> BoxableXmtpApi<Err> for T where
 
 pub trait XmtpApi
 where
-    Self: XmtpMlsClient + XmtpIdentityClient,
+    Self: XmtpBackendClient,
 {
 }
 
-impl<T> XmtpApi for T where T: XmtpMlsClient + XmtpIdentityClient + ?Sized {}
+impl<T> XmtpApi for T where T: XmtpBackendClient + ?Sized {}
 
-/// Trait which for protobuf-generated type
-/// which can be paged.
-/// Paged implementation indicates a response
-/// that returns a collection of envelopes
-pub trait Paged: MaybeSend + MaybeSync {
-    type Message: MaybeSend + MaybeSync;
-    fn info(&self) -> &Option<PagingInfo>;
-    fn messages(self) -> Vec<Self::Message>;
-}
-
-/// Represents the backend API required for an MLS Delivery Service
-/// to be compatible with XMTP
+/// The six unary RPCs of the backend API. Callers own retries and chunking.
 #[xmtp_common::async_trait]
-pub trait XmtpMlsClient: MaybeSend + MaybeSync {
+pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
-    async fn upload_key_package(&self, request: UploadKeyPackageRequest)
-    -> Result<(), Self::Error>;
-    async fn fetch_key_packages(
+    async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error>;
+    async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
+    async fn query_newest(
         &self,
-        request: FetchKeyPackagesRequest,
-    ) -> Result<FetchKeyPackagesResponse, Self::Error>;
-    async fn send_group_messages(
+        request: QueryNewestRequest,
+    ) -> Result<QueryNewestResponse, Self::Error>;
+    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error>;
+    async fn get_inbox_ids(
         &self,
-        request: SendGroupMessagesRequest,
-    ) -> Result<(), Self::Error>;
-    async fn send_welcome_messages(
+        request: GetInboxIdsRequest,
+    ) -> Result<GetInboxIdsResponse, Self::Error>;
+    async fn verify_smart_contract_wallet_signatures(
         &self,
-        request: SendWelcomeMessagesRequest,
-    ) -> Result<(), Self::Error>;
-    async fn query_group_messages(
-        &self,
-        group_id: crate::types::GroupId,
-    ) -> Result<Vec<GroupMessage>, Self::Error>;
-    async fn query_latest_group_message(
-        &self,
-        group_id: crate::types::GroupId,
-    ) -> Result<Option<GroupMessage>, Self::Error>;
-    async fn query_welcome_messages(
-        &self,
-        installation_key: InstallationId,
-    ) -> Result<Vec<WelcomeMessage>, Self::Error>;
-    async fn publish_commit_log(
-        &self,
-        request: BatchPublishCommitLogRequest,
-    ) -> Result<(), Self::Error>;
-    async fn query_commit_log(
-        &self,
-        request: BatchQueryCommitLogRequest,
-    ) -> Result<BatchQueryCommitLogResponse, Self::Error>;
-    async fn get_newest_group_message(
-        &self,
-        request: GetNewestGroupMessageRequest,
-    ) -> Result<Vec<Option<GroupMessageMetadata>>, Self::Error>;
+        request: VerifySmartContractWalletSignaturesRequest,
+    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 }
 
 /// Represents the backend API required for an MLS Delivery Service
@@ -167,6 +114,10 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
         &self,
         installations: &[&InstallationId],
     ) -> Result<Self::WelcomeMessageStream, Self::Error>;
+    async fn subscribe_welcome_messages_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+    ) -> Result<Self::WelcomeMessageStream, Self::Error>;
 }
 
 xmtp_common::if_native! {
@@ -177,53 +128,24 @@ xmtp_common::if_native! {
     /// [`XmtpMlsStreams`] with a client-side watchdog.
     #[xmtp_common::async_trait]
     pub trait XmtpMlsBidiStreams: MaybeSend + MaybeSync {
-        type SubscribeStream: Stream<Item = Result<crate::mls_v1::SubscribeResponse, Self::Error>>
+        type SubscribeStream: Stream<Item = Result<crate::backend_v1::SubscribeResponse, Self::Error>>
             + MaybeSend;
 
         type Error: RetryableError + 'static;
 
-        /// The URL this client's bidi surface dials
-        /// ([`Client::host`](crate::traits::Client::host)) — the wire-sharing
-        /// key: clients whose surfaces dial the same URL multiplex onto one
-        /// process-shared wire, and each URL carries its own unsupported
-        /// latch (see xmtp_mls's router callbacks).
+        /// Return the URL used for bidi connections. Combine it with the API
+        /// client's Arc identity when selecting a shared connection.
         fn host(&self) -> &str;
 
         /// Open the bidirectional stream. `requests` is the outbound
         /// client→server frame stream (typically fed by a channel; the first
-        /// frame is usually a `Mutate` naming the initial topic set); the
+        /// frame is an `Update` naming the initial topic set); the
         /// returned stream yields the server→client frames.
         async fn subscribe_bidi(
             &self,
-            requests: futures::stream::BoxStream<'static, crate::mls_v1::SubscribeRequest>,
+            requests: futures::stream::BoxStream<'static, crate::backend_v1::SubscribeRequest>,
         ) -> Result<Self::SubscribeStream, Self::Error>;
     }
-}
-
-/// Represents the backend API required for the XMTP
-/// Identity Service described by [XIP-46 Multi-Wallet Identity](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
-#[xmtp_common::async_trait]
-pub trait XmtpIdentityClient: MaybeSend + MaybeSync {
-    type Error: RetryableError + MaybeSend + MaybeSync + 'static;
-    async fn publish_identity_update(
-        &self,
-        request: PublishIdentityUpdateRequest,
-    ) -> Result<Option<Cursor>, Self::Error>;
-
-    async fn get_identity_updates_v2(
-        &self,
-        request: GetIdentityUpdatesV2Request,
-    ) -> Result<GetIdentityUpdatesV2Response, Self::Error>;
-
-    async fn get_inbox_ids(
-        &self,
-        request: GetInboxIdsRequest,
-    ) -> Result<GetInboxIdsResponse, Self::Error>;
-
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
 }
 
 /// describe how to create a single network

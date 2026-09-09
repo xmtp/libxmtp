@@ -1,2 +1,0 @@
-ALTER TABLE key_package_history
-ADD COLUMN post_quantum_public_key BLOB;

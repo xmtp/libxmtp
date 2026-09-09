@@ -71,15 +71,12 @@ pub async fn setup_groups_with_messages(
 }
 
 /// Create multiple clients with pre-generated identities for group operations
-pub async fn setup_clients_from_identities(
-    identities: &[Identity],
-    is_dev_network: bool,
-) -> Vec<BenchClient> {
+pub async fn setup_clients_from_identities(identities: &[Identity]) -> Vec<BenchClient> {
     let mut clients = Vec::with_capacity(identities.len());
 
     for identity in identities.iter().take(100) {
         // Limit to avoid resource issues
-        let client = super::clients::create_client_from_identity(identity, is_dev_network).await;
+        let client = super::clients::create_client_from_identity(identity).await;
         clients.push(client);
     }
 
@@ -128,7 +125,7 @@ pub async fn create_dm_with_consent(
             membership_state: GroupMembershipState::Allowed,
             message_disappear_from_ns: None,
             message_disappear_in_ns: None,
-            originator_id: None,
+
             paused_for_version: None,
             rotated_at_ns: now_ns(),
             sequence_id: None,

@@ -36,6 +36,7 @@ extern crate tracing;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    xmtp_cryptography::install_crypto_provider();
     color_eyre::install()?;
 
     let opts = config()?;

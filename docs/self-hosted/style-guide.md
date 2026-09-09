@@ -36,7 +36,7 @@ See `justfile` for the commands.
     Use jitter to spread worker activity across instances.
   - Nanosecond constants in `crates/xmtp_common/src/const.rs`: `NS_IN_SEC`, `NS_IN_MIN`, `NS_IN_HOUR`, `NS_IN_DAY`, `NS_IN_30_DAYS`.
 - **Platform splits** use the macros in `crates/xmtp_common/src/macros.rs`, not raw `#[cfg]`: `if_native!`, `if_wasm!`,
-  `wasm_or_native! { native => {..}, wasm => {..} }`, `wasm_or_native_expr!`, plus `if_d14n!`, `if_v3!`, `if_dev!`, `if_local!`, `if_test!`, `if_only_test!`,
+  `wasm_or_native! { native => {..}, wasm => {..} }`, `wasm_or_native_expr!`, plus `if_dev!`, `if_test!`, `if_only_test!`,
   `if_not_test!`.
 - **`Send` bounds** must be platform-conditional: `crates/xmtp_common/src/wasm.rs:MaybeSend` / `MaybeSync` / `MaybeSendFuture` and the aliases `BoxDynError`,
   `BoxDynFuture`, `BoxDynStream` (blanket no-ops on wasm). Declare async traits with `#[xmtp_common::async_trait]` (`crates/xmtp_macro/src/lib.rs:async_trait`),
@@ -63,7 +63,7 @@ See `justfile` for the commands.
 - **Spans**: prefer the canonical attribute macros over raw `#[tracing::instrument]` — they force `err, skip_all` and the `operation` / `sentry.op` / `sentry.name`
   fields the collector buckets on:
   - `#[xmtp_common::rpc_span]` / `db_span` / `mls_span` → `operation = "rpc.<fn>"` / `"db.<fn>"` / `"mls.<fn>"` (API example:
-    `crates/xmtp_api_d14n/src/queries/combined.rs`); `#[xmtp_common::span(prefix = "stream")]` is the escape hatch for a new namespace.
+    `crates/xmtp_api/src/mls.rs`); `#[xmtp_common::span(prefix = "stream")]` is the escape hatch for a new namespace.
   - `#[xmtp_common::err_span]` is **different** (`crates/xmtp_macro/src/span_macro.rs`): for FFI-exported fns, it sets `level = "trace"`, `skip_all`,
     `sentry.op = "ffi"`, `sentry.name = "<fn>"` and **no `operation` field**. An async fn is wrapped in `bind_task_hub` and logs the error inside that hub; a sync fn
     uses `err`; an `extern`-ABI fn passes through untouched, which keeps it napi-safe.
@@ -142,9 +142,14 @@ The project test rules in `docs/self-hosted/guidelines.md` take precedence.
 - **`#[cfg(test)]` vs `test-utils`**: `#[cfg(test)]` (or `if_only_test!`) for helpers only this crate's tests need; `#[cfg(any(test, feature = "test-utils"))]` (or
   `if_test!`) when another crate must import it. A crate exposing test helpers needs a `test-utils` feature forwarding to its dependencies'
   (`crates/xmtp_mls/Cargo.toml` `[features]`).
-- Running: `just test`, `just test crate <name>`, `just test v3 -p <name>`, `just test d14n -E 'test(pat)'`, `just wasm test`.
+- Running: `just test`, `just test crate <name>`, `just wasm test`.
+  Use `dev/nix-shell "cargo nextest run -p <name> -E 'test(pat)'"` for a test filter.
 
 ## 9. Crate and module conventions
+
+- Prefer Rust files with fewer than 1,000 lines. Aim for fewer than 500 lines.
+  Keep tests in the same file when both the code and tests are short. Move a large
+  test suite to a module-local `tests.rs` or a `tests/` directory split by behavior.
 
 - Important functions in the backend and shared libraries use RustDoc comments (`///`), including private functions with important invariants.
   Explain purpose, non-obvious design choices, caller obligations, and relevant failure or cancellation behavior.
