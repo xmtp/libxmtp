@@ -132,7 +132,7 @@ jobs:
           name: docs-kotlin
           path: apps/docs/generated/reference/kotlin
       - name: Compose and check the artifact
-        run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built && node scripts/check-parity.mjs'
+        run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built'
       - name: Check links
         uses: lycheeverse/lychee-action@v2
         env:

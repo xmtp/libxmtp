@@ -18,7 +18,23 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs test`: run the build-tool tests.
 - `just docs test-browser`: test the composed site in Chromium.
 - `just docs compose`: combine the site and generated references.
-- `just docs check`: check retained content and the composed artifact.
+- `just docs check`: check source links and the composed artifact.
+
+## Build and check scripts
+
+Keep scripts only when the site build, CI, or local checks need them.
+Do not keep one-time migration checks or copies of old page prose.
+
+- `compose.mjs` and `references.mjs`: assemble the deployment artifact and native API references.
+- `check-site.mjs` and `validation-lib.mjs`: check links, redirects, native assets, and LLM exports.
+- `check-serve.mjs`: serve the composed artifact for browser and Lighthouse tests.
+- `check-lighthouse.mjs`: check accessibility in deployment CI; check performance before DNS cutover.
+- `check-search.mjs` and `search-config.mjs`: define search regression cases and ranking settings.
+- `check-ts-regions.mjs`, `example-config.mjs`, and `example-regions.mjs`: check SDK examples and render their source regions.
+- `typedoc-validation.mjs`: fail API reference builds on TypeDoc warnings or errors.
+
+The files in `parity/` keep old URLs working and set Lighthouse score limits.
+They do not freeze page text or require access to the old site.
 
 The docs package has its own Prettier configuration. `nix fmt` continues to
 format the SDKs; `just docs format-check` checks the site, including Astro and MDX.

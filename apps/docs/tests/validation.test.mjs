@@ -3,12 +3,10 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { checkParity } from "../scripts/check-parity.mjs";
 import { checkBuilt, checkSource } from "../scripts/check-site.mjs";
 import {
   assertTypeDocValidation,
   contentRoute,
-  normalizeText,
 } from "../scripts/validation-lib.mjs";
 
 async function fixture() {
@@ -31,15 +29,6 @@ test("TypeDoc validation rejects warnings and errors", () => {
       /Node SDK TypeDoc validation failed/,
     );
   }
-});
-
-test("normalization keeps prose and ignores port markup", () => {
-  assert.equal(
-    normalizeText(
-      ':::note[Read]\nHello   world\n:::\n```js title="x"\na()\n```',
-    ),
-    "Hello world ``` a() ```",
-  );
 });
 
 test("content routes support index pages", () => {
@@ -72,71 +61,6 @@ test("source validation requires the synchronized four-SDK tab set", async () =>
   assert.deepEqual(await checkSource({ contentRoot: content }), [
     "page.mdx: SDK tabs must be Browser, Node, Kotlin, Swift in that order",
   ]);
-});
-
-test("frozen parity blocks detect a rephrase without an old checkout", async () => {
-  const root = await fixture();
-  const parity = join(root, "parity");
-  const content = join(root, "content");
-  await mkdir(parity);
-  await mkdir(content);
-  for (const name of ["start", "sdk", "other"])
-    await writeFile(
-      join(parity, `${name}.json`),
-      name === "sdk"
-        ? JSON.stringify([
-            {
-              source: "old.mdx",
-              target: "new.mdx",
-              blocks: ["Keep this exact sentence."],
-            },
-          ])
-        : "[]",
-    );
-  await writeFile(join(content, "new.mdx"), "Keep this changed sentence.");
-  assert.deepEqual(
-    await checkParity({ parityRoot: parity, contentRoot: content }),
-    ["sdk.json[0]: retained block 1 changed in new.mdx"],
-  );
-});
-
-test("frozen parity expands compiled example regions before comparison", async () => {
-  const root = await fixture();
-  const parity = join(root, "parity");
-  const content = join(root, "content");
-  const examples = join(root, "examples");
-  await mkdir(parity);
-  await mkdir(content);
-  await mkdir(examples);
-  for (const name of ["start", "sdk", "other"])
-    await writeFile(
-      join(parity, name + ".json"),
-      name === "sdk"
-        ? JSON.stringify([
-            {
-              source: "old.mdx",
-              target: "new.mdx",
-              blocks: ["const retained = true;"],
-            },
-          ])
-        : "[]",
-    );
-  await writeFile(
-    join(content, "new.mdx"),
-    '\x60\x60\x60ts source="example.ts" region="kept"\n\x60\x60\x60',
-  );
-  await writeFile(
-    join(examples, "example.ts"),
-    "// #region kept\nconst retained = true;\n// #endregion kept",
-  );
-  assert.deepEqual(
-    await checkParity({
-      parityRoot: parity,
-      contentRoot: content,
-      examplesRoot: examples,
-    }),
-    [],
-  );
 });
 
 test("built validation checks redirect targets and llms bounds", async () => {

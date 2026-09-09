@@ -22,28 +22,19 @@ export default defineConfig({
   projects: [
     {
       name: "desktop-light",
-      testIgnore: "**/parity.spec.mjs",
       use: { viewport: { width: 1440, height: 900 }, colorScheme: "light" },
     },
     {
       name: "desktop-dark",
-      testIgnore: "**/parity.spec.mjs",
       use: { viewport: { width: 1440, height: 900 }, colorScheme: "dark" },
     },
     {
       name: "mobile-light",
-      testIgnore: "**/parity.spec.mjs",
       use: { viewport: { width: 390, height: 844 }, colorScheme: "light" },
     },
     {
       name: "mobile-dark",
-      testIgnore: "**/parity.spec.mjs",
       use: { viewport: { width: 390, height: 844 }, colorScheme: "dark" },
-    },
-    {
-      name: "parity-capture",
-      testMatch: "**/parity.spec.mjs",
-      use: { viewport: { width: 1280, height: 900 }, colorScheme: "light" },
     },
   ],
 });

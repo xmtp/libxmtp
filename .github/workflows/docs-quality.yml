@@ -28,5 +28,5 @@ jobs:
       - run: just docs test
       - name: Lint repository Markdown
         run: just lint-markdown
-      - name: Check retained content
-        run: dev/nix-shell 'cd apps/docs && node scripts/check-parity.mjs'
+      - name: Check documentation source
+        run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'

@@ -36,5 +36,4 @@ compose:
     node scripts/compose.mjs
 
 check:
-    node scripts/check-parity.mjs
     node scripts/check-site.mjs --built

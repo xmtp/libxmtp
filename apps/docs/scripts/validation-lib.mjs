@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import { extname, join, relative, resolve, sep } from "node:path";
 
 export function assertTypeDocValidation(logger, label) {
@@ -6,15 +6,6 @@ export function assertTypeDocValidation(logger, label) {
     throw new Error(`${label} TypeDoc validation failed.`);
   }
 }
-
-export const normalizeText = (value) =>
-  value
-    .replace(/^:::[a-z]+(?:\[.*?\])?\s*$/gm, "")
-    .replace(/^:::\s*$/gm, "")
-    .replace(/^```.*$/gm, "```")
-    .replace(/<\/?[A-Z][^>]*>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 
 export async function walkFiles(root) {
   const files = [];
@@ -83,14 +74,4 @@ export async function firstExisting(paths) {
     }
   }
   return undefined;
-}
-
-export async function readParityRecords(directory) {
-  const records = [];
-  for (const name of ["start.json", "sdk.json", "other.json"]) {
-    const data = JSON.parse(await readFile(join(directory, name), "utf8"));
-    if (!Array.isArray(data)) throw new Error(`${name} must contain an array`);
-    for (const record of data) records.push({ ...record, manifest: name });
-  }
-  return records;
 }
