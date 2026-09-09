@@ -11,8 +11,13 @@ build:
     nix build {{ root }}#xmtp-backend
 
 # Build the container image for this host's architecture.
+#
+# The `rust` devshell puts a newer glibc on the library path, which breaks the
+# system git that Nix starts to fetch a git dependency. Use the default shell.
+[script('bash')]
 image:
-    nix build {{ root }}#backend-image-{{ musl_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image
+    NIX_DEVSHELL=default {{ root }}/dev/nix-shell \
+      'nix build {{ root }}#backend-image-{{ musl_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image'
 
 # Run the backend outside Docker against the `db-up` database.
 run:
