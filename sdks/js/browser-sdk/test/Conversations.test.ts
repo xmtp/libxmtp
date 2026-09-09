@@ -18,8 +18,8 @@ describe("Conversations", () => {
     const { signer: signer2 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([client2.inboxId]);
-    const dm = await client1.conversations.createDm(client2.inboxId);
+    const group = await client1.conversations.createGroup([client2.inboxId!]);
+    const dm = await client1.conversations.createDm(client2.inboxId!);
     for (const conversation of [group, dm]) {
       expect(conversation.topic).toBe(`00${conversation.id}`);
       const debugInfo = await conversation.debugInfo();
@@ -452,10 +452,12 @@ describe("Conversations", () => {
         expect(typeof value.epoch).toBe("bigint");
       }
     }
+    // The browser SDK returns a Map from the worker, where the node SDK returns
+    // a plain object. Read it as a Map here.
     for (const conversation of [group, dm]) {
-      const conversationKeys = conversation.hmacKeys();
-      expect(Object.keys(conversationKeys)).toEqual([conversation.id]);
-      const values = conversationKeys[conversation.id];
+      const conversationKeys = await conversation.hmacKeys();
+      expect([...conversationKeys.keys()]).toEqual([conversation.id]);
+      const values = conversationKeys.get(conversation.id)!;
       expect(values.length).toBe(3);
       for (const value of values) {
         expect(value.key).toBeDefined();

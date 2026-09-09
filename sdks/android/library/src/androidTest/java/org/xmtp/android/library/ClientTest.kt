@@ -1054,9 +1054,8 @@ class ClientTest : BaseInstrumentedTest() {
                 val queriesBeforeInboxState = alix.debugInformation.apiStatistics.query
                 assertTrue(queriesBeforeInboxState >= 2L)
                 alix.inboxState(true)
-                assertTrue(
-                    alix.debugInformation.apiStatistics.query > queriesBeforeInboxState
-                )
+                val queriesAfter = alix.debugInformation.apiStatistics.query
+                assertTrue(queriesAfter > queriesBeforeInboxState)
 
                 val group = alix.conversations.newGroup(emptyList())
                 val beforeSend = alix.debugInformation.apiStatistics.publish
