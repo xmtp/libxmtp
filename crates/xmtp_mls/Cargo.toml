@@ -79,11 +79,11 @@ thiserror.workspace = true
 time.workspace = true
 tls_codec.workspace = true
 tokio.workspace = true
-tonic.workspace = true
 tokio-stream = { workspace = true, default-features = false, features = [
   "sync",
 ] }
 tokio-util = { workspace = true, features = ["rt"] }
+tonic.workspace = true
 tracing.workspace = true
 trait-variant.workspace = true
 zeroize.workspace = true

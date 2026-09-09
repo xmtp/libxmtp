@@ -48,12 +48,12 @@ mockall = { workspace = true, optional = true }
 wasm-bindgen-test = { workspace = true, optional = true }
 
 [dev-dependencies]
-xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 futures-test.workspace = true
 hex.workspace = true
 mockall.workspace = true
 rstest.workspace = true
 tokio.workspace = true
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 # Span-close capture for the bidi.wire_session lifetime test.
 tracing-subscriber = { workspace = true, features = ["registry", "std"] }
 # add self to auto enable test utils

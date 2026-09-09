@@ -16,32 +16,32 @@ futures.workspace = true
 hex.workspace = true
 prost = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
-tracing.workspace = true
 tonic.workspace = true
 tonic-types.workspace = true
-xmtp_configuration.workspace = true
-xmtp_mls_validation.workspace = true
+tracing.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_api_backend.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_id.workspace = true
+xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
 
 
 # test utils
 [dev-dependencies]
-prost-types.workspace = true
-xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
-rstest.workspace = true
 chrono.workspace = true
 http = "1.4"
+prost-types.workspace = true
+rstest.workspace = true
 tls_codec.workspace = true
 xmtp_api_backend = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

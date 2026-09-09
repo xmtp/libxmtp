@@ -36,12 +36,12 @@ tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 url.workspace = true
 webpki-roots = "1.0"
 # Backend subscription frames.
+tokio-stream.workspace = true
 tonic = { workspace = true, features = [
   "default",
   "tls-webpki-roots",
   "tls-ring",
 ] }
 tonic-prost = "0.14"
-xmtp_proto.workspace = true
 xmtp_configuration.workspace = true
-tokio-stream.workspace = true
+xmtp_proto.workspace = true
