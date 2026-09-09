@@ -116,11 +116,16 @@ fn catch_up_update(
     if subs.len() > xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS {
         return Err(CatchUpError::TooManyTopics);
     }
-    Ok(chunk_mutate_adds(subs)
+    Ok(chunk_catch_up_updates(subs, first_id))
+}
+
+/// Split adds and assign IDs after the caller checks the connection topic cap.
+fn chunk_catch_up_updates(subs: Vec<(Topic, SequenceId)>, first_id: u64) -> Vec<Update> {
+    chunk_mutate_adds(subs)
         .into_iter()
         .enumerate()
         .map(|(offset, adds)| BackendBinding::build_mutate(adds, [], first_id + offset as u64))
-        .collect())
+        .collect()
 }
 
 /// Restrict processing to each registration's fixed target.
@@ -768,36 +773,52 @@ mod tests {
 
 #[cfg(test)]
 mod plan_tests {
-    use super::{CatchUpError, catch_up_update};
-    use xmtp_configuration::BACKEND_DEFAULT_MAX_STREAM_TOPICS;
+    use super::{
+        BackendBinding, CatchUpError, TransportBinding, catch_up_update, chunk_catch_up_updates,
+    };
+    use xmtp_configuration::{
+        BACKEND_DEFAULT_MAX_STREAM_TOPICS, BACKEND_DEFAULT_MAX_UPDATE_ADDS as MAX_MUTATE_TOPICS,
+    };
     use xmtp_proto::types::Topic;
 
     #[xmtp_common::test(unwrap_try = true)]
     fn plan_splits_a_large_subscription_set_into_bounded_updates() {
-        let cap = BACKEND_DEFAULT_MAX_STREAM_TOPICS;
-        let subs = (0..cap)
+        // The connection cap equals the add cap. Test the shared chunk builder
+        // directly so the input exceeds one update without bypassing the public guard.
+        let input_count = MAX_MUTATE_TOPICS + 1;
+        let first_id = 7;
+        let subs: Vec<_> = (0..input_count)
             .map(|i| {
                 let mut id = [0u8; 16];
                 id[..8].copy_from_slice(&(i as u64).to_le_bytes());
                 (Topic::new_group_message(id), i as u64)
             })
             .collect();
-        let updates = catch_up_update(subs, 7)?;
-        assert!(!updates.is_empty());
+        let expected_adds = BackendBinding::build_mutate(subs.clone(), [], first_id).adds;
+        let updates = chunk_catch_up_updates(subs, first_id);
+        assert!(updates.len() > 1);
         assert_eq!(
             updates
                 .iter()
                 .map(|update| update.adds.len())
                 .sum::<usize>(),
-            cap
+            input_count
+        );
+        assert_eq!(
+            updates
+                .iter()
+                .flat_map(|update| update.adds.iter().cloned())
+                .collect::<Vec<_>>(),
+            expected_adds
         );
         for (index, update) in updates.iter().enumerate() {
-            assert_eq!(update.id, index as u64 + 7);
+            assert_eq!(update.id, first_id + index as u64);
             assert!(update.removes.is_empty());
             assert!(!update.adds.is_empty());
-            assert!(update.adds.len() <= cap);
+            assert!(update.adds.len() <= MAX_MUTATE_TOPICS);
         }
-        let too_many = vec![(Topic::new_group_message([0; 16]), 0); cap + 1];
+        let too_many =
+            vec![(Topic::new_group_message([0; 16]), 0); BACKEND_DEFAULT_MAX_STREAM_TOPICS + 1];
         assert!(matches!(
             catch_up_update(too_many, 1),
             Err(CatchUpError::TooManyTopics)

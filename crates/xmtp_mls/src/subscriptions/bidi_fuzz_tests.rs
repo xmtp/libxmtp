@@ -28,8 +28,8 @@ use xmtp_proto::types::Topic;
 /// delivery). Generous against a local node; hitting it IS the failure.
 const SETTLE: Duration = Duration::from_secs(30);
 
-/// Random publish bursts stop once a group holds this many messages, so the
-/// final ground-truth query stays within one page. Racing producers reserve
+/// Random publish bursts stop once a group holds this many messages to bound
+/// the test workload. Racing producers reserve
 /// a slot (`fetch_add`) before each send, so the cap holds under
 /// contention. Sentinels are exempt.
 const PUBLISH_CAP: usize = 60;
@@ -83,6 +83,9 @@ fn random_floor(rng: &mut StdRng, latest: u64) -> u64 {
 
 /// The server's authoritative per-topic message ids, queried over the
 /// regular unary API — the same source of truth the durable path syncs from.
+/// `query_group_messages` reads all pages through `query_all`, which follows
+/// `has_more` and rejects continuation without cursor progress. No single-page
+/// size guard is needed here.
 async fn ground_truth<C>(
     api: &xmtp_api::ApiClientWrapper<C>,
     groups: &[(xmtp_proto::types::GroupId, Topic)],
