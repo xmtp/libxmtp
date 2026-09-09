@@ -21,11 +21,11 @@ import {
   PermissionUpdateType,
 } from '../dist'
 
-// The connection-death test below relies on the h2 transport keepalive to notice
-// a black-holed connection; pin it fast before any client exists (the Rust side
-// reads these once per process, and vitest gives each test file its own) so
-// detection lands well inside the test's wait windows regardless of the library
-// defaults.
+// The connection-death test below uses the h2 transport keepalive to find a
+// black-holed connection. Set it to a short interval before any client exists,
+// because the Rust side reads these values one time for each process and
+// vitest gives each test file its own. Detection then occurs well inside the
+// wait windows of the test, whatever the library defaults are.
 process.env.XMTP_GRPC_KEEPALIVE_INTERVAL_SECS = '10'
 process.env.XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS = '10'
 
