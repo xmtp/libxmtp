@@ -754,12 +754,12 @@ where
             group_id = group.group_id,
             target_inbox = target_inbox_id
         );
-        group.add_members(&[target_inbox_id]).await?;
-
         // notify any streams of the new group
         let _ = self
             .local_events
             .send(LocalEvents::NewGroup(group.group_id));
+
+        group.add_members(&[target_inbox_id]).await?;
 
         Ok(group)
     }
