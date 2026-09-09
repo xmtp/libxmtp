@@ -74,7 +74,9 @@ data class ClientOptions(
             require(backendUrl.isNotBlank()) { "A backend URL is required" }
         }
 
-        internal fun toCacheKey(): String = "$backendUrl|$appVersion"
+        // An absent app version and the literal string "null" must not collide,
+        // or the first caller's client is reused for the second.
+        internal fun toCacheKey(): String = appVersion?.let { "$backendUrl|v|$it" } ?: "$backendUrl|-"
     }
 }
 

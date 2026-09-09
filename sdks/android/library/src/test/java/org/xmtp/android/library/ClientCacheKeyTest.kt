@@ -26,8 +26,10 @@ class ClientCacheKeyTest {
         assertEquals(api.toCacheKey(), localApi().toCacheKey())
         assertEquals(api.toCacheKey(), api.copy(env = "custom-db").toCacheKey())
         assertEquals(versionOne.toCacheKey(), versionOne.copy(env = "custom-db").toCacheKey())
-        assertEquals("http://10.0.2.2:5050|null", api.toCacheKey())
-        assertEquals("http://10.0.2.2:5050|1.0.0", versionOne.toCacheKey())
+        // An absent version must not collide with the literal string "null".
+        assertNotEquals(api.toCacheKey(), api.copy(appVersion = "null").toCacheKey())
+        assertEquals("http://10.0.2.2:5050|-", api.toCacheKey())
+        assertEquals("http://10.0.2.2:5050|v|1.0.0", versionOne.toCacheKey())
     }
 
     @Test
