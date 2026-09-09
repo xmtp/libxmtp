@@ -42,7 +42,7 @@ fn published_schema_checks_logging_levels_and_switch() {
 fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
     let validator = validator();
     let example: toml::Value =
-        toml::from_str(include_str!("../../../../../dev/backend/config.toml"))?;
+        toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
     let example = serde_json::to_value(example)?;
     assert!(validator.is_valid(&example));
     for section in [

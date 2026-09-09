@@ -3,16 +3,17 @@
 syntax = "proto3";
 package xmtp.mls.database;
 
-import "device_sync/device_sync.proto";
 import "mls/message_contents/welcome_pointer.proto";
 
 option go_package = "github.com/xmtp/proto/v3/go/mls/database";
 option java_package = "org.xmtp.proto.mls.database";
 
 message Task {
+  reserved 2;
+  reserved "send_sync_archive";
+
   oneof task {
     xmtp.mls.message_contents.WelcomePointer process_welcome_pointer = 1;
-    SendSyncArchive send_sync_archive = 2;
     ProcessPendingSelfRemove process_pending_self_remove = 3;
     PullInDeadline pull_in_deadline = 4;
     KpRotation kp_rotation = 5;
@@ -51,13 +52,6 @@ message KpDeletion {}
 // its own retry/backoff, and a network probe rather than a local deadline as
 // its source of truth. Empty payload => stable data_hash for pull-ins.
 message KpLiveness {}
-
-message SendSyncArchive {
-  xmtp.device_sync.ArchiveOptions options = 1;
-  bytes sync_group_id = 2;
-  optional string pin = 3;
-  string server_url = 4;
-}
 
 // Durable TaskRunner intent: process a group's pending self-remove requests
 // (build the MLS RemoveProposal/Commit to evict members who sent a LeaveRequest,

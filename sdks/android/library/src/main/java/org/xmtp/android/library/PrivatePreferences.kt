@@ -91,7 +91,7 @@ data class PrivatePreferences(
 
     @Deprecated(message = "Use method `sync()` instead", replaceWith = ReplaceWith("sync()"))
     suspend fun syncConsent() {
-        client.sendSyncRequest()
+        sync()
     }
 
     suspend fun streamPreferenceUpdates(onClose: (() -> Unit)? = null): Flow<PreferenceType> =

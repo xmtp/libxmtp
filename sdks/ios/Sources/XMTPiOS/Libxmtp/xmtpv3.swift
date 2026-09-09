@@ -5742,29 +5742,6 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      */
     func importArchive(path: String, key: Data) async throws 
     
-    /**
-     * List the archives available for import in the sync group.
-     * You may need to manually sync the sync group before calling
-     * this function to see recently uploaded archives.
-     */
-    func listAvailableArchives(daysCutoff: Int64) throws  -> [FfiAvailableArchive]
-    
-    /**
-     * Manually process a sync archive that matches the pin given.
-     * If no pin is given, then it will process the last archive sent.
-     */
-    func processSyncArchive(archivePin: String?) async throws 
-    
-    /**
-     * Manually send a sync archive to the sync group.
-     * The pin will be later used as a reference when importing.
-     */
-    func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: String) async throws 
-    
-    /**
-     * Manually trigger a device sync request to sync records from another active device on this account.
-     */
-    func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String) async throws 
     
     /**
      * Manually sync all device sync groups.
@@ -6466,79 +6443,6 @@ open func importArchive(path: String, key: Data)async throws   {
         )
 }
     
-    /**
-     * List the archives available for import in the sync group.
-     * You may need to manually sync the sync group before calling
-     * this function to see recently uploaded archives.
-     */
-open func listAvailableArchives(daysCutoff: Int64)throws  -> [FfiAvailableArchive]  {
-    return try  FfiConverterSequenceTypeFfiAvailableArchive.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-        uniffiCallStatus in
-    uniffi_xmtpv3_fn_method_ffixmtpclient_list_available_archives(
-            self.uniffiCloneHandle(),
-        FfiConverterInt64.lower(daysCutoff),uniffiCallStatus
-    )
-})
-}
-    
-    /**
-     * Manually process a sync archive that matches the pin given.
-     * If no pin is given, then it will process the last archive sent.
-     */
-open func processSyncArchive(archivePin: String?)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_process_sync_archive(
-                        self.uniffiCloneHandle(),FfiConverterOptionString.lower(archivePin)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
-    /**
-     * Manually send a sync archive to the sync group.
-     * The pin will be later used as a reference when importing.
-     */
-open func sendSyncArchive(options: FfiArchiveOptions, serverUrl: String, pin: String)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_send_sync_archive(
-                        self.uniffiCloneHandle(),FfiConverterTypeFfiArchiveOptions_lower(options),FfiConverterString.lower(serverUrl),FfiConverterString.lower(pin)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
-    
-    /**
-     * Manually trigger a device sync request to sync records from another active device on this account.
-     */
-open func sendSyncRequest(options: FfiArchiveOptions, serverUrl: String)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_ffixmtpclient_send_sync_request(
-                        self.uniffiCloneHandle(),FfiConverterTypeFfiArchiveOptions_lower(options),FfiConverterString.lower(serverUrl)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
-}
     
     /**
      * Manually sync all device sync groups.
@@ -7200,62 +7104,6 @@ public func FfiConverterTypeFfiAttachment_lower(_ value: FfiAttachment) -> RustB
 }
 
 
-public struct FfiAvailableArchive: Equatable, Hashable {
-    public var pin: String
-    public var metadata: FfiBackupMetadata
-    public var sentByInstallation: Data
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(pin: String, metadata: FfiBackupMetadata, sentByInstallation: Data) {
-        self.pin = pin
-        self.metadata = metadata
-        self.sentByInstallation = sentByInstallation
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FfiAvailableArchive: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiAvailableArchive: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiAvailableArchive {
-        return
-            try FfiAvailableArchive(
-                pin: FfiConverterString.read(from: &buf), 
-                metadata: FfiConverterTypeFfiBackupMetadata.read(from: &buf), 
-                sentByInstallation: FfiConverterData.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FfiAvailableArchive, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.pin, into: &buf)
-        FfiConverterTypeFfiBackupMetadata.write(value.metadata, into: &buf)
-        FfiConverterData.write(value.sentByInstallation, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiAvailableArchive_lift(_ buf: RustBuffer) throws -> FfiAvailableArchive {
-    return try FfiConverterTypeFfiAvailableArchive.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiAvailableArchive_lower(_ value: FfiAvailableArchive) -> RustBuffer {
-    return FfiConverterTypeFfiAvailableArchive.lower(value)
-}
 
 
 public struct FfiBackupMetadata: Equatable, Hashable {
@@ -14308,9 +14156,6 @@ public enum FfiSyncMetric: Equatable, Hashable {
     case `init`
     case syncGroupCreated
     case syncGroupWelcomesProcessed
-    case requestReceived
-    case payloadSent
-    case payloadProcessed
     case hmacSent
     case hmacReceived
     case consentSent
@@ -14342,19 +14187,13 @@ public struct FfiConverterTypeFfiSyncMetric: FfiConverterRustBuffer {
         
         case 3: return .syncGroupWelcomesProcessed
         
-        case 4: return .requestReceived
+        case 4: return .hmacSent
         
-        case 5: return .payloadSent
+        case 5: return .hmacReceived
         
-        case 6: return .payloadProcessed
+        case 6: return .consentSent
         
-        case 7: return .hmacSent
-        
-        case 8: return .hmacReceived
-        
-        case 9: return .consentSent
-        
-        case 10: return .consentReceived
+        case 7: return .consentReceived
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -14376,32 +14215,20 @@ public struct FfiConverterTypeFfiSyncMetric: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .requestReceived:
+        case .hmacSent:
             writeInt(&buf, Int32(4))
         
         
-        case .payloadSent:
+        case .hmacReceived:
             writeInt(&buf, Int32(5))
         
         
-        case .payloadProcessed:
+        case .consentSent:
             writeInt(&buf, Int32(6))
         
         
-        case .hmacSent:
-            writeInt(&buf, Int32(7))
-        
-        
-        case .hmacReceived:
-            writeInt(&buf, Int32(8))
-        
-        
-        case .consentSent:
-            writeInt(&buf, Int32(9))
-        
-        
         case .consentReceived:
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(7))
         
         }
     }
@@ -15838,30 +15665,6 @@ fileprivate struct FfiConverterSequenceTypeFfiAction: FfiConverterRustBuffer {
     }
 }
 
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterSequenceTypeFfiAvailableArchive: FfiConverterRustBuffer {
-    typealias SwiftType = [FfiAvailableArchive]
-
-    public static func write(_ value: [FfiAvailableArchive], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeFfiAvailableArchive.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiAvailableArchive] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [FfiAvailableArchive]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeFfiAvailableArchive.read(from: &buf))
-        }
-        return seq
-    }
-}
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -18022,18 +17825,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 11460) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_list_available_archives() != 30344) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_process_sync_archive() != 1928) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_archive() != 19335) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_send_sync_request() != 12740) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 13615) {

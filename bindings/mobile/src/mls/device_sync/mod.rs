@@ -4,7 +4,7 @@ mod tests;
 use crate::{FfiError, FfiGroupSyncSummary, FfiXmtpClient};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
-    ArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
+    ArchiveOptions, BackupElementSelection, DeviceSyncError,
     archive::{
         ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
         insert_importer,
@@ -14,63 +14,6 @@ use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelect
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
-    /// Manually trigger a device sync request to sync records from another active device on this account.
-    #[xmtp_common::err_span]
-    pub async fn send_sync_request(
-        &self,
-        options: FfiArchiveOptions,
-        server_url: String,
-    ) -> Result<(), FfiError> {
-        self.inner_client
-            .device_sync_client()
-            .send_sync_request(options.into(), server_url)
-            .await?;
-        Ok(())
-    }
-
-    /// Manually send a sync archive to the sync group.
-    /// The pin will be later used as a reference when importing.
-    #[xmtp_common::err_span]
-    pub async fn send_sync_archive(
-        &self,
-        options: FfiArchiveOptions,
-        server_url: String,
-        pin: String,
-    ) -> Result<(), FfiError> {
-        self.inner_client
-            .device_sync_client()
-            .send_sync_archive(&options.into(), &server_url, &pin)
-            .await?;
-        Ok(())
-    }
-
-    /// Manually process a sync archive that matches the pin given.
-    /// If no pin is given, then it will process the last archive sent.
-    #[xmtp_common::err_span]
-    pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<(), FfiError> {
-        self.inner_client
-            .device_sync_client()
-            .process_archive_with_pin(archive_pin.as_deref())
-            .await?;
-        Ok(())
-    }
-
-    /// List the archives available for import in the sync group.
-    /// You may need to manually sync the sync group before calling
-    /// this function to see recently uploaded archives.
-    #[xmtp_common::err_span]
-    pub fn list_available_archives(
-        &self,
-        days_cutoff: i64,
-    ) -> Result<Vec<FfiAvailableArchive>, FfiError> {
-        let available = self
-            .inner_client
-            .device_sync_client()
-            .list_available_archives(days_cutoff)?;
-
-        Ok(available.into_iter().map(Into::into).collect())
-    }
-
     /// Archive application elements to file for later restoration.
     #[xmtp_common::err_span]
     pub async fn create_archive(
@@ -243,22 +186,6 @@ impl From<BackupMetadata> for FfiBackupMetadata {
     }
 }
 
-#[derive(uniffi::Record)]
-pub struct FfiAvailableArchive {
-    pin: String,
-    metadata: FfiBackupMetadata,
-    sent_by_installation: Vec<u8>,
-}
-impl From<AvailableArchive> for FfiAvailableArchive {
-    fn from(value: AvailableArchive) -> Self {
-        Self {
-            pin: value.pin,
-            metadata: value.metadata.into(),
-            sent_by_installation: value.sent_by_installation,
-        }
-    }
-}
-
 #[cfg(test)]
 mod unit_tests {
     use super::*;
@@ -424,25 +351,5 @@ mod unit_tests {
         let ffi_metadata: FfiBackupMetadata = metadata.into();
         // Unspecified should be filtered out
         assert_eq!(ffi_metadata.elements.len(), 2);
-    }
-
-    #[test]
-    fn test_available_archive_to_ffi_available_archive() {
-        let archive = AvailableArchive {
-            pin: "1234".to_string(),
-            metadata: BackupMetadata {
-                backup_version: 1,
-                elements: vec![BackupElementSelection::Messages],
-                exported_at_ns: 12345,
-                start_ns: None,
-                end_ns: None,
-            },
-            sent_by_installation: vec![1, 2, 3, 4],
-        };
-
-        let ffi_archive: FfiAvailableArchive = archive.into();
-        assert_eq!(ffi_archive.pin, "1234");
-        assert_eq!(ffi_archive.sent_by_installation, vec![1, 2, 3, 4]);
-        assert_eq!(ffi_archive.metadata.backup_version, 1);
     }
 }

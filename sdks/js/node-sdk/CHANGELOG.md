@@ -2,33 +2,11 @@
 
 ## 6.0.0
 
-This release includes a performance fix, a breaking change to history sync, and new methods for manual archive management. Update as soon as possible to take advantage of these enhancements and fixes.
+This release includes a performance fix and local archive management. Update as soon as possible to take advantage of these enhancements and fixes.
 
 ### Performance improvement
 
 Fixed a performance issue that could cause slowdowns in apps with many conversations or heavy use of disappearing messages.
-
-### History sync is now manual
-
-**THIS IS A BREAKING CHANGE.**
-
-Automatic sending of sync requests on new installations has been removed. XMTP SDKs no longer automatically send sync requests on new clients.
-
-This change gives you explicit control over when sync requests are sent, avoiding unexpected network activity during client initialization.
-
-You must now call `sendSyncRequest()` explicitly after creating a client on a new installation to trigger a history sync.
-
-To learn more, see [Control history sync](https://docs.xmtp.org/chat-apps/list-stream-sync/history-sync#control-history-sync)
-
-### Manual history sync archive management
-
-These methods give you fine-grained control over history sync archives. Use them when you need to push data to a new installation proactively, inspect what's available before syncing, or process a specific archive by pin.
-
-- `sendSyncArchive(pin, options?, serverUrl?)`: Send an archive to the sync group without waiting for a request from another installation
-
-- `listAvailableArchives(daysCutoff)`: List archives available for import from the sync group
-
-- `processSyncArchive(archivePin?)`: Process an available archive from the sync group
 
 - `syncAllDeviceSyncGroups()`: Sync all device sync groups from the network
 
@@ -173,15 +151,6 @@ The actions and intent content types were not being serialized properly. This re
 ## 5.1.0
 
 This release introduces a new feature. If you've been building on a previous release, this one should be a **drop-in replacement**. Update as soon as possible to take advantage of this new feature.
-
-### Send sync requests
-
-When a device installation comes online, it automatically sends a request to other devices on the network to sync conversations and messages. In some cases, this process may be interrupted. To remedy this, it's now possible to re-request a sync.
-
-```ts
-// send a sync request
-await client.sendSyncRequest();
-```
 
 ## 5.0.1
 
@@ -1215,7 +1184,6 @@ Delivers tools and features for debugging when building with XMTP, including gro
 
 ### Patch Changes
 
-- 616fdec: Added `null` option to `historySyncUrl` client option to allow disabling of history sync
 
 ## 2.0.6
 

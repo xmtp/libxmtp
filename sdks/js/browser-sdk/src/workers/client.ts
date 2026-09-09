@@ -352,26 +352,6 @@ self.onmessage = async (
         });
         break;
       }
-      case "client.sendSyncRequest": {
-        await client.sendSyncRequest(data.options, data.serverUrl);
-        postMessage({ id, action, result: undefined });
-        break;
-      }
-      case "client.sendSyncArchive": {
-        await client.sendSyncArchive(data.options, data.serverUrl, data.pin);
-        postMessage({ id, action, result: undefined });
-        break;
-      }
-      case "client.processSyncArchive": {
-        await client.processSyncArchive(data.archivePin);
-        postMessage({ id, action, result: undefined });
-        break;
-      }
-      case "client.listAvailableArchives": {
-        const result = client.listAvailableArchives(data.daysCutoff);
-        postMessage({ id, action, result });
-        break;
-      }
       case "client.createArchive": {
         const result = await client.createArchive(data.opts, data.key);
         postMessage({ id, action, result });

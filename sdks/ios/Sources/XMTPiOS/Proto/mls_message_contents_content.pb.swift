@@ -213,23 +213,6 @@ public struct Xmtp_Mls_MessageContents_PlaintextEnvelope: Sendable {
       set {messageType = .content(newValue)}
     }
 
-    /// Initiator sends a request to receive sync payload
-    public var deviceSyncRequest: Xmtp_DeviceSync_Content_DeviceSyncRequest {
-      get {
-        if case .deviceSyncRequest(let v)? = messageType {return v}
-        return Xmtp_DeviceSync_Content_DeviceSyncRequest()
-      }
-      set {messageType = .deviceSyncRequest(newValue)}
-    }
-
-    /// Some other authorized installation sends a reply with a link to payload
-    public var deviceSyncReply: Xmtp_DeviceSync_Content_DeviceSyncReply {
-      get {
-        if case .deviceSyncReply(let v)? = messageType {return v}
-        return Xmtp_DeviceSync_Content_DeviceSyncReply()
-      }
-      set {messageType = .deviceSyncReply(newValue)}
-    }
 
     /// A serialized user preference update
     public var userPreferenceUpdate: Xmtp_DeviceSync_Content_V1UserPreferenceUpdate {
@@ -245,10 +228,6 @@ public struct Xmtp_Mls_MessageContents_PlaintextEnvelope: Sendable {
     public enum OneOf_MessageType: Equatable, @unchecked Sendable {
       /// Expected to be EncodedContent
       case content(Data)
-      /// Initiator sends a request to receive sync payload
-      case deviceSyncRequest(Xmtp_DeviceSync_Content_DeviceSyncRequest)
-      /// Some other authorized installation sends a reply with a link to payload
-      case deviceSyncReply(Xmtp_DeviceSync_Content_DeviceSyncReply)
       /// A serialized user preference update
       case userPreferenceUpdate(Xmtp_DeviceSync_Content_V1UserPreferenceUpdate)
 
@@ -497,8 +476,6 @@ extension Xmtp_Mls_MessageContents_PlaintextEnvelope.V2: SwiftProtobuf.Message, 
       numberNameMappings: [
         1: .standard(proto: "idempotency_key"),
         2: .same(proto: "content"),
-        3: .standard(proto: "device_sync_request"),
-        4: .standard(proto: "device_sync_reply"),
         5: .standard(proto: "user_preference_update"),
   ])
 
@@ -515,32 +492,6 @@ extension Xmtp_Mls_MessageContents_PlaintextEnvelope.V2: SwiftProtobuf.Message, 
         if let v = v {
           if self.messageType != nil {try decoder.handleConflictingOneOf()}
           self.messageType = .content(v)
-        }
-      }()
-      case 3: try {
-        var v: Xmtp_DeviceSync_Content_DeviceSyncRequest?
-        var hadOneofValue = false
-        if let current = self.messageType {
-          hadOneofValue = true
-          if case .deviceSyncRequest(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.messageType = .deviceSyncRequest(v)
-        }
-      }()
-      case 4: try {
-        var v: Xmtp_DeviceSync_Content_DeviceSyncReply?
-        var hadOneofValue = false
-        if let current = self.messageType {
-          hadOneofValue = true
-          if case .deviceSyncReply(let m) = current {v = m}
-        }
-        try decoder.decodeSingularMessageField(value: &v)
-        if let v = v {
-          if hadOneofValue {try decoder.handleConflictingOneOf()}
-          self.messageType = .deviceSyncReply(v)
         }
       }()
       case 5: try {
@@ -573,14 +524,6 @@ extension Xmtp_Mls_MessageContents_PlaintextEnvelope.V2: SwiftProtobuf.Message, 
     case .content?: try {
       guard case .content(let v)? = self.messageType else { preconditionFailure() }
       try visitor.visitSingularBytesField(value: v, fieldNumber: 2)
-    }()
-    case .deviceSyncRequest?: try {
-      guard case .deviceSyncRequest(let v)? = self.messageType else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
-    }()
-    case .deviceSyncReply?: try {
-      guard case .deviceSyncReply(let v)? = self.messageType else { preconditionFailure() }
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
     }()
     case .userPreferenceUpdate?: try {
       guard case .userPreferenceUpdate(let v)? = self.messageType else { preconditionFailure() }

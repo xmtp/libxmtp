@@ -1,241 +1,39 @@
 use super::*;
-use super::{ArchiveOptions, BackupElementSelection};
-use crate::groups::send_message_opts::SendMessageOpts;
-use crate::tester;
-use xmtp_configuration::DeviceSyncUrls;
+use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_db::{
     ConnectionExt,
     consent_record::ConsentState,
     group::{ConversationType, StoredGroup},
-    group_message::MsgQueryArgs,
 };
 
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn basic_sync() {
-    tester!(alix1, sync_worker);
-    tester!(bo);
-    // Talk with bo
-    let (dm, dm_msg) = alix1.test_talk_in_dm_with(&bo).await?;
-    // Create a second client for alix
-    tester!(alix2, from: alix1);
-
-    alix2
-        .device_sync_client()
-        .send_sync_request(
-            ArchiveOptions::msgs_and_consent(),
-            DeviceSyncUrls::LOCAL_ADDRESS,
-        )
-        .await?;
-
-    alix1.sync_all_welcomes_and_groups(None).await?;
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
-        .wait()
-        .await?;
-
-    // Have alix2 receive payload and process it
-    alix2.sync_all_welcomes_and_groups(None).await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await?;
-
-    // Ensure the DM is present on the second device.
-    let alix2_dm = alix2.group(&dm.group_id)?;
-    let alix2_dm_msgs = alix2_dm.find_messages(&MsgQueryArgs::default())?;
-    assert_eq!(alix2_dm_msgs.len(), 2);
-    assert!(
-        alix2_dm_msgs
-            .iter()
-            .any(|msg| msg.decrypted_message_bytes == dm_msg.as_bytes())
-    );
-}
-
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg(not(target_arch = "wasm32"))]
-async fn test_sync_request() {
-    tester!(alix1, sync_worker, with_name: "alix1");
-    tester!(alix2, from: alix1, with_name: "alix2");
-    tester!(alix3, from: alix1, with_name: "alix3");
-
-    tester!(bo, disable_workers);
-
-    let (_, m1) = alix1.test_talk_in_dm_with(&bo).await?;
-    let (_, m2) = alix2.test_talk_in_dm_with(&bo).await?;
-    let (_, m3) = alix3.test_talk_in_dm_with(&bo).await?;
-
-    let (g1, gm3) = alix1.test_talk_in_new_group_with(&bo).await?;
-
-    alix3
-        .device_sync_client()
-        .send_sync_request(
-            ArchiveOptions::msgs_and_consent(),
-            DeviceSyncUrls::LOCAL_ADDRESS,
-        )
-        .await?;
-
-    // They should all have the same sync group
-    for client in &[&alix1, &alix2] {
-        client.test_has_same_sync_group_as(&alix3).await?;
-        client
-            .worker()
-            .register_interest(SyncMetric::PayloadSent, 1)
-            .wait()
-            .await?;
-    }
-
-    alix3.sync_all_device_sync_groups().await?;
-
-    alix3
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 2)
-        .wait()
-        .await?;
-
-    let dm = alix3.find_or_create_dm(bo.inbox_id(), None).await?;
-    let msgs = dm.find_messages(&MsgQueryArgs::default())?;
-
-    // Make sure all of the messages are on alix3's client
-    for msg in &[&m1, &m2, &m3] {
-        let b = msg.as_bytes();
-        assert!(
-            msgs.iter()
-                .any(|m| m.decrypted_message_bytes.windows(b.len()).any(|m| m == b))
-        );
-    }
-
-    // Check the group's messages and it's consent too.
-    let g3 = alix3.group(&g1.group_id)?;
-    assert_eq!(g3.consent_state()?, ConsentState::Allowed);
-    assert!(g1.find_messages(&Default::default())?.iter().any(|m| {
-        m.decrypted_message_bytes
-            .windows(gm3.len())
-            .any(|m| m == gm3.as_bytes())
-    }));
-}
-
-#[cfg_attr(target_arch = "wasm32", ignore)]
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_double_sync_works_fine() {
-    tester!(alix1, sync_worker);
-    tester!(bo);
-
-    alix1.test_talk_in_dm_with(&bo).await?;
-
-    tester!(alix2, from: alix1);
-    alix2
-        .device_sync_client()
-        .send_sync_request(
-            ArchiveOptions::msgs_and_consent(),
-            DeviceSyncUrls::LOCAL_ADDRESS,
-        )
-        .await?;
-
-    // Pull down the new sync group, triggering a payload to be sent
-    alix1.sync_welcomes().await?;
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .send_sync_request(
-            ArchiveOptions {
-                elements: vec![
-                    BackupElementSelection::Messages,
-                    BackupElementSelection::Consent,
-                ],
-                ..Default::default()
-            },
-            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
-        )
-        .await?;
-    alix1
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 2)
-        .wait()
-        .await?;
-
-    alix2
-        .context
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 2)
-        .wait()
-        .await?;
-
-    // Alix2 should be able to talk fine with bo
-    alix2.test_talk_in_dm_with(&bo).await?;
+fn unknown_device_sync_content_is_ignored() {
+    // Field 1 was DeviceSyncContent.request. It is reserved after history
+    // transfer removal, so a message from an older installation is ignored.
+    assert!(decode_supported_content(&[0x0a, 0x00]).is_none());
 }
 
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, sync_worker);
+    tester!(alix1, stream, sync_worker);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
 
     tester!(alix2, from: alix1);
-
     alix1.test_has_same_sync_group_as(&alix2).await?;
-    alix2
-        .device_sync_client()
-        .send_sync_request(
-            ArchiveOptions::msgs_and_consent(),
-            DeviceSyncUrls::LOCAL_ADDRESS.to_string(),
-        )
-        .await?;
-    alix1.sync_all_device_sync_groups().await?;
 
-    alix1
-        .worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
-        .wait()
-        .await?;
-
-    alix2.sync_all_device_sync_groups().await?;
-
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await?;
+    // The TaskRunner adds alix2 to alix1's existing DM. Poll while alix2
+    // syncs welcomes because both the membership commit and welcome delivery
+    // are asynchronous.
+    xmtp_common::wait_for_some(|| async {
+        let _ = alix2.sync_welcomes().await;
+        alix2.group(&dm.group_id).ok().map(|_| ())
+    })
+    .await
+    .expect("alix2 must receive the DM via the TaskRunner membership add");
 
     alix1
         .worker()
@@ -427,61 +225,6 @@ async fn test_new_devices_not_added_to_old_sync_groups() {
             .load(conn)
     })?;
     assert_eq!(alix2_sync_groups.len(), 1);
-}
-
-#[xmtp_common::timeout(std::time::Duration::from_secs(60))]
-#[rstest::rstest]
-#[xmtp_common::test(unwrap_try = true)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
-async fn test_manual_sync_flow() {
-    tester!(alix, sync_worker);
-    tester!(bo);
-
-    let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
-
-    tester!(alix2, from: alix);
-    alix2.test_has_same_sync_group_as(&alix).await?;
-
-    let opts = ArchiveOptions {
-        elements: vec![BackupElementSelection::Consent],
-        ..Default::default()
-    };
-
-    alix.device_sync_client()
-        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "123")
-        .await?;
-    alix.device_sync_client()
-        .send_sync_archive(&opts, DeviceSyncUrls::LOCAL_ADDRESS, "234")
-        .await?;
-    alix.worker()
-        .register_interest(SyncMetric::PayloadSent, 2)
-        .wait()
-        .await?;
-
-    assert!(alix2.group(&dm.group_id).is_err());
-
-    alix2
-        .device_sync_client()
-        .get_sync_group()
-        .await?
-        .sync()
-        .await?;
-
-    let available_archives = alix2.device_sync_client().list_available_archives(7)?;
-    assert_eq!(available_archives.len(), 2);
-    assert_eq!(available_archives[0].pin, "234");
-
-    alix2
-        .device_sync_client()
-        .process_archive_with_pin(Some("123"))
-        .await?;
-    alix2
-        .worker()
-        .register_interest(SyncMetric::PayloadProcessed, 1)
-        .wait()
-        .await?;
-
-    assert!(alix2.group(&dm.group_id).is_ok());
 }
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(60))]

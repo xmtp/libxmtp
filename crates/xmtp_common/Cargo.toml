@@ -51,14 +51,14 @@ toxiproxy_rust = { workspace = true, optional = true }
 tokio-stream = { workspace = true, features = ["time"] }
 fdlimit.workspace = true
 ctor.workspace = true
+# Used to keep reqwest off `rustls-platform-verifier` on Android (see
+# `src/http.rs`), and by that module's test on every other native target.
+rustls.workspace = true
+webpki-roots.workspace = true
 # The one telemetry dep outside xmtp_logging: `bind_task_hub` forks a per-task
 # Sentry Hub. Scope plumbing only — no client and no transport are configured
 # here, so it is inert unless xmtp_logging installs one.
 sentry-core.workspace = true
-# Used to keep reqwest off `rustls-platform-verifier` on Android (see `src/http.rs`), and
-# by that module's test on every other native target.
-rustls.workspace = true
-webpki-roots.workspace = true
 
 [dev-dependencies]
 parking_lot.workspace = true

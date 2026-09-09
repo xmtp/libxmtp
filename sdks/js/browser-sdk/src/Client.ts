@@ -6,13 +6,11 @@ import {
   LogLevel,
   type ArchiveMetadata,
   type ArchiveOptions,
-  type AvailableArchiveInfo,
   type GroupSyncSummary,
   type Identifier,
   type InboxState,
 } from "@xmtp/wasm-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
-import { HistorySyncUrls } from "@/constants";
 import { Conversations } from "@/Conversations";
 import { DebugInformation } from "@/DebugInformation";
 import { Preferences } from "@/Preferences";
@@ -949,83 +947,6 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       ],
       excludeDisappearingMessages: false,
     };
-  }
-
-  /**
-   * Get the default server URL based on the environment
-   */
-  #getDefaultServerUrl(): string {
-    const env = this.#env ?? "dev";
-    return HistorySyncUrls[env];
-  }
-
-  /**
-   * Send a sync request to other devices on the network
-   *
-   * @param options - Archive options specifying what to sync (defaults to consent and messages)
-   * @param serverUrl - The server URL for the sync request (defaults to environment-specific URL)
-   * @returns Promise that resolves when the sync request is sent
-   */
-  async sendSyncRequest(options?: ArchiveOptions, serverUrl?: string) {
-    const resolvedOptions = options ?? this.#getDefaultArchiveOptions();
-    const resolvedServerUrl = serverUrl ?? this.#getDefaultServerUrl();
-
-    return this.#worker.action("client.sendSyncRequest", {
-      options: resolvedOptions,
-      serverUrl: resolvedServerUrl,
-    });
-  }
-
-  /**
-   * Send a sync archive to the sync group
-   *
-   * @param pin - The pin used for reference when importing
-   * @param options - Archive options specifying what to sync (defaults to consent and messages)
-   * @param serverUrl - The server URL for the sync archive (defaults to environment-specific URL)
-   * @returns Promise that resolves when the sync archive is sent
-   */
-  async sendSyncArchive(
-    pin: string,
-    options?: ArchiveOptions,
-    serverUrl?: string,
-  ) {
-    const resolvedOptions = options ?? this.#getDefaultArchiveOptions();
-    const resolvedServerUrl = serverUrl ?? this.#getDefaultServerUrl();
-
-    return this.#worker.action("client.sendSyncArchive", {
-      options: resolvedOptions,
-      serverUrl: resolvedServerUrl,
-      pin,
-    });
-  }
-
-  /**
-   * Process a sync archive that matches the pin given
-   *
-   * @param archivePin - Optional pin to match. If not provided, processes the last archive sent
-   * @returns Promise that resolves when the archive is processed
-   */
-  async processSyncArchive(archivePin?: string | null) {
-    return this.#worker.action("client.processSyncArchive", {
-      archivePin,
-    });
-  }
-
-  /**
-   * List the archives available for import in the sync group
-   *
-   * You may need to manually sync the sync group before calling
-   * this function to see recently uploaded archives.
-   *
-   * @param daysCutoff - Number of days to look back for archives
-   * @returns Promise that resolves with array of available archive information
-   */
-  async listAvailableArchives(
-    daysCutoff: number,
-  ): Promise<AvailableArchiveInfo[]> {
-    return this.#worker.action("client.listAvailableArchives", {
-      daysCutoff,
-    });
   }
 
   /**

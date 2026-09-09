@@ -11,7 +11,6 @@ import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.ArchiveMetadata
 import org.xmtp.android.library.libxmtp.ArchiveOptions
-import org.xmtp.android.library.libxmtp.AvailableArchive
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.InboxState
 import org.xmtp.android.library.libxmtp.PublicIdentity
@@ -853,47 +852,6 @@ class Client(
     suspend fun inboxState(refreshFromNetwork: Boolean): InboxState =
         withContext(Dispatchers.IO) {
             InboxState(ffiClient.inboxState(refreshFromNetwork))
-        }
-
-    /**
-     * Manually trigger a device sync request to sync records from another active device on this account.
-     */
-    suspend fun sendSyncRequest(
-        opts: ArchiveOptions = ArchiveOptions(),
-        serverUrl: String = environment.getHistorySyncUrl(),
-    ) = withContext(Dispatchers.IO) {
-        ffiClient.sendSyncRequest(opts.toFfi(), serverUrl)
-    }
-
-    /**
-     * Manually send a sync archive to the sync group.
-     * The pin will be later used as a reference when importing.
-     */
-    suspend fun sendSyncArchive(
-        opts: ArchiveOptions = ArchiveOptions(),
-        serverUrl: String = environment.getHistorySyncUrl(),
-        pin: String,
-    ) = withContext(Dispatchers.IO) {
-        ffiClient.sendSyncArchive(opts.toFfi(), serverUrl, pin)
-    }
-
-    /**
-     * Manually process a sync archive that matches the pin given.
-     * If no pin is given, then it will process the last archive sent.
-     */
-    suspend fun processSyncArchive(archivePin: String? = null) =
-        withContext(Dispatchers.IO) {
-            ffiClient.processSyncArchive(archivePin)
-        }
-
-    /**
-     * List the archives available for import in the sync group.
-     * You may need to manually sync the sync group before calling
-     * this function to see recently uploaded archives.
-     */
-    suspend fun listAvailableArchives(daysCutoff: Long): List<AvailableArchive> =
-        withContext(Dispatchers.IO) {
-            ffiClient.listAvailableArchives(daysCutoff).map { AvailableArchive(it) }
         }
 
     /**

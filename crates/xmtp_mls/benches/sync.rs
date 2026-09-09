@@ -29,7 +29,6 @@
 //             || {
 //                 bench_async_setup(|| async {
 //                     let client = clients::new_client(true).await;
-//                     // set history sync URL
 //                     (client, span.clone())
 //                 })
 //             },

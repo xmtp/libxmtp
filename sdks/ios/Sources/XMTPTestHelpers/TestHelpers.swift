@@ -12,10 +12,6 @@
 		_env("XMTP_NODE_ADDRESS")
 	}
 
-	public func getHistorySyncUrlFromEnvironment() -> String? {
-		_env("XMTP_HISTORY_SERVER_ADDRESS")
-	}
-
 	public enum TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
 		// TODO: change Client constructor to accept these explicitly (so we can config CI):
@@ -89,9 +85,6 @@
 		func setupLocalEnv() {
 			if let localAddress = getLocalAddressFromEnvironment(), !localAddress.isEmpty {
 				XMTPEnvironment.customLocalAddress = localAddress
-			}
-			if let localHistoryUrl = getHistorySyncUrlFromEnvironment(), !localHistoryUrl.isEmpty {
-				XMTPEnvironment.customHistorySyncUrl = localHistoryUrl
 			}
 		}
 

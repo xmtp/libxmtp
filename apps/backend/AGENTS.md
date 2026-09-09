@@ -7,24 +7,23 @@ Self-hosted gRPC and gRPC-Web service. PostgreSQL 18 stores durable state.
 ```bash
 dev/nix-shell 'SQLX_OFFLINE=true cargo build --locked -p xmtp_backend'
 just check crate xmtp_backend
-just build-backend
-just backend-db-up
-just backend-sql-prepare               # apply migration and update .sqlx
-just backend-sql-check                 # verify committed .sqlx
-just backend-schema                    # regenerate public config schema
-just test-backend
-just test-backend --lib config         # one module
-just test-backend --lib https_passthrough # HTTPS streaming ingress check
-just backend-image                     # amd64 image
-just backend-image aarch64             # arm64 image
+just backend build
+just backend db-up
+just backend sql-prepare               # apply migration and update .sqlx
+just backend sql-check                 # verify committed .sqlx
+just backend schema                    # regenerate public config schema
+just backend test
+just backend test --lib config         # one module
+just backend test --lib https_passthrough # HTTPS streaming ingress check
+just backend image                     # host architecture image
 just lint-rust
-dev/nix-shell 'cargo run --locked -p xmtp_backend -- --config dev/backend/config.toml'
-just backend-db-down
+just backend run
+just backend db-down
 ```
 
 Set `XMTP_DATABASE_URL` for service startup. Test and SQL recipes default to
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`; `DATABASE_URL` overrides it.
-Use `just test-backend --lib service::publish::tests` for one module, or append
+Use `just backend test --lib service::publish::tests` for one module, or append
 a function-name filter. Tests live beside their owning modules; shared fixtures
 live in `src/test_support.rs`. The recipe defaults to four test threads to bound
 local database connections; `RUST_TEST_THREADS` overrides that value.

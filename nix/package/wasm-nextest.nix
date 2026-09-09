@@ -9,7 +9,6 @@
   wasm-bindgen-cli,
   cargo-nextest,
   nodejs_24,
-  d14n ? false,
   ...
 }:
 let
@@ -51,7 +50,6 @@ let
     CARGO_PROFILE = "wasm-test";
   };
 
-  d14nTestArgs = if d14n then "--features d14n" else "";
   wasmPackages = "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types";
 
   cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
@@ -83,15 +81,15 @@ rust.cargoNextest (
       ++ lib.optionals stdenv.isDarwin [ google-chrome ]
       ++ lib.optionals stdenv.isLinux [ chromium ];
 
-    pname = if d14n then "wasm-d14n" else "wasm-v3";
+    pname = "wasm";
     doInstallCargoArtifacts = false;
     partitions = 1;
     partitionType = "count";
     cargoNextestPartitionsExtraArgs = "--no-tests=pass";
     XMTP_TEST_LOGGING = "false";
     RUST_LOG = "off";
-    cargoExtraArgs = "${d14nTestArgs} ${wasmPackages}";
-    cargoNextestExtraArgs = if d14n then "--profile ci-d14n" else "--profile ci";
+    cargoExtraArgs = "${wasmPackages}";
+    cargoNextestExtraArgs = "--profile ci";
     # most tests query docker
     __noChroot = true;
   }

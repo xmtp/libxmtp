@@ -24,14 +24,14 @@ jobs:
           sccache: "false"
       - uses: taiki-e/install-action@just
       - name: Start backend database
-        run: just backend-db-up
+        run: just backend db-up
       - name: Check SQL cache
-        run: just backend-sql-check
+        run: just backend sql-check
       - name: Test backend, replica recovery, and HTTPS streaming
-        run: just test-backend
+        run: just backend test
       - name: Stop backend database
         if: always()
-        run: just backend-db-down
+        run: just backend db-down
 
   backend-image:
     name: Backend image (${{ matrix.arch }})
@@ -41,11 +41,9 @@ jobs:
         include:
           - arch: amd64
             runner: blacksmith-16vcpu-ubuntu-2404
-            image: .#backend-image-x86_64-unknown-linux-musl
             nix-disk: "true"
           - arch: arm64
             runner: ubuntu-24.04-arm
-            image: .#backend-image-aarch64-unknown-linux-musl
             nix-disk: "false"
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
@@ -61,25 +59,31 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
+      - uses: taiki-e/install-action@just
       - name: Build backend image
-        run: nix build "${{ matrix.image }}" --out-link backend-image-result
+        run: just backend image
       - name: Load backend image
-        run: docker load --input backend-image-result
+        run: docker load --input result-backend-image
       - name: Check image architecture
         env:
           EXPECTED_ARCH: ${{ matrix.arch }}
         run: |
           actual_arch="$(docker image inspect ghcr.io/xmtp/backend:self-hosted --format '{{.Architecture}}')"
           test "$actual_arch" = "$EXPECTED_ARCH"
+      # This smoke test proves the image starts, serves gRPC health, and reaches
+      # PostgreSQL. It runs no chain call, and the database compose has no anvil,
+      # so the chain URL points at a name that does not resolve. A smart-contract
+      # wallet test needs the full stack from `just backend up`.
       - name: Run backend image
         env:
           PLATFORM: linux/${{ matrix.arch }}
         run: |
-          docker compose -f dev/backend/compose.yml up --detach --wait
+          just backend db-up
           docker run --detach --name backend-smoke --platform "$PLATFORM" \
             --network xmtp-backend_default -p 127.0.0.1:55050:5050 \
+            -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
             -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@primary:5432/xmtp_backend \
-            -v "$PWD/dev/backend/config.toml:/config.toml:ro" \
+            -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
             ghcr.io/xmtp/backend:self-hosted --config /config.toml
           dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
       - name: Backend logs and cleanup
@@ -87,4 +91,4 @@ jobs:
         run: |
           docker logs backend-smoke || true
           docker rm --force backend-smoke || true
-          docker compose -f dev/backend/compose.yml down
+          just backend db-down

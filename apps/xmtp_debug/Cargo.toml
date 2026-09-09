@@ -19,7 +19,7 @@ alloy-signer-local.workspace = true
 async-trait.workspace = true
 bitflags = "2"
 chrono.workspace = true
-clap.workspace = true
+clap = { workspace = true, features = ["env"] }
 clap-verbosity-flag = { version = "3.0", features = ["tracing"] }
 color-eyre.workspace = true
 const_format.workspace = true

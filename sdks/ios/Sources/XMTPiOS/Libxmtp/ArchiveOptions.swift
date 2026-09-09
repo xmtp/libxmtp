@@ -87,23 +87,3 @@ public struct ArchiveMetadata {
 		ffi.endNs
 	}
 }
-
-public struct AvailableArchive {
-	private let ffi: FfiAvailableArchive
-
-	public init(_ ffi: FfiAvailableArchive) {
-		self.ffi = ffi
-	}
-
-	public var pin: String {
-		ffi.pin
-	}
-
-	public var metadata: ArchiveMetadata {
-		ArchiveMetadata(ffi.metadata)
-	}
-
-	public var sentByInstallation: Data {
-		ffi.sentByInstallation
-	}
-}

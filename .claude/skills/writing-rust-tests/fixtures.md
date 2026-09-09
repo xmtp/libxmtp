@@ -87,13 +87,11 @@ async fn test_sync() {
 
     // Second installation of same identity
     tester!(alix2, from: alix1, with_name: "alix2");
-    alix2.device_sync_client()
-        .send_sync_request(ArchiveOptions::msgs_and_consent(), DeviceSyncUrls::LOCAL_ADDRESS)
-        .await?;
+    alix1.test_has_same_sync_group_as(&alix2).await?;
 
-    // Wait for sync to complete
+    // Wait for HMAC sync to complete.
     alix1.worker()
-        .register_interest(SyncMetric::PayloadSent, 1)
+        .register_interest(SyncMetric::HmacSent, 1)
         .wait().await?;
 }
 ```

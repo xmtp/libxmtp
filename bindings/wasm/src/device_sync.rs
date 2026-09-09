@@ -8,7 +8,7 @@ use tsify::Tsify;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
-  ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection,
+  ArchiveOptions as XmtpArchiveOptions, BackupElementSelection,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
@@ -130,28 +130,6 @@ impl From<BackupMetadata> for ArchiveMetadata {
   }
 }
 
-/// An available archive in the sync group
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
-pub struct AvailableArchiveInfo {
-  pub pin: String,
-  pub metadata: ArchiveMetadata,
-  #[serde(with = "serde_bytes")]
-  #[tsify(type = "Uint8Array")]
-  pub sent_by_installation: Vec<u8>,
-}
-
-impl From<AvailableArchive> for AvailableArchiveInfo {
-  fn from(value: AvailableArchive) -> Self {
-    Self {
-      pin: value.pin,
-      metadata: value.metadata.into(),
-      sent_by_installation: value.sent_by_installation,
-    }
-  }
-}
-
 fn check_key(key: &Uint8Array) -> Result<Vec<u8>, JsError> {
   let key_vec = key.to_vec();
   if key_vec.len() < 32 {
@@ -178,71 +156,6 @@ impl DeviceSync {
 
 #[wasm_bindgen]
 impl DeviceSync {
-  /// Manually trigger a device sync request to sync records from another active device on this account.
-  #[wasm_bindgen(js_name = sendSyncRequest)]
-  pub async fn send_sync_request(
-    &self,
-    options: ArchiveOptions,
-    #[wasm_bindgen(js_name = serverUrl)] server_url: String,
-  ) -> Result<(), JsError> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request(options.into(), server_url)
-      .await
-      .map_err(ErrorWrapper::js)?;
-
-    Ok(())
-  }
-
-  /// Manually send a sync archive to the sync group.
-  /// The pin will be later used for reference when importing.
-  #[wasm_bindgen(js_name = sendSyncArchive)]
-  pub async fn send_sync_archive(
-    &self,
-    options: ArchiveOptions,
-    #[wasm_bindgen(js_name = serverUrl)] server_url: String,
-    pin: String,
-  ) -> Result<(), JsError> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_archive(&options.into(), &server_url, &pin)
-      .await
-      .map_err(ErrorWrapper::js)?;
-    Ok(())
-  }
-
-  /// Manually process a sync archive that matches the pin given.
-  /// If no pin is given, then it will process the last archive sent.
-  #[wasm_bindgen(js_name = processSyncArchive)]
-  pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<(), JsError> {
-    self
-      .inner_client
-      .device_sync_client()
-      .process_archive_with_pin(archive_pin.as_deref())
-      .await
-      .map_err(ErrorWrapper::js)?;
-    Ok(())
-  }
-
-  /// List the archives available for import in the sync group.
-  /// You may need to manually sync the sync group before calling
-  /// this function to see recently uploaded archives.
-  #[wasm_bindgen(js_name = listAvailableArchives)]
-  pub fn list_available_archives(
-    &self,
-    #[wasm_bindgen(js_name = daysCutoff)] days_cutoff: i64,
-  ) -> Result<Vec<AvailableArchiveInfo>, JsError> {
-    let available = self
-      .inner_client
-      .device_sync_client()
-      .list_available_archives(days_cutoff)
-      .map_err(ErrorWrapper::js)?;
-
-    Ok(available.into_iter().map(Into::into).collect())
-  }
-
   /// Export archive data to bytes for later restoration.
   #[wasm_bindgen(js_name = createArchive)]
   pub async fn create_archive(

@@ -330,11 +330,11 @@ pub(crate) async fn register_client_with_wallet_no_panic(
 
 /// Create a new test client with a given wallet.
 pub(crate) async fn new_test_client_with_wallet(wallet: PrivateKeySigner) -> Arc<FfiXmtpClient> {
-    new_test_client_with_wallet_and_history_sync_url(wallet, Some(FfiDeviceSyncMode::Disabled))
+    new_test_client_with_wallet_and_sync_worker_mode(wallet, Some(FfiDeviceSyncMode::Disabled))
         .await
 }
 
-pub(crate) async fn new_test_client_with_wallet_and_history_sync_url(
+pub(crate) async fn new_test_client_with_wallet_and_sync_worker_mode(
     wallet: PrivateKeySigner,
     sync_worker_mode: Option<FfiDeviceSyncMode>,
 ) -> Arc<FfiXmtpClient> {

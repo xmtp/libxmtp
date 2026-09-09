@@ -1,48 +1,32 @@
-use super::{ArchiveOptions, BackupElementSelection};
 use super::{
-    DeviceSyncClient, DeviceSyncError, IterWithContent,
+    DeviceSyncClient, DeviceSyncError, decode_supported_content,
     preference_sync::{PreferenceUpdate, store_preference_updates},
 };
 use crate::{
-    client::ClientError,
     context::XmtpSharedContext,
-    groups::GroupError,
     subscriptions::{LocalEvents, SyncWorkerEvent},
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
-        WorkerKind, WorkerResult,
-        device_sync::{AvailableArchive, archive::insert_importer},
-        metrics::WorkerMetrics,
+        WorkerKind, WorkerResult, metrics::WorkerMetrics,
     },
 };
-use futures::{StreamExt, TryFutureExt};
+use futures::TryFutureExt;
+use prost::Message;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::{OnceCell, broadcast};
-use tokio_util::compat::TokioAsyncReadCompatExt;
 use tracing::instrument;
-use xmtp_archive::{ArchiveImporter, BackupMetadata, exporter::ArchiveExporter};
-use xmtp_common::{Event, NS_IN_DAY, time::now_ns};
-use xmtp_db::group_message::{MsgQueryArgs, StoredGroupMessage};
-use xmtp_db::{prelude::*, tasks::NewTask};
+use xmtp_common::Event;
+use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::prelude::*;
 use xmtp_macro::log_event;
-use xmtp_proto::types::GroupId;
-use xmtp_proto::{
-    ConversionError,
-    xmtp::{
-        device_sync::{
-            BackupElementSelection as BackupElementSelectionProto,
-            content::{
-                DeviceSyncAcknowledge, DeviceSyncKeyType, DeviceSyncReply as DeviceSyncReplyProto,
-                DeviceSyncRequest as DeviceSyncRequestProto,
-                PreferenceUpdates as PreferenceUpdatesProto,
-                device_sync_content::Content as ContentProto, device_sync_key_type::Key,
-            },
-        },
-        mls::database::{SendSyncArchive, Task},
+use xmtp_proto::xmtp::{
+    device_sync::content::{
+        DeviceSyncAcknowledge, PreferenceUpdates as PreferenceUpdatesProto,
+        device_sync_content::Content as ContentProto,
     },
+    mls::message_contents::EncodedContent,
 };
 
-const ENC_KEY_SIZE: usize = xmtp_archive::ENC_KEY_SIZE;
 const MAX_ATTEMPTS: i32 = 3;
 
 pub struct SyncWorker<Context> {
@@ -209,8 +193,7 @@ where
         }
     }
 
-    //// Ideally called when the client is registered.
-    //// Will auto-send a sync request if sync group is created.
+    /// Initialize the sync group when the client is registered.
     #[instrument(level = "trace", skip_all)]
     async fn sync_init(&mut self) -> Result<(), DeviceSyncError> {
         let Self { init, client, .. } = &self;
@@ -309,12 +292,22 @@ where
     {
         let installation_id = self.installation_id();
 
-        for (msg, content) in messages.clone().iter_with_content() {
+        for msg in messages {
+            let content = EncodedContent::decode(&*msg.decrypted_message_bytes)
+                .ok()
+                .and_then(|content| decode_supported_content(&content.content));
+            let Some(content) = content else {
+                // Older installations can send archive transfer content. Its
+                // reserved oneof fields decode as unsupported content here.
+                // Mark it complete so the worker does not retry it forever.
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                continue;
+            };
             let is_external = msg.sender_installation_id != installation_id;
 
             let msg_type = match &content {
-                ContentProto::Request(_) => "Request",
-                ContentProto::Reply(_) => "Reply",
                 ContentProto::PreferenceUpdates(_) => "PreferenceUpdates",
                 ContentProto::Acknowledge(_) => "Acknowledge",
             };
@@ -367,56 +360,6 @@ where
         let is_external = msg.sender_installation_id != installation_id;
 
         match content {
-            ContentProto::Request(request) => {
-                if !is_external {
-                    // Ignore our own messages
-                    return Ok(());
-                }
-
-                self.context.task_channels().send(
-                    NewTask::builder()
-                        .originating_message_originator_id(msg.originator_id as i32)
-                        .originating_message_sequence_id(msg.sequence_id)
-                        .build(Task {
-                            task: Some(
-                                xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
-                                    SendSyncArchive {
-                                        options: request.options,
-                                        pin: Some(request.pin),
-                                        sync_group_id: msg.group_id.to_vec(),
-                                        server_url: request.server_url,
-                                    },
-                                ),
-                            ),
-                        })?,
-                );
-
-                // Mark this message as processed immediately.
-                self.context
-                    .db()
-                    .mark_device_sync_msg_as_processed(&msg.id)?;
-
-                handle.increment_metric(SyncMetric::PayloadTaskScheduled);
-            }
-            ContentProto::Reply(reply) => {
-                if !is_external {
-                    // Ignore our own messages
-                    return Ok(());
-                }
-
-                if self.is_reply_requested_by_installation(&reply).await? {
-                    self.process_archive(msg, reply).await.inspect_err(
-                                        |err| log_event!(Event::DeviceSyncArchiveImportFailure, self.context.installation_id(), error = %err),
-                                    )?;
-                } else {
-                    log_event!(
-                        Event::DeviceSyncArchiveNotRequested,
-                        self.context.installation_id()
-                    );
-                }
-
-                handle.increment_metric(SyncMetric::PayloadProcessed);
-            }
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 if is_external {
                     tracing::info!("Incoming preference updates: {updates:?}");
@@ -441,292 +384,6 @@ where
 
         Ok(())
     }
-
-    pub(crate) async fn send_archive(
-        &self,
-        options: &ArchiveOptions,
-        sync_group_id: &GroupId,
-        pin: &str,
-        server_url: &str,
-    ) -> Result<(), DeviceSyncError>
-    where
-        Context::Db: 'static,
-    {
-        log_event!(
-            Event::DeviceSyncArchiveUploadStart,
-            self.context.installation_id(),
-            group_id = sync_group_id,
-            server_url
-        );
-
-        // Generate a random encryption key
-        let key = xmtp_common::rand_vec::<ENC_KEY_SIZE>();
-
-        tracing::info!("Building the exporter.");
-        // Now we want to create an encrypted stream from our database to the history server.
-        //
-        // 1. Build the exporter
-        let db = self.context.db();
-        let exporter = ArchiveExporter::new(options.clone(), db, &key);
-        let metadata = exporter.metadata().clone();
-
-        tracing::info!("Uploading the archive.");
-        // 5. Make the request
-        let url = format!("{server_url}/upload");
-        let response = exporter.post_to_url(&url).await?;
-
-        // Build a sync reply message that the new installation will consume
-        let reply = DeviceSyncReplyProto {
-            encryption_key: Some(DeviceSyncKeyType {
-                key: Some(Key::Aes256Gcm(key)),
-            }),
-            request_id: pin.to_string(),
-            url: format!("{server_url}/files/{response}",),
-            metadata: Some(metadata),
-
-            // Deprecated fields
-            ..Default::default()
-        };
-
-        tracing::info!("Sending sync request reply message.");
-        // Send the message out over the network
-        self.send_device_sync_message(ContentProto::Reply(reply))
-            .await?;
-
-        // Update metrics.
-        if options.elements.contains(&BackupElementSelection::Consent) {
-            self.metrics
-                .increment_metric(SyncMetric::ConsentPayloadSent);
-        }
-        if options.elements.contains(&BackupElementSelection::Messages) {
-            self.metrics
-                .increment_metric(SyncMetric::MessagesPayloadSent);
-        }
-        self.metrics.increment_metric(SyncMetric::PayloadSent);
-
-        log_event!(
-            Event::DeviceSyncArchiveUploadComplete,
-            self.context.installation_id(),
-            group_id = sync_group_id,
-        );
-
-        Ok(())
-    }
-
-    pub async fn send_sync_request(
-        &self,
-        options: ArchiveOptions,
-        server_url: impl ToString,
-    ) -> Result<(), ClientError> {
-        let sync_group = self.get_sync_group().await?;
-        sync_group
-            .sync_with_conn()
-            .await
-            .map_err(GroupError::from)?;
-
-        let request = DeviceSyncRequestProto {
-            pin: xmtp_common::rand_string::<5>(),
-            options: Some(options.into()),
-            server_url: server_url.to_string(),
-
-            // Deprecated fields
-            #[allow(deprecated)]
-            deprecated_kind: 0,
-        };
-
-        self.send_device_sync_message(ContentProto::Request(request))
-            .await?;
-
-        self.metrics.increment_metric(SyncMetric::RequestSent);
-        log_event!(
-            Event::DeviceSyncSentSyncRequest,
-            self.context.installation_id(),
-            group_id = sync_group.group_id
-        );
-
-        Ok(())
-    }
-
-    pub async fn send_sync_archive(
-        &self,
-        options: &ArchiveOptions,
-        server_url: &str,
-        pin: &str,
-    ) -> Result<(), ClientError>
-    where
-        Context::Db: 'static,
-    {
-        let sync_group = self.get_sync_group().await?;
-        sync_group
-            .sync_with_conn()
-            .await
-            .map_err(GroupError::from)?;
-
-        self.send_archive(options, &sync_group.group_id, pin, server_url)
-            .await
-            .map_err(|e| GroupError::DeviceSync(Box::new(e)))?;
-
-        Ok(())
-    }
-
-    async fn is_reply_requested_by_installation(
-        &self,
-        reply: &DeviceSyncReplyProto,
-    ) -> Result<bool, DeviceSyncError> {
-        let sync_group = self.get_sync_group().await?;
-        let messages = sync_group.find_messages(&MsgQueryArgs::default())?;
-
-        for (msg, content) in messages.iter_with_content() {
-            if let ContentProto::Request(DeviceSyncRequestProto { pin, .. }) = content
-                && *pin == reply.request_id
-                && msg.sender_installation_id == self.installation_id()
-            {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    /// Processes sync archive with a matching pin. If no pin is provided, will process latest archive.
-    pub async fn process_archive_with_pin(&self, pin: Option<&str>) -> Result<(), DeviceSyncError> {
-        let mut offset = 0;
-        let mut messages = vec![];
-        loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
-            if messages.is_empty() {
-                break;
-            }
-
-            offset += messages.len() as i64;
-            for (msg, content) in messages.iter_with_content() {
-                let reply = match (pin, content) {
-                    (None, ContentProto::Reply(reply)) => reply,
-                    (Some(pin), ContentProto::Reply(reply)) if reply.request_id == pin => reply,
-                    _ => continue,
-                };
-
-                return self.process_archive(&msg, reply).await;
-            }
-        }
-
-        Err(DeviceSyncError::MissingPayload(pin.is_some()))
-    }
-
-    pub fn list_available_archives(
-        &self,
-        days_cutoff: i64,
-    ) -> Result<Vec<AvailableArchive>, DeviceSyncError> {
-        let mut offset = 0;
-        let mut messages = vec![];
-        let mut result = vec![];
-        let cutoff = now_ns() - days_cutoff * NS_IN_DAY;
-
-        'outer: loop {
-            messages = self.context.db().sync_group_messages_paged(offset, 100)?;
-
-            if messages.is_empty() {
-                break;
-            }
-            offset += messages.len() as i64;
-
-            for (msg, content) in messages.iter_with_content() {
-                if msg.sent_at_ns < cutoff {
-                    break 'outer;
-                }
-
-                let ContentProto::Reply(reply) = content else {
-                    continue;
-                };
-
-                let Some(metadata) = reply.metadata else {
-                    tracing::warn!(
-                        "Came across a device sync reply message with no metadata. request_id: {}",
-                        reply.request_id
-                    );
-                    continue;
-                };
-
-                let metadata = BackupMetadata::from_metadata_version_unknown(metadata);
-                result.push(AvailableArchive {
-                    pin: reply.request_id,
-                    metadata,
-                    sent_by_installation: msg.sender_installation_id,
-                });
-            }
-        }
-
-        Ok(result)
-    }
-
-    pub async fn process_archive(
-        &self,
-        msg: &StoredGroupMessage,
-        reply: DeviceSyncReplyProto,
-    ) -> Result<(), DeviceSyncError> {
-        log_event!(
-            Event::DeviceSyncArchiveProcessingStart,
-            self.context.installation_id(),
-            message_id = #msg.id,
-            group_id = msg.group_id
-        );
-        if reply.kind() != BackupElementSelectionProto::Unspecified {
-            log_event!(Event::DeviceSyncV1Archive, self.context.installation_id());
-            // This is a legacy payload, the legacy function will process it.
-            return Ok(());
-        }
-
-        self.welcome_service.sync_welcomes().await?;
-
-        // Get a download stream of the payload.
-        log_event!(
-            Event::DeviceSyncArchiveDownloading,
-            self.context.installation_id()
-        );
-        let response = xmtp_common::http::client()?.get(reply.url).send().await?;
-        if let Err(err) = response.error_for_status_ref() {
-            log_event!(
-                Event::DeviceSyncPayloadDownloadFailure,
-                self.context.installation_id(),
-                status = %response.status(),
-                error = %err
-            );
-            return Err(DeviceSyncError::Reqwest(err));
-        }
-
-        log_event!(
-            Event::DeviceSyncArchiveImportStart,
-            self.context.installation_id()
-        );
-
-        let stream = response
-            .bytes_stream()
-            .map(|result| result.map_err(std::io::Error::other));
-        // Convert that stream into a reader
-        let tokio_reader = tokio_util::io::StreamReader::new(stream);
-        // Convert that tokio reader into a futures reader.
-        // We use futures reader for WASM compat.
-        let reader = tokio_reader.compat();
-
-        // Create an importer around that futures_reader.
-        let Some(DeviceSyncKeyType {
-            key: Some(Key::Aes256Gcm(key)),
-        }) = reply.encryption_key
-        else {
-            return Err(ConversionError::Unspecified("encryption_key"))?;
-        };
-
-        let mut importer = ArchiveImporter::load(Box::pin(reader), &key).await?;
-
-        tracing::info!("Importing the sync payload.");
-        // Run the import.
-        insert_importer(&mut importer, &self.context).await?;
-
-        log_event!(
-            Event::DeviceSyncArchiveImportSuccess,
-            self.context.installation_id()
-        );
-        Ok(())
-    }
 }
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
@@ -734,15 +391,6 @@ pub enum SyncMetric {
     Init,
     SyncGroupCreated,
     SyncGroupWelcomesProcessed,
-    RequestReceived,
-    RequestSent,
-    ConsentPayloadSent,
-    ConsentPayloadProcessed,
-    MessagesPayloadSent,
-    MessagesPayloadProcessed,
-    PayloadSent,
-    PayloadTaskScheduled,
-    PayloadProcessed,
     HmacSent,
     HmacReceived,
     ConsentSent,

@@ -1,19 +1,16 @@
 use crate::{
     context::XmtpSharedContext,
     worker::{
-        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind,
-        device_sync::{ArchiveOptions, DeviceSyncClient, DeviceSyncError},
+        NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, device_sync::DeviceSyncError,
         key_package_maintenance as kp,
     },
 };
 use prost::Message;
 use std::sync::Arc;
-use xmtp_common::Event;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
-use xmtp_macro::log_event;
 use xmtp_proto::{
     types::{WelcomeMessage, WelcomeMessageType},
     xmtp::mls::database::Task as TaskProto,
@@ -60,8 +57,6 @@ pub enum TaskWorkerError {
     },
     #[error("task runner receiver locked")]
     ReceiverLocked,
-    #[error("Cannot send sync archives without metrics handle")]
-    MissingMetrics,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error("identity error: {0}")]
@@ -86,7 +81,6 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
             TaskWorkerError::ReceiverLocked => false,
-            TaskWorkerError::MissingMetrics => false,
             TaskWorkerError::Conversion(_) => false,
             TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
             TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
@@ -348,47 +342,6 @@ where
                 welcome_pointer,
             )) => {
                 Self::process_welcome_pointer(task, welcome_pointer, context).await?;
-            }
-            Some(xmtp_proto::xmtp::mls::database::task::Task::SendSyncArchive(
-                send_sync_archive,
-            )) => {
-                let Some(metrics) = context.sync_metrics().clone() else {
-                    return Err(TaskWorkerError::MissingMetrics);
-                };
-                let Some(proto_options) = send_sync_archive.options.clone() else {
-                    tracing::warn!(
-                        "SendSyncArchive task has no archive options. Unable to process."
-                    );
-                    return Ok(TaskOutcome::Done);
-                };
-                let options: ArchiveOptions = proto_options.into();
-
-                let client = DeviceSyncClient::new(context.clone(), metrics);
-
-                let pin = send_sync_archive.pin.clone().unwrap_or_else(|| {
-                    let pin = xmtp_common::rand_string::<5>();
-                    format!("{pin:04}")
-                });
-
-                client
-                    .send_archive(
-                        &options,
-                        &xmtp_proto::types::GroupId::try_from(
-                            send_sync_archive.sync_group_id.as_slice(),
-                        )?,
-                        &pin,
-                        &send_sync_archive.server_url,
-                    )
-                    .await
-                    .inspect_err(|e| {
-                        log_event!(
-                            Event::DeviceSyncArchiveUploadFailure,
-                            context.installation_id(),
-                            group_id = send_sync_archive.sync_group_id,
-                            pin = send_sync_archive.pin(),
-                            error = %e
-                        )
-                    })?;
             }
             Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
                 pending,

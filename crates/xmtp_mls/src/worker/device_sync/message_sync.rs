@@ -1,7 +1,6 @@
 use super::*;
 use crate::Client;
 use crate::XmtpApi;
-use xmtp_configuration::DeviceSyncUrls;
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group::StoredGroup;
 use xmtp_db::group_message::MsgQueryArgs;

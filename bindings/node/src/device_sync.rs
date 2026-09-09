@@ -5,7 +5,7 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
-  ArchiveOptions as XmtpArchiveOptions, AvailableArchive, BackupElementSelection, DeviceSyncError,
+  ArchiveOptions as XmtpArchiveOptions, BackupElementSelection, DeviceSyncError,
   archive::{
     ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
   },
@@ -115,24 +115,6 @@ impl From<BackupMetadata> for ArchiveMetadata {
   }
 }
 
-/// An available archive in the sync group
-#[napi(object)]
-pub struct AvailableArchiveInfo {
-  pub pin: String,
-  pub metadata: ArchiveMetadata,
-  pub sent_by_installation: Uint8Array,
-}
-
-impl From<AvailableArchive> for AvailableArchiveInfo {
-  fn from(value: AvailableArchive) -> Self {
-    Self {
-      pin: value.pin,
-      metadata: value.metadata.into(),
-      sent_by_installation: Uint8Array::from(value.sent_by_installation.as_slice()),
-    }
-  }
-}
-
 fn check_key(key: &Uint8Array) -> Result<Vec<u8>> {
   let key_vec: Vec<u8> = key.to_vec();
   if key_vec.len() < 32 {
@@ -155,68 +137,6 @@ pub struct DeviceSync {
 impl DeviceSync {
   pub fn new(inner_client: Arc<RustXmtpClient>) -> Self {
     Self { inner_client }
-  }
-
-  /// Manually trigger a device sync request to sync records from another active device on this account.
-  #[napi]
-  #[xmtp_common::err_span]
-  pub async fn send_sync_request(&self, options: ArchiveOptions, server_url: String) -> Result<()> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_request(options.into(), server_url)
-      .await
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(())
-  }
-
-  /// Manually send a sync archive to the sync group.
-  /// The pin is used for reference when importing.
-  #[napi]
-  #[xmtp_common::err_span]
-  pub async fn send_sync_archive(
-    &self,
-    options: ArchiveOptions,
-    server_url: String,
-    pin: String,
-  ) -> Result<()> {
-    self
-      .inner_client
-      .device_sync_client()
-      .send_sync_archive(&options.into(), &server_url, &pin)
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(())
-  }
-
-  /// Manually process a sync archive that matches the pin given.
-  /// If no pin is given, then it will process the last archive sent.
-  #[napi]
-  #[xmtp_common::err_span]
-  pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<()> {
-    self
-      .inner_client
-      .device_sync_client()
-      .process_archive_with_pin(archive_pin.as_deref())
-      .await
-      .map_err(ErrorWrapper::from)?;
-    Ok(())
-  }
-
-  /// List the archives available for import in the sync group.
-  /// You may need to manually sync the sync group before calling
-  /// this function to see recently uploaded archives.
-  #[napi]
-  #[xmtp_common::err_span]
-  pub fn list_available_archives(&self, days_cutoff: i64) -> Result<Vec<AvailableArchiveInfo>> {
-    let available = self
-      .inner_client
-      .device_sync_client()
-      .list_available_archives(days_cutoff)
-      .map_err(ErrorWrapper::from)?;
-
-    Ok(available.into_iter().map(Into::into).collect())
   }
 
   /// Archive application elements to file for later restoration.

@@ -15,7 +15,6 @@ fn codegen_configure(mut builder: Builder) -> Builder {
     for package in [
         "xmtp.backend.v1",
         "xmtp.identity.api.v1",
-        "xmtp.mls_validation.v1",
         "xmtp.message_api.v1",
         "xmtp.mls.api.v1",
         "xmtp.xmtpv4",

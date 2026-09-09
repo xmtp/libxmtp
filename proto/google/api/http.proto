@@ -49,7 +49,7 @@ message Http {
 // APIs](https://github.com/googleapis/googleapis),
 // [Cloud Endpoints](https://cloud.google.com/endpoints), [gRPC
 // Gateway](https://github.com/grpc-ecosystem/grpc-gateway),
-// and [Envoy](https://github.com/envoyproxy/envoy) proxy support this feature
+// proxies support this feature
 // and use it for large scale production services.
 //
 // `HttpRule` defines the schema of the gRPC/REST mapping. The mapping specifies

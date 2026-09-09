@@ -2,57 +2,38 @@
   "containers": [
     {
       "name": "db",
-      "image": "postgres:16",
-      "env": {
-        "POSTGRES_PASSWORD": "xmtp"
-      },
-      "healthchecks": [
-        {
-          "exec": {
-            "command": ["pg_isready", "-U", "postgres"]
-          },
-          "interval": 5,
-          "timeout": 3,
-          "grace_period": 10
-        }
-      ]
-    },
-    {
-      "name": "mlsdb",
-      "image": "postgres:16",
+      "image": "postgres:18.6",
       "env": {
         "POSTGRES_PASSWORD": "xmtp",
-        "PGPORT": "5433"
+        "POSTGRES_USER": "xmtp",
+        "POSTGRES_DB": "xmtp_backend"
       },
       "healthchecks": [
         {
           "exec": {
-            "command": ["pg_isready", "-U", "postgres", "-p", "5433"]
+            "command": [
+              "pg_isready",
+              "-U",
+              "xmtp",
+              "-d",
+              "xmtp_backend"
+            ]
           },
           "interval": 5,
           "timeout": 3,
           "grace_period": 10
-        }
-      ]
-    },
-    {
-      "name": "validation",
-      "image": "ghcr.io/xmtp/mls-validation-service:main",
-      "healthchecks": [
-        {
-          "tcp": {
-            "port": 50051
-          },
-          "interval": 5,
-          "timeout": 3,
-          "grace_period": 15
         }
       ]
     },
     {
       "name": "anvil",
       "image": "ghcr.io/foundry-rs/foundry",
-      "cmd": ["anvil", "--host", "0.0.0.0"],
+      "cmd": [
+        "--host",
+        "0.0.0.0",
+        "--base-fee",
+        "100"
+      ],
       "healthchecks": [
         {
           "tcp": {
@@ -62,47 +43,32 @@
           "timeout": 3,
           "grace_period": 10
         }
+      ],
+      "entrypoint": [
+        "anvil"
       ]
     },
     {
-      "name": "history-server",
-      "image": "ghcr.io/xmtp/message-history-server:main",
-      "healthchecks": [
-        {
-          "tcp": {
-            "port": 5558
-          },
-          "interval": 5,
-          "timeout": 3,
-          "grace_period": 15
-        }
-      ]
-    },
-    {
-      "name": "node",
-      "image": "ghcr.io/xmtp/node-go:main",
+      "name": "backend",
+      "image": "ghcr.io/xmtp/backend:self-hosted",
       "env": {
-        "GOWAKU-NODEKEY": "8a30dcb604b0b53627a5adc054dbf434b446628d4bd1eccc681d223f0550ce67"
+        "XMTP_DATABASE_URL": "postgres://xmtp:xmtp@localhost:5432/xmtp_backend",
+        "XMTP_CHAIN_31337_URL": "http://localhost:8545"
       },
       "cmd": [
-        "--store.enable",
-        "--store.db-connection-string=postgres://postgres:xmtp@localhost:5432/postgres?sslmode=disable",
-        "--store.reader-db-connection-string=postgres://postgres:xmtp@localhost:5432/postgres?sslmode=disable",
-        "--mls-store.db-connection-string=postgres://postgres:xmtp@localhost:5433/postgres?sslmode=disable",
-        "--mls-validation.grpc-address=localhost:50051",
-        "--api.enable-mls",
-        "--wait-for-db=30s",
-        "--api.authn.enable"
+        "--config",
+        "/config.toml"
       ],
       "depends_on": [
-        { "name": "db", "condition": "healthy" },
-        { "name": "mlsdb", "condition": "healthy" },
-        { "name": "validation", "condition": "healthy" }
+        {
+          "name": "db",
+          "condition": "healthy"
+        }
       ],
       "healthchecks": [
         {
           "tcp": {
-            "port": 5556
+            "port": 5050
           },
           "interval": 5,
           "timeout": 3,
@@ -113,30 +79,19 @@
   ],
   "services": [
     {
-      "internal_port": 5556,
+      "internal_port": 5050,
       "protocol": "tcp",
       "ports": [
         {
           "port": 443,
-          "handlers": ["tls", "http"],
+          "handlers": [
+            "tls",
+            "http"
+          ],
           "tls_options": {
-            "alpn": ["h2"]
-          },
-          "http_options": {
-            "h2_backend": true
-          }
-        }
-      ]
-    },
-    {
-      "internal_port": 5558,
-      "protocol": "tcp",
-      "ports": [
-        {
-          "port": 5558,
-          "handlers": ["tls", "http"],
-          "tls_options": {
-            "alpn": ["h2"]
+            "alpn": [
+              "h2"
+            ]
           },
           "http_options": {
             "h2_backend": true

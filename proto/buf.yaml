@@ -23,7 +23,6 @@ lint:
       - message_api/v1/message_api.proto
       - identity/api/v1/identity.proto
       - mls/api/v1/mls.proto
-      - mls_validation/v1/service.proto
       - migration/api/v1/migration.proto
       - xmtpv4/message_api/message_api.proto
       - xmtpv4/message_api/query_api.proto
@@ -35,7 +34,6 @@ lint:
     RPC_REQUEST_STANDARD_NAME:
       - message_api/v1/message_api.proto
       - migration/api/v1/migration.proto
-      - mls_validation/v1/service.proto
       - xmtpv4/metadata_api/metadata_api.proto
     RPC_RESPONSE_STANDARD_NAME:
       - backend/v1/backend.proto

@@ -597,7 +597,7 @@ let group_ids_needing_sync = filter_groups_with_new_messages(last_synced_cursors
 
 **Downstream fan-out.** `sync_all_welcomes_and_groups` (`welcome_sync.rs:400-434`) then runs `sync_groups_in_batches(filtered_groups, 10)` — `stream::iter(...).for_each_concurrent(10, ...)`, so **at most 10 concurrent group syncs**, each issuing one `query_group_messages` plus possibly `get_identity_updates_v2` and `send_group_messages`.
 
-**But `sync_all_groups` (`welcome_sync.rs:243-283`), the other entry point, uses an unbounded `FuturesUnordered`** — no concurrency limit at all. Called from `sync_all_welcomes_and_history_sync_groups` (`welcome_sync.rs:305-327`) and from the public SDK surface (`crates/xmtp_mls/src/client.rs:1143`).
+**But `sync_all_groups` (`welcome_sync.rs:243-283`), the other entry point, uses an unbounded `FuturesUnordered`** — no concurrency limit at all. Called from the public `sync_all_welcomes_and_device_sync_groups` SDK surface.
 
 **Other conversation-list uses of "newest message".** Conversation list ordering by last message is served **from the local DB** (`db.fetch_conversation_list(query_args)`), not from the network. There is no network call for list ordering. `query_latest_group_message` has **no non-test call sites** in `xmtp_mls` — its only occurrence is `crates/xmtp_mls/src/subscriptions/bidi_fuzz_tests.rs:467`. `get_newest_message_metadata` has entirely replaced it.
 
@@ -1086,20 +1086,9 @@ Bidi welcome processing is capped (`stream_router.rs:98`): `MAX_WELCOME_TASKS = 
 
 ### 5.14 Device sync / archive
 
-Device sync moves history between a user's own installations. Its archive payloads go to a **separate history server**, not the message backend:
+Device sync coordinates state between a user's own installations through an ordinary MLS sync group. `all_sync_groups()` in `sync_all_welcomes_and_device_sync_groups` syncs them with the same `query_group_messages` path as any other group. The device-sync worker is poked through `SyncWorkerEvent::NewSyncGroupMsg`.
 
-```rust
-// crates/xmtp_configuration/src/common/api.rs:20-24
-impl DeviceSyncUrls {
-    pub const LOCAL_ADDRESS: &'static str = "http://0.0.0.0:5558";
-    pub const DEV_ADDRESS: &'static str = "https://message-history.dev.ephemera.network";
-    pub const PRODUCTION_ADDRESS: &'static str = "https://message-history.ephemera.network";
-}
-```
-
-Its coordination happens **through an ordinary MLS sync group** — `all_sync_groups()` in `sync_all_welcomes_and_history_sync_groups` (`crates/xmtp_mls/src/groups/welcome_sync.rs:305-327`) syncs them with the same `query_group_messages` path as any other group. The device-sync worker is poked via `SyncWorkerEvent::NewSyncGroupMsg`.
-
-**So device sync places no new requirements on the message backend beyond ordinary group messaging.** **[UNVERIFIED: whether the history server is in scope for the self-hosted project. `project.md` does not mention it.]**
+Device sync places no new requirements on the message backend beyond ordinary group messaging.
 
 ### 5.15 v4-only endpoints
 

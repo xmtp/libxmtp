@@ -1,6 +1,6 @@
 name: release-gate-plan
 
-# Reusable: cross-test gate + version oracle (the nightly "plan"). Computes the
+# Reusable: version oracle (the nightly "plan"). Computes the
 # pending libxmtp {version,kind}, caps at minor, asserts not-major, prints the
 # plan. Does NO publishing. Called by release.yml (real nightly) and
 # nightly-dry-run.yml (manual preview) so both run identical logic.
@@ -28,7 +28,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
-      gate-skip: ${{ steps.gate.outputs.gate-skip }}
+      # Phase 3 deleted the cross-version test harness: it compares two
+      # post-transition releases and none exist yet, so there is no result to
+      # gate on. Releases stay disabled (`release.yml` is guarded off), which is
+      # what keeps this safe. Phase 4.9 restores the harness and must derive
+      # this value from its result again before any release is re-enabled.
+      gate-skip: "false"
     steps:
       - uses: actions/checkout@v6
         with:
@@ -47,25 +52,6 @@ jobs:
           # which ignored a dispatched inputs.ref and gated the wrong commit.)
           SHA=$(git rev-parse HEAD)
           echo "sha=$SHA" >> "$GITHUB_OUTPUT"
-      - name: Evaluate cross-test gate
-        id: gate
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ steps.sha.outputs.sha }}
-        run: |
-          set -euo pipefail
-          gh api "repos/${REPO}/actions/workflows/cross-test.yml/runs?head_sha=${SHA}&status=completed" > /tmp/cross-runs.json
-          RESULT=$(xmtp-release cross-test-gate --input=/tmp/cross-runs.json --sha "$SHA")
-          PASS=$(printf '%s' "$RESULT" | jq -r '.pass')
-          if [ "$PASS" = "true" ]; then
-            echo "gate-skip=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::cross-test green for ${SHA}; nightly may proceed."
-          else
-            REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
-            echo "gate-skip=true" >> "$GITHUB_OUTPUT"
-            echo "::notice::Nightly skipped — ${REASON}"
-          fi
 
   pending:
     needs: [gate]

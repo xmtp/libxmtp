@@ -4544,30 +4544,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "headers"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "headers-core",
- "http 1.4.2",
- "httpdate",
- "mime",
- "sha1 0.10.7",
-]
-
-[[package]]
-name = "headers-core"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
-dependencies = [
- "http 1.4.2",
-]
-
-[[package]]
 name = "heapless"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6112,16 +6088,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
-name = "mime_guess"
-version = "2.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7c44f8e672c00fe5308fa235f821cb4198414e1c77935c1ab6948d3fd78550e"
-dependencies = [
- "mime",
- "unicase",
-]
-
-[[package]]
 name = "minicov"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6194,28 +6160,6 @@ dependencies = [
  "module-lattice",
  "rand_core 0.10.1",
  "sha3 0.11.0",
-]
-
-[[package]]
-name = "mls_validation_service"
-version = "1.12.0-dev"
-dependencies = [
- "alloy",
- "clap",
- "const-hex",
- "futures",
- "rstest",
- "thiserror 2.0.19",
- "tokio",
- "tonic",
- "tracing",
- "tracing-subscriber",
- "vergen-gix",
- "warp",
- "xmtp_common",
- "xmtp_id",
- "xmtp_mls_validation",
- "xmtp_proto",
 ]
 
 [[package]]
@@ -8489,12 +8433,6 @@ dependencies = [
  "serde_derive_internals",
  "syn 2.0.119",
 ]
-
-[[package]]
-name = "scoped-tls"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "scopeguard"
@@ -10846,35 +10784,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "warp"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0a808122a8a77eecdabaefd88ddb1913c4be5ea1465399f63ba64c7aa705fea"
-dependencies = [
- "bytes",
- "futures-util",
- "headers",
- "http 1.4.2",
- "http-body 1.1.0",
- "http-body-util",
- "hyper 1.11.0",
- "hyper-util",
- "log",
- "mime",
- "mime_guess",
- "percent-encoding",
- "pin-project",
- "scoped-tls",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "tokio",
- "tokio-util",
- "tower-service",
- "tracing",
-]
-
-[[package]]
 name = "wasi"
 version = "0.11.1+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11510,8 +11419,6 @@ dependencies = [
  "cc",
  "chrono",
  "cipher",
- "clap",
- "clap_builder",
  "const-hex",
  "crossbeam-utils",
  "crypto-common 0.1.7",
@@ -11583,7 +11490,6 @@ dependencies = [
  "serde_core",
  "serde_json",
  "serde_spanned",
- "sha1 0.10.7",
  "sha2 0.10.9",
  "slab",
  "smallvec",
@@ -11724,7 +11630,6 @@ dependencies = [
  "openmls",
  "pin-project",
  "prost",
- "reqwest 0.13.4",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.19",
@@ -12058,7 +11963,6 @@ dependencies = [
  "proptest",
  "prost",
  "rand 0.10.2",
- "reqwest 0.13.4",
  "rstest",
  "rstest_reuse",
  "semver 1.0.28",
