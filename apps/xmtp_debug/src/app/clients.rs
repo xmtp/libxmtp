@@ -11,11 +11,9 @@ use crate::app::types::*;
 use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
 use xmtp_mls::builder::DeviceSyncMode;
-use xmtp_mls::cursor_store::SqliteCursorStore;
 
 pub async fn new_unregistered_client(
     wallet: Option<&types::EthereumWallet>,
@@ -25,8 +23,7 @@ pub async fn new_unregistered_client(
 
 /// Like [`new_unregistered_client`] but targets the supplied backend
 /// instead of the process-global `App::network()`. Use this when one
-/// xdbg run needs to talk to more than one network (e.g. the v3→d14n
-/// identity-continuity test).
+/// xdbg run needs to use more than one backend.
 pub async fn new_unregistered_client_for(
     wallet: Option<&types::EthereumWallet>,
     backend: &crate::args::BackendOpts,
@@ -91,7 +88,7 @@ async fn new_client_inner(
     db_path: Option<PathBuf>,
     network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
-    let api = network.client_bundle()?;
+    let api = network.connect()?;
     let ident = wallet.get_identifier()?;
     let inbox_id = ident.inbox_id(XDBG_ID_NONCE)?;
 
@@ -113,10 +110,6 @@ async fn new_client_inner(
         .build_unencrypted()?;
     db.db().set_sqlcipher_log("NONE")?;
     let db = EncryptedMessageStore::new(db)?;
-    let cursor_store = Arc::new(SqliteCursorStore::new(db.db()));
-    let mut backend = MessageBackendBuilder::default();
-    backend.cursor_store(cursor_store);
-    let api = backend.from_bundle(api)?;
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::new(
         inbox_id,
@@ -168,7 +161,7 @@ fn existing_client_inner_for(
     db_path: PathBuf,
     network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
-    let api = network.client_bundle()?;
+    let api = network.connect()?;
     let path = db_path.clone().into_os_string().into_string().unwrap();
 
     let db = NativeDb::builder()
@@ -186,10 +179,6 @@ fn existing_client_inner_for(
     let store = EncryptedMessageStore::new(db).inspect_err(|e| {
         error!(db_path = %(&db_path.as_path().display()), "{e}");
     })?;
-    let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
-    let mut backend = MessageBackendBuilder::default();
-    backend.cursor_store(cursor_store);
-    let api = backend.from_bundle(api)?;
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
         .api_client(api)

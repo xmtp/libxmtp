@@ -29,7 +29,6 @@ impl Generate {
             invite,
             message_opts,
             concurrency,
-            ryow,
             ..
         } = opts;
 
@@ -77,7 +76,7 @@ impl Generate {
                 let db = App::db()?;
                 let start = Instant::now();
                 GenerateIdentity::new(db.into())
-                    .create_identities(*amount, **concurrency, *ryow)
+                    .create_identities(*amount, **concurrency)
                     .await?;
                 let elapsed = start.elapsed();
                 let per_op = elapsed.as_millis() as f64 / *amount as f64;
