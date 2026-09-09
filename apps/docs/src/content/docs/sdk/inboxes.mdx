@@ -1,0 +1,175 @@
+---
+title: Inboxes
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+With XMTP, a user can have one or more **inboxes** they use to access their messages. An inbox ID is a stable identifier for a user's messaging identity and is used as the destination for messages in direct message and group conversations. It is derived from the public key material in their key package.
+
+An inbox can have multiple **identities** associated with it. An identity has a kind, such as EOA or SCW, and a string, which in the case of an EOA or SCW, is an Ethereum address.
+
+All messages associated with these identities flow through the one inbox ID and are accessible in any XMTP app.
+
+The first time someone uses your app with an identity they've never used with any app built with XMTP, your app creates an inbox ID and **installation** associated with the identity. To do this, you [create a client](/sdk/client/) for their identity.
+
+:::tip[Agent installations]
+The installation concepts described in this document apply to both inbox apps and agents. However, the context differs. **Inbox apps** typically have installations across different devices and apps (phone, laptop, different XMTP apps), while **agents** typically have a single installation that is persisted.
+:::
+
+The client creates an inbox ID and installation ID associated with the identity. By default, this identity is designated as the recovery identity. A recovery identity will always have the same inbox ID and cannot be reassigned to a different inbox ID.
+
+![Diagram showing creation of an inbox and installation](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/create-inbox-install.png)
+
+When you make subsequent calls to create a client for the same identity and a local database is not present, the client uses the same inbox ID, but creates a new installation ID.
+
+An inbox ID can have up to 10 app installations before it needs to [revoke installations](#manage-installations).
+
+![Diagram showing an added installation](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/add-installation.png)
+
+You can enable a user to add multiple identities to their inbox. Added identities use the same inbox ID and the installation ID of the installation used to add the identity.
+
+![Diagram showing an added identity](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/add-id.png)
+
+You can enable a user to remove an identity from their inbox. You cannot remove the recovery identity.
+
+## Update and installation limits
+
+### Inbox update limit
+
+An inbox ID is limited to 256 inbox updates. Inbox updates include actions like:
+
+- Add a wallet
+- Remove a wallet
+- Add an installation
+- Revoke an installation
+
+:::danger[CRITICAL FOR PRODUCTION]
+Inbox updates are cumulative and **cannot be reversed**. Revoking an installation counts as an update but does not decrease the total count. Once you've performed 256 updates, you've reached the permanent limit for that inbox.
+:::
+
+The backend enforces the limit only when it receives the update. The SDK does not reject it in advance. If the backend rejects an update because the inbox log is full, rotate the inbox ID to continue. Rotation permanently removes access to the old inbox's conversations.
+
+**Why this limit exists:** Every client that interacts with the inbox must fetch and validate its identity updates. In a group, the work increases for every member with a long update history.
+
+### Installation limit
+
+XMTP enforces a 10-installation limit per inbox. When an inbox reaches 10 active installations, the user must revoke at least one installation before adding a new one. This limit keeps group sizes manageable and protects against accidental exhaustion of the inbox update limit.
+
+:::warning[Important]
+The only way to avoid consuming installation updates is to ensure your XMTP database is persisted and reloaded between app sessions and deployments. When you reuse an existing database, you maintain the same installation instead of creating a new one each time.
+:::
+
+Installations accumulate per backend. Deployments that use different backends have separate inboxes and separate counts.
+
+Database files follow the pattern `xmtp-{env}-{inbox-id}.db3`. `env` is only a file-name label. Changing it selects a different database and creates another installation.
+
+### Best practices
+
+1. Reuse the same local database and encryption key on every launch.
+2. Point tests at a backend you can reset. Clear its database when a limit blocks the test.
+3. Revoke unused installations before the active count reaches 10.
+4. Record enough installation data to help a user select the correct device.
+
+### Rotate an inbox ID
+
+Node can set a different `nonce` when it derives an inbox ID. This creates a separate inbox. It does not merge, reset, or replace the original inbox.
+
+## Manage installations
+
+Show a user the installation ID, last activity time, app version, and device data that your app stores. Revoking an installation removes its future access. It does not delete its local copy of earlier messages.
+
+| Task                           | Browser, Node                           | Kotlin, Swift                             |
+| ------------------------------ | --------------------------------------- | ----------------------------------------- |
+| Read inbox state               | `client.inboxState()`                   | `client.inboxState()`                     |
+| Read several inbox states      | `Client.fetchInboxStates(ids, backend)` | `Client.inboxStatesForInboxIds(ids, api)` |
+| Revoke selected installations  | `client.revokeInstallations(ids)`       | `client.revokeInstallations(ids)`         |
+| Revoke all other installations | `client.revokeAllOtherInstallations()`  | `client.revokeAllOtherInstallations()`    |
+
+Static state lookup and revocation can run without a logged-in client. Browser and Node take a reusable backend made with `createBackend`. On mobile, pass `ClientOptions.Api(backendUrl: …)`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="inboxes-browser.ts" region="manage"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="inboxes-node.ts" region="manage"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val state = client.inboxState(refreshFromNetwork = true)
+val states = Client.inboxStatesForInboxIds(inboxIds, api)
+client.revokeInstallations(installationIds)
+client.revokeAllOtherInstallations()
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let state = try await client.inboxState(refreshFromNetwork: true)
+let states = try await Client.inboxStatesForInboxIds(inboxIds: inboxIds, api: api)
+try await client.revokeInstallations(installationIds: installationIds)
+try await client.revokeAllOtherInstallations()
+```
+
+</TabItem>
+</Tabs>
+
+If the user cannot open any active installation, build the required signature request from the inbox state, ask the recovery identity to sign it, and submit it through the static revoke call.
+
+## Add an identity
+
+:::warning
+Adding an identity that already belongs to another inbox silently removes it from that inbox. The user loses access through that identity to the former inbox.
+:::
+
+Browser and Node call `unsafe_addAccount(signer, true)`. Kotlin and Swift call `addAccount(identity)`. Both perform the same irreversible reassignment when the identity already belongs to another inbox.
+
+## Remove an identity
+
+:::tip
+You cannot remove the recovery identity.
+:::
+
+Use `removeAccount` with the identity to remove. The removal needs signatures that the SDK requests through the signer.
+
+## Select an identity to display
+
+When an inbox has multiple associated identities, the `identities` array is ordered by the `client_timestamp_ns` field, which sorts identities based on when they were added to the inbox, placing the earliest added identity first.
+
+For UI display purposes, use the only identity when there is one. Otherwise, use the first non-recovery identity in the ordered array.
+
+## FAQ
+
+### What happens when a user removes an identity?
+
+If the user removes an identity from the inbox, the identity no longer has access to the inbox it was removed from.
+
+![An identity removed from an inbox](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/removed-id.png)
+
+The identity can no longer be added to or used to access conversations in that inbox. If someone sends a message to the identity, the message is not associated with the original inbox. If the user logs in to a new installation with the identity, this will create a new inbox ID.
+
+### How is the recovery identity used?
+
+The recovery identity and its signer can be used to sign transactions that remove identities and revoke installations. An added identity cannot remove the recovery identity because it does not control the recovery signer.
+
+### Can two inboxes be combined?
+
+There is no way to combine two inboxes. Adding an identity from inbox 2 to inbox 1 moves the identity to inbox 1. It then loses access to inbox 2.
+
+![Moving an identity between inboxes](https://raw.githubusercontent.com/xmtp/docs-xmtp-org/refs/heads/main/docs/pages/img/two-inbox-remap-id.png)
+
+To help users avoid this state, ensure that your UX surfaces their ability to add multiple identities to a single inbox.
+
+### Does an associated identity open the existing inbox?
+
+The identity accesses that inbox ID and does not create a new inbox ID. If it is reassigned to a different inbox, it can no longer open the former inbox.

@@ -1,0 +1,36 @@
+---
+title: Extend the identity model
+---
+
+XMTP is designed with a flexible identity model that can be extended over time without introducing breaking changes for existing apps.
+
+This document provides a general blueprint for how to extend XMTP to non-EVM platforms where identities are controlled by public keys, such as Solana, Bitcoin, Zcash, and others.
+
+## Why non-EVM chains need an extension
+
+EVM externally owned accounts use secp256k1 ECDSA and work without extra configuration. EVM smart contract wallets need a configured chain RPC endpoint. A non-EVM chain needs a new identifier kind and signature verifier.
+
+## Inbox identity updates
+
+An XMTP inbox groups identities and installations under one inbox ID. An identity update can add or remove an identity. Existing inbox members and new members sign the update as required by the action.
+
+Every identity type has two important jobs:
+
+1. It needs to provide a unique public identifier (an address or public key) others can use to reach the inbox
+2. It needs to provide a way to prove ownership of that identifier
+
+## Add an identity type
+
+1. Define the identifier format in the Rust identity module.
+2. Add its wire representation to the identity protocol messages in `proto/`.
+3. Implement typed signature input and verification in `xmtp_id`.
+4. Add the new identifier and signature types to each binding and SDK.
+5. Add tests for valid signatures, invalid signatures, malformed identifiers, and mixed-version identity updates.
+
+Use the existing identifier and verified-signature implementations as the source pattern. New identifier support must not weaken validation for existing Ethereum identifiers.
+
+Older clients discard identity updates that contain an identifier type they cannot process. Plan the rollout so a user does not depend on the new type until all required clients support it.
+
+## Permission limits
+
+A new identity type can be associated with an inbox. It cannot create an inbox, add installations, add other identifiers, or act as the recovery identity unless its design and verifier explicitly support those capabilities.

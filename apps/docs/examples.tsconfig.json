@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "typeRoots": ["../../sdks/js/node_modules/@types"],
+    "paths": {
+      "@xmtp/node-sdk": ["../../sdks/js/node-sdk/dist/index.d.ts"],
+      "@xmtp/browser-sdk": ["../../sdks/js/browser-sdk/dist/index.d.ts"],
+      "@xmtp/agent-sdk": ["../../sdks/js/agent-sdk/dist/index.d.ts"],
+      "@xmtp/agent-sdk/*": ["../../sdks/js/agent-sdk/dist/index.d.ts"],
+      "@xmtp/content-type-primitives": [
+        "../../sdks/js/node_modules/@xmtp/content-type-primitives"
+      ],
+      "@xmtp/*": ["../../sdks/js/node_modules/@xmtp/*"],
+      "viem": ["../../sdks/js/node_modules/viem"],
+      "viem/*": ["../../sdks/js/node_modules/viem/*"]
+    }
+  },
+  "include": ["examples/**/*.ts"]
+}

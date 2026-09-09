@@ -2,4 +2,4 @@ version: 1
 builder:
   configs:
     - platform: ios
-      documentation_targets: [XMTP]
+      documentation_targets: [XMTPiOS]

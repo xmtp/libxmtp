@@ -97,7 +97,7 @@ public struct InboxCapabilities {
 /// installation that doesn't.
 ///
 /// Read it with ``Group/membershipCapabilities()``; drive the upgrade with
-/// ``UnstableGroup/enableProposals(force:minVersion:)`` (via
+/// `UnstableGroup.enableProposals(force:minVersion:)` (via
 /// `@_spi(Unstable) import XMTPiOS`).
 public struct GroupMembershipCapabilities {
 	let ffi: FfiGroupMembershipCapabilities

@@ -1,0 +1,103 @@
+---
+title: Backups
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Support archive-based backups to give your users an easy and durable way to back up their XMTP conversations, messages, and consent preferences from one app installation and import them into another.
+
+When an archive-based backup is imported into an installation, **all imported conversations start off as inactive, with history visible and in read-only mode**. This is as intended by Messaging Layer Security (MLS), which ensures that there is no way to join a conversation without the permission of an existing member. As such, imported conversations will be inactive until the new installation is added to the conversation by an active member. This process happens invisibly and automatically as other members of the group come online and send or receive messages.
+
+This feature includes three core methods:
+
+- `createArchive` creates an encrypted archive.
+- `archiveMetadata` reads metadata before import.
+- `importArchive` imports an archive into the current installation.
+
+Browser uses in-memory `Uint8Array` data. Node, Kotlin, and Swift use a file path. Supply a key of at least 32 bytes. The SDK uses the first 32 bytes. Store the key separately from the archive.
+
+## Create an archive
+
+The options can limit the time range and include messages, consent records, or both. `excludeDisappearingMessages` defaults to `false`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="backups-browser.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+client.createArchive(
+    path = "/path/to/archive.xmtp",
+    encryptionKey = encryptionKey,
+    opts = ArchiveOptions(excludeDisappearingMessages = true)
+)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+try await client.createArchive(
+  path: "/path/to/archive.xmtp",
+  encryptionKey: encryptionKey,
+  opts: ArchiveOptions(excludeDisappearingMessages: true)
+)
+```
+
+</TabItem>
+</Tabs>
+
+## Read metadata
+
+`archiveMetadata` returns `startNs`, `endNs`, `elements`, and `exportedAtNs`. Browser takes archive bytes and a key. Node, Kotlin, and Swift take a file path and a key.
+
+## Import an archive
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="backups-node.ts" region="import"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="backups-browser.ts" region="import"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+client.importArchive(path = "/path/to/archive.xmtp", encryptionKey = encryptionKey)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+try await client.importArchive(path: "/path/to/archive.xmtp", encryptionKey: encryptionKey)
+```
+
+</TabItem>
+</Tabs>
+
+The archive import is **additive**, not destructive: existing messages are preserved, and duplicate messages are ignored.
+
+## Handle inactive conversations
+
+Attempting to send or sync on an inactive conversation throws a `Group is inactive` error. Show imported inactive conversations as read-only. An active member or another active installation can add the new installation when it sends a message or syncs the conversation.

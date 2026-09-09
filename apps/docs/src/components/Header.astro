@@ -1,0 +1,17 @@
+---
+import Header from "@astrojs/starlight/components/Header.astro";
+const sections = [
+  ["Get started", "/get-started/quickstart/"],
+  ["SDK guide", "/sdk/client/"],
+  ["Content types", "/content-types/overview/"],
+  ["Agents", "/agents/quickstart/"],
+  ["Protocol", "/protocol/overview/"],
+  ["Specs", "/specs/001-backend-api/"],
+  ["Reference", "/reference/limits/"],
+];
+---
+
+<Header {...Astro.props} />
+<nav class="section-nav" aria-label="Sections">
+  {sections.map(([label, href]) => <a href={href}>{label}</a>)}
+</nav>

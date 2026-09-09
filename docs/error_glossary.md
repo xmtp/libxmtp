@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**30 error types** across **10 crates** with **342 total error codes**.
+**32 error types** across **10 crates** with **347 total error codes**.
 
 ## mobile
 
@@ -18,12 +18,30 @@ This document lists all error codes defined in LibXMTP, the core library underly
 | `GenericError::FailedToConvertToU32` | Failed to convert to u32. Numeric conversion failed. Not retryable. |
 | `GenericError::JoinError` | Join error. Tokio task join failed. Not retryable. |
 | `GenericError::IoError` | I/O error. File or network I/O failed. May be retryable. |
-| `GenericError::LogInit` | Log init error. Failed to initialize log file. Not retryable. |
-| `GenericError::ReloadLog` | Reload log error. Failed to reload log subscriber. Not retryable. |
 | `GenericError::Log` | Log error. Error initializing debug log file. Not retryable. |
 | `GenericError::Expired` | Timer expired. Operation timed out. Retryable. |
+| `GenericError::BackendBuilder` | Backend configuration failed. This error is not retryable. |
+| `GenericError::Level` | Log Level failed to parse because it was invalid |
+
+## node
+
+### BackendBuilderError <sub>struct</sub>
+
+<small>`bindings/node/src/client/backend.rs`</small>
+
+Backend configuration failed. This error is not retryable.
+
+**Error code:** `BackendBuilderError`
 
 ## wasm
+
+### BackendBuilderError <sub>struct</sub>
+
+<small>`bindings/wasm/src/client/backend.rs`</small>
+
+Backend configuration failed. This error is not retryable.
+
+**Error code:** `BackendBuilderError`
 
 ### ContentTypeError <sub>enum</sub>
 
@@ -51,28 +69,16 @@ when surfaced to JavaScript.
 | Error Code | Description |
 |:-----------|:------------|
 | `ApiError::Api` | API client error. API operation error (network, deserialization, or other). May be retryable. |
-| `ApiError::MismatchedKeyPackages` | Mismatched key packages. Number of key packages doesn't match installation keys. Not retryable. |
+| `ApiError::IdentityUpdateConflict` | The backend rejected a stale identity update. Not retryable here. |
+| `ApiError::HashMismatch` | The backend hash differs from the retained envelope hash. Not retryable. |
+| `ApiError::EnvelopeTooLarge` | One envelope exceeds the configured byte limit. Not retryable. |
+| `ApiError::UnitTooLarge` | One atomic publish unit exceeds a request limit. Not retryable. |
+| `ApiError::ResponseTooLarge` | A single-topic response still exceeds a backend limit. Not retryable. |
+| `ApiError::InvalidRequest` | The request has invalid input. Not retryable. |
+| `ApiError::InvalidResponse` | A response does not match the request. Not retryable. |
+| `ApiError::InvalidEnvelope` | The payload cannot be parsed. Not retryable. |
+| `ApiError::Envelope` | A returned backend envelope cannot be decoded. Not retryable. |
 | `ApiError::ProtoConversion` | Proto conversion error. Protobuf conversion failed. Not retryable. |
-
-## xmtp_api_d14n
-
-### MessageBackendBuilderError <sub>enum</sub>
-
-<small>`crates/xmtp_api_d14n/src/queries/builder.rs`</small>
-
-| Error Code | Description |
-|:-----------|:------------|
-| `MessageBackendBuilderError::MissingXmtpdHost` | Missing XMTPD host. XMTPD host was not set on the builder. Not retryable. |
-| `MessageBackendBuilderError::MissingV3Host` | Missing V3 host. V3 host was not set on the builder. Not retryable. |
-| `MessageBackendBuilderError::GrpcBuilder` | gRPC builder error. gRPC client builder failed. Not retryable. |
-| `MessageBackendBuilderError::MultiNode` | Multi-node error. Multi-node client builder failed. Not retryable. |
-| `MessageBackendBuilderError::Scw` | SCW verifier error. Smart contract wallet verifier error. Not retryable. |
-| `MessageBackendBuilderError::CursorStoreNotReplaced` | Cursor store not replaced. Stateful client cursor store not set. Not retryable. |
-| `MessageBackendBuilderError::UninitializedField` | Read/write client builder error. Read/write client builder failed. Not retryable. |
-| `MessageBackendBuilderError::ReadonlyBuilder` | Readonly builder error. Readonly client builder failed. Not retryable. |
-| `MessageBackendBuilderError::Builder` | Builder error. Uninitialized field in builder. Not retryable. |
-| `MessageBackendBuilderError::MissingGatewayHost` | Missing XMTP Gateway host. XMTP Gateway host was not set on the builder. Not retryable. |
-| `MessageBackendBuilderError::InvalidUrl` | Invalid host URL given Url is not valid. Not retryable. |
 
 ## xmtp_api_grpc
 
@@ -85,7 +91,6 @@ when surfaced to JavaScript.
 | `GrpcBuilderError::MissingAppVersion` | Missing app version. App version not set on builder. Not retryable. |
 | `GrpcBuilderError::MissingLibxmtpVersion` | Missing LibXMTP version. Core library version not set. Not retryable. |
 | `GrpcBuilderError::MissingHostUrl` | Missing host URL. Host URL not set on builder. Not retryable. |
-| `GrpcBuilderError::MissingXmtpdGatewayUrl` | Missing gateway URL. xmtpd gateway URL not set. Not retryable. |
 | `GrpcBuilderError::Metadata` | Metadata error. Invalid gRPC metadata value. Not retryable. |
 | `GrpcBuilderError::InvalidUri` | Invalid URI. URI is malformed. Not retryable. |
 | `GrpcBuilderError::Url` | URL parse error. URL string is malformed. Not retryable. |
@@ -97,14 +102,14 @@ when surfaced to JavaScript.
 
 | Error Code | Description |
 |:-----------|:------------|
-| `GrpcError::InvalidUri` | Invalid URI. URI for channel creation is malformed. Retryable. |
-| `GrpcError::Metadata` | Metadata error. Invalid gRPC metadata value. Retryable. |
-| `GrpcError::Status` | gRPC status error. gRPC call returned error status. Retryable. |
-| `GrpcError::NotFound` | Not found. Requested resource not found, empty, or proto conversion failed. Retryable. |
-| `GrpcError::UnexpectedPayload` | Unexpected payload. Payload not expected in response. Retryable. |
-| `GrpcError::MissingPayload` | Missing payload. Expected payload not in response. Retryable. |
-| `GrpcError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
-| `GrpcError::Unreachable` | Unreachable. Infallible error -- should never occur. Retryable. |
+| `GrpcError::InvalidUri` | Invalid URI. URI for channel creation is malformed. Not retryable. |
+| `GrpcError::Metadata` | Metadata error. Invalid gRPC metadata value. Not retryable. |
+| `GrpcError::Status` | gRPC status error. Retryability depends on the gRPC status code. |
+| `GrpcError::NotFound` | Not found. Requested resource not found, empty, or proto conversion failed. Not retryable. |
+| `GrpcError::UnexpectedPayload` | Unexpected payload. Payload not expected in response. Not retryable. |
+| `GrpcError::MissingPayload` | Missing payload. Expected payload not in response. Not retryable. |
+| `GrpcError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
+| `GrpcError::Unreachable` | Unreachable. Infallible error. Not retryable. |
 | `GrpcError::Transport` | Transport error. gRPC transport layer error (native only). Retryable. |
 
 ## xmtp_db
@@ -138,7 +143,6 @@ when surfaced to JavaScript.
 | `NotFound::IntentForPublish` | Intent for Published not found. Intent with specified ID not in expected state. Retryable. |
 | `NotFound::IntentForCommitted` | Intent for Committed not found. Failed to transition intent from Published to Committed. Retryable. |
 | `NotFound::IntentById` | Intent by ID not found. Intent does not exist. Retryable. |
-| `NotFound::RefreshStateByIdKindAndOriginator` | Refresh state not found. No refresh state matching criteria. Retryable. |
 | `NotFound::CipherSalt` | Cipher salt not found. Database encryption salt missing. Retryable. |
 | `NotFound::SyncGroup` | Sync group not found. No sync group for this installation. Retryable. |
 | `NotFound::KeyPackageReference` | Key package reference not found. Key package handle not in store. Retryable. |
@@ -153,7 +157,7 @@ when surfaced to JavaScript.
 | Error Code | Description |
 |:-----------|:------------|
 | `PlatformStorageError::Pool` | Pool error. Database connection pool error. Retryable. |
-| `PlatformStorageError::DbConnection` | DB connection error. R2D2 connection manager error. Not retryable. |
+| `PlatformStorageError::DbConnection` | DB connection error. R2D2 connection manager error (e.g. a failed `on_acquire` while establishing a connection). Transient — retryable. |
 | `PlatformStorageError::PoolNeedsConnection` | Pool needs connection. Pool must reconnect before use. Retryable. |
 | `PlatformStorageError::PoolRequiresPath` | Pool requires path. DB pool requires a persistent file path. Not retryable. |
 | `PlatformStorageError::SqlCipherNotLoaded` | SQLCipher not loaded. Encryption key given but SQLCipher not available. Retryable. |
@@ -198,13 +202,13 @@ General error type for Mls Storage Trait
 
 | Error Code | Description |
 |:-----------|:------------|
+| `StorageError::PreTransitionDatabase` | The database was created before the backend transition. Not retryable. |
 | `StorageError::DieselConnect` | Diesel connection error. Failed to connect to SQLite. Retryable. |
 | `StorageError::DieselResult` | Diesel result error. Database query returned an error. May be retryable. |
 | `StorageError::MigrationError` | Migration error. Database migration failed. Not retryable. |
 | `StorageError::NotFound` | Not found. Requested record does not exist. Not retryable. |
 | `StorageError::Duplicate` | Duplicate item. Attempted to insert a duplicate record. Not retryable. |
 | `StorageError::OpenMlsStorage` | OpenMLS storage error. OpenMLS key store operation failed. Not retryable. |
-| `StorageError::IntentionalRollback` | Intentional rollback. Transaction was intentionally rolled back. Not retryable. |
 | `StorageError::DbDeserialize` | DB deserialization failed. Failed to deserialize data from database. Not retryable. |
 | `StorageError::DbSerialize` | DB serialization failed. Failed to serialize data for database. Not retryable. |
 | `StorageError::Builder` | Builder error. Required fields missing from stored type. Not retryable. |
@@ -323,6 +327,16 @@ General error type for Mls Storage Trait
 
 ## xmtp_mls
 
+### CatchUpError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/subscriptions/catch_up.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `CatchUpError::TooManyTopics` | The requested set exceeds the backend wire limit. Not retryable. |
+| `CatchUpError::DeadEnd` | Catch-up stream could not open. A wire open no redial can fix, without a capability verdict. The dispatch layer serves the call on the legacy sync path. Not retryable. |
+| `CatchUpError::Exhausted` | Catch-up did not complete. The wire kept dying before catch-up completed. Everything processed before each death is kept; calling again resumes from durable state. Retryable. |
+
 ### ClientBuilderError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/builder.rs`</small>
@@ -362,8 +376,8 @@ General error type for Mls Storage Trait
 | `ClientError::MlsStore` | MLS store error. OpenMLS key store operation failed. Not retryable. |
 | `ClientError::EnrichMessage` | Message enrichment error. Failed to enrich message content. Not retryable. |
 | `ClientError::Conversion` | Conversion Error Data type failed to convert. Not retryable. |
-| `ClientError::RegistrationNotVisible` | Registration not visible. Registration was not visible on the required number of nodes within the timeout. Not retryable. |
-| `ClientError::EnvelopesNotYetVisible` | Envelopes not yet visible. Registration envelopes haven't propagated to the node yet. Retryable. |
+| `ClientError::RegistrationNotVisible` | Registration not visible. Registration has no publish cursor or is not visible before the timeout. Not retryable. |
+| `ClientError::AlreadyClosed` | Client is closed. Operation was attempted on a client that has been shut down via `Client::close`. Not retryable — build a new client instead. |
 
 ### DeviceSyncError <sub>enum</sub>
 
@@ -374,25 +388,18 @@ General error type for Mls Storage Trait
 | `DeviceSyncError::IO` | I/O error. File system or network I/O failed. May be retryable. |
 | `DeviceSyncError::Serde` | Serialization error. JSON serialization/deserialization failed. Retryable. |
 | `DeviceSyncError::AesGcm` | AES-GCM encryption error. Encryption/decryption of sync payload failed. Retryable. |
-| `DeviceSyncError::Reqwest` | HTTP request error. HTTP request for sync payload failed. Retryable. |
 | `DeviceSyncError::Conversion` | Type conversion error. Internal type conversion failed. Retryable. |
 | `DeviceSyncError::UTF8` | UTF-8 error. String is not valid UTF-8. Retryable. |
-| `DeviceSyncError::NoPendingRequest` | No pending request. No pending sync request to reply to. Retryable. |
 | `DeviceSyncError::InvalidPayload` | Invalid payload. Sync message payload is malformed. Retryable. |
 | `DeviceSyncError::UnspecifiedDeviceSyncKind` | Unspecified sync kind. Device sync kind not specified. Not retryable. |
-| `DeviceSyncError::SyncPayloadTooOld` | Sync payload too old. Sync reply is outdated. Retryable. |
 | `DeviceSyncError::Bincode` | Bincode error. Binary serialization failed. Retryable. |
 | `DeviceSyncError::Archive` | Archive error. Sync archive operation failed. Retryable. |
 | `DeviceSyncError::Decode` | Decode error. Protobuf decoding failed. Retryable. |
-| `DeviceSyncError::AlreadyAcknowledged` | Already acknowledged. Sync interaction already acknowledged. Not retryable. |
-| `DeviceSyncError::MissingOptions` | Missing options. Sync request options not provided. Retryable. |
-| `DeviceSyncError::MissingSyncServerUrl` | Missing sync server URL. Sync server URL not configured. Not retryable. |
 | `DeviceSyncError::MissingSyncGroup` | Missing sync group. Sync group not found. Not retryable. |
 | `DeviceSyncError::Sync` | Sync summary. Sync completed with errors. May be retryable. |
 | `DeviceSyncError::MlsStore` | MLS store error. OpenMLS key store operation failed. Retryable. |
 | `DeviceSyncError::Recv` | Receive error. Channel receive failed. Retryable. |
 | `DeviceSyncError::MissingField` | Missing field. Required field not present. Retryable. |
-| `DeviceSyncError::MissingPayload` | Missing payload. Sync payload not found for PIN. Retryable. |
 
 ### EnrichMessageError <sub>enum</sub>
 
@@ -410,7 +417,7 @@ General error type for Mls Storage Trait
 | Error Code | Description |
 |:-----------|:------------|
 | `GroupError::UserLimitExceeded` | Max user limit exceeded. Attempted to add too many members. Not retryable. |
-| `GroupError::MissingSequenceId` | Sequence ID not found. Missing sequence ID in local database. Not retryable. |
+| `GroupError::MissingSequenceId` | Sequence ID not found. No sequence ID for an inbox after an identity-update refresh — its registration hasn't propagated yet. Retryable. |
 | `GroupError::AddressNotFound` | Addresses not found. Specified addresses have no XMTP identity. Not retryable. |
 | `GroupError::WrappedApi` | API error. Network request failed. Retryable. |
 | `GroupError::InvalidGroupMembership` | Invalid group membership. Group membership state is invalid. Not retryable. |
@@ -442,6 +449,13 @@ General error type for Mls Storage Trait
 | `GroupError::CommitToPendingProposals` | Commit to pending proposals error. Failed to commit pending proposals into an MLS commit. May be retryable. |
 | `GroupError::MergePendingCommit` | Merge pending commit error. Failed to merge a pending commit into local state. May be retryable. |
 | `GroupError::ProposalsNotSupported` | Proposals not supported. Encountered a proposal when our client does not support proposals. Not retryable. |
+| `GroupError::MinVersionExceedsOwnVersion` | Caller asked to set `MIN_SUPPORTED_PROTOCOL_VERSION` to a value the caller's own client does not satisfy. Refusing prevents the caller from immediately pausing themselves (and every peer at or below their version) the moment the bump lands. Not retryable. |
+| `GroupError::MinVersionDowngrade` | Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the floor already on the group. Monotonic-only: a downgrade would silently unpause peers between the old and new floors, defeating the gate. Not retryable. |
+| `GroupError::InvalidMinVersion` | Caller passed a `min_version` string that doesn't parse as semver. Surfaces from the send-side paths (`enable_proposals`, `update_group_min_version`) so SDK consumers can `match`-handle malformed input without parsing string-flattened wrappers. Not retryable. |
+| `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
+| `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
+| `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
+| `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |
 | `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
 | `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
 | `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
@@ -452,6 +466,7 @@ General error type for Mls Storage Trait
 | `GroupError::ProcessIntent` | Process intent error. Failed to process group intent. May be retryable. |
 | `GroupError::LockUnavailable` | Failed to load lock. Concurrency lock acquisition failed. Retryable. |
 | `GroupError::TooManyCharacters` | Exceeded max characters. Field value exceeds character limit. Not retryable. |
+| `GroupError::AppDataSuperseded` | A guarded metadata update was abandoned because another member changed the field first. Not retryable as-is: the value was derived from state that no longer exists. Re-derive it from `actual` and queue a new update. Distinct from a sync failure — nothing went wrong, the write is just stale. |
 | `GroupError::GroupPausedUntilUpdate` | Group paused until update. Group is paused until a newer version is available. Not retryable. |
 | `GroupError::GroupInactive` | Group is inactive. Operation on an inactive group. Not retryable. |
 | `GroupError::Sync` | Sync summary. Sync operation completed with errors. May be retryable. |
@@ -510,6 +525,7 @@ Errors that can occur when working with GroupMutablePermissions.
 | `IdentityError::RequiredIdentityNotFound` | Required identity not found. Identity was not found in cache. Not retryable. |
 | `IdentityError::NewIdentity` | New identity creation error. Error creating a new identity. Not retryable. |
 | `IdentityError::Signer` | Signer error. Cryptographic signer failed. Not retryable. |
+| `IdentityError::IdentityUpdate` | Identity publication failed. Retryability depends on the cause. |
 | `IdentityError::TooManyInstallations` | Too many installations. InboxID has reached max installation count. Not retryable. |
 | `IdentityError::InvalidExtension` | Invalid extension error. MLS extension validation failed. Not retryable. |
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
@@ -522,6 +538,7 @@ Errors that can occur when working with GroupMutablePermissions.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `SubscribeError::Router` | Subscribing through the bidi stream router failed. Boxed: RouterError itself wraps SubscribeError, so the cycle needs indirection. |
 | `SubscribeError::Group` | Group error. Group operation failed during subscription. May be retryable. |
 | `SubscribeError::NotFound` | Not found. Subscribed resource not found. Retryable. |
 | `SubscribeError::GroupMessageNotFound` | Group message not found. Expected message missing from database. Retryable. |
@@ -534,7 +551,9 @@ Errors that can occur when working with GroupMutablePermissions.
 | `SubscribeError::BoxError` | Boxed error. Wrapped dynamic error. May be retryable. |
 | `SubscribeError::Db` | Database connection error. Database connection failed. Retryable. |
 | `SubscribeError::Conversion` | Conversion error. Proto conversion failed. Not retryable. |
-| `SubscribeError::Envelope` | Envelope error. Decentralized API envelope error. May be retryable. |
+| `SubscribeError::Envelope` | Envelope error. Invalid backend envelope. Not retryable. |
+| `SubscribeError::Enriched` | Enriched Message Error. |
+| `SubscribeError::StreamStale` | Stream liveness watchdog tripped. No activity arrived within the idle timeout, so the stream was terminated to force a reconnect (resuming from the persisted cursor). Retryable. |
 
 ## xmtp_mls_common
 

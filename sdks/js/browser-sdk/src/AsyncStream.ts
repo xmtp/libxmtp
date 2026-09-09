@@ -1,4 +1,4 @@
-type ResolveValue<T> = {
+export type ResolveValue<T> = {
   value: T;
   done: boolean;
 };

@@ -1,0 +1,80 @@
+---
+title: Stream messages
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+A stream delivers conversations and messages to a callback as they arrive. Streams are infinite. They do not end on their own.
+
+## Stream methods
+
+| Stream                                   | Fires when                            | Value           |
+| ---------------------------------------- | ------------------------------------- | --------------- |
+| `conversations.stream`                   | A conversation is created or received | Conversation    |
+| `conversations.streamGroups`             | A group is created or received        | Group           |
+| `conversations.streamDms`                | A DM is created or received           | DM              |
+| `conversations.streamAllMessages`        | A message arrives in any conversation | Message         |
+| `conversation.stream` / `streamMessages` | A message arrives in one conversation | Message         |
+| `preferences.streamConsent`              | A consent record changes              | Consent record  |
+| `preferences.streamPreferences`          | A preference changes                  | Preference type |
+
+Kotlin and Swift use a `type` filter instead of the separate group and DM stream methods. They name the preference method `streamPreferenceUpdates`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="stream-browser.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="stream-node.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+client.conversations.stream(type = ConversationType.ALL).collect(::handleConversation)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+for try await conversation in client.conversations.stream(type: .all) {
+  handleConversation(conversation)
+}
+```
+
+</TabItem>
+</Tabs>
+
+By default, `streamAll` streams only conversations with a [consent state](/sdk/consent/) of allowed or unknown.
+
+We recommend streaming messages for allowed conversations only. This ensures that spammy conversations with a consent state of unknown don't take up networking resources. This also ensures that unwanted spam messages aren't stored in the user's local database.
+
+:::warning[Important]
+The stream is infinite. Therefore, any looping construct used with the stream won't terminate unless you explicitly initiate the termination. You can initiate the termination by breaking the loop or by making an external call to `return`.
+:::
+
+## Catch-up
+
+When a stream registers a topic, it captures a fixed catch-up target. It delivers every retained envelope above the local cursor through that target, then continues with new envelopes. New publications do not move the target.
+
+A topic is caught up only after the SDK safely processes the range through the target. To receive only live traffic, [sync](/sdk/sync/) before starting the stream.
+
+## Retry
+
+| SDK     | Attempts |     Delay | Automatic                   |
+| ------- | -------: | --------: | --------------------------- |
+| Node    |       10 | 60,000 ms | Yes                         |
+| Browser |        6 | 10,000 ms | Yes                         |
+| Kotlin  |        — |         — | No; restart after `onClose` |
+| Swift   |        — |         — | No; restart after `onClose` |
+
+Set `retryOnFail: false` to turn off Browser or Node retries. Node calls `onFail`; Browser throws.
+
+## Agent SDK events
+
+The Agent SDK wraps Node streams and emits events named for the content type. It also emits `message`, `unknownMessage`, `conversation`, `group`, `dm`, `start`, `stop`, and `unhandledError`. Its additional retry layer uses up to 10 attempts with exponential backoff from 1 second to 30 seconds.

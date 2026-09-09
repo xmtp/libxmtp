@@ -80,7 +80,6 @@ export type StreamValueMutator<T = unknown, V = T> = (
  * @param streamFunction - The stream function to create a stream from
  * @param streamValueMutator - An optional function to mutate the value emitted from the stream
  * @param options - The options for the stream
- * @param args - Additional arguments to pass to the stream function
  * @returns An async iterable stream proxy
  * @throws {StreamInvalidRetryAttemptsError} if the retryAttempts option is less than 0 and retryOnFail is true
  * @throws {StreamFailedError} if the stream fails and can't be restarted

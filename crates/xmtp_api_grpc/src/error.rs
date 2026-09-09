@@ -19,11 +19,6 @@ pub enum GrpcBuilderError {
     /// Host URL not set on builder. Not retryable.
     #[error("host url required to create client")]
     MissingHostUrl,
-    /// Missing gateway URL.
-    ///
-    /// xmtpd gateway URL not set. Not retryable.
-    #[error("xmtpd gateway url required to create client")]
-    MissingXmtpdGatewayUrl,
     /// Metadata error.
     ///
     /// Invalid gRPC metadata value. Not retryable.

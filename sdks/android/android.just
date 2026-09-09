@@ -25,6 +25,10 @@ test: build
 test-integration: build
   run-test-emulator && ./gradlew -p . connectedCheck --continue
 
+# Generate the public Kotlin API reference.
+docs: build
+  ./gradlew -p . :library:dokkaGeneratePublicationHtml
+
 # Build native bindings
 build:
   ./dev/bindings

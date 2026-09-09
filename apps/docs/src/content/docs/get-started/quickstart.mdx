@@ -1,0 +1,211 @@
+---
+title: Build a quickstart chat app
+description: Build a small XMTP chat app and send messages.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Follow this tutorial to build a quickstart chat app with XMTP.
+
+When you build your quickstart app, you will use a key pair to create an identity and register it with XMTP. This gives you an inbox ID, which is a stable identifier that serves as the destination for your messages.
+
+## 1. Install the SDK
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```sh
+npm install @xmtp/browser-sdk viem
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```sh
+npm install @xmtp/node-sdk viem
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+Follow the [Android installation instructions](/get-started/install/).
+
+</TabItem>
+<TabItem label="Swift">
+
+Follow the [Swift installation instructions](/get-started/install/).
+
+</TabItem>
+</Tabs>
+
+## 2. Create a signer and client
+
+The signer must return the account identifier and sign messages as bytes.
+`backendUrl` is required. Use the URL of your running backend. These examples
+create temporary identities for testing. Do not use their key lifecycle in a
+production app: store the signer key and database encryption key securely and
+reuse them with the same database on later launches.
+
+The Browser and Node blocks come from compiled source files. They are checked
+against the SDK types during the docs build. The mobile examples create a second
+client so that the message recipient is registered on the same backend.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="quickstart-browser.ts" region="client"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="quickstart-node.ts" region="client"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+import android.content.Context
+import java.security.SecureRandom
+import org.xmtp.android.library.Client
+import org.xmtp.android.library.ClientOptions
+import org.xmtp.android.library.messages.PrivateKeyBuilder
+
+suspend fun createDemoClient(context: Context, backendUrl: String): Client {
+    val signingKey = PrivateKeyBuilder()
+    val keyBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
+    return Client.create(
+        account = signingKey,
+        options = ClientOptions(
+            api = ClientOptions.Api(backendUrl = backendUrl),
+            appContext = context.applicationContext,
+            dbEncryptionKey = keyBytes
+        )
+    )
+}
+
+// Run in a coroutine in your Android Activity.
+val backendUrl = "https://xmtp.example.com"
+val client = createDemoClient(applicationContext, backendUrl)
+val recipient = createDemoClient(applicationContext, backendUrl)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+import Foundation
+import Security
+import XMTPiOS
+
+func createDemoClient(backendUrl: String) async throws -> Client {
+  let signingKey = try PrivateKey.generate()
+  var keyBytes = Data(count: 32)
+  let status = keyBytes.withUnsafeMutableBytes { bytes in
+    SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
+  }
+  guard status == errSecSuccess else {
+    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+  }
+  return try await Client.create(
+    account: signingKey,
+    options: ClientOptions(
+      api: .init(backendUrl: backendUrl),
+      dbEncryptionKey: keyBytes
+    )
+  )
+}
+
+// Run from an async context, such as a SwiftUI task.
+let backendUrl = "https://xmtp.example.com"
+let client = try await createDemoClient(backendUrl: backendUrl)
+let recipient = try await createDemoClient(backendUrl: backendUrl)
+```
+
+</TabItem>
+</Tabs>
+
+## 3. Send a message
+
+Create a conversation and send a text message. For Browser and Node, use the
+inbox ID printed by a second running client on the same backend. For Kotlin and
+Swift, use the recipient client created in the preceding step.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="quickstart-browser.ts" region="send"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="quickstart-node.ts" region="send"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val group = client.conversations.newGroup(inboxIds = listOf(recipient.inboxId))
+group.send(text = "Hello everyone")
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let group = try await client.conversations.newGroup(with: [recipient.inboxID])
+try await group.send(content: "Hello everyone")
+```
+
+</TabItem>
+</Tabs>
+
+With XMTP, sending a message delivers it to the backend, but doesn't automatically update the local UI (unless you use [optimistic sending](/sdk/send-messages/#optimistically-send-messages)).
+
+## 4. Stream messages
+
+Use `streamAllMessages` to receive new messages. Use `syncAll` to fetch new welcomes, preference updates, conversations, and messages.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="quickstart-browser.ts" region="stream"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="quickstart-node.ts" region="stream"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+client.conversations.syncAllConversations()
+client.conversations.streamAllMessages().collect { message ->
+    println("New message: $message")
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+try await client.conversations.syncAllConversations()
+for try await message in try await client.conversations.streamAllMessages() {
+  print("New message: \(message)")
+}
+```
+
+</TabItem>
+</Tabs>

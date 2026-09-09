@@ -11,6 +11,7 @@ just ios lint                           # swiftlint + swiftformat --lint
 just ios format
 just ios test                           # bindings + macOS Swift tests
 just ios test-simulator                 # bindings + iOS simulator tests
+just ios docs                           # bindings + static DocC reference
 NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XMTPTests.ClientTests/testCreatesAClient'   # one test, from repo root
 ```
 

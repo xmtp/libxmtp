@@ -1,0 +1,108 @@
+---
+title: Understand content types with XMTP
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+When you build an app with XMTP, all messages are encoded with a content type to ensure that an XMTP client knows how to encode and decode messages, ensuring interoperability and consistent display of messages across apps.
+
+In addition, message payloads are transported as a set of bytes. This means that payloads can carry any content type that a client supports, such as plain text, JSON, or even non-text binary or media content.
+
+## Content type reference
+
+Every content type ID has the form `authorityId/typeId:versionMajor.versionMinor`. A message carries its encoded payload plus a `fallback` string and a `shouldPush` flag.
+
+| Content type                | Type ID                                    | Payload                                       | Fallback                               | `shouldPush`                                                     | Platforms             |
+| --------------------------- | ------------------------------------------ | --------------------------------------------- | -------------------------------------- | ---------------------------------------------------------------- | --------------------- |
+| Text                        | `xmtp.org/text:1.0`                        | UTF-8 bytes and an `encoding` parameter       | None                                   | `true`                                                           | All                   |
+| Markdown                    | `xmtp.org/markdown:1.0`                    | UTF-8 bytes and an `encoding` parameter       | None                                   | `true`                                                           | Browser, Node         |
+| Reply                       | `xmtp.org/reply:1.0`                       | Nested `EncodedContent` and a reference       | Text replies describe the reply target | `true`                                                           | All                   |
+| Reaction                    | `xmtp.org/reaction:2.0`                    | `Reaction` protobuf                           | Describes the reaction and target      | `false` in Rust; Kotlin and Swift use `true` for added reactions | All                   |
+| Read receipt                | `xmtp.org/readReceipt:1.0`                 | Empty                                         | None                                   | `false`                                                          | All                   |
+| Attachment                  | `xmtp.org/attachment:1.0`                  | Raw bytes; MIME type and file name parameters | Names the unsupported file             | `true`                                                           | All                   |
+| Remote attachment           | `xmtp.org/remoteStaticAttachment:1.0`      | URL bytes and decryption parameters           | Names the unsupported file             | `true`                                                           | All                   |
+| Multiple remote attachments | `xmtp.org/multiRemoteStaticAttachment:1.0` | `MultiRemoteAttachment` protobuf              | Describes unsupported attachments      | `true`                                                           | All                   |
+| Group update                | `xmtp.org/group_updated:1.0`               | `GroupUpdated` protobuf                       | None                                   | Codec: `false`; locally stored message: `true`                   | All                   |
+| Transaction reference       | `xmtp.org/transactionReference:1.0`        | `TransactionReference` protobuf               | None                                   | `true`                                                           | All                   |
+| Wallet send calls           | `xmtp.org/walletSendCalls:1.0`             | `WalletSendCalls` protobuf                    | None                                   | `true`                                                           | Browser, Node, Kotlin |
+| Delete message              | `xmtp.org/deleteMessage:1.0`               | Deleted message reference                     | None                                   | `false`                                                          | All                   |
+| Leave request               | `xmtp.org/leave_request:1.0`               | `LeaveRequest` protobuf                       | None                                   | `false`                                                          | All                   |
+| Actions                     | `coinbase.com/actions:1.0`                 | JSON-encoded `Actions`                        | Numbered action list                   | `true`                                                           | Browser, Node         |
+| Intent                      | `coinbase.com/intent:1.0`                  | JSON-encoded `Intent`                         | Names the selected action              | `true`                                                           | Browser, Node         |
+
+Browser and Node register the listed codecs by default. Legacy Kotlin and Swift message APIs register text by default and can require `Client.register(codec:)` or `options.codecs` for other types. Enriched native message APIs decode a separate built-in set. Swift enriched messages can decode Markdown, Actions, Intent, and Wallet send calls even though Swift has no sender codec for them.
+
+## Fallback and unsupported content
+
+When building with XMTP, you can't know in advance whether a recipient's app will support a given content type, especially a custom one. Likewise, your own app might receive messages with content types it doesn't support.
+
+To prevent a poor user experience or app crashes, you should use the `fallback` property.
+
+**For sending:** When sending a message with a custom content type, always provide a `fallback` string. This string offers a human-readable representation of the content. If the recipient's app doesn't support your custom type, it can display the `fallback` text instead.
+
+**For receiving:** When your app receives a message, check if it supports the message's `contentType`. If not, render the `fallback` text.
+
+However, some content types, especially those not meant for display (like read receipts), won't have a `fallback`. In these `undefined` cases, you should generally ignore the message entirely. Displaying a generic "unsupported content" message for every silent background event would create a poor user experience and clutter the chat. The code examples below show how to handle both scenarios.
+
+<Tabs syncKey="sdk">
+  <TabItem label="Browser">
+    ```js
+    // if message content is undefined, it means the content type is not supported
+    // in this client
+    if (message.content === undefined) {
+      // return the fallback text, which may also be undefined
+      return message.fallback;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Node">
+    ```js
+    // if message content is undefined, it means the content type is not supported
+    // in this client
+    if (message.content === undefined) {
+      // return the fallback text, which may also be undefined
+      return message.fallback;
+    }
+    ```
+  </TabItem>
+  <TabItem label="Kotlin">
+    ```kotlin
+    if (message.encodedContent.type !in supportedContentTypes) {
+      return message.fallback.takeIf { it.isNotEmpty() }
+    }
+    ```
+  </TabItem>
+  <TabItem label="Swift">
+    ```swift
+    let contentType = try message.encodedContent.type
+    if !supportedContentTypes.contains(contentType) {
+      let fallback = try message.fallback
+      return fallback.isEmpty ? nil : fallback
+    }
+    ```
+  </TabItem>
+</Tabs>
+
+Kotlin and Swift do not expose the same missing-codec signal as JavaScript. Compare the public content type ID with the types that your renderer supports. A mobile registry can fall back to a text codec, so a registry lookup is not a valid support check.
+
+## Custom content types
+
+Custom content types allow you to define your own schemas for messages that go beyond what is covered by standard content types. These are useful for experiments, domain-specific features, or app-specific behaviors.
+
+### Writing custom codecs
+
+A content type needs a codec which must satisfy the `ContentCodec` interface from `@xmtp/content-type-primitives`.
+
+Example:
+
+```ts source="content-types-overview.ts" region="example1"
+
+```
+
+### Registering custom codecs
+
+Pass codec instances to `Agent.create()`:
+
+```ts source="content-types-overview.ts" region="example2"
+
+```

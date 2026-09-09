@@ -1,0 +1,51 @@
+{
+  "name": "@xmtp/docs",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "astro dev --host 127.0.0.1",
+    "build": "npm run check:examples && astro build",
+    "check:examples": "node scripts/check-ts-regions.mjs && node --test tests/sdk-examples.integration.mjs",
+    "preview": "astro preview --host 127.0.0.1",
+    "lint": "eslint . && markdownlint '**/*.md' '**/*.mdx' --ignore node_modules --ignore dist --ignore .astro --ignore generated --ignore '_site/**' --ignore 'src/content/docs/reference/*-sdk/**' --ignore CLAUDE.md",
+    "format": "prettier --write .",
+    "format-check": "prettier --check .",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "playwright test"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "^7.3.1",
+    "@astrojs/starlight": "0.42.0",
+    "astro": "7.3.2",
+    "rehype-mermaid": "3.0.0",
+    "starlight-links-validator": "0.26.0",
+    "starlight-llms-txt": "0.11.0",
+    "starlight-typedoc": "0.23.1",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.13.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@playwright/test": "1.61.1",
+    "eslint": "^9.39.0",
+    "eslint-plugin-astro": "^1.5.0",
+    "expressive-code": "0.41.7",
+    "expressive-code-twoslash": "^0.6.1",
+    "globals": "^16.5.0",
+    "lighthouse": "^13.0.0",
+    "markdownlint-cli": "0.49.1",
+    "pinata": "^2.5.6",
+    "prettier": "^3.6.2",
+    "prettier-plugin-astro": "^0.14.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0"
+  },
+  "overrides": {
+    "playwright": "1.61.1",
+    "playwright-core": "1.61.1"
+  }
+}

@@ -1,0 +1,83 @@
+---
+title: Conversations and group chats
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+The first step to creating a conversation is to verify that participants' identities are reachable on XMTP. The `canMessage` method checks each identity's compatibility, returning a response indicating whether each identity can receive messages.
+
+Once you have the verified identities, you can create a new conversation, whether it's a group chat or direct message (DM).
+
+## Check if an identity is reachable
+
+`Client.canMessage(identifiers)` works without a client. An existing client also has `canMessage`. Browser and Node return a `Map`; Kotlin and Swift return a dictionary keyed by identifier.
+
+## Create a group
+
+A group chat holds up to 250 members.
+
+| Create by | Browser, Node                                       | Kotlin, Swift                           |
+| --------- | --------------------------------------------------- | --------------------------------------- |
+| Inbox ID  | `conversations.createGroup(inboxIds, options?)`     | `conversations.newGroup(inboxIds, …)`   |
+| Identity  | `createGroupWithIdentifiers(identifiers, options?)` | `newGroupWithIdentities(identities, …)` |
+
+Set the group name, description, image URL, app data, permissions, and disappearing-message settings at creation. See [Groups](/sdk/groups/).
+
+## Optimistically create a group
+
+Optimistic group creation enables you to prepare a group and messages before you know its members. The group stays only in the local database until you add a member. It is not visible to anyone else before that step.
+
+| Platform      | Method                                          |
+| ------------- | ----------------------------------------------- |
+| Browser, Node | `conversations.createGroupOptimistic(options?)` |
+| Kotlin, Swift | `conversations.newGroupOptimistic(…)`           |
+
+Add members, then call `publishMessages()` to publish prepared messages. The Node creation call is synchronous. The other calls are asynchronous.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="conversations-browser.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="conversations-node.ts" region="create"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val group = client.conversations.newGroupOptimistic()
+group.addMembers(listOf(memberInboxId))
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let group = try await client.conversations.newGroupOptimistic()
+try await group.addMembers(inboxIds: [memberInboxId])
+```
+
+</TabItem>
+</Tabs>
+
+## Create a DM
+
+Creating a DM returns the existing conversation if you already have one with that peer. You cannot create a DM with yourself.
+
+| Create by | Browser, Node                                  | Kotlin, Swift                                  |
+| --------- | ---------------------------------------------- | ---------------------------------------------- |
+| Inbox ID  | `conversations.createDm(inboxId, options?)`    | `conversations.findOrCreateDm(peerInboxId, …)` |
+| Identity  | `createDmWithIdentifier(identifier, options?)` | `findOrCreateDmWithIdentity(peerIdentity, …)`  |
+
+Different installations can create separate DMs for the same pair. XMTP stitches these records into one visible DM. A lookup can therefore return a different conversation ID. Do not key app state on a DM conversation ID. See [DM stitching](/sdk/push-notifications/#dm-stitching).
+
+## Agent helpers
+
+The Agent SDK adds `createDmWithAddress`, `createGroupWithAddresses`, and `addMembersWithAddresses`. `getSenderAddress()` resolves the first identifier for the sender and returns `undefined` when none exists.

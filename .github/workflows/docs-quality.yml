@@ -1,0 +1,32 @@
+name: Docs Quality
+
+on:
+  pull_request:
+  push:
+    branches: [main, self-hosted]
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Docs lint, format, and tests
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 15
+    env:
+      NIX_DEVSHELL: docs
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - run: just docs install
+      - run: just docs lint
+      - run: just docs format-check
+      - run: just docs test
+      - name: Lint repository Markdown
+        run: just lint-markdown
+      - name: Check documentation source
+        run: dev/nix-shell 'cd apps/docs && node scripts/check-site.mjs'

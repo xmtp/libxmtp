@@ -1,0 +1,105 @@
+---
+title: Build with XMTP
+description: Securing the world’s freedom to communicate
+template: splash
+hero:
+  title: Build with XMTP
+  tagline: Securing the world’s freedom to communicate
+  actions:
+    - text: Build an app
+      link: /get-started/quickstart/
+      icon: right-arrow
+    - text: Run the backend
+      link: /get-started/run-the-backend/
+      variant: secondary
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+<CardGrid>
+  <LinkCard
+    title="End-to-end encrypted"
+    description="Messages encrypted client-side and only recipients can decrypt them"
+    href="/protocol/overview/"
+  />
+  <LinkCard
+    title="Run your backend"
+    description="Keep durable state in PostgreSQL. Run one backend or several instances."
+    href="/get-started/run-the-backend/"
+  />
+  <LinkCard
+    title="Rich content types"
+    description="Send text, attachments, reactions, read receipts, onchain transactions, and more"
+    href="/content-types/overview/"
+  />
+</CardGrid>
+
+## Identity, inboxes, and installations
+
+Every user has a cryptographic **inbox** identified by an **InboxID**. Wallet
+identities link to an inbox through signed cryptographic associations. Each
+client installation has its own keys and local database.
+
+Each inbox designates a **recovery authority** that can revoke compromised
+associations or transfer control, preventing lockouts when credentials are lost.
+No email or phone number authentication is required.
+
+XMTP supports two conversation formats:
+
+- **1:1 direct messages (DMs)**: Conversations between two participants
+- **Group chats**: Multi-party conversations with configurable permissions and metadata
+
+Both humans and agents can participate in DMs and group chats. Clients must
+connect to the same backend deployment to exchange messages. Separate backend
+deployments do not share inbox or conversation state.
+
+## Consent preferences
+
+Consent preferences are stored on-device and shared through
+[device sync](/sdk/sync/). Your app uses them to filter conversations:
+
+- **Allowed**: Contacts whose messages appear in the main inbox
+- **Unknown**: New contacts requiring acceptance/rejection
+- **Denied**: Blocked contacts whose messages are filtered out
+
+Only the user can see their consent list—blocked contacts are never notified of
+their status. See [User consent](/sdk/consent/).
+
+## Add messaging to your app
+
+Whether you're building a **standalone chat app** or **adding messaging to an
+existing app**, the integration steps are the same.
+
+- **Signer**: Reuse your wallet signer, or generate a key pair for each user.
+  See [Create a signer](/sdk/signer/).
+- **Client lifecycle**: For standalone chat apps, you typically create the XMTP
+  client at app launch. For embedded chat, you can choose to create it only when
+  the user opens the chat feature for the first time.
+- **Identity mapping**: Map each existing user to an XMTP inbox ID. Use
+  [canMessage](/sdk/conversations/#check-if-an-identity-is-reachable) to check
+  whether a user can receive messages.
+
+## Start building today
+
+<CardGrid>
+  <LinkCard
+    title="SDK guide"
+    description="Create a client, send messages, and sync conversations."
+    href="/sdk/client/"
+  />
+  <LinkCard
+    title="Agent SDK"
+    description="Build a messaging agent with Node.js."
+    href="/agents/quickstart/"
+  />
+  <LinkCard
+    title="Protocol"
+    description="Read about identity, message security, topics, and cursors."
+    href="/protocol/overview/"
+  />
+  <LinkCard
+    title="Specifications"
+    description="Read the backend API and streaming contracts."
+    href="/specs/001-backend-api/"
+  />
+</CardGrid>

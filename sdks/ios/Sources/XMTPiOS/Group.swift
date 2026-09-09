@@ -283,7 +283,7 @@ public struct Group: Identifiable, Equatable, Hashable {
 	/// question: an inbox blocks migration when one of its installations'
 	/// ``InstallationCapabilities/supportedExtensions`` does not contain
 	/// ``MlsExtensionType/appDataDictionary``. Pair with
-	/// ``UnstableGroup/enableProposals(force:minVersion:)``.
+	/// `UnstableGroup.enableProposals(force:minVersion:)`.
 	public func membershipCapabilities() async throws -> GroupMembershipCapabilities {
 		try await GroupMembershipCapabilities(ffi: ffiGroup.membershipCapabilities())
 	}

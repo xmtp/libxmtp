@@ -1,0 +1,13 @@
+{
+  "plugins": ["prettier-plugin-astro"],
+  "overrides": [
+    { "files": "*.astro", "options": { "parser": "astro" } },
+    {
+      "files": [
+        "examples/content-types-overview.ts",
+        "examples/content-types-attachments-*.ts"
+      ],
+      "options": { "singleQuote": true }
+    }
+  ]
+}

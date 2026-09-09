@@ -14,6 +14,7 @@ just android lint              # Run Spotless and Android Lint.
 just android format            # Format Kotlin code.
 just android test              # Build bindings and run JVM unit tests.
 just android test-integration  # Build bindings and run tests on an emulator.
+just android docs              # Generate the Kotlin API reference.
 dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testDebugUnitTest --tests org.xmtp.android.library.ClientCacheKeyTest'
 ```
 
