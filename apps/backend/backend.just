@@ -59,3 +59,7 @@ down:
 
 logs *services:
     {{ root }}/dev/docker/compose logs {{ services }}
+
+# Verify client traces, backend metrics, and the local dashboard.
+observe-check:
+    bash {{ root }}/dev/docker/observe-check.sh

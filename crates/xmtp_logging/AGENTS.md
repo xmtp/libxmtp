@@ -30,3 +30,8 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_logging -E 'test(/layers::
 - Feature `metrics` adds only the metrics facade. `span_metrics::SpanMetricsLayer` records one lifetime sample per operation span. Exporters belong to the host application.
 - `LoggingHandle::disable_telemetry` removes OTLP and frees the shared slot. `telemetry_enabled` reports ownership.
 - Tests here use plain test attributes because `xmtp_common` depends on this crate.
+- Backend metrics are recorded in process and do not depend on trace sampling.
+  Tempo client span metrics depend on sampled trace export.
+- Resource attributes are exported verbatim. Never put secrets in them.
+- `just backend observe-check` checks client and backend spans in one trace.
+  See [backend observability](../../docs/backend-observability.md) for configuration and limits.

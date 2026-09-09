@@ -138,11 +138,9 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     ] {
         let collector = OtlpCollector::start().await?;
         let grpc = address();
-        let metrics = if level == "default" {
-            "127.0.0.1:9464".into()
-        } else {
-            address()
-        };
+        // Every case takes a free port. The default listener port may be held by
+        // the local stack, which would make this test depend on `just backend up`.
+        let metrics = address();
         let mut config = format!(
             "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\nmax_drain_duration_ms = {DRAIN_MS}\n"
         );
@@ -152,9 +150,10 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         if level == "json" {
             config.push_str("log_format = 'json'\n");
         }
-        if level != "default" {
-            config.push_str(&format!("[telemetry]\nmetrics_listen = {metrics:?}\n"));
-        }
+        // The "default" case keeps every other telemetry key absent. It still names
+        // a free listener, because the documented default port may be taken by the
+        // local stack. `config::tests` covers the default value itself.
+        config.push_str(&format!("[telemetry]\nmetrics_listen = {metrics:?}\n"));
         if level == "unsampled" {
             config.push_str("sample_ratio = 0.0\n");
         }

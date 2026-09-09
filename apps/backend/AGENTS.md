@@ -17,6 +17,7 @@ just backend test --lib config         # one module
 just backend test --lib https_passthrough # HTTPS streaming ingress check
 just backend image                     # host architecture image
 just backend up                        # SDK and observability services
+just backend observe-check             # client operations, shared trace, metrics, Grafana
 just backend down                      # stop the shared stack
 just backend logs backend tempo
 just lint-rust
@@ -64,6 +65,15 @@ state. Keep guards short and never hold one across an await point.
 Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
 with `--log-level`. `server.request_logger` defaults to true and logs completion,
 including stream termination. Never log payloads, topic values, or auth headers.
+
+`server.log_format` selects `text` (default) or `json`. `[telemetry]` sets the
+metrics listener, OTLP endpoint, log export, service name, sample ratio, and
+resource attributes. `OTEL_EXPORTER_OTLP_ENDPOINT` is the endpoint fallback.
+The stack includes `db`, `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`,
+`prometheus`, and `grafana`. See [observability](../../docs/backend-observability.md).
+`src/telemetry.rs` owns `CATALOGUE`. Keep its types and help text equal to the
+architecture spec and observability guide; the catalogue test checks both.
+Backend metrics do not depend on trace sampling. Client span metrics do.
 
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`

@@ -87,6 +87,13 @@ jobs:
             -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
             ghcr.io/xmtp/backend:self-hosted --config /config.toml
           dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'
+      - name: Verify observability
+        if: matrix.arch == 'amd64'
+        run: |
+          docker rm --force backend-smoke
+          just backend down
+          just backend up
+          just backend observe-check
       - name: Backend logs and cleanup
         if: always()
         run: |

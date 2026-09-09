@@ -38,6 +38,11 @@ The startup script prints a hint if that project still holds port 55432.
 
 ## Local observability
 
+Run `just backend observe-check` after `just backend up`. It checks real client
+operations, both services in one trace, backend metrics, and the dashboard.
+See [backend observability](../backend-observability.md) for configuration,
+the metric catalogue, span names, failure modes, alerts, and client walkthroughs.
+
 - Grafana: <http://127.0.0.1:3000>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
 - Prometheus: <http://127.0.0.1:9090>. It scrapes the backend and Tempo every five seconds and evaluates 25 alert rules.
 - Backend metrics: <http://127.0.0.1:9464/metrics>.
@@ -104,6 +109,13 @@ Accepted stream mutations log added and removed topic counts at INFO. They do
 not log topic values or payloads. Turning off the request logger suppresses only
 completion events; use a higher log level to suppress INFO mutation events too.
 The local stack configures the OTLP endpoint for Tempo.
+
+`server.log_format` selects `text` (default) or `json`. `[telemetry]` configures
+the metrics listener, OTLP endpoint, optional log export, service name, sample
+ratio, and resource attributes. An absent endpoint uses
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Resource attributes are exported verbatim; never
+put secrets in them. Backend metrics do not depend on trace sampling.
+Tempo-derived client metrics depend on `sample_ratio` and successful export.
 
 ## Schema changes and builds
 

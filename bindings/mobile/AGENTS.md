@@ -23,6 +23,14 @@ just ios build                          # xcframework + Swift bindings, via Nix
 
 ## Conventions
 
+`enable_otlp_telemetry(FfiOtlpConfig)` enables OTLP gRPC trace export. Configure
+endpoint, optional service name, sample ratio, and resource attributes. The shared
+logger initializes on first use. Disable Sentry before enabling OTLP if it owns
+the telemetry slot. `flush_telemetry` flushes before background or exit;
+`disable_otlp_telemetry` stops export. Never put secrets in resource attributes.
+See [backend observability](../../docs/backend-observability.md) for a trace walkthrough.
+`just backend observe-check` checks propagation with xdbg against the full stack.
+
 A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a shared crate.
 
 - Errors (both in `src/lib.rs`, no `error.rs`): `:34 GenericError` (variants use `#[from]` + `#[error_code(inherit)]`) and `:147 FfiError` (`#[uniffi(flat_error)]`). A blanket `impl<T: Into<GenericError>> From<T> for FfiError` (`:167`) means a new core error only needs a `GenericError` variant. `Display for FfiError` (`:151`) emits `"[{error_code}] {message}"`, which is how the mobile SDKs read the code. Do not write a new conversion for an error that has an `ErrorCode`. Callback errors (`src/inbox_owner.rs:9`) keep their own conversion.

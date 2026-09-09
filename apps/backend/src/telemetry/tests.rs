@@ -14,6 +14,16 @@ fn catalogue_matches_documented_types_and_help_for_every_metric() {
         .filter(|line| line.starts_with("| `"))
         .collect();
     assert_eq!(names.len(), CATALOGUE.len());
+    let guide = include_str!("../../../../docs/backend-observability.md");
+    let guide_rows: Vec<_> = guide
+        .split("## Metric catalogue")
+        .nth(1)?
+        .split("## Span names")
+        .next()?
+        .lines()
+        .filter(|line| line.starts_with("| `"))
+        .collect();
+    assert_eq!(guide_rows.len(), CATALOGUE.len());
     let recorder = recorder_builder()?.build_recorder();
     let handle = recorder.handle();
     metrics::with_local_recorder(&recorder, describe);
@@ -29,6 +39,16 @@ fn catalogue_matches_documented_types_and_help_for_every_metric() {
         assert!(
             names.contains(&format!("| `{}` | {kind} | {} |", spec.name, spec.help).as_str()),
             "{}",
+            spec.name
+        );
+        let prefix = format!("| `{}` | {kind} | {} |", spec.name, spec.help);
+        assert_eq!(
+            guide_rows
+                .iter()
+                .filter(|row| row.starts_with(&prefix))
+                .count(),
+            1,
+            "{} must appear once in the observability guide",
             spec.name
         );
         let key = metrics::Key::from_static_name(spec.name);

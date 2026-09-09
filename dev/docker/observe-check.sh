@@ -1,0 +1,148 @@
+#!/usr/bin/env bash
+# Run through `just backend observe-check` so build tools come from Nix.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+cargo build --locked --quiet -p xdbg || { echo 'FAIL: build xdbg' >&2; exit 1; }
+export OBSERVE_XDBG
+OBSERVE_XDBG="$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"] + "/debug/xdbg")')"
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.parse
+import urllib.request
+
+ASSERTION_TIMEOUT_SECONDS = 60
+POLL_INTERVAL_SECONDS = 1
+HTTP_TIMEOUT_SECONDS = 5
+TEMPO = "http://127.0.0.1:3200"
+PROMETHEUS = "http://127.0.0.1:9090"
+GRAFANA = "http://127.0.0.1:3000"
+
+
+def get(url, deadline, decode=True):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("assertion deadline reached")
+    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=min(HTTP_TIMEOUT_SECONDS, remaining)) as response:
+        body = response.read().decode()
+    return json.loads(body) if decode else body
+
+
+def check(name, assertion):
+    deadline = time.monotonic() + ASSERTION_TIMEOUT_SECONDS
+    detail = "condition is false"
+    while time.monotonic() < deadline:
+        try:
+            if assertion(deadline):
+                print(f"PASS: {name}", flush=True)
+                return
+            detail = "condition is false"
+        except Exception as error:
+            detail = str(error)
+        time.sleep(min(POLL_INTERVAL_SECONDS, max(0, deadline - time.monotonic())))
+    sys.exit(f"FAIL: {name} (after {ASSERTION_TIMEOUT_SECONDS}s): {detail}")
+
+
+def ready(url, deadline):
+    get(url, deadline, decode=False)
+    return True
+
+
+def query(expression, deadline):
+    data = get(PROMETHEUS + "/api/v1/query?" + urllib.parse.urlencode({"query": expression}), deadline)
+    return data.get("status") == "success" and bool(data["data"]["result"])
+
+
+check("Tempo ready", lambda d: ready(TEMPO + "/ready", d))
+check("Prometheus ready", lambda d: ready(PROMETHEUS + "/-/ready", d))
+started = int(time.time())
+with tempfile.TemporaryDirectory(prefix="xmtp-observe-") as state:
+    environment = dict(os.environ, XDBG_DB_ROOT=state)
+    client = [os.environ["OBSERVE_XDBG"], "--url", "http://127.0.0.1:5050",
+              "--otel-endpoint", "http://127.0.0.1:4317", "--fail-fast"]
+    for entity, amount, extra in [("identity", 2, []), ("group", 1, ["--invite", "1"]),
+                                  ("message", 10, [])]:
+        # A retry can repeat a partial operation. All state belongs to this run.
+        def generate(deadline, entity=entity, amount=amount, extra=extra):
+            result = subprocess.run(client + ["generate", "--entity", entity, "--amount", str(amount),
+                                    "--concurrency", "1"] + extra, env=environment,
+                                    capture_output=True, text=True,
+                                    timeout=max(0.001, deadline - time.monotonic()))
+            if result.returncode:
+                raise RuntimeError(result.stdout + result.stderr)
+            return True
+        check(f"xdbg {entity}: {amount}", generate)
+
+for name, expression in [
+    ("successful Publish", 'sum(grpc_server_handled_total{grpc_method="Publish",grpc_code="OK"}) > 0'),
+    ("backend ready metric", "xmtp_backend_ready == 1"),
+    ("tailer ready metric", "xmtp_tailer_ready == 1"),
+    ("db.commit_publish duration", 'sum(xmtp_operation_duration_seconds_count{operation="db.commit_publish"}) > 0'),
+]:
+    check(name, lambda d, expression=expression: query(expression, d))
+
+
+def cross_service_trace(deadline):
+    # Tempo rejects `start` without `end`. TraceQL asks for the join directly, so
+    # the search returns only traces that already hold spans from both services.
+    both = '{ resource.service.name="libxmtp" } && { resource.service.name="xmtp-backend" }'
+    search = get(TEMPO + "/api/search?" + urllib.parse.urlencode(
+        {"q": both, "start": started, "end": int(time.time()) + 1, "limit": 20}), deadline)
+    for entry in search.get("traces", []):
+        trace_id = entry["traceID"]
+        trace = get(TEMPO + "/api/traces/" + trace_id, deadline)
+        services = set()
+        # Tempo uses batches; OTLP JSON calls the same records resourceSpans.
+        for batch in trace.get("batches", trace.get("resourceSpans", [])):
+            scopes = batch.get("scopeSpans", batch.get("instrumentationLibrarySpans", []))
+            if not any(scope.get("spans") for scope in scopes):
+                continue
+            for attribute in batch.get("resource", {}).get("attributes", []):
+                if attribute.get("key") == "service.name":
+                    services.add(attribute.get("value", {}).get("stringValue"))
+        if {"libxmtp", "xmtp-backend"} <= services:
+            print(f"Trace: {trace_id}", flush=True)
+            return True
+    return False
+
+
+check("same trace contains libxmtp and xmtp-backend spans", cross_service_trace)
+
+source = Path("apps/backend/src/telemetry.rs").read_text().split("pub const CATALOGUE:", 1)[1].split("];", 1)[0]
+catalogue = re.findall(r'name: "([^"]+)",\s*kind: MetricType::(\w+),\s*help: "([^"]+)"', source)
+if not catalogue:
+    sys.exit("FAIL: parse backend CATALOGUE")
+
+
+def catalogue_metadata(deadline):
+    output = get("http://127.0.0.1:9464/metrics", deadline, decode=False)
+    lines = set(output.splitlines())
+    exercised = 0
+    for name, kind, help_text in catalogue:
+        # Only emitted families were exercised. Error-only and SCW families can be absent.
+        sample = name + ("_count" if kind == "Histogram" else "")
+        if not re.search(r"^" + re.escape(sample) + r"(?:\{|\s)", output, re.M):
+            continue
+        exercised += 1
+        for line in [f"# HELP {name} {help_text}", f"# TYPE {name} {kind.lower()}"]:
+            if line not in lines:
+                raise AssertionError(f"missing {line}")
+    if not exercised:
+        raise AssertionError("no backend CATALOGUE families emitted")
+    print(f"Catalogue: {exercised} exercised families", flush=True)
+    return True
+
+
+check("CATALOGUE HELP and TYPE for exercised metrics", catalogue_metadata)
+check("Grafana health", lambda d: get(GRAFANA + "/api/health", d).get("database") == "ok")
+check("Grafana XMTP Backend dashboard", lambda d: any(
+    item.get("title") == "XMTP Backend" for item in get(GRAFANA + "/api/search?query=XMTP%20Backend", d)))
+print("PASS: observe-check", flush=True)
+PY
