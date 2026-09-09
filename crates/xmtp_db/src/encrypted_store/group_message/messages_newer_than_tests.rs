@@ -9,7 +9,7 @@ use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 #[case(20, vec![])]
 #[case(30, vec![])]
 #[xmtp_common::test(unwrap_try = true)]
-fn messages_newer_than_scalar(#[case] floor: u64, #[case] expected: Vec<u64>) {
+async fn messages_newer_than_scalar(#[case] floor: u64, #[case] expected: Vec<u64>) {
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
