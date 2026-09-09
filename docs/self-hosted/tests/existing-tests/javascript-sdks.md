@@ -69,14 +69,11 @@
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stream all messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream dm messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
-| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
+| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | Vitest; collection and direct group/DM methods; three key records; exact conversation IDs; all prior field assertions retained. | `SHARED-GROUP-REQ-041` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should sync groups across installations | it; active; One source-body scenario. | `JSDK-REQ-067` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | it; active; One source-body scenario. | `SHARED-GROUP-REQ-002` |
 | sdks/js/browser-sdk/test/DebugInformation.test.ts | DebugInformation > should return network API statistics | it; active; One source-body scenario. | `JSDK-REQ-126` |
 | sdks/js/browser-sdk/test/DeviceSync.test.ts | DeviceSync > should sync consent across installations | it; active; Two installations; repeated toggle and poll for Denied, then Allowed. | `JSDK-REQ-123` |
-| sdks/js/browser-sdk/test/DeviceSync.test.ts | DeviceSync > should sync device archive using sendSyncArchive, listAvailableArchives, and processSyncArchive | it; active; Messages and Consent archive; two messages exist before processing; requires at least two after; original-message assertion is conditional on at least three; browser archive-list assertion is inside try/catch | `JSDK-REQ-124` |
-| sdks/js/browser-sdk/test/DeviceSync.test.ts | DeviceSync > should sync messages across installations using sendSyncRequest and syncAllDeviceSyncGroups | it; active; Messages and Consent request with a 90-second round-trip poll. | `SHARED-SYNC-REQ-007` |
-| sdks/js/browser-sdk/test/Dm.test.ts | Dm > should have a topic | it; active; One source-body scenario. | `JSDK-REQ-069` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should create a dm | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-001` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should create a DM with identifier | it; active; One source-body scenario. | `JSDK-REQ-072` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should send and list messages | it; active; One source-body scenario. | `SHARED-GROUP-REQ-026` |
@@ -85,11 +82,8 @@
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should manage consent state | it; active; One source-body scenario. | `SHARED-GROUP-REQ-021` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should handle disappearing messages | it; active; Settings, peer propagation, two expirations, two deletion events, removal metadata, and later persistence. | `SHARED-GROUP-REQ-025` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should return paused for version | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-018` |
-| sdks/js/browser-sdk/test/Dm.test.ts | Dm > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
-| sdks/js/browser-sdk/test/Dm.test.ts | Dm > should get debug info | it; active; Loop over all cursor records. | `JSDK-REQ-080` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should filter messages by content type | it; active; One source-body scenario. | `JSDK-REQ-089` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should count messages with various filters | it; active; Six default, time-window, and content-type count queries. | `JSDK-REQ-082` |
-| sdks/js/browser-sdk/test/Group.test.ts | Group > should have a topic | it; active; One source-body scenario. | `JSDK-REQ-069` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should create a group | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-007` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should create a group with an identifier | it; active; One creation scenario with the input form named by the test. | `JSDK-REQ-072` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should optimistically create a group | it; active; One creation scenario with the input form named by the test. | `JSDK-REQ-083` |
@@ -109,9 +103,6 @@
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should add and remove super admins | it; active; One source-body scenario. | `SHARED-GROUP-REQ-017` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should manage consent state | it; active; One source-body scenario. | `SHARED-GROUP-REQ-021` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should handle disappearing messages | it; active; Settings, peer propagation, two expirations, two deletion events, removal metadata, and later persistence. | `SHARED-GROUP-REQ-025` |
-| sdks/js/browser-sdk/test/Group.test.ts | Group > should return paused for version | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-018` |
-| sdks/js/browser-sdk/test/Group.test.ts | Group > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
-| sdks/js/browser-sdk/test/Group.test.ts | Group > should get debug info | it; active; Loop over all cursor records. | `JSDK-REQ-080` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should count messages with various filters | it; active; Six default, time-window, and content-type count queries. | `JSDK-REQ-082` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should have pending removal state after requesting removal from the group | it; active; One source-body scenario. | `SHARED-GROUP-REQ-014` |
 | sdks/js/browser-sdk/test/Group.test.ts | Group > should remove a member after processing their removal request | it; active; One source-body scenario. | `SHARED-GROUP-REQ-014` |
@@ -168,12 +159,7 @@
 | sdks/js/browser-sdk/test/contentTypes.test.ts | Content types > Custom content types > should have undefined content when receiving custom content without codec | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-120` |
 | sdks/js/browser-sdk/test/contentTypes.test.ts | Content types > Custom content types > should send and receive custom content using an object literal codec | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-119` |
 | sdks/js/browser-sdk/test/contentTypes.test.ts | Content types > Custom content types > should have undefined content when receiving custom content with decode failure | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-120` |
-| sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with default options | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with production env | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with local env | it; active; One source-body scenario. | `JSDK-REQ-047` |
 | sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with appVersion | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with apiUrl override | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/browser-sdk/test/createBackend.test.ts | createBackend > should create a backend with gateway host | it; active; One source-body scenario. | `JSDK-REQ-047` |
 | sdks/js/browser-sdk/test/inboxId.test.ts | generateInboxId > should generate an inbox id | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
 | sdks/js/browser-sdk/test/inboxId.test.ts | getInboxIdForIdentifier > should return `undefined` inbox ID for unregistered address | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
 | sdks/js/browser-sdk/test/inboxId.test.ts | getInboxIdForIdentifier > should return inbox ID for registered address | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
@@ -303,14 +289,11 @@
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stream all messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream dm messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
-| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
+| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | Vitest; collection and direct group/DM methods; three key records; exact conversation IDs; all prior field assertions retained. | `SHARED-GROUP-REQ-041` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should sync groups across installations | it; active; One source-body scenario. | `JSDK-REQ-067` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | it; active; One source-body scenario. | `SHARED-GROUP-REQ-002` |
 | sdks/js/node-sdk/test/DebugInformation.test.ts | DebugInformation > should return network API statistics | it; active; One source-body scenario. | `JSDK-REQ-126` |
 | sdks/js/node-sdk/test/DeviceSync.test.ts | DeviceSync > should sync consent across installations | it; active; Two installations; repeated toggle and poll for Denied, then Allowed. | `JSDK-REQ-123` |
-| sdks/js/node-sdk/test/DeviceSync.test.ts | DeviceSync > should sync device archive using sendSyncArchive, listAvailableArchives, and processSyncArchive | it; active; Messages and Consent archive; two messages exist before processing; requires at least two after; original-message assertion is conditional on at least three; archive list is asserted during retry | `JSDK-REQ-124` |
-| sdks/js/node-sdk/test/DeviceSync.test.ts | DeviceSync > should sync messages across installations using sendSyncRequest and syncAllDeviceSyncGroups | it; active; Messages and Consent request with a 90-second round-trip poll. | `SHARED-SYNC-REQ-007` |
-| sdks/js/node-sdk/test/Dm.test.ts | Dm > should have a topic | it; active; One source-body scenario. | `JSDK-REQ-069` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should create a dm | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-001` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should create a DM with identifier | it; active; One source-body scenario. | `JSDK-REQ-072` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should send and list messages | it; active; One source-body scenario. | `SHARED-GROUP-REQ-026` |
@@ -319,11 +302,8 @@
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should manage consent state | it; active; One source-body scenario. | `SHARED-GROUP-REQ-021` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should handle disappearing messages | it; active; Settings, peer propagation, two expirations, two deletion events, removal metadata, and later persistence. | `SHARED-GROUP-REQ-025` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should return paused for version | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-018` |
-| sdks/js/node-sdk/test/Dm.test.ts | Dm > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
-| sdks/js/node-sdk/test/Dm.test.ts | Dm > should get debug info | it; active; Loop over all cursor records. | `JSDK-REQ-080` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should filter messages by content type | it; active; One source-body scenario. | `JSDK-REQ-089` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should count messages with various filters | it; active; Six default, time-window, and content-type count queries. | `JSDK-REQ-082` |
-| sdks/js/node-sdk/test/Group.test.ts | Group > should have a topic | it; active; One source-body scenario. | `JSDK-REQ-069` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should create a group | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-007` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should create a group with an identifier | it; active; One creation scenario with the input form named by the test. | `JSDK-REQ-072` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should optimistically create a group | it; active; One creation scenario with the input form named by the test. | `JSDK-REQ-083` |
@@ -343,9 +323,6 @@
 | sdks/js/node-sdk/test/Group.test.ts | Group > should add and remove super admins | it; active; One source-body scenario. | `SHARED-GROUP-REQ-017` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should manage consent state | it; active; One source-body scenario. | `SHARED-GROUP-REQ-021` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should handle disappearing messages | it; active; Settings, peer propagation, two expirations, two deletion events, removal metadata, and later persistence. | `SHARED-GROUP-REQ-025` |
-| sdks/js/node-sdk/test/Group.test.ts | Group > should return paused for version | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-018` |
-| sdks/js/node-sdk/test/Group.test.ts | Group > should get hmac keys | it; active; Loop over returned conversation IDs and three key records. | `SHARED-GROUP-REQ-041` |
-| sdks/js/node-sdk/test/Group.test.ts | Group > should get debug info | it; active; Loop over all cursor records. | `JSDK-REQ-080` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should count messages with various filters | it; active; Six default, time-window, and content-type count queries. | `JSDK-REQ-082` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should have pending removal state after requesting removal from the group | it; active; One source-body scenario. | `SHARED-GROUP-REQ-014` |
 | sdks/js/node-sdk/test/Group.test.ts | Group > should remove a member after processing their removal request | it; active; One source-body scenario. | `SHARED-GROUP-REQ-014` |
@@ -389,13 +366,7 @@
 | sdks/js/node-sdk/test/contentTypes.test.ts | Content types > Custom content types > should send and receive custom content | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-119` |
 | sdks/js/node-sdk/test/contentTypes.test.ts | Content types > Custom content types > should have undefined content when receiving custom content without codec | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-120` |
 | sdks/js/node-sdk/test/contentTypes.test.ts | Content types > Custom content types > should have undefined content when receiving custom content with decode failure | it; active; One registered, missing, object-literal, or failing codec variant named by the test. | `JSDK-REQ-120` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with default options | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with a specific env | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with local env | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with gateway host | it; active; One source-body scenario. | `JSDK-REQ-047` |
 | sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with appVersion | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with apiUrl override | it; active; One source-body scenario. | `JSDK-REQ-047` |
-| sdks/js/node-sdk/test/createBackend.test.ts | createBackend > should create a backend with no optional fields | it; active; One source-body scenario. | `JSDK-REQ-047` |
 | sdks/js/node-sdk/test/inboxId.test.ts | generateInboxId > should generate an inbox id | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
 | sdks/js/node-sdk/test/inboxId.test.ts | getInboxIdForIdentifier > should return `undefined` inbox ID for unregistered address | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
 | sdks/js/node-sdk/test/inboxId.test.ts | getInboxIdForIdentifier > should return inbox ID for registered address | it; active; One source-body scenario. | `SHARED-IDENTITY-REQ-001` |
@@ -438,3 +409,16 @@
 | sdks/js/node-sdk/test/validation.test.ts | isHexString > returns true for valid hex strings | it; active; Loop over four valid strings. | `JSDK-REQ-052` |
 | sdks/js/node-sdk/test/validation.test.ts | isHexString > returns false for invalid hex strings | it; active; Loop over five invalid strings. | `JSDK-REQ-052` |
 | sdks/js/node-sdk/test/validation.test.ts | isHexString > returns false for non-string values | it; active; Loop over number, null, undefined, object, and array. | `JSDK-REQ-052` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `sdks/js/node-sdk/test/Client.test.ts` | `Client > should reject client creation without backendUrl` | Vitest; omitted URL at type and runtime boundaries | `P3-CFG-001` |
+| `sdks/js/node-sdk/test/createBackend.test.ts` | `createBackend > should create a backend with an explicit URL` | Vitest; explicit URL; cache key ignores env | `JSDK-REQ-047`, `P3-CFG-002` |
+| `sdks/js/node-sdk/test/createBackend.test.ts` | `createBackend > should key API clients by backend URL and app version only` | Vitest; explicit URL; cache key ignores env | `JSDK-REQ-047`, `P3-CFG-002` |
+| `sdks/js/node-sdk/test/Conversations.test.ts` | `Conversations > should expose topic and debug info for groups and DMs` | Vitest; both real conversation types; exact topic, debug fields, nonempty scalar cursors | `JSDK-REQ-069`, `JSDK-REQ-080` |
+| `sdks/js/browser-sdk/test/Client.test.ts` | `Client > should reject client creation without backendUrl` | Vitest; omitted URL at type and runtime boundaries | `P3-CFG-001` |
+| `sdks/js/browser-sdk/test/createBackend.test.ts` | `createBackend > should create a backend with an explicit URL` | Vitest; explicit URL; cache key ignores env | `JSDK-REQ-047`, `P3-CFG-002` |
+| `sdks/js/browser-sdk/test/createBackend.test.ts` | `createBackend > should key API clients by backend URL and app version only` | Vitest; explicit URL; cache key ignores env | `JSDK-REQ-047`, `P3-CFG-002` |
+| `sdks/js/browser-sdk/test/Conversations.test.ts` | `Conversations > should expose topic and debug info for groups and DMs` | Vitest; both real conversation types; exact topic, debug fields, nonempty scalar cursors | `JSDK-REQ-069`, `JSDK-REQ-080` |

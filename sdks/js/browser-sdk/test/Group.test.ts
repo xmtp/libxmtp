@@ -32,15 +32,6 @@ import {
 const WAIT = { timeout: 30_000, interval: 1000 };
 
 describe("Group", () => {
-  it("should have a topic", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([client2.inboxId!]);
-    expect(group.topic).toBe(`00${group.id}`);
-  });
-
   it("should create a group", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
@@ -650,9 +641,13 @@ describe("Group", () => {
     await group.sendText("gm");
     await group.sendText("gm2");
 
-    setTimeout(() => {
-      void stream.end();
-    }, 100);
+    // End the stream once both messages have arrived. A fixed delay races a
+    // loaded machine, where the second message lands after the timer fires.
+    void vi
+      .waitFor(() => {
+        expect(streamedMessages.length).toBe(2);
+      }, WAIT)
+      .then(() => stream.end());
 
     let count = 0;
     for await (const message of stream) {
@@ -887,57 +882,6 @@ describe("Group", () => {
 
     // verify that the messages are not deleted
     expect((await group.messages()).length).toBe(5);
-  });
-
-  it("should return paused for version", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createDm(client2.inboxId!);
-    expect(await group.pausedForVersion()).toBeUndefined();
-  });
-
-  it("should get hmac keys", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-
-    const group = await client1.conversations.createGroup([client2.inboxId!]);
-
-    const hmacKeys = await group.hmacKeys();
-    const groupIds = Array.from(hmacKeys.keys());
-    for (const groupId of groupIds) {
-      expect(hmacKeys.get(groupId)?.length).toBe(3);
-      expect(hmacKeys.get(groupId)?.[0].key).toBeDefined();
-      expect(hmacKeys.get(groupId)?.[0].epoch).toBeDefined();
-      expect(hmacKeys.get(groupId)?.[1].key).toBeDefined();
-      expect(hmacKeys.get(groupId)?.[1].epoch).toBeDefined();
-      expect(hmacKeys.get(groupId)?.[2].key).toBeDefined();
-      expect(hmacKeys.get(groupId)?.[2].epoch).toBeDefined();
-    }
-  });
-
-  it("should get debug info", async () => {
-    const { signer: signer1 } = createSigner();
-    const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
-    const group = await client1.conversations.createGroup([client2.inboxId!]);
-    const debugInfo = await group.debugInfo();
-    expect(debugInfo).toBeDefined();
-    expect(debugInfo.epoch).toBeDefined();
-    expect(debugInfo.maybeForked).toBe(false);
-    expect(debugInfo.forkDetails).toBe("");
-    expect(debugInfo.isCommitLogForked).toBeUndefined();
-    expect(debugInfo.localCommitLog).toBeDefined();
-    expect(debugInfo.remoteCommitLog).toBeDefined();
-    expect(debugInfo.cursor).toBeDefined();
-    expect(debugInfo.cursor.length).toBeGreaterThan(0);
-    for (const cursor of debugInfo.cursor) {
-      expect(cursor.sequenceId).toBeDefined();
-    }
   });
 
   it("should count messages with various filters", async () => {

@@ -31,6 +31,10 @@ just lint-proto         # Buf checks the local proto/ schemas.
 just validation         # isolated shared validation checks and native/wasm tests.
 ```
 
+The SDK stack contains `db`, `backend`, `anvil`, and `toxiproxy`.
+Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
+`just test` excludes backend database tests; run them with `just backend test`.
+
 `default-members` = `apps/backend`, `bindings/*`, `crates/*`. Other apps: see their `AGENTS.md`.
 
 ## Rules

@@ -72,6 +72,12 @@ data class ClientOptions(
     ) {
         init {
             require(backendUrl.isNotBlank()) { "A backend URL is required" }
+            // `env` only labels the database file, so it must stay one path
+            // component. Without this a value such as "../other" would move the
+            // database outside the directory the caller asked for.
+            require(env.isNotBlank() && env.none { it == '/' || it == '\\' } && env != "." && env != "..") {
+                "env must be a single path component"
+            }
         }
 
         // An absent app version and the literal string "null" must not collide,

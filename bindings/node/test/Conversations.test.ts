@@ -529,14 +529,12 @@ describe('Conversations', () => {
       const errors: Error[] = []
       let closed = false
       const startNewConvo = () =>
-        client2
-          .conversations()
-          .createGroupByIdentity([
-            {
-              identifier: user1.account.address,
-              identifierKind: IdentifierKind.Ethereum,
-            },
-          ])
+        client2.conversations().createGroupByIdentity([
+          {
+            identifier: user1.account.address,
+            identifierKind: IdentifierKind.Ethereum,
+          },
+        ])
       const stream = await client1.client.conversations().stream(
         (error, convo) => {
           if (error) errors.push(error)

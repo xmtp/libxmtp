@@ -4,93 +4,47 @@ use crate::tester;
 use crate::utils::id::calculate_message_id;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 
-/// Test that `prepare_message_for_later_publish` stores messages locally with Unpublished status
-/// and does NOT create an intent to publish.
+/// Prepared messages stay local until an explicit publish. Repeated publish is idempotent.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_prepare_message_stores_unpublished() {
+async fn test_prepared_message_requires_explicit_idempotent_publish() {
     tester!(alix);
     let group = alix.create_group(None, None)?;
-
     let message_id = group.prepare_message_for_later_publish(b"test message", true, None)?;
-
-    let messages = group.find_messages(&MsgQueryArgs {
+    let query = MsgQueryArgs {
         kind: Some(GroupMessageKind::Application),
         ..Default::default()
-    })?;
+    };
 
+    let messages = group.find_messages(&query)?;
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].id, message_id);
     assert_eq!(messages[0].delivery_status, DeliveryStatus::Unpublished);
-}
-
-/// Test that calling `publish_messages` does NOT publish messages created with
-/// `prepare_message_for_later_publish`. Only `publish_stored_message` should publish them.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_publish_messages_does_not_publish_prepared_messages() {
-    tester!(alix);
-    let group = alix.create_group(None, None)?;
-
-    let message_id = group.prepare_message_for_later_publish(b"prepared message", true, None)?;
-
-    // publish_messages should be a no-op for prepared messages (no intent was created)
-    group.publish_messages().await?;
-
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
-
-    assert_eq!(messages.len(), 1);
-    assert_eq!(messages[0].id, message_id);
-    assert_eq!(messages[0].delivery_status, DeliveryStatus::Unpublished);
-}
-
-/// Test that `publish_stored_message` correctly publishes a prepared message.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_publish_stored_message_publishes_prepared_message() {
-    tester!(alix);
-    let group = alix.create_group(None, None)?;
-
-    let message_id = group.prepare_message_for_later_publish(b"test message", true, None)?;
     assert_eq!(
         group.find_messages(&MsgQueryArgs::default())?[0].delivery_status,
         DeliveryStatus::Unpublished
     );
 
-    group.publish_stored_message(&message_id).await?;
-
-    // After sync, the message should be published
-    group.sync().await?;
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
-
+    group.publish_messages().await?;
+    let messages = group.find_messages(&query)?;
     assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].id, message_id);
+    assert_eq!(messages[0].delivery_status, DeliveryStatus::Unpublished);
+
+    group.publish_stored_message(&message_id).await?;
+    group.publish_stored_message(&message_id).await?;
+    group.publish_stored_message(&message_id).await?;
+    group.sync().await?;
+    let messages = group.find_messages(&query)?;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].id, message_id);
     assert_eq!(messages[0].delivery_status, DeliveryStatus::Published);
-}
 
-/// Test that `publish_stored_message` is idempotent - calling it multiple times
-/// on an already published message should be a no-op.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_publish_stored_message_is_idempotent() {
-    tester!(alix);
-    let group = alix.create_group(None, None)?;
-
-    let message_id = group.prepare_message_for_later_publish(b"idempotent test", true, None)?;
-
-    // Publish three times - should not error or create duplicates
     group.publish_stored_message(&message_id).await?;
     group.publish_stored_message(&message_id).await?;
-    group.publish_stored_message(&message_id).await?;
-
     group.sync().await?;
-    let messages = group.find_messages(&MsgQueryArgs {
-        kind: Some(GroupMessageKind::Application),
-        ..Default::default()
-    })?;
-
+    let messages = group.find_messages(&query)?;
     assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].id, message_id);
     assert_eq!(messages[0].delivery_status, DeliveryStatus::Published);
 }
 

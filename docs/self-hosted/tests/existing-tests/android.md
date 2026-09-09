@@ -17,7 +17,7 @@
 | sdks/android/library/src/test/java/org/xmtp/android/library/DbPoolOptionsTest.kt | `DbPoolOptionsTest.defaultsToAllNull` | Host JUnit; active. | `SHARED-IDENTITY-REQ-014` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/DbPoolOptionsTest.kt | `DbPoolOptionsTest.carriesValuesThrough` | Host JUnit; full values. | `SHARED-IDENTITY-REQ-014` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/DbPoolOptionsTest.kt | `DbPoolOptionsTest.acceptsPartialFields` | Host JUnit; max-only value. | `SHARED-IDENTITY-REQ-014` |
-| sdks/android/library/src/test/java/org/xmtp/android/library/ClientCacheKeyTest.kt | `ClientCacheKeyTest.testApiClientCacheKeysDifferentConfigurations` | Host JUnit; 11 assertions across nine inline configuration scenarios; test-local copy of formula. | `ANDROID-REQ-006` |
+| sdks/android/library/src/test/java/org/xmtp/android/library/ClientCacheKeyTest.kt | `ClientCacheKeyTest.testApiClientCacheKeysDifferentConfigurations` | JVM; production toCacheKey; URL and app version change the key; env does not; absent version is null. | `ANDROID-REQ-006`, `P3-CFG-002` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/VisibilityConfirmationOptionsTest.kt | `VisibilityConfirmationOptionsTest.toFfi_mapsAllFields` | Host JUnit; all fields. | `SHARED-IDENTITY-REQ-016` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/VisibilityConfirmationOptionsTest.kt | `VisibilityConfirmationOptionsTest.toFfi_defaultsToAllNull` | Host JUnit; all-null defaults. | `SHARED-IDENTITY-REQ-016` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/RemoteAttachmentTest.kt | `RemoteAttachmentTest.testEncryptedContentShouldBeDecryptable` | Host JUnit; local encryption path. | `ANDROID-REQ-007` |
@@ -160,8 +160,6 @@
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testStaticCanMessage` | AndroidJUnit4; two registered and one unregistered identity. | `SHARED-IDENTITY-REQ-001` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testStaticInboxIds` | AndroidJUnit4; two inbox IDs. | `SHARED-IDENTITY-REQ-002` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testCanDeleteDatabase` | AndroidJUnit4; delete and recreate. | `SHARED-IDENTITY-REQ-011` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testCreatesADevClient` | AndroidJUnit4; live DEV network without an assumption gate; creation is required, but self-`canMessage` is conditional on a nullable map entry. | `ANDROID-REQ-046` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testCreatesAProductionClient` | AndroidJUnit4; live production network without an assumption gate; creation is required, but self-`canMessage` is conditional on a nullable map entry. | `ANDROID-REQ-046` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testPreAuthenticateToInboxCallback` | AndroidJUnit4; CompletableFuture timeout of 5 seconds. | `SHARED-IDENTITY-REQ-013` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testCanDropReconnectDatabase` | AndroidJUnit4; expected disconnected FFI error, then reconnect. | `SHARED-IDENTITY-REQ-011` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ClientTest.kt | `ClientTest.testCanGetAnInboxIdFromAddress` | AndroidJUnit4; registered peer identity. | `SHARED-IDENTITY-REQ-001` |
@@ -200,13 +198,9 @@
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ConversationsTest.kt | `ConversationsTest.testCountMessages` | AndroidJUnit4; group, DM, wrapper, bounds, status, and publish cases. | `ANDROID-REQ-092` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/ConversationsTest.kt | `ConversationsTest.testCanStreamMessageDeletions` | Android IO collector; 1-second expiry and 3-second wait. | `ANDROID-REQ-092` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testSyncConsent` | AndroidJUnit4 and BaseInstrumentedTest; polling for at most 30 seconds. | `ANDROID-REQ-103` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testSyncMessages` | `@Ignore`; local device-sync services and fixed delays. | `ANDROID-REQ-104` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testSyncDeviceArchive` | `@Ignore`; local history service, PIN archive, and fixed delays. | `ANDROID-REQ-104` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testStreamConsent` | Android IO collectors and multiple 2-second sleeps. | `ANDROID-REQ-105` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testStreamPreferenceUpdates` | Android IO collector; same wallet on three clients; fixed sleeps. | `ANDROID-REQ-105` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testV3CanMessageV3` | Android `runBlocking`; same wallet on three clients; polling for at most 30 seconds. | `ANDROID-REQ-106` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTest.kt | `HistorySyncTest.testDisablingHistoryTransferDoesNotTransfer` | AndroidJUnit4; one client disabled and one enabled; 6-second and shorter delays. | `ANDROID-REQ-107` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/HistorySyncTlsTest.kt | `HistorySyncTlsTest.testArchiveRoundTripOverTls` | Android assumption gate `devTls=true`; DEV internet and history service; retries 404 for at most 60 seconds. | `ANDROID-REQ-108` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/MessageComparisonTest.kt | `MessageComparisonTest.testV1VsV2MessageCount` | AndroidJUnit4 and BaseInstrumentedTest; text and reaction filtering; count difference at most one. | `ANDROID-REQ-038` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/MessageComparisonTest.kt | `MessageComparisonTest.testV1VsV2ContentEquality` | AndroidJUnit4; loop sends four text values. | `ANDROID-REQ-038` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/MessageComparisonTest.kt | `MessageComparisonTest.testPerformanceComparison` | AndroidJUnit4; loop sends 20 and adds a reaction every five; asserts only that some V2 parent has reactions; timings are printed without a threshold. | `ANDROID-REQ-036` |
@@ -215,7 +209,6 @@
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/PerformanceTest.kt | `PerformanceTest.test2_SendGm` | AndroidJUnit4; ordered; less than 200 ms. | `ANDROID-REQ-111` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/PerformanceTest.kt | `PerformanceTest.test3_CreateGroup` | AndroidJUnit4; ordered; three invitees; less than 400 ms. | `ANDROID-REQ-111` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/PerformanceTest.kt | `PerformanceTest.test4_SendGmInGroup` | AndroidJUnit4; ordered; less than 200 ms. | `ANDROID-REQ-111` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/PerformanceTest.kt | `PerformanceTest.testCreatesADevClientPerformance` | AndroidJUnit4; live DEV network; four timed paths; no active assertions. | `ANDROID-REQ-112` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test1_CanBuildASCW` | AndroidJUnit4; `@FixMethodOrder(NAME_ASCENDING)`; Anvil, validation, and FakeSCW. | `ANDROID-REQ-098` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test2_CanCreateGroup` | AndroidJUnit4; ordered; two SCWs and one EOA. | `ANDROID-REQ-099` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test3_CanSendMessages` | AndroidJUnit4; ordered; multi-sender message sequence. | `ANDROID-REQ-099` |
@@ -226,3 +219,9 @@
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test8_AddAndRemovingAccounts` | AndroidJUnit4; SCW and EOA identities and recovery-removal rejection. | `ANDROID-REQ-102` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/StreamLifecycleTest.kt | `StreamLifecycleTest.testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent` | AndroidJUnit4; old `fixtures()` helper; no BaseInstrumentedTest cleanup. | `SHARED-GROUP-REQ-039` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/StreamLifecycleTest.kt | `StreamLifecycleTest.testManageStreamLifecycleDefaultsOn` | AndroidJUnit4; unit-style instrumentation assertion. | `SHARED-IDENTITY-REQ-020` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/ClientCacheKeyTest.kt` | `ClientCacheKeyTest.testRejectsEmptyBackendUrl` | JVM test; empty and whitespace URLs; construction fails | `P3-CFG-001` |

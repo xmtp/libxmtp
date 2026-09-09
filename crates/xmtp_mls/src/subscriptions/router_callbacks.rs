@@ -176,6 +176,16 @@ fn settle_lifecycle(
 }
 
 /// Close telemetry and callback also run when the stream task is aborted.
+///
+/// KNOWN DEFECT (Phase 5.1): this fires `on_close` on every exit of
+/// `pump_stream`, which includes a transport backpressure drop. `RouterStream`
+/// ends when the wire dies and also when a consumer falls behind and the
+/// transport drops its lease (see `stream_router::RouterStream::next`). P3-STR-015
+/// wants `on_close` only on a non-retryable failure or an explicit close, so a
+/// slow host callback that fills the lease depth reports a closed stream even
+/// though the wire is healthy and re-subscribing would recover. A correct fix
+/// needs a drop reason at the lease boundary, which changes the transport and
+/// router contract together.
 struct StreamClosedGuard<F: FnOnce()> {
     kind: StreamKind,
     installation: InstallationId,

@@ -80,11 +80,6 @@
 | crates/xmtp_db/src/encrypted_store/conversation_list.rs | `encrypted_store::conversation_list::tests::test_last_activity_after_ns_filter` | `xmtp_common::test`; thresholds 2500, 3500, and 4500. | `CORE-REQ-056` |
 | crates/xmtp_db/src/encrypted_store/conversation_list.rs | `encrypted_store::conversation_list::tests::test_last_activity_before_ns_filter` | `xmtp_common::test`; thresholds 3500, 4500, and 5500. | `CORE-REQ-056` |
 | crates/xmtp_db/src/encrypted_store/conversation_list.rs | `encrypted_store::conversation_list::tests::test_activity_filters_combined_with_limit` | `xmtp_common::test`; activity order and limit 2. | `CORE-REQ-056` |
-| crates/xmtp_db/src/encrypted_store/d14n_migration_cutover.rs | `encrypted_store::d14n_migration_cutover::tests::test_default_migration_cutover` | `xmtp_common::test`; active. | `CORE-REQ-052` |
-| crates/xmtp_db/src/encrypted_store/d14n_migration_cutover.rs | `encrypted_store::d14n_migration_cutover::tests::test_set_cutover_ns` | `xmtp_common::test`; active. | `CORE-REQ-052` |
-| crates/xmtp_db/src/encrypted_store/d14n_migration_cutover.rs | `encrypted_store::d14n_migration_cutover::tests::test_set_last_checked_ns` | `xmtp_common::test`; active. | `CORE-REQ-052` |
-| crates/xmtp_db/src/encrypted_store/d14n_migration_cutover.rs | `encrypted_store::d14n_migration_cutover::tests::test_get_last_checked_ns` | `xmtp_common::test`; active. | `CORE-REQ-052` |
-| crates/xmtp_db/src/encrypted_store/d14n_migration_cutover.rs | `encrypted_store::d14n_migration_cutover::tests::test_set_has_migrated` | `xmtp_common::test`; active. | `CORE-REQ-052` |
 | crates/xmtp_db/src/encrypted_store/database.rs | `encrypted_store::database::persistent_or_mem_tests::single_arm_dispatches` | `#[test]`; stub connection. | `CORE-REQ-054` |
 | crates/xmtp_db/src/encrypted_store/database.rs | `encrypted_store::database::persistent_or_mem_tests::infallible_single_arm_compiles` | `#[test]`; WASM-shaped `Infallible` Single type. | `CORE-REQ-054` |
 | crates/xmtp_db/src/encrypted_store/database/instrumentation.rs | `encrypted_store::database::instrumentation::tests::db_lock_panic_enabled_by_default` | `#[test]`; missing environment value. | `CORE-REQ-055` |
@@ -111,8 +106,6 @@
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_new_group_has_correct_purpose` | `xmtp_common::test`; active. | `CORE-REQ-071` |
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_find_groups_by_consent_state` | `xmtp_common::test`; all consent-state sets. | `CORE-REQ-073` |
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_get_sequence_ids` | `xmtp_common::test`; cursor-bearing and cursorless groups. | `CORE-REQ-077` |
-| crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_insert_or_replace_group_update_preserves_originator` | `xmtp_common::test`; regression case. | `CORE-REQ-077` |
-| crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_group_cursors_skips_row_with_null_originator` | `xmtp_common::test`; raw malformed-row regression. | `CORE-REQ-077` |
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_find_group_default_excludes_denied` | `xmtp_common::test`; Allowed, Denied, and missing consent. | `CORE-REQ-073` |
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_get_conversation_ids_for_remote_log_publish` | `xmtp_common::test`; `unwrap_try`; publish flag, consent, and key cases. | `CORE-REQ-078` |
 | crates/xmtp_db/src/encrypted_store/group.rs | `encrypted_store::group::tests::test_get_conversation_ids_for_remote_log_publish_with_consent` | `xmtp_common::test`; Allowed, Denied, and missing consent. | `CORE-REQ-078` |
@@ -132,15 +125,6 @@
 | crates/xmtp_db/src/encrypted_store/group_intent.rs | `encrypted_store::group_intent::tests::test_increment_publish_attempts` | `xmtp_common::test`; two increments. | `CORE-REQ-090` |
 | crates/xmtp_db/src/encrypted_store/group_intent.rs | `encrypted_store::group_intent::tests::test_find_dependant_commits` | `xmtp_common::test`; two payload hashes. | `CORE-REQ-091` |
 | crates/xmtp_db/src/encrypted_store/group_intent.rs | `encrypted_store::group_intent::tests::bootstrap_migration_intent_round_trips_through_sql` | `xmtp_common::test`; SQL and display mapping. | `CORE-REQ-083` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_basic` | `xmtp_common::test`; two originators. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_new_originator` | `xmtp_common::test`; unseen originator. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_multiple_groups` | `xmtp_common::test`; two groups. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_batching` | `xmtp_common::test`; loop creates 150 groups. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_empty_cursor` | `xmtp_common::test`; empty global cursor. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_no_new_messages` | `xmtp_common::test`; cursors at current values. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_mixed_originators` | `xmtp_common::test`; known and unseen originators. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_empty_groups` | `xmtp_common::test`; group has no messages. | `CORE-REQ-093` |
-| crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs | `encrypted_store::group_message::messages_newer_than_tests::test_messages_newer_than_per_group_cursors` | `xmtp_common::test`; same originator with distinct group cursors. | `CORE-REQ-093` |
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::it_does_not_error_on_empty_messages` | `xmtp_common::test`; missing ID. | `CORE-REQ-095` |
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::test_exclude_content_types_filter` | `xmtp_common::test`; exclude Reaction and ReadReceipt in query and count. | `SHARED-CONTENT-REQ-007` |
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::it_gets_messages` | `xmtp_common::test`; stored-row lookup. | `CORE-REQ-095` |
@@ -184,18 +168,6 @@
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::test_content_type_is_deletable` | `#[test]`; user, system, metadata, delete, and unknown content matrix. | `SHARED-CONTENT-REQ-005` |
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::test_group_message_kind_is_deletable` | `#[test]`; Application and MembershipChange. | `SHARED-CONTENT-REQ-005` |
 | crates/xmtp_db/src/encrypted_store/group_message/tests.rs | `encrypted_store::group_message::tests::test_min_expire_at_ns` | `xmtp_common::test`; `unwrap_try`; empty, null, and two expiries. | `CORE-REQ-099` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::icebox_dependency_chain` | `xmtp_common::test`; `unwrap_try`; past and future traversal. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_icebox_wrong_originator` | `xmtp_common::test`; `unwrap_try`; broken originator link. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_icebox_wrong_sequence` | `xmtp_common::test`; `unwrap_try`; broken sequence link. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_icebox_multiple_dependencies` | `xmtp_common::test`; `unwrap_try`; fan-out of two dependents. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_icebox_chain` | `xmtp_common::test`; `unwrap_try`; chained commit and application envelopes. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_future_dependents_multiple_cursors` | `xmtp_common::test`; `unwrap_try`; two starting cursors and deduplication. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_future_dependents_empty` | `xmtp_common::test`; `unwrap_try`; empty input. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_querying_dependencies_in_middle_works` | `xmtp_common::test`; `unwrap_try`; middle cursor in both directions. | `CORE-REQ-110` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_prune_icebox` | `xmtp_common::test`; `unwrap_try`; same-originator threshold and another originator. | `CORE-REQ-111` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_prune_icebox_no_cleanup_when_cursor_lower` | `xmtp_common::test`; `unwrap_try`; lower refresh cursor. | `CORE-REQ-111` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_prune_icebox_only_relevant_entity_kinds` | `xmtp_common::test`; `unwrap_try`; Welcome does not prune. | `CORE-REQ-111` |
-| crates/xmtp_db/src/encrypted_store/icebox.rs | `encrypted_store::icebox::tests::test_prune_icebox_dependencies_cascade_deleted` | `xmtp_common::test`; `unwrap_try`; equal cursor and cascade. | `CORE-REQ-111` |
 | crates/xmtp_db/src/encrypted_store/identity.rs | `encrypted_store::identity::tests::queue_with_nudge_is_noop_before_registration` | `xmtp_common::test`; empty identity table. | `CORE-REQ-112` |
 | crates/xmtp_db/src/encrypted_store/identity.rs | `encrypted_store::identity::tests::queue_with_nudge_selfheals_missing_seed` | `xmtp_common::test`; identity exists and seed is absent. | `CORE-REQ-112` |
 | crates/xmtp_db/src/encrypted_store/identity.rs | `encrypted_store::identity::tests::queue_initializes_null_rotation_column` | `xmtp_common::test`; null column and repeated queue. | `CORE-REQ-112` |
@@ -214,14 +186,6 @@
 | crates/xmtp_db/src/encrypted_store/message_deletion.rs | `encrypted_store::message_deletion::tests::test_is_message_deleted` | `xmtp_common::test`; `unwrap_try`; before and after deletion. | `SHARED-CONTENT-REQ-006` |
 | crates/xmtp_db/src/encrypted_store/message_deletion.rs | `encrypted_store::message_deletion::tests::test_get_deletions_for_messages` | `xmtp_common::test`; `unwrap_try`; two deleted and one undeleted targets. | `SHARED-CONTENT-REQ-006` |
 | crates/xmtp_db/src/encrypted_store/message_deletion.rs | `encrypted_store::message_deletion::tests::test_get_group_deletions` | `xmtp_common::test`; `unwrap_try`; two-group isolation. | `SHARED-CONTENT-REQ-006` |
-| crates/xmtp_db/src/encrypted_store/migration_test/add_inserted_at_ns.rs | `encrypted_store::migration_test::add_inserted_at_ns::migration_performance_10k_messages` | Native-only `xmtp_common::test`; async; 10000 rows all checked; host-sensitive one-second wall-clock gate. | `CORE-REQ-123` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::up_groups` | `xmtp_common::test`; async declaration; group-originator up migration. | `CORE-REQ-124` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::up_identity_updates` | `xmtp_common::test`; async declaration; identity-update up migration. | `CORE-REQ-125` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::down_identity_updates` | `xmtp_common::test`; async declaration; identity-update down migration. | `CORE-REQ-125` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::up_both_cursors_set_to_old_value` | `xmtp_common::test`; async declaration; commit and application cursor split. | `CORE-REQ-126` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::up_welcome_unchanged` | `xmtp_common::test`; async declaration; Welcome cursor. | `CORE-REQ-126` |
-| crates/xmtp_db/src/encrypted_store/migration_test/originator_id_refresh_state.rs | `encrypted_store::migration_test::originator_id_refresh_state::down` | `xmtp_common::test`; async declaration; merge by maximum and retain Welcome. | `CORE-REQ-127` |
-| crates/xmtp_db/src/encrypted_store/migration_test/update_dm_trigger.rs | `encrypted_store::migration_test::update_dm_trigger::update_dm_trigger` | `xmtp_common::test`; async declaration; completion without an explicit assertion. | `CORE-REQ-128` |
 | crates/xmtp_db/src/encrypted_store/mod.rs | `encrypted_store::tests::ephemeral_store` | `xmtp_common::test`; async declaration. | `CORE-REQ-129` |
 | crates/xmtp_db/src/encrypted_store/mod.rs | `encrypted_store::tests::persistent_store` | `xmtp_common::test`; async declaration. | `CORE-REQ-129` |
 | crates/xmtp_db/src/encrypted_store/mod.rs | `encrypted_store::tests::encrypted_db_with_multiple_connections` | `xmtp_common::test`; async declaration; two handles. | `CORE-REQ-129` |
@@ -250,21 +214,6 @@
 | crates/xmtp_db/src/encrypted_store/readd_status.rs | `encrypted_store::readd_status::tests::test_is_awaiting_readd_no_responded_at` | `xmtp_common::test`; null response. | `CORE-REQ-135` |
 | crates/xmtp_db/src/encrypted_store/readd_status.rs | `encrypted_store::readd_status::tests::test_delete_other_readd_statuses` | `xmtp_common::test`; preserve self and another group. | `CORE-REQ-135` |
 | crates/xmtp_db/src/encrypted_store/readd_status.rs | `encrypted_store::readd_status::tests::test_get_readds_awaiting_response` | `xmtp_common::test`; six status shapes. | `CORE-REQ-135` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_cursor_with_no_existing_state` | `xmtp_common::test`; missing single cursor initializes zero. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_cursor_with_no_existing_state_originator` | `xmtp_common::test`; missing batch-originator cursor initializes zero. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_timestamp_with_existing_state` | `xmtp_common::test`; existing Welcome state. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::update_timestamp_when_bigger` | `xmtp_common::test`; 123 to 124. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::dont_update_timestamp_when_smaller` | `xmtp_common::test`; 123 then 122. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::allow_installation_and_welcome_same_id` | `xmtp_common::test`; Welcome and Application kinds share one ID. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::batch_query_scenarios` | Parameterized `xmtp_common::test`; four cases: mixed existing and missing, request order, all missing, and empty. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::latest_cursor_for_id` | Parameterized `xmtp_common::test`; four cases: latest per originator, single, kind filter, and originator filter. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_empty` | `xmtp_common::test`; empty ID list. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_single` | `xmtp_common::test`; async declaration; one ID. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_multiple_mixed` | `xmtp_common::test`; three existing and one missing ID. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_exactly_900` | `xmtp_common::test`; loop creates exactly 900 IDs. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_over_900` | `xmtp_common::test`; loop creates 1000 IDs. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_over_1800` | `xmtp_common::test`; loop creates 2000 IDs. | `CORE-REQ-140` |
-| crates/xmtp_db/src/encrypted_store/refresh_state.rs | `encrypted_store::refresh_state::tests::get_last_cursor_for_ids_different_entity_kinds` | `xmtp_common::test`; Application and Welcome filters. | `CORE-REQ-140` |
 | crates/xmtp_db/src/encrypted_store/tasks.rs | `encrypted_store::tasks::tests::get_tasks_returns_empty_list_initially` | `xmtp_common::test`; empty table. | `CORE-REQ-145` |
 | crates/xmtp_db/src/encrypted_store/tasks.rs | `encrypted_store::tasks::tests::update_task_returns_error_when_not_found` | `xmtp_common::test`; ID 999. | `CORE-REQ-145` |
 | crates/xmtp_db/src/encrypted_store/tasks.rs | `encrypted_store::tasks::tests::delete_task_returns_false_when_not_found` | `xmtp_common::test`; ID 999. | `CORE-REQ-145` |
@@ -286,3 +235,19 @@
 | crates/xmtp_db/src/sql_key_store.rs | `sql_key_store::tests::application_export_tree` | `xmtp_common::test`; async declaration; two groups, overwrite, delete, and repeated delete. | `CORE-REQ-154` |
 | crates/xmtp_db/tests/opfs.rs | `test_opfs` | WASM-only integration test in a dedicated worker; OPFS cleanup. | `CORE-REQ-160` |
 | crates/xmtp_db/tests/opfs.rs | `opfs_dynamically_resizes` | WASM-only integration test in a dedicated worker; four nested stores. | `CORE-REQ-160` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_db/src/encrypted_store/refresh_state.rs` | `encrypted_store::refresh_state::tests::cursor_defaults_and_advances_only_in_order` | XMTP test; scalar cursors; parameter cases | `CORE-REQ-140`, `P3-CUR-004` |
+| `crates/xmtp_db/src/encrypted_store/refresh_state.rs` | `encrypted_store::refresh_state::tests::cursor_meets_requested_kinds` | XMTP test; scalar cursors; parameter cases | `CORE-REQ-140`, `P3-CUR-004` |
+| `crates/xmtp_db/src/encrypted_store/refresh_state.rs` | `encrypted_store::refresh_state::tests::cursor_queries_batch_ids` | XMTP test; scalar cursors; parameter cases | `CORE-REQ-140`, `P3-CUR-004` |
+| `crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs` | `encrypted_store::group_message::messages_newer_than_tests::messages_newer_than_scalar` | XMTP test; scalar exclusive floors and separate group positions | `CORE-REQ-093` |
+| `crates/xmtp_db/src/encrypted_store/group_message/messages_newer_than_tests.rs` | `encrypted_store::group_message::messages_newer_than_tests::messages_newer_than_keeps_group_positions_separate` | XMTP test; scalar exclusive floors and separate group positions | `CORE-REQ-093` |
+| `crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs` | `encrypted_store::database::native::sqlcipher_connection::tests::rejects_pre_transition_database_before_migration` | Native XMTP test; legacy migration marker; typed error before schema changes | `P3-CUR-005` |
+| `crates/xmtp_id/src/scw_verifier/cached.rs` | `scw_verifier::cached::tests::cache_preserves_numbered_verdicts_and_bypasses_latest` | XMTP test; production cache wrapper | `RUST-REQ-008`, `RUST-REQ-009` |
+| `crates/xmtp_id/src/scw_verifier/cached.rs` | `scw_verifier::cached::tests::verifier_errors_are_never_cached` | XMTP test; production cache wrapper | `RUST-REQ-008` |
+| `crates/xmtp_id/src/scw_verifier/cached.rs` | `scw_verifier::cached::tests::cache_key_binds_every_parameter` | XMTP test; production cache wrapper | `RUST-REQ-010` |
+| `crates/xmtp_mls_validation/src/tests.rs` | `tests::key_package_admission_accepts_the_existing_credential_shape` | XMTP async; shared validation with real key packages | `RUST-REQ-013` |
+| `crates/xmtp_mls_validation/src/tests.rs` | `tests::key_package_parse_precedes_existing_cryptographic_validation` | XMTP async; shared validation with real key packages | `RUST-REQ-013` |

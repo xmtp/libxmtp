@@ -479,7 +479,16 @@ public final class Client {
 			directoryURL = URL.documentsDirectory
 		}
 
-		let alias = "xmtp-\(options.api.env)-\(inboxId).db3"
+		// `env` only labels the file, so keep it to one path component. A value
+		// such as "../other" would otherwise move the database out of the
+		// directory the caller asked for.
+		let envLabel = options.api.env
+		guard !envLabel.isEmpty, !envLabel.contains("/"), !envLabel.contains("\\"),
+		      envLabel != ".", envLabel != ".."
+		else {
+			throw ClientError.creationError("env must be a single path component")
+		}
+		let alias = "xmtp-\(envLabel)-\(inboxId).db3"
 		let dbURL = directoryURL.appendingPathComponent(alias).path
 
 		let deviceSyncMode: FfiDeviceSyncMode =

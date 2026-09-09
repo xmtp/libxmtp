@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -171,8 +172,17 @@ class HistorySyncTest : BaseInstrumentedTest() {
             Thread.sleep(2000)
         }
 
-        Thread.sleep(2000)
-        assertEquals(1, preferences)
+        // Wait for the update to arrive rather than for a fixed delay, and
+        // assert at least one: a new installation can legitimately produce
+        // more than one preference update, so an exact count is a race.
+        runBlocking {
+            withTimeout(30_000) {
+                while (preferences < 1) {
+                    delay(100)
+                }
+            }
+        }
+        assertTrue(preferences >= 1)
         job.cancel()
     }
 

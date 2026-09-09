@@ -57,6 +57,12 @@ export const createClient = async (
     generateInboxId(identifier, options?.nonce);
 
   const env = backend.env ?? "default";
+  // `env` only labels the database file, so it must stay one path component.
+  // Without this a value such as "../other" would move the database outside
+  // the working directory.
+  if (env === "" || /[/\\]/.test(env) || env === "." || env === "..") {
+    throw new Error("env must be a single path component");
+  }
 
   let dbPath: string | null;
   if (options?.dbPath === undefined) {

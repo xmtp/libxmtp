@@ -1,6 +1,32 @@
 <!-- markdownlint-configure-file {"MD013": false, "MD001": false} -->
 # libxmtp Deletion Inventory
 
+## Phase 3 implementation record
+
+Tasks 1 to 13 completed the client transition. Task 14 updates the catalogue.
+The detailed tables below are the Phase 0 inventory; their old paths and line
+counts identify deleted code. This record overrides their original actions.
+
+| Area | Final disposition |
+| --- | --- |
+| Client API and configuration | Done. `xmtp_api_backend` replaces the old client crate. SDKs require one backend URL. |
+| Native and WebAssembly streams | Superseded. Keep the native bidi router over `Subscribe` and the legacy stack over `SubscribeStatic` for WebAssembly. Remove waves, history-only mode, gates, and fallback latches. |
+| Client migrations | Superseded. One baseline replaces the full chain. Reject pre-transition databases before migration. |
+| History server and validation service | Done. Remove the services and server-based archive transfer. Keep shared validation, message-based preferences, and file archives. |
+| Shared HTTP client | Keep `xmtp_common::http`, its Android rustls workaround, and `reqwest` for backend tests and debug metrics. |
+| Test services | Done. `db`, `backend`, `anvil`, and `toxiproxy` remain. The owner kept anvil on 2026-09-08. |
+| Test catalogue | See `tests/existing-tests.md` and `tests/retired-requirement-ids.md`. The Phase 0 test-deletion document is removed. |
+| Final identifier sweep | Done in Task 14 fix round 1. Remove the six unused generated iOS legacy protobuf files. The sweep excludes the released Node 1.11.0 notes and the archive protobuf plus its generated iOS mapping. The archive field stays for backward compatibility. |
+
+Phase 5.1 must add durable-progress feedback to the lease ledger. Reopen after
+wire failure or resume currently replays from each lease's floor. It must also
+carry a drop reason across the lease boundary: transport backpressure currently
+can fire `on_close`, contrary to P3-STR-015.
+
+The keepalive probe's non-subscription mode still requires TLS and cannot reach
+a plaintext backend. Investigate the iOS
+`testCanStreamAndUpdateNameWithoutForkingGroup` flake under `--parallel`.
+
 This is an ephemeral Phase 0 document for the self-hosted transition. Date: 2026-09-04.
 The deletion plan in Ref (<https://plan.ref.tools/Acpbh4okwkEPsx36>) approved it. Read
 `docs/self-hosted/project.md` first. The behavior wiki is in `docs/self-hosted/existing/`.
@@ -45,7 +71,7 @@ Nothing is a separate deletion wave. Every deletion belongs to a project phase:
 | 1 | `proto/` folder authoritative with the old generated tree deleted; `xmtp_proto` `keystore_api` generated files and `nightly-protos.yml` deleted with the proto move; shared crate scaffolded; `apps/backend` scaffold; CI workflows for xdbg, wasm, and the browser SDK disabled (not deleted; `test-xdbg.yml` is called by `test.yml`, and `cross-test.yml` is read by `release-gate-plan.yml`, so deleting them needs edits to those callers first) | 6,600 |
 | 1 | `dev/drivers` (`cross_talk_test`, `cross_version_test`, `xdbg_driver_lib`) and the matching nix packages | 1,400 |
 | 2 | Move the validation logic and its 8 logic tests into the shared crate, make the backend use it, then delete the `apps/mls_validation_service` shell (main, health, config); `xmtp.mls_validation.v1` protos; its nix package, release workflow, `dev/validation_service`, `dev/build_validation_service*` | 2,500 |
-| 3 | Integration: collapse the `d14n` feature; delete the d14n arm; replace the v3 arm; delete the ordering machinery; simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; delete the legacy streaming stack and replace XIP-83 with the single-client protocol; delete `registration_visible`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
+| 3 | Integration: collapse the `d14n` feature; delete the d14n arm; replace the v3 arm; delete the ordering machinery; simplify `refresh_state.rs`; delete the xmtpv4 and migration copies from `proto/`; keep both stream stacks and replace XIP-83 frames with backend frames; delete `registration_visible`; rename the crate; collapse env and URL config; simplify test harness aliases; `grpc.gateway` and `google.api` generated files; retarget xdbg; Docker | 43,000 |
 
 The largest blocks:
 
@@ -256,7 +282,7 @@ browser streams remain. Preserve application-selected filters, including denied 
 | `crates/xmtp_mls/src/subscriptions/process_message.rs`, `process_welcome.rs`, `process_message/factory.rs` | Message and welcome processing | 1,287 | Establish shared ordered ingestion and safe cursor advancement; keep recovery until replacement is verified |
 | `crates/xmtp_mls/src/subscriptions/bidi_tests.rs`, `bidi_fuzz_tests.rs`, `router_callbacks_tests.rs`, `stream_router_tests.rs` | Bidi tests | 2,886 | Keep. Port the backend-agnostic assertions from `d14n_bidi_tests.rs` into `bidi_tests.rs` before Phase 0 deletes it (see the test-deletion plan). |
 
-### 6.2 Delete: the legacy streaming stack (Phase 3, step 8)
+### 6.2 Superseded: keep the legacy streaming stack for WebAssembly
 
 | Path | What | Lines |
 | --- | --- | --- |
@@ -353,19 +379,10 @@ entries in `crates/xmtp_proto/build.rs:13-47` for each deleted package.
 Smart contract wallet signature verification is an SDK feature. It needs an EVM RPC client,
 so `alloy` stays (`Cargo.toml:36`, `crates/xmtp_id/Cargo.toml:21` with `sol-types`).
 
-**Anvil.** The SCW tests use the `docker_smart_wallet` fixture in `crates/xmtp_id/src/utils/test.rs:44`
-and `scw_verifier/mod.rs:226-232` reads `ANVIL_URL` or `DockerUrls::ANVIL`
-(`crates/xmtp_configuration/src/common/api.rs:30`). Phase 3 changes the tests to spawn a
-local `anvil` from Rust with the alloy node-bindings feature (dev-only). Findings:
-
-- The `anvil` binary is in the Nix dev shells: `flake.nix:20` pins `foundry.nix`, and
-  `foundry-bin` is in `nix/shells/rust.nix:44` and `nix/shells/local.nix:87`.
-- `crates/xmtp_id/Cargo.toml:79-83` already enables `alloy/provider-anvil-api` and
-  `alloy/provider-anvil-node` under the `test-utils` feature. The dev-dependency at
-  `crates/xmtp_id/Cargo.toml:49` onward enables `providers`, `rpc`, `network`, `provider-anvil-api`, and `provider-anvil-node`.
-
-So the `anvil` docker service goes in Phase 3 with no charter exception. The alloy
-provider and RPC subtree stays in `Cargo.lock` as a dev dependency.
+**Anvil.** The `anvil` service stays. The owner decided this on 2026-09-08.
+The backend's SCW verification and existing SCW tests use the same chain.
+`ANVIL_URL` can override the test address. The service uses the upstream Foundry
+image; the custom Dockerfile is removed. No Rust-spawned replacement is needed.
 
 **Delete** (blockchain used only by xmtpd, payer, and the node registry):
 
@@ -374,7 +391,7 @@ provider and RPC subtree stays in `Cargo.lock` as a dev dependency.
 | `apps/xnet/lib/src/contracts.rs` | Node-registry contract bindings | 261 |
 | `apps/xnet/lib/src/node_provisioner.rs` | Registers nodes on chain, funds payers | about 180 |
 | `apps/xnet/lib/Cargo.toml:15-23` | alloy features `signer-local`, `provider-http`, `network`, `rpc-types-eth`, `provider-anvil-api`, `contract` | drop with xnet |
-| `dev/docker/anvil.Dockerfile`, the `anvil` service in `dev/docker/docker-compose.yml:57`, the `chain` service in `dev/docker/docker-compose-d14n.yml:41` | Local chains | Phase 3 |
+| `dev/docker/anvil.Dockerfile` and the legacy `chain` service | Local chains | Phase 3 |
 | `crates/xmtp_configuration/src/common/api.rs:30,152` | `DockerUrls::ANVIL`, `GrpcUrlsToxic::ANVIL` | Phase 3 |
 
 `apps/mls_validation_service/Cargo.toml:22` (`alloy.workspace = true`) moves to the shared
@@ -504,7 +521,7 @@ identity history, not backend code. Keep it.
 
 | Service | File | Action |
 | --- | --- | --- |
-| `node` (line 5), `node-web` (27), `validation` (46), `anvil` (57), `mlsdb` (78) | `docker-compose.yml` | Delete; `node-web` takes `dev/docker/envoy.yaml` and `anvil` takes `dev/docker/anvil.Dockerfile` |
+| `node`, `node-web`, `validation`, `mlsdb` | `docker-compose.yml` | Removed. Keep `anvil`; remove only its custom Dockerfile. |
 | `history-server` (65) | `docker-compose.yml` | Delete with the archive transfer (section 17) |
 | `db` (72), `toxiproxy` (84) | `docker-compose.yml` | Keep; add `backend` |
 | `redis`, `replicationdb`, `chain`, `register-node-native`, `enable-node-native`, `xmtpd`, `gateway` | `docker-compose-d14n.yml` | Delete the file |
@@ -608,7 +625,7 @@ Each step removes the dependents of the next.
 10. Collapse env and URL config (section 11), then the binding option types, then regenerate
     the uniffi Swift and Kotlin surfaces.
 11. Docker: delete `dev/docker/docker-compose-d14n.yml`; in `dev/docker/docker-compose.yml`
-    remove `node`, `node-web`, `validation`, `mlsdb`, `anvil`; add `backend`; keep `db`
+    remove `node`, `node-web`, `validation`, `mlsdb`; add `backend`; keep `db` and `anvil`
     and `toxiproxy`. `history-server` goes in section 17.
 
 Also in Phase 3: `crates/xmtp_mls/src/groups/tests/test_message_dependencies.rs` (d14n-only
@@ -634,10 +651,10 @@ Things that look deletable but must stay.
 | `crates/xmtp_mls/src/worker/device_sync/` minus the archive-transfer paths (section 17) | Device sync stays. Consent and HMAC sync ride MLS messages in the sync group and never touch the history server. Only the server-backed archive transfer goes. |
 | `apps/db_tools`, `apps/error_glossary`, `apps/keepalive-probe` (retarget), `apps/xmtp_debug` (retarget) | Sections 10. |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs`, `crates/xmtp_mls_common/src/app_data/migration.rs` | App-data schema migration, not network migration. |
-| `crates/xmtp_db/migrations/` | Clients start with a clean DB, but the chain still runs from empty. Delete only the cutover table migration. |
+| `crates/xmtp_db/migrations/` | Superseded in Phase 3: one baseline replaces the entire chain, including the cutover migration. The baseline creates the final schema; pre-transition databases are rejected. |
 | `AuthCallback`, `AuthHandle`, `Credential` | Exposed through all 3 binding FFIs. Phase 6 reuses the shape. |
 | `Cargo.toml:269-280` `hpke-rs` fork patch | Owner: leave it. |
-| XIP-83 bidi client (section 3.1) | Backend-agnostic; the new backend implements XIP-83. |
+| Bidi client (section 3.1) | Keep the connection actor and lease ledger with backend `Subscribe` frames. The backend does not implement XIP-83. |
 
 `XmtpQuery` and `XmtpEnvelope` (`crates/xmtp_api_d14n/src/protocol/traits/xmtp_query.rs`)
 are used by `crates/xmtp_api/src/xmtp_query.rs`, `crates/xmtp_mls/src/context.rs:23,107,201,278`,
@@ -688,8 +705,7 @@ goes with it.
 
 ### Add
 
-Dev-only alloy node-bindings (`alloy/provider-anvil-node`) for in-process anvil in the SCW
-tests. `crates/xmtp_id/Cargo.toml:81` already lists it under `test-utils`.
+Superseded: no new in-process anvil fixture. Keep the existing SCW fixtures and the Docker service.
 
 ### Net expectation
 
@@ -732,8 +748,7 @@ already assert this split.
 Most of the decoupling landed in `147871e3a` (Device Sync V3 Part 3, #3148). That commit
 deleted `device_sync_server_url` from `ClientBuilder` and `XmtpMlsLocalContext`, and removed
 automatic sync requests on new installations. There are now 0 occurrences of
-`history_sync_url` in `crates/`. The URL is a per-call `String` argument on
-`send_sync_request` and `send_sync_archive`, so no client config change is needed.
+`history_sync_url` in `crates/`. Phase 3 removed the per-call URLs, the archive-transfer methods, and SDK history URL configuration.
 
 ### 17.2 Rust
 
@@ -747,7 +762,7 @@ automatic sync requests on new installations. There are now 0 occurrences of
 | `crates/xmtp_mls/src/worker/device_sync/worker.rs:371-414` | `Request` and `Reply` arms of `process_message` | Delete |
 | `crates/xmtp_mls/src/worker/tasks.rs:352-391` | `SendSyncArchive` task branch | Delete |
 | `crates/xmtp_archive/src/exporter.rs:61-97` | `ArchiveExporter::post_to_url` | Delete |
-| `crates/xmtp_common/src/http.rs` (86) | Sole reqwest constructor; its doc comment names the history server as its only caller | Delete with the `reqwest` dependency of `xmtp_mls` and `xmtp_archive`. Retires the Android rustls workaround. **verify** no other caller |
+| `crates/xmtp_common/src/http.rs` (86) | Shared reqwest constructor with bundled Android roots | Keep. Backend tests and `apps/xmtp_debug/src/metrics.rs` still use it. The Android rustls workaround and shared `reqwest` dependency stay. Only the `xmtp_mls` and `xmtp_archive` dependencies are removed. |
 | `crates/xmtp_mls/src/worker/device_sync/mod.rs:83-84` | `DeviceSyncError::Reqwest` | Delete |
 | `crates/xmtp_archive/src/lib.rs:31-32` | `ArchiveError::Reqwest` | Delete |
 | `crates/xmtp_configuration/src/common/api.rs:19-24` | `DeviceSyncUrls`; already test-only | Delete |
@@ -759,8 +774,7 @@ automatic sync requests on new installations. There are now 0 occurrences of
 **Keep.** `crates/xmtp_archive` stays as the local file backup format, which is already
 server-free: `ArchiveExporter::new`, `export_to_file`, `write_to_file`, `ArchiveImporter`,
 and `insert_importer` (`worker/device_sync/archive.rs`). The sync group, the sync worker
-loop (`sync_init`, `evt_new_sync_group_from_welcome`, `evt_new_sync_group_msg`,
-`evt_cycle_hmac`), `preference_sync.rs`, `consent_sync.rs`, and
+loop, `preference_sync.rs`, and
 `crates/xmtp_db/src/encrypted_store/processed_device_sync_messages.rs` all stay.
 
 ### 17.3 Protos

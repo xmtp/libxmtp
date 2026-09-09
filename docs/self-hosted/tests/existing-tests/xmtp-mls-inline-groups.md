@@ -169,7 +169,6 @@
 | `crates/xmtp_mls/src/groups/message_list.rs` | `groups::message_list::tests::test_hidden_message_types_are_filtered` | custom async | `GINLINE-REQ-058`, `GINLINE-REQ-060` |
 | `crates/xmtp_mls/src/groups/message_list.rs` | `groups::message_list::tests::test_find_messages_chain_of_replies` | custom async | `GINLINE-REQ-061` |
 | `crates/xmtp_mls/src/groups/message_list.rs` | `groups::message_list::tests::test_reply_with_custom_inner_content` | custom async | `GINLINE-REQ-061` |
-| `crates/xmtp_mls/src/groups/mls_ext/mls_ext_welcome_pointee_encryption_aead_type.rs` | `groups::mls_ext::mls_ext_welcome_pointee_encryption_aead_type::tests::test_serialization` | custom sync | `GINLINE-REQ-082` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::publish_intents_worst_case_scenario` | cfg_attr Tokio multi-thread with 10 workers; excluded on wasm family | `GINLINE-REQ-071` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::hmac_keys_work_as_expected` | custom async | `GINLINE-REQ-072` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::send_failures_for_published_intents_revert_to_to_publish` | built-in sync | `GINLINE-REQ-073` |
@@ -187,8 +186,7 @@
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_messages` | rstest + custom current-thread async; 10 s timeout | `SHARED-SYNC-REQ-005` |
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_multiple` | rstest + custom multi-thread async; 10 s timeout; ignored on wasm | `SHARED-SYNC-REQ-005` |
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_membership_changes` | rstest + custom async; 5 s timeout | `SHARED-SYNC-REQ-005` |
-| `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_process_streamed_group_message_v3` | rstest context fixture + custom multi-thread/1-worker async; 5 s timeout | `GINLINE-REQ-070` |
-| `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_process_streamed_group_message_d14n` | rstest context fixture + custom multi-thread/1-worker async; 5 s timeout | `GINLINE-REQ-070` |
+| `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_process_streamed_group_message` | rstest context fixture + custom multi-thread/1-worker async; 5 s timeout | `GINLINE-REQ-070` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::extend_tests::extend_preserves_first_other_cause` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::extend_tests::extend_takes_other_when_none_yet` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::tests::clean_summary_is_not_errored` | custom sync | `GINLINE-REQ-049` |
@@ -205,8 +203,7 @@
 | `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::later_welcome_must_not_advance_cursor_past_retryable_failure` | rstest context fixture + custom async | `GINLINE-REQ-078` |
 | `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_with_new_messages_basic_behavior` | custom sync | `GINLINE-REQ-080` |
 | `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_includes_never_synced_and_excludes_up_to_date` | custom sync | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_handles_multiple_originators` | custom sync | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_treats_unknown_originator_as_new` | custom sync | `GINLINE-REQ-080` |
+| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_treats_zero_cursor_as_new` | custom sync | `GINLINE-REQ-080` |
 | `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_returns_empty_when_no_updates` | native-only rstest + custom sync; cases: empty maps, equal cursors | `GINLINE-REQ-080` |
 | `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_comprehensive_mixed_states` | custom sync | `GINLINE-REQ-080` |
 | `crates/xmtp_mls/src/groups/welcomes/xmtp_welcome.rs` | `groups::welcomes::xmtp_welcome::tests::welcome_builds_with_default_events` | rstest context fixture + custom async | `GINLINE-REQ-081` |
@@ -225,3 +222,10 @@
 | `crates/xmtp_mls/src/messages/tests/test_deletion_validation.rs` | `messages::tests::test_deletion_validation::test_valid_deletion_reply_content` | built-in sync | `SHARED-CONTENT-REQ-005` |
 | `crates/xmtp_mls/src/messages/tests/test_deletion_validation.rs` | `messages::tests::test_deletion_validation::test_valid_deletion_attachment_content` | built-in sync | `SHARED-CONTENT-REQ-005` |
 | `crates/xmtp_mls/src/messages/tests/test_deletion_validation.rs` | `messages::tests::test_deletion_validation::test_valid_deletion_remote_attachment_content` | built-in sync | `SHARED-CONTENT-REQ-005` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::publish_stores_envelope_metadata_without_sync` | XMTP async; stored hash and expiry; does not require a later sync | `P3-API-018` |
+| `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::partial_envelope_metadata_preserves_stored_fields` | XMTP async; stored hash and expiry; does not require a later sync | `P3-API-018` |

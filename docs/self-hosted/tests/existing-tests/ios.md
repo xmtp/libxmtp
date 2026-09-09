@@ -39,7 +39,7 @@
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testStaticRevokeAllInstalltions | iOS 15+; loop creates and revokes 5 | `SHARED-IDENTITY-REQ-006` |
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testStaticRevokeInstallationsManually | iOS 15+; deprecated manual static FFI | `SHARED-IDENTITY-REQ-006` |
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testGetNewestMessageMetadata | iOS 15+ | `IOS-REQ-031` |
-| sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testApiClientCacheKeysDifferentConfigurations | iOS 15+; async only; multiple configurations | `IOS-REQ-032` |
+| sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testApiClientCacheKeysDifferentConfigurations | XCTest; production ApiCacheKey; URL/version differences; env does not change key. | `IOS-REQ-032` |
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testClientOptionsDefaultsDbPoolOptionsToNil | iOS 15+; synchronous | `SHARED-IDENTITY-REQ-014` |
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testClientOptionsCarriesDbPoolOptions | iOS 15+; synchronous | `SHARED-IDENTITY-REQ-014` |
 | sdks/ios/Tests/XMTPTests/ClientTests.swift | XMTPTests.ClientTests.testClientOptionsDbPoolOptionsPartialFields | iOS 15+; synchronous | `SHARED-IDENTITY-REQ-014` |
@@ -169,12 +169,9 @@
 | sdks/ios/Tests/XMTPTests/GroupTests.swift | XMTPTests.GroupTests.testLeftInboxesPopulatedWhenMemberLeaves | iOS 16+; 3 s worker wait | `SHARED-GROUP-REQ-016` |
 | sdks/ios/Tests/XMTPTests/GroupTests.swift | XMTPTests.GroupTests.testLeftInboxesPersistedAfterClientReinitialization | iOS 16+; database drop and build | `SHARED-GROUP-REQ-016` |
 | sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testSyncConsent | iOS 15+; second-installation consent assertions are inside optional conversation lookup with no failing else branch | `IOS-REQ-133` |
-| sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testSyncMessages | iOS 15+; always XCTSkip before setup; polling loop unreachable | `IOS-REQ-134` |
-| sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testSyncDeviceArchive | iOS 15+; always XCTSkip before setup | `IOS-REQ-135` |
 | sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testStreamConsent | iOS 15+; always XCTSkip before setup | `IOS-REQ-136` |
 | sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testStreamPrivatePreferences | iOS 15+; always XCTSkip before setup | `IOS-REQ-137` |
 | sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testDisablingHistoryTransferStillSyncsLocalState | iOS 15+; device-sync option omitted and therefore default-enabled; consent checks are conditional on optional conversation lookup | `IOS-REQ-133` |
-| sdks/ios/Tests/XMTPTests/HistorySyncTests.swift | XMTPTests.HistorySyncTests.testDisablingHistoryTransferDoesNotTransfer | iOS 15+; device-sync option omitted and therefore default-enabled; requires group lookup and total count 2 but does not inspect message rows | `IOS-REQ-139` |
 | sdks/ios/Tests/XMTPTests/LeaveRequestTests.swift | XMTPTests.LeaveRequestTests.testCanUseLeaveRequestCodec | iOS 16+; nonempty note | `IOS-REQ-140` |
 | sdks/ios/Tests/XMTPTests/LeaveRequestTests.swift | XMTPTests.LeaveRequestTests.testLeaveRequestCodecWithNilNote | iOS 16+; nil note | `IOS-REQ-140` |
 | sdks/ios/Tests/XMTPTests/LeaveRequestTests.swift | XMTPTests.LeaveRequestTests.testLeaveRequestCodecFallback | iOS 16+; synchronous throws | `IOS-REQ-141` |
@@ -211,3 +208,9 @@
 | sdks/ios/Tests/XMTPTests/TransactionReferencesTests.swift | XMTPTests.TransactionReferenceTests.testCanUseTransactionReferenceCodec | iOS 15+ | `SHARED-CONTENT-REQ-010` |
 | sdks/ios/Tests/XMTPTests/VisibilityConfirmationOptionsTests.swift | XMTPTests.VisibilityConfirmationOptionsTests.testToFfiMapsAllFields | no gate; synchronous | `SHARED-IDENTITY-REQ-016` |
 | sdks/ios/Tests/XMTPTests/VisibilityConfirmationOptionsTests.swift | XMTPTests.VisibilityConfirmationOptionsTests.testToFfiDefaultsToAllNil | no gate; synchronous | `SHARED-IDENTITY-REQ-016` |
+
+## Phase 3 coverage
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `sdks/ios/Tests/XMTPTests/ClientTests.swift` | `XMTPTests.ClientTests.testRejectsEmptyBackendUrl` | XCTest; empty URL returns FfiError | `P3-CFG-001` |

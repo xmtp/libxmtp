@@ -16,7 +16,7 @@ just wasm test-ci                       # what CI runs (Nix build). Needs `just 
 
 ## Gotchas
 
-- Uses `NIX_DEVSHELL=wasm`. Needs `just backend up`.
+- Uses `NIX_DEVSHELL=wasm`. Needs `just backend up`. gRPC-Web uses the backend listener on port 5050.
 - `test-integration` makes the copied Nix output writable so later runs can replace it.
 - `just wasm test` runs a fixed crate list: `wasm_packages` in `wasm.just`. Add a crate there to test it on wasm.
 - No threads, no filesystem, no `std::time`. Use `xmtp_common` time and rand helpers.

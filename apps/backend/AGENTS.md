@@ -16,10 +16,15 @@ just backend test
 just backend test --lib config         # one module
 just backend test --lib https_passthrough # HTTPS streaming ingress check
 just backend image                     # host architecture image
+just backend up                        # db, backend, anvil, toxiproxy
+just backend down
 just lint-rust
 just backend run
 just backend db-down
 ```
+
+`just backend run` uses `dev/backend/local.toml`. Its default and maximum query
+row limits are both 50, so SDK tests exercise paging.
 
 Set `XMTP_DATABASE_URL` for service startup. Test and SQL recipes default to
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`; `DATABASE_URL` overrides it.

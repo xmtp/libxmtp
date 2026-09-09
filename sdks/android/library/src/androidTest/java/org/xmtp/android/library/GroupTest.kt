@@ -4,8 +4,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -576,7 +578,17 @@ class GroupTest : BaseInstrumentedTest() {
             boGroup.send("hello3")
             alixGroup.sync()
         }
-        Thread.sleep(1000)
+        // messages() reads local storage, so sync on each attempt. A fixed
+        // sleep races a loaded emulator, where the last message lands after
+        // the delay.
+        runBlocking {
+            withTimeout(30_000) {
+                while (alixGroup.messages().size < secondMsgCheck) {
+                    delay(100)
+                    alixGroup.sync()
+                }
+            }
+        }
         val alixMessages = runBlocking { alixGroup.messages() }
         assertEquals(alixMessages.size, secondMsgCheck)
         runBlocking {
@@ -587,7 +599,13 @@ class GroupTest : BaseInstrumentedTest() {
         val boMessages2 = runBlocking { boGroup.messages() }
         assertEquals(boMessages2.size, 6)
 
-        Thread.sleep(1000)
+        runBlocking {
+            withTimeout(30_000) {
+                while (messageCallbacks < secondMsgCheck) {
+                    delay(100)
+                }
+            }
+        }
 
         assertEquals(secondMsgCheck, messageCallbacks)
         job.cancel()

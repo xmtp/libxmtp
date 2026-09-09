@@ -58,7 +58,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         let mut result = HashMap::new();
         for filter in filters {
             let bytes =
-                hex::decode(&filter.inbox_id).map_err(|_| ApiError::InvalidResponse("inbox id"))?;
+                hex::decode(&filter.inbox_id).map_err(|_| ApiError::InvalidRequest("inbox id"))?;
             let topic = Topic::new_identity_update(bytes);
             Topic::parse(&topic)?;
             cursors

@@ -16,6 +16,9 @@ just js check                           # typecheck all
 just js build
 just js lint                            # eslint
 just js test                            # needs `just backend up`
+just js test-node-sdk-ci                 # native SDK tests
+just js test-browser-sdk-ci              # Playwright SDK tests
+just js test-agent-sdk-ci                # agent SDK tests
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run test'      # one SDK
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/browser-sdk run test'   # playwright
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run build && yarn workspace @xmtp/agent-sdk run test'

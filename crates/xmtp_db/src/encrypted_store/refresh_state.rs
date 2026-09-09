@@ -321,7 +321,7 @@ mod tests {
     #[case(None, Some(250), 0)]
     #[case(None, None, 0)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn cursor_meets_requested_kinds(
+    async fn cursor_meets_requested_kinds(
         #[case] application: Option<u64>,
         #[case] commit: Option<u64>,
         #[case] expected: u64,
@@ -358,7 +358,7 @@ mod tests {
     #[case(1000)]
     #[case(2000)]
     #[xmtp_common::test(unwrap_try = true)]
-    fn cursor_queries_batch_ids(#[case] count: u64) {
+    async fn cursor_queries_batch_ids(#[case] count: u64) {
         with_connection(|conn| {
             let ids: Vec<_> = (0..count).map(u64::to_be_bytes).collect();
             for (index, id) in ids.iter().enumerate() {
