@@ -7,31 +7,31 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | File | Qualified test | Form / gates / cases | Requirements |
 | --- | --- | --- | --- |
 | crates/xmtp_mls/src/builder.rs | builder::worker_registration_tests::disabled_worker_is_not_registered | async XMTP test; ignored on wasm | `MLS-REQ-007` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_group_member_recovery | async XMTP | `MLS-REQ-008` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_client_error_signature_validation_retryability_propagates | sync XMTP | `MLS-REQ-009` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_mls_error | async XMTP | `MLS-REQ-010` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_register_installation | async XMTP | `MLS-REQ-011` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_rotate_key_package | async; wasm-bindgen on wasm; Tokio multi-thread on native | `MLS-REQ-012` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_find_groups | async XMTP | `MLS-REQ-013` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_find_inbox_id | async XMTP | `MLS-REQ-014` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_double_dms | async XMTP | `MLS-REQ-015` |
-| crates/xmtp_mls/src/client.rs | client::tests::only_test_sync_welcomes | async rstest and XMTP | `MLS-REQ-016` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_leaf_node_lifetime_validation_disabled | async XMTP multi-thread; native only | `MLS-REQ-017` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_sync_all_groups | async rstest and XMTP; 10 worker threads | `SHARED-GROUP-REQ-038` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_sync_all_groups_and_welcomes | async XMTP multi-thread | `MLS-REQ-019` |
-| `crates/xmtp_mls/src/client.rs` | `client::tests::test_sync_100_allowed_groups_performance` | async XMTP plus wasm; creates 100 invites, discards sync count, samples only the first group for one welcome, and asserts no time limit | `SHARED-GROUP-REQ-038` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_add_remove_then_add_again | async rstest and XMTP | `SHARED-GROUP-REQ-015` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_key_package_rotation | async XMTP; worker timing | `MLS-REQ-012` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_find_or_create_dm_by_inbox_id | async XMTP | `MLS-REQ-015` |
-| crates/xmtp_mls/src/client.rs | client::tests::should_stream_consent | async XMTP | `SHARED-SYNC-REQ-008` |
-| crates/xmtp_mls/src/client.rs | client::tests::should_reconnect | async rstest and XMTP; ignored on wasm; toxiproxy; 100-second cap | `MLS-REQ-023` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_list_conversations_pagination | async rstest and XMTP | `SHARED-GROUP-REQ-037` |
-| crates/xmtp_mls/src/client.rs | client::tests::test_delete_message | async XMTP | `MLS-REQ-025` |
-| crates/xmtp_mls/src/client.rs | client::tests::close_stops_workers | async XMTP | `SHARED-IDENTITY-REQ-019` |
-| crates/xmtp_mls/src/client.rs | client::tests::close_is_idempotent | async XMTP | `SHARED-IDENTITY-REQ-019` |
-| crates/xmtp_mls/src/client.rs | client::tests::close_disconnects_db | async XMTP; ignored on wasm; persistent database | `SHARED-IDENTITY-REQ-019` |
-| crates/xmtp_mls/src/client.rs | client::tests::close_cancels_callback_stream | async XMTP; ignored on wasm | `SHARED-IDENTITY-REQ-019` |
-| crates/xmtp_mls/src/client.rs | client::tests::reconnect_after_close_errors | async XMTP | `SHARED-IDENTITY-REQ-019` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_group_member_recovery | async XMTP | `MLS-REQ-008` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_client_error_signature_validation_retryability_propagates | sync XMTP | `MLS-REQ-009` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_mls_error | async XMTP | `MLS-REQ-010` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_register_installation | async XMTP | `MLS-REQ-011` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_rotate_key_package | async; wasm-bindgen on wasm; Tokio multi-thread on native | `MLS-REQ-012` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_find_groups | async XMTP | `MLS-REQ-013` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_find_inbox_id | async XMTP | `MLS-REQ-014` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_double_dms | async XMTP | `MLS-REQ-015` |
+| crates/xmtp_mls/src/client/tests/sync.rs | client::tests::sync::only_test_sync_welcomes | async rstest and XMTP | `MLS-REQ-016` |
+| crates/xmtp_mls/src/client/tests/sync.rs | client::tests::sync::test_leaf_node_lifetime_validation_disabled | async XMTP multi-thread; native only | `MLS-REQ-017` |
+| crates/xmtp_mls/src/client/tests/sync.rs | client::tests::sync::test_sync_all_groups | async rstest and XMTP; 10 worker threads | `SHARED-GROUP-REQ-038` |
+| crates/xmtp_mls/src/client/tests/sync.rs | client::tests::sync::test_sync_all_groups_and_welcomes | async XMTP multi-thread | `MLS-REQ-019` |
+| `crates/xmtp_mls/src/client/tests/sync.rs` | `client::tests::sync::test_sync_100_allowed_groups_performance` | async XMTP plus wasm; creates 100 invites, discards sync count, samples only the first group for one welcome, and asserts no time limit | `SHARED-GROUP-REQ-038` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_add_remove_then_add_again | async rstest and XMTP | `SHARED-GROUP-REQ-015` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_key_package_rotation | async XMTP; worker timing | `MLS-REQ-012` |
+| crates/xmtp_mls/src/client/tests/identity.rs | client::tests::identity::test_find_or_create_dm_by_inbox_id | async XMTP | `MLS-REQ-015` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::should_stream_consent | async XMTP | `SHARED-SYNC-REQ-008` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::should_reconnect | async rstest and XMTP; ignored on wasm; toxiproxy; 100-second cap | `MLS-REQ-023` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_list_conversations_pagination | async rstest and XMTP | `SHARED-GROUP-REQ-037` |
+| crates/xmtp_mls/src/client/tests/groups.rs | client::tests::groups::test_delete_message | async XMTP | `MLS-REQ-025` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::close_stops_workers | async XMTP | `SHARED-IDENTITY-REQ-019` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::close_is_idempotent | async XMTP | `SHARED-IDENTITY-REQ-019` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::close_disconnects_db | async XMTP; ignored on wasm; persistent database | `SHARED-IDENTITY-REQ-019` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::close_cancels_callback_stream | async XMTP; ignored on wasm | `SHARED-IDENTITY-REQ-019` |
+| crates/xmtp_mls/src/client/tests/lifecycle.rs | client::tests::lifecycle::reconnect_after_close_errors | async XMTP | `SHARED-IDENTITY-REQ-019` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::ensure_pq_keys_are_deleted | async XMTP | `MLS-REQ-027` |
 | crates/xmtp_id/src/key_package/construction.rs | key_package::construction::tests::generated_package_preserves_options_and_verifies | sync XMTP | `MLS-REQ-028` |
 | crates/xmtp_mls/src/identity.rs | identity::tests::test_generate_post_quantum_key_error_codes | plain sync | `MLS-REQ-029` |
@@ -196,5 +196,5 @@ This index contains 221 source-defined test declarations. Of these, 212 are reac
 | --- | --- | --- | --- |
 | `crates/xmtp_mls/src/identity_updates.rs` | `identity_updates::conflict_tests::conflict_reloads_validates_and_bounds_identical_resends` | XMTP async; bounded conflict cases and real backend race | `P3-API-011` |
 | `crates/xmtp_mls/src/identity_updates.rs` | `identity_updates::conflict_tests::two_clients_racing_identity_updates_keep_both_associations` | XMTP async; bounded conflict cases and real backend race | `P3-API-011` |
-| `crates/xmtp_mls/src/client.rs` | `client::tests::registration_visibility_deadline_bounds_a_severed_connection` | Native XMTP async; success first, then disabled proxy; 250 ms wait and 2 s outer bound; proxy restored on panic | `MLS-REQ-045`, `P3-API-015` |
+| `crates/xmtp_mls/src/client/tests/lifecycle.rs` | `client::tests::lifecycle::registration_visibility_deadline_bounds_a_severed_connection` | Native XMTP async; success first, then disabled proxy; 250 ms wait and 2 s outer bound; proxy restored on panic | `MLS-REQ-045`, `P3-API-015` |
 | `crates/xmtp_mls/src/worker/device_sync/tests.rs` | `worker::device_sync::tests::unknown_device_sync_content_is_ignored` | XMTP test; removed protobuf field is ignored | `P3-CFG-005` |
