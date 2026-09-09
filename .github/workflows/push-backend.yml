@@ -17,6 +17,8 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 60
+    env:
+      NIX_DEVSHELL: rust
     steps:
       - uses: actions/checkout@v6
       - uses: docker/login-action@v3
@@ -40,6 +42,7 @@ jobs:
           disk-key: rust
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
       - uses: taiki-e/install-action@just
         if: steps.image.outputs.exists != 'true'
       - name: Build image
