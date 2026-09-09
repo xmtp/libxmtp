@@ -4,11 +4,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DmTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanFindDmByInboxId() async throws {
 		let fixtures = try await fixtures()
 

@@ -45,9 +45,7 @@ struct PreviewClientProvider<Content: View>: View {
 						let key = try secureRandomBytes(count: 32)
 						Persistence().saveKeys(key)
 						Persistence().saveAddress(wallet.identity.identifier)
-						var options = ClientOptions(dbEncryptionKey: key)
-						options.api.env = .dev
-						options.api.isSecure = true
+						let options = ClientOptions(api: .init(backendUrl: "http://localhost:5050"), dbEncryptionKey: key)
 						let client = try await Client.create(account: wallet, options: options)
 						await MainActor.run {
 							self.client = client

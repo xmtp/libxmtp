@@ -32,8 +32,6 @@ class RemoteAttachmentTests: XCTestCase {
 					.utf8
 			)
 		)!
-
-		setupLocalEnv()
 	}
 
 	func testBasic() async throws {

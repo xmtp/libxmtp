@@ -8,37 +8,10 @@
 import Foundation
 import XCTest
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class HistorySyncTests: XCTestCase {
-	private let syncTimeoutNs: UInt64 = 5_000_000_000
-	private let syncPollIntervalNs: UInt64 = 1_000_000_000
-
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
-	private func waitForSyncCondition(
-		description: String,
-		timeoutNs: UInt64? = nil,
-		pollIntervalNs: UInt64? = nil,
-		condition: () async throws -> Bool
-	) async throws {
-		let timeout = timeoutNs ?? syncTimeoutNs
-		let pollInterval = pollIntervalNs ?? syncPollIntervalNs
-		let start = DispatchTime.now().uptimeNanoseconds
-
-		while DispatchTime.now().uptimeNanoseconds - start < timeout {
-			if try await condition() {
-				return
-			}
-			try await Task.sleep(nanoseconds: pollInterval)
-		}
-
-		XCTFail("Timed out waiting for \(description)")
-	}
-
 	func testSyncConsent() async throws {
 		let fixtures = try await fixtures()
 
@@ -49,7 +22,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -64,7 +37,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -114,7 +87,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1,
 				deviceSyncEnabled: true
@@ -128,7 +101,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2,
 				deviceSyncEnabled: true
@@ -178,7 +151,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -200,7 +173,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -222,7 +195,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -237,7 +210,7 @@ class HistorySyncTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)

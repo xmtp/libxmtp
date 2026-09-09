@@ -4,11 +4,6 @@ import XCTest
 
 @available(iOS 15, *)
 class ReadReceiptTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanUseReadReceiptCodec() async throws {
 		let fixtures = try await fixtures()
 		Client.register(codec: ReadReceiptCodec())

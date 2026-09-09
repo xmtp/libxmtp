@@ -5,11 +5,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DeleteMessageCodecTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	// MARK: - Codec Tests
 
 	func testCanEncodeAndDecodeDeleteMessage() async throws {

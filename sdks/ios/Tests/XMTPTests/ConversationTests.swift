@@ -5,11 +5,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class ConversationTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanFindConversationByTopic() async throws {
 		let fixtures = try await fixtures()
 
@@ -215,7 +210,7 @@ class ConversationTests: XCTestCase {
 	func testReturnsAllHMACKeys() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 		let fixtures = try await fixtures()
@@ -508,7 +503,7 @@ class ConversationTests: XCTestCase {
 	func testReturnsAllTopics() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 

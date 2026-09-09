@@ -4,11 +4,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class StreamLifecycleTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	/// One-shot catch-up joins a pending group and replays its history from
 	/// durable cursors, then stops — and a second call finds nothing owed.
 	func testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent() async throws {
@@ -26,6 +21,7 @@ class StreamLifecycleTests: XCTestCase {
 
 		let summary = try await fixtures.alixClient.catchUpToLive()
 		XCTAssertTrue(summary.completed)
+		XCTAssertEqual(summary.failed, 0)
 		XCTAssertEqual(summary.conversations, 1)
 		XCTAssertGreaterThanOrEqual(summary.messages, 1)
 
@@ -44,6 +40,8 @@ class StreamLifecycleTests: XCTestCase {
 
 		// Nothing owed now: a second run persists nothing new on either axis.
 		let again = try await fixtures.alixClient.catchUpToLive()
+		XCTAssertTrue(again.completed)
+		XCTAssertEqual(again.failed, 0)
 		XCTAssertEqual(again.messages, 0)
 		XCTAssertEqual(again.conversations, 0)
 

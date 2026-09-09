@@ -4,11 +4,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class DeleteMessageTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	// MARK: - Group Tests
 
 	func testSenderCanDeleteOwnMessageInGroup() async throws {

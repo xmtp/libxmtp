@@ -71,24 +71,16 @@ public struct ForkRecoveryOptions {
 }
 
 public struct VisibilityConfirmationOptions {
-	public var quorumPercentage: Float?
-	public var quorumAbsolute: UInt64?
 	public var timeoutMs: UInt64?
 
 	public init(
-		quorumPercentage: Float? = nil,
-		quorumAbsolute: UInt64? = nil,
 		timeoutMs: UInt64? = nil
 	) {
-		self.quorumPercentage = quorumPercentage
-		self.quorumAbsolute = quorumAbsolute
 		self.timeoutMs = timeoutMs
 	}
 
 	func toFfi() -> FfiVisibilityConfirmationOptions {
 		FfiVisibilityConfirmationOptions(
-			quorumPercentage: quorumPercentage,
-			quorumAbsolute: quorumAbsolute,
 			timeoutMs: timeoutMs
 		)
 	}
@@ -108,30 +100,20 @@ public struct DbPoolOptions {
 public struct ClientOptions {
 	/// Specify network options
 	public struct Api {
-		/// Specify which XMTP network to connect to. Defaults to ``.dev``
-		public var env: XMTPEnvironment = .dev
-
-		@available(*, deprecated, message: "isSecure is no longer used and will be removed in a future release")
-		public var isSecure = true
-
+		/// Backend URL, including the HTTP or HTTPS scheme.
+		public var backendUrl: String
+		/// Label used only for the database file name.
+		public var env = "local"
 		public var appVersion: String?
 
-		/// Future proofing - gateway URL support.
-		public var gatewayHost: String?
-
-		public init(
-			env: XMTPEnvironment = .dev, isSecure: Bool = true,
-			appVersion: String? = nil,
-			gatewayHost: String? = nil
-		) {
+		public init(backendUrl: String, env: String = "local", appVersion: String? = nil) {
+			self.backendUrl = backendUrl
 			self.env = env
-			self.isSecure = isSecure
 			self.appVersion = appVersion
-			self.gatewayHost = gatewayHost
 		}
 	}
 
-	public var api = Api()
+	public var api: Api
 	public var codecs: [any ContentCodec] = []
 
 	/// `preAuthenticateToInboxCallback` will be called immediately before an Auth Inbox signature is requested from the
@@ -150,7 +132,7 @@ public struct ClientOptions {
 	public var unstableChangeCallbacks: UnstableChangeCallbacks?
 
 	public init(
-		api: Api = Api(),
+		api: Api,
 		codecs: [any ContentCodec] = [],
 		preAuthenticateToInboxCallback: PreEventCallback? = nil,
 		dbEncryptionKey: Data,
@@ -180,7 +162,7 @@ struct ApiCacheKey {
 	let api: ClientOptions.Api
 
 	var stringValue: String {
-		"\(api.env.url)|\(api.appVersion ?? "nil")|\(api.gatewayHost ?? "nil")"
+		"\(api.backendUrl)|\(api.appVersion ?? "")"
 	}
 }
 
@@ -207,8 +189,8 @@ public final class Client {
 	/// Process-wide control for automatic stream-lifecycle management. When
 	/// `true` (the default), the first ``Client`` created registers app-lifecycle
 	/// observers that park the shared streaming wire while the app is
-	/// backgrounded and revive it on foreground. The streaming wire is shared
-	/// across every client in the process, so this is a **process-global**
+	/// backgrounded and revive it on foreground. This controls all streaming
+	/// connections in the process, so this is a **process-global**
 	/// setting, not per-client: set it to `false` **before creating your first
 	/// client** to opt out (e.g. in an app extension, or to manage the lifecycle
 	/// yourself). Has no effect on platforms without UIKit.
@@ -219,7 +201,7 @@ public final class Client {
 	public let dbPath: String
 	public let installationID: String
 	public let publicIdentity: PublicIdentity
-	public let environment: XMTPEnvironment
+	public let environment: String
 	private let ffiClient: FfiXmtpClient
 	private static let apiCache = ApiClientCache()
 
@@ -497,23 +479,8 @@ public final class Client {
 			directoryURL = URL.documentsDirectory
 		}
 
-		let alias = "xmtp-\(options.api.env.rawValue)-\(inboxId).db3"
-		var dbURL = directoryURL.appendingPathComponent(alias).path
-		var fileExists = FileManager.default.fileExists(atPath: dbURL)
-
-		if !fileExists {
-			let legacyAlias =
-				"xmtp-\(options.api.env.legacyRawValue)-\(inboxId).db3"
-			let legacyDbURL = directoryURL.appendingPathComponent(legacyAlias)
-				.path
-			let legacyFileExists = FileManager.default.fileExists(
-				atPath: legacyDbURL
-			)
-
-			if legacyFileExists {
-				dbURL = legacyDbURL
-			}
-		}
+		let alias = "xmtp-\(options.api.env)-\(inboxId).db3"
+		let dbURL = directoryURL.appendingPathComponent(alias).path
 
 		let deviceSyncMode: FfiDeviceSyncMode =
 			!options.deviceSyncEnabled ? .disabled : .enabled
@@ -582,8 +549,7 @@ public final class Client {
 
 		// Either not cached or not connected; create new client
 		let newClient = try await connectToBackend(
-			v3Host: api.env.url,
-			gatewayHost: api.gatewayHost,
+			backendUrl: api.backendUrl,
 			clientMode: FfiClientMode.default,
 			appVersion: api.appVersion,
 			authCallback: nil,
@@ -803,7 +769,7 @@ public final class Client {
 
 	init(
 		ffiClient: FfiXmtpClient, dbPath: String,
-		installationID: String, inboxID: InboxId, environment: XMTPEnvironment,
+		installationID: String, inboxID: InboxId, environment: String,
 		publicIdentity: PublicIdentity
 	) throws {
 		self.ffiClient = ffiClient

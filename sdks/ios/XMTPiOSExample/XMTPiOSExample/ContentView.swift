@@ -34,7 +34,7 @@ struct ContentView: View {
 									let client = try await Client.build(
 										publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
 										options: .init(
-											api: .init(env: .dev, isSecure: true),
+											api: .init(backendUrl: "http://localhost:5050"),
 											codecs: [GroupUpdatedCodec()],
 											dbEncryptionKey: keysData
 										)
@@ -83,7 +83,7 @@ struct ContentView: View {
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(
-						api: .init(env: .dev, isSecure: true),
+						api: .init(backendUrl: "http://localhost:5050"),
 						codecs: [GroupUpdatedCodec()],
 						dbEncryptionKey: key
 					)

@@ -100,7 +100,10 @@ class XmtpSession {
 		Self.logger.trace("dbKey: \(dbKey.base64EncodedString())")
 		Self.logger.trace("account: \((try? account.jsonString()) ?? "")")
 
-		client = try await Client.create(account: account, options: ClientOptions(dbEncryptionKey: dbKey))
+		client = try await Client.create(
+			account: account,
+			options: ClientOptions(api: .init(backendUrl: "http://localhost:5050"), dbEncryptionKey: dbKey)
+		)
 		Self.logger.trace("inboxID: \((client?.inboxID) ?? "?")")
 
 		// TODO: save credentials in the keychain

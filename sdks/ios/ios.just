@@ -16,10 +16,14 @@ lint:
 format:
     swiftformat .
 
-# Run Swift tests
+# Run Swift tests on macOS. XMTP_BACKEND_URL selects the backend.
 test:
     ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift test --parallel --num-workers=2 -q
 
 # Build iOS native bindings (xcframework)
 build:
     ./dev/bindings
+
+# Run the suite on an installed iOS simulator.
+test-simulator destination="platform=iOS Simulator,name=iPhone 17":
+    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:-http://localhost:5050}" xcodebuild test -scheme XMTPiOS -destination '{{ destination }}'
