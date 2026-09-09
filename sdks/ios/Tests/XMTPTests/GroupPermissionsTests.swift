@@ -4,11 +4,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class GroupPermissionsTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	enum CryptoError: Error {
 		case randomBytes, combinedPayload, hmacSignatureError
 	}

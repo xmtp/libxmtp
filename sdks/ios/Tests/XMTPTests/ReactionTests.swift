@@ -4,11 +4,6 @@ import XCTest
 
 @available(iOS 15, *)
 class ReactionTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanDecodeLegacyForm() async throws {
 		let codec = ReactionCodec()
 

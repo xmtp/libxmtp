@@ -13,6 +13,11 @@ const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
 // https://vitejs.dev/config/
 const viteConfig = defineConfig({
   plugins: [tsconfigPaths()],
+  define: {
+    "import.meta.env.XMTP_BACKEND_URL": JSON.stringify(
+      process.env.XMTP_BACKEND_URL,
+    ),
+  },
   server: {
     fs: {
       allow: [repoRoot],

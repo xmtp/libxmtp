@@ -8,14 +8,10 @@
 import Foundation
 import XCTest
 @testable import XMTPiOS
+import XMTPTestHelpers
 
 @available(iOS 15, *)
 class ArchiveTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testClientArchives() async throws {
 		let fixtures = try await fixtures()
 		let key = try Crypto.secureRandomBytes(count: 32)
@@ -27,7 +23,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -73,7 +69,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -118,7 +114,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -141,7 +137,7 @@ class ArchiveTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)

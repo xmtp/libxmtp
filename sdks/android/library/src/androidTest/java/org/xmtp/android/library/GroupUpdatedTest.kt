@@ -210,7 +210,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
                 Client.build(
                     alixPublicIdentity,
                     ClientOptions(
-                        api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        api = localApi(),
                         dbEncryptionKey = dbEncryptionKey,
                         appContext = context,
                         dbDirectory = alixDbDirectory,

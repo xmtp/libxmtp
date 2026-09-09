@@ -16,18 +16,21 @@ import uniffi.xmtpv3.resumeStreams
 import uniffi.xmtpv3.suspendStreams
 
 /**
- * Counts of what a [Client.catchUpToLive] run brought into the local store, plus
- * whether it reached the live edge.
+ * Counts the messages and conversations stored by [Client.catchUpToLive].
+ * [failed] counts processing failures. [completed] is false if processing fails
+ * or the run does not reach its targets before the timeout.
  */
 data class CatchUpSummary(
     val messages: Long,
     val conversations: Long,
     val completed: Boolean,
+    val failed: Long,
 ) {
     internal constructor(ffi: FfiCatchUpSummary) : this(
         messages = ffi.messages.toLong(),
         conversations = ffi.conversations.toLong(),
         completed = ffi.completed,
+        failed = ffi.failed.toLong(),
     )
 }
 

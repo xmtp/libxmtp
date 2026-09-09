@@ -505,7 +505,7 @@ class Group(
     suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? =
         withContext(Dispatchers.IO) {
             val messages = libXMTPGroup.processStreamedConversationMessage(messageBytes)
-            // TODO: Handle multiple messages with d14n
+            // TODO: Return all messages from this envelope.
             messages.firstOrNull()?.let { DecodedMessage.create(it) }
         }
 

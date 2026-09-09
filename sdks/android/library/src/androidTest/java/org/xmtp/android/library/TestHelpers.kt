@@ -20,6 +20,9 @@ import org.xmtp.android.library.messages.PrivateKeyBuilder
 import java.math.BigInteger
 import java.security.SecureRandom
 
+fun localApi(appVersion: String? = null): ClientOptions.Api =
+    ClientOptions.Api(backendUrl = "http://10.0.2.2:5050", appVersion = appVersion)
+
 const val ANVIL_TEST_PRIVATE_KEY_1 =
     "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 const val ANVIL_TEST_PRIVATE_KEY_2 =
@@ -119,10 +122,7 @@ class FakeSCWWallet : SigningKey {
 
 class Fixtures(
     api: ClientOptions.Api =
-        ClientOptions.Api(
-            XMTPEnvironment.LOCAL,
-            isSecure = false,
-        ),
+        localApi(),
 ) {
     val key = SecureRandom().generateSeed(32)
     val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -161,8 +161,5 @@ class Fixtures(
 
 fun fixtures(
     api: ClientOptions.Api =
-        ClientOptions.Api(
-            XMTPEnvironment.LOCAL,
-            isSecure = false,
-        ),
+        localApi(),
 ): Fixtures = Fixtures(api)

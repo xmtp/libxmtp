@@ -9,6 +9,9 @@ import java.io.File
 import java.net.URL
 import java.security.SecureRandom
 
+fun localApi(appVersion: String? = null): ClientOptions.Api =
+    ClientOptions.Api(backendUrl = "http://10.0.2.2:5050", appVersion = appVersion)
+
 class TestFetcher : Fetcher {
     override fun fetch(url: URL): ByteArray = File(url.toString().replace("https://", "")).readBytes()
 }
@@ -21,7 +24,7 @@ data class Fixtures(
     val context = InstrumentationRegistry.getInstrumentation().targetContext
     val clientOptions =
         ClientOptions(
-            ClientOptions.Api(XMTPEnvironment.LOCAL, isSecure = false),
+            localApi(),
             dbEncryptionKey = key,
             appContext = context,
         )

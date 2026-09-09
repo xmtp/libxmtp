@@ -20,33 +20,25 @@ class XMTPDebugInformation(
 class ApiStats(
     private val apiStats: FfiApiStats,
 ) {
-    val uploadKeyPackage: Long
-        get() = apiStats.uploadKeyPackage.toLong()
-    val fetchKeyPackage: Long
-        get() = apiStats.fetchKeyPackage.toLong()
-    val sendGroupMessages: Long
-        get() = apiStats.sendGroupMessages.toLong()
-    val sendWelcomeMessages: Long
-        get() = apiStats.sendWelcomeMessages.toLong()
-    val queryGroupMessages: Long
-        get() = apiStats.queryGroupMessages.toLong()
-    val queryWelcomeMessages: Long
-        get() = apiStats.queryWelcomeMessages.toLong()
-    val subscribeMessages: Long
-        get() = apiStats.subscribeMessages.toLong()
-    val subscribeWelcomes: Long
-        get() = apiStats.subscribeWelcomes.toLong()
+    val publish: Long
+        get() = apiStats.publish.toLong()
+    val query: Long
+        get() = apiStats.query.toLong()
+    val queryNewest: Long
+        get() = apiStats.queryNewest.toLong()
+    val get: Long
+        get() = apiStats.get.toLong()
+    val subscribe: Long
+        get() = apiStats.subscribe.toLong()
+    val subscribeStatic: Long
+        get() = apiStats.subscribeStatic.toLong()
 }
 
 class IdentityStats(
     private val identityStats: FfiIdentityStats,
 ) {
-    val publishIdentityUpdate: Long
-        get() = identityStats.publishIdentityUpdate.toLong()
-    val getIdentityUpdatesV2: Long
-        get() = identityStats.getIdentityUpdatesV2.toLong()
     val getInboxIds: Long
         get() = identityStats.getInboxIds.toLong()
-    val verifySmartContractWalletSignature: Long
-        get() = identityStats.verifySmartContractWalletSignature.toLong()
+    val verifySmartContractWalletSignatures: Long
+        get() = identityStats.verifySmartContractWalletSignatures.toLong()
 }

@@ -12,22 +12,23 @@ public struct CatchUpSummary: Sendable {
 	public let messages: UInt64
 	/// Conversations newly joined during this run.
 	public let conversations: UInt64
-	/// `true` if catch-up reached the live edge; `false` if a `timeoutMs`
-	/// deadline cut it short. Partial progress is persisted either way.
+	/// Number of processing failures during this run.
+	public let failed: UInt64
+	/// `true` if catch-up completed without a timeout or processing failure.
 	public let completed: Bool
 
 	init(_ ffi: FfiCatchUpSummary) {
 		messages = ffi.messages
 		conversations = ffi.conversations
+		failed = ffi.failed
 		completed = ffi.completed
 	}
 }
 
-/// Keeps the process-shared streaming wire in step with app foreground /
-/// background.
+/// Keeps streaming connections in step with app foreground and background.
 ///
-/// The streaming transport is shared across every ``Client`` in the process, so
-/// suspend/resume are process-global, not per-client. This is registered **once
+/// Clients with the same API client share a streaming connection. Suspend and
+/// resume apply to all connections in the process. This is registered **once
 /// per process** and never torn down — it lives for the process and captures no
 /// client state, which is why there's no matching deregistration hook to get
 /// wrong.

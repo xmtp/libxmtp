@@ -4,18 +4,31 @@ Kotlin. Wraps `bindings/mobile` through uniffi.
 
 ## Commands
 
+Run from the repository root. Each recipe uses the Android Nix shell.
+
 ```bash
-just android build                      # native .so + Kotlin bindings, via Nix
-just android check                      # bindings + gradle build
-just android lint                       # spotless + android lint
-just android format
-just android test                       # bindings + unit tests (library/src/test)
-dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testDebug --tests org.xmtp.android.library.CryptoTest'   # one unit test class
-just android test-integration           # instrumented tests (library/src/androidTest). Needs an emulator.
+just android build             # Build native libraries and Kotlin bindings.
+just android assemble          # Compile the library, example, and instrumented tests.
+just android check             # Build bindings and run the Gradle build.
+just android lint              # Run Spotless and Android Lint.
+just android format            # Format Kotlin code.
+just android test              # Build bindings and run JVM unit tests.
+just android test-integration  # Build bindings and run tests on an emulator.
+dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testDebugUnitTest --tests org.xmtp.android.library.ClientCacheKeyTest'
 ```
 
-## Gotchas
+## Local services
 
-- Needs `just backend up`.
-- Always run `./dev/bindings` before Gradle. Bare `./gradlew` tests stale `.so` files.
-- `library/src/test` = JVM unit tests. `library/src/androidTest` = instrumented, emulator only.
+- Run `just backend up` for the main test stack.
+- To use the published backend image, run `dev/nix-shell 'docker compose -f sdks/android/dev/local/docker-compose.yml up --detach --wait'`.
+- Both stacks run `db`, `backend`, `anvil`, and `toxiproxy`.
+- Emulator tests use `localApi()` with `http://10.0.2.2:5050`.
+- Smart contract wallet tests use anvil at `http://10.0.2.2:8545`.
+- Supply `ClientOptions.Api(backendUrl = "http://10.0.2.2:5050")`. The URL has no default. The optional `env` string selects the database file alias.
+
+## Test requirements
+
+- Run `./dev/bindings` before Gradle compilation or tests. It builds the native libraries and matching Kotlin bindings.
+- `library/src/test` contains JVM unit tests.
+- `library/src/androidTest` contains instrumented tests. These tests need a running backend and an emulator.
+- Instrumented fixtures disable automatic stream lifecycle handling and resume streams. They restore the setting after each test. There is no foreground Activity to keep streams active.

@@ -21,9 +21,7 @@ import Foundation
 	///
 	/// - Parameters:
 	///   - force: Skip the pre-flight key-package capability check.
-	///     Post-d14n every client supports proposals by version floor
-	///     alone, so the per-member scan stops adding signal. Set
-	///     `true` to bypass it. Callers using this MUST be confident
+	///     Set `true` to bypass the per-member scan. Callers must check that
 	///     every member is at `>= minVersion`. Defaults to `false`.
 	///   - minVersion: Override the `MIN_SUPPORTED_PROTOCOL_VERSION`
 	///     floor. `nil` defaults to libxmtp's

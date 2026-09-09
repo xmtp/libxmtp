@@ -4,11 +4,6 @@ import XCTest
 
 @available(iOS 15, *)
 final class TransactionReferenceTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanUseTransactionReferenceCodec() async throws {
 		Client.register(codec: TransactionReferenceCodec())
 

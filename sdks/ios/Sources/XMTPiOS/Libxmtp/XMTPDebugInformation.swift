@@ -44,36 +44,28 @@ public class ApiStats {
 		self.apiStats = apiStats
 	}
 
-	public var uploadKeyPackage: Int64 {
-		Int64(apiStats.uploadKeyPackage)
+	public var publish: Int64 {
+		Int64(apiStats.publish)
 	}
 
-	public var fetchKeyPackage: Int64 {
-		Int64(apiStats.fetchKeyPackage)
+	public var query: Int64 {
+		Int64(apiStats.query)
 	}
 
-	public var sendGroupMessages: Int64 {
-		Int64(apiStats.sendGroupMessages)
+	public var queryNewest: Int64 {
+		Int64(apiStats.queryNewest)
 	}
 
-	public var sendWelcomeMessages: Int64 {
-		Int64(apiStats.sendWelcomeMessages)
+	public var get: Int64 {
+		Int64(apiStats.get)
 	}
 
-	public var queryGroupMessages: Int64 {
-		Int64(apiStats.queryGroupMessages)
+	public var subscribe: Int64 {
+		Int64(apiStats.subscribe)
 	}
 
-	public var queryWelcomeMessages: Int64 {
-		Int64(apiStats.queryWelcomeMessages)
-	}
-
-	public var subscribeMessages: Int64 {
-		Int64(apiStats.subscribeMessages)
-	}
-
-	public var subscribeWelcomes: Int64 {
-		Int64(apiStats.subscribeWelcomes)
+	public var subscribeStatic: Int64 {
+		Int64(apiStats.subscribeStatic)
 	}
 }
 
@@ -84,19 +76,11 @@ public class IdentityStats {
 		self.identityStats = identityStats
 	}
 
-	public var publishIdentityUpdate: Int64 {
-		Int64(identityStats.publishIdentityUpdate)
-	}
-
-	public var getIdentityUpdatesV2: Int64 {
-		Int64(identityStats.getIdentityUpdatesV2)
-	}
-
 	public var getInboxIds: Int64 {
 		Int64(identityStats.getInboxIds)
 	}
 
-	public var verifySmartContractWalletSignature: Int64 {
-		Int64(identityStats.verifySmartContractWalletSignature)
+	public var verifySmartContractWalletSignatures: Int64 {
+		Int64(identityStats.verifySmartContractWalletSignatures)
 	}
 }

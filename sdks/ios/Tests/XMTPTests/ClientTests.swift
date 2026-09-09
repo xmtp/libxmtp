@@ -5,25 +5,32 @@ import XMTPTestHelpers
 
 @available(iOS 15, *)
 class ClientTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testTakesAWallet() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
+		var api = localApi(appVersion: "Testing/0.0.0")
+		api.env = "test-label"
 		let clientOptions = ClientOptions(
-			api: ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure,
-				appVersion: "Testing/0.0.0"
-			),
+			api: api,
 			dbEncryptionKey: key
 		)
 		let fakeWallet = try PrivateKey.generate()
 		let client = try await Client.create(
 			account: fakeWallet, options: clientOptions
 		)
+		XCTAssertEqual(
+			URL(fileURLWithPath: client.dbPath).lastPathComponent,
+			"xmtp-test-label-\(client.inboxID).db3"
+		)
 		try client.deleteLocalDatabase()
+	}
+
+	func testRejectsEmptyBackendUrl() async throws {
+		do {
+			_ = try await Client.connectToApiBackend(api: .init(backendUrl: ""))
+			XCTFail("An empty backend URL must fail")
+		} catch is FfiError {
+			// The binding validates the URL before it opens a connection.
+		}
 	}
 
 	func testPassingEncryptionKey() async throws {
@@ -33,7 +40,7 @@ class ClientTests: XCTestCase {
 		let client = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -50,7 +57,7 @@ class ClientTests: XCTestCase {
 				notOnNetwork.identity,
 				fixtures.bo.identity,
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: localApi()
 		)
 
 		let expectedResults: [String: Bool] = [
@@ -76,7 +83,7 @@ class ClientTests: XCTestCase {
 				fixtures.alixClient.inboxID,
 				fixtures.boClient.inboxID,
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: localApi()
 		)
 
 		XCTAssertEqual(
@@ -98,7 +105,7 @@ class ClientTests: XCTestCase {
 		var boClient = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -106,7 +113,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -123,7 +130,7 @@ class ClientTests: XCTestCase {
 		boClient = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -140,7 +147,7 @@ class ClientTests: XCTestCase {
 		let boClient = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -148,7 +155,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -202,7 +209,7 @@ class ClientTests: XCTestCase {
 		}
 
 		let opts = ClientOptions(
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			preAuthenticateToInboxCallback: preAuthenticateToInboxCallback,
 			dbEncryptionKey: key
 		)
@@ -222,7 +229,7 @@ class ClientTests: XCTestCase {
 		let client = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir
 			)
@@ -231,7 +238,7 @@ class ClientTests: XCTestCase {
 		let bundleClient = try await Client.build(
 			publicIdentity: bo.identity,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir
 			)
@@ -245,7 +252,7 @@ class ClientTests: XCTestCase {
 			_ = await Client.build(
 				publicIdentity: bo.identity,
 				options: .init(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key,
 					dbDirectory: nil
 				)
@@ -263,7 +270,7 @@ class ClientTests: XCTestCase {
 		let boClient = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir
 			)
@@ -272,7 +279,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir
 			)
@@ -287,7 +294,7 @@ class ClientTests: XCTestCase {
 			await Client.create(
 				account: bo,
 				options: .init(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key2,
 					dbDirectory: dbDir
 				)
@@ -304,7 +311,7 @@ class ClientTests: XCTestCase {
 		let boClient = try await Client.create(
 			account: bo,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -312,7 +319,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -328,7 +335,7 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
 		let options = ClientOptions(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -365,7 +372,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -374,7 +381,7 @@ class ClientTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -383,7 +390,7 @@ class ClientTests: XCTestCase {
 		let alixClient3 = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir3
 			)
@@ -415,7 +422,7 @@ class ClientTests: XCTestCase {
 		let alixClient = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir1
 			)
@@ -424,7 +431,7 @@ class ClientTests: XCTestCase {
 		let alixClient2 = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir2
 			)
@@ -433,7 +440,7 @@ class ClientTests: XCTestCase {
 		let alixClient3 = try await Client.create(
 			account: alix,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDir3
 			)
@@ -624,7 +631,7 @@ class ClientTests: XCTestCase {
 		try fixtures.alixClient.deleteLocalDatabase()
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let options = ClientOptions(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -655,7 +662,7 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let alix = try PrivateKey.generate()
 		let options = ClientOptions(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -689,7 +696,7 @@ class ClientTests: XCTestCase {
 		let boWallet = try PrivateKey.generate()
 
 		let options = ClientOptions(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -738,7 +745,7 @@ class ClientTests: XCTestCase {
 		let alix = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath
 			)
@@ -747,7 +754,7 @@ class ClientTests: XCTestCase {
 		let alix2 = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath2
 			)
@@ -756,7 +763,7 @@ class ClientTests: XCTestCase {
 		let alix3 = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath3
 			)
@@ -831,7 +838,7 @@ class ClientTests: XCTestCase {
 		let client = try await Client.create(
 			account: fakeWallet,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key
 			)
 		)
@@ -898,7 +905,7 @@ class ClientTests: XCTestCase {
 		let alix = try await Client.create(
 			account: alixWallet,
 			options: .init(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(appVersion: UUID().uuidString),
 				dbEncryptionKey: key
 			)
 		)
@@ -920,21 +927,17 @@ class ClientTests: XCTestCase {
 		print("Aggregate Stats Create:\n\(aggregateStats2)")
 
 		let apiStats2 = alix.debugInformation.apiStatistics
-		XCTAssertEqual(0, apiStats2.uploadKeyPackage)
-		XCTAssertEqual(0, apiStats2.fetchKeyPackage)
-		XCTAssertEqual(3, apiStats2.sendGroupMessages)
-		XCTAssertEqual(0, apiStats2.sendWelcomeMessages)
-		XCTAssertEqual(1, apiStats2.queryWelcomeMessages)
-		XCTAssertEqual(1, apiStats2.subscribeWelcomes)
+		// Backend totals include commit log publishes and all query topic kinds.
+		XCTAssertEqual(4, apiStats2.publish)
+		XCTAssertEqual(9, apiStats2.query)
+		XCTAssertEqual(0, apiStats2.queryNewest)
+		XCTAssertEqual(0, apiStats2.get)
+		XCTAssertEqual(1, apiStats2.subscribe)
+		XCTAssertEqual(0, apiStats2.subscribeStatic)
 
 		let identityStats2 = alix.debugInformation.identityStatistics
-		XCTAssertEqual(0, identityStats2.publishIdentityUpdate)
-		// Collapsing the two gRPC connections into one (#3721) routes the
-		// group-creation identity-update fetches through the single API client,
-		// so they're now counted here (was 0 under the two-connection setup).
-		XCTAssertEqual(2, identityStats2.getIdentityUpdatesV2)
 		XCTAssertEqual(0, identityStats2.getInboxIds)
-		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignature)
+		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignatures)
 
 		// Cancel the streaming task
 		streamTask.cancel()
@@ -943,7 +946,7 @@ class ClientTests: XCTestCase {
 
 	func testCanSeeKeyPackageStatus() async throws {
 		let fixtures = try await fixtures()
-		let api = ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+		let api = localApi()
 
 		try await Client.connectToApiBackend(api: api)
 
@@ -1005,7 +1008,7 @@ class ClientTests: XCTestCase {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let wallet = try PrivateKey.generate()
 		let options = ClientOptions(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -1061,7 +1064,7 @@ class ClientTests: XCTestCase {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key,
 					dbDirectory: dbDirs[i]
 				)
@@ -1077,7 +1080,7 @@ class ClientTests: XCTestCase {
 			_ = await Client.create(
 				account: wallet,
 				options: ClientOptions(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key,
 					dbDirectory: dbDirs[10]
 				)
@@ -1088,7 +1091,7 @@ class ClientTests: XCTestCase {
 		let boClient = try await Client.create(
 			account: boWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: Crypto.secureRandomBytes(count: 32),
 				dbDirectory: boDbDir
 			)
@@ -1120,7 +1123,7 @@ class ClientTests: XCTestCase {
 		let sixthClient = try await Client.create(
 			account: wallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirs[11]
 			)
@@ -1145,7 +1148,7 @@ class ClientTests: XCTestCase {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key,
 					dbDirectory: dbDirs[i]
 				)
@@ -1159,7 +1162,7 @@ class ClientTests: XCTestCase {
 		let toRevokeId = clients[1].installationID
 
 		try await Client.revokeInstallations(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			signingKey: wallet,
 			inboxId: XCTUnwrap(clients.first?.inboxID),
 			installationIds: [toRevokeId]
@@ -1184,7 +1187,7 @@ class ClientTests: XCTestCase {
 			let client = try await Client.create(
 				account: wallet,
 				options: ClientOptions(
-					api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+					api: localApi(),
 					dbEncryptionKey: key,
 					dbDirectory: dbDirs[i]
 				)
@@ -1196,14 +1199,14 @@ class ClientTests: XCTestCase {
 			inboxIds: [
 				XCTUnwrap(clients.last?.inboxID),
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: localApi()
 		)
 		XCTAssertEqual(states.first?.installations.count, 5)
 
 		let toRevokeIds = try XCTUnwrap(states.first?.installations.map(\.id))
 
 		try await Client.revokeInstallations(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			signingKey: wallet,
 			inboxId: XCTUnwrap(clients.first?.inboxID),
 			installationIds: toRevokeIds
@@ -1213,7 +1216,7 @@ class ClientTests: XCTestCase {
 			inboxIds: [
 				XCTUnwrap(clients.last?.inboxID),
 			],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: localApi()
 		)
 		XCTAssertEqual(states.first?.installations.count, 0)
 	}
@@ -1229,7 +1232,7 @@ class ClientTests: XCTestCase {
 		let alix = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath
 			)
@@ -1238,7 +1241,7 @@ class ClientTests: XCTestCase {
 		let alix2 = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath2
 			)
@@ -1247,7 +1250,7 @@ class ClientTests: XCTestCase {
 		let alix3 = try await Client.create(
 			account: alixWallet,
 			options: ClientOptions(
-				api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+				api: localApi(),
 				dbEncryptionKey: key,
 				dbDirectory: dbDirPath3
 			)
@@ -1257,7 +1260,7 @@ class ClientTests: XCTestCase {
 		XCTAssertEqual(inboxState.installations.count, 3)
 
 		let sigRequest = try await Client.ffiRevokeInstallations(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			publicIdentity: alixWallet.identity,
 			inboxId: alix.inboxID,
 			installationIds: [
@@ -1270,7 +1273,7 @@ class ClientTests: XCTestCase {
 
 		try await sigRequest.addEcdsaSignature(signatureBytes: signedMessage)
 		try await Client.ffiApplySignatureRequest(
-			api: .init(env: .local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			signatureRequest: sigRequest
 		)
 
@@ -1296,7 +1299,7 @@ class ClientTests: XCTestCase {
 		// Call the static method
 		let metadata = try await Client.getNewestMessageMetadata(
 			groupIds: [groupId],
-			api: ClientOptions.Api(env: .local, isSecure: XMTPEnvironment.local.isSecure)
+			api: localApi()
 		)
 
 		// Verify we got metadata for our group
@@ -1311,129 +1314,25 @@ class ClientTests: XCTestCase {
 	}
 
 	func testApiClientCacheKeysDifferentConfigurations() async {
-		// Test that the API client cache correctly differentiates between different configurations
-		// Cache key format: "\(env.url)|\(appVersion ?? "nil")|\(gatewayHost ?? "nil")"
-
-		// Test 1: Different environment URLs
-		let key1 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
-		let key2 = ApiCacheKey(api: .init(env: .dev, isSecure: true, appVersion: nil, gatewayHost: nil))
-		let key3 = ApiCacheKey(api: .init(env: .production, isSecure: true, appVersion: nil, gatewayHost: nil))
-		XCTAssertNotEqual(
-			key1.stringValue,
-			key2.stringValue,
-			"Cache keys should differ for different environments (local vs dev)"
-		)
-		XCTAssertNotEqual(
-			key2.stringValue,
-			key3.stringValue,
-			"Cache keys should differ for different environments (dev vs production)"
-		)
-		XCTAssertNotEqual(
-			key1.stringValue,
-			key3.stringValue,
-			"Cache keys should differ for different environments (local vs production)"
-		)
-
-		// Test 2: Different appVersion values
-		let key6 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "1.0.0", gatewayHost: nil))
-		let key7 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "2.0.0", gatewayHost: nil))
-		XCTAssertNotEqual(key6.stringValue, key7.stringValue, "Cache keys should differ for different appVersion values")
-
-		// Test 4: appVersion present vs absent
-		let key8 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
-		let key9 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: "1.0.0", gatewayHost: nil))
-		XCTAssertNotEqual(
-			key8.stringValue,
-			key9.stringValue,
-			"Cache keys should differ when one has appVersion and other doesn't"
-		)
-
-		// Test 5: Different gatewayHost values (same env, same isSecure, same appVersion)
-		let key10 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: true,
-			appVersion: nil,
-			gatewayHost: "https://gateway1.example.com"
-		))
-		let key11 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: true,
-			appVersion: nil,
-			gatewayHost: "https://gateway2.example.com"
-		))
-		XCTAssertNotEqual(key10.stringValue, key11.stringValue, "Cache keys should differ for different gatewayHost values")
-
-		// Test 6: gatewayHost present vs absent
-		let key12 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
-		let key13 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: true,
-			appVersion: nil,
-			gatewayHost: "https://gateway.example.com"
-		))
-		XCTAssertNotEqual(
-			key12.stringValue,
-			key13.stringValue,
-			"Cache keys should differ when one has gatewayHost and other doesn't"
-		)
-
-		// Test 7: Multiple parameters different
-		let key14 = ApiCacheKey(api: .init(
-			env: .dev,
-			isSecure: true,
-			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
-		))
-		let key15 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: false,
-			appVersion: "2.0.0",
-			gatewayHost: "https://other-gateway.example.com"
-		))
-		XCTAssertNotEqual(
-			key14.stringValue,
-			key15.stringValue,
-			"Cache keys should differ when multiple parameters are different"
-		)
-
-		// Test 8: Completely identical configurations should produce same key
-		let key16 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: true,
-			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
-		))
-		let key17 = ApiCacheKey(api: .init(
-			env: .local,
-			isSecure: true,
-			appVersion: "1.0.0",
-			gatewayHost: "https://gateway.example.com"
-		))
-		XCTAssertEqual(key16.stringValue, key17.stringValue, "Cache keys should be identical for identical configurations")
-
-		// Test 9: All parameters nil/default should produce same key
-		let key18 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
-		let key19 = ApiCacheKey(api: .init(env: .local, isSecure: true, appVersion: nil, gatewayHost: nil))
-		XCTAssertEqual(
-			key18.stringValue,
-			key19.stringValue,
-			"Cache keys should be identical when all optional params are nil"
-		)
-
-		// Test 10: Edge case - same everything except gatewayHost
-		let key22 = ApiCacheKey(api: .init(env: .production, isSecure: true, appVersion: "3.0.0", gatewayHost: nil))
-		let key23 = ApiCacheKey(api: .init(
-			env: .production,
-			isSecure: true,
-			appVersion: "3.0.0",
-			gatewayHost: "https://gateway.example.com"
-		))
-		XCTAssertNotEqual(key22.stringValue, key23.stringValue, "Cache keys should differ when only gatewayHost differs")
+		let urls = ["http://localhost:5050", "https://localhost:5050", "https://backend.example.com"]
+		let versions: [String?] = [nil, "1.0.0", "2.0.0", "nil"]
+		var keys = Set<String>()
+		for url in urls {
+			for version in versions {
+				let api = ClientOptions.Api(backendUrl: url, appVersion: version)
+				let key = ApiCacheKey(api: api).stringValue
+				XCTAssertEqual(key, "\(url)|\(version ?? "")")
+				XCTAssertTrue(keys.insert(key).inserted)
+				XCTAssertEqual(key, ApiCacheKey(api: api).stringValue)
+				let otherLabel = ClientOptions.Api(backendUrl: url, env: "other", appVersion: version)
+				XCTAssertEqual(key, ApiCacheKey(api: otherLabel).stringValue)
+			}
+		}
 	}
 
 	func testClientOptionsDefaultsDbPoolOptionsToNil() {
 		let key = Data(repeating: 0, count: 32)
-		let options = ClientOptions(dbEncryptionKey: key)
+		let options = ClientOptions(api: localApi(), dbEncryptionKey: key)
 		XCTAssertNil(options.dbPoolOptions)
 	}
 
@@ -1441,6 +1340,7 @@ class ClientTests: XCTestCase {
 		let key = Data(repeating: 0, count: 32)
 		let pool = DbPoolOptions(maxPoolSize: 10, minPoolSize: 2)
 		let options = ClientOptions(
+			api: localApi(),
 			dbEncryptionKey: key,
 			dbPoolOptions: pool
 		)
@@ -1452,6 +1352,7 @@ class ClientTests: XCTestCase {
 		let key = Data(repeating: 0, count: 32)
 		let pool = DbPoolOptions(maxPoolSize: 7)
 		let options = ClientOptions(
+			api: localApi(),
 			dbEncryptionKey: key,
 			dbPoolOptions: pool
 		)

@@ -22,7 +22,7 @@ struct LoggedInView: View {
 			VStack {
 				ConversationListView(client: client)
 				VStack(alignment: .leading) {
-					Text("Connected to **\(client.environment.rawValue)** as")
+					Text("Connected to **\(client.environment)** as")
 					Text("`\(client.publicIdentity.identifier)`")
 						.bold()
 						.textSelection(.enabled)

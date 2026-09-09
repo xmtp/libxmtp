@@ -8,6 +8,15 @@
 import SwiftUI
 import XMTPiOS
 
+/// The backend this sample app connects to.
+///
+/// `localhost` is the device or the simulator, not the development machine, so
+/// a real device needs the machine's address on the local network here (for
+/// example `http://192.168.1.10:5050`). The simulator shares the host network
+/// and reaches a local `just backend up` stack at this default.
+let exampleBackendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]
+	?? "http://localhost:5050"
+
 struct ContentView: View {
 	enum Status {
 		case unknown, connecting, connected(Client), error(String)
@@ -34,7 +43,7 @@ struct ContentView: View {
 									let client = try await Client.build(
 										publicIdentity: PublicIdentity(kind: IdentityKind.ethereum, identifier: address),
 										options: .init(
-											api: .init(env: .dev, isSecure: true),
+											api: .init(backendUrl: exampleBackendUrl),
 											codecs: [GroupUpdatedCodec()],
 											dbEncryptionKey: keysData
 										)
@@ -83,7 +92,7 @@ struct ContentView: View {
 				let client = try await Client.create(
 					account: wallet,
 					options: .init(
-						api: .init(env: .dev, isSecure: true),
+						api: .init(backendUrl: exampleBackendUrl),
 						codecs: [GroupUpdatedCodec()],
 						dbEncryptionKey: key
 					)

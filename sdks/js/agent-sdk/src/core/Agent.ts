@@ -43,7 +43,6 @@ import {
   type StreamOptions,
   type TransactionReference,
   type WalletSendCalls,
-  type XmtpEnv,
 } from "@xmtp/node-sdk";
 import { version as appVersion } from "~/package.json";
 import { retry } from "ts-retry-promise";
@@ -201,9 +200,9 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Parameters<typeof Client.create>[0],
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
-    options?: AgentCreateOptions<ContentCodecs>,
+    options: AgentCreateOptions<ContentCodecs>,
   ) {
-    const initializedOptions = { ...(options ?? {}) };
+    const initializedOptions = { ...options };
     initializedOptions.appVersion ??= `agent-sdk/${appVersion}`;
     initializedOptions.disableDeviceSync ??= true;
 
@@ -239,14 +238,14 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   static async createFromEnv<ContentCodecs extends ContentCodec[] = []>(
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
-    options?: AgentCreateOptions<ContentCodecs>,
+    options?: Partial<AgentCreateOptions<ContentCodecs>>,
   ) {
     const {
       XMTP_DB_DIRECTORY,
       XMTP_DB_ENCRYPTION_KEY,
       XMTP_ENV,
       XMTP_WALLET_KEY,
-      XMTP_GATEWAY_HOST,
+      XMTP_BACKEND_URL,
     } = process.env;
 
     if (!isHexString(XMTP_WALLET_KEY)) {
@@ -258,7 +257,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
     const signer = createSigner(createUser(XMTP_WALLET_KEY));
 
-    const initializedOptions = { ...(options ?? {}) };
+    const initializedOptions = { ...options };
 
     initializedOptions.dbEncryptionKey =
       typeof XMTP_DB_ENCRYPTION_KEY === "string"
@@ -267,21 +266,12 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           : `0x${XMTP_DB_ENCRYPTION_KEY}`
         : undefined;
 
-    const validEnvs = [
-      "local",
-      "dev",
-      "production",
-      "testnet-staging",
-      "testnet-dev",
-      "testnet",
-      "mainnet",
-    ] as const;
-    if (XMTP_ENV && validEnvs.includes(XMTP_ENV as XmtpEnv)) {
-      initializedOptions.env = XMTP_ENV as XmtpEnv;
+    if (XMTP_ENV !== undefined) {
+      initializedOptions.env = XMTP_ENV;
     }
 
-    if (typeof XMTP_GATEWAY_HOST === "string") {
-      initializedOptions.gatewayHost = XMTP_GATEWAY_HOST;
+    if (typeof XMTP_BACKEND_URL === "string") {
+      initializedOptions.backendUrl = XMTP_BACKEND_URL;
     }
 
     if (typeof XMTP_DB_DIRECTORY === "string") {
@@ -293,7 +283,13 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       };
     }
 
-    return this.create(signer, initializedOptions);
+    if (!initializedOptions.backendUrl?.trim()) {
+      throw new Error("backendUrl is required");
+    }
+    return this.create(signer, {
+      ...initializedOptions,
+      backendUrl: initializedOptions.backendUrl,
+    });
   }
 
   get libxmtpVersion() {

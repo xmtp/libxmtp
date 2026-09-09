@@ -49,7 +49,7 @@ export class Conversations<ContentTypes = unknown> {
   }
 
   get topic() {
-    return `/xmtp/mls/1/w-${this.#client.installationId}/proto`;
+    return `01${this.#client.installationId}`;
   }
 
   /**

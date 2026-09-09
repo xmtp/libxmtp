@@ -1,4 +1,4 @@
-import { Client, LogLevel } from "@xmtp/node-sdk";
+import { type Client, LogLevel } from "@xmtp/node-sdk";
 import type { Agent } from "@/core/Agent";
 
 const validLogLevels: LogLevel[] = [
@@ -43,9 +43,8 @@ export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
   const clientsByAddress = client.accountIdentifier?.identifier;
   const inboxId = client.inboxId;
   const installationId = client.installationId;
-  const env = client.env;
 
-  const urls = [`http://xmtp.chat/${env}/dm/${clientsByAddress}`];
+  const urls = [`http://xmtp.chat/dm/${clientsByAddress}`];
 
   const conversations = await client.conversations.list();
   const inboxState = await client.preferences.inboxState();
@@ -74,7 +73,6 @@ export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
     • InstallationId: ${installationId}
     • Key Package created: ${createdDate.toLocaleString()}
     • Key Package valid until: ${expiryDate.toLocaleString()}
-    • Networks: ${env}
     ${urls.map((url) => `• URL: ${url}`).join("\n")}`);
 };
 
@@ -86,8 +84,7 @@ export const logDetails = async <ContentTypes>(agent: Agent<ContentTypes>) => {
  */
 export const getTestUrl = <ContentTypes>(client: Client<ContentTypes>) => {
   const address = client.accountIdentifier?.identifier;
-  const env = client.env;
-  return `http://xmtp.chat/${env}/dm/${address}`;
+  return `http://xmtp.chat/dm/${address}`;
 };
 
 type InstallationInfo = {
@@ -103,16 +100,7 @@ export const getInstallationInfo = async <ContentTypes>(
   const myInboxId = client.inboxId;
   const myInstallationId = client.installationId;
 
-  const env = client.env;
-  const gatewayHost =
-    client.options && "gatewayHost" in client.options
-      ? client.options.gatewayHost
-      : undefined;
-  const inboxStates = await Client.fetchInboxStates(
-    [myInboxId],
-    env,
-    gatewayHost,
-  );
+  const inboxStates = await client.preferences.fetchInboxStates([myInboxId]);
 
   const installations =
     inboxStates.find((state) => state.inboxId === myInboxId)?.installations ||

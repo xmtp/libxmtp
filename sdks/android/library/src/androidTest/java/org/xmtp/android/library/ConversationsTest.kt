@@ -340,7 +340,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                     account = eriWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -354,7 +354,7 @@ class ConversationsTest : BaseInstrumentedTest() {
                     account = eriWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),

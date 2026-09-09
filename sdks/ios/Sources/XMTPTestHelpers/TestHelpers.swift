@@ -8,17 +8,15 @@
 		ProcessInfo.processInfo.environment[key]
 	}
 
-	public func getLocalAddressFromEnvironment() -> String? {
-		_env("XMTP_NODE_ADDRESS")
+	public func localApi(appVersion: String? = nil) -> ClientOptions.Api {
+		ClientOptions.Api(
+			backendUrl: _env("XMTP_BACKEND_URL") ?? "http://localhost:5050",
+			appVersion: appVersion
+		)
 	}
 
 	public enum TestConfig {
 		static let TEST_SERVER_ENABLED = _env("TEST_SERVER_ENABLED") == "true"
-		// TODO: change Client constructor to accept these explicitly (so we can config CI):
-		// static let TEST_SERVER_HOST = _env("TEST_SERVER_HOST") ?? "127.0.0.1"
-		// static let TEST_SERVER_PORT = Int(_env("TEST_SERVER_PORT")) ?? 5556
-		// static let TEST_SERVER_IS_SECURE = _env("TEST_SERVER_IS_SECURE") == "true"
-
 		public static func skipIfNotRunningLocalNodeTests() throws {
 			try XCTSkipIf(!TEST_SERVER_ENABLED, "requires local node")
 		}
@@ -82,17 +80,9 @@
 	}
 
 	public extension XCTestCase {
-		func setupLocalEnv() {
-			if let localAddress = getLocalAddressFromEnvironment(), !localAddress.isEmpty {
-				XMTPEnvironment.customLocalAddress = localAddress
-			}
-		}
-
 		@available(iOS 15, *)
 		func fixtures(
-			clientOptions: ClientOptions.Api = ClientOptions.Api(
-				env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure
-			)
+			clientOptions: ClientOptions.Api = localApi()
 		) async throws -> Fixtures {
 			try await Fixtures(clientOptions: clientOptions)
 		}

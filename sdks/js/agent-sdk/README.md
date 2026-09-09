@@ -31,7 +31,8 @@ const signer = createSigner(user);
 
 // 2. Spin up the agent
 const agent = await Agent.create(signer, {
-  env: "dev", // or 'production'
+  backendUrl: "http://127.0.0.1:5050",
+  env: "local", // Database file label.
   dbPath: null, // in-memory store; provide a path to persist
 });
 
@@ -50,16 +51,20 @@ await agent.start();
 
 ## Environment Variables
 
+`Agent.create` requires `backendUrl`. `env` only sets the default database file label.
+Native streams stay open during retryable network faults and resume in order.
+
 The XMTP Agent SDK supports configuration through environment variables (`process.env`), making it easy to configure your agent without code changes. Set the following variables and call `Agent.createFromEnv()` to automatically load them:
 
 **Available Variables:**
 
-| Variable                 | Purpose                                                                                                         | Example                                 |
-| ------------------------ | --------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `XMTP_DB_DIRECTORY`      | [Database directory](https://docs.xmtp.org/agents/build-agents/local-database#understand-local-database-files)  | `XMTP_DB_DIRECTORY=my/database/dir`     |
-| `XMTP_DB_ENCRYPTION_KEY` | [Database encryption key](https://docs.xmtp.org/agents/concepts/identity#keep-the-database-encryption-key-safe) | `XMTP_DB_ENCRYPTION_KEY=0xabcd...1234`  |
-| `XMTP_ENV`               | [Network environment](https://docs.xmtp.org/chat-apps/core-messaging/create-a-client#xmtp-network-environments) | `XMTP_ENV=dev` or `XMTP_ENV=production` |
-| `XMTP_WALLET_KEY`        | [Private key for Ethereum wallet](https://docs.xmtp.org/chat-apps/core-messaging/create-a-signer)               | `XMTP_WALLET_KEY=0x1234...abcd`         |
+| Variable                 | Purpose                                                                                                         | Example                                  |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| `XMTP_DB_DIRECTORY`      | [Database directory](https://docs.xmtp.org/agents/build-agents/local-database#understand-local-database-files)  | `XMTP_DB_DIRECTORY=my/database/dir`      |
+| `XMTP_DB_ENCRYPTION_KEY` | [Database encryption key](https://docs.xmtp.org/agents/concepts/identity#keep-the-database-encryption-key-safe) | `XMTP_DB_ENCRYPTION_KEY=0xabcd...1234`   |
+| `XMTP_BACKEND_URL`       | Required backend URL, including the scheme.                                                                     | `XMTP_BACKEND_URL=http://127.0.0.1:5050` |
+| `XMTP_ENV`               | Optional database file label. Default: `default`.                                                               | `XMTP_ENV=local`                         |
+| `XMTP_WALLET_KEY`        | [Private key for Ethereum wallet](https://docs.xmtp.org/chat-apps/core-messaging/create-a-signer)               | `XMTP_WALLET_KEY=0x1234...abcd`          |
 
 Using the environment variables, you can setup your agent in just a few lines of code:
 
@@ -448,7 +453,8 @@ Pass `codecs` when creating your agent to extend supported content:
 
 ```ts
 const agent = await Agent.create(signer, {
-  env: "dev",
+  backendUrl: "http://127.0.0.1:5050",
+  env: "local",
   dbPath: null,
   codecs: [new MyContentType()],
 });

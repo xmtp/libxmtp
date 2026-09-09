@@ -10,8 +10,8 @@ import {
 } from "@xmtp/wasm-bindings";
 import type {
   ClientOptions,
+  DistributiveOmit,
   VisibilityConfirmationOptions,
-  XmtpEnv,
 } from "@/types/options";
 import { createClient } from "@/utils/createClient";
 import type { SafeSigner } from "@/utils/signer";
@@ -23,10 +23,10 @@ export class WorkerClient {
   #client: Client;
   #conversations: WorkerConversations;
   #debugInformation: WorkerDebugInformation;
-  #env: XmtpEnv;
+  #env: string;
   #preferences: WorkerPreferences;
 
-  constructor(client: Client, env: XmtpEnv) {
+  constructor(client: Client, env: string) {
     this.#client = client;
     this.#env = env;
     const conversations = client.conversations();
@@ -37,7 +37,7 @@ export class WorkerClient {
 
   static async create(
     identifier: Identifier,
-    options?: Omit<ClientOptions, "codecs">,
+    options?: DistributiveOmit<ClientOptions, "codecs">,
   ) {
     const { client, env } = await createClient(identifier, options);
     return new WorkerClient(client, env);

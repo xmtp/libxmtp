@@ -31,11 +31,9 @@ class UnstableGroup(
      * image URL, admin list, permissions) flow through the proposal-based
      * path instead of GCE commits.
      *
-     * @param force Skip the pre-flight key-package capability check.
-     *   Post-d14n every client supports proposals by version floor
-     *   alone, so the per-member scan stops adding signal. Set `true`
-     *   to bypass it. Callers using this MUST be confident every
-     *   member is at `>= minVersion`. Defaults to `false`.
+     * @param force Skip the key-package capability check. Before you set
+     *   this to `true`, verify that every member supports proposals and
+     *   has a version at or above `minVersion`. Defaults to `false`.
      * @param minVersion Override the `MIN_SUPPORTED_PROTOCOL_VERSION`
      *   floor. `null` defaults to libxmtp's
      *   `PROPOSALS_MIN_PROTOCOL_VERSION` — the release where proposals

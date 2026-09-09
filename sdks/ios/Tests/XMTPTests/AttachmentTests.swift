@@ -4,11 +4,6 @@ import XCTest
 
 @available(iOS 15, *)
 class AttachmentsTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanUseAttachmentCodec() async throws {
 		let iconData = try XCTUnwrap(Data(
 			base64Encoded: Data(

@@ -8,7 +8,6 @@ import {
   type ArchiveOptions,
   type GroupSyncSummary,
   type Identifier,
-  type InboxState,
 } from "@xmtp/wasm-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
 import { Conversations } from "@/Conversations";
@@ -17,8 +16,9 @@ import { Preferences } from "@/Preferences";
 import type { ClientWorkerAction } from "@/types/actions";
 import type {
   ClientOptions,
+  DistributiveOmit,
   ExtractCodecContentTypes,
-  XmtpEnv,
+  NetworkOptions,
 } from "@/types/options";
 import { createBackend } from "@/utils/createBackend";
 import { createClient as createLowLevelClient } from "@/utils/createClient";
@@ -34,21 +34,14 @@ import { toSafeSigner, type SafeSigner, type Signer } from "@/utils/signer";
 import { uuid } from "@/utils/uuid";
 import { WorkerBridge } from "@/utils/WorkerBridge";
 
-/**
- * Resolves a `Backend` instance from either a `Backend` or an `XmtpEnv` string.
- *
- * @param envOrBackend - A `Backend` instance, or an `XmtpEnv` string
- * @param gatewayHost - Optional gateway host (only used when `envOrBackend` is an `XmtpEnv`)
- * @returns A `Backend` instance
- */
+/** Resolve a backend from explicit network options or an existing backend. */
 const resolveBackend = async (
-  envOrBackend?: XmtpEnv | Backend,
-  gatewayHost?: string,
+  optionsOrBackend: NetworkOptions | Backend,
 ): Promise<Backend> => {
-  if (envOrBackend instanceof Backend) {
-    return envOrBackend;
+  if (optionsOrBackend instanceof Backend) {
+    return optionsOrBackend;
   }
-  return createBackend({ env: envOrBackend, gatewayHost });
+  return createBackend(optionsOrBackend);
 };
 
 const createEphemeralIdentifier = (): Identifier => {
@@ -81,7 +74,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #codecRegistry: CodecRegistry;
   #conversations: Conversations<ContentTypes>;
   #debugInformation: DebugInformation;
-  #env?: XmtpEnv;
+  #env?: string;
   #identifier?: Identifier;
   #inboxId?: string;
   #installationId?: string;
@@ -149,7 +142,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       options: this.#options,
     });
     this.#appVersion = result.appVersion;
-    this.#env = result.env as XmtpEnv;
+    this.#env = result.env;
     this.#identifier = identifier;
     this.#inboxId = result.inboxId;
     this.#installationId = result.installationId;
@@ -175,20 +168,23 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Signer,
-    options?: Omit<ClientOptions, "codecs"> & {
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
     const client = new Client<ExtractCodecContentTypes<ContentCodecs>>(options);
     client.#signer = signer;
 
-    await client.init(await signer.getIdentifier());
-
-    if (!options?.disableAutoRegister) {
-      await client.register();
+    try {
+      await client.init(await signer.getIdentifier());
+      if (!options.disableAutoRegister) {
+        await client.register();
+      }
+      return client;
+    } catch (error) {
+      client.close();
+      throw error;
     }
-
-    return client;
   }
 
   /**
@@ -203,7 +199,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async build<ContentCodecs extends ContentCodec[] = []>(
     identifier: Identifier,
-    options?: Omit<ClientOptions, "codecs"> & {
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
@@ -211,8 +207,13 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       ...options,
       disableAutoRegister: true,
     });
-    await client.init(identifier);
-    return client;
+    try {
+      await client.init(identifier);
+      return client;
+    } catch (error) {
+      client.close();
+      throw error;
+    }
   }
 
   /**
@@ -300,7 +301,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   }
 
   /**
-   * Gets the XMTP environment used by this client
+   * Gets the label used for the default database file name
    */
   get env() {
     return this.#env;
@@ -617,83 +618,23 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     });
   }
 
-  /**
-   * Revokes specific installations of the client's inbox without a client
-   *
-   * @param signer - The signer to use
-   * @param inboxId - The inbox ID to revoke installations for
-   * @param installationIds - The installation IDs to revoke
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   */
+  /** Revoke installations with an explicit backend or network options. */
   static async revokeInstallations(
     signer: Signer,
     inboxId: string,
     installationIds: Uint8Array[],
-    backend?: Backend,
-  ): Promise<void>;
-  /**
-   * Revokes specific installations of the client's inbox without a client
-   *
-   * @param signer - The signer to use
-   * @param inboxId - The inbox ID to revoke installations for
-   * @param installationIds - The installation IDs to revoke
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async revokeInstallations(
-    signer: Signer,
-    inboxId: string,
-    installationIds: Uint8Array[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<void>;
-  static async revokeInstallations(
-    signer: Signer,
-    inboxId: string,
-    installationIds: Uint8Array[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     await utilsRevokeInstallations(backend, signer, inboxId, installationIds);
   }
 
-  /**
-   * Fetches the inbox states for the specified inbox IDs from the network
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to get the state for
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns The inbox states for the specified inbox IDs
-   */
+  /** Fetch inbox states with an explicit backend or network options. */
   static async fetchInboxStates(
     inboxIds: string[],
-    backend?: Backend,
-  ): Promise<InboxState[]>;
-  /**
-   * Fetches the inbox states for the specified inbox IDs from the network
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to get the state for
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @returns The inbox states for the specified inbox IDs
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async fetchInboxStates(
-    inboxIds: string[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<InboxState[]>;
-  static async fetchInboxStates(
-    inboxIds: string[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     return utilsInboxStateFromInboxIds(backend, inboxIds);
   }
 
@@ -767,37 +708,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     return this.#worker.action("client.fetchOwnInboxUpdatesCount", {});
   }
 
-  /**
-   * Checks if the specified identifiers can be messaged
-   *
-   * @param identifiers - The identifiers to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Map of identifiers to whether they can be messaged
-   */
+  /** Check identifiers with an explicit backend or network options. */
   static async canMessage(
     identifiers: Identifier[],
-    backend?: Backend,
-  ): Promise<Map<string, boolean>>;
-  /**
-   * Checks if the specified identifiers can be messaged
-   *
-   * @param identifiers - The identifiers to check
-   * @param env - Optional XMTP environment
-   * @returns Map of identifiers to whether they can be messaged
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv`.
-   */
-  /* eslint-disable @typescript-eslint/unified-signatures */
-  static async canMessage(
-    identifiers: Identifier[],
-    env?: XmtpEnv,
-  ): Promise<Map<string, boolean>>;
-  /* eslint-enable @typescript-eslint/unified-signatures */
-  static async canMessage(
-    identifiers: Identifier[],
-    envOrBackend?: XmtpEnv | Backend,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend);
+    const backend = await resolveBackend(optionsOrBackend);
     const canMessageMap = new Map<string, boolean>();
     for (const identifier of identifiers) {
       const inboxId = await getInboxIdForIdentifier(backend, identifier);
@@ -809,40 +725,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     return canMessageMap;
   }
 
-  /**
-   * Fetches the latest inbox updates count for the specified inbox IDs
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Map of inbox IDs to their updates count
-   */
+  /** Fetch inbox update counts with an explicit backend or network options. */
   static async fetchLatestInboxUpdatesCount(
     inboxIds: string[],
-    backendOrEnv?: Backend | XmtpEnv,
-  ): Promise<Map<string, number>>;
-  /**
-   * Fetches the latest inbox updates count for the specified inbox IDs
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to check
-   * @param env - Optional XMTP environment
-   * @param gatewayHost - Optional gateway host
-   * @returns Map of inbox IDs to their updates count
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async fetchLatestInboxUpdatesCount(
-    inboxIds: string[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<Map<string, number>>;
-  static async fetchLatestInboxUpdatesCount(
-    inboxIds: string[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     const { client } = await createLowLevelClient(createEphemeralIdentifier(), {
       backend,
       dbPath: null,

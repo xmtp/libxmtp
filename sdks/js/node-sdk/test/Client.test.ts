@@ -25,6 +25,14 @@ import {
 } from "@test/helpers";
 
 describe("Client", () => {
+  it("should reject client creation without backendUrl", async () => {
+    const { signer } = createSigner();
+    // @ts-expect-error A backend URL is required, including for JavaScript callers.
+    await expect(Client.create(signer, { dbPath: null })).rejects.toThrow(
+      "backendUrl is required",
+    );
+  });
+
   it("should create a client", async () => {
     const { signer, address } = createSigner();
     const client = await createClient(signer);
@@ -52,7 +60,10 @@ describe("Client", () => {
   it("should create multiple clients from a single shared backend", async () => {
     // Build one backend (connection) and reuse it to create several clients,
     // the way a service hosting many inboxes in one process would.
-    const backend = await createBackend({ env: "local" });
+    const backend = await createBackend({
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
 
     const { signer: signer1, address: address1 } = createSigner();
     const { signer: signer2, address: address2 } = createSigner();
@@ -164,6 +175,7 @@ describe("Client", () => {
     const { signer } = createSigner();
 
     const client = await Client.create(signer, {
+      backendUrl: process.env.XMTP_BACKEND_URL!,
       dbPath: (inboxId: string) => `./user-${inboxId}.db3`,
     });
     expect(client).toBeDefined();
@@ -225,7 +237,10 @@ describe("Client", () => {
     await createRegisteredClient(signer);
     const canMessage = await Client.canMessage(
       [await signer.getIdentifier()],
-      await createBackend({ env: "local" }),
+      await createBackend({
+        backendUrl: process.env.XMTP_BACKEND_URL!,
+        env: "local",
+      }),
     );
     expect(Object.fromEntries(canMessage)).toEqual({
       [address]: true,
@@ -357,7 +372,7 @@ describe("Client", () => {
       signer,
       client3.inboxId,
       [client.installationIdBytes],
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
 
     const inboxState2 = await client3.preferences.fetchInboxState();
@@ -464,14 +479,14 @@ describe("Client", () => {
     const authorized = await Client.isAddressAuthorized(
       client.inboxId,
       address,
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
     expect(authorized).toBe(true);
 
     const authorized2 = await Client.isAddressAuthorized(
       client.inboxId,
       "0x1234567890123456789012345678901234567890",
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
     expect(authorized2).toBe(false);
   });
@@ -482,14 +497,14 @@ describe("Client", () => {
     const authorized = await Client.isInstallationAuthorized(
       client.inboxId,
       client.installationIdBytes,
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
     expect(authorized).toBe(true);
 
     const authorized2 = await Client.isInstallationAuthorized(
       client.inboxId,
       new Uint8Array(32),
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
     expect(authorized2).toBe(false);
   });
@@ -535,7 +550,10 @@ describe("Client", () => {
   });
 
   it("should throw errors when client is not initialized", async () => {
-    const client = new Client({ env: "local" });
+    const client = new Client({
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
 
     await expect(async () =>
       client.unsafe_createInboxSignatureRequest(),
@@ -620,18 +638,18 @@ describe("Client", () => {
     const { signer: signer2 } = createSigner();
     const client = await createRegisteredClient(signer);
     const client2 = await createRegisteredClient(signer2);
-    const inboxStates = await Client.fetchInboxStates(
-      [client.inboxId],
-      "local",
-    );
+    const inboxStates = await Client.fetchInboxStates([client.inboxId], {
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
     expect(inboxStates.length).toBe(1);
     expect(inboxStates[0].inboxId).toBe(client.inboxId);
     expect(inboxStates[0].identifiers).toEqual([await signer.getIdentifier()]);
 
-    const inboxStates2 = await Client.fetchInboxStates(
-      [client2.inboxId],
-      "local",
-    );
+    const inboxStates2 = await Client.fetchInboxStates([client2.inboxId], {
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
     expect(inboxStates2.length).toBe(1);
     expect(inboxStates2[0].inboxId).toBe(client2.inboxId);
     expect(inboxStates2[0].identifiers).toEqual([
@@ -644,7 +662,7 @@ describe("Client", () => {
     const client = await createRegisteredClient(signer);
     const inboxUpdatesCounts = await Client.fetchLatestInboxUpdatesCount(
       [client.inboxId],
-      "local",
+      { backendUrl: process.env.XMTP_BACKEND_URL!, env: "local" },
     );
     expect(inboxUpdatesCounts.get(client.inboxId)).toBeTypeOf("number");
   });

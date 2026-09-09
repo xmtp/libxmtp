@@ -5,11 +5,6 @@ import XCTest
 @available(macOS 13.0, *)
 @available(iOS 16, *)
 class MultiRemoteAttachmentTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanEncryptAndDecrypt() async throws {
 		Client.register(codec: AttachmentCodec())
 		Client.register(codec: RemoteAttachmentCodec())

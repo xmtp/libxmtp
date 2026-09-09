@@ -36,7 +36,7 @@ describe("Group", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const group = await client1.conversations.createGroup([client2.inboxId]);
-    expect(group.topic).toBe(`/xmtp/mls/1/g-${group.id}/proto`);
+    expect(group.topic).toBe(`00${group.id}`);
   });
 
   it("should create a group", async () => {
@@ -927,7 +927,6 @@ describe("Group", () => {
     expect(debugInfo.cursor).toBeDefined();
     expect(debugInfo.cursor.length).toBeGreaterThan(0);
     for (const cursor of debugInfo.cursor) {
-      expect(cursor.originatorId).toBeDefined();
       expect(cursor.sequenceId).toBeDefined();
     }
   });

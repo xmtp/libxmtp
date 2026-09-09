@@ -14,7 +14,6 @@ import {
   type ArchiveOptions,
   type GroupSyncSummary,
   type Identifier,
-  type InboxState,
   type Client as NodeClient,
   type SignatureRequestHandle,
 } from "@xmtp/node-bindings";
@@ -26,7 +25,7 @@ import type {
   ClientOptions,
   DistributiveOmit,
   ExtractCodecContentTypes,
-  XmtpEnv,
+  NetworkOptions,
 } from "@/types";
 import { createBackend } from "@/utils/createBackend";
 import { createClient } from "@/utils/createClient";
@@ -39,21 +38,14 @@ import {
 import { getInboxIdForIdentifier } from "@/utils/inboxId";
 import { type Signer } from "@/utils/signer";
 
-/**
- * Resolves a `Backend` instance from either a `Backend` or an `XmtpEnv` string.
- *
- * @param envOrBackend - A `Backend` instance, or an `XmtpEnv` string
- * @param gatewayHost - Optional gateway host (only used when `envOrBackend` is an `XmtpEnv`)
- * @returns A `Backend` instance
- */
+/** Resolve a backend from explicit network options or an existing backend. */
 const resolveBackend = async (
-  envOrBackend?: XmtpEnv | Backend,
-  gatewayHost?: string,
+  optionsOrBackend: NetworkOptions | Backend,
 ): Promise<Backend> => {
-  if (envOrBackend instanceof Backend) {
-    return envOrBackend;
+  if (optionsOrBackend instanceof Backend) {
+    return optionsOrBackend;
   }
-  return createBackend({ env: envOrBackend, gatewayHost });
+  return createBackend(optionsOrBackend);
 };
 
 const createEphemeralIdentifier = (): Identifier => ({
@@ -79,7 +71,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #codecRegistry: CodecRegistry;
   #conversations?: Conversations<ContentTypes>;
   #debugInformation?: DebugInformation;
-  #env?: XmtpEnv;
+  #env?: string;
   #preferences?: Preferences;
   #signer?: Signer;
   #identifier?: Identifier;
@@ -134,7 +126,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Signer,
-    options?: DistributiveOmit<ClientOptions, "codecs"> & {
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
@@ -143,7 +135,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     client.#signer = signer;
     await client.init(identifier);
 
-    if (!options?.disableAutoRegister) {
+    if (!options.disableAutoRegister) {
       await client.register();
     }
 
@@ -162,7 +154,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   static async build<ContentCodecs extends ContentCodec[] = []>(
     identifier: Identifier,
-    options?: DistributiveOmit<ClientOptions, "codecs"> & {
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
       codecs?: ContentCodecs;
     },
   ) {
@@ -189,12 +181,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   }
 
   /**
-   * Gets the XMTP environment the client is connected to
+   * Gets the label used for the default database file name
    *
    * @throws {ClientNotInitializedError} if the client is not initialized
    */
-  get env(): XmtpEnv {
-    if (!this.#env) {
+  get env(): string {
+    if (this.#env === undefined) {
       throw new ClientNotInitializedError();
     }
     return this.#env;
@@ -647,46 +639,14 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     await this.unsafe_applySignatureRequest(signatureRequest);
   }
 
-  /**
-   * Revokes specific installations of the client's inbox without a client
-   *
-   * @param signer - The signer to use
-   * @param inboxId - The inbox ID to revoke installations for
-   * @param installationIds - The installation IDs to revoke
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   */
+  /** Revoke installations with an explicit backend or network options. */
   static async revokeInstallations(
     signer: Signer,
     inboxId: string,
     installationIds: Uint8Array[],
-    backend?: Backend,
-  ): Promise<void>;
-  /**
-   * Revokes specific installations of the client's inbox without a client
-   *
-   * @param signer - The signer to use
-   * @param inboxId - The inbox ID to revoke installations for
-   * @param installationIds - The installation IDs to revoke
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async revokeInstallations(
-    signer: Signer,
-    inboxId: string,
-    installationIds: Uint8Array[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<void>;
-  static async revokeInstallations(
-    signer: Signer,
-    inboxId: string,
-    installationIds: Uint8Array[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     const identifier = await signer.getIdentifier();
     const signatureRequest = await revokeInstallationsSignatureRequest(
       backend,
@@ -854,77 +814,21 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     }
   }
 
-  /**
-   * Fetches the inbox states for the specified inbox IDs from the network
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to get the state for
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns The inbox states for the specified inbox IDs
-   */
+  /** Fetch inbox states with an explicit backend or network options. */
   static async fetchInboxStates(
     inboxIds: string[],
-    backend?: Backend,
-  ): Promise<InboxState[]>;
-  /**
-   * Fetches the inbox states for the specified inbox IDs from the network
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to get the state for
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @returns The inbox states for the specified inbox IDs
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async fetchInboxStates(
-    inboxIds: string[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<InboxState[]>;
-  static async fetchInboxStates(
-    inboxIds: string[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     return fetchInboxStatesByInboxIds(backend, inboxIds);
   }
 
-  /**
-   * Fetches the latest inbox updates count for the specified inbox IDs
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Map of inbox IDs to their updates count
-   */
+  /** Fetch inbox update counts with an explicit backend or network options. */
   static async fetchLatestInboxUpdatesCount(
     inboxIds: string[],
-    backendOrEnv?: Backend | XmtpEnv,
-  ): Promise<Map<string, number>>;
-  /**
-   * Fetches the latest inbox updates count for the specified inbox IDs
-   * without a client
-   *
-   * @param inboxIds - The inbox IDs to check
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @returns Map of inbox IDs to their updates count
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async fetchLatestInboxUpdatesCount(
-    inboxIds: string[],
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<Map<string, number>>;
-  static async fetchLatestInboxUpdatesCount(
-    inboxIds: string[],
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     // The node-bindings Client is a napi-rs class with no explicit close/free
     // method. Release is non-deterministic: once this reference goes out of
     // scope, JS GC will eventually invoke the Rust Drop impl and reclaim the
@@ -940,37 +844,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     return toInboxUpdatesCountMap(result);
   }
 
-  /**
-   * Checks if the specified identifiers can be messaged
-   *
-   * @param identifiers - The identifiers to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Map of identifiers to whether they can be messaged
-   */
+  /** Check identifiers with an explicit backend or network options. */
   static async canMessage(
     identifiers: Identifier[],
-    backend?: Backend,
-  ): Promise<Map<string, boolean>>;
-  /**
-   * Checks if the specified identifiers can be messaged
-   *
-   * @param identifiers - The identifiers to check
-   * @param env - Optional XMTP environment
-   * @returns Map of identifiers to whether they can be messaged
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv`.
-   */
-  /* eslint-disable @typescript-eslint/unified-signatures */
-  static async canMessage(
-    identifiers: Identifier[],
-    env?: XmtpEnv,
-  ): Promise<Map<string, boolean>>;
-  /* eslint-enable @typescript-eslint/unified-signatures */
-  static async canMessage(
-    identifiers: Identifier[],
-    envOrBackend?: XmtpEnv | Backend,
+    optionsOrBackend: NetworkOptions | Backend,
   ) {
-    const backend = await resolveBackend(envOrBackend);
+    const backend = await resolveBackend(optionsOrBackend);
     const canMessageMap = new Map<string, boolean>();
     for (const identifier of identifiers) {
       const inboxId = await getInboxIdForIdentifier(backend, identifier);
@@ -1004,83 +883,23 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     }
   }
 
-  /**
-   * Checks if an address is authorized for an inbox
-   *
-   * @param inboxId - The inbox ID to check
-   * @param address - The address to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Whether the address is authorized
-   */
+  /** Check address authorization with an explicit backend or network options. */
   static async isAddressAuthorized(
     inboxId: string,
     address: string,
-    backend?: Backend,
-  ): Promise<boolean>;
-  /**
-   * Checks if an address is authorized for an inbox
-   *
-   * @param inboxId - The inbox ID to check
-   * @param address - The address to check
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @returns Whether the address is authorized
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async isAddressAuthorized(
-    inboxId: string,
-    address: string,
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<boolean>;
-  static async isAddressAuthorized(
-    inboxId: string,
-    address: string,
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ): Promise<boolean> {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     return await isAddressAuthorizedBinding(backend, inboxId, address);
   }
 
-  /**
-   * Checks if an installation is authorized for an inbox
-   *
-   * @param inboxId - The inbox ID to check
-   * @param installation - The installation to check
-   * @param backend - Optional `Backend` instance created with `createBackend()`
-   * @returns Whether the installation is authorized
-   */
+  /** Check installation authorization with an explicit backend or network options. */
   static async isInstallationAuthorized(
     inboxId: string,
     installation: Uint8Array,
-    backend?: Backend,
-  ): Promise<boolean>;
-  /**
-   * Checks if an installation is authorized for an inbox
-   *
-   * @param inboxId - The inbox ID to check
-   * @param installation - The installation to check
-   * @param env - The environment to use
-   * @param gatewayHost - Optional gateway host
-   * @returns Whether the installation is authorized
-   * @deprecated Pass a `Backend` instance created with `createBackend()` instead
-   * of `XmtpEnv` and `gatewayHost`.
-   */
-  static async isInstallationAuthorized(
-    inboxId: string,
-    installation: Uint8Array,
-    env?: XmtpEnv,
-    gatewayHost?: string,
-  ): Promise<boolean>;
-  static async isInstallationAuthorized(
-    inboxId: string,
-    installation: Uint8Array,
-    envOrBackend?: XmtpEnv | Backend,
-    gatewayHost?: string,
+    optionsOrBackend: NetworkOptions | Backend,
   ): Promise<boolean> {
-    const backend = await resolveBackend(envOrBackend, gatewayHost);
+    const backend = await resolveBackend(optionsOrBackend);
     return await isInstallationAuthorizedBinding(
       backend,
       inboxId,

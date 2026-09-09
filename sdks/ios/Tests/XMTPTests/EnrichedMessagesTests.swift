@@ -5,11 +5,6 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class EnrichedMessagesTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testFindMessagesV2ComparedToFindMessages() async throws {
 		// Register codecs
 		Client.register(codec: ReactionCodec())

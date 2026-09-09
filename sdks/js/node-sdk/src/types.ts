@@ -23,43 +23,14 @@ import type { DecodedMessage } from "@/DecodedMessage";
 import type { HexString } from "./utils/validation";
 
 /**
- * XMTP environment
- */
-export type XmtpEnv =
-  | "local"
-  | "dev"
-  | "production"
-  | "testnet-staging"
-  | "testnet-dev"
-  | "testnet"
-  | "mainnet";
-
-/**
  * Network options
  */
 export type NetworkOptions = {
-  /**
-   * Specify which XMTP environment to connect to. (default: `dev`)
-   *
-   * @see https://docs.xmtp.org/chat-apps/core-messaging/create-a-client#xmtp-network-environments
-   */
-  env?: XmtpEnv;
-  /**
-   * apiUrl can be used to override the `env` flag and connect to a
-   * specific endpoint
-   */
-  apiUrl?: string;
-  /**
-   * The host of the XMTP Gateway for your application
-   *
-   * Only valid for `dev` and `production` environments
-   *
-   * @see https://docs.xmtp.org/fund-agents-apps/run-gateway
-   */
-  gatewayHost?: string;
-  /**
-   * Custom app version
-   */
+  /** Backend URL, including the HTTP or HTTPS scheme. */
+  backendUrl: string;
+  /** Label used only for the default database file name. */
+  env?: string;
+  /** Custom app version. */
   appVersion?: string;
 };
 
@@ -84,8 +55,8 @@ export type StorageOptions = {
    *
    * - `undefined` (or excluded from the client options)
    *    The database will be created in the current working directory and is based on
-   *    the XMTP environment and client inbox ID.
-   *    Example: `xmtp-dev-<inbox-id>.db3`
+   *    the environment label and client inbox ID.
+   *    Example: `xmtp-default-<inbox-id>.db3`
    *
    * - `null`
    *    No database will be created and all data will be lost once the client disconnects.
@@ -185,8 +156,7 @@ export type OtherOptions = {
   /**
    * Options for waiting until client registration is visible on the network.
    *
-   * When set, `registerIdentity` will wait for the specified quorum of nodes
-   * to confirm the registration before resolving.
+   * When set, `registerIdentity` waits until the backend can read the registration.
    */
   waitForRegistrationVisible?: VisibilityConfirmationOptions;
   /**

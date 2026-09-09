@@ -42,11 +42,6 @@ struct NumberCodec: ContentCodec {
 
 @available(iOS 15, *)
 class CodecTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanRoundTripWithCustomContentType() async throws {
 		let fixtures = try await fixtures()
 

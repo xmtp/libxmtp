@@ -8,11 +8,6 @@ class LeaveRequestTests: XCTestCase {
 	/// Delay for admin worker to process removals (in nanoseconds)
 	private static let adminWorkerDelayNs: UInt64 = 3_000_000_000 // 3 seconds
 
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	// MARK: - Codec Tests
 
 	func testCanUseLeaveRequestCodec() async throws {

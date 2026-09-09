@@ -28,11 +28,6 @@ func assertThrowsAsyncError(
 
 @available(iOS 16, *)
 class GroupTests: XCTestCase {
-	override func setUp() {
-		super.setUp()
-		setupLocalEnv()
-	}
-
 	func testCanCreateAGroupWithDefaultPermissions() async throws {
 		let fixtures = try await fixtures()
 		let boGroup = try await fixtures.boClient.conversations.newGroup(
@@ -1601,7 +1596,7 @@ class GroupTests: XCTestCase {
 		// Create clients with explicit options so we can reinitialize
 		let key = Data((0 ..< 32).map { _ in UInt8.random(in: 0 ... 255) })
 		let clientOptions = ClientOptions(
-			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key
 		)
 
@@ -1647,7 +1642,7 @@ class GroupTests: XCTestCase {
 
 		// Reinitialize Alix's client from the same database
 		let reinitOptions = ClientOptions(
-			api: ClientOptions.Api(env: XMTPEnvironment.local, isSecure: XMTPEnvironment.local.isSecure),
+			api: localApi(),
 			dbEncryptionKey: key,
 			dbDirectory: alixDbDirectory
 		)

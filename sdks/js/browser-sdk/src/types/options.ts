@@ -24,35 +24,12 @@ import type { DecodedMessage } from "@/DecodedMessage";
 
 export type VisibilityConfirmationOptions = WasmVisibilityConfirmationOptions;
 
-export type XmtpEnv =
-  | "local"
-  | "dev"
-  | "production"
-  | "testnet-staging"
-  | "testnet-dev"
-  | "testnet"
-  | "mainnet";
-
-/**
- * Network options
- */
 export type NetworkOptions = {
-  /**
-   * Specify which XMTP environment to connect to. (default: `dev`)
-   */
-  env?: XmtpEnv;
-  /**
-   * apiUrl can be used to override the `env` flag and connect to a
-   * specific endpoint
-   */
-  apiUrl?: string;
-  /**
-   * gatewayHost can be used to override the gateway endpoint
-   */
-  gatewayHost?: string;
-  /**
-   * Custom app version
-   */
+  /** Backend URL, including the HTTP or HTTPS scheme. */
+  backendUrl: string;
+  /** Label used only for the default database file name. */
+  env?: string;
+  /** Custom app version. */
   appVersion?: string;
 };
 
@@ -84,8 +61,8 @@ export type StorageOptions = {
    *
    * - `undefined` (or excluded from the client options)
    *    The database will be created in the current working directory and is based on
-   *    the XMTP environment and client inbox ID.
-   *    Example: `xmtp-dev-<inbox-id>.db3`
+   *    the environment label and client inbox ID.
+   *    Example: `xmtp-default-<inbox-id>.db3`
    *
    * - `null`
    *    No database will be created and all data will be lost once the client disconnects.
@@ -129,8 +106,7 @@ export type OtherOptions = {
   /**
    * Options for waiting until client registration is visible on the network.
    *
-   * When set, `registerIdentity` will wait for the specified quorum of nodes
-   * to confirm the registration before resolving.
+   * When set, `registerIdentity` waits until the backend can read the registration.
    */
   waitForRegistrationVisible?: VisibilityConfirmationOptions;
 };
@@ -172,3 +148,7 @@ export type ExtractCodecContentTypes<C extends ContentCodec[] = []> =
           | BuiltInContentTypes
           | EnrichedReply<T | BuiltInContentTypes, T | BuiltInContentTypes>
       : BuiltInContentTypes;
+
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;

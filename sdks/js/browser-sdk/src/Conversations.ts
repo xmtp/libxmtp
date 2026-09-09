@@ -50,7 +50,7 @@ export class Conversations<ContentTypes = unknown> {
 
   get topic() {
     return this.#client.installationId
-      ? `/xmtp/mls/1/w-${this.#client.installationId}/proto`
+      ? `01${this.#client.installationId}`
       : undefined;
   }
 
