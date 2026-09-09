@@ -237,6 +237,8 @@ impl xmtp_common::RetryableError for Refused {
     }
 }
 
+mod backoff;
+mod backpressure;
 mod catch_up;
 mod coalescing;
 mod delivery;

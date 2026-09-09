@@ -299,47 +299,6 @@ async fn deref_is_refcounted_and_last_lease_closes_the_wire() {
     assert_eq!(second.next_mutate().await.adds.len(), 1);
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn slow_lease_is_dropped_without_blocking_siblings() {
-    let (transport, servers) = transport();
-    let shared = group_topic(b"g1");
-    let mut slow = transport.lease(vec![(shared.clone(), 0)], 1).await?;
-    let mut fast = transport.lease(vec![(shared.clone(), 0)], 8).await?;
-    let mut server = take_server(&servers);
-    let initial = server.next_mutate().await;
-    server.ack_empty(initial.id);
-    for lease in [&mut slow, &mut fast] {
-        assert!(matches!(
-            recv(lease).await,
-            Some(LeaseEvent::CatchUpComplete)
-        ));
-    }
-
-    let (m1, m2, m3) = (
-        group_msg(1, b"g1"),
-        group_msg(2, b"g1"),
-        group_msg(3, b"g1"),
-    );
-    server.send(messages(vec![m1.clone()], vec![]));
-    server.send(messages(vec![m2.clone()], vec![]));
-    server.send(messages(vec![m3.clone()], vec![]));
-
-    for expected in [&m1, &m2, &m3] {
-        match recv(&mut fast).await {
-            Some(LeaseEvent::GroupMessages(got)) => assert_eq!(got, vec![expected.clone()]),
-            _ => panic!("fast lease must receive every delivery"),
-        }
-    }
-    assert!(matches!(
-        recv(&mut slow).await,
-        Some(LeaseEvent::GroupMessages(_))
-    ));
-    assert!(
-        recv(&mut slow).await.is_none(),
-        "wedged lease must be closed"
-    );
-}
-
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn wire_session_span_closes_with_a_reason_on_every_release_path() {
     use tracing_subscriber::layer::SubscriberExt;

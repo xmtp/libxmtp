@@ -759,6 +759,7 @@ where
     }
 
     /// Route one frame by topic. A lease's position only moves forward.
+    /// Reserve channel capacity before copying a lease's payload batch.
     fn demux<M: Clone>(
         &mut self,
         messages: Vec<M>,
@@ -767,9 +768,9 @@ where
         cursor_of: impl Fn(&M) -> Option<B::Cursor>,
         event: impl Fn(Vec<M>) -> LeaseEvent<B>,
     ) -> Vec<LeaseId> {
-        let mut batches: HashMap<LeaseId, Vec<M>> = HashMap::new();
-        for message in messages {
-            let Some(topic) = topic_of(&message) else {
+        let mut batches: HashMap<LeaseId, Vec<&M>> = HashMap::new();
+        for message in &messages {
+            let Some(topic) = topic_of(message) else {
                 continue;
             };
             let Some(registration) = self.registrations.get_mut(&topic) else {
@@ -780,7 +781,7 @@ where
                 continue;
             }
             self.dirty_topics.insert(topic.clone());
-            let cursor = cursor_of(&message);
+            let cursor = cursor_of(message);
             if let Some(cursor) = cursor {
                 B::advance(&mut registration.delivered, cursor);
                 B::advance(
@@ -801,22 +802,23 @@ where
                     }
                     B::advance(position, cursor);
                 }
-                batches.entry(*id).or_default().push(message.clone());
+                batches.entry(*id).or_default().push(message);
             }
         }
         batches
             .into_iter()
             .filter_map(|(id, batch)| {
                 let lease = self.leases.get(&id)?;
-                if lease.events.try_send(event(batch)).is_err() {
+                if let Ok(permit) = lease.events.try_reserve() {
+                    permit.send(event(batch.into_iter().cloned().collect()));
+                    None
+                } else {
                     tracing::warn!(
                         lease = id.0,
                         ?kind,
                         "closing a lease whose delivery channel is full"
                     );
                     Some(id)
-                } else {
-                    None
                 }
             })
             .collect()
@@ -1121,11 +1123,14 @@ where
         Flow::Continue
     }
 
+    /// Resume from suspension immediately. During an outage, join the pending
+    /// catch-up without replacing the scheduled reconnect backoff.
     async fn resume(&mut self, reply: oneshot::Sender<()>) -> Flow {
         tracing::info!(
             leases = self.ledger.leases.len(),
             "bidi transport: resuming — catch up, then done"
         );
+        let was_suspended = self.suspended;
         self.suspended = false;
         self.resume_notify.push(reply);
         if self.conn.is_some() {
@@ -1136,8 +1141,12 @@ where
             self.settle_idle_waiters();
             return Flow::Continue;
         }
-        self.reconnect_delay = RECONNECT_INITIAL_DELAY;
-        self.reconnect().await
+        if was_suspended {
+            self.reconnect_delay = RECONNECT_INITIAL_DELAY;
+            self.reconnect().await
+        } else {
+            Flow::Continue
+        }
     }
 
     fn wire_event(&mut self, event: Event<B::GroupMessage, B::WelcomeMessage>) -> Flow {
