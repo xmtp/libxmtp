@@ -1,0 +1,63 @@
+---
+title: Sync
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Syncing pulls new envelopes into the local database. Every read API reads the local database, so a sync makes new data visible to `list`, `messages`, and `countMessages`.
+
+| Call                                   | Pulls                                            |
+| -------------------------------------- | ------------------------------------------------ |
+| `conversation.sync()`                  | Messages and group updates for one conversation  |
+| `conversations.sync()`                 | Conversations you have been added to             |
+| `conversations.syncAll(consentStates)` | Welcomes, changed conversations, and preferences |
+| `preferences.sync()`                   | Welcomes, consent records, and HMAC keys         |
+
+Kotlin and Swift name `syncAll` as `syncAllConversations`.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="sync-browser.ts" region="sync"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="sync-node.ts" region="sync"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+val summary = client.conversations.syncAllConversations(consentStates)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+let summary = try await client.conversations.syncAllConversations(consentStates: consentStates)
+```
+
+</TabItem>
+</Tabs>
+
+`syncAll` first processes welcomes. It then compares each local conversation cursor with the newest backend envelope and skips conversations with no new data. A membership change counts as new data. A conversation with no cursor is always included.
+
+| Summary field | Meaning                                            |
+| ------------- | -------------------------------------------------- |
+| `numEligible` | Conversations that match the consent filter        |
+| `numSynced`   | Eligible conversations that were behind and active |
+
+An inactive conversation is eligible but is not synced. Therefore, `numSynced` can be less than `numEligible` without a failure.
+
+We recommend syncing messages for allowed conversations only. This ensures that spammy conversations with a consent state of unknown don't take up networking resources. This also ensures that unwanted spam messages aren't stored in the user's local database.
+
+## Device sync
+
+Device sync keeps a user's installations agreed on consent records and HMAC root keys. Messages do not move between installations. Use an [archive](/sdk/backups/) to move message history.
+
+An update from one installation is applied by the others when they next call `preferences.sync()` or `syncAll()`.
+
+Device sync is on by default. Set `disableDeviceSync: true` on Browser and Node, or `deviceSyncEnabled: false` on Kotlin and Swift, to turn it off.

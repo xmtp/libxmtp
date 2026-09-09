@@ -1,0 +1,49 @@
+{
+  "capturedAt": "2026-09-09",
+  "source": "https://docs.xmtp.org",
+  "pages": [
+    { "old": "/", "new": "/", "accessibility": 0.98, "performance": 0.68 },
+    {
+      "old": "/agents/get-started/build-an-agent",
+      "new": "/get-started/quickstart/",
+      "accessibility": 0.95,
+      "performance": 0.8
+    },
+    {
+      "old": "/chat-apps/core-messaging/send-messages",
+      "new": "/sdk/send-messages/",
+      "accessibility": 0.91,
+      "performance": 0.81
+    },
+    {
+      "old": "/protocol/overview",
+      "new": "/protocol/overview/",
+      "accessibility": 0.95,
+      "performance": 0.81
+    },
+    {
+      "old": "/chat-apps/content-types/content-types",
+      "new": "/content-types/overview/",
+      "accessibility": 0.95,
+      "performance": 0.79
+    },
+    {
+      "old": "/protocol/security",
+      "new": "/specs/001-backend-api/",
+      "accessibility": 0.95,
+      "performance": 0.65
+    },
+    {
+      "old": "/agents/deploy/error-codes",
+      "new": "/reference/error-glossary/",
+      "accessibility": 0.94,
+      "performance": 0.72
+    },
+    {
+      "old": "/chat-apps/sdks/node",
+      "new": "/reference/node-sdk/",
+      "accessibility": 0.95,
+      "performance": 0.79
+    }
+  ]
+}

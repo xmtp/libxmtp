@@ -1,0 +1,79 @@
+---
+title: Consent
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Consent records what a user wants to hear. Every conversation and inbox ID has one of three states.
+
+| State     | Meaning            | UI location |
+| --------- | ------------------ | ----------- |
+| `unknown` | Nobody has decided | Requests    |
+| `allowed` | The user consented | Main inbox  |
+| `denied`  | The user refused   | Hidden      |
+
+Consent belongs to the inbox. [Device sync](/sdk/sync/) copies it to the user's other installations.
+
+## State changes
+
+| Trigger                                   | State     |
+| ----------------------------------------- | --------- |
+| A peer starts a conversation              | `unknown` |
+| The user creates a conversation           | `allowed` |
+| The user sends a message                  | `allowed` |
+| The app accepts or subscribes             | `allowed` |
+| The app blocks or unsubscribes            | `denied`  |
+| The user is re-added to a group they left | `unknown` |
+
+The user's creation of the conversation with the contact is considered consent.
+
+The user's response to the conversation is considered consent.
+
+Sending a message sets the conversation to `allowed` from any prior state, including `denied`. Prevent sending in a denied conversation unless the user explicitly reverses the block.
+
+## Consent API
+
+| Task                    | Browser, Node                              | Kotlin, Swift                          |
+| ----------------------- | ------------------------------------------ | -------------------------------------- |
+| Read conversation       | `conversation.consentState()`              | `conversation.consentState()`          |
+| Read by conversation ID | `preferences.getConsentState(GroupId, id)` | `preferences.conversationState(id)`    |
+| Read by inbox ID        | `preferences.getConsentState(InboxId, id)` | `preferences.inboxIdState(id)`         |
+| Set conversation        | `conversation.updateConsentState(state)`   | `conversation.updateConsent(state)`    |
+| Set many                | `preferences.setConsentStates(records)`    | `preferences.setConsentState(entries)` |
+| Stream changes          | `preferences.streamConsent()`              | `preferences.streamConsent()`          |
+
+Batch state changes when possible. One batch produces one device-sync message.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="consent-browser.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Node">
+
+```ts source="consent-node.ts" region="stream"
+
+```
+
+</TabItem><TabItem label="Kotlin">
+
+```kotlin
+client.preferences.streamConsent().collect(::handleConsent)
+```
+
+</TabItem><TabItem label="Swift">
+
+```swift
+for try await consent in client.preferences.streamConsent() {
+  handleConsent(consent)
+}
+```
+
+</TabItem>
+</Tabs>
+
+## See who added the user
+
+Use `conversation.addedByInboxId` on Browser and Node. Use `group.addedByInboxId()` on Kotlin and Swift. `creatorInboxId()` is available on groups on all four SDKs.

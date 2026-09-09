@@ -1,0 +1,108 @@
+---
+title: Groups
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Robust group chat permissions are key to providing users with a friendly and safe group chat experience.
+
+## Understand the group permissions system
+
+### Member statuses
+
+Member statuses are the roles that can be assigned to each participant (inbox ID) in a group chat. These are the available member statuses:
+
+- Member
+  - Everyone in a group chat is a member. A member can be granted admin or super admin status. If a member's admin or super admin status is removed, they are still a member of the group.
+- Admin
+- Super admin
+
+When a group is created, all groups have the same initial member "roles" set:
+
+- There is one super admin, and it is the group creator
+- There are no admins
+- Each user added to the group starts out as a member
+
+## Permissions
+
+The super admin has all of the available permissions and can use them to adjust the group's permissions and options.
+
+| Permission               | Allow all | Deny all | Admin only | Super admin only |
+| ------------------------ | --------- | -------- | ---------- | ---------------- |
+| Add member               | ✅        | ✅       | ✅         | ✅               |
+| Remove member            | ✅        | ✅       | ✅         | ✅               |
+| Add admin                | ❌        | ✅       | ✅         | ✅               |
+| Remove admin             | ❌        | ✅       | ✅         | ✅               |
+| Update group permissions | ❌        | ❌       | ❌         | ✅               |
+| Update group metadata    | ✅        | ✅       | ✅         | ✅               |
+
+## Permission policy sets
+
+If you do not select a policy set, the group uses **All members**.
+
+| Permission                                | All members | Admin only  |
+| ----------------------------------------- | ----------- | ----------- |
+| Add member                                | All members | Admin       |
+| Remove member                             | Admin       | Admin       |
+| Add or remove admin                       | Super admin | Super admin |
+| Update permissions                        | Super admin | Super admin |
+| Update name, description, image, app data | All members | Admin       |
+| Update disappearing messages              | Admin       | Admin       |
+
+DMs use neither set. Participants cannot change membership or permissions, and both can change metadata.
+
+Add admin, remove admin, and update permissions cannot use an allow-all policy. Only a super admin can perform those actions.
+
+### Custom policy set
+
+A custom set contains nine policies: add member, remove member, add admin, remove admin, update name, update description, update image URL, update disappearing messages, and update app data.
+
+Browser and Node pass `permissions: GroupPermissionsOptions.CustomPolicy` and `customPermissionPolicySet` to `createGroup`. Kotlin and Swift use `newGroupCustomPermissions`.
+
+## Update permissions
+
+Browser and Node use `group.updatePermission(permissionType, policy, metadataField?)`. Kotlin and Swift provide named methods for add member, remove member, add admin, remove admin, name, description, and image URL. Mobile cannot change the disappearing-message or app-data policy after creation.
+
+## Admins
+
+| Action      | Method                                              |
+| ----------- | --------------------------------------------------- |
+| Check role  | `isAdmin(inboxId)`, `isSuperAdmin(inboxId)`         |
+| List roles  | `listAdmins()`, `listSuperAdmins()`                 |
+| Grant role  | `addAdmin(inboxId)`, `addSuperAdmin(inboxId)`       |
+| Revoke role | `removeAdmin(inboxId)`, `removeSuperAdmin(inboxId)` |
+
+These names are the same on all four SDKs.
+
+## Members
+
+A group holds up to 250 members.
+
+| Action             | Browser, Node                             | Kotlin, Swift                         |
+| ------------------ | ----------------------------------------- | ------------------------------------- |
+| Add by inbox ID    | `addMembers(inboxIds)`                    | `addMembers(inboxIds)`                |
+| Add by identity    | `addMembersByIdentifiers(identifiers)`    | `addMembersByIdentity(identities)`    |
+| Remove by inbox ID | `removeMembers(inboxIds)`                 | `removeMembers(inboxIds)`             |
+| Remove by identity | `removeMembersByIdentifiers(identifiers)` | `removeMembersByIdentity(identities)` |
+| List               | `group.members`                           | `group.members()`                     |
+
+Sync before you read the member list.
+
+## Leave a group
+
+A member can remove themselves from a group by calling `leaveGroup()`. After leaving, the group becomes inactive for that member.
+
+The call is refused if the caller is a super admin, is the only member, or is in a DM. Between the call and the next sync, `membershipState()` returns `PENDING_REMOVE`. After processing completes, the group is inactive.
+
+## Group metadata
+
+Group chats can have metadata, like names, descriptions, and images. Metadata can help users more easily identify their group chats.
+
+| Field       | Update                           |       Limit |
+| ----------- | -------------------------------- | ----------: |
+| Name        | `updateName(name)`               |   100 bytes |
+| Description | `updateDescription(description)` | 1,000 bytes |
+| Image URL   | `updateImageUrl(url)`            | 2,048 bytes |
+| App data    | `updateAppData(data)`            | 8,192 bytes |
+
+Browser and Node expose metadata as properties. Kotlin and Swift expose methods. App data is a string. Serialize structured data before you set it. See [Disappearing messages](/sdk/disappearing-messages/).

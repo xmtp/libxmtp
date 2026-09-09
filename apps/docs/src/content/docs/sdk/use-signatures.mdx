@@ -1,0 +1,52 @@
+---
+title: Use signatures
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+With XMTP, you can use various types of signatures to sign and verify payloads.
+
+## Sign with an external wallet
+
+When a user creates, adds, removes, or revokes an XMTP inbox's identity or installation, a signature is required.
+
+## Sign with an installation key
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="use-signatures-browser.ts" region="sign"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="use-signatures-node.ts" region="sign"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val signature = client.signWithInstallationKey(signatureText)
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+let signature = try client.signWithInstallationKey(message: signatureText)
+```
+
+</TabItem>
+</Tabs>
+
+## Verify with the installation that signed
+
+Use `verifySignedWithInstallationKey` on Browser and Node. Use `verifySignature` on Kotlin and Swift.
+
+## Verify with another installation in the same inbox
+
+Kotlin and Swift accept an installation ID through `verifySignatureWithInstallationId`. Browser uses `client.verifySignedWithPublicKey`, and Node uses the static `Client.verifySignedWithPublicKey`; convert the installation ID from hex to public-key bytes for these JavaScript calls. Verification proves that the matching installation key signed the payload. Check inbox membership separately when the caller must belong to a specific inbox.

@@ -24,7 +24,7 @@ export class Preferences {
   /**
    * Creates a new preferences instance
    *
-   * @param client - The client instance managing preferences
+   * @param worker - The worker bridge that manages preferences
    */
   constructor(worker: WorkerBridge<ClientWorkerAction>) {
     this.#worker = worker;

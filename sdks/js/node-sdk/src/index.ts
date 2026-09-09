@@ -6,13 +6,16 @@ export type * from "./utils/signer";
 export type * from "./utils/streams";
 export * from "./utils/validation";
 export * from "./utils/messages";
-export type { AsyncStreamProxy } from "./AsyncStream";
+export type { AsyncStreamProxy, ResolveValue } from "./AsyncStream";
+export { CodecRegistry } from "./CodecRegistry";
 export { Client } from "./Client";
 export { Conversation } from "./Conversation";
 export { Conversations } from "./Conversations";
 export { DecodedMessage } from "./DecodedMessage";
+export { DebugInformation } from "./DebugInformation";
 export { Dm } from "./Dm";
 export { Group } from "./Group";
+export { Preferences } from "./Preferences";
 export type {
   Action,
   Actions,

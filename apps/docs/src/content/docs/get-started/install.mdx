@@ -1,0 +1,129 @@
+---
+title: Install the XMTP SDK
+description: Install an XMTP SDK for Browser, Node, Kotlin, or Swift.
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+Install the SDK for your platform. All SDKs use a backend URL. See [Create a client](/sdk/client/) for client options and [Run the backend](/get-started/run-the-backend/) if you operate the backend.
+
+## Install a package
+
+Choose your package manager. These commands install the Browser package. Replace
+`@xmtp/browser-sdk` with `@xmtp/node-sdk` for a Node application.
+
+<Tabs syncKey="pkg">
+<TabItem label="npm">
+
+```sh
+npm install @xmtp/browser-sdk
+```
+
+</TabItem>
+<TabItem label="pnpm">
+
+```sh
+pnpm add @xmtp/browser-sdk
+```
+
+</TabItem>
+<TabItem label="yarn">
+
+```sh
+yarn add @xmtp/browser-sdk
+```
+
+</TabItem>
+<TabItem label="bun">
+
+```sh
+bun add @xmtp/browser-sdk
+```
+
+</TabItem>
+</Tabs>
+
+Use the package for your platform:
+
+| Platform | Package or dependency           |
+| -------- | ------------------------------- |
+| Browser  | `@xmtp/browser-sdk`             |
+| Node     | `@xmtp/node-sdk`                |
+| Kotlin   | `org.xmtp:android`              |
+| Swift    | Swift package product `XMTPiOS` |
+
+The Browser and Node package commands above are the JavaScript package examples. For Android, add the XMTP Maven artifact to your app module:
+
+```kotlin
+dependencies {
+    implementation("org.xmtp:android:<version>")
+}
+```
+
+Replace `<version>` with the version you built or a released version that supports
+`ClientOptions.Api.backendUrl`. Do not assume that an older hosted-network SDK
+can connect to this backend.
+
+For Swift, the package manifest is at the root of
+[libxmtp](https://github.com/xmtp/libxmtp). Add the `XMTPiOS` product to your app.
+When using the self-hosted source branch, build its matching native bindings
+before adding the local package in Xcode:
+
+```sh
+git clone --branch self-hosted https://github.com/xmtp/libxmtp.git
+cd libxmtp
+just ios build
+```
+
+These repository commands require the Nix development environment. In a Swift
+package next to that checkout, add these dependency and target entries:
+
+```swift
+// In Package.dependencies:
+.package(path: "../libxmtp")
+
+// In your app target's dependencies:
+.product(name: "XMTPiOS", package: "libxmtp")
+```
+
+Use a matching published SDK and native binary after the self-hosted release is
+available. A remote branch dependency alone does not build the native bindings.
+
+## Platform prerequisites
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+Use Node.js 22 or later for package tooling and a bundler that supports WebAssembly.
+The Browser SDK stores its database in browser storage and does not encrypt it.
+`dbEncryptionKey` is ignored by the Browser SDK.
+
+</TabItem>
+<TabItem label="Node">
+
+Use Node.js 22 or later. Keep the 32-byte `dbEncryptionKey` and the database path
+stable between launches.
+
+</TabItem>
+<TabItem label="Kotlin">
+
+Use Android API 23 or later and Java 17 for the SDK build. Provide an Android
+`Context` and a 32-byte database encryption key. Pass the backend URL in
+`ClientOptions.Api`. Call suspend functions from a coroutine.
+
+</TabItem>
+<TabItem label="Swift">
+
+Use Swift 6.1 or later. The package supports iOS 14 or later and macOS 11 or later.
+Pass the backend URL in `ClientOptions.Api` and provide a 32-byte database
+encryption key for the encrypted local database. Call async methods from an async
+context.
+
+</TabItem>
+</Tabs>
+
+## Next steps
+
+- [Build a quickstart app](/get-started/quickstart/)
+- [Create a client](/sdk/client/)
+- [Create a signer](/sdk/signer/)

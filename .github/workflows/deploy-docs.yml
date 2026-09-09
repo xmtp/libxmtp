@@ -1,55 +1,193 @@
-name: Deploy Docs to GitHub Pages
+name: Build and Deploy Docs
 
 on:
+  pull_request:
   push:
-    branches:
-      - main
-
-  # Allows you to run this workflow manually from the Actions tab
+    branches: [main]
   workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Allow one concurrent deployment
 concurrency:
-  group: "github-pages"
+  group: docs-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  rust:
+    name: Rust reference and error glossary
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      NIX_DEVSHELL: rust
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
         with:
-          submodules: recursive
+          disk-key: rust
+          github-token: ${{ github.token }}
+      - name: Generate the error glossary
+        run: dev/nix-shell 'dev/gen-error-glossary'
+      - name: Reject a stale committed glossary
+        run: git diff --exit-code -- docs/error_glossary.md
+      - name: Build rustdoc
+        run: dev/nix-shell 'cargo doc --locked --no-deps'
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-rust
+          path: target/doc
+          if-no-files-found: error
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
+  swift:
+    name: Swift reference
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          nix-disk: "false"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - run: just ios docs apps/docs/generated/reference/swift
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-swift
+          path: apps/docs/generated/reference/swift
+          if-no-files-found: error
 
-      - uses: ./.github/actions/setup-rust
+  kotlin:
+    name: Kotlin reference
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: android
+          gradle-disk: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - run: just android docs
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-kotlin
+          path: sdks/android/library/build/dokka/html
+          if-no-files-found: error
 
-      - name: Install fontconfig
-        run: sudo apt-get update && sudo apt-get install -y libfontconfig-dev
+  site:
+    name: Site and JavaScript references
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Build the SDKs and both binding packages
+        env:
+          YARN_ENABLE_IMMUTABLE_INSTALLS: "true"
+        run: just js build
+      - run: just docs install
+      - run: just docs build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: docs-site
+          path: apps/docs/dist
+          if-no-files-found: error
 
-      - name: Invoke cargo doc
-        run: ./dev/docs
-        id: docgen
+  compose:
+    name: Validate the composed site
+    needs: [rust, swift, kotlin, site]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    env:
+      NIX_DEVSHELL: docs
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - run: just docs install
+      - uses: actions/download-artifact@v8
+        with:
+          name: docs-site
+          path: apps/docs/dist
+      - uses: actions/download-artifact@v8
+        with:
+          name: docs-rust
+          path: apps/docs/generated/reference/rust
+      - uses: actions/download-artifact@v8
+        with:
+          name: docs-swift
+          path: apps/docs/generated/reference/swift
+      - uses: actions/download-artifact@v8
+        with:
+          name: docs-kotlin
+          path: apps/docs/generated/reference/kotlin
+      - name: Compose and check the artifact
+        run: dev/nix-shell 'cd apps/docs && node scripts/compose.mjs && node scripts/check-site.mjs --built && node scripts/check-parity.mjs'
+      - name: Check links
+        uses: lycheeverse/lychee-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          args: >-
+            --no-progress
+            --max-retries 2
+            --scheme https
+            --scheme http
+            --root-dir '${{ github.workspace }}/apps/docs/_site'
+            --exclude '^https://docs\.xmtp\.org/.*'
+            --exclude '^https://github\.com/xmtp/libxmtp/edit/.*'
+            --exclude '^http://collector:4317/?$'
+            'apps/docs/_site/*.html'
+            'apps/docs/_site/agents/**/*.html'
+            'apps/docs/_site/chat-apps/**/*.html'
+            'apps/docs/_site/content-types/**/*.html'
+            'apps/docs/_site/get-started/**/*.html'
+            'apps/docs/_site/privacy/**/*.html'
+            'apps/docs/_site/protocol/**/*.html'
+            'apps/docs/_site/sdk/**/*.html'
+            'apps/docs/_site/specs/**/*.html'
+            'apps/docs/_site/terms/**/*.html'
+            'apps/docs/_site/reference/browser-sdk/**/*.html'
+            'apps/docs/_site/reference/node-sdk/**/*.html'
+            'apps/docs/_site/reference/error-glossary/**/*.html'
+            'apps/docs/_site/reference/limits/**/*.html'
+          fail: true
+      - name: Browser tests
+        run: dev/nix-shell 'cd apps/docs && npm run test:browser'
+      - name: Check accessibility against the production baseline
+        run: dev/nix-shell 'cd apps/docs && node scripts/check-lighthouse.mjs'
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: docs-browser-results
+          path: |
+            apps/docs/test-results
+            apps/docs/playwright-report
+          if-no-files-found: ignore
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: apps/docs/_site
 
-      - name: Upload pages artifact
-        uses: actions/upload-pages-artifact@v4
-
-  # Deployment job
   deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: compose
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    needs: build
     steps:
       - name: Deploy to GitHub Pages
         id: deployment

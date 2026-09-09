@@ -4,11 +4,14 @@ plugins {
     id 'com.android.library'
     id 'org.jetbrains.kotlin.android'
     id 'com.google.protobuf' version '0.9.1'
-    id "org.jetbrains.dokka" version "1.8.10"
+    id "org.jetbrains.dokka"
 }
 
-dokkaGfmPartial {
-    outputDirectory.set(file("build/docs/partial"))
+dokka {
+    dokkaSourceSets.configureEach {
+        // The bindings are generated implementation details. Do not publish them.
+        suppressedFiles.from(file("${rootProject.projectDir}/.build/bindings"))
+    }
 }
 
 android {

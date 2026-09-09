@@ -1,0 +1,127 @@
+---
+title: Migrate to a self-hosted backend
+description: Move an XMTP app to a backend that you run.
+---
+
+Your app now points at a backend you run instead of a network address selected by
+name. Application code does not change. Client setup does, and every user starts
+with a new local database.
+
+Read [Run the backend](/get-started/run-the-backend/) first if you do not have a backend
+running yet.
+
+## Client setup
+
+`backendUrl` is required on every platform. There is no default and no fallback.
+Include the scheme: `https://` for a public deployment, `http://` for a local one.
+
+`env` no longer selects a network. It is only a label for the default database
+file name, used when you do not set a database path. It is a free string. Android
+requires it to be one path component, so a value such as `../other` is rejected.
+
+There is no `isSecure` option. The transport is inferred from the URL scheme: an
+`https` or `grpcs` URL uses TLS, anything else does not.
+
+| Platform    | Setup                                                                                                                                                                                                                         |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Node SDK    | `backendUrl` on client options. `env` and `appVersion` stay optional.                                                                                                                                                         |
+| Browser SDK | Same as the Node SDK.                                                                                                                                                                                                         |
+| Agent SDK   | Pass `backendUrl` to `Agent.createFromEnv()` or set `XMTP_BACKEND_URL`. The environment variable takes precedence. If neither supplies a URL, creation throws `backendUrl is required`. `XMTP_ENV` still sets the label only. |
+| iOS         | `ClientOptions.Api(backendUrl:env:appVersion:)`. `env` defaults to `"local"`.                                                                                                                                                 |
+| Android     | `ClientOptions.Api(backendUrl, env, appVersion)`. A blank URL throws `A backend URL is required`.                                                                                                                             |
+
+The JS SDKs also accept a pre-built `Backend` object instead of inline network
+options. Pass one or the other, never both. iOS and Android have only the inline
+form.
+
+## Removed options and methods
+
+| Removed                 | Platforms        | Replacement                        |
+| ----------------------- | ---------------- | ---------------------------------- |
+| `apiUrl`                | JS               | `backendUrl`                       |
+| `isSecure`              | iOS, Android     | none; inferred from the URL scheme |
+| `historySyncUrl`        | JS, iOS, Android | none                               |
+| `deviceSyncServerUrl`   | JS               | none                               |
+| `deviceSyncWorkerMode`  | JS               | none                               |
+| `customLocalHost`       | React Native     | `backendUrl`                       |
+| `sendSyncRequest`       | all              | none                               |
+| `sendSyncArchive`       | all              | none                               |
+| `listAvailableArchives` | all              | none                               |
+| `processSyncArchive`    | all              | none                               |
+
+The four removed methods were the server-based history transfer. Nothing replaces
+them. File-based archives, described below, are the supported way to move history
+between installations.
+
+`env` changed meaning rather than being removed, so an existing call site that
+passes `env` still compiles on iOS and Android but no longer chooses a network.
+Add `backendUrl` or the client will not build.
+
+## The local database must be recreated
+
+A database file created before this change is rejected. On open, the client
+returns:
+
+```text
+This database predates the backend transition. Delete the database file and create a new client.
+```
+
+Export any history you need with the old SDK before the upgrade. The new SDK cannot open the pre-transition database to export it.
+
+The error is not retryable, and the client does not delete anything. It refuses
+to open the file and leaves it and its contents intact. Your app must detect this
+error, delete the database file itself, and create a new client.
+
+Deleting the database creates a new installation for that inbox. An inbox is
+limited to 10 installations. Users who cycle through installations can reach that
+limit and will have to revoke old ones before registering another.
+
+Plan this as a one-time upgrade path in your app: catch the error on first
+launch after the update, delete the file, and create the client again.
+
+## Keeping history
+
+Messages that were sent before you moved to your own backend are not carried
+over. There is no server-side migration of message history.
+
+File archives do move local data between installations, and this is verified end
+to end: export an archive from the old client before you delete its database,
+then import it into the new client. Consent records, conversations, and
+application messages are restored.
+
+The archive is a self-contained encrypted file, so the importing client can be a
+different installation with its own database. The Node, iOS, and Android SDKs
+take a file path: `createArchive(path, key, options)` and `importArchive(path,
+key)`. The Browser SDK works on bytes instead: `createArchive` returns the
+archive data and `importArchive(data, key)` accepts it.
+
+One behavior matters for your UI. A conversation restored from an archive is
+inactive until the new installation is added to the group again. Immediately
+after import you can list the conversation and read its metadata and old
+messages, but `isActive` is false and you cannot send in it. Once another member
+adds the new installation and the client syncs welcomes, the conversation becomes
+fully functional, the archived messages are stitched in with the new ones, and
+sending works.
+
+Restored direct messages behave the same way. Because a restored conversation is
+skipped when the client looks for an existing DM, starting a new DM with the same
+person creates a separate active conversation. The two are stitched together once
+the restored one becomes active.
+
+:::caution[Archive scope]
+
+The cross-installation tests verify archive import on the same backend. They do not verify migration from a pre-transition database to a separate backend. An archive contains local database rows, not MLS group keys or backend state. Reactivation requires an active member of the original group; importing an archive alone cannot recreate that group on another backend.
+
+:::
+
+So an archive preserves history for the user, but restoring a conversation to a
+working state still needs one of its members to add the new installation.
+
+## What does not change
+
+- Application code paths. Sending, listing, streaming, and reading conversations
+  and messages keep the same shapes.
+- Content types and codecs.
+- Consent state and the consent APIs.
+- Sync and streaming methods.
+- `appVersion`, `dbEncryptionKey`, database path options, and logging options.

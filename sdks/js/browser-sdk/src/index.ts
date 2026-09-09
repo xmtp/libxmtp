@@ -1,17 +1,20 @@
 export { Client } from "./Client";
+export { CodecRegistry } from "./CodecRegistry";
 export { Opfs } from "./Opfs";
 export { Conversations } from "./Conversations";
 export { Conversation } from "./Conversation";
 export { Dm } from "./Dm";
 export { Group } from "./Group";
 export { DecodedMessage } from "./DecodedMessage";
+export { DebugInformation } from "./DebugInformation";
+export { Preferences } from "./Preferences";
 export { createBackend } from "./utils/createBackend";
 export { generateInboxId, getInboxIdForIdentifier } from "./utils/inboxId";
 export { metadataFieldName } from "./utils/metadata";
 export type * from "./types/options";
 export * from "./utils/conversions";
 export * from "./utils/contentTypes";
-export type { AsyncStreamProxy } from "./AsyncStream";
+export type { AsyncStreamProxy, ResolveValue } from "./AsyncStream";
 export type {
   Action,
   Actions,

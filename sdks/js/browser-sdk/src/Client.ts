@@ -544,7 +544,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    *
    * Requires a signer, use `Client.create` to create a client with a signer.
    *
-   * @param accountIdentifier - The identifier of the account to remove
+   * @param identifier - The identifier of the account to remove
    * @throws {SignerUnavailableError} if no signer is available
    */
   async removeAccount(identifier: Identifier) {

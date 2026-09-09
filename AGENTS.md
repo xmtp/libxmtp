@@ -29,6 +29,10 @@ just lint               # rust + config + markdown. Run before commit.
 just lint-markdown      # excludes generated error glossary and JS release changelogs.
 just lint-proto         # Buf checks the local proto/ schemas.
 just validation         # isolated shared validation checks and native/wasm tests.
+just docs build         # Starlight site. Run just docs install first.
+just docs lint          # site code and Markdown.
+just docs format-check  # site formatting.
+just docs test          # site build-tool tests.
 ```
 
 The SDK stack contains `db`, `backend`, `anvil`, and `toxiproxy`.

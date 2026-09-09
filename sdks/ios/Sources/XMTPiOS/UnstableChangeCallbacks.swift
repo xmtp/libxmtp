@@ -19,7 +19,8 @@ public struct AppDataChange: Sendable {
 /// Notified when a processed message changed a group's `appData`.
 ///
 /// The handler is awaited before message processing continues, so a semantic
-/// merge — including republishing via ``Group/updateAppData(appData:)`` — can
+/// merge — including republishing via
+/// ``Group/updateAppData(appData:expectedAppData:)`` — can
 /// finish first. It fires for changes this client made as well as remote ones,
 /// so the merge must be idempotent.
 public protocol AppDataChangeHandler: Sendable {

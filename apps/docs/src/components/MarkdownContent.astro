@@ -1,0 +1,10 @@
+---
+import MarkdownContent from "@astrojs/starlight/components/MarkdownContent.astro";
+const generated = /^reference\/(node|browser|agent)-sdk\//.test(
+  Astro.locals.starlightRoute.entry.id,
+);
+---
+
+<div data-pagefind-weight={generated ? "0.1" : "1"}>
+  <MarkdownContent><slot /></MarkdownContent>
+</div>

@@ -1,0 +1,98 @@
+---
+title: Signer
+---
+
+import { Tabs, TabItem } from "@astrojs/starlight/components";
+
+To connect to XMTP, your app needs a **signer**, an object that identifies a user and can sign messages on their behalf. Under the hood, XMTP uses [ECDSA](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm) signatures on the **secp256k1** curve.
+
+There are three ways to create a signer:
+
+- **Key pair**: Generate or provide a secp256k1 private key directly. No wallet or blockchain needed.
+- **Externally Owned Account (EOA)**: Use an Ethereum wallet.
+- **Smart Contract Wallet (SCW)**: Use an [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) compatible smart contract wallet.
+
+All three produce the same signer interface, so the rest of your XMTP integration is identical regardless of which you choose.
+
+## Create a signer from a key pair
+
+Generate a secp256k1 key pair and sign messages directly.
+
+Install [@noble/curves](https://github.com/paulmillr/noble-curves) and [@noble/hashes](https://github.com/paulmillr/noble-hashes):
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="signer-browser.ts" region="signer"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="signer-node.ts" region="signer"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+val signer = object : SigningKey {
+    override val type = SignerType.EOA
+    override val publicIdentity = identity
+    override suspend fun sign(message: String): SignedData = signedData
+}
+```
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+struct AppSigner: SigningKey {
+  var type: SignerType = .EOA
+  var identity: PublicIdentity
+  func sign(_ message: String) async throws -> SignedData { signedData }
+}
+```
+
+</TabItem>
+</Tabs>
+
+:::tip[Naming conventions]
+Name signer objects for their account or provider. Do not call a signer a wallet when it only implements the signing interface.
+:::
+
+## The signer interface
+
+| Part          | Browser, Node                      | Kotlin                      | Swift                         |
+| ------------- | ---------------------------------- | --------------------------- | ----------------------------- |
+| Type          | `type: "EOA" \| "SCW"`             | `val type: SignerType`      | `var type: SignerType`        |
+| Identifier    | `getIdentifier()`                  | `publicIdentity`            | `identity`                    |
+| Sign          | `signMessage(message): Uint8Array` | `sign(message): SignedData` | `sign(_ message): SignedData` |
+| Chain ID, SCW | `getChainId(): bigint`             | `chainId: Long?`            | `chainId: Int64?`             |
+| Block number  | `getBlockNumber?(): bigint`        | `blockNumber: Long?`        | `blockNumber: Int64?`         |
+
+An EOA has no chain ID. Do not use `0` as a sentinel. Kotlin and Swift allow a null chain ID, but an SCW signer with no chain ID fails when it signs.
+
+### Return bytes
+
+Return raw signature bytes, not a hex string. Convert the value returned by a wallet library when needed.
+
+### Apply the ERC-191 prefix once
+
+Most Ethereum wallet providers add the ERC-191 prefix and hash the message. If you add it again, verification fails. Check the wallet provider behavior.
+
+## Create a signer from a SCW
+
+An SCW signer uses the same interface and adds its chain ID. If verification needs historical state, it can also return a block number. The backend operator must configure the RPC endpoint for that chain.
+
+To add a different identity kind, see [Extend the identity model](/sdk/extend-identity-model/).
+
+## Common errors
+
+| Error                              | Cause                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------- |
+| `AssociationError.ChainIdMismatch` | The supplied chain ID does not match the registered identity          |
+| `NotFound.InboxIdForAddress`       | The identifier is not registered on this backend                      |
+| `SignatureError.Invalid`           | The bytes, prefix, signer type, or SCW verification result is invalid |

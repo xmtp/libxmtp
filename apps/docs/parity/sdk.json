@@ -1,0 +1,141 @@
+[
+  {
+    "source": "docs/pages/chat-apps/core-messaging/create-a-client.mdx",
+    "target": "src/content/docs/sdk/client.mdx",
+    "blocks": [
+      "When you call `Client.create()`, the following steps happen under the hood:"
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/create-a-signer.mdx",
+    "target": "src/content/docs/sdk/signer.mdx",
+    "blocks": [
+      "To connect to XMTP, your app needs a **signer**, an object that identifies a user and can sign messages on their behalf. Under the hood, XMTP uses [ECDSA](https://en.wikipedia.org/wiki/Elliptic_Curve_Digital_Signature_Algorithm) signatures on the **secp256k1** curve.",
+      "There are three ways to create a signer:\n\n- **Key pair**: Generate or provide a secp256k1 private key directly. No wallet or blockchain needed.\n- **Externally Owned Account (EOA)**: Use an Ethereum wallet.\n- **Smart Contract Wallet (SCW)**: Use an [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) compatible smart contract wallet.\n\nAll three produce the same signer interface, so the rest of your XMTP integration is identical regardless of which you choose.",
+      "Generate a secp256k1 key pair and sign messages directly.\n\nInstall [@noble/curves](https://github.com/paulmillr/noble-curves) and [@noble/hashes](https://github.com/paulmillr/noble-hashes):"
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/manage-inboxes.mdx",
+    "target": "src/content/docs/sdk/inboxes.mdx",
+    "blocks": ["You cannot remove the recovery identity."]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/create-conversations.mdx",
+    "target": "src/content/docs/sdk/conversations.mdx",
+    "blocks": [
+      "The first step to creating a conversation is to verify that participants' identities are reachable on XMTP. The `canMessage` method checks each identity's compatibility, returning a response indicating whether each identity can receive messages.",
+      "Once you have the verified identities, you can create a new conversation, whether it's a group chat or direct message (DM)."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/send-messages.mdx",
+    "target": "src/content/docs/sdk/send-messages.md",
+    "blocks": [
+      "Once you have the group chat or DM conversation, you can send messages in the conversation.",
+      "### Key UX considerations for optimistically sent messages",
+      "By default, `publishMessages()` publishes all prepared messages. For more control, use the `noSend` parameter when preparing a message. The message won't be published until you explicitly call `publishMessage(messageId)`."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/list-stream-sync/list-messages.mdx",
+    "target": "src/content/docs/sdk/read.mdx",
+    "blocks": [
+      "Be sure to handle content types properly by using the generic `content<T>()` method with the appropriate type for reactions and replies."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/list-stream-sync/stream.mdx",
+    "target": "src/content/docs/sdk/stream.mdx",
+    "blocks": [
+      "We recommend streaming messages for allowed conversations only. This ensures that spammy conversations with a consent state of unknown don't take up networking resources. This also ensures that unwanted spam messages aren't stored in the user's local database.",
+      "The stream is infinite. Therefore, any looping construct used with the stream won't terminate unless you explicitly initiate the termination. You can initiate the termination by breaking the loop or by making an external call to `return`."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/list-stream-sync/sync-and-syncall.mdx",
+    "target": "src/content/docs/sdk/sync.mdx",
+    "blocks": [
+      "We recommend syncing messages for allowed conversations only. This ensures that spammy conversations with a consent state of unknown don't take up networking resources. This also ensures that unwanted spam messages aren't stored in the user's local database."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/list-stream-sync/archive-backups.md",
+    "target": "src/content/docs/sdk/backups.mdx",
+    "blocks": [
+      "Support archive-based backups to give your users an easy and durable way to back up their XMTP conversations, messages, and consent preferences from one app installation and import them into another.",
+      "The archive import is **additive**, not destructive: existing messages are preserved, and duplicate messages are ignored."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/group-permissions.mdx",
+    "target": "src/content/docs/sdk/groups.mdx",
+    "blocks": [
+      "Robust group chat permissions are key to providing users with a friendly and safe group chat experience.",
+      "Member statuses are the roles that can be assigned to each participant (inbox ID) in a group chat. These are the available member statuses:",
+      "When a group is created, all groups have the same initial member \"roles\" set:\n\n- There is one super admin, and it is the group creator\n- There are no admins\n- Each user added to the group starts out as a member",
+      "A member can remove themselves from a group by calling `leaveGroup()`. After leaving, the group becomes inactive for that member.",
+      "Group chats can have metadata, like names, descriptions, and images. Metadata can help users more easily identify their group chats."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/user-consent/user-consent.mdx",
+    "target": "src/content/docs/sdk/consent.mdx",
+    "blocks": [
+      "The user's creation of the conversation with the contact is considered consent.",
+      "The user's response to the conversation is considered consent."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/disappearing-messages.mdx",
+    "target": "src/content/docs/sdk/disappearing-messages.md",
+    "blocks": [
+      "Disappearing messages are messages that are intended to be visible to users for only a short period of time. After the message expiration time passes, the messages are removed from the UI and deleted from local storage so the messages are no longer accessible to conversation participants.",
+      "Conversation participants using apps that support disappearing messages will have a UX that honors the message expiration conditions. Conversation participants using apps that don't support disappearing messages won't experience disappearing message behavior.",
+      "Messages abide by the disappearing message settings for the conversation.",
+      "Expired messages don't require manual removal from the UI. If your app UI updates when the local storage changes, expired messages will disappear automatically when the background worker deletes them from local storage."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/delete-messages.mdx",
+    "target": "src/content/docs/sdk/delete-messages.md",
+    "blocks": [
+      "A user can delete messages they sent in a DM or group chat. In a group chat, the super admin role can delete any message in the group.",
+      "Message deletion is not a security or privacy feature. It provides a best-effort way to remove messages from conversation UIs, but does not guarantee the message content is permanently erased.",
+      "When a user deletes a message, a `DeleteMessage` content type containing the target message ID is sent to the conversation. Clients receiving this message validate the deletion request and filter the deleted message from queries.",
+      "When you query messages, the client automatically:\n\n- Replaces deleted messages with a placeholder that indicates whether the sender or an admin deleted it\n- Filters out the `DeleteMessage` content type from message lists",
+      "The deletion mechanism does NOT remove the original message from:"
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/push-notifs/understand-push-notifs.mdx",
+    "target": "src/content/docs/sdk/push-notifications.md",
+    "blocks": [
+      "A user holds the HMAC keys for any conversation they join, but an outside observer only sees the keys without knowing who owns them."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/debug/debug-your-app.mdx",
+    "target": "src/content/docs/sdk/debug.md",
+    "blocks": [
+      "A conversation has `getDebugInformation`. You can use this to see:",
+      "The local commit log for expert analysis"
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/use-signatures.mdx",
+    "target": "src/content/docs/sdk/use-signatures.mdx",
+    "blocks": [
+      "With XMTP, you can use various types of signatures to sign and verify payloads.",
+      "When a user creates, adds, removes, or revokes an XMTP inbox's identity or installation, a signature is required."
+    ]
+  },
+  {
+    "source": "docs/pages/chat-apps/core-messaging/extend-id-model.md",
+    "target": "src/content/docs/sdk/extend-identity-model.mdx",
+    "blocks": [
+      "XMTP is designed with a flexible identity model that can be extended over time without introducing breaking changes for existing apps.",
+      "This document provides a general blueprint for how to extend XMTP to non-EVM platforms where identities are controlled by public keys, such as Solana, Bitcoin, Zcash, and others."
+    ]
+  }
+]

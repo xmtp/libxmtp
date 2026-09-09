@@ -1,0 +1,171 @@
+---
+title: Run the backend
+description: Configure and run an XMTP self-hosted backend.
+---
+
+The XMTP backend is one binary. It serves native gRPC, gRPC-Web, and the standard
+gRPC health service on a single port. It keeps no local state, so you can run
+several instances behind a load balancer and scale them horizontally. All durable
+state lives in PostgreSQL.
+
+A client reconnecting to a different instance does not need anything from the
+instance it left. It reconnects with its own topic cursors.
+
+## Requirements
+
+- PostgreSQL 18.
+- One TOML configuration file.
+- A TCP port for the gRPC listener. The default is `5050`.
+
+The backend applies its schema from a single migration. Startup never deletes a
+database.
+
+## Configuration
+
+Pass one TOML file with `--config`. The database URL is required. Every other key
+has a default. Unknown keys, invalid values, and inconsistent size relationships
+fail startup.
+
+A string of the form `env:NAME` reads the environment variable `NAME` at startup.
+A missing variable fails startup. Keep secrets in environment variables. Resolved
+values never appear in errors or logs.
+
+A minimal file needs only the database URL:
+
+```toml
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[database]
+url = "env:XMTP_DATABASE_URL"
+```
+
+The JSON schema at that URL validates the file in editors that support Taplo.
+
+### `[server]`
+
+| Key                     | Type                                             | Default        | Purpose                                                                          |
+| ----------------------- | ------------------------------------------------ | -------------- | -------------------------------------------------------------------------------- |
+| `listen`                | socket address                                   | `0.0.0.0:5050` | Address the plaintext gRPC listener binds.                                       |
+| `log_level`             | `off`, `error`, `warn`, `info`, `debug`, `trace` | `info`         | Global log level. The `--log-level` flag overrides it.                           |
+| `request_logger`        | boolean                                          | `true`         | Emit one INFO event when each gRPC response finishes or is cancelled.            |
+| `max_drain_duration_ms` | integer                                          | `10000`        | How long shutdown waits for in-flight unary requests. Open streams fail at once. |
+
+### `[database]`
+
+| Key                        | Type           | Default        | Purpose                                                           |
+| -------------------------- | -------------- | -------------- | ----------------------------------------------------------------- |
+| `url`                      | PostgreSQL URL | none, required | Primary connection string.                                        |
+| `replica_url`              | PostgreSQL URL | unset          | One physical read replica. Reads route to it.                     |
+| `max_connections`          | integer        | `20`           | Connections per request pool. With a replica there are two pools. |
+| `max_statement_timeout_ms` | integer        | `5000`         | PostgreSQL `statement_timeout` applied to every statement.        |
+
+Configure at most one physical read replica. Do not point `replica_url` at a load balancer that selects independently lagging replicas.
+
+Publish and Query use the primary. Newest, Get, identifier lookup, and subscriptions use the selected read database,
+so those reads can lag behind a successful publish.
+
+The tailer holds one dedicated connection to the read database, beyond the
+request pools. Without a replica, budget `max_connections + 1` connections per
+instance. With a replica, budget `max_connections` on the primary and
+`max_connections + 1` on the replica.
+
+### `[publishing]`
+
+| Key                       | Type    | Default | Purpose                                                                                                              |
+| ------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------------- |
+| `max_publish_duration_ms` | integer | `10000` | Ceiling on one publish request, from first lock to commit. Must be greater than `database.max_statement_timeout_ms`. |
+| `max_barrier_wait_ms`     | integer | `1000`  | How long the boundary task waits for the allocation barrier before it retries later.                                 |
+
+### `[streams]`
+
+| Key                     | Type    | Default | Purpose                                                                                        |
+| ----------------------- | ------- | ------- | ---------------------------------------------------------------------------------------------- |
+| `poll_interval_ms`      | integer | `100`   | Interval between tailer polls of the read database. Polls do not overlap.                      |
+| `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.                       |
+| `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                                                 |
+| `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong. Must be greater than `keepalive_interval_ms`. |
+
+### `[chains]`
+
+A map from CAIP-2 chain id to an HTTP or HTTPS RPC URL. Configure one route per
+chain you need for smart-contract-wallet signature verification. An empty map
+still serves identities that do not need chain verification; smart-contract-wallet
+operations on an unconfigured chain return `UNAVAILABLE`.
+
+```toml
+[chains]
+"eip155:1" = "env:XMTP_RPC_MAINNET"
+```
+
+### `[validation]`
+
+| Key                     | Type    | Default | Purpose                                                                                  |
+| ----------------------- | ------- | ------- | ---------------------------------------------------------------------------------------- |
+| `max_scw_cache_entries` | integer | `10000` | Entries in the per-instance smart-contract-wallet signature-verdict cache. LRU eviction. |
+
+### `[limits]`
+
+Every structural limit is one named key. See [Limits](/reference/limits/) for the values and
+what each one constrains. Lowering a limit here can require clients to send
+smaller batches. Startup rejects inconsistent pairs: `max_query_limit` must be at
+least `default_query_limit`, `max_envelope_bytes` at most `max_request_bytes`, and
+`max_update_adds` at most `max_stream_topics`.
+
+## Run it locally
+
+`just backend up` starts PostgreSQL, the backend, an Anvil chain, and Toxiproxy.
+The backend listens on `127.0.0.1:5050`.
+
+`just backend run` starts only the backend, outside Docker, against the database
+from `just backend db-up`.
+
+## Run the container image
+
+The published image is `ghcr.io/xmtp/backend`. Mount a configuration file and
+pass `--config`. The entry point is the backend binary, so the container command
+is only its arguments.
+
+```sh
+docker run --rm -p 5050:5050 \
+  -e XMTP_DATABASE_URL=postgres://user:password@host:5432/xmtp_backend \
+  -v ./config.toml:/config.toml:ro \
+  ghcr.io/xmtp/backend:self-hosted --config /config.toml
+```
+
+## Ports and health
+
+One port carries everything: native gRPC, gRPC-Web, and the standard gRPC health
+service. There is no separate metrics or admin port and no HTTP health path.
+
+Probe health with a gRPC health client against the listener, for example
+`grpc-health-probe -addr=127.0.0.1:5050`. The backend reports both the aggregate
+health status and a named status for each RPC service it serves. On shutdown it
+marks the aggregate status and every named service `NOT_SERVING` before
+connections drain, so a load balancer can remove the instance before requests
+fail.
+
+## Load balancer requirements
+
+The backend listener is plaintext and is not a public endpoint. Terminate HTTPS
+at a trusted load balancer and pass requests to the backend without protocol
+conversion. Browser clients speak gRPC-Web to the same port, and that only works
+if the load balancer leaves the traffic alone.
+
+The load balancer must:
+
+- Pass gRPC-Web requests through without converting them to or from native gRPC.
+- Stream responses through without buffering. Frames must reach the client as the
+  backend emits them.
+- Pass CORS preflight requests to the backend. The backend answers them itself.
+- Preserve request headers, including authorization and version headers.
+- Preserve gRPC trailers and status details, including `grpc-status`,
+  `grpc-message`, and `grpc-status-details-bin`.
+
+Buffering a streaming response is the failure that is hardest to notice: unary
+calls keep working and only subscriptions break.
+
+## Security
+
+The backend has no caller authentication. Any client that can reach the listener
+can publish and read. Do not expose it to untrusted traffic. Put it on a private
+network, or behind a load balancer that you control and that restricts who can
+reach it.

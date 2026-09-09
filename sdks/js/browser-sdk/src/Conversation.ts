@@ -477,7 +477,7 @@ export class Conversation<ContentTypes = unknown> {
   /**
    * Creates a stream for new messages in this conversation
    *
-   * @param callback - Optional callback function for handling new stream values
+   * @param options - Optional stream callbacks and retry settings
    * @returns Stream instance for new messages
    */
   async stream(
