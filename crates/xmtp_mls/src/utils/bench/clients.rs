@@ -1,7 +1,5 @@
 use crate::utils::TestXmtpMlsContext;
-use crate::utils::test::{
-    DefaultTestClientCreator, DevOnlyTestClientCreator, LocalOnlyTestClientCreator,
-};
+use crate::utils::test::DefaultTestClientCreator;
 use crate::{client::Client, identity::IdentityStrategy};
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_id::associations::test_utils::WalletTestExt;
@@ -19,16 +17,7 @@ pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
     let ident = wallet.identifier();
     let inbox_id = ident.inbox_id(nonce).unwrap();
 
-    let dev = std::env::var("DEV_GRPC");
-    let is_dev_network = matches!(dev, Ok(d) if d == "true" || d == "1");
-
-    let api_client = if is_dev_network {
-        tracing::info!("Using Dev GRPC");
-        DevOnlyTestClientCreator::create().build().unwrap()
-    } else {
-        tracing::info!("Using Local GRPC");
-        LocalOnlyTestClientCreator::create().build().unwrap()
-    };
+    let api_client = std::sync::Arc::new(DefaultTestClientCreator::create().build().unwrap());
 
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
@@ -73,22 +62,13 @@ pub async fn new_client() -> BenchClient {
 }
 
 /// Create a client from a pre-generated identity
-pub async fn create_client_from_identity(
-    identity: &super::Identity,
-    is_dev_network: bool,
-) -> BenchClient {
+pub async fn create_client_from_identity(identity: &super::Identity) -> BenchClient {
     let _ = fdlimit::raise_fd_limit();
 
     let nonce = 1;
     let inbox_id = identity.inbox_id.clone();
 
-    let api_client = if is_dev_network {
-        tracing::info!("Using Dev GRPC");
-        DefaultTestClientCreator::create().build().unwrap()
-    } else {
-        tracing::info!("Using Local GRPC");
-        DefaultTestClientCreator::create().build().unwrap()
-    };
+    let api_client = std::sync::Arc::new(DefaultTestClientCreator::create().build().unwrap());
 
     let client = crate::Client::builder(IdentityStrategy::new(
         inbox_id,
