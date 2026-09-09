@@ -5,7 +5,7 @@ services:
     tmpfs: [/var/lib/postgresql]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U xmtp -d xmtp_backend"], interval: 1s, retries: 30 }
   backend:
-    image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
+    image: ghcr.io/xmtp/backend:self-hosted      # Pull the published image for local development.
     depends_on: { db: { condition: service_healthy } }
     environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545 }
     volumes: ["../../../../dev/backend/local.toml:/config.toml:ro"]

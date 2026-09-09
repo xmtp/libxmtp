@@ -7,10 +7,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,13 +22,20 @@ import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.DbOptions
+import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
+import uniffi.xmtpv3.FfiWorkerConfig
+import uniffi.xmtpv3.FfiWorkerKind
+import uniffi.xmtpv3.generateInboxId
 import java.io.File
 import java.security.SecureRandom
+import java.util.UUID
 import java.util.concurrent.CompletableFuture
 import java.util.concurrent.TimeUnit
+import uniffi.xmtpv3.createClient as ffiCreateClient
 
 @RunWith(AndroidJUnit4::class)
 class ClientTest : BaseInstrumentedTest() {
@@ -37,11 +46,13 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                localApi().copy(env = "custom-db"),
                 appContext = context,
                 dbEncryptionKey = key,
             )
         val client = runBlocking { Client.create(account = fakeWallet, options = options) }
+
+        assertEquals("xmtp-custom-db-${client.inboxId}.db3", File(client.dbPath).name)
 
         val clientIdentity = fakeWallet.publicIdentity
         runBlocking {
@@ -73,7 +84,7 @@ class ClientTest : BaseInstrumentedTest() {
                 Client.build(
                     client.publicIdentity,
                     ClientOptions(
-                        api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        api = localApi(),
                         dbEncryptionKey = dbEncryptionKey,
                         appContext = InstrumentationRegistry.getInstrumentation().targetContext,
                         dbDirectory = dbDir,
@@ -105,7 +116,7 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false, "Testing/0.0.0"),
+                localApi(appVersion = "Testing/0.0.0"),
                 appContext = context,
                 dbEncryptionKey = key,
             )
@@ -134,7 +145,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.canMessage(
                     listOf(alixPublicIdentity, notOnNetworkPublicIdentity, boPublicIdentity),
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    localApi(),
                 )
             }
 
@@ -157,7 +168,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.inboxStatesForInboxIds(
                     listOf(fixtures.boClient.inboxId, fixtures.caroClient.inboxId),
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    localApi(),
                 )
             }
         assertEquals(
@@ -182,7 +193,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -194,7 +205,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet2,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -216,7 +227,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -225,52 +236,6 @@ class ClientTest : BaseInstrumentedTest() {
         runBlocking {
             client.conversations.sync()
             assertEquals(client.conversations.listGroups().size, 0)
-        }
-    }
-
-    @Test
-    fun testCreatesADevClient() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val client =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet,
-                    options =
-                        ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.DEV, true),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val clientIdentity = fakeWallet.publicIdentity
-        runBlocking {
-            client.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
-        }
-    }
-
-    @Test
-    fun testCreatesAProductionClient() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val client =
-            runBlocking {
-                Client.create(
-                    account = fakeWallet,
-                    options =
-                        ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.PRODUCTION, true),
-                            appContext = context,
-                            dbEncryptionKey = key,
-                        ),
-                )
-            }
-        val clientIdentity = fakeWallet.publicIdentity
-        runBlocking {
-            client.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
         }
     }
 
@@ -285,7 +250,7 @@ class ClientTest : BaseInstrumentedTest() {
 
         val opts =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                localApi(),
                 preAuthenticateToInboxCallback = preAuthenticateToInboxCallback,
                 appContext = context,
                 dbEncryptionKey = key,
@@ -311,7 +276,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -323,7 +288,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fakeWallet2,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -361,7 +326,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -373,7 +338,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = boWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -400,7 +365,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -413,7 +378,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -427,7 +392,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory =
@@ -460,7 +425,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -471,7 +436,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -485,7 +450,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory =
@@ -523,13 +488,13 @@ class ClientTest : BaseInstrumentedTest() {
     @Test
     fun testsCanSeeKeyPackageStatus() {
         val fixtures = runBlocking { createFixtures() }
-        runBlocking { Client.connectToApiBackend(ClientOptions.Api(XMTPEnvironment.LOCAL, true)) }
+        runBlocking { Client.connectToApiBackend(localApi()) }
         val inboxState =
             runBlocking {
                 Client
                     .inboxStatesForInboxIds(
                         listOf(fixtures.alixClient.inboxId),
-                        ClientOptions.Api(XMTPEnvironment.LOCAL, true),
+                        localApi(),
                     ).first()
             }
         val installationIds = inboxState.installations.map { it.installationId }
@@ -537,7 +502,7 @@ class ClientTest : BaseInstrumentedTest() {
             runBlocking {
                 Client.keyPackageStatusesForInstallationIds(
                     installationIds,
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, true),
+                    localApi(),
                 )
             }
         for (installationId: String in keyPackageStatus.keys) {
@@ -572,43 +537,6 @@ class ClientTest : BaseInstrumentedTest() {
             }
         }
     }
-
-    //    @Test
-    //    fun testsCanSeeInvalidKeyPackageStatusOnDev() {
-    //        runBlocking {
-    //            Client.connectToApiBackend(
-    //                ClientOptions.Api(
-    //                    XMTPEnvironment.DEV,
-    //                    true
-    //                )
-    //            )
-    //        }
-    //        val inboxState = runBlocking {
-    //            Client.inboxStatesForInboxIds(
-    //                listOf("f87420435131ea1b911ad66fbe4b626b107f81955da023d049f8aef6636b8e1b"),
-    //                ClientOptions.Api(XMTPEnvironment.DEV, true)
-    //            ).first()
-    //        }
-    //        val installationIds = inboxState.installations.map { it.installationId }
-    //        val keyPackageStatus = runBlocking {
-    //            Client.keyPackageStatusesForInstallationIds(
-    //                installationIds,
-    //                ClientOptions.Api(XMTPEnvironment.DEV, true)
-    //            )
-    //        }
-    //        for (installationId: String in keyPackageStatus.keys) {
-    //            val thisKPStatus = keyPackageStatus.get(installationId)!!
-    //            val notBeforeDate = thisKPStatus.lifetime?.notBefore?.let {
-    //                java.time.Instant.ofEpochSecond(it.toLong()).toString()
-    //            } ?: "null"
-    //            val notAfterDate = thisKPStatus.lifetime?.notAfter?.let {
-    //                java.time.Instant.ofEpochSecond(it.toLong()).toString()
-    //            } ?: "null"
-    //            println("inst: " + installationId + " - valid from: " + notBeforeDate + " to: " +
-    // notAfterDate)
-    //            println("error code: " + thisKPStatus.validationError)
-    //        }
-    //    }
 
     @Test
     fun testsSignatures() {
@@ -660,7 +588,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = fixtures.alixAccount,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -792,7 +720,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -812,7 +740,7 @@ class ClientTest : BaseInstrumentedTest() {
                         ),
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = badKey,
                         ),
@@ -829,7 +757,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = badKey,
                         ),
@@ -845,7 +773,7 @@ class ClientTest : BaseInstrumentedTest() {
         val fakeWallet = PrivateKeyBuilder()
         val options =
             ClientOptions(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                localApi(),
                 appContext = context,
                 dbEncryptionKey = key,
             )
@@ -883,7 +811,7 @@ class ClientTest : BaseInstrumentedTest() {
 
             val options =
                 ClientOptions(
-                    ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                    localApi(),
                     appContext = context,
                     dbEncryptionKey = key,
                 )
@@ -923,7 +851,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                         ),
@@ -934,7 +862,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = alixWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = key,
                             dbDirectory = context.filesDir.absolutePath.toString(),
@@ -946,7 +874,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = alixWallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                localApi(),
                                 appContext = context,
                                 dbEncryptionKey = key,
                                 dbDirectory =
@@ -1013,7 +941,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = fakeWallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                localApi(),
                                 appContext = context,
                                 dbEncryptionKey = key,
                             ),
@@ -1065,50 +993,82 @@ class ClientTest : BaseInstrumentedTest() {
     @Test
     fun testNetworkDebugInformation() =
         runBlocking {
-            val key = SecureRandom().generateSeed(32)
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val alixWallet = PrivateKeyBuilder()
-            val alix =
-                Client.create(
-                    account = alixWallet,
-                    options =
-                        ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-                            appContext = context,
-                            dbEncryptionKey = key,
+            val wallet = PrivateKeyBuilder()
+            val api = localApi(appVersion = "stats/${UUID.randomUUID()}")
+            // Disable scheduled work so each counter measures the explicit calls below.
+            val ffi =
+                ffiCreateClient(
+                    api = Client.connectToApiBackend(api),
+                    db = DbOptions(db = null, encryptionKey = null, maxDbPoolSize = null, minDbPoolSize = null),
+                    accountIdentifier = wallet.publicIdentity.ffiPrivate,
+                    inboxId = generateInboxId(wallet.publicIdentity.ffiPrivate, 0uL),
+                    nonce = 0uL,
+                    legacySignedPrivateKeyProto = null,
+                    deviceSyncMode = FfiDeviceSyncMode.DISABLED,
+                    allowOffline = false,
+                    forkRecoveryOpts = null,
+                    workerConfig =
+                        FfiWorkerConfig(
+                            defaultIntervalNs = null,
+                            workerIntervalsNs = emptyList(),
+                            workerJittersNs = emptyList(),
+                            disabledWorkers = FfiWorkerKind.entries.toList(),
                         ),
+                    changeCallbacks = null,
                 )
+            val alix =
+                Client(
+                    ffi,
+                    Client.IN_MEMORY_DB_PATH,
+                    ffi.installationId().toHex(),
+                    ffi.inboxId(),
+                    api.env,
+                    wallet.publicIdentity,
+                )
+            val signature = requireNotNull(alix.ffiSignatureRequest())
+            signature.addEcdsaSignature(wallet.sign(signature.signatureText()).rawData)
+            alix.ffiRegisterIdentity(signature)
             alix.debugInformation.clearAllStatistics()
+
+            alix.conversations.sync()
+            assertEquals(1L, alix.debugInformation.apiStatistics.query)
+            assertEquals(0L, alix.debugInformation.apiStatistics.publish)
+            assertEquals(0L, alix.debugInformation.apiStatistics.queryNewest)
+            assertEquals(0L, alix.debugInformation.apiStatistics.get)
+            assertEquals(0L, alix.debugInformation.apiStatistics.subscribe)
+            assertEquals(0L, alix.debugInformation.apiStatistics.subscribeStatic)
 
             val job =
                 CoroutineScope(Dispatchers.IO).launch {
                     alix.conversations.streamAllMessages().collect {}
                 }
-            val group = alix.conversations.newGroup(emptyList())
-            group.send("hi")
+            try {
+                withTimeout(5_000) {
+                    while (alix.debugInformation.apiStatistics.subscribe != 1L) {
+                        delay(10)
+                    }
+                }
+                assertEquals(2L, alix.debugInformation.apiStatistics.query)
+                alix.inboxState(true)
+                assertEquals(3L, alix.debugInformation.apiStatistics.query)
 
-            delay(4000)
+                val group = alix.conversations.newGroup(emptyList())
+                val beforeSend = alix.debugInformation.apiStatistics.publish
+                assertEquals(1L, beforeSend)
+                group.send("hi")
+                val apiStats = alix.debugInformation.apiStatistics
+                assertEquals(beforeSend + 1L, apiStats.publish)
+                assertEquals(0L, apiStats.queryNewest)
+                assertEquals(1L, apiStats.subscribe)
+                assertEquals(0L, apiStats.subscribeStatic)
 
-            val aggregateStats2 = alix.debugInformation.aggregateStatistics
-            println("Aggregate Stats Create:\n$aggregateStats2")
-
-            val apiStats2 = alix.debugInformation.apiStatistics
-            assertEquals(0, apiStats2.fetchKeyPackage)
-            assertEquals(3, apiStats2.sendGroupMessages)
-            assertEquals(0, apiStats2.sendWelcomeMessages)
-            assertEquals(1, apiStats2.queryWelcomeMessages)
-            assertEquals(1, apiStats2.subscribeWelcomes)
-
-            val identityStats2 = alix.debugInformation.identityStatistics
-            assertEquals(0, identityStats2.publishIdentityUpdate)
-            // Collapsing the two gRPC connections into one (#3721) routes the
-            // group-creation identity-update fetches through the single API
-            // client, so they're now counted here (was 0 under the
-            // two-connection setup).
-            assertEquals(2, identityStats2.getIdentityUpdatesV2)
-            assertEquals(0, identityStats2.getInboxIds)
-            assertEquals(0, identityStats2.verifySmartContractWalletSignature)
-            job.cancel()
+                val identityStats = alix.debugInformation.identityStatistics
+                assertEquals(0L, identityStats.getInboxIds)
+                assertEquals(0L, identityStats.verifySmartContractWalletSignatures)
+                assertTrue(alix.debugInformation.aggregateStatistics.isNotEmpty())
+            } finally {
+                job.cancel()
+            }
         }
 
     @Test
@@ -1126,7 +1086,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = wallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                localApi(),
                                 appContext = context,
                                 dbEncryptionKey = encryptionKey,
                                 dbDirectory =
@@ -1150,7 +1110,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = wallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = encryptionKey,
                             dbDirectory =
@@ -1167,7 +1127,7 @@ class ClientTest : BaseInstrumentedTest() {
                     account = boWallet,
                     options =
                         ClientOptions(
-                            ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                            localApi(),
                             appContext = context,
                             dbEncryptionKey = SecureRandom().generateSeed(32),
                             dbDirectory = File(context.filesDir, "xmtp_bo").absolutePath,
@@ -1198,7 +1158,7 @@ class ClientTest : BaseInstrumentedTest() {
                 account = wallet,
                 options =
                     ClientOptions(
-                        ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                        localApi(),
                         appContext = context,
                         dbEncryptionKey = encryptionKey,
                         dbDirectory = File(context.filesDir, "xmtp_db_11").absolutePath,
@@ -1223,7 +1183,7 @@ class ClientTest : BaseInstrumentedTest() {
                         account = wallet,
                         options =
                             ClientOptions(
-                                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                                localApi(),
                                 appContext = context,
                                 dbEncryptionKey = encryptionKey,
                                 dbDirectory =
@@ -1240,7 +1200,7 @@ class ClientTest : BaseInstrumentedTest() {
         val toRevokeId = clients[1].installationId
         runBlocking {
             Client.revokeInstallations(
-                ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+                localApi(),
                 wallet,
                 clients.first().inboxId,
                 listOf(toRevokeId),
@@ -1259,7 +1219,7 @@ class ClientTest : BaseInstrumentedTest() {
             val key = SecureRandom().generateSeed(32)
             val context = InstrumentationRegistry.getInstrumentation().targetContext
             val alixWallet = PrivateKeyBuilder()
-            val apiOptions = ClientOptions.Api(XMTPEnvironment.LOCAL, false)
+            val apiOptions = localApi()
             val alix =
                 Client.create(
                     account = alixWallet,

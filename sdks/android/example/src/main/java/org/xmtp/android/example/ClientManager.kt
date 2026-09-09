@@ -10,7 +10,6 @@ import kotlinx.coroutines.launch
 import org.xmtp.android.example.utils.KeyUtil
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.ClientOptions
-import org.xmtp.android.library.XMTPEnvironment
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.libxmtp.IdentityKind
 import org.xmtp.android.library.libxmtp.PublicIdentity
@@ -29,8 +28,7 @@ object ClientManager {
         return ClientOptions(
             api =
                 ClientOptions.Api(
-                    XMTPEnvironment.DEV,
-                    isSecure = true,
+                    backendUrl = "http://10.0.2.2:5050",
                 ),
             appContext = appContext,
             dbEncryptionKey = encryptionKey,

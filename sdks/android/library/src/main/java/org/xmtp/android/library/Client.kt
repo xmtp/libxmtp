@@ -50,7 +50,7 @@ typealias ProcessType = FfiProcessType
 typealias MessageMetadata = FfiMessageMetadata
 
 data class ClientOptions(
-    val api: Api = Api(),
+    val api: Api,
     val preAuthenticateToInboxCallback: PreEventCallback? = null,
     val appContext: Context,
     val dbEncryptionKey: ByteArray,
@@ -66,12 +66,16 @@ data class ClientOptions(
     val unstableChangeCallbacks: UnstableChangeCallbacks? = null,
 ) {
     data class Api(
-        val env: XMTPEnvironment = XMTPEnvironment.DEV,
-        @Deprecated("isSecure is no longer used and will be removed in a future release")
-        val isSecure: Boolean = true,
+        val backendUrl: String,
+        val env: String = "local",
         val appVersion: String? = null,
-        val gatewayHost: String? = null,
-    )
+    ) {
+        init {
+            require(backendUrl.isNotBlank()) { "A backend URL is required" }
+        }
+
+        internal fun toCacheKey(): String = "$backendUrl|$appVersion"
+    }
 }
 
 enum class ForkRecoveryPolicy {
@@ -104,14 +108,10 @@ data class ForkRecoveryOptions(
 }
 
 data class VisibilityConfirmationOptions(
-    val quorumPercentage: Float? = null,
-    val quorumAbsolute: ULong? = null,
     val timeoutMs: ULong? = null,
 ) {
     fun toFfi(): FfiVisibilityConfirmationOptions =
         FfiVisibilityConfirmationOptions(
-            quorumPercentage = this.quorumPercentage,
-            quorumAbsolute = this.quorumAbsolute,
             timeoutMs = this.timeoutMs,
         )
 }
@@ -128,7 +128,7 @@ class Client(
     val dbPath: String,
     val installationId: String,
     val inboxId: InboxId,
-    val environment: XMTPEnvironment,
+    val environment: String,
     val publicIdentity: PublicIdentity,
 ) {
     val preferences: PrivatePreferences =
@@ -181,9 +181,6 @@ class Client(
                 registry.register(codec = TextCodec())
                 registry
             }
-
-        private fun ClientOptions.Api.toCacheKey(): String =
-            "${env.getUrl()}|${appVersion ?: "nil"}|${gatewayHost ?: "nil"}"
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
@@ -268,8 +265,7 @@ class Client(
                 // If not cached or not connected, create a fresh client
                 val newClient =
                     connectToBackend(
-                        api.env.getUrl(),
-                        api.gatewayHost,
+                        api.backendUrl,
                         FfiClientMode.DEFAULT,
                         api.appVersion,
                         null,

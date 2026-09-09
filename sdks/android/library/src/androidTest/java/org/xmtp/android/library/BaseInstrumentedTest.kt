@@ -9,6 +9,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.rules.TemporaryFolder
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtpv3.resumeStreams
 import java.io.File
 import java.security.SecureRandom
 
@@ -23,6 +24,7 @@ import java.security.SecureRandom
  * - Database file cleanup
  */
 abstract class BaseInstrumentedTest {
+    private var previousManageStreamLifecycle = true
     private val createdClients = mutableListOf<Client>()
     private val dbFolders = mutableListOf<String>()
 
@@ -34,34 +36,42 @@ abstract class BaseInstrumentedTest {
 
     @Before
     open fun setUp() {
+        previousManageStreamLifecycle = Client.manageStreamLifecycle
+        // Instrumentation has no foreground Activity to keep native streams active.
+        Client.manageStreamLifecycle = false
+        runBlocking { resumeStreams() }
         testDbDir.create()
     }
 
     @After
     open fun tearDown() {
-        // Clean up all clients
-        runBlocking {
-            createdClients.forEach { client ->
-                try {
-                    client.dropLocalDatabaseConnection()
-                } catch (e: Exception) {
-                    // Log but don't fail the test cleanup
-                    println("Warning: Failed to delete database for client: ${e.message}")
+        try {
+            // Clean up all clients
+            runBlocking {
+                createdClients.forEach { client ->
+                    try {
+                        client.dropLocalDatabaseConnection()
+                    } catch (e: Exception) {
+                        // Log but don't fail the test cleanup
+                        println("Warning: Failed to delete database for client: ${e.message}")
+                    }
                 }
             }
-        }
 
-        // Clear the client list
-        createdClients.clear()
-        dbFolders.forEach {
-            try {
-                File(it).deleteRecursively()
-            } catch (e: Exception) {
+            // Clear the client list
+            createdClients.clear()
+            dbFolders.forEach {
+                try {
+                    File(it).deleteRecursively()
+                } catch (e: Exception) {
+                }
             }
+            dbFolders.clear()
+            // Force garbage collection to help with native memory cleanup
+            System.gc()
+        } finally {
+            Client.manageStreamLifecycle = previousManageStreamLifecycle
         }
-        dbFolders.clear()
-        // Force garbage collection to help with native memory cleanup
-        System.gc()
     }
 
     /**
@@ -70,7 +80,7 @@ abstract class BaseInstrumentedTest {
      */
     protected suspend fun createClient(
         account: SigningKey,
-        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
+        api: ClientOptions.Api = localApi(),
         deviceSyncEnabled: Boolean = true,
     ): Client {
         val options = createClientOptions(api, deviceSyncEnabled = deviceSyncEnabled)
@@ -83,9 +93,7 @@ abstract class BaseInstrumentedTest {
      * Creates a standard fixtures setup with automatic cleanup.
      * Returns the 5 standard test clients: alix, bo, caro, davon, eri.
      */
-    protected suspend fun createFixtures(
-        api: ClientOptions.Api = ClientOptions.Api(XMTPEnvironment.LOCAL, false),
-    ): TestFixtures {
+    protected suspend fun createFixtures(api: ClientOptions.Api = localApi()): TestFixtures {
         //  Create accounts
         val alixAccount = PrivateKeyBuilder()
         val boAccount = PrivateKeyBuilder()

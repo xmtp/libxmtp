@@ -96,7 +96,7 @@ class MainViewModel : ViewModel() {
                     MainListItem.Footer(
                         id = "footer",
                         ClientManager.client.inboxId,
-                        ClientManager.client.environment.name,
+                        ClientManager.client.environment,
                     ),
                 )
                 _uiState.value = UiState.Success(listItems)

@@ -155,7 +155,7 @@ data class Conversations(
     suspend fun fromWelcome(envelopeBytes: ByteArray): Conversation =
         withContext(Dispatchers.IO) {
             val conversations = ffiConversations.processStreamedWelcomeMessage(envelopeBytes)
-            // TODO: Handle multiple conversations with d14n
+            // TODO: Return all conversations from this envelope.
             val conversation = conversations[0]
             when (conversation.conversationType()) {
                 FfiConversationType.DM -> Conversation.Dm(Dm(client, conversation))

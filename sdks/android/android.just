@@ -1,12 +1,16 @@
-export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
+export NIX_DEVSHELL := env("NIX_DEVSHELL", "android")
 set shell := ["../../dev/nix-shell"]
 
 # Verify Android SDK builds (bindings + Gradle)
-check:
-  ./dev/bindings && ./gradlew -p . build
+check: build
+  ./gradlew -p . build
+
+# Compile the library, example, and instrumented tests.
+assemble: build
+  ./gradlew -p . :library:assembleDebug :library:assembleDebugAndroidTest :example:assembleDebug
 
 # Run Spotless + Android Lint
-lint:
+lint: build
   ./gradlew -p . spotlessCheck --continue && ./gradlew -p . :library:lintDebug
 
 # Format Kotlin code
@@ -14,8 +18,8 @@ format:
   ./gradlew -p . spotlessApply
 
 # Run unit tests
-test:
-  ./dev/bindings && ./gradlew -p . library:testDebug
+test: build
+  ./gradlew -p . library:testDebugUnitTest
 
 # Run integration tests (requires emulator)
 test-integration: build
