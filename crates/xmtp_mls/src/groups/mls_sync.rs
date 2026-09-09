@@ -2223,13 +2223,7 @@ where
         }
     }
 
-    /// This function is idempotent. No need to wrap in a transaction.
-    ///
-    /// # Parameters
-    /// * `envelope` - The message envelope to process
-    /// * `trust_message_order` - Controls whether to allow epoch increments from commits and msg cursor increments.
-    ///   Set to `true` when processing messages from trusted ordered sources (queries), and `false` when
-    ///   processing from potentially out-of-order sources like streams.
+    /// Store available backend metadata without clearing fields absent from this envelope.
     fn save_envelope_metadata(
         &self,
         envelope: &GroupMessage,
@@ -2250,8 +2244,11 @@ where
                 .filter(dsl::group_id.eq(envelope.group_id.as_slice()))
                 .filter(dsl::sequence_id.eq(envelope.cursor.0 as i64))
                 .set((
-                    dsl::envelope_hash.eq(&envelope.envelope_hash),
-                    dsl::expiry_ns.eq(expiry_ns),
+                    envelope
+                        .envelope_hash
+                        .as_ref()
+                        .map(|hash| dsl::envelope_hash.eq(hash)),
+                    expiry_ns.map(|expiry| dsl::expiry_ns.eq(expiry)),
                 ))
                 .execute(conn)
         })?;
@@ -3238,7 +3235,28 @@ where
                             .await;
 
                         match (intent.kind, result) {
-                            (IntentKind::SendMessage, Ok(_)) => {
+                            (IntentKind::SendMessage, Ok(metas)) => {
+                                // SendMessage produces one envelope. The wrapper checks response
+                                // order and its canonical hash. Use the same local ID as intent
+                                // resolution; this row does not yet need a sequence ID.
+                                let [meta] = metas.as_slice() else {
+                                    return Err(xmtp_api::ApiError::InvalidResponse("send message metadata count").into());
+                                };
+                                let message_id = calculate_message_id_for_intent(&intent)?
+                                    .ok_or(GroupError::UninitializedResult)?;
+                                let hash = xmtp_api_backend::envelope::message_hash(meta)?;
+                                let expiry_ns = i64::try_from(meta.expiry_ns)
+                                    .map_err(|_| xmtp_proto::ConversionError::Unspecified("expiry_ns exceeds i64"))?;
+                                use xmtp_db::ConnectionExt;
+                                use xmtp_db::diesel::prelude::*;
+                                use xmtp_db::schema::group_messages::dsl;
+                                db.raw_query(|conn| {
+                                    xmtp_db::diesel::update(dsl::group_messages)
+                                        .filter(dsl::group_id.eq(intent.group_id.as_slice()))
+                                        .filter(dsl::id.eq(message_id))
+                                        .set((dsl::envelope_hash.eq(hash), dsl::expiry_ns.eq(expiry_ns)))
+                                        .execute(conn)
+                                })?;
                                 log_event!(
                                     Event::GroupSyncApplicationMessagePublishSuccess,
                                     self.context.installation_id(),
@@ -5040,6 +5058,91 @@ pub(crate) mod tests {
     use xmtp_common::Generate;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::mock::MockDbQuery;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn publish_stores_envelope_metadata_without_sync() {
+        use crate::tester;
+        use xmtp_proto::types::Topic;
+
+        tester!(alix, disable_workers);
+        // Rotate the group key before the message exists.
+        let group = alix.create_group(None, None)?;
+        group.key_update().await?;
+        let id = group.send_message_optimistic(b"publish metadata", Default::default())?;
+        group.publish_intents().await?;
+        let published = alix.context.db().find_group_intents(
+            group.group_id,
+            Some(vec![IntentState::Published]),
+            Some(vec![IntentKind::SendMessage]),
+        )?;
+        assert_eq!(published.len(), 1);
+
+        // Read the local row before any query. Publishing must fill both fields.
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.sequence_id, 0);
+        assert!(
+            stored.envelope_hash.is_some(),
+            "publish left envelope_hash NULL"
+        );
+        assert!(stored.expiry_ns.is_some(), "publish left expiry_ns NULL");
+
+        // Read the wire envelope without processing it into the local database.
+        let envelopes = alix
+            .context
+            .api()
+            .query_all(
+                [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
+                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            )
+            .await?;
+        let envelope = envelopes.last().unwrap();
+        let canonical = xmtp_mls_validation::parse_envelope(envelope.envelope.clone().unwrap())?;
+        assert_eq!(
+            stored.envelope_hash,
+            Some(canonical.canonical.hash.to_vec())
+        );
+        assert_eq!(
+            stored.expiry_ns,
+            Some(i64::try_from(envelope.meta.as_ref().unwrap().expiry_ns)?)
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn partial_envelope_metadata_preserves_stored_fields() {
+        use crate::tester;
+        use xmtp_proto::types::Topic;
+
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let id = group
+            .send_message(b"partial metadata", Default::default())
+            .await?;
+        let original: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert!(original.envelope_hash.is_some());
+        assert!(original.expiry_ns.is_some());
+        let mut envelopes = alix
+            .context
+            .api()
+            .query_all(
+                [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
+                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            )
+            .await?;
+        let mut envelope =
+            xmtp_api_backend::envelope::decode_group_message(envelopes.pop().unwrap())?;
+        envelope.envelope_hash = None;
+        group.save_envelope_metadata(&envelope)?;
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.envelope_hash, original.envelope_hash);
+        assert_eq!(stored.expiry_ns, original.expiry_ns);
+
+        envelope.envelope_hash = original.envelope_hash.clone();
+        envelope.expiry_ns = None;
+        group.save_envelope_metadata(&envelope)?;
+        let stored: StoredGroupMessage = alix.context.db().fetch(&id)?.unwrap();
+        assert_eq!(stored.envelope_hash, original.envelope_hash);
+        assert_eq!(stored.expiry_ns, original.expiry_ns);
+    }
 
     /// This test is not reproducible in webassembly, b/c webassembly has only one thread.
     #[cfg_attr(
