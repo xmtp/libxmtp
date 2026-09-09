@@ -641,9 +641,13 @@ describe("Group", () => {
     await group.sendText("gm");
     await group.sendText("gm2");
 
-    setTimeout(() => {
-      void stream.end();
-    }, 100);
+    // End the stream once both messages have arrived. A fixed delay races a
+    // loaded machine, where the second message lands after the timer fires.
+    void vi
+      .waitFor(() => {
+        expect(streamedMessages.length).toBe(2);
+      }, WAIT)
+      .then(() => stream.end());
 
     let count = 0;
     for await (const message of stream) {
