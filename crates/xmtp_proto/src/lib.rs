@@ -56,7 +56,3 @@ pub mod identity_v1 {
 pub mod backend_v1 {
     pub use super::xmtp::backend::v1::*;
 }
-
-pub mod mls_v1 {
-    pub use super::xmtp::mls::api::v1::*;
-}

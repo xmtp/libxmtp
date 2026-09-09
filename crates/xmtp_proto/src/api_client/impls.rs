@@ -1,43 +1,4 @@
 use super::*;
-use crate::mls_v1::{
-    GroupMessage as ProtoGroupMessage, QueryGroupMessagesResponse, QueryWelcomeMessagesResponse,
-    WelcomeMessage as ProtoWelcomeMessage,
-};
-use crate::xmtp::xmtpv4::{envelopes::OriginatorEnvelope, message_api::QueryEnvelopesResponse};
-
-impl Paged for QueryGroupMessagesResponse {
-    type Message = ProtoGroupMessage;
-    fn info(&self) -> &Option<PagingInfo> {
-        &self.paging_info
-    }
-
-    fn messages(self) -> Vec<Self::Message> {
-        self.messages
-    }
-}
-
-impl Paged for QueryWelcomeMessagesResponse {
-    type Message = ProtoWelcomeMessage;
-    fn info(&self) -> &Option<PagingInfo> {
-        &self.paging_info
-    }
-
-    fn messages(self) -> Vec<Self::Message> {
-        self.messages
-    }
-}
-
-impl Paged for QueryEnvelopesResponse {
-    type Message = OriginatorEnvelope;
-
-    fn info(&self) -> &Option<PagingInfo> {
-        &None
-    }
-
-    fn messages(self) -> Vec<Self::Message> {
-        self.envelopes
-    }
-}
 
 #[xmtp_common::async_trait]
 impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {

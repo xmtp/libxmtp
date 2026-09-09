@@ -4,7 +4,6 @@ pub use crate::backend_v1::{
     QueryNewestRequest, QueryNewestResponse, QueryRequest, QueryResponse, ServerEnvelope,
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use crate::mls_v1::PagingInfo;
 use crate::types::{GroupId, GroupMessage, InstallationId, TopicCursor, WelcomeMessage};
 use futures::Stream;
 use std::pin::Pin;
@@ -71,16 +70,6 @@ where
 }
 
 impl<T> XmtpApi for T where T: XmtpBackendClient + ?Sized {}
-
-/// Trait which for protobuf-generated type
-/// which can be paged.
-/// Paged implementation indicates a response
-/// that returns a collection of envelopes
-pub trait Paged: MaybeSend + MaybeSync {
-    type Message: MaybeSend + MaybeSync;
-    fn info(&self) -> &Option<PagingInfo>;
-    fn messages(self) -> Vec<Self::Message>;
-}
 
 /// The six unary RPCs of the backend API. Callers own retries and chunking.
 #[xmtp_common::async_trait]

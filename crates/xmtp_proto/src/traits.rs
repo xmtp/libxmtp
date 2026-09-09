@@ -1,7 +1,7 @@
 //! Api Client Traits
 
 use crate::{
-    api::{FakeEmptyStream, RetryQuery, V3Paged, XmtpStream, combinators::Ignore},
+    api::{FakeEmptyStream, RetryQuery, XmtpStream, combinators::Ignore},
     api_client::{AggregateStats, ApiStats, IdentityStats},
 };
 use futures::Stream;
@@ -46,13 +46,6 @@ pub trait EndpointExt<S>: Endpoint<S> {
         combinators::ignore(self)
     }
 
-    fn v3_paged(self, cursor: Option<u64>) -> V3Paged<Self, <Self as Endpoint<S>>::Output>
-    where
-        Self: Sized + Endpoint<S>,
-    {
-        combinators::v3_paged(self, cursor)
-    }
-
     fn retry(self) -> RetryQuery<Self>
     where
         Self: Sized + Endpoint<S>,
@@ -69,16 +62,6 @@ pub trait EndpointExt<S>: Endpoint<S> {
 }
 
 impl<S, E> EndpointExt<S> for E where E: Endpoint<S> {}
-
-/// Trait indicating an [`Endpoint`] can be paged
-/// paging will return a limited number of results
-/// per request. a cursor is present indicating
-/// the position in the total list of results
-/// on the backend.
-pub trait Pageable {
-    /// set the cursor for this pageable endpoint
-    fn set_cursor(&mut self, cursor: u64);
-}
 
 // choosing not to use the #[pin] macro here
 // because the manual structural pinning implementation is easy enough, and the
