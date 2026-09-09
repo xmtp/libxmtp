@@ -1,9 +1,6 @@
 use crate::{ClientBuilder, GrpcClient};
-use toxiproxy_rust::TOXIPROXY;
-use xmtp_proto::{
-    api_client::{ToxicProxies, ToxicTestClient, XmtpTestClient},
-    prelude::NetConnectConfig,
-};
+xmtp_common::if_native! { use toxiproxy_rust::TOXIPROXY; }
+use xmtp_proto::{api_client::XmtpTestClient, prelude::NetConnectConfig};
 
 use xmtp_configuration::{BACKEND_TEST_TOXIC_URL, BACKEND_TEST_URL};
 fn build_client(host: &str) -> ClientBuilder {
@@ -25,12 +22,15 @@ impl XmtpTestClient for ToxicBackendTestClient {
         build_client(BACKEND_TEST_TOXIC_URL)
     }
 }
-#[xmtp_common::async_trait]
-impl ToxicTestClient for ToxicBackendTestClient {
-    async fn proxies() -> ToxicProxies {
-        ToxicProxies::new([TOXIPROXY
-            .find_proxy("backend")
-            .await
-            .expect("backend proxy exists")])
+xmtp_common::if_native! {
+    use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
+    #[xmtp_common::async_trait]
+    impl ToxicTestClient for ToxicBackendTestClient {
+        async fn proxies() -> ToxicProxies {
+            ToxicProxies::new([TOXIPROXY
+                .find_proxy("backend")
+                .await
+                .expect("backend proxy exists")])
+        }
     }
 }
