@@ -22,6 +22,7 @@ use xmtp_proto::{
 };
 
 mod integration;
+mod limits;
 
 fn wrapper(mock: MockBackendClient) -> ApiClientWrapper<MockBackendClient> {
     let strategy = ExponentialBackoff::builder()

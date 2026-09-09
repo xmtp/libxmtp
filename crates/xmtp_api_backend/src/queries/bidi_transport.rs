@@ -3561,6 +3561,7 @@ mod tests {
         );
     }
 
+    /// P3-STR-013, P3-TST-002: a full wire refuses one more topic without a frame.
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_lease_cannot_push_the_wire_past_the_topic_limit() {
         let (transport, servers) = transport();

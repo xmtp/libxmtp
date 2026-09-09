@@ -2100,28 +2100,36 @@ pub(crate) mod tests {
         assert_eq!(item[0].state, ConsentState::Allowed);
     }
 
+    /// P3-API-015, MLS-REQ-045: a severed registration wait ends before its deadline.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn registration_visibility_deadline_bounds_a_severed_connection() {
         use super::VisibilityConfirmationOptions;
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
         toxiproxy_test(async || {
             tester!(alix, proxy, disable_workers);
             alix.wait_for_registration_visible(VisibilityConfirmationOptions::default())
                 .await
                 .unwrap();
-            alix.for_each_proxy(async |proxy| proxy.disable().await.unwrap())
+            let outcome = AssertUnwindSafe(async {
+                alix.for_each_proxy(async |proxy| proxy.disable().await.unwrap())
+                    .await;
+                let started = xmtp_common::time::Instant::now();
+                let result = xmtp_common::time::timeout(
+                    Duration::from_secs(2),
+                    alix.wait_for_registration_visible(VisibilityConfirmationOptions {
+                        timeout_ms: 250,
+                    }),
+                )
                 .await;
-            let started = xmtp_common::time::Instant::now();
-            let result = xmtp_common::time::timeout(
-                Duration::from_secs(2),
-                alix.wait_for_registration_visible(VisibilityConfirmationOptions {
-                    timeout_ms: 250,
-                }),
-            )
+                (result, started.elapsed())
+            })
+            .catch_unwind()
             .await;
-            let elapsed = started.elapsed();
             alix.for_each_proxy(async |proxy| proxy.enable().await.unwrap())
                 .await;
+            let (result, elapsed) = outcome.unwrap();
             assert!(elapsed < Duration::from_secs(2));
             assert!(
                 result.unwrap().is_err(),
