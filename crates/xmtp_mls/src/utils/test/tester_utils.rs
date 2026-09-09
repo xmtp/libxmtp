@@ -293,7 +293,13 @@ where
             .unwrap();
         for update in updates {
             let update: UnverifiedIdentityUpdate = update.payload.try_into().unwrap();
-            let result = self.context.api().publish_identity_update(update).await;
+            let result = crate::identity_updates::publish_with_conflict_retry(
+                self.context.api(),
+                &self.db(),
+                update,
+                &self.context.scw_verifier(),
+            )
+            .await;
 
             if let Err(err) = result {
                 tracing::warn!("{err:?}");

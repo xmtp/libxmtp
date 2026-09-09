@@ -1683,37 +1683,74 @@ mod conflict_tests {
         }
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
+    #[xmtp_common::test(flavor = "multi_thread", worker_threads = 4, unwrap_try = true)]
     async fn two_clients_racing_identity_updates_keep_both_associations() {
         tester!(alix, disable_workers);
-        tester!(alix2, from: alix);
-        let first_wallet = generate_local_wallet();
-        let second_wallet = generate_local_wallet();
-        let mut first = alix
-            .identity_updates()
-            .associate_identity(first_wallet.identifier())
-            .await?;
-        let mut second = alix2
-            .identity_updates()
-            .associate_identity(second_wallet.identifier())
-            .await?;
-        add_wallet_signature(&mut first, &first_wallet).await;
-        add_wallet_signature(&mut second, &second_wallet).await;
-        let first_updates = alix.identity_updates();
-        let second_updates = alix2.identity_updates();
-        let (first, second) = futures::join!(
-            first_updates.apply_signature_request(first),
-            second_updates.apply_signature_request(second),
-        );
-        first?;
-        second?;
-        let conn = alix.context.db();
-        load_identity_updates(alix.context.api(), &conn, &[alix.inbox_id()]).await?;
-        let state = alix
-            .identity_updates()
-            .get_association_state(&conn, alix.inbox_id(), None)
-            .await?;
-        assert!(state.get(&first_wallet.identifier().into()).is_some());
-        assert!(state.get(&second_wallet.identifier().into()).is_some());
+        tester!(alix2, from: alix, disable_workers);
+        use xmtp_proto::api::HasStats;
+        let first_stats = alix.context.api().api_client.as_ref().mls_stats();
+        let second_stats = alix2.context.api().api_client.as_ref().mls_stats();
+        const MAX_RACE_ROUNDS: usize = 16;
+        const UPDATES_PER_RACE: usize = 2;
+        for _ in 0..MAX_RACE_ROUNDS {
+            let first_wallet = generate_local_wallet();
+            let second_wallet = generate_local_wallet();
+            let mut first = alix
+                .identity_updates()
+                .associate_identity(first_wallet.identifier())
+                .await?;
+            let mut second = alix2
+                .identity_updates()
+                .associate_identity(second_wallet.identifier())
+                .await?;
+            add_wallet_signature(&mut first, &first_wallet).await;
+            add_wallet_signature(&mut second, &second_wallet).await;
+            let first_updates = alix.identity_updates();
+            let second_updates = alix2.identity_updates();
+            first_stats.clear();
+            second_stats.clear();
+            let (first, second) = {
+                xmtp_common::wasm_or_native! {
+                    native => {
+                        // Start both RPCs on separate threads. Require a retry below.
+                        let barrier = std::sync::Barrier::new(UPDATES_PER_RACE);
+                        let runtime = tokio::runtime::Handle::current();
+                        std::thread::scope(|scope| {
+                            let first = scope.spawn(|| {
+                                barrier.wait();
+                                runtime.block_on(first_updates.apply_signature_request(first))
+                            });
+                            let second = scope.spawn(|| {
+                                barrier.wait();
+                                runtime.block_on(second_updates.apply_signature_request(second))
+                            });
+                            (first.join().unwrap(), second.join().unwrap())
+                        })
+                    },
+                    wasm => {
+                        futures::join!(
+                            first_updates.apply_signature_request(first),
+                            second_updates.apply_signature_request(second),
+                        )
+                    }
+                }
+            };
+            first?;
+            second?;
+            let publishes = first_stats.publish.get_count() + second_stats.publish.get_count();
+            let conn = alix.context.db();
+            load_identity_updates(alix.context.api(), &conn, &[alix.inbox_id()]).await?;
+            let state = alix
+                .identity_updates()
+                .get_association_state(&conn, alix.inbox_id(), None)
+                .await?;
+            assert!(state.get(&first_wallet.identifier().into()).is_some());
+            assert!(state.get(&second_wallet.identifier().into()).is_some());
+            if publishes > UPDATES_PER_RACE {
+                tracing::info!(publishes, "Both identity updates survived a publish retry");
+                return;
+            }
+        }
+        panic!("No identity publish retry occurred in {MAX_RACE_ROUNDS} races");
     }
 }
