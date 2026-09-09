@@ -13,7 +13,7 @@ import type {
 } from "@/types/options";
 import { createEOASigner, type Signer } from "@/utils/signer";
 
-type TestClientOptions = NetworkOptions &
+type TestClientOptions = Partial<NetworkOptions> &
   DeviceSyncOptions &
   ContentOptions &
   StorageOptions &
@@ -52,6 +52,7 @@ export const buildClient = async <ContentCodecs extends ContentCodec[] = []>(
   },
 ) => {
   const opts = {
+    backendUrl: import.meta.env.XMTP_BACKEND_URL,
     ...options,
     env: options?.env ?? ("local" as const),
   };
@@ -68,6 +69,7 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   },
 ) => {
   const opts = {
+    backendUrl: import.meta.env.XMTP_BACKEND_URL,
     ...options,
     env: options?.env ?? ("local" as const),
   };
@@ -88,6 +90,7 @@ export const createRegisteredClient = async <
   },
 ) => {
   const opts = {
+    backendUrl: import.meta.env.XMTP_BACKEND_URL,
     ...options,
     env: options?.env ?? ("local" as const),
   };

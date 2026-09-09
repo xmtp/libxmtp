@@ -20,7 +20,10 @@ describe("generateInboxId", () => {
 describe("getInboxIdForIdentifier", () => {
   it("should return `undefined` inbox ID for unregistered address", async () => {
     const { identifier } = createSigner();
-    const backend = await createBackend({ env: "local" });
+    const backend = await createBackend({
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
     const inboxId = await getInboxIdForIdentifier(backend, identifier);
     expect(inboxId == null).toBe(true);
   });
@@ -28,7 +31,10 @@ describe("getInboxIdForIdentifier", () => {
   it("should return inbox ID for registered address", async () => {
     const { signer, identifier } = createSigner();
     const client = await createRegisteredClient(signer);
-    const backend = await createBackend({ env: "local" });
+    const backend = await createBackend({
+      backendUrl: process.env.XMTP_BACKEND_URL!,
+      env: "local",
+    });
     const inboxId = await getInboxIdForIdentifier(backend, identifier);
     expect(inboxId).toBe(client.inboxId);
   });

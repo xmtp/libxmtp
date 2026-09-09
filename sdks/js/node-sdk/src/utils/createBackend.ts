@@ -1,41 +1,16 @@
-import {
-  BackendBuilder,
-  XmtpEnv as BindingsEnv,
-  type Backend,
-} from "@xmtp/node-bindings";
-import type { NetworkOptions, XmtpEnv } from "@/types";
-
-const envMap: Record<XmtpEnv, BindingsEnv> = {
-  local: BindingsEnv.Local,
-  dev: BindingsEnv.Dev,
-  production: BindingsEnv.Production,
-  "testnet-staging": BindingsEnv.TestnetStaging,
-  "testnet-dev": BindingsEnv.TestnetDev,
-  testnet: BindingsEnv.Testnet,
-  mainnet: BindingsEnv.Mainnet,
-};
-
-const reverseEnvMap: Record<BindingsEnv, XmtpEnv> = {
-  [BindingsEnv.Local]: "local",
-  [BindingsEnv.Dev]: "dev",
-  [BindingsEnv.Production]: "production",
-  [BindingsEnv.TestnetStaging]: "testnet-staging",
-  [BindingsEnv.TestnetDev]: "testnet-dev",
-  [BindingsEnv.Testnet]: "testnet",
-  [BindingsEnv.Mainnet]: "mainnet",
-};
-
-export const envToString = (env: BindingsEnv): XmtpEnv => {
-  return reverseEnvMap[env];
-};
+import { BackendBuilder, type Backend } from "@xmtp/node-bindings";
+import type { NetworkOptions } from "@/types";
 
 export const createBackend = async (
-  options?: NetworkOptions,
+  options: NetworkOptions,
 ): Promise<Backend> => {
-  const env = options?.env ?? "dev";
-  const builder = new BackendBuilder(envMap[env]);
-  if (options?.apiUrl) builder.setApiUrl(options.apiUrl);
-  if (options?.gatewayHost) builder.setGatewayHost(options.gatewayHost);
-  if (options?.appVersion) builder.setAppVersion(options.appVersion);
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Validate options from JavaScript callers.
+  if (!options?.backendUrl?.trim()) {
+    throw new Error("backendUrl is required");
+  }
+  const builder = new BackendBuilder(options.backendUrl);
+  if (options.env !== undefined) builder.setEnv(options.env);
+  if (options.appVersion !== undefined)
+    builder.setAppVersion(options.appVersion);
   return builder.build();
 };

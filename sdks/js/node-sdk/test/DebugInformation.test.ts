@@ -7,41 +7,31 @@ describe("DebugInformation", () => {
     const client = await createRegisteredClient(signer);
 
     const apiStats = client.debugInformation.apiStatistics();
-    expect(apiStats.fetchKeyPackage).toBe(0n);
-    expect(apiStats.queryGroupMessages).toBe(0n);
-    expect(apiStats.queryWelcomeMessages).toBe(0n);
-    expect(apiStats.sendGroupMessages).toBe(0n);
-    expect(apiStats.sendWelcomeMessages).toBe(0n);
-    expect(apiStats.subscribeMessages).toBe(0n);
-    expect(apiStats.subscribeWelcomes).toBe(0n);
-    expect(apiStats.uploadKeyPackage).toBe(1n);
+    // Registration publishes identity updates and a key package.
+    expect(apiStats.publish).toBeGreaterThanOrEqual(2n);
+    expect(apiStats.query).toBeGreaterThanOrEqual(2n);
+    expect(apiStats.queryNewest).toBe(0n);
+    expect(apiStats.get).toBe(0n);
+    expect(apiStats.subscribe).toBe(0n);
+    expect(apiStats.subscribeStatic).toBe(0n);
 
     const apiIdentityStats = client.debugInformation.apiIdentityStatistics();
-    // These reflect identity-API network calls made during registration. The
-    // exact count varies with timing/retries (e.g. an extra getIdentityUpdatesV2
-    // fetch under slower CI / grpc-web latency), so assert a lower bound rather
-    // than an exact count to avoid flakiness.
-    expect(apiIdentityStats.getIdentityUpdatesV2).toBeGreaterThanOrEqual(2n);
     expect(apiIdentityStats.getInboxIds).toBeGreaterThanOrEqual(1n);
-    expect(apiIdentityStats.publishIdentityUpdate).toBeGreaterThanOrEqual(1n);
-    expect(apiIdentityStats.verifySmartContractWalletSignature).toBe(0n);
+    expect(apiIdentityStats.verifySmartContractWalletSignatures).toBe(0n);
 
     client.debugInformation.clearAllStatistics();
 
     const apiStats2 = client.debugInformation.apiStatistics();
-    expect(apiStats2.uploadKeyPackage).toBe(0n);
-    expect(apiStats2.fetchKeyPackage).toBe(0n);
-    expect(apiStats2.sendGroupMessages).toBe(0n);
-    expect(apiStats2.sendWelcomeMessages).toBe(0n);
-    expect(apiStats2.queryGroupMessages).toBe(0n);
-    expect(apiStats2.queryWelcomeMessages).toBe(0n);
-    expect(apiStats2.subscribeMessages).toBe(0n);
+    expect(apiStats2.publish).toBe(0n);
+    expect(apiStats2.query).toBe(0n);
+    expect(apiStats2.queryNewest).toBe(0n);
+    expect(apiStats2.get).toBe(0n);
+    expect(apiStats2.subscribe).toBe(0n);
+    expect(apiStats2.subscribeStatic).toBe(0n);
 
     const apiIdentityStats2 = client.debugInformation.apiIdentityStatistics();
-    expect(apiIdentityStats2.getIdentityUpdatesV2).toBe(0n);
     expect(apiIdentityStats2.getInboxIds).toBe(0n);
-    expect(apiIdentityStats2.publishIdentityUpdate).toBe(0n);
-    expect(apiIdentityStats2.verifySmartContractWalletSignature).toBe(0n);
+    expect(apiIdentityStats2.verifySmartContractWalletSignatures).toBe(0n);
 
     const apiAggregateStats = client.debugInformation.apiAggregateStatistics();
     expect(apiAggregateStats).toBeDefined();

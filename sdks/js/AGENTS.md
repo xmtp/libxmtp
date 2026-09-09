@@ -20,11 +20,12 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run t
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/browser-sdk run test'   # playwright
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run build && yarn workspace @xmtp/agent-sdk run test'
 NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run test/createBackend.test.ts'   # one file
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should create a backend with local env"'   # one test
+NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should create a backend with an explicit URL"'   # one test
 ```
 
 ## Gotchas
 
+- Export `XMTP_BACKEND_URL=http://127.0.0.1:5050`. Tests require this URL.
 - Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
 - Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.

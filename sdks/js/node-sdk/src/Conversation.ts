@@ -91,7 +91,7 @@ export class Conversation<ContentTypes = unknown> {
   }
 
   get topic() {
-    return `/xmtp/mls/1/g-${this.id}/proto`;
+    return `00${this.id}`;
   }
 
   pausedForVersion() {

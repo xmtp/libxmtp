@@ -13,7 +13,10 @@ try {
 export async function getAgent() {
   const agent = process.env.XMTP_WALLET_KEY
     ? await Agent.createFromEnv()
-    : await Agent.create(createSigner(createUser()), { dbPath: null });
+    : await Agent.create(createSigner(createUser()), {
+        backendUrl: process.env.XMTP_BACKEND_URL!,
+        dbPath: null,
+      });
 
   agent.on("start", (ctx) => {
     console.log(`Address: ${agent.address}`);

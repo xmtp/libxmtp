@@ -611,9 +611,19 @@ describe("Agent", () => {
   });
 
   describe("create", () => {
+    it("should reject agent creation without backendUrl", async () => {
+      const signer = createSigner(createUser());
+      // @ts-expect-error A backend URL is required, including for JavaScript callers.
+      await expect(Agent.create(signer, { dbPath: null })).rejects.toThrow(
+        "backendUrl is required",
+      );
+    });
+
     it("should set appVersion to include package version by default", async () => {
       const signer = createSigner(createUser());
-      const agent = await Agent.create(signer);
+      const agent = await Agent.create(signer, {
+        backendUrl: process.env.XMTP_BACKEND_URL!,
+      });
       expect(agent.client.appVersion).toBe(`agent-sdk/${appVersion}`);
     });
 
@@ -621,6 +631,7 @@ describe("Agent", () => {
       const signer = createSigner(createUser());
       const customVersion = "custom-app/1.0.0";
       const agent = await Agent.create(signer, {
+        backendUrl: process.env.XMTP_BACKEND_URL!,
         appVersion: customVersion,
       });
       expect(agent.client.appVersion).toBe(customVersion);

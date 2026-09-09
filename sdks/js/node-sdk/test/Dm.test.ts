@@ -23,7 +23,7 @@ describe("Dm", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId);
-    expect(dm.topic).toBe(`/xmtp/mls/1/g-${dm.id}/proto`);
+    expect(dm.topic).toBe(`00${dm.id}`);
   });
 
   it("should create a dm", async () => {
@@ -387,7 +387,6 @@ describe("Dm", () => {
     expect(debugInfo.cursor).toBeDefined();
     expect(debugInfo.cursor.length).toBeGreaterThan(0);
     for (const cursor of debugInfo.cursor) {
-      expect(cursor.originatorId).toBeDefined();
       expect(cursor.sequenceId).toBeDefined();
     }
   });

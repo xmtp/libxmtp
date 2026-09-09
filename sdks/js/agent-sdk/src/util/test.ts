@@ -12,9 +12,10 @@ import {
 import { createSigner, createUser } from "@/user/User";
 
 export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
-  options?: Omit<ClientOptions & NetworkOptions, "codecs"> & {
-    codecs?: ContentCodecs;
-  },
+  options?: Omit<ClientOptions & NetworkOptions, "codecs" | "backendUrl"> &
+    Partial<NetworkOptions> & {
+      codecs?: ContentCodecs;
+    },
 ) => {
   const signer = createSigner(createUser());
   const identifier = await signer.getIdentifier();
@@ -28,6 +29,7 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   }
 
   return Client.create<ContentCodecs>(signer, {
+    backendUrl: process.env.XMTP_BACKEND_URL!,
     ...options,
     dbPath,
     disableDeviceSync: true,

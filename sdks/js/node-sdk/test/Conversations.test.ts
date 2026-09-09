@@ -10,9 +10,7 @@ describe("Conversations", () => {
   it("should have a topic", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
-    expect(client.conversations.topic).toBe(
-      `/xmtp/mls/1/w-${client.installationId}/proto`,
-    );
+    expect(client.conversations.topic).toBe(`01${client.installationId}`);
   });
 
   it("should not have initial conversations", async () => {

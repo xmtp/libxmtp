@@ -10,6 +10,7 @@ export const createRegisteredClient = async (
   dbPath?: string | null,
 ) => {
   const options: NetworkOptions & StorageOptions = {
+    backendUrl: process.env.XMTP_BACKEND_URL!,
     env: "local",
     dbPath,
   };

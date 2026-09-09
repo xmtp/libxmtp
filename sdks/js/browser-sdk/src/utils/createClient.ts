@@ -6,21 +6,12 @@ import {
   type Backend,
   type Identifier,
 } from "@xmtp/wasm-bindings";
-import type { ClientOptions } from "@/types/options";
-import { createBackend, envToString } from "@/utils/createBackend";
+import type { ClientOptions, DistributiveOmit } from "@/types/options";
+import { createBackend } from "@/utils/createBackend";
 
-type CreateClientOptions = ClientOptions extends infer T
-  ? T extends ClientOptions
-    ? Omit<T, "codecs">
-    : never
-  : never;
+type CreateClientOptions = DistributiveOmit<ClientOptions, "codecs">;
 
-const networkOptionKeys = [
-  "env",
-  "apiUrl",
-  "gatewayHost",
-  "appVersion",
-] as const;
+const networkOptionKeys = ["env", "backendUrl", "appVersion"] as const;
 
 const hasBackend = (options: object): options is { backend: Backend } => {
   return "backend" in options;
@@ -30,7 +21,7 @@ const resolveBackend = async (
   options?: CreateClientOptions,
 ): Promise<Backend> => {
   if (!options) {
-    return createBackend();
+    throw new Error("backendUrl is required");
   }
 
   if (hasBackend(options)) {
@@ -62,7 +53,7 @@ export const createClient = async (
     (await getInboxIdForIdentifier(backend, identifier)) ||
     generateInboxId(identifier);
 
-  const envString = envToString(backend.env);
+  const envString = backend.env ?? "default";
 
   const dbPath =
     options?.dbPath === undefined
@@ -96,6 +87,7 @@ export const createClient = async (
       : undefined,
     undefined, // allowOffline
     undefined, // nonce
+    undefined, // changeCallbacks
   );
 
   return { client, env: envString };

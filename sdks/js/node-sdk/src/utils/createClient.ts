@@ -10,16 +10,11 @@ import {
   type LogOptions,
 } from "@xmtp/node-bindings";
 import type { ClientOptions } from "@/types";
-import { createBackend, envToString } from "@/utils/createBackend";
+import { createBackend } from "@/utils/createBackend";
 import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
 import { isHexString } from "./validation";
 
-const networkOptionKeys = [
-  "env",
-  "apiUrl",
-  "gatewayHost",
-  "appVersion",
-] as const;
+const networkOptionKeys = ["env", "backendUrl", "appVersion"] as const;
 
 const hasBackend = (
   options: ClientOptions,
@@ -29,7 +24,7 @@ const hasBackend = (
 
 const resolveBackend = async (options?: ClientOptions): Promise<Backend> => {
   if (!options) {
-    return createBackend();
+    throw new Error("backendUrl is required");
   }
 
   if (hasBackend(options)) {
@@ -61,7 +56,7 @@ export const createClient = async (
     (await getInboxIdForIdentifier(backend, identifier)) ||
     generateInboxId(identifier, options?.nonce);
 
-  const env = envToString(backend.env);
+  const env = backend.env ?? "default";
 
   let dbPath: string | null;
   if (options?.dbPath === undefined) {

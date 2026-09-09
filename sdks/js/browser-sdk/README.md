@@ -8,6 +8,26 @@ To keep up with the latest SDK developments, see the [Issues tab](https://githu
 
 To learn how to use the XMTP client SDK for browsers, see [Get started with the XMTP Browser SDK](https://docs.xmtp.org/sdks/browser).
 
+## Backend configuration
+
+Pass `backendUrl` to `Client.create` or `Client.build`. The URL must include
+`http://` or `https://`. There is no default backend URL.
+
+```typescript
+const client = await Client.create(signer, {
+  backendUrl: "http://127.0.0.1:5050",
+  env: "local",
+  appVersion: "my-app/1.0.0",
+});
+```
+
+`env` is an optional string. It only sets the label in the default database file
+name, `xmtp-<env>-<inboxId>.db3`. If omitted, the label is `default`.
+The API-client cache key is `<backendUrl>|<appVersion>`.
+Use `createBackend({ backendUrl, env, appVersion })` to build a backend for static
+client methods. The `topic` getters return the backend topic bytes as hex.
+File archives use `createArchive`, `importArchive`, and `archiveMetadata`.
+
 ## SDK reference
 
 Coming soon

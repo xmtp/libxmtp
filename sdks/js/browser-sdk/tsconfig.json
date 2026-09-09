@@ -15,7 +15,7 @@
     "sourceMap": true,
     "strict": true,
     "target": "ESNext",
-    "types": ["vitest/globals"]
+    "types": ["vitest/globals", "vite/client"]
   },
   "include": ["src", "test", "vite.config.ts", "rollup.config.js"]
 }

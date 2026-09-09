@@ -23,7 +23,7 @@ import type {
 } from "@/types";
 import type { Signer } from "@/utils/signer";
 
-type TestClientOptions = NetworkOptions &
+type TestClientOptions = Partial<NetworkOptions> &
   DeviceSyncOptions &
   StorageOptions &
   ContentOptions &
@@ -83,6 +83,7 @@ export const buildClient = async <ContentCodecs extends ContentCodec[] = []>(
   },
 ) => {
   const opts = {
+    backendUrl: process.env.XMTP_BACKEND_URL!,
     ...options,
     env: options?.env ?? "local",
   };
@@ -99,6 +100,7 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   },
 ) => {
   const opts = {
+    backendUrl: process.env.XMTP_BACKEND_URL!,
     ...options,
     env: options?.env ?? "local",
   };
@@ -128,6 +130,7 @@ export const createRegisteredClient = async <
   },
 ) => {
   const opts = {
+    backendUrl: process.env.XMTP_BACKEND_URL!,
     ...options,
     env: options?.env ?? "local",
   };

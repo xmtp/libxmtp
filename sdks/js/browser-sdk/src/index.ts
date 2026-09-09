@@ -8,7 +8,6 @@ export { DecodedMessage } from "./DecodedMessage";
 export { createBackend } from "./utils/createBackend";
 export { generateInboxId, getInboxIdForIdentifier } from "./utils/inboxId";
 export { metadataFieldName } from "./utils/metadata";
-export { ApiUrls } from "./constants";
 export type * from "./types/options";
 export * from "./utils/conversions";
 export * from "./utils/contentTypes";

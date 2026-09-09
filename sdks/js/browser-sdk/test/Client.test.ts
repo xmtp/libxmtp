@@ -11,6 +11,14 @@ import {
 } from "@test/helpers";
 
 describe("Client", () => {
+  it("should reject client creation without backendUrl", async () => {
+    const { signer } = createSigner();
+    // @ts-expect-error A backend URL is required, including for JavaScript callers.
+    await expect(Client.create(signer, { dbPath: null })).rejects.toThrow(
+      "backendUrl is required",
+    );
+  });
+
   it("should create a client", async () => {
     const { signer, address } = createSigner();
     const client = await createClient(signer);
@@ -86,10 +94,10 @@ describe("Client", () => {
   it("should be able to check if can message without client instance", async () => {
     const { signer, address } = createSigner();
     await createRegisteredClient(signer);
-    const canMessage = await Client.canMessage(
-      [await signer.getIdentifier()],
-      "local",
-    );
+    const canMessage = await Client.canMessage([await signer.getIdentifier()], {
+      backendUrl: import.meta.env.XMTP_BACKEND_URL,
+      env: "local",
+    });
     expect(Object.fromEntries(canMessage)).toEqual({
       [address]: true,
     });
@@ -344,7 +352,7 @@ describe("Client", () => {
       signer,
       client3.inboxId!,
       [client.installationIdBytes!],
-      "local",
+      { backendUrl: import.meta.env.XMTP_BACKEND_URL, env: "local" },
     );
 
     const inboxState2 = await client3.preferences.fetchInboxState();
@@ -438,10 +446,10 @@ describe("Client", () => {
   it("should get inbox state from inbox ids without a client", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);
-    const inboxState = await Client.fetchInboxStates(
-      [client.inboxId!],
-      "local",
-    );
+    const inboxState = await Client.fetchInboxStates([client.inboxId!], {
+      backendUrl: import.meta.env.XMTP_BACKEND_URL,
+      env: "local",
+    });
     expect(inboxState.length).toBe(1);
     expect(inboxState[0].inboxId).toBe(client.inboxId);
     expect(inboxState[0].accountIdentifiers).toEqual([
@@ -454,7 +462,7 @@ describe("Client", () => {
     const client = await createRegisteredClient(signer);
     const inboxUpdatesCounts = await Client.fetchLatestInboxUpdatesCount(
       [client.inboxId!],
-      "local",
+      { backendUrl: import.meta.env.XMTP_BACKEND_URL, env: "local" },
     );
     expect(inboxUpdatesCounts.get(client.inboxId!)).toBeTypeOf("number");
   });
