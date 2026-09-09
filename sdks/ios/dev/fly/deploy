@@ -27,9 +27,12 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_IMAGE="${2:?Pass the backend image for the commit under test}"
 # flyctl infers the config format from the file extension and rejects a path
-# without one, so the temporary file must end in .json.
-MACHINE_CONFIG="$(mktemp -t machine-config.XXXXXX.json)"
-trap 'rm -f "$MACHINE_CONFIG"' EXIT
+# without one. `mktemp -t` appends random characters after the template on
+# macOS, which would bury the suffix, so name the file inside a temporary
+# directory instead. That behaves the same on macOS and Linux.
+MACHINE_CONFIG_DIR="$(mktemp -d)"
+MACHINE_CONFIG="${MACHINE_CONFIG_DIR}/machine-config.json"
+trap 'rm -rf "$MACHINE_CONFIG_DIR"' EXIT
 BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../dev/backend/local.toml" | tr -d '\n')"
 jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
     "${SCRIPT_DIR}/machine-config.json" > "$MACHINE_CONFIG"
