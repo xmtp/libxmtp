@@ -26,7 +26,9 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_IMAGE="${2:?Pass the backend image for the commit under test}"
-MACHINE_CONFIG="$(mktemp)"
+# flyctl infers the config format from the file extension and rejects a path
+# without one, so the temporary file must end in .json.
+MACHINE_CONFIG="$(mktemp -t machine-config.XXXXXX.json)"
 trap 'rm -f "$MACHINE_CONFIG"' EXIT
 BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../dev/backend/local.toml" | tr -d '\n')"
 jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \

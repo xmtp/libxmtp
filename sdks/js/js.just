@@ -1,5 +1,10 @@
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "js")
 
+# Every JS suite needs a backend. Keep the default here so a local run and CI
+# use the same address, and set the IPv4 form on purpose: `localhost` can
+# resolve to IPv6, where the Docker port forward resets the connection.
+export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "http://127.0.0.1:5050")
+
 set shell := ["../../dev/nix-shell"]
 
 # Install JS dependencies

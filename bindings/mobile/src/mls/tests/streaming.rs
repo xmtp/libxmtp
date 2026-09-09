@@ -321,10 +321,13 @@ async fn test_message_streaming_when_removed_then_added() {
         .unwrap();
     tracing::warn!("Added members");
 
-    // TODO: could check for LOG message with a Eviction error on receive
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    // Amal observes its own commit for the re-add. Wait for that instead of a
+    // fixed delay: on a loaded machine the commit can take longer than a sleep,
+    // and Bola's stream cannot resume until the re-add is delivered.
+    xmtp_common::wait_for_eq(|| async { amal_stream_callback.message_count() }, 5)
+        .await
+        .unwrap();
     assert_eq!(bola_stream_callback.message_count(), 3); // Don't receive transcript messages while removed
-    assert_eq!(amal_stream_callback.message_count(), 5);
 
     amal_group
         .send("hello4".as_bytes().to_vec(), FfiSendMessageOpts::default())
