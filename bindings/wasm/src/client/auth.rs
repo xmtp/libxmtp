@@ -69,8 +69,8 @@ impl AuthHandle {
     }
   }
   pub async fn set(&self, credential: Credential) -> Result<(), JsError> {
-    let cred =
-      xmtp_api_backend::Credential::try_from(credential).map_err(|e| JsError::new(&e.to_string()))?;
+    let cred = xmtp_api_backend::Credential::try_from(credential)
+      .map_err(|e| JsError::new(&e.to_string()))?;
     self.handle.set(cred).await;
     Ok(())
   }

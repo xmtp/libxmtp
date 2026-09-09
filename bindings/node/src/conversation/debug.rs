@@ -6,7 +6,6 @@ use xmtp_proto::types::Cursor as XmtpCursor;
 
 #[napi(object)]
 pub struct Cursor {
-  pub originator_id: u32,
   // napi doesn't support u64
   pub sequence_id: i64,
 }
@@ -14,8 +13,7 @@ pub struct Cursor {
 impl From<XmtpCursor> for Cursor {
   fn from(value: XmtpCursor) -> Self {
     Self {
-      originator_id: value.originator_id,
-      sequence_id: value.sequence_id as i64,
+      sequence_id: value.0 as i64,
     }
   }
 }

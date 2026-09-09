@@ -1,11 +1,6 @@
 //! Tests for the app-backgrounding lifecycle surface: `suspend_streams` /
 //! `resume_streams` (the foreground/background pair) and
 //! `FfiXmtpClient::catch_up_to_live` (the bounded one-shot catch-up).
-//!
-//! The bidi path is gated on `XMTP_BIDI_STREAMS_ENABLED`, read once per process
-//! via a `LazyLock`. These tests set it at the top, before the first stream —
-//! which is why they must run under `nextest` (process-per-test), as
-//! `just test` does. The gate-off test deliberately leaves it unset.
 
 use super::*;
 use crate::mls::{FfiCatchUpOptions, resume_streams, suspend_streams};
@@ -24,27 +19,10 @@ async fn stored_app_payloads(convo: &FfiConversation) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Backgrounding round-trip: a kept lease survives `suspend_streams`, withholds
-/// everything published while the wire is off the network, and on
-/// `resume_streams` replays exactly that from its durable cursor.
-///
-/// v3-only. Exercises the *live* bidi wire — a `BidiTransport` over the v3
-/// `SubscribeEnvelopes` bidi RPC. Under `--features d14n` the d14n gateway
-/// *client* does not yet wire up that subscribe RPC — the cold open reports
-/// "the v3 bidi subscription is not available on this client" even though the
-/// pinned xmtpd backend (`sha-ac17e82`) serves it — so the process latches onto
-/// the legacy streams, where `suspend`/`resume` are no-ops and cannot withhold;
-/// the assertions below would rightly fail. Un-gate once `xmtp_api_backend` exposes
-/// the bidi subscribe for the d14n binding. The one-shot `catch_up_to_live`
-/// tests need no live wire, so they run on both backends.
-#[cfg_attr(
-    feature = "d14n",
-    ignore = "the d14n gateway client does not yet expose the v3 bidi SubscribeEnvelopes RPC (cold open refused → legacy fallback, where suspend/resume are no-ops)"
-)]
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+/// A stream survives suspension. Resume replays messages published during
+/// suspension from the durable cursor.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn bidi_suspend_and_resume_redelivers() {
-    unsafe { std::env::set_var("XMTP_BIDI_STREAMS_ENABLED", "1") };
-
     let alix = new_test_client().await;
     let bo = new_test_client().await;
 
@@ -115,10 +93,8 @@ async fn bidi_suspend_and_resume_redelivers() {
 
 /// One-shot catch-up joins a pending group and replays its history from durable
 /// cursors, then stops — and a second call finds nothing owed (idempotent).
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn bidi_catch_up_to_live_replays_and_is_idempotent() {
-    unsafe { std::env::set_var("XMTP_BIDI_STREAMS_ENABLED", "1") };
-
     let alix = new_test_client().await;
     let bo = new_test_client().await;
 
@@ -182,10 +158,8 @@ async fn bidi_catch_up_to_live_replays_and_is_idempotent() {
 /// run afterward must still converge the store from durable cursors, and a
 /// later call must find nothing owed. Convergence-after-cut is the assertion,
 /// so it holds whether or not the 1ms deadline actually fired.
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
-    unsafe { std::env::set_var("XMTP_BIDI_STREAMS_ENABLED", "1") };
-
     let alix = new_test_client().await;
     let bo = new_test_client().await;
 
@@ -249,51 +223,4 @@ async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
     assert!(again.completed);
     assert_eq!(again.messages, 0);
     assert_eq!(again.conversations, 0);
-}
-
-/// With the gate off, `suspend`/`resume` are safe no-ops and `catch_up_to_live`
-/// runs the legacy sync — still joining the pending group and reporting counts.
-/// (Its own process under nextest, so the gate is genuinely unset.)
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-async fn catch_up_to_live_falls_back_when_bidi_disabled() {
-    let alix = new_test_client().await;
-    let bo = new_test_client().await;
-
-    let bo_group = bo
-        .conversations()
-        .create_group_by_identity(
-            vec![alix.account_identifier.clone()],
-            FfiCreateGroupOptions::default(),
-        )
-        .await
-        .unwrap();
-    bo_group
-        .send(b"legacy path".to_vec(), FfiSendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // Nothing is streaming, so these are no-ops regardless of the gate.
-    suspend_streams().await.unwrap();
-    resume_streams().await.unwrap();
-
-    let summary = alix.catch_up_to_live(None).await.unwrap();
-    assert!(summary.completed);
-    assert_eq!(
-        summary.conversations, 1,
-        "legacy catch-up must still join the one pending group"
-    );
-
-    let convos = alix
-        .conversations()
-        .list(FfiListConversationsOptions::default())
-        .unwrap();
-    assert_eq!(convos.len(), 1);
-
-    // The legacy sync path delivers the real payload too.
-    let payloads = stored_app_payloads(convos[0].conversation().as_ref()).await;
-    assert_eq!(
-        payloads,
-        vec![b"legacy path".to_vec()],
-        "legacy catch-up must store the missed message"
-    );
 }

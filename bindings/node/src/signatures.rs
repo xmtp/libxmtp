@@ -6,7 +6,6 @@ use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -55,9 +54,7 @@ pub async fn revoke_installations_signature_request(
   inbox_id: String,
   installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
@@ -80,15 +77,16 @@ pub async fn apply_signature_request(
   backend: &Backend,
   signature_request: &SignatureRequestHandle,
 ) -> Result<()> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
   let inner = signature_request.inner.lock().await;
 
-  apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
+  let store = crate::client::create_client::build_store(
+    crate::client::create_client::DbOptions::new(None, None, None, None, None),
+  )?;
+  apply_signature_request_with_verifier(&api, &store.db(), inner.clone(), &scw_verifier)
     .await
     .map_err(ErrorWrapper::from)?;
 

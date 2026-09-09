@@ -518,42 +518,60 @@ describe('Conversations', () => {
     expect(groups).toEqual([group1, group2, group3])
   })
 
-  it('should error when connection dies', { timeout: 45_000 }, async () => {
-    const user1 = createUser()
-    const user2 = createUser()
-    const client2 = await createRegisteredClient(user2)
-    const client1 = await createToxicRegisteredClient(user1)
-    let groups: Conversation[] = []
-
-    const startNewConvo = async () => {
-      await client2.conversations().createGroupByIdentity([
-        {
-          identifier: user1.account.address,
-          identifierKind: IdentifierKind.Ethereum,
+  it(
+    'should reconnect and resume after a black hole',
+    { timeout: 60_000 },
+    async () => {
+      const user1 = createUser()
+      const client2 = await createRegisteredClient(createUser())
+      const client1 = await createToxicRegisteredClient(user1)
+      const groups: Conversation[] = []
+      const errors: Error[] = []
+      let closed = false
+      const startNewConvo = () =>
+        client2
+          .conversations()
+          .createGroupByIdentity([
+            {
+              identifier: user1.account.address,
+              identifierKind: IdentifierKind.Ethereum,
+            },
+          ])
+      const stream = await client1.client.conversations().stream(
+        (error, convo) => {
+          if (error) errors.push(error)
+          if (convo) groups.push(convo)
         },
-      ])
+        () => {
+          closed = true
+        },
+        ConversationType.Group
+      )
+      try {
+        const first = await startNewConvo()
+        await expect.poll(() => groups.length).toBe(1)
+        await client1.withTimeout('downstream', 0, 1.0)
+        const missed = await startNewConvo()
+        // Allow both transport keepalive deadlines to expire before recovery.
+        await sleep(30_000)
+        expect(closed).toBe(false)
+        await client1.deleteAllToxics()
+        await expect.poll(() => groups.length, { timeout: 15_000 }).toBe(2)
+        const after = await startNewConvo()
+        await expect.poll(() => groups.length).toBe(3)
+        expect(groups.map((group) => group.id())).toEqual([
+          first.id(),
+          missed.id(),
+          after.id(),
+        ])
+        expect(errors).toEqual([])
+        expect(closed).toBe(false)
+      } finally {
+        await client1.deleteAllToxics()
+        stream.end()
+      }
     }
-
-    let closed = false
-    await client1.client.conversations().stream(
-      (_, convo) => {
-        groups.push(convo!)
-      },
-      () => {
-        closed = true
-      },
-      ConversationType.Group
-    )
-
-    await startNewConvo()
-    await sleep(1000)
-    expect(groups.length).toBe(1)
-    await client1.withTimeout('downstream', 60000, 1.0)
-    await startNewConvo()
-    await sleep(30000) // the stream should end and call on_close
-    expect(groups.length).toBe(2)
-    expect(closed).toBe(true)
-  })
+  )
 
   it('should only stream group chats', async () => {
     const user1 = createUser()

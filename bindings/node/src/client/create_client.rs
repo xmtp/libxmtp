@@ -1,8 +1,8 @@
 use crate::ErrorWrapper;
 use crate::client::Client;
+use crate::client::auth::{AuthCallback, AuthHandle};
 use crate::client::backend::Backend;
 use crate::client::change_callbacks::UnstableChangeCallbacks;
-use crate::client::gateway_auth::{AuthCallback, AuthHandle};
 use crate::client::options::{
   ClientMode, LogLevel, LogOptions, SyncWorkerMode, WorkerConfigOptions,
 };
@@ -16,7 +16,6 @@ use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
 use xmtp_logging::{Level, LoggingConfig, TelemetryConfig, XmtpLoggingBuilder};
 use xmtp_mls::XmtpApiClient;
-use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::identity::IdentityStrategy;
 
 // Holds the global logging handle for the process so `flush_telemetry` can flush
@@ -145,7 +144,7 @@ impl DbOptions {
   }
 }
 
-fn build_store(db: DbOptions) -> Result<EncryptedMessageStore<NativeDb>> {
+pub(crate) fn build_store(db: DbOptions) -> Result<EncryptedMessageStore<NativeDb>> {
   let DbOptions {
     db_path,
     encryption_key,
@@ -240,8 +239,6 @@ async fn create_client_inner(
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_client(api_client)
-    .enable_api_stats()
-    .map_err(ErrorWrapper::from)?
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)
@@ -284,8 +281,7 @@ async fn create_client_inner(
 #[napi]
 #[xmtp_common::err_span]
 pub async fn create_client(
-  v3_host: String,
-  gateway_host: Option<String>,
+  backend_url: String,
   db: DbOptions,
   inbox_id: String,
   account_identifier: Identifier,
@@ -305,8 +301,7 @@ pub async fn create_client(
 
   let mut backend = MessageBackendBuilder::default();
   backend
-    .v3_host(&v3_host)
-    .maybe_gateway_host(gateway_host)
+    .host(&backend_url)
     .readonly(matches!(client_mode, ClientMode::Notification))
     .maybe_auth_callback(auth_callback.map(|c| Arc::new(c.clone()) as _))
     .maybe_auth_handle(auth_handle.map(|h| h.clone().into()))
@@ -315,9 +310,10 @@ pub async fn create_client(
   let store = build_store(db)?;
   let nonce = parse_nonce(nonce)?;
 
-  let cursor_store = SqliteCursorStore::new(store.db());
-  backend.cursor_store(cursor_store);
-  let api_client = backend.build_optional_d14n().map_err(ErrorWrapper::from)?;
+  let api_client = backend
+    .build()
+    .map_err(crate::client::backend::BackendBuilderError)
+    .map_err(ErrorWrapper::from)?;
 
   create_client_inner(
     api_client,
@@ -336,7 +332,7 @@ pub async fn create_client(
 
 /// Create a client from a pre-built Backend.
 ///
-/// The Backend encapsulates all API configuration (env, hosts, auth, TLS).
+/// The Backend holds the backend URL, app version, and authentication.
 /// This function only needs identity and database configuration.
 #[allow(clippy::too_many_arguments)]
 #[napi]
@@ -358,12 +354,7 @@ pub async fn create_client_with_backend(
   let store = build_store(db)?;
   let nonce = parse_nonce(nonce)?;
 
-  let cursor_store = SqliteCursorStore::new(store.db());
-  let mut mbb = MessageBackendBuilder::default();
-  mbb.cursor_store(cursor_store);
-  let api_client = mbb
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
 
   create_client_inner(
     api_client,

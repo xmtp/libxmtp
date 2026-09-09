@@ -7,7 +7,6 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::key_package::{VerifiedKeyPackageV2, VerifiedLifetime};
@@ -103,9 +102,7 @@ pub async fn inbox_state_from_inbox_ids(
   backend: &Backend,
   #[wasm_bindgen(js_name = inboxIds)] inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>, JsError> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::js)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 

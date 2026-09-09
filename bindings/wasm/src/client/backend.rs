@@ -1,17 +1,20 @@
-use super::XmtpEnv;
-use super::gateway_auth::{AuthCallback, AuthHandle};
+use super::auth::{AuthCallback, AuthHandle};
+use crate::errors::ErrorWrapper;
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use xmtp_api_backend::ClientBundleBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
+
+/// Backend configuration failed. This error is not retryable.
+#[derive(Debug, thiserror::Error, xmtp_common::ErrorCode)]
+#[error(transparent)]
+pub(crate) struct BackendBuilderError(#[from] pub xmtp_api_backend::MessageBackendBuilderError);
 
 #[xmtp_macro::wasm_builder]
 pub struct BackendBuilder {
   #[builder(required)]
-  pub env: XmtpEnv,
+  pub backend_url: String,
 
-  api_url: Option<String>,
-
-  gateway_host: Option<String>,
+  pub env: Option<String>,
 
   pub readonly: Option<bool>,
 
@@ -39,11 +42,9 @@ impl BackendBuilder {
   #[wasm_bindgen]
   pub fn build(mut self) -> Result<Backend, JsError> {
     let app_version = self.app_version.clone().unwrap_or_default();
-    let mut builder = ClientBundleBuilder::default();
+    let mut builder = MessageBackendBuilder::default();
     builder
-      .env(self.env.into())
-      .maybe_v3_host(self.api_url.clone())
-      .maybe_gateway_host(self.gateway_host.clone())
+      .host(&self.backend_url)
       .readonly(self.readonly.unwrap_or_default())
       .app_version(app_version.clone())
       .maybe_auth_callback(
@@ -54,15 +55,14 @@ impl BackendBuilder {
       )
       .maybe_auth_handle(self.auth_handle.take().map(|h| h.handle));
 
-    let v3_host = builder.get_v3_host().map(ToString::to_string);
-    let bundle = builder
-      .build_optional_d14n()
-      .map_err(|e| JsError::new(&e.to_string()))?;
+    let api_client = builder
+      .build()
+      .map_err(BackendBuilderError)
+      .map_err(ErrorWrapper::js)?;
     Ok(Backend {
-      bundle,
-      env: self.env,
-      v3_host,
-      gateway_host: self.gateway_host.clone(),
+      api_client,
+      env: self.env.clone(),
+      backend_url: self.backend_url.clone(),
       app_version: app_version.clone(),
     })
   }
@@ -71,28 +71,28 @@ impl BackendBuilder {
 #[wasm_bindgen]
 #[derive(Clone)]
 pub struct Backend {
-  pub(crate) bundle: xmtp_mls::XmtpClientBundle,
-  env: XmtpEnv,
-  v3_host: Option<String>,
-  gateway_host: Option<String>,
+  pub(crate) api_client: xmtp_mls::XmtpApiClient,
+  env: Option<String>,
+  backend_url: String,
   app_version: String,
 }
 
 #[wasm_bindgen]
 impl Backend {
   #[wasm_bindgen(getter)]
-  pub fn env(&self) -> XmtpEnv {
-    self.env
+  pub fn env(&self) -> Option<String> {
+    self.env.clone()
   }
 
-  #[wasm_bindgen(getter, js_name = "v3Host")]
-  pub fn v3_host(&self) -> Option<String> {
-    self.v3_host.clone()
+  #[wasm_bindgen(getter, js_name = "backendUrl")]
+  pub fn backend_url(&self) -> String {
+    self.backend_url.clone()
   }
 
-  #[wasm_bindgen(getter, js_name = "gatewayHost")]
-  pub fn gateway_host(&self) -> Option<String> {
-    self.gateway_host.clone()
+  /// Key for an SDK cache of API clients. The environment does not change it.
+  #[wasm_bindgen(getter, js_name = "cacheKey")]
+  pub fn cache_key(&self) -> String {
+    format!("{}|{}", self.backend_url, self.app_version)
   }
 
   #[wasm_bindgen(getter, js_name = "appVersion")]
@@ -103,7 +103,7 @@ impl Backend {
 
 /// Create a client from a pre-built Backend.
 ///
-/// The Backend encapsulates all API configuration (env, hosts, auth, TLS).
+/// The Backend holds the backend URL, app version, and authentication.
 /// This function only needs identity and database configuration.
 #[wasm_bindgen(js_name = createClientWithBackend)]
 #[allow(clippy::too_many_arguments)]
@@ -126,12 +126,7 @@ pub async fn create_client_with_backend(
 
   let store = super::build_store(db_path, encryption_key).await?;
 
-  let cursor_store = xmtp_mls::cursor_store::SqliteCursorStore::new(store.db());
-  let mut mbb = xmtp_api_backend::MessageBackendBuilder::default();
-  mbb.cursor_store(cursor_store);
-  let api_client = mbb
-    .from_bundle(backend.bundle.clone())
-    .map_err(|e| JsError::new(&e.to_string()))?;
+  let api_client = backend.api_client.clone();
 
   super::create_client_inner(
     api_client,

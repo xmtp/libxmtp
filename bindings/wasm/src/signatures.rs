@@ -12,7 +12,6 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,
@@ -56,9 +55,7 @@ pub fn revoke_installations_signature_request(
   #[wasm_bindgen(js_name = inboxId)] inbox_id: String,
   #[wasm_bindgen(js_name = installationIds)] installation_ids: Vec<Uint8Array>,
 ) -> Result<SignatureRequestHandle, JsError> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::js)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 
@@ -79,15 +76,14 @@ pub async fn apply_signature_request(
   backend: &Backend,
   #[wasm_bindgen(js_name = signatureRequest)] signature_request: &SignatureRequestHandle,
 ) -> Result<(), JsError> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::js)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(api.clone());
 
   let inner = signature_request.inner.lock().await;
 
-  apply_signature_request_with_verifier(&api, inner.clone(), &scw_verifier)
+  let store = crate::client::build_store(None, None).await?;
+  apply_signature_request_with_verifier(&api, &store.db(), inner.clone(), &scw_verifier)
     .await
     .map_err(ErrorWrapper::js)?;
 

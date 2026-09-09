@@ -3,7 +3,6 @@ use crate::client::backend::Backend;
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_proto::types::ApiIdentifier;
 
@@ -12,9 +11,7 @@ pub async fn get_inbox_id_for_identifier(
   backend: &Backend,
   #[wasm_bindgen(js_name = accountIdentifier)] account_identifier: Identifier,
 ) -> Result<Option<String>, JsError> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::js)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
 
   let ident: XmtpIdentifier = account_identifier.clone().try_into()?;
@@ -24,7 +21,7 @@ pub async fn get_inbox_id_for_identifier(
     .await
     .map_err(ErrorWrapper::js)?;
 
-  Ok(results.get(&api_ident).cloned())
+  Ok(results.into_iter().next().flatten())
 }
 
 #[wasm_bindgen(js_name = generateInboxId)]

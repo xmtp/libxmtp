@@ -15,6 +15,7 @@ workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+thiserror.workspace = true
 async-trait.workspace = true
 chrono = { workspace = true, features = ["serde"] }
 futures.workspace = true

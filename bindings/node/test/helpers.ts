@@ -13,15 +13,14 @@ import {
   IdentifierKind,
   LogLevel,
   SyncWorkerMode,
-  XmtpEnv,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-export const TEST_API_URL = 'http://localhost:5556'
-export const GATEWAY_TEST_URL = 'http://localhost:5052'
+export const TEST_API_URL =
+  process.env.XMTP_BACKEND_URL ?? 'http://127.0.0.1:5050'
 
 export const createLocalBackend = async (appVersion?: string) => {
-  const builder = new BackendBuilder(XmtpEnv.Local).setApiUrl(TEST_API_URL)
+  const builder = new BackendBuilder(TEST_API_URL)
   if (appVersion) {
     builder.setAppVersion(appVersion)
   }
@@ -68,6 +67,7 @@ export const createClient = async (user: User, appVersion?: string) => {
       identifierKind: IdentifierKind.Ethereum,
     },
     SyncWorkerMode.Disabled,
+    undefined,
     { level: LogLevel.Error },
     undefined
   )

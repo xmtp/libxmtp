@@ -188,26 +188,8 @@ async fn test_membership_state_after_readd() {
     );
 }
 
-/// Regression test for the `group_cursors` startup abort
-/// (`if seq is not null, originator must not be null`).
-///
-/// Unlike the tests above (where the *non-creator* Bo leaves and is re-added),
-/// here the group's **creator** leaves and is re-added. That is the only case
-/// that reproduces the crash: the creator's local group row is *cursorless*
-/// (`sequence_id = NULL, originator_id = NULL`, since a created group never
-/// processes a welcome for itself), whereas a joined group carries an
-/// originator from its first welcome. When the creator is re-welcomed,
-/// `insert_or_replace_group`'s "group already exists" branch writes only
-/// `sequence_id`, leaving `originator_id` NULL — and the next welcome-stream
-/// startup reads that row via `group_cursors()` and aborts (SIGABRT on device).
-///
-/// To see the crash, DISABLE the fix (both parts) in
-/// `crates/xmtp_db/src/encrypted_store/group.rs`:
-///   1. `insert_or_replace_group` update branch: set `sequence_id` only
-///      (remove the co-set of `originator_id`), and
-///   2. `group_cursors`: restore the `orig.expect(...)` (remove the `filter_map`).
-/// With the fix disabled this test panics with
-/// `if seq is not null, originator must not be null`; with the fix it passes.
+/// A group creator can leave, join again, and restart the welcome stream.
+/// The new welcome gives the group its first welcome cursor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
     use xmtp_db::prelude::QueryGroup;
@@ -272,7 +254,7 @@ async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
 
     // Alix processes the re-add welcome. This is the corrupting write: the
     // "group already exists" branch sets sequence_id but (pre-fix) leaves
-    // originator_id NULL. (sync_welcomes does not read group_cursors, so this
+    // no welcome cursor. (sync_welcomes does not read group_cursors, so this
     // step itself does not crash.)
     alix.conversations().sync().await.unwrap();
 

@@ -13,7 +13,7 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_backend::{ClientBundle, MessageBackendBuilder};
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
@@ -63,7 +63,6 @@ use xmtp_id::{
 };
 use xmtp_mls::client::inbox_addresses_with_verifier;
 use xmtp_mls::context::XmtpSharedContext;
-use xmtp_mls::cursor_store::SqliteCursorStore;
 use xmtp_mls::groups::{
     ConversationDebugInfo, GroupMembershipCapabilities, InboxCapabilities,
     InstallationCapabilities, MlsExtensionType,
@@ -94,6 +93,7 @@ use xmtp_mls::{
     subscriptions::SubscribeError,
     worker::device_sync::preference_sync::PreferenceUpdate,
 };
+use xmtp_proto::api::HasStats;
 use xmtp_proto::api::IsConnectedCheck;
 use xmtp_proto::api_client::AggregateStats;
 use xmtp_proto::api_client::ApiStats;
@@ -111,9 +111,9 @@ pub use crate::message::{
     FfiRemoteAttachment, FfiTransactionReference,
 };
 
+pub mod auth;
 pub mod change_callbacks;
 pub mod device_sync;
-pub mod gateway_auth;
 #[cfg(any(test, feature = "bench"))]
 pub mod inbox_owner;
 #[cfg(any(test, feature = "bench"))]
@@ -126,7 +126,8 @@ pub type RustMlsGroup = MlsGroup<xmtp_mls::MlsContext>;
 #[derive(uniffi::Object, Clone)]
 pub struct XmtpApiClient {
     wrapper: ApiClientWrapper<xmtp_mls::XmtpApiClient>,
-    client_bundle: ClientBundle,
+    api_client: xmtp_mls::XmtpApiClient,
+    cache_key: String,
 }
 
 impl XmtpApiClient {
@@ -135,56 +136,45 @@ impl XmtpApiClient {
     }
 }
 
-/// connect to the XMTP backend
-/// specifying `gateway_host` enables the D14n backend
-/// and assumes `host` is set to the correct
-/// d14n backend url.
+#[uniffi::export]
+impl XmtpApiClient {
+    /// Key for an SDK cache of API clients.
+    pub fn cache_key(&self) -> String {
+        self.cache_key.clone()
+    }
+}
+
+/// Connect to the backend at the supplied URL.
 #[uniffi::export(async_runtime = "tokio")]
-#[tracing::instrument(level = "debug", skip_all, fields(v3_host, ?gateway_host, app_version))]
+#[xmtp_common::err_span]
 pub async fn connect_to_backend(
-    v3_host: String,
-    gateway_host: Option<String>,
+    backend_url: String,
     client_mode: Option<FfiClientMode>,
     app_version: Option<String>,
-    auth_callback: Option<Arc<dyn gateway_auth::FfiAuthCallback>>,
-    auth_handle: Option<Arc<gateway_auth::FfiAuthHandle>>,
+    auth_callback: Option<Arc<dyn auth::FfiAuthCallback>>,
+    auth_handle: Option<Arc<auth::FfiAuthHandle>>,
 ) -> Result<Arc<XmtpApiClient>, FfiError> {
     init_logger();
-    // Install the rustls crypto provider explicitly. On Apple platforms the `#[ctor::ctor(unsafe)]`
-    // in `xmtp_cryptography` never fires (the constructor link section is unsupported), so
-    // relying on it would leave TLS clients without a provider and panic on
-    // their first connection. Idempotent, so it is safe to call on every entry point.
     xmtp_cryptography::install_crypto_provider();
-
-    let client_mode = client_mode.unwrap_or_default();
-
-    log::info!(
-        v3_host,
-        "Creating API client for host: {}, gateway: {:?}",
-        v3_host,
-        gateway_host,
-    );
-    let mut client_bundle = ClientBundle::builder();
-    let client_bundle = client_bundle
-        .v3_host(&v3_host)
-        .maybe_gateway_host(gateway_host)
-        .app_version(app_version.clone().unwrap_or_default())
+    let app_version = app_version.unwrap_or_default();
+    let cache_key = format!("{backend_url}|{app_version}");
+    let api_client = MessageBackendBuilder::default()
+        .host(&backend_url)
+        .app_version(app_version)
         .maybe_auth_callback(
-            auth_callback
-                .map(|callback| Arc::new(gateway_auth::FfiAuthCallbackBridge::new(callback)) as _),
+            auth_callback.map(|callback| Arc::new(auth::FfiAuthCallbackBridge::new(callback)) as _),
         )
-        .readonly(matches!(client_mode, FfiClientMode::Notification))
-        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()));
-    // switch v3/d14n based on presence of gateway host to preserve
-    // previous behavior and avoid breaking changes
-    let client_bundle = client_bundle.build_optional_d14n()?;
-    let backend = MessageBackendBuilder::default().from_bundle(client_bundle.clone())?;
-    let api: ApiClientWrapper<xmtp_mls::XmtpApiClient> =
-        ApiClientWrapper::new(backend, strategies::exponential_cooldown());
-
+        .readonly(matches!(
+            client_mode.unwrap_or_default(),
+            FfiClientMode::Notification
+        ))
+        .maybe_auth_handle(auth_handle.map(|handle| handle.as_ref().clone().into()))
+        .build()?;
+    let wrapper = ApiClientWrapper::new(api_client.clone(), strategies::exponential_cooldown());
     Ok(Arc::new(XmtpApiClient {
-        wrapper: api,
-        client_bundle,
+        wrapper,
+        api_client,
+        cache_key,
     }))
 }
 
@@ -338,8 +328,14 @@ pub async fn apply_signature_request(
     let signature_request = signature_request.inner.lock().await;
     let scw_verifier = Arc::new(Box::new(api.inner()) as Box<dyn SmartContractSignatureVerifier>);
 
-    apply_signature_request_with_verifier(&api.wrapper, signature_request.clone(), &scw_verifier)
-        .await?;
+    let store = EncryptedMessageStore::new(NativeDb::builder().ephemeral().build_unencrypted()?)?;
+    apply_signature_request_with_verifier(
+        &api.wrapper,
+        &store.db(),
+        signature_request.clone(),
+        &scw_verifier,
+    )
+    .await?;
 
     Ok(())
 }
@@ -485,15 +481,10 @@ pub async fn create_client(
         legacy_signed_private_key_proto,
     );
 
-    let api_client: xmtp_mls::XmtpClientBundle = Arc::unwrap_or_clone(api).client_bundle;
-    let cursor_store = Arc::new(SqliteCursorStore::new(store.db()));
-    let mut backend = MessageBackendBuilder::default();
-    backend.cursor_store(cursor_store);
-    let api_client = backend.from_bundle(api_client)?;
+    let api_client = api.api_client.clone();
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
         .api_client(api_client)
-        .enable_api_stats()?
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .store(store);
@@ -547,7 +538,7 @@ pub async fn get_inbox_id_for_identifier(
         .await
         .map_err(GenericError::from_error)?;
 
-    Ok(results.get(&api_identifier).cloned())
+    Ok(results.into_iter().next().flatten())
 }
 
 #[derive(uniffi::Object)]
@@ -666,22 +657,43 @@ pub struct FfiXmtpClient {
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiXmtpClient {
     pub fn api_statistics(&self) -> FfiApiStats {
-        self.inner_client.api_stats().into()
+        self.inner_client
+            .context
+            .api()
+            .api_client
+            .mls_stats()
+            .into()
     }
 
     pub fn api_identity_statistics(&self) -> FfiIdentityStats {
-        self.inner_client.identity_api_stats().into()
+        self.inner_client
+            .context
+            .api()
+            .api_client
+            .identity_stats()
+            .into()
     }
 
     pub fn api_aggregate_statistics(&self) -> String {
-        let api = self.inner_client.api_stats();
-        let identity = self.inner_client.identity_api_stats();
+        let api = self.inner_client.context.api().api_client.mls_stats();
+        let identity = self.inner_client.context.api().api_client.identity_stats();
         let aggregate = AggregateStats { mls: api, identity };
         format!("{:?}", aggregate)
     }
 
     pub fn clear_all_statistics(&self) {
-        self.inner_client.clear_stats()
+        self.inner_client
+            .context
+            .api()
+            .api_client
+            .mls_stats()
+            .clear();
+        self.inner_client
+            .context
+            .api()
+            .api_client
+            .identity_stats()
+            .clear();
     }
 
     #[tracing::instrument(skip_all)]
@@ -1192,8 +1204,7 @@ impl FfiXmtpClient {
 
     /// Wait until this client's registration is visible on the network.
     ///
-    /// `options` controls the quorum, timeout, and polling interval.
-    /// Pass `None` to use the defaults (50% quorum, 30s timeout, 500ms interval).
+    /// Pass `None` to use the default timeout.
     #[xmtp_common::err_span]
     pub async fn wait_for_registration_visible(
         &self,
@@ -1255,6 +1266,8 @@ pub struct FfiCatchUpSummary {
     /// elapsed first; messages processed before then are persisted, and a later
     /// call resumes from durable state.
     pub completed: bool,
+    /// Processing failures during this run.
+    pub failed: u64,
 }
 
 impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for FfiCatchUpSummary {
@@ -1263,6 +1276,7 @@ impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for FfiCatchUpSumma
             messages: summary.messages,
             conversations: summary.conversations,
             completed: summary.completed,
+            failed: summary.failed,
         }
     }
 }
@@ -1276,36 +1290,17 @@ impl From<HmacKey> for FfiHmacKey {
     }
 }
 
-/// Options for `wait_for_registration_visible`.
-///
-/// All fields are optional. Omitted fields use their default values:
-/// - `quorum_percentage` / `quorum_absolute`: 1 node (`quorum_absolute` takes precedence if both are provided)
-/// - `timeout_ms`: 30 000 ms
+/// Timeout for `wait_for_registration_visible`.
 #[derive(uniffi::Record, Default)]
 pub struct FfiVisibilityConfirmationOptions {
-    /// Fraction of nodes that must confirm (e.g. 0.5 = 50 %).
-    pub quorum_percentage: Option<f32>,
-    /// Exact number of nodes that must confirm. Takes precedence over `quorum_percentage`.
-    pub quorum_absolute: Option<u64>,
-    /// How long to wait in total before returning an error (milliseconds).
+    /// Maximum wait time in milliseconds.
     pub timeout_ms: Option<u64>,
 }
 
-impl From<FfiVisibilityConfirmationOptions>
-    for xmtp_mls::registration_visible::VisibilityConfirmationOptions
-{
+impl From<FfiVisibilityConfirmationOptions> for xmtp_mls::client::VisibilityConfirmationOptions {
     fn from(opts: FfiVisibilityConfirmationOptions) -> Self {
-        use xmtp_mls::registration_visible::Quorum;
-
-        let defaults = Self::default();
-        let quorum = match (opts.quorum_absolute, opts.quorum_percentage) {
-            (Some(n), _) => Quorum::Absolute(n as usize),
-            (_, Some(p)) => Quorum::percentage(p),
-            _ => defaults.quorum,
-        };
         Self {
-            quorum,
-            timeout_ms: opts.timeout_ms.unwrap_or(defaults.timeout_ms),
+            timeout_ms: opts.timeout_ms.unwrap_or(Self::default().timeout_ms),
         }
     }
 }
@@ -2289,7 +2284,6 @@ impl From<MessageDisappearingSettings> for FfiMessageDisappearingSettings {
 
 #[derive(uniffi::Record, Debug, Clone, Copy)]
 pub struct FfiCursor {
-    originator_id: u32,
     sequence_id: u64,
 }
 
@@ -2307,8 +2301,7 @@ pub struct FfiConversationDebugInfo {
 impl From<Cursor> for FfiCursor {
     fn from(value: Cursor) -> Self {
         FfiCursor {
-            sequence_id: value.sequence_id,
-            originator_id: value.originator_id,
+            sequence_id: value.0,
         }
     }
 }
@@ -3811,7 +3804,6 @@ pub struct FfiMessage {
     pub kind: FfiConversationMessageKind,
     pub delivery_status: FfiDeliveryStatus,
     pub sequence_id: u64,
-    pub originator_id: u32,
     pub inserted_at_ns: i64,
     pub expire_at_ns: Option<i64>,
 }
@@ -3827,7 +3819,6 @@ impl From<StoredGroupMessage> for FfiMessage {
             kind: msg.kind.into(),
             delivery_status: msg.delivery_status.into(),
             sequence_id: msg.sequence_id as u64,
-            originator_id: msg.originator_id as u32,
             inserted_at_ns: msg.inserted_at_ns,
             expire_at_ns: msg.expire_at_ns,
         }
@@ -3836,47 +3827,39 @@ impl From<StoredGroupMessage> for FfiMessage {
 
 #[derive(uniffi::Record, Clone)]
 pub struct FfiApiStats {
-    pub upload_key_package: u64,
-    pub fetch_key_package: u64,
-    pub send_group_messages: u64,
-    pub send_welcome_messages: u64,
-    pub query_group_messages: u64,
-    pub query_welcome_messages: u64,
-    pub subscribe_messages: u64,
-    pub subscribe_welcomes: u64,
+    pub publish: u64,
+    pub query: u64,
+    pub query_newest: u64,
+    pub get: u64,
+    pub subscribe: u64,
+    pub subscribe_static: u64,
 }
 
 impl From<ApiStats> for FfiApiStats {
     fn from(stats: ApiStats) -> Self {
         Self {
-            upload_key_package: stats.upload_key_package.get_count() as u64,
-            fetch_key_package: stats.fetch_key_package.get_count() as u64,
-            send_group_messages: stats.send_group_messages.get_count() as u64,
-            send_welcome_messages: stats.send_welcome_messages.get_count() as u64,
-            query_group_messages: stats.query_group_messages.get_count() as u64,
-            query_welcome_messages: stats.query_welcome_messages.get_count() as u64,
-            subscribe_messages: stats.subscribe_messages.get_count() as u64,
-            subscribe_welcomes: stats.subscribe_welcomes.get_count() as u64,
+            publish: stats.publish.get_count() as u64,
+            query: stats.query.get_count() as u64,
+            query_newest: stats.query_newest.get_count() as u64,
+            get: stats.get.get_count() as u64,
+            subscribe: stats.subscribe.get_count() as u64,
+            subscribe_static: stats.subscribe_static.get_count() as u64,
         }
     }
 }
 
 #[derive(uniffi::Record, Clone)]
 pub struct FfiIdentityStats {
-    pub publish_identity_update: u64,
-    pub get_identity_updates_v2: u64,
     pub get_inbox_ids: u64,
-    pub verify_smart_contract_wallet_signature: u64,
+    pub verify_smart_contract_wallet_signatures: u64,
 }
 
 impl From<IdentityStats> for FfiIdentityStats {
     fn from(stats: IdentityStats) -> Self {
         Self {
-            publish_identity_update: stats.publish_identity_update.get_count() as u64,
-            get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as u64,
             get_inbox_ids: stats.get_inbox_ids.get_count() as u64,
-            verify_smart_contract_wallet_signature: stats
-                .verify_smart_contract_wallet_signature
+            verify_smart_contract_wallet_signatures: stats
+                .verify_smart_contract_wallet_signatures
                 .get_count() as u64,
         }
     }

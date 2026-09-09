@@ -5,7 +5,6 @@ use napi_derive::napi;
 use std::sync::Arc;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api::strategies;
-use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::EncryptedMessageStore;
 use xmtp_db::NativeDb;
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
@@ -89,9 +88,7 @@ pub async fn fetch_inbox_states_by_inbox_ids(
   backend: &Backend,
   inbox_ids: Vec<String>,
 ) -> Result<Vec<InboxState>> {
-  let api_client = MessageBackendBuilder::default()
-    .from_bundle(backend.bundle.clone())
-    .map_err(ErrorWrapper::from)?;
+  let api_client = backend.api_client.clone();
   let api = ApiClientWrapper::new(api_client, strategies::exponential_cooldown());
   let scw_verifier = Arc::new(Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>);
 

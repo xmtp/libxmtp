@@ -9,8 +9,8 @@ use crate::{
 };
 use napi::bindgen_prelude::Uint8Array;
 use napi_derive::napi;
-use xmtp_api_grpc::test::ToxicNodeGoClient;
-use xmtp_configuration::GrpcUrlsToxic;
+use xmtp_api_grpc::test::ToxicBackendTestClient;
+use xmtp_configuration::BACKEND_TEST_TOXIC_URL;
 use xmtp_mls::ToxicTestClient;
 use xmtp_proto::api_client::ToxicProxies;
 
@@ -31,12 +31,11 @@ pub async fn create_local_toxic_client(
   log_options: Option<LogOptions>,
   allow_offline: Option<bool>,
 ) -> Result<TestClient, napi::Error> {
-  let api_addr = GrpcUrlsToxic::NODE.to_string();
-  let proxy = ToxicNodeGoClient::proxies().await;
+  let api_addr = BACKEND_TEST_TOXIC_URL.to_string();
+  let proxy = ToxicBackendTestClient::proxies().await;
 
   let c = create_client(
     api_addr,
-    None,
     DbOptions::new(db_path, encryption_key, None, None, None),
     inbox_id,
     account_identifier,

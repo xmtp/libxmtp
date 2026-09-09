@@ -1086,7 +1086,6 @@ mod tests {
       version_minor: 123,
       authority_id: String::from("test"),
       reference_id: None,
-      originator_id: 0,
       sequence_id: 0,
       expire_at_ns: None,
       should_push: true,

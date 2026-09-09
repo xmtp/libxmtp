@@ -118,8 +118,8 @@ pub enum GenericError {
     /// Operation timed out. Retryable.
     #[error("Timer duration expired")]
     Expired,
+    /// Backend configuration failed. This error is not retryable.
     #[error(transparent)]
-    #[error_code(inherit)]
     BackendBuilder(#[from] MessageBackendBuilderError),
     #[error(transparent)]
     #[error_code(inherit)]

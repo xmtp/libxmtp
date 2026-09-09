@@ -8,7 +8,7 @@ uniffi bindings. Feeds `sdks/android` and `sdks/ios`.
 just check crate xmtpv3
 just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtpv3
-just test v3 -p xmtpv3 --ignore-default-filter test_can_send_and_receive_reaction   # one test
+dev/nix-shell 'cargo nextest run --profile ci -p xmtpv3 --ignore-default-filter test_can_send_and_receive_reaction'   # one test
 dev/nix-shell "cargo nextest run --profile ci -p xmtpv3 -E 'test(/mls::/)'"   # one module
 just android build                      # .so + Kotlin bindings, via Nix
 just ios build                          # xcframework + Swift bindings, via Nix

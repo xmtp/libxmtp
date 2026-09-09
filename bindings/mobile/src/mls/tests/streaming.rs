@@ -2,9 +2,7 @@
 
 use super::*;
 
-#[ignore]
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
-#[cfg_attr(target_arch = "wasm32", ignore)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_stream_group_messages_for_updates() {
     let alix = Tester::new().await;
     let bo = Tester::new().await;
@@ -389,7 +387,6 @@ async fn test_stream_groups_gets_callback_when_streaming_messages() {
     assert!(stream_groups.is_closed());
 }
 
-#[cfg_attr(feature = "d14n", ignore)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_consent() {
     let alix_a = Tester::builder().sync_worker().build().await;
@@ -650,10 +647,6 @@ async fn test_can_stream_and_update_name_without_forking_group() {
         )
         .await
         .unwrap();
-    if cfg!(feature = "d14n") {
-        // give time for d14n to catch up
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-    }
     alix_group
         .update_group_name("hello".to_string())
         .await

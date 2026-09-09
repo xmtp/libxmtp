@@ -1490,6 +1490,7 @@ dependencies = [
  "napi-derive",
  "prost",
  "serde_json",
+ "thiserror 2.0.19",
  "tokio",
  "toxiproxy_rust",
  "tracing",
