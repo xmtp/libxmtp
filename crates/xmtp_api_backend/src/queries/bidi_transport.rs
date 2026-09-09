@@ -17,8 +17,15 @@
 //! the connection and keeps this state. Resume waits for all acknowledgements
 //! and targets. A slow lease is closed so its consumer can recover from storage.
 //!
-//! The ledger has no durable-progress feedback, so reopen cost is proportional
-//! to the history since each lease floor; reducing this cost is a Phase 5 item.
+//! KNOWN COST (Phase 5.1): a lease floor never rises, so the meet in
+//! `resume_cursor` always equals the floor and the observed position adds
+//! nothing. Every reopen asks the server for the history since the lease
+//! started, which grows with the age of the lease: a week-old stream that
+//! flaps once re-reads a week of envelopes. Delivery stays correct, because
+//! each holder discards what it already saw, but resume cannot settle until
+//! every topic re-delivers through its new target. STR-036 forbids resuming
+//! from the received sequence id, so the fix is durable-progress feedback that
+//! raises the floor as the consumer commits, not a change to this meet.
 //! The consumer owns durable progress. This module does not decode MLS data
 //! or promise exactly-once callbacks across a process crash.
 
@@ -563,6 +570,9 @@ where
     }
 
     /// Reopen at the meet of the observed position and all requested floors.
+    ///
+    /// A floor never rises, so this meet is the floor in practice. See the
+    /// module header for why that makes reopen cost grow with lease age.
     fn resume_cursor(&self, topic: &Topic) -> Option<B::Cursor> {
         let holders = self.by_topic.get(topic)?;
         holders
