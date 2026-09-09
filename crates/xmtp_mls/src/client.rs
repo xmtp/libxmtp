@@ -1310,8 +1310,10 @@ pub(crate) mod tests {
     use futures::stream::StreamExt;
     use prost::Message;
     use std::time::Duration;
+    use xmtp_common::NS_IN_SEC;
     use xmtp_common::time::now_ns;
-    use xmtp_common::{NS_IN_SEC, toxiproxy_test};
+    #[cfg(not(target_arch = "wasm32"))]
+    use xmtp_common::toxiproxy_test;
     use xmtp_content_types::ContentCodec;
     use xmtp_content_types::text::TextCodec;
     use xmtp_cryptography::utils::generate_local_wallet;
@@ -2138,7 +2140,7 @@ pub(crate) mod tests {
     // process-wide config latches. Under a plain `cargo test`, a sibling test may
     // latch the library defaults (45s/20s) first and the pin becomes a no-op, so
     // the timeout budget also covers their ~65s worst-case detection.
-    #[cfg_attr(any(target_arch = "wasm32"), ignore)]
+    #[cfg(not(target_arch = "wasm32"))]
     async fn should_reconnect() {
         unsafe {
             std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");

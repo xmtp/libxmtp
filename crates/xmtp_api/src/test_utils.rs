@@ -2,7 +2,7 @@
 
 use xmtp_common::{ExponentialBackoff, Retry, RetryBuilder};
 
-pub type TestClient = xmtp_api_d14n::TestClient;
+pub type TestClient = xmtp_api_backend::TestClient;
 
 pub fn exponential() -> RetryBuilder<ExponentialBackoff> {
     let e = ExponentialBackoff::default();

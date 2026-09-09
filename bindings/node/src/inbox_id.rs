@@ -4,7 +4,7 @@ use crate::identity::Identifier;
 use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_id::associations::MemberIdentifier;
 use xmtp_proto::types::ApiIdentifier;

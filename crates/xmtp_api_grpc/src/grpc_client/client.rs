@@ -336,9 +336,9 @@ pub mod tests {
     use crate::grpc_client::test::BackendTestClient;
     use prost::Message;
     use xmtp_proto::api_client::ApiBuilder;
+    use xmtp_proto::backend_v1::PublishRequest;
     use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
-    use xmtp_proto::xmtp::message_api::v1::PublishRequest;
 
     #[xmtp_common::test]
     async fn metadata_test() {

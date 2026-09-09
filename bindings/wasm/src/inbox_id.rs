@@ -3,7 +3,7 @@ use crate::client::backend::Backend;
 use crate::identity::Identifier;
 use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_proto::types::ApiIdentifier;
 

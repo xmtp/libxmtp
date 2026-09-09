@@ -2,7 +2,7 @@ use super::XmtpEnv;
 use super::gateway_auth::{AuthCallback, AuthHandle};
 use std::sync::Arc;
 use wasm_bindgen::prelude::*;
-use xmtp_api_d14n::ClientBundleBuilder;
+use xmtp_api_backend::ClientBundleBuilder;
 
 #[xmtp_macro::wasm_builder]
 pub struct BackendBuilder {
@@ -50,7 +50,7 @@ impl BackendBuilder {
         self
           .auth_callback
           .take()
-          .map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
+          .map(|c| Arc::new(c) as Arc<dyn xmtp_api_backend::AuthCallback>),
       )
       .maybe_auth_handle(self.auth_handle.take().map(|h| h.handle));
 
@@ -127,7 +127,7 @@ pub async fn create_client_with_backend(
   let store = super::build_store(db_path, encryption_key).await?;
 
   let cursor_store = xmtp_mls::cursor_store::SqliteCursorStore::new(store.db());
-  let mut mbb = xmtp_api_d14n::MessageBackendBuilder::default();
+  let mut mbb = xmtp_api_backend::MessageBackendBuilder::default();
   mbb.cursor_store(cursor_store);
   let api_client = mbb
     .from_bundle(backend.bundle.clone())

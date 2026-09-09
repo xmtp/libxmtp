@@ -13,7 +13,7 @@ use prost::Message;
 use std::{collections::HashMap, convert::TryInto, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder};
+use xmtp_api_backend::{ClientBundle, MessageBackendBuilder};
 use xmtp_common::time::now_ns;
 use xmtp_common::{AbortHandle, GenericStreamHandle, StreamHandle};
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};

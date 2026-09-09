@@ -11,7 +11,7 @@ use crate::app::types::*;
 use alloy_signer_local::PrivateKeySigner;
 use color_eyre::eyre::{WrapErr, eyre};
 use tokio::sync::Mutex;
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::prelude::Pragmas;
 use xmtp_db::{NativeDb, XmtpDb};
 use xmtp_mls::builder::DeviceSyncMode;

@@ -6,7 +6,7 @@ use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,

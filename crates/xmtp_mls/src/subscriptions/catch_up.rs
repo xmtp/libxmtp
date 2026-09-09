@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use xmtp_common::time::{Duration, Instant};
 
 use tracing::Instrument;
-use xmtp_api_d14n::{
+use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, OpenError, TransportBinding, TryMutateError,
     chunk_mutate_adds,
 };
@@ -537,7 +537,7 @@ where
         let batch_started = Instant::now();
         let batch_size = batch.len();
         for proto in batch {
-            let typed = match xmtp_api_d14n::envelope::decode_group_message(proto) {
+            let typed = match xmtp_api_backend::envelope::decode_group_message(proto) {
                 Ok(typed) => typed,
                 Err(e) => {
                     summary.failed += 1;

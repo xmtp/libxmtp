@@ -22,7 +22,7 @@ tonic-types.workspace = true
 xmtp_configuration.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp-workspace-hack.workspace = true
-xmtp_api_d14n.workspace = true
+xmtp_api_backend.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_common.workspace = true
 xmtp_id.workspace = true
@@ -37,7 +37,7 @@ rstest.workspace = true
 chrono.workspace = true
 http = "1.4"
 tls_codec.workspace = true
-xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
+xmtp_api_backend = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
 xmtp_cryptography = { workspace = true, features = ["test-utils"] }
@@ -57,5 +57,5 @@ test-utils = [
   "xmtp_common/test-utils",
   "xmtp_proto/test-utils",
   "xmtp_id/test-utils",
-  "xmtp_api_d14n/test-utils",
+  "xmtp_api_backend/test-utils",
 ]

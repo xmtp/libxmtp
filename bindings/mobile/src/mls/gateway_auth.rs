@@ -1,4 +1,4 @@
-use xmtp_api_d14n::AuthHandle;
+use xmtp_api_backend::AuthHandle;
 use xmtp_common::BoxDynError;
 
 use crate::{FfiError, GenericError};
@@ -35,7 +35,7 @@ impl FfiAuthHandle {
     }
 }
 
-impl From<FfiAuthHandle> for xmtp_api_d14n::AuthHandle {
+impl From<FfiAuthHandle> for xmtp_api_backend::AuthHandle {
     fn from(handle: FfiAuthHandle) -> Self {
         handle.handle
     }
@@ -47,10 +47,10 @@ pub trait FfiAuthCallback: Send + Sync + 'static {
     async fn on_auth_required(&self) -> Result<FfiCredential, FfiError>;
 }
 
-impl TryFrom<FfiCredential> for xmtp_api_d14n::Credential {
+impl TryFrom<FfiCredential> for xmtp_api_backend::Credential {
     type Error = GenericError;
     fn try_from(ffi_auth: FfiCredential) -> Result<Self, Self::Error> {
-        let credential = xmtp_api_d14n::Credential::new(
+        let credential = xmtp_api_backend::Credential::new(
             ffi_auth
                 .name
                 .map(|n| {
@@ -81,8 +81,8 @@ impl FfiAuthCallbackBridge {
 }
 
 #[xmtp_common::async_trait]
-impl xmtp_api_d14n::AuthCallback for FfiAuthCallbackBridge {
-    async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
+impl xmtp_api_backend::AuthCallback for FfiAuthCallbackBridge {
+    async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
         let ffi_auth = self.callback.on_auth_required().await?;
         ffi_auth.try_into().map_err(Into::into)
     }

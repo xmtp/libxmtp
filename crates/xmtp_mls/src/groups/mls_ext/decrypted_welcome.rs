@@ -18,11 +18,11 @@ use xmtp_db::{
 use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
 use xmtp_proto::{
-    mls_v1::WelcomeMetadata,
     types::{
         DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
         WelcomePointer,
     },
+    xmtp::mls::message_contents::WelcomeMetadata,
 };
 
 pub(crate) struct DecryptedWelcome {

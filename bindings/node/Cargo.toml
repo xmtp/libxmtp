@@ -33,7 +33,7 @@ tokio.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
-xmtp_api_d14n.workspace = true
+xmtp_api_backend.workspace = true
 xmtp_api_grpc = { workspace = true, optional = true }
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true

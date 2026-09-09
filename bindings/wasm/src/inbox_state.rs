@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::{JsError, JsValue, prelude::wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::{AssociationState, MemberIdentifier, ident};
 use xmtp_id::key_package::{VerifiedKeyPackageV2, VerifiedLifetime};

@@ -10,10 +10,10 @@ pub struct Credential {
   pub expires_at_seconds: i64,
 }
 
-impl TryFrom<Credential> for xmtp_api_d14n::Credential {
+impl TryFrom<Credential> for xmtp_api_backend::Credential {
   type Error = super::Error;
   fn try_from(credential: Credential) -> Result<Self, Self::Error> {
-    Ok(xmtp_api_d14n::Credential::new(
+    Ok(xmtp_api_backend::Credential::new(
       credential
         .name
         .map(|n| n.try_into())
@@ -38,7 +38,7 @@ impl TryFrom<Credential> for xmtp_api_d14n::Credential {
 #[napi]
 #[derive(Default, Clone)]
 pub struct AuthHandle {
-  handle: xmtp_api_d14n::AuthHandle,
+  handle: xmtp_api_backend::AuthHandle,
 }
 
 #[napi]
@@ -46,7 +46,7 @@ impl AuthHandle {
   #[napi(constructor)]
   pub fn new() -> Self {
     Self {
-      handle: xmtp_api_d14n::AuthHandle::new(),
+      handle: xmtp_api_backend::AuthHandle::new(),
     }
   }
 
@@ -63,7 +63,7 @@ impl AuthHandle {
   }
 }
 
-impl From<AuthHandle> for xmtp_api_d14n::AuthHandle {
+impl From<AuthHandle> for xmtp_api_backend::AuthHandle {
   fn from(handle: AuthHandle) -> Self {
     handle.handle
   }
@@ -86,8 +86,8 @@ impl AuthCallback {
 }
 
 #[xmtp_common::async_trait]
-impl xmtp_api_d14n::AuthCallback for AuthCallback {
-  async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
+impl xmtp_api_backend::AuthCallback for AuthCallback {
+  async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
     let promise = self.callback.call_async(Ok(())).await?;
     let credential = promise.await?;
     Ok(credential.try_into()?)

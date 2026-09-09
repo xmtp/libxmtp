@@ -5,7 +5,7 @@ use futures::stream::StreamExt;
 use prost::Message as ProstMessage;
 use std::collections::HashSet;
 use std::time::Instant;
-use xmtp_api_d14n::d14n::QueryEnvelopes;
+use xmtp_api_backend::d14n::QueryEnvelopes;
 use xmtp_configuration::Originators;
 use xmtp_db::encrypted_store::group_message::GroupMessageKind;
 use xmtp_mls::groups::send_message_opts::SendMessageOptsBuilder;

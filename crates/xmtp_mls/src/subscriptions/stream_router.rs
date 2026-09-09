@@ -66,7 +66,7 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, oneshot};
 use tracing::Instrument;
 
-use xmtp_api_d14n::{
+use xmtp_api_backend::{
     BackendBinding, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent, TopicLease, TransportError,
 };
 use xmtp_common::task::JoinSet;
@@ -913,7 +913,7 @@ where
     /// Returns `false` when the backlog overflowed (the stream must end).
     pub(crate) fn absorb_batch(&mut self, batch: Vec<backend_v1::ServerEnvelope>) -> bool {
         for proto in batch {
-            let typed = match xmtp_api_d14n::envelope::decode_welcome_message(proto) {
+            let typed = match xmtp_api_backend::envelope::decode_welcome_message(proto) {
                 Ok(typed) => typed,
                 Err(e) => {
                     self.decode_failures += 1;
@@ -1359,7 +1359,7 @@ where
         let batch_started = std::time::Instant::now();
         let batch_size = batch.len();
         for proto in batch {
-            let typed = match xmtp_api_d14n::envelope::decode_group_message(proto) {
+            let typed = match xmtp_api_backend::envelope::decode_group_message(proto) {
                 Ok(typed) => typed,
                 Err(e) => {
                     tracing::warn!("stream router: skipping undecodable group message: {e}");

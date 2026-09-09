@@ -29,7 +29,7 @@ pub(crate) const COMMAND_BUFFER: usize = 64;
 pub(crate) const EVENT_BUFFER: usize = 1024;
 /// Default keepalive until Started supplies the server interval.
 pub(crate) const DEFAULT_KEEPALIVE_MS: u32 = 30_000;
-/// `N` from XIP-83 client req 2 (recommended 2–3): the *default* probe deadline
+/// The default probe deadline multiplier
 /// is this many keepalive intervals — generous enough not to false-positive a
 /// slow-but-live link. Latency-sensitive callers (e.g. a notification handler)
 /// pass a much smaller bound to [`Connection::probe_within`].
@@ -73,7 +73,7 @@ const DRAIN_FLUSH_BUDGET: Duration = Duration::from_secs(1);
 /// generic over this: a binding names the wire request/response types and the
 /// per-backend `Mutate` and message types, builds outbound frames, and — via
 /// [`BidiBinding::handle`] — classifies an inbound response into an [`Inbound`]
-/// instruction (which is where d14n runs its per-envelope extractors).
+/// instruction.
 pub trait BidiBinding: Send + 'static {
     /// Outbound wire frame (client → server).
     type Request: Send + 'static;
@@ -96,7 +96,7 @@ pub trait BidiBinding: Send + 'static {
     /// Classify one inbound response into an actor instruction. An associated
     /// fn, like the frame constructors: bindings are stateless by design — any
     /// stateful ordering or cursor tracking belongs to the consumer, not a
-    /// single per-process transport (see the d14n binding's module docs).
+    /// single connection actor.
     fn handle(response: Self::Response) -> Inbound<Self::GroupMessage, Self::WelcomeMessage>;
 }
 
@@ -147,7 +147,7 @@ pub enum TryMutateError<M> {
     /// The command buffer is momentarily full — retry once the actor has
     /// made progress (e.g. after the caller drains more events).
     Full(M),
-    /// The connection is finished or its actor is gone; this wave can only be
+    /// The connection is finished or its actor is gone; this update can only be
     /// re-issued on a fresh connection.
     Closed(M),
 }
@@ -170,7 +170,7 @@ enum Command<B: BidiBinding> {
 
 /// A handle to one open bidirectional subscription. Writing to the wire is the
 /// actor's job; this only submits commands and reads events. Generic over the
-/// backend [`BidiBinding`]; the v3 and d14n modules provide concrete aliases.
+/// backend [`BidiBinding`]. The backend module supplies the concrete alias.
 pub struct Connection<B: BidiBinding> {
     commands: mpsc::Sender<Command<B>>,
     events: mpsc::Receiver<Event<B::GroupMessage, B::WelcomeMessage>>,
@@ -196,7 +196,7 @@ pub struct Connection<B: BidiBinding> {
 
 impl<B: BidiBinding> Connection<B> {
     /// Open the stream: seed `initial` as the first request frame (it names the
-    /// initial topic set with per-topic resume cursors; XIP-83 client req 3),
+    /// initial topic set with per-topic resume cursors),
     /// then hand the outbound frame stream to `transport` to obtain the inbound
     /// frame stream, and spawn the actor. The backend modules wrap this with an
     /// ergonomic `open(api, initial)`.
@@ -211,7 +211,7 @@ impl<B: BidiBinding> Connection<B> {
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_BUFFER);
         let (event_tx, events) = mpsc::channel(EVENT_BUFFER);
 
-        // The first wire frame MUST be this Mutate (XIP-83 req 3). Seed it into
+        // The first request frame carries the initial update. Seed it into
         // the fresh, empty wire channel before the transport or the actor can
         // write anything else; the receiver is still held here, so a fresh,
         // empty, bounded channel can neither be full nor closed — `try_send`
@@ -257,7 +257,7 @@ impl<B: BidiBinding> Connection<B> {
             .map_err(|_| BidiError::Closed)
     }
 
-    /// Non-blocking [`Self::mutate`]: accept the wave into the command buffer or
+    /// Non-blocking [`Self::mutate`]: accept the update into the command buffer or
     /// hand it straight back. Exists for callers that must never park on this
     /// handle — a consumer that is also the sole drainer of [`Self::next`] and
     /// awaits `mutate` while events back up can deadlock against the actor
@@ -493,7 +493,7 @@ async fn run_actor<B, S, E>(
     // Silence-watchdog state. A conformant server pings at `keepalive` cadence,
     // so a healthy wire always shows *some* inbound frame well inside the
     // budget; sustained silence is a half-open link. The cadence starts at the
-    // XIP-83 fallback and updates when `Started` advertises the real one.
+    // default and updates when `Started` advertises the real one.
     let mut keepalive = Duration::from_millis(DEFAULT_KEEPALIVE_MS.into());
     let mut last_inbound = tokio::time::Instant::now();
     let mut watchdog_probed = false;
@@ -693,7 +693,7 @@ async fn emit_instruction<G, W>(
 /// caller already had accepted (a `mutate` it got `Ok` for, an auto-pong, a
 /// probe ping queued under backpressure) so half-close doesn't silently discard
 /// them. Then dropping `wire_out` ends the outbound stream (the server sees the
-/// half-close, finishes the wave, and closes its side); dropping `commands`
+/// half-close, finishes the update, and closes its side); dropping `commands`
 /// makes any late `mutate`/`probe` see `Closed`. We keep surfacing events until
 /// the server closes inbound (`next` -> `None`) or the consumer goes away.
 /// Liveness frames can't be answered (the wire is gone), so they are ignored;

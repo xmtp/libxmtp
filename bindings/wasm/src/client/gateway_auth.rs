@@ -14,10 +14,10 @@ pub struct Credential {
   pub expires_at_seconds: i64,
 }
 
-impl TryFrom<Credential> for xmtp_api_d14n::Credential {
+impl TryFrom<Credential> for xmtp_api_backend::Credential {
   type Error = BoxDynError;
   fn try_from(credential: Credential) -> Result<Self, Self::Error> {
-    Ok(xmtp_api_d14n::Credential::new(
+    Ok(xmtp_api_backend::Credential::new(
       credential.name.map(|n| n.try_into()).transpose()?,
       credential.value.try_into()?,
       credential.expires_at_seconds,
@@ -34,8 +34,8 @@ extern "C" {
 }
 
 #[xmtp_common::async_trait]
-impl xmtp_api_d14n::AuthCallback for AuthCallback {
-  async fn on_auth_required(&self) -> Result<xmtp_api_d14n::Credential, BoxDynError> {
+impl xmtp_api_backend::AuthCallback for AuthCallback {
+  async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
     let cred: JsValue = self.on_auth_required().await.map_err(|e| {
       let result = serde_wasm_bindgen::from_value::<serde_json::Value>(e);
       if let Ok(value) = result {
@@ -57,7 +57,7 @@ impl xmtp_api_d14n::AuthCallback for AuthCallback {
 #[wasm_bindgen]
 #[derive(Clone, Default)]
 pub struct AuthHandle {
-  pub(crate) handle: xmtp_api_d14n::AuthHandle,
+  pub(crate) handle: xmtp_api_backend::AuthHandle,
 }
 
 #[wasm_bindgen]
@@ -65,12 +65,12 @@ impl AuthHandle {
   #[wasm_bindgen(constructor)]
   pub fn new() -> Self {
     Self {
-      handle: xmtp_api_d14n::AuthHandle::new(),
+      handle: xmtp_api_backend::AuthHandle::new(),
     }
   }
   pub async fn set(&self, credential: Credential) -> Result<(), JsError> {
     let cred =
-      xmtp_api_d14n::Credential::try_from(credential).map_err(|e| JsError::new(&e.to_string()))?;
+      xmtp_api_backend::Credential::try_from(credential).map_err(|e| JsError::new(&e.to_string()))?;
     self.handle.set(cred).await;
     Ok(())
   }

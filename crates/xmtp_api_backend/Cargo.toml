@@ -1,6 +1,6 @@
 [package]
-name = "xmtp_api_d14n"
-description = "XMTP Decentralization client implementation according to XIP-49"
+name = "xmtp_api_backend"
+description = "XMTP self-hosted backend client"
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
@@ -57,7 +57,7 @@ tokio.workspace = true
 # Span-close capture for the bidi.wire_session lifetime test.
 tracing-subscriber = { workspace = true, features = ["registry", "std"] }
 # add self to auto enable test utils
-xmtp_api_d14n = { path = ".", features = ["test-utils"] }
+xmtp_api_backend = { path = ".", features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 ctor.workspace = true

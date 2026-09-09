@@ -6,7 +6,7 @@ use crate::identity::Identity;
 use crate::identity::IdentityError;
 use crate::utils::DefaultTestClientCreator;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::MockBackendClient;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_common::{ExponentialBackoff, Retry, rand_vec, tmp_path};
 use xmtp_db::XmtpTestDb;
 use xmtp_db::sql_key_store::SqlKeyStore;

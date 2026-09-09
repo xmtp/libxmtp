@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use xmtp_api_d14n::{BackendBinding, BidiConnection, BidiTransport, OpenError, TransportError};
+use xmtp_api_backend::{BackendBinding, BidiConnection, BidiTransport, OpenError, TransportError};
 use xmtp_common::{MaybeSend, StreamHandle};
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::group::ConversationType;

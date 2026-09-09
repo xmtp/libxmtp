@@ -28,7 +28,7 @@ format: install
 
 # Packages that support the WASM target
 
-wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_d14n -p xmtp_content_types"
+wasm_packages := "-p xmtp_mls -p xmtp_cryptography -p xmtp_common -p xmtp_api -p xmtp_id -p xmtp_db -p xmtp_api_backend -p xmtp_content_types"
 
 # WASM bindings Rust tests
 test *args="":

@@ -11,7 +11,7 @@ use napi::bindgen_prelude::{BigInt, Error, Result, Uint8Array};
 use napi_derive::napi;
 use std::ops::Deref;
 use std::sync::Arc;
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_configuration::{MAX_DB_POOL_SIZE, MIN_DB_POOL_SIZE};
 use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
 use xmtp_logging::{Level, LoggingConfig, TelemetryConfig, XmtpLoggingBuilder};

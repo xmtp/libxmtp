@@ -1,11 +1,11 @@
-# xmtp_api_d14n
+# xmtp_api_backend
 
 Backend client, endpoints, decoders, middleware, and static streams.
-The crate name stays until the Phase 3 rename task.
 
 ```bash
-dev/nix-shell 'cargo test -p xmtp_api_d14n'
-dev/nix-shell 'cargo clippy -p xmtp_api_d14n --all-targets -- -D warnings'
+dev/nix-shell 'cargo check -p xmtp_api_backend'
+dev/nix-shell 'cargo test -p xmtp_api_backend'
+dev/nix-shell 'cargo clippy -p xmtp_api_backend --all-targets -- -D warnings'
 ```
 
 `BackendClient<C>` implements the backend unary trait. `MessageBackendBuilder`

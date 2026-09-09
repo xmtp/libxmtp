@@ -7,7 +7,7 @@ use crate::context::XmtpSharedContext;
 use crate::subscriptions::stream_router::{DEFAULT_STREAM_DEPTH, StreamRouter};
 use crate::tester;
 use crate::utils::MlsGroupExt;
-use xmtp_api_d14n::{BackendBinding, BidiConnection, BidiTransport, OpenError};
+use xmtp_api_backend::{BackendBinding, BidiConnection, BidiTransport, OpenError};
 
 const WAIT: Duration = Duration::from_secs(20);
 

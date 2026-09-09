@@ -9,7 +9,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{filter, fmt::format::Pretty};
 use tsify::Tsify;
 use wasm_bindgen::{JsValue, prelude::*};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 use xmtp_id::associations::Identifier as XmtpIdentifier;
 use xmtp_mls::Client as MlsClient;

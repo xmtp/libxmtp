@@ -1495,7 +1495,7 @@ dependencies = [
  "tracing",
  "xmtp-workspace-hack",
  "xmtp_api",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",
@@ -1541,7 +1541,7 @@ dependencies = [
  "web-sys",
  "xmtp-workspace-hack",
  "xmtp_api",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_content_types",
@@ -11364,7 +11364,7 @@ dependencies = [
  "url",
  "valuable",
  "vergen-gix",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",
@@ -11536,7 +11536,7 @@ dependencies = [
  "tracing",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",
@@ -11547,7 +11547,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "xmtp_api_d14n"
+name = "xmtp_api_backend"
 version = "1.12.0-dev"
 dependencies = [
  "arc-swap",
@@ -11579,7 +11579,7 @@ dependencies = [
  "url",
  "wasm-bindgen-test",
  "xmtp-workspace-hack",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_common",
  "xmtp_configuration",
@@ -11993,7 +11993,7 @@ dependencies = [
  "web-sys",
  "xmtp-workspace-hack",
  "xmtp_api",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_archive",
  "xmtp_common",
@@ -12120,7 +12120,7 @@ dependencies = [
  "vergen-gix",
  "xmtp-workspace-hack",
  "xmtp_api",
- "xmtp_api_d14n",
+ "xmtp_api_backend",
  "xmtp_api_grpc",
  "xmtp_archive",
  "xmtp_common",

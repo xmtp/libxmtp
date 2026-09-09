@@ -22,7 +22,7 @@ use mockall::mock;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::MockBackendClient;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_db::XmtpDb;
 use xmtp_db::sql_key_store::mock::MockSqlKeyStore;
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;

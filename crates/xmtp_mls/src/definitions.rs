@@ -7,4 +7,4 @@ pub type MlsContext =
 
 pub type WrappedXmtpApiClient = XmtpApiClient;
 
-pub type XmtpApiClient = xmtp_api_d14n::XmtpApiClient;
+pub type XmtpApiClient = xmtp_api_backend::XmtpApiClient;

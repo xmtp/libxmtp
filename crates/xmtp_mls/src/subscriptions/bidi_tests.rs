@@ -5,12 +5,12 @@ use crate::context::XmtpSharedContext;
 use crate::groups::send_message_opts::SendMessageOpts;
 use std::collections::BTreeSet;
 use std::time::Duration;
-use xmtp_api_d14n::{BackendBinding, BidiConnection, BidiEvent, TransportBinding};
+use xmtp_api_backend::{BackendBinding, BidiConnection, BidiEvent, TransportBinding};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_proto::types::Topic;
 
 fn gm(message: &xmtp_proto::backend_v1::ServerEnvelope) -> (u64, bool) {
-    let message = xmtp_api_d14n::envelope::decode_group_message(message.clone())
+    let message = xmtp_api_backend::envelope::decode_group_message(message.clone())
         .expect("valid backend group message");
     (message.cursor.0, message.is_commit())
 }

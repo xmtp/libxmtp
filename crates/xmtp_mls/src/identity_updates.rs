@@ -1600,7 +1600,7 @@ mod conflict_tests {
             .as_ref()
             .unwrap()
             .sequence_id;
-        let mut mock = xmtp_api_d14n::MockBackendClient::new();
+        let mut mock = xmtp_api_backend::MockBackendClient::new();
         let mut calls = 0;
         mock.expect_publish()
             .times((conflicts + 1).min(4))

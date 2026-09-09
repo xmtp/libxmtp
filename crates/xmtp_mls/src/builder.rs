@@ -18,7 +18,7 @@ use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::ApiClientWrapper;
-use xmtp_api_d14n::TrackedStatsClient;
+use xmtp_api_backend::TrackedStatsClient;
 use xmtp_common::{ErrorCode, Event, Retry};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};

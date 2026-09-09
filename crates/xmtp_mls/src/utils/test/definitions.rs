@@ -14,7 +14,7 @@ pub type ClientTester = Tester<PrivateKeySigner, FullXmtpClient>;
 pub type TestMlsGroup = crate::groups::MlsGroup<TestXmtpMlsContext>;
 
 /// One backend API client. Clones retain its wire identity.
-pub type TestClient = Arc<xmtp_api_d14n::TestClient>;
+pub type TestClient = Arc<xmtp_api_backend::TestClient>;
 
-pub type DefaultTestClientCreator = xmtp_api_d14n::TestClient;
-pub type ToxicOnlyTestClientCreator = xmtp_api_d14n::ToxicTestClientCreator;
+pub type DefaultTestClientCreator = xmtp_api_backend::TestClient;
+pub type ToxicOnlyTestClientCreator = xmtp_api_backend::ToxicTestClientCreator;

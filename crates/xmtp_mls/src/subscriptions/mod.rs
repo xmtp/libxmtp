@@ -4,7 +4,7 @@ use prost::Message;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_api_d14n::envelope::decode_welcome_message;
+use xmtp_api_backend::envelope::decode_welcome_message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 use xmtp_proto::types::GroupId;
 
@@ -270,7 +270,7 @@ pub enum SubscribeError {
     ///
     /// Invalid backend envelope. Not retryable.
     #[error(transparent)]
-    Envelope(#[from] xmtp_api_d14n::envelope::EnvelopeError),
+    Envelope(#[from] xmtp_api_backend::envelope::EnvelopeError),
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
     Enriched(#[from] EnrichMessageError),

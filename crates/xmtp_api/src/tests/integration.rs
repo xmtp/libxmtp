@@ -4,7 +4,7 @@ use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
-    let client = xmtp_api_d14n::TestClient::create().build()?;
+    let client = xmtp_api_backend::TestClient::create().build()?;
     let api = ApiClientWrapper::new(client, Retry::default());
     let history = identity_history_with_passkey().await;
     let registration = api

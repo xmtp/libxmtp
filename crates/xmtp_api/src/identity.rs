@@ -73,7 +73,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
             .await?
         {
-            let update = xmtp_api_d14n::envelope::decode_identity_update(envelope)?;
+            let update = xmtp_api_backend::envelope::decode_identity_update(envelope)?;
             result
                 .get_mut(&update.update.inbox_id)
                 .ok_or(ApiError::InvalidResponse("unrequested inbox"))?

@@ -24,7 +24,7 @@ impl Distribution<StorageError> for StandardUniform {
             7 => StorageError::Builder(derive_builder::UninitializedFieldError::new("test field")),
             8 => rand::random(), // platform
             9 => StorageError::Prost(
-                <xmtp_proto::mls_v1::GroupMessage as prost::Message>::decode([].as_slice())
+                <xmtp_proto::backend_v1::GroupMessage as prost::Message>::decode([0xff].as_slice())
                     .unwrap_err(),
             ),
             10 => StorageError::Connection(rand::random()),

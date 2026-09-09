@@ -8,7 +8,7 @@ use crate::{
 };
 use thiserror::Error;
 use xmtp_api::{ApiError, XmtpApi};
-use xmtp_api_d14n::envelope::EnvelopeError;
+use xmtp_api_backend::envelope::EnvelopeError;
 use xmtp_common::RetryableError;
 use xmtp_db::{
     XmtpDb,

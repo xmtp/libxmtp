@@ -17,7 +17,7 @@ use tokio::task::JoinSet;
 use crate::context::XmtpSharedContext;
 use crate::tester;
 use crate::utils::{LocalTesterBuilder, MlsGroupExt, TesterBuilder};
-use xmtp_api_d14n::{
+use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     OpenError, TopicLease, TransportBinding,
 };

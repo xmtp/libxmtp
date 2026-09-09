@@ -10,7 +10,7 @@ use crate::{
 };
 use futures::{Stream, StreamExt, TryStreamExt, stream as future_stream};
 use prost::Message;
-use xmtp_api_d14n::envelope::decode_group_message;
+use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 use xmtp_common::MaybeSend;

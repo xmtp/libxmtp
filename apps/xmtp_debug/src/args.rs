@@ -7,7 +7,7 @@ use xmtp_configuration::PAYER_WRITE_FILTER;
 use xxhash_rust::xxh3;
 mod types;
 pub use types::*;
-use xmtp_api_d14n::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
+use xmtp_api_backend::{ClientBundle, MessageBackendBuilder, ReadWriteClient};
 use xmtp_api_grpc::GrpcClient;
 use xmtp_proto::{
     api::Client,
@@ -479,7 +479,7 @@ impl BackendOpts {
         let mut gateway_client_builder = GrpcClient::builder();
         gateway_client_builder.set_host(self.xmtpd_gateway_url()?);
         let gateway_client = gateway_client_builder.build()?;
-        let multi_node = xmtp_api_d14n::middleware::MultiNodeClient::builder()
+        let multi_node = xmtp_api_backend::middleware::MultiNodeClient::builder()
             .gateway_client(gateway_client.clone())
             .node_client_template(GrpcClient::builder())
             .build()?;

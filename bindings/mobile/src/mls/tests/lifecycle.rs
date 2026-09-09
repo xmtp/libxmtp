@@ -34,7 +34,7 @@ async fn stored_app_payloads(convo: &FfiConversation) -> Vec<Vec<u8>> {
 /// "the v3 bidi subscription is not available on this client" even though the
 /// pinned xmtpd backend (`sha-ac17e82`) serves it — so the process latches onto
 /// the legacy streams, where `suspend`/`resume` are no-ops and cannot withhold;
-/// the assertions below would rightly fail. Un-gate once `xmtp_api_d14n` exposes
+/// the assertions below would rightly fail. Un-gate once `xmtp_api_backend` exposes
 /// the bidi subscribe for the d14n binding. The one-shot `catch_up_to_live`
 /// tests need no live wire, so they run on both backends.
 #[cfg_attr(

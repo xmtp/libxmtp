@@ -123,10 +123,10 @@ use xmtp_proto::backend_v1::{
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
 use xmtp_proto::xmtp::mls::{
-    api::v1::WelcomeMetadata,
     database::{ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind},
     message_contents::{
-        GroupUpdated, PlaintextEnvelope, WelcomePointer as WelcomePointerProto, group_updated,
+        GroupUpdated, PlaintextEnvelope, WelcomeMetadata, WelcomePointer as WelcomePointerProto,
+        group_updated,
         plaintext_envelope::{Content, V1, V2},
     },
 };

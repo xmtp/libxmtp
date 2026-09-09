@@ -36,7 +36,10 @@ use std::{
     },
 };
 use tokio::{runtime::Handle, sync::OnceCell};
-use toxiproxy_rust::proxy::{Proxy, ProxyPack};
+xmtp_common::if_native! {
+    use toxiproxy_rust::proxy::{Proxy, ProxyPack};
+    use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
+}
 use xmtp_api::{ApiError, XmtpApi};
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
@@ -69,7 +72,7 @@ use xmtp_id::{
 };
 use xmtp_proto::{
     api::ApiClientError,
-    api_client::{ApiBuilder, ToxicProxies, ToxicTestClient},
+    api_client::ApiBuilder,
     identity_v1::PublishIdentityUpdateRequest,
     prelude::XmtpTestClient,
     xmtp::{
@@ -95,6 +98,7 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: Option<ToxicProxies>,
 }
 
@@ -190,13 +194,22 @@ where
             client = client.temp_store().await;
         }
 
+        let api_client;
+        #[cfg(not(target_arch = "wasm32"))]
         let mut proxy = None;
-        let api_client = if self.proxy {
-            proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
-            ToxicOnlyTestClientCreator::create().build().unwrap()
-        } else {
-            DefaultTestClientCreator::create().build().unwrap()
-        };
+        xmtp_common::wasm_or_native! {
+            native => {
+                api_client = if self.proxy {
+                    proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
+                    ToxicOnlyTestClientCreator::create().build().unwrap()
+                } else {
+                    DefaultTestClientCreator::create().build().unwrap()
+                };
+            },
+            wasm => {
+                api_client = DefaultTestClientCreator::create().build().unwrap();
+            }
+        }
         let api_client = self
             .api_client
             .clone()
@@ -237,6 +250,7 @@ where
             client,
             worker,
             stream_handle: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy,
         };
 
@@ -349,19 +363,21 @@ where
         self.worker.as_ref().unwrap()
     }
 
-    pub fn proxies(&self) -> &ToxicProxies {
-        self.proxy.as_ref().unwrap()
-    }
+    xmtp_common::if_native! {
+        pub fn proxies(&self) -> &ToxicProxies {
+            self.proxy.as_ref().unwrap()
+        }
 
-    pub fn proxy(&self, n: usize) -> &Proxy {
-        self.proxy.as_ref().unwrap().proxy(n)
-    }
+        pub fn proxy(&self, n: usize) -> &Proxy {
+            self.proxy.as_ref().unwrap().proxy(n)
+        }
 
-    pub async fn for_each_proxy<F>(&self, f: F)
-    where
-        F: AsyncFn(&Proxy),
-    {
-        self.proxy.as_ref().unwrap().for_each(f).await
+        pub async fn for_each_proxy<F>(&self, f: F)
+        where
+            F: AsyncFn(&Proxy),
+        {
+            self.proxy.as_ref().unwrap().for_each(f).await
+        }
     }
 }
 
@@ -388,6 +404,7 @@ where
     pub stream: bool,
     pub name: Option<String>,
     pub version: Option<VersionInfo>,
+    #[cfg(not(target_arch = "wasm32"))]
     pub proxy: bool,
     pub api_client: Option<crate::utils::TestClient>,
     pub commit_log_worker: bool,
@@ -426,6 +443,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             stream: false,
             name: None,
             version: None,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: false,
             api_client: None,
             commit_log_worker: true, // Default to enabled to match production
@@ -459,6 +477,7 @@ where
             stream: self.stream,
             name: self.name,
             version: self.version,
+            #[cfg(not(target_arch = "wasm32"))]
             proxy: self.proxy,
             api_client: self.api_client,
             commit_log_worker: self.commit_log_worker,
@@ -625,6 +644,7 @@ where
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn proxy(mut self) -> Self {
         self.proxy = true;
         self

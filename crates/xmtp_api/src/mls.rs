@@ -1,6 +1,6 @@
 use crate::{ApiClientWrapper, ApiError, PublishUnit, Result, dyn_err};
 use std::collections::HashMap;
-use xmtp_api_d14n::envelope::*;
+use xmtp_api_backend::envelope::*;
 use xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT;
 use xmtp_proto::{
     api_client::{XmtpBackendClient, XmtpMlsStreams},

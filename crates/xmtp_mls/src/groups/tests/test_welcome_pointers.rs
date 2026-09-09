@@ -14,10 +14,10 @@ use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
 };
-use xmtp_proto::mls_v1::WelcomeMetadata;
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
 use xmtp_proto::xmtp::mls::database::Task as DbTask;
 use xmtp_proto::xmtp::mls::database::task::Task as DbTaskKind;
+use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,

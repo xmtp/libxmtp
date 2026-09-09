@@ -520,10 +520,10 @@ mod tests {
     use xmtp_db::{MemoryStorage, mock::MockDbQuery, sql_key_store::mock::MockSqlKeyStore};
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::mls_ext::payload_encryption::wrap_payload_hpke;
-    use xmtp_proto::mls_v1::WelcomeMetadata;
     use xmtp_proto::types::{
         Cursor, GroupId, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
     };
+    use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 
     fn generate_welcome(
         id: u64,

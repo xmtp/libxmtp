@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tsify::Tsify;
 use wasm_bindgen::prelude::{JsError, wasm_bindgen};
 use xmtp_api::{ApiClientWrapper, strategies};
-use xmtp_api_d14n::MessageBackendBuilder;
+use xmtp_api_backend::MessageBackendBuilder;
 use xmtp_id::associations::builder::SignatureRequest;
 use xmtp_id::associations::{
   AccountId,

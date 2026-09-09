@@ -63,7 +63,7 @@ pub enum ApiError {
     InvalidEnvelope(#[from] xmtp_mls_validation::ValidationError),
     /// A returned backend envelope cannot be decoded. Not retryable.
     #[error(transparent)]
-    Envelope(#[from] xmtp_api_d14n::envelope::EnvelopeError),
+    Envelope(#[from] xmtp_api_backend::envelope::EnvelopeError),
     /// Proto conversion error.
     ///
     /// Protobuf conversion failed. Not retryable.

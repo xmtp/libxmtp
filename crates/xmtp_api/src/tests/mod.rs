@@ -9,7 +9,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use xmtp_api_d14n::MockBackendClient;
+use xmtp_api_backend::MockBackendClient;
 use xmtp_api_grpc::error::GrpcError;
 use xmtp_common::{ExponentialBackoff, Retry, RetryableError, time::Duration};
 use xmtp_configuration::*;
@@ -514,7 +514,7 @@ fn group_decoder_keeps_payload_and_envelope_hashes_separate() {
             unreachable!()
         };
         let metadata = meta(&envelope, 9);
-        let decoded = xmtp_api_d14n::envelope::decode_group_message(wire::ServerEnvelope {
+        let decoded = xmtp_api_backend::envelope::decode_group_message(wire::ServerEnvelope {
             meta: Some(metadata.clone()),
             envelope: Some(envelope.clone()),
         })?;
@@ -548,7 +548,7 @@ fn welcome_decoder_retains_pointer_payload() {
         xmtp_proto::xmtp::mls::message_contents::WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6
             as i32;
     let metadata = meta(&envelope, 8);
-    let decoded = xmtp_api_d14n::envelope::decode_welcome_message(wire::ServerEnvelope {
+    let decoded = xmtp_api_backend::envelope::decode_welcome_message(wire::ServerEnvelope {
         meta: Some(metadata),
         envelope: Some(envelope),
     })?;

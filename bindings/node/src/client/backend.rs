@@ -4,7 +4,7 @@ use crate::client::options::XmtpEnv;
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 use std::sync::{Arc, Mutex};
-use xmtp_api_d14n::ClientBundleBuilder;
+use xmtp_api_backend::ClientBundleBuilder;
 
 #[xmtp_macro::napi_builder]
 pub struct BackendBuilder {
@@ -80,7 +80,7 @@ impl BackendBuilder {
       .readonly(self.readonly.unwrap_or(false))
       .app_version(app_version.clone())
       .maybe_auth_callback(
-        auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_d14n::AuthCallback>),
+        auth_callback.map(|c| Arc::new(c) as Arc<dyn xmtp_api_backend::AuthCallback>),
       )
       .maybe_auth_handle(auth_handle.map(|h: AuthHandle| h.into()));
 

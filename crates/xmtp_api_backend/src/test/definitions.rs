@@ -3,7 +3,7 @@ use xmtp_api_grpc::{
     ClientBuilder, GrpcClient,
     test::{BackendTestClient, ToxicBackendTestClient},
 };
-use xmtp_proto::api_client::{ApiBuilder, ToxicProxies, ToxicTestClient, XmtpTestClient};
+use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
 pub type TestClient = TrackedStatsClient<BackendClient<GrpcClient>>;
 pub struct TestClientBuilder(ClientBuilder);
@@ -27,9 +27,12 @@ impl XmtpTestClient for ToxicTestClientCreator {
         TestClientBuilder(ToxicBackendTestClient::create())
     }
 }
-#[xmtp_common::async_trait]
-impl ToxicTestClient for ToxicTestClientCreator {
-    async fn proxies() -> ToxicProxies {
-        ToxicBackendTestClient::proxies().await
+xmtp_common::if_native! {
+    use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
+    #[xmtp_common::async_trait]
+    impl ToxicTestClient for ToxicTestClientCreator {
+        async fn proxies() -> ToxicProxies {
+            ToxicBackendTestClient::proxies().await
+        }
     }
 }

@@ -218,12 +218,12 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                         return Err(ApiError::InvalidResponse("publish metadata count"));
                     }
                     for (meta, envelope) in response.envelope_metas.iter().zip(expected) {
-                        let hash = xmtp_api_d14n::envelope::message_hash(meta)?;
+                        let hash = xmtp_api_backend::envelope::message_hash(meta)?;
                         if hash != envelope.canonical.hash {
                             return Err(ApiError::HashMismatch);
                         }
                         let (topic, _, _) =
-                            xmtp_api_d14n::envelope::metadata(meta, envelope.topic.kind())?;
+                            xmtp_api_backend::envelope::metadata(meta, envelope.topic.kind())?;
                         if topic != envelope.topic {
                             return Err(ApiError::InvalidResponse("publish topic"));
                         }
@@ -428,7 +428,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                             .as_ref()
                             .ok_or(ApiError::InvalidResponse("newest metadata"))?;
                         let (meta_topic, _, _) =
-                            xmtp_api_d14n::envelope::metadata(meta, topic.kind())?;
+                            xmtp_api_backend::envelope::metadata(meta, topic.kind())?;
                         if meta_topic != topic || (full && result.envelope.is_none()) {
                             return Err(ApiError::InvalidResponse("newest envelope"));
                         }
