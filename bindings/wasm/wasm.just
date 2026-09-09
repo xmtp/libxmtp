@@ -59,3 +59,4 @@ _build-test:
     nix build .#wasm-bindings-test
     mkdir -p {{ justfile_directory() }}/bindings/wasm/dist
     cp -r result/dist/* {{ justfile_directory() }}/bindings/wasm/dist
+    chmod -R u+w {{ justfile_directory() }}/bindings/wasm/dist

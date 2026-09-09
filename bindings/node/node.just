@@ -43,6 +43,7 @@ test-ci:
     nix build .#packages.{{ nix_system }}.node-bindings-test
     ../../dev/ci/warm-deps .#packages.{{ nix_system }}.node-bindings-test
     cp -r result/dist dist
+    chmod -R u+w dist
     yarn vitest run
 
 # Build Node.js NAPI bindings (alias)
