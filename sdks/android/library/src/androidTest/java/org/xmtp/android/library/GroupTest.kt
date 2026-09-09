@@ -578,12 +578,14 @@ class GroupTest : BaseInstrumentedTest() {
             boGroup.send("hello3")
             alixGroup.sync()
         }
-        // Wait for the messages themselves. A fixed sleep races a loaded
-        // emulator, where the last message arrives after the delay.
+        // messages() reads local storage, so sync on each attempt. A fixed
+        // sleep races a loaded emulator, where the last message lands after
+        // the delay.
         runBlocking {
             withTimeout(30_000) {
                 while (alixGroup.messages().size < secondMsgCheck) {
                     delay(100)
+                    alixGroup.sync()
                 }
             }
         }
