@@ -117,8 +117,10 @@ check("same trace contains libxmtp and xmtp-backend spans", cross_service_trace)
 
 source = Path("apps/backend/src/telemetry.rs").read_text().split("pub const CATALOGUE:", 1)[1].split("];", 1)[0]
 catalogue = re.findall(r'name: "([^"]+)",\s*kind: MetricType::(\w+),\s*help: "([^"]+)"', source)
-if not catalogue:
-    sys.exit("FAIL: parse backend CATALOGUE")
+# A partial parse would check fewer metrics and still pass, so every entry must match.
+declared = source.count("MetricSpec {")
+if not catalogue or len(catalogue) != declared:
+    sys.exit(f"FAIL: parsed {len(catalogue)} of {declared} backend CATALOGUE entries")
 
 
 def catalogue_metadata(deadline):

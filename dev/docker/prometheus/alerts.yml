@@ -87,14 +87,6 @@ groups:
           severity: warn
         annotations:
           summary: "A connection was released with an open transaction."
-      - alert: ReplicaLagHigh
-        expr: >-
-          xmtp_replica_replay_delay_seconds > 5
-        for: 2m
-        labels:
-          severity: page
-        annotations:
-          summary: "Replica replay delay exceeds five seconds."
       - alert: ReplicaSequenceLag
         expr: >-
           (xmtp_sequence_id{database="primary"} - ignoring (database) xmtp_sequence_id{database="read"}) > 10000

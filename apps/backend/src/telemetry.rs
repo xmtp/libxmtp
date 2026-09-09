@@ -102,11 +102,6 @@ pub const CATALOGUE: &[MetricSpec] = &[
         help: "Greatest committed envelope sequence id.",
     },
     MetricSpec {
-        name: "xmtp_replica_replay_delay_seconds",
-        kind: MetricType::Gauge,
-        help: "Replica replay delay while WAL remains unapplied.",
-    },
-    MetricSpec {
         name: "xmtp_publish_envelopes_total",
         kind: MetricType::Counter,
         help: "Publish input positions by response origin.",
@@ -289,7 +284,28 @@ pub fn describe() {
             MetricType::Histogram => metrics::describe_histogram!(spec.name, spec.help),
         }
     }
-    metrics_process::Collector::default().describe();
+    process_collector().describe();
+}
+
+/// `metrics-process` covers the platforms the backend runs on. Elsewhere the
+/// `process_*` metrics are absent and every call here does nothing.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+fn process_collector() -> metrics_process::Collector {
+    metrics_process::Collector::default()
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn process_collector() -> ProcessCollector {
+    ProcessCollector
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+struct ProcessCollector;
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+impl ProcessCollector {
+    fn describe(&self) {}
+    fn collect(&self) {}
 }
 
 pub fn ready(serving: bool) {
@@ -315,7 +331,7 @@ pub(crate) fn spawn_sampler(
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let process = metrics_process::Collector::default();
+        let process = process_collector();
         loop {
             interval.tick().await;
             let Some(store) = store.upgrade() else { break };
@@ -349,7 +365,7 @@ async fn sample_store(store: &Store) {
             (pool.size() as usize).saturating_sub(idle),
             pool.options().get_max_connections(),
         );
-        match sqlx::query_scalar::<_, Option<i64>>("SELECT max(sequence_id) FROM envelopes")
+        match sqlx::query_scalar!(r#"SELECT max(sequence_id) FROM envelopes"#)
             .fetch_one(pool)
             .await
         {
@@ -360,14 +376,6 @@ async fn sample_store(store: &Store) {
             } else {
                 "read_sequence"
             }),
-        }
-    }
-    if replica {
-        match sqlx::query_scalar::<_, Option<f64>>("SELECT CASE WHEN pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn() THEN 0::double precision ELSE extract(epoch FROM now() - pg_last_xact_replay_timestamp())::double precision END")
-            .fetch_one(&store.read).await {
-            Ok(Some(delay)) => gauge!("xmtp_replica_replay_delay_seconds").set(delay),
-            Ok(None) => {},
-            Err(_) => sampler_failed("replica_replay_delay"),
         }
     }
 }

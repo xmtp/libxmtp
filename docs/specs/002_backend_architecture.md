@@ -173,7 +173,6 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `xmtp_db_released_open_transactions_total` | counter | Open transactions rolled back on pool release. |
 | `xmtp_db_errors_total` | counter | Database errors mapped to RPC statuses. |
 | `xmtp_sequence_id` | gauge | Greatest committed envelope sequence id. |
-| `xmtp_replica_replay_delay_seconds` | gauge | Replica replay delay while WAL remains unapplied. |
 | `xmtp_publish_envelopes_total` | counter | Publish input positions by response origin. |
 | `xmtp_publish_rejections_total` | counter | Rejected publishes by validation reason. |
 | `xmtp_scw_verifications_total` | counter | Smart contract wallet verification results. |

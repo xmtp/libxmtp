@@ -1456,46 +1456,6 @@
       "id": 39
     },
     {
-      "title": "Replica lag (seconds)",
-      "type": "timeseries",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "expr": "xmtp_replica_replay_delay_seconds",
-          "legendFormat": "{{instance}}",
-          "range": true,
-          "instant": false,
-          "exemplar": true
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi"
-        }
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 98,
-        "w": 8,
-        "h": 8
-      },
-      "id": 40
-    },
-    {
       "title": "Boundary results",
       "type": "timeseries",
       "datasource": {

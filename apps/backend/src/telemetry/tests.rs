@@ -154,11 +154,6 @@ async fn primary_only_sampler_keeps_last_sequence_on_timeout_and_recovers_next_t
     let output = metrics.render();
     assert!(!output.contains("pool=\"read\""));
     assert!(!output.contains("database=\"read\""));
-    assert!(
-        !output
-            .lines()
-            .any(|line| line.starts_with("xmtp_replica_replay_delay_seconds"))
-    );
     assert!(output.contains("xmtp_db_pool_connections{pool=\"primary\",state=\"idle\"}"));
     for name in [
         "tokio_runtime_workers",
