@@ -24,11 +24,6 @@ fn replica(config: &mut Config) {
 #[xmtp_common::test(unwrap_try = true)]
 async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let _replay = REPLAY.lock().await;
-    let Some(metrics) = support::metrics::isolated(
-        "stream::tests::replica::paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows",
-    ) else {
-        return;
-    };
     let server = TestServer::new(replica).await?;
     let read = server.backend.store.read.clone();
     let (meta, mut stream) = with_paused_replay(&read, async {
@@ -63,22 +58,10 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     assert!(
         matches!(stream.next().await?, Frame::Applied(applied) if applied.added_targets[0].through_sequence_id == 0)
     );
-        // The production sampler must observe the new primary row within two sample intervals.
-        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(10), xmtp_common::wait_for_some(|| async {
-            (support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "primary")]) == id as f64).then_some(())
-        })).await?.ok_or("primary sequence id was not sampled")?;
-        assert_eq!(support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "primary")]), id as f64);
-        assert_eq!(support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "read")]), 0.0);
         Ok((meta, stream))
     }).await?;
     let rows = stream.messages(1).await?;
     assert_eq!(rows[0].meta, Some(meta));
-    xmtp_common::wait_for_eq(
-        || async { support::metrics::value(&metrics, "xmtp_sequence_id", &[("database", "read")]) },
-        1.0,
-    )
-    .await?;
-    assert!(metrics.render().contains("pool=\"read\""));
     drop(stream);
     server.stop().await?;
 }

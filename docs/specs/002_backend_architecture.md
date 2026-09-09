@@ -155,7 +155,7 @@ The required operation span names are `db.commit_publish`, `db.find_duplicates`,
 
 ### Backend metric catalogue
 
-Shared logging emits operation-span and export-failure metrics. The backend catalogue describes these metrics. The process collector describes its platform-specific `process_*` metrics.
+Shared logging emits operation-span and export-failure metrics. The backend catalogue describes these metrics.
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
@@ -167,12 +167,8 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `grpc_server_in_flight` | gauge | gRPC requests in flight. |
 | `grpc_server_request_bytes_total` | counter | Consumed gRPC request body bytes. |
 | `grpc_server_response_bytes_total` | counter | Emitted gRPC response body bytes. |
-| `xmtp_telemetry_sampler_errors_total` | counter | Failed telemetry samples. |
-| `xmtp_db_pool_connections` | gauge | Database pool connections by state. |
-| `xmtp_db_pool_max_connections` | gauge | Database pool connection limit. |
 | `xmtp_db_released_open_transactions_total` | counter | Open transactions rolled back on pool release. |
 | `xmtp_db_errors_total` | counter | Database errors mapped to RPC statuses. |
-| `xmtp_sequence_id` | gauge | Greatest committed envelope sequence id. |
 | `xmtp_publish_envelopes_total` | counter | Publish input positions by response origin. |
 | `xmtp_publish_rejections_total` | counter | Rejected publishes by validation reason. |
 | `xmtp_scw_verifications_total` | counter | Smart contract wallet verification results. |
@@ -183,9 +179,7 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `xmtp_stream_envelopes_sent_total` | counter | Stream envelopes admitted by delivery phase. |
 | `xmtp_stream_updates_total` | counter | Stream interest update results. |
 | `xmtp_stream_ended_total` | counter | Stream sessions ended by reason. |
-| `xmtp_stream_delivery_lag_seconds` | histogram | Live envelope age at outbound admission. |
 | `xmtp_stream_outbound_wait_seconds` | histogram | Time waiting for outbound capacity. |
-| `xmtp_stream_fetch_workers_in_use` | gauge | Occupied stream fetch permits. |
 | `xmtp_stream_fetch_wait_seconds` | histogram | Time waiting for a stream fetch permit. |
 | `xmtp_tailer_polls_total` | counter | Tailer poll results. |
 | `xmtp_tailer_rows_total` | counter | Tailer rows read by source. |
@@ -195,10 +189,6 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `xmtp_boundary_advances_total` | counter | Allocation boundary advance results. |
 | `xmtp_backend_ready` | gauge | Whether the backend reports Serving. |
 | `xmtp_backend_info` | gauge | Backend build version. |
-| `tokio_runtime_workers` | gauge | Tokio runtime worker threads. |
-| `tokio_runtime_alive_tasks` | gauge | Tokio runtime alive tasks. |
-| `tokio_runtime_global_queue_depth` | gauge | Tokio runtime global queue depth. |
-| `tokio_runtime_worker_busy_seconds_total` | gauge | Cumulative busy seconds across Tokio workers. |
 
 ## 8. Configuration
 

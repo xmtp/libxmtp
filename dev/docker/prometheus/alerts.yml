@@ -72,14 +72,6 @@ groups:
           severity: warn
         annotations:
           summary: "Publish lock wait is high."
-      - alert: PoolSaturated
-        expr: >-
-          max by (instance, pool) (xmtp_db_pool_connections{state="busy"} / on (instance, pool) xmtp_db_pool_max_connections) > 0.9
-        for: 5m
-        labels:
-          severity: page
-        annotations:
-          summary: "Database pool usage exceeds 90%."
       - alert: LeakedTransactions
         expr: >-
           increase(xmtp_db_released_open_transactions_total[10m]) > 0
@@ -87,14 +79,6 @@ groups:
           severity: warn
         annotations:
           summary: "A connection was released with an open transaction."
-      - alert: ReplicaSequenceLag
-        expr: >-
-          (xmtp_sequence_id{database="primary"} - ignoring (database) xmtp_sequence_id{database="read"}) > 10000
-        for: 5m
-        labels:
-          severity: warn
-        annotations:
-          summary: "Replica sequence lag exceeds 10000."
       - alert: TailerRestarting
         expr: >-
           increase(xmtp_tailer_restarts_total[10m]) > 2
@@ -117,14 +101,6 @@ groups:
           severity: warn
         annotations:
           summary: "Boundary lock timeouts exceed successful advances."
-      - alert: DeliveryLagHigh
-        expr: >-
-          histogram_quantile(0.99, sum by (le) (rate(xmtp_stream_delivery_lag_seconds_bucket[5m]))) > 2
-        for: 5m
-        labels:
-          severity: warn
-        annotations:
-          summary: "Stream delivery p99 exceeds two seconds."
       - alert: StreamsFailing
         expr: >-
           sum(rate(xmtp_stream_ended_total{reason=~"backpressure|capacity|tailer|database"}[5m])) > 0.1
@@ -132,13 +108,6 @@ groups:
           severity: warn
         annotations:
           summary: "Stream failure rate is high."
-      - alert: FetchWorkersSaturated
-        expr: >-
-          avg_over_time(xmtp_stream_fetch_workers_in_use[5m]) >= 7
-        labels:
-          severity: warn
-        annotations:
-          summary: "Stream fetch workers are near capacity."
       - alert: ChainRpcFailing
         expr: >-
           sum(rate(xmtp_scw_verifications_total{result="error"}[5m])) / sum(rate(xmtp_scw_verifications_total[5m])) > 0.1
@@ -155,35 +124,3 @@ groups:
           severity: warn
         annotations:
           summary: "Telemetry export fails."
-      - alert: SamplerFailing
-        expr: >-
-          rate(xmtp_telemetry_sampler_errors_total[5m]) > 0
-        for: 10m
-        labels:
-          severity: warn
-        annotations:
-          summary: "Telemetry sampler fails."
-      - alert: CpuSaturated
-        expr: >-
-          sum by (instance) (rate(tokio_runtime_worker_busy_seconds_total[5m])) / on (instance) tokio_runtime_workers > 0.85
-        for: 10m
-        labels:
-          severity: warn
-        annotations:
-          summary: "Tokio worker usage exceeds 85%."
-      - alert: MemoryGrowing
-        expr: >-
-          predict_linear(process_resident_memory_bytes[1h], 6*3600) > 2147483648
-        for: 30m
-        labels:
-          severity: warn
-        annotations:
-          summary: "Memory is projected to exceed 2 GiB within six hours."
-      - alert: TaskLeak
-        expr: >-
-          deriv(tokio_runtime_alive_tasks[30m]) > 0 and on (instance) sum by (instance) (delta(xmtp_stream_sessions[30m])) <= 0
-        for: 1h
-        labels:
-          severity: warn
-        annotations:
-          summary: "Task count grows without stream growth."

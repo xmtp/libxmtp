@@ -52,12 +52,6 @@ xmtp_logging = { workspace = true, features = ["metrics"] }
 xmtp_mls_validation.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 
-# `metrics-process` supports Linux, macOS, and Windows only. The backend runs on
-# none of the other targets, but Nix builds every workspace dependency for the
-# Android and iOS bindings, so the dependency stays out of those builds.
-[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
-metrics-process.workspace = true
-
 [dev-dependencies]
 h2 = "0.4"
 http.workspace = true

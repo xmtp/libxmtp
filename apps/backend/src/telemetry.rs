@@ -1,21 +1,12 @@
 //! Backend metric catalogue and bounded recording helpers.
-use crate::db::Store;
 use metrics::{counter, gauge, histogram};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Weak},
-    time::Duration,
-};
-use tokio::{runtime::Handle, sync::Semaphore};
+use std::{net::SocketAddr, time::Duration};
 
 pub const LATENCY_BUCKETS: &[f64] = &[
     0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
-const DELIVERY_BUCKETS: &[f64] = &[
-    0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0,
-];
-const SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
+const UPKEEP_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug)]
 pub enum MetricType {
@@ -72,21 +63,6 @@ pub const CATALOGUE: &[MetricSpec] = &[
         help: "Emitted gRPC response body bytes.",
     },
     MetricSpec {
-        name: "xmtp_telemetry_sampler_errors_total",
-        kind: MetricType::Counter,
-        help: "Failed telemetry samples.",
-    },
-    MetricSpec {
-        name: "xmtp_db_pool_connections",
-        kind: MetricType::Gauge,
-        help: "Database pool connections by state.",
-    },
-    MetricSpec {
-        name: "xmtp_db_pool_max_connections",
-        kind: MetricType::Gauge,
-        help: "Database pool connection limit.",
-    },
-    MetricSpec {
         name: "xmtp_db_released_open_transactions_total",
         kind: MetricType::Counter,
         help: "Open transactions rolled back on pool release.",
@@ -95,11 +71,6 @@ pub const CATALOGUE: &[MetricSpec] = &[
         name: "xmtp_db_errors_total",
         kind: MetricType::Counter,
         help: "Database errors mapped to RPC statuses.",
-    },
-    MetricSpec {
-        name: "xmtp_sequence_id",
-        kind: MetricType::Gauge,
-        help: "Greatest committed envelope sequence id.",
     },
     MetricSpec {
         name: "xmtp_publish_envelopes_total",
@@ -152,19 +123,9 @@ pub const CATALOGUE: &[MetricSpec] = &[
         help: "Stream sessions ended by reason.",
     },
     MetricSpec {
-        name: "xmtp_stream_delivery_lag_seconds",
-        kind: MetricType::Histogram,
-        help: "Live envelope age at outbound admission.",
-    },
-    MetricSpec {
         name: "xmtp_stream_outbound_wait_seconds",
         kind: MetricType::Histogram,
         help: "Time waiting for outbound capacity.",
-    },
-    MetricSpec {
-        name: "xmtp_stream_fetch_workers_in_use",
-        kind: MetricType::Gauge,
-        help: "Occupied stream fetch permits.",
     },
     MetricSpec {
         name: "xmtp_stream_fetch_wait_seconds",
@@ -211,26 +172,6 @@ pub const CATALOGUE: &[MetricSpec] = &[
         kind: MetricType::Gauge,
         help: "Backend build version.",
     },
-    MetricSpec {
-        name: "tokio_runtime_workers",
-        kind: MetricType::Gauge,
-        help: "Tokio runtime worker threads.",
-    },
-    MetricSpec {
-        name: "tokio_runtime_alive_tasks",
-        kind: MetricType::Gauge,
-        help: "Tokio runtime alive tasks.",
-    },
-    MetricSpec {
-        name: "tokio_runtime_global_queue_depth",
-        kind: MetricType::Gauge,
-        help: "Tokio runtime global queue depth.",
-    },
-    MetricSpec {
-        name: "tokio_runtime_worker_busy_seconds_total",
-        kind: MetricType::Gauge,
-        help: "Cumulative busy seconds across Tokio workers.",
-    },
 ];
 
 /// Install before logging so the first closed span has a recorder.
@@ -244,7 +185,7 @@ pub fn install(
         let upkeep = handle.clone();
         tokio::spawn(async move {
             loop {
-                xmtp_common::time::sleep(SAMPLE_INTERVAL).await;
+                xmtp_common::time::sleep(UPKEEP_INTERVAL).await;
                 upkeep.run_upkeep();
             }
         });
@@ -268,11 +209,7 @@ pub fn install(
 pub(crate) fn recorder_builder()
 -> Result<PrometheusBuilder, metrics_exporter_prometheus::BuildError> {
     PrometheusBuilder::new()
-        .set_buckets_for_metric(Matcher::Suffix("_seconds".into()), LATENCY_BUCKETS)?
-        .set_buckets_for_metric(
-            Matcher::Full("xmtp_stream_delivery_lag_seconds".into()),
-            DELIVERY_BUCKETS,
-        )
+        .set_buckets_for_metric(Matcher::Suffix("_seconds".into()), LATENCY_BUCKETS)
 }
 
 /// Register descriptions once, independently of whether any series exists yet.
@@ -284,28 +221,6 @@ pub fn describe() {
             MetricType::Histogram => metrics::describe_histogram!(spec.name, spec.help),
         }
     }
-    process_collector().describe();
-}
-
-/// `metrics-process` covers the platforms the backend runs on. Elsewhere the
-/// `process_*` metrics are absent and every call here does nothing.
-#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-fn process_collector() -> metrics_process::Collector {
-    metrics_process::Collector::default()
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-fn process_collector() -> ProcessCollector {
-    ProcessCollector
-}
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-struct ProcessCollector;
-
-#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-impl ProcessCollector {
-    fn describe(&self) {}
-    fn collect(&self) {}
 }
 
 pub fn ready(serving: bool) {
@@ -316,73 +231,6 @@ pub fn info(version: &'static str) {
 }
 pub(crate) fn released_open_transaction() {
     counter!("xmtp_db_released_open_transactions_total").increment(1);
-}
-fn sampler_failed(sample: &'static str) {
-    counter!("xmtp_telemetry_sampler_errors_total", "sample" => sample).increment(1);
-}
-
-/// Sample through weak ownership. No database handle survives the interval wait.
-pub(crate) fn spawn_sampler(
-    store: Weak<Store>,
-    fetches: Arc<Semaphore>,
-    total_permits: usize,
-    runtime: Handle,
-) {
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(SAMPLE_INTERVAL);
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        let process = process_collector();
-        loop {
-            interval.tick().await;
-            let Some(store) = store.upgrade() else { break };
-            sample_store(&store).await;
-            process.collect();
-            let metrics = runtime.metrics();
-            gauge!("tokio_runtime_workers").set(metrics.num_workers() as f64);
-            gauge!("tokio_runtime_alive_tasks").set(metrics.num_alive_tasks() as f64);
-            gauge!("tokio_runtime_global_queue_depth").set(metrics.global_queue_depth() as f64);
-            let busy: f64 = (0..metrics.num_workers())
-                .map(|worker| metrics.worker_total_busy_duration(worker).as_secs_f64())
-                .sum();
-            gauge!("tokio_runtime_worker_busy_seconds_total").set(busy);
-            gauge!("xmtp_stream_fetch_workers_in_use")
-                .set(total_permits.saturating_sub(fetches.available_permits()) as f64);
-        }
-    });
-}
-
-/// Pool connections already enforce the configured statement timeout.
-async fn sample_store(store: &Store) {
-    let replica = !std::ptr::eq(store.primary.options(), store.read.options());
-    for (name, pool) in [("primary", &store.primary), ("read", &store.read)] {
-        if name == "read" && !replica {
-            continue;
-        }
-        let idle = pool.num_idle();
-        pool_sampled(
-            name,
-            idle,
-            (pool.size() as usize).saturating_sub(idle),
-            pool.options().get_max_connections(),
-        );
-        match sqlx::query_scalar!(r#"SELECT max(sequence_id) FROM envelopes"#)
-            .fetch_one(pool)
-            .await
-        {
-            Ok(sequence) => gauge!("xmtp_sequence_id", "database" => name)
-                .set(sequence.unwrap_or_default() as f64),
-            Err(_) => sampler_failed(if name == "primary" {
-                "primary_sequence"
-            } else {
-                "read_sequence"
-            }),
-        }
-    }
-}
-fn pool_sampled(pool: &'static str, idle: usize, busy: usize, maximum: u32) {
-    gauge!("xmtp_db_pool_connections", "pool" => pool, "state" => "idle").set(idle as f64);
-    gauge!("xmtp_db_pool_connections", "pool" => pool, "state" => "busy").set(busy as f64);
-    gauge!("xmtp_db_pool_max_connections", "pool" => pool).set(maximum as f64);
 }
 
 /// RPC labels come only from this fixed route table.
@@ -682,11 +530,6 @@ pub(crate) fn stream_updated(outcome: UpdateOutcome) {
 }
 pub(crate) fn stream_ended(reason: crate::stream::StreamEnd) {
     counter!("xmtp_stream_ended_total", "reason" => reason.as_str()).increment(1);
-}
-pub(crate) fn stream_live_admitted(admitted_ns: i64, server_ns: u64) {
-    let lag = (admitted_ns.max(0) as u64).saturating_sub(server_ns);
-    histogram!("xmtp_stream_delivery_lag_seconds")
-        .record(lag as f64 / xmtp_common::NS_IN_SEC as f64);
 }
 pub(crate) fn stream_outbound_waited(wait: Duration) {
     if !wait.is_zero() {

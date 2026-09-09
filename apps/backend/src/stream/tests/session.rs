@@ -169,11 +169,6 @@ async fn fixed_target_history_hands_off_to_live_in_order() {
         &[("phase", "live")],
     );
     assert!(live >= 1.0);
-    assert_eq!(
-        support::metrics::value(&metrics, "xmtp_stream_delivery_lag_seconds_count", &[]),
-        live
-    );
-    assert!(support::metrics::value(&metrics, "xmtp_stream_delivery_lag_seconds_sum", &[]) >= 0.0);
     server.stop().await?;
 }
 

@@ -786,14 +786,6 @@ impl Session {
         phase: DeliveryPhase,
     ) -> Result<(), Status> {
         let count = envelopes.len();
-        let server_times: Vec<_> = if matches!(phase, DeliveryPhase::Live) {
-            envelopes
-                .iter()
-                .filter_map(|envelope| envelope.meta.as_ref().map(|meta| meta.server_ns))
-                .collect()
-        } else {
-            Vec::new()
-        };
         let value = if self.static_subscription {
             WireResponse::Static(api::SubscribeStaticResponse {
                 response: Some(api::subscribe_static_response::Response::Messages(
@@ -812,10 +804,6 @@ impl Session {
         }
         self.admit(value, reservation, None)?;
         telemetry::stream_envelopes_sent(phase, count);
-        let admitted = xmtp_common::time::now_ns();
-        for server_ns in server_times {
-            telemetry::stream_live_admitted(admitted, server_ns);
-        }
         Ok(())
     }
 

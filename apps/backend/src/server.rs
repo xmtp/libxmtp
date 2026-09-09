@@ -47,12 +47,6 @@ pub async fn initialize(
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier);
-    crate::telemetry::spawn_sampler(
-        std::sync::Arc::downgrade(&backend.store),
-        streams.fetches.clone(),
-        crate::stream::FETCH_WORKERS,
-        tokio::runtime::Handle::current(),
-    );
     backend.streams = Some(streams);
     Ok(backend)
 }

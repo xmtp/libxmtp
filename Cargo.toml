@@ -72,7 +72,6 @@ gloo-timers = "0.4"
 hex = { package = "const-hex", version = "1.19" }
 metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
-metrics-process = "2.4.3"
 metrics-util = "0.20.4"
 # must stay on this version for compatibility with sha2 and ed25519_dalek
 hkdf = "0.12.4"
