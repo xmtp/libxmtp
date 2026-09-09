@@ -91,7 +91,7 @@ Replicas are supported from day one. Each configured replica URL names one physi
 | GetInboxIds | Replica, or primary when none is configured |
 | VerifySmartContractWalletSignatures | Configured chain RPC |
 
-- ARC-060: Use one pool when there is no replica. With a replica, express endpoint routing once. After a replica connection loss, restart stream recovery; do not retain unproved tailer state across a database replacement.
+- ARC-060: Use one pool when there is no replica. With a replica, express endpoint routing once. A pool release hook must roll back open transactions and discard connections with aborted transactions before reuse. After a replica connection loss, restart stream recovery; do not retain unproved tailer state across a database replacement.
 - ARC-061: Query uses bounded per-topic index probes, with a per-topic `limit + 1` only for internal candidate selection and a final total `limit + 1` cut. The configured Query limit bounds the whole response. Compute `has_more` from the same snapshot and choose candidate IDs before loading payloads. Worst-case candidate work is topics times `limit + 1`; no fixed latency is promised without measurement.
 - ARC-062: A nonempty successful page advances at least one requested topic cursor. Leave other cursors unchanged. Coalesce duplicate inputs as spec 001 requires. The loop drains a finite result set; continuous publication need not terminate a paging loop.
 - ARC-063: Newest reads join watermarks and envelopes in one statement. Metadata-only results select all metadata but not the payload. Full results add the payload. Do not omit an existing topic to fit a successful response into the byte limit.

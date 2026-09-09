@@ -59,8 +59,9 @@ impl Drop for HistoryConnection {
             let slot = self.slot.take();
             tokio::spawn(async move {
                 // A pending statement error precedes ReadyForQuery. A second
-                // ping drains that response and the queued transaction rollback;
-                // it does not retry the statement. Never loop on a broken socket.
+                // ping drains the remaining responses without retrying the
+                // statement. The pool release hook handles untracked transactions.
+                // Never loop on a broken socket.
                 let mut result = connection.ping().await;
                 if matches!(result, Err(sqlx::Error::Database(_))) {
                     result = connection.ping().await;

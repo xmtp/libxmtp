@@ -3,7 +3,83 @@ use crate::{
     db::Store,
     test_support::{TestDatabase, TestServer},
 };
+use sqlx::Connection;
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_begin_returns_a_clean_connection() {
+    let database = TestDatabase::new()?;
+    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    config.database.max_connections = 1;
+    let store = Store::connect(&config).await?;
+    let mut connection = store.primary.acquire().await?;
+    let pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(&mut *connection)
+        .await?;
+    {
+        let mut begin = std::pin::pin!(
+            connection.begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        );
+        assert!(futures::poll!(&mut begin).is_pending());
+    }
+    drop(connection);
+
+    let mut connection = store.primary.acquire().await?;
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+            .fetch_one(&mut *connection)
+            .await?,
+        pid,
+        "an open transaction must be rolled back without replacing the connection"
+    );
+    let mut tx = connection
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
+        .await?;
+    let sequence = sqlx::query_scalar::<_, i64>("SELECT nextval('envelope_sequence')")
+        .fetch_one(&mut *tx)
+        .await?;
+    assert!(sequence > 0);
+    tx.rollback().await?;
+    drop(connection);
+    store.primary.close().await;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn aborted_transaction_is_replaced_before_pool_reuse() {
+    let database = TestDatabase::new()?;
+    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    config.database.max_connections = 1;
+    let store = Store::connect(&config).await?;
+    let mut connection = store.primary.acquire().await?;
+    let pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(&mut *connection)
+        .await?;
+    sqlx::query("BEGIN").execute(&mut *connection).await?;
+    let error = sqlx::query("SELECT 1 / 0")
+        .execute(&mut *connection)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(error, sqlx::Error::Database(error) if error.code().as_deref() == Some("22012"))
+    );
+    drop(connection);
+
+    let mut connection = store.primary.acquire().await?;
+    let replacement_pid = sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+        .fetch_one(&mut *connection)
+        .await?;
+    assert_ne!(replacement_pid, pid);
+    let mut tx = connection
+        .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
+        .await?;
+    let sequence = sqlx::query_scalar::<_, i64>("SELECT nextval('envelope_sequence')")
+        .fetch_one(&mut *tx)
+        .await?;
+    assert!(sequence > 0);
+    tx.rollback().await?;
+    drop(connection);
+    store.primary.close().await;
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn startup_rejects_retention_that_overflows_the_database_clock() {
