@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Opt-in shared Rust compilation cache for local development.
+#
+# Source this (do not execute it) in a shell before running cargo:
+#
+#   source dev/sccache-env
+#   cargo build
+#
+# Why: every git worktree keeps its own target/ directory, so N worktrees
+# rebuild the same dependencies N times. sccache gives them one shared cache
+# while each worktree keeps its own cargo lock, so parallel builds in
+# different worktrees still run at full width.
+#
+# Trade-off: sccache cannot cache incremental compilation, so this turns
+# incremental off. That is the right default for fresh worktrees, where
+# incremental has nothing to reuse. When you are hand-iterating on one crate
+# in one worktree, prefer incremental instead: re-export CARGO_INCREMENTAL=1
+# and unset RUSTC_WRAPPER.
+#
+# This file is never sourced automatically. CI and Nix package builds must not
+# use it: `nix build` runs in a sandbox where the cache is unreachable, and CI
+# sets its own sccache through .github/actions/setup-nix.
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+  echo "dev/sccache-env must be sourced, not executed:" >&2
+  echo "  source dev/sccache-env" >&2
+  exit 1
+fi
+
+if ! command -v sccache >/dev/null 2>&1; then
+  echo "sccache not found. Enter the dev shell first (nix develop, or direnv)." >&2
+  return 1
+fi
+
+# Bounded, self-evicting cache (LRU). Unlike target/, this has a real ceiling.
+export SCCACHE_DIR="${SCCACHE_DIR:-${HOME}/.cache/sccache}"
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-60G}"
+RUSTC_WRAPPER="$(command -v sccache)"
+export RUSTC_WRAPPER
+# Required: sccache cannot cache incremental artifacts.
+export CARGO_INCREMENTAL=0
+
+echo "sccache enabled: dir=${SCCACHE_DIR} max=${SCCACHE_CACHE_SIZE}"
+echo "  stats: sccache --show-stats | disable: unset RUSTC_WRAPPER CARGO_INCREMENTAL"

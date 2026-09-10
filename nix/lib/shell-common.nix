@@ -15,6 +15,7 @@
   cargo-deny,
   cargo-machete,
   cargo-hakari,
+  sccache,
   sqlx-cli,
   grpc-health-probe,
   lcov,
@@ -122,6 +123,9 @@ in
     cargo-hakari
     sqlx-cli
     grpc-health-probe
+    # Shared compilation cache across worktrees. Inert until RUSTC_WRAPPER is
+    # set; see dev/sccache-env and docs/nix-setup.md.
+    sccache
   ];
 
   # CI-only cargo tools (coverage — Linux only)
