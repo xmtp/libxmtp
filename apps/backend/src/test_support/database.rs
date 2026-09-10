@@ -9,6 +9,8 @@ mod tests;
 
 /// Own a unique disposable database. Synchronous, bounded cleanup uses a separate
 /// runtime so assertion failures and test-runtime teardown cannot cancel it.
+/// Each database operation and its runtime shutdown share a 5 s budget.
+/// Drop logs a failed cleanup with the database name. It does not raise the error.
 pub struct TestDatabase {
     name: Option<String>,
     admin_url: String,
@@ -40,6 +42,14 @@ impl TestDatabase {
         Ok(database)
     }
 
+    /// List database names on the server selected by DATABASE_URL.
+    pub async fn names() -> TestResult<Vec<String>> {
+        let mut admin = PgConnection::connect(&std::env::var("DATABASE_URL")?).await?;
+        Ok(sqlx::query_scalar("SELECT datname::text FROM pg_database")
+            .fetch_all(&mut admin)
+            .await?)
+    }
+
     pub fn url(&self) -> &str {
         &self.url
     }
@@ -60,8 +70,8 @@ impl TestDatabase {
 
 impl Drop for TestDatabase {
     fn drop(&mut self) {
-        if self.remove().is_err() {
-            tracing::error!("disposable test database cleanup failed");
+        if let Err(error) = self.remove() {
+            tracing::error!(database = self.name.as_deref(), %error, "disposable test database cleanup failed");
         }
     }
 }
@@ -71,11 +81,12 @@ impl Drop for TestDatabase {
 fn database_command(admin_url: &str, command: String) -> TestResult {
     let admin_url = admin_url.to_owned();
     std::thread::spawn(move || -> TestResult {
+        let started = xmtp_common::time::Instant::now();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
         let result = runtime.block_on(xmtp_common::time::timeout(
-            DATABASE_COMMAND_TIMEOUT,
+            DATABASE_COMMAND_TIMEOUT.saturating_sub(started.elapsed()),
             async {
                 let mut admin = PgConnection::connect(&admin_url).await?;
                 sqlx::raw_sql(sqlx::AssertSqlSafe(command))
@@ -84,7 +95,10 @@ fn database_command(admin_url: &str, command: String) -> TestResult {
                 Ok::<_, sqlx::Error>(())
             },
         ));
-        runtime.shutdown_timeout(RUNTIME_SHUTDOWN_TIMEOUT);
+        runtime.shutdown_timeout(
+            RUNTIME_SHUTDOWN_TIMEOUT
+                .min(DATABASE_COMMAND_TIMEOUT.saturating_sub(started.elapsed())),
+        );
         result??;
         Ok(())
     })

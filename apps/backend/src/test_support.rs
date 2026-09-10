@@ -1,9 +1,15 @@
 use crate::{Backend, api, config::Config, server};
 mod database;
+#[cfg(test)]
 pub(crate) mod metrics;
 pub use database::TestDatabase;
+// Only `apps/backend`'s own tests use these. Keep them out of the
+// `test-utils` surface that `xmtp_mls` consumes.
+#[cfg(test)]
 pub(crate) mod grpc_web;
+#[cfg(test)]
 pub(crate) mod native;
+#[cfg(test)]
 pub(crate) mod replica;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
@@ -38,6 +44,40 @@ pub struct RunningServer {
 impl TestServer {
     pub async fn new(change: impl FnOnce(&mut Config)) -> TestResult<Self> {
         Self::start(change, None).await
+    }
+
+    /// Apply partial TOML over defaults and resolve environment references.
+    /// The fixture owns the database URLs, so the TOML must not set them.
+    /// Validate before creating a database. Bind a loopback port chosen by the OS.
+    ///
+    /// `server.listen` is accepted and validated but has no effect: the fixture
+    /// always binds a loopback port chosen by the OS.
+    pub async fn from_toml(toml: &str) -> TestResult<Self> {
+        let mut value: toml::Table = toml::from_str(toml)?;
+        let database = value
+            .entry("database")
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        let database = database.as_table_mut().ok_or("database must be a table")?;
+        // Reject rather than overwrite. A silently dropped URL would give the
+        // caller a backend that does not match the configuration it supplied.
+        for field in ["url", "replica_url"] {
+            if database.contains_key(field) {
+                return Err(format!("database.{field} is owned by the fixture").into());
+            }
+        }
+        database.insert("url".into(), "postgres://localhost/ephemeral".into());
+        let mut value = toml::Value::Table(value);
+        crate::config::resolve_environment(&mut value)?;
+        let mut config: Config = value.try_into()?;
+        config.validate()?;
+        Self::start(
+            move |defaults| {
+                config.database.url = defaults.database.url.clone();
+                *defaults = config;
+            },
+            None,
+        )
+        .await
     }
 
     pub async fn with_verifier(

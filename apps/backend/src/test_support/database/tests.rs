@@ -48,3 +48,32 @@ async fn failed_initialization_errors_and_panics_leave_no_database_after_runtime
         );
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ephemeral_failed_drop_is_bounded_and_logs_database_name() {
+    use super::TestDatabase;
+    use xmtp_common::time::{Duration, Instant};
+
+    // Keep the listener open without serving Postgres to exercise the timeout.
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let mut database = TestDatabase::new()?;
+    let name = database.name.clone().unwrap();
+    let mut cleanup = TestDatabase {
+        name: database.name.clone(),
+        admin_url: database.admin_url.clone(),
+        url: database.url.clone(),
+    };
+    database.admin_url = format!("postgres://xmtp:xmtp@{}/stalled", listener.local_addr()?);
+    let started = Instant::now();
+    let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Error);
+    tracing::dispatcher::with_default(&capture.dispatch(), || drop(database));
+    let output = capture.output();
+    assert!(output.contains("disposable test database cleanup failed"));
+    assert!(output.contains(&name));
+    // The cleanup budget is 5 s. Allow generous scheduler delay on a loaded
+    // runner: the point is that cleanup is bounded, not its exact duration.
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(TestDatabase::names().await?.contains(&name));
+    cleanup.remove()?;
+    assert!(!TestDatabase::names().await?.contains(&name));
+}

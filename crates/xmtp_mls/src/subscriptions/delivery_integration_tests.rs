@@ -35,8 +35,11 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
         tcp_proxy::TcpProxy::start(tokio::net::lookup_host(address).await?.collect()).await?;
     let mut builder = xmtp_api_grpc::GrpcClient::builder();
     builder.set_host(format!("http://{}", proxy.address).parse()?);
+    // `TestClient` erases its transport, so the proxy client is erased too.
     let api = std::sync::Arc::new(xmtp_api_backend::TrackedStatsClient::new(
-        xmtp_api_backend::BackendClient::new(builder.build()?),
+        xmtp_api_backend::BackendClient::new(xmtp_proto::api::ToBoxedClient::arced(
+            builder.build()?,
+        )),
     ));
     tester!(alix, disable_workers);
     tester!(bo, api_client: api, disable_workers);

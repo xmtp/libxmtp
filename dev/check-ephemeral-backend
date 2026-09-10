@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""Check ephemeral backend dependency boundaries and test recipe environments."""
+
+import os
+from pathlib import Path
+import shlex
+import subprocess
+import sys
+
+DEFAULT_DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend"
+
+
+def main():
+    if sys.argv[1:2] == ["--assert-env"]:
+        assert os.environ["SQLX_OFFLINE"] == "true"
+        assert os.environ["DATABASE_URL"] == os.environ["EXPECTED_DATABASE_URL"]
+        print("PASS: test compilation and execution share the required environment")
+        return
+
+    root = Path(__file__).resolve().parent.parent
+    for options in [
+        "--target wasm32-unknown-unknown -e normal,dev",
+        "--features test-utils -e normal",
+    ]:
+        result = subprocess.run(
+            ["dev/nix-shell", f"cargo tree -p xmtp_mls {options}"],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "xmtp_backend " not in result.stdout, result.stdout
+        print(f"PASS: no backend dependency for {options}")
+
+    for target, database_url in [
+        ("workspace", None),
+        ("crate xmtp_mls", "postgres://example/override"),
+    ]:
+        env = os.environ.copy()
+        env.pop("DATABASE_URL", None)
+        if database_url is not None:
+            env["DATABASE_URL"] = database_url
+        env["EXPECTED_DATABASE_URL"] = database_url or DEFAULT_DATABASE_URL
+        env["SQLX_OFFLINE"] = "false"
+        env["CARGO_TEST_CMD"] = shlex.join([str(Path(__file__).resolve()), "--assert-env"])
+        subprocess.run(
+            ["dev/nix-shell", f"just test {target}"], cwd=root, env=env, check=True
+        )
+
+
+if __name__ == "__main__":
+    main()

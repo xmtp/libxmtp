@@ -1,5 +1,8 @@
 #![allow(clippy::unwrap_used)]
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub mod backend;
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tester_utils;
 
