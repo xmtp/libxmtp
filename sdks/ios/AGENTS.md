@@ -19,7 +19,7 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XMTPTests.ClientTests/testCr
 
 - Darwin only. The `ios` just module defaults to `NIX_DEVSHELL=ios`.
 - Start the backend with `just backend up`.
-- Tests read `XMTP_BACKEND_URL`; the fallback is `http://localhost:5050`.
+- Tests read `XMTP_BACKEND_URL`; the fallback is `http://localhost:5050`, the main checkout's port. `just ios test` exports this worktree's value.
 - On this Mac, export `XMTP_BACKEND_URL=http://127.0.0.1:5050`.
 - CI supplies the URL of a Fly backend built from the tested commit.
 - Pass an installed simulator with `just ios test-simulator "platform=iOS Simulator,name=iPhone 17"`.

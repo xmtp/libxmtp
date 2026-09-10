@@ -16,6 +16,10 @@ nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 cargo_test := env("CARGO_TEST_CMD", "cargo nextest run")
 
+# Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
+# `_env` loads it so the Rust suites reach this worktree's own stack.
+_env := justfile_directory() + "/dev/worktree-env && set -a && . " + justfile_directory() + "/dev/docker/.env && set +a"
+
 [script("bash")]
 default:
     just --list --list-submodules
@@ -86,11 +90,15 @@ test target="workspace" *args="":
     just _test-{{ target }} {{ args }}
 
 [private]
+[script("bash")]
 _test-workspace *args="":
+    {{ _env }}
     {{ cargo_test }} --profile ci {{ args }}
 
 [private]
+[script("bash")]
 _test-crate +crates:
+    {{ _env }}
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} --profile ci $args
 
@@ -103,6 +111,12 @@ test-validation:
     dev/check-validation test
 
 validation: check-validation test-validation
+
+# --- WORKTREE ---
+
+# Show this worktree's stack identity, ports, and URLs.
+worktree:
+    just backend status
 
 # --- DISK ---
 

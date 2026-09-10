@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+# Per-worktree identity for the local Docker stack.
+#
+# Every worktree needs its own Compose project and its own host ports. Without
+# that, two worktrees running `just backend up` share one database and one
+# backend, and the second `up` silently adopts the first one's containers.
+#
+# This script resolves a worktree to a slot number, derives a port block from
+# it, and writes dev/docker/.env. Compose reads that file automatically; the
+# justfiles and dev/docker/* scripts source it. Nothing else derives ports, so
+# nothing can disagree about them.
+#
+#   port = base + slot * 100
+#
+# The main checkout is always slot 0, so its ports never move and CI (a clone,
+# not a worktree) is unaffected.
+#
+# Usage:
+#   dev/worktree-env            # write dev/docker/.env
+#   dev/worktree-env --print    # write, then print the values
+#   dev/worktree-env --check    # verify this worktree's ports are claimable
+#   dev/worktree-env --release  # drop this worktree's slot claim
+#
+# Override the derived values with XMTP_WORKTREE_NAME and XMTP_WORKTREE_SLOT.
+# Any XMTP_* variable already set in the environment is left alone, so CI and
+# one-off overrides keep working.
+
+set -euo pipefail
+
+readonly PORT_STRIDE=100
+readonly MAX_SLOT=40
+
+# Base ports. Slot 0 keeps exactly these, which are the documented values.
+readonly BASE_DB_PORT=55432
+readonly BASE_REPLICA_PORT=55433
+readonly BASE_BACKEND_PORT=5050
+readonly BASE_METRICS_PORT=9464
+readonly BASE_ANVIL_PORT=8545
+readonly BASE_TOXIPROXY_API_PORT=8474
+readonly BASE_TOXIPROXY_PORT=6010
+readonly BASE_TEMPO_PORT=3200
+readonly BASE_OTLP_GRPC_PORT=4317
+# Not 4318: keeping it off 4317 stops Docker collapsing the two into a published
+# range, which would defeat the port-conflict check below. See compose.yml.
+readonly BASE_OTLP_HTTP_PORT=4328
+readonly BASE_PROMETHEUS_PORT=9090
+readonly BASE_GRAFANA_PORT=3000
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root
+readonly env_file="${repo_root}/dev/docker/.env"
+
+git_common_dir="$(git -C "${repo_root}" rev-parse --path-format=absolute --git-common-dir)"
+git_dir="$(git -C "${repo_root}" rev-parse --path-format=absolute --git-dir)"
+readonly git_common_dir git_dir
+readonly slots_file="${git_common_dir}/xmtp-worktree-slots"
+readonly lock_dir="${git_common_dir}/xmtp-worktree-slots.lock"
+
+# The main checkout has git-dir == git-common-dir. A linked worktree's git-dir
+# is .git/worktrees/<name>, so the two differ.
+is_main_checkout() {
+  [ "${git_dir}" = "${git_common_dir}" ]
+}
+
+# A human-recognisable name. The git worktree name is unique but opaque
+# ("libxmtp1"), and several worktrees here share the leaf directory name
+# "libxmtp", so prefer the parent directory and fall back to the leaf.
+derive_name() {
+  local leaf parent
+  leaf="$(basename "${repo_root}")"
+  parent="$(basename "$(dirname "${repo_root}")")"
+  if [ "${parent}" = "worktrees" ] || [ -z "${parent}" ] || [ "${parent}" = "/" ]; then
+    printf '%s' "${leaf}"
+  else
+    printf '%s' "${parent}"
+  fi
+}
+
+# Compose project names allow only lowercase letters, digits, dashes and
+# underscores, and must start with a letter or digit.
+sanitize() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed -e 's/[^a-z0-9_-]/-/g' -e 's/^[^a-z0-9]*//' -e 's/-*$//'
+}
+
+# A stable key for this worktree. The git dir path is unique per worktree and
+# survives renaming the checkout directory.
+worktree_key() {
+  printf '%s' "${git_dir}"
+}
+
+with_lock() {
+  local attempts=0
+  while ! mkdir "${lock_dir}" 2>/dev/null; do
+    attempts=$((attempts + 1))
+    if [ "${attempts}" -gt 100 ]; then
+      # A crashed run can leave the directory behind. Break the lock rather
+      # than wedging every future invocation.
+      echo "worktree-env: breaking stale lock ${lock_dir}" >&2
+      rmdir "${lock_dir}" 2>/dev/null || true
+      continue
+    fi
+    sleep 0.1
+  done
+  local status=0
+  "$@" || status=$?
+  rmdir "${lock_dir}" 2>/dev/null || true
+  return "${status}"
+}
+
+# Drop claims whose worktree is gone, so slots are reclaimed with no manual
+# step and the file cannot grow without bound. Pruning never moves a live
+# worktree's slot.
+prune_dead_claims() {
+  [ -f "${slots_file}" ] || return 0
+  local tmp slot key
+  tmp="$(mktemp "${slots_file}.XXXXXX")"
+  while IFS=$'\t' read -r slot key; do
+    [ -n "${slot:-}" ] || continue
+    # The key is a worktree's git dir. Git deletes it when the worktree is
+    # removed, and `git worktree prune` cleans it up after a manual rm -rf.
+    if [ -d "${key}" ]; then
+      printf '%s\t%s\n' "${slot}" "${key}" >>"${tmp}"
+    fi
+  done <"${slots_file}"
+  mv "${tmp}" "${slots_file}"
+}
+
+slot_for_key() {
+  local want="$1" slot key
+  [ -f "${slots_file}" ] || return 1
+  while IFS=$'\t' read -r slot key; do
+    if [ "${key:-}" = "${want}" ]; then
+      printf '%s' "${slot}"
+      return 0
+    fi
+  done <"${slots_file}"
+  return 1
+}
+
+slot_is_taken() {
+  local want="$1" slot _key
+  [ -f "${slots_file}" ] || return 1
+  while IFS=$'\t' read -r slot _key; do
+    [ "${slot:-}" = "${want}" ] && return 0
+  done <"${slots_file}"
+  return 1
+}
+
+# True when every host port in this slot's block is free or already ours.
+port_free() {
+  local port="$1"
+  ! nc -z 127.0.0.1 "${port}" >/dev/null 2>&1
+}
+
+slot_ports_free() {
+  local slot="$1" offset port
+  offset=$((slot * PORT_STRIDE))
+  for port in \
+    $((BASE_DB_PORT + offset)) \
+    $((BASE_REPLICA_PORT + offset)) \
+    $((BASE_BACKEND_PORT + offset)) \
+    $((BASE_METRICS_PORT + offset)) \
+    $((BASE_ANVIL_PORT + offset)) \
+    $((BASE_TOXIPROXY_API_PORT + offset)) \
+    $((BASE_TOXIPROXY_PORT + offset)) \
+    $((BASE_TEMPO_PORT + offset)) \
+    $((BASE_OTLP_GRPC_PORT + offset)) \
+    $((BASE_OTLP_HTTP_PORT + offset)) \
+    $((BASE_PROMETHEUS_PORT + offset)) \
+    $((BASE_GRAFANA_PORT + offset)); do
+    port_free "${port}" || return 1
+  done
+  return 0
+}
+
+claim_slot() {
+  local key="$1" existing slot
+  # Every helper below declares its own locals: a `read -r slot` without
+  # `local` would clobber this function's loop variable.
+  prune_dead_claims
+  if existing="$(slot_for_key "${key}")"; then
+    printf '%s' "${existing}"
+    return 0
+  fi
+  # Prefer a slot that no other worktree claims and whose ports are all free.
+  for slot in $(seq 1 "${MAX_SLOT}"); do
+    if ! slot_is_taken "${slot}" && slot_ports_free "${slot}"; then
+      printf '%s\t%s\n' "${slot}" "${key}" >>"${slots_file}"
+      printf '%s' "${slot}"
+      return 0
+    fi
+  done
+  # Fall back to any unclaimed slot. A busy port with no claim behind it is
+  # usually an unrelated local process, and `up` reports the real conflict
+  # with the holder's name, which is a better error than refusing to assign.
+  for slot in $(seq 1 "${MAX_SLOT}"); do
+    if ! slot_is_taken "${slot}"; then
+      printf '%s\t%s\n' "${slot}" "${key}" >>"${slots_file}"
+      printf '%s' "${slot}"
+      return 0
+    fi
+  done
+  echo "worktree-env: all ${MAX_SLOT} slots are claimed. Run 'just backend release' in a worktree you are done with." >&2
+  return 1
+}
+
+release_slot() {
+  local key="$1"
+  [ -f "${slots_file}" ] || return 0
+  local tmp slot existing
+  tmp="$(mktemp "${slots_file}.XXXXXX")"
+  while IFS=$'\t' read -r slot existing; do
+    [ -n "${slot:-}" ] || continue
+    if [ "${existing:-}" != "${key}" ]; then
+      printf '%s\t%s\n' "${slot}" "${existing}" >>"${tmp}"
+    fi
+  done <"${slots_file}"
+  mv "${tmp}" "${slots_file}"
+}
+
+resolve_slot() {
+  if [ -n "${XMTP_WORKTREE_SLOT:-}" ]; then
+    printf '%s' "${XMTP_WORKTREE_SLOT}"
+    return 0
+  fi
+  if is_main_checkout; then
+    printf '0'
+    return 0
+  fi
+  touch "${slots_file}"
+  local out
+  # A failed claim must abort. Command substitution swallows the exit status
+  # under set -e, so check it explicitly: an empty slot would silently fall
+  # back to the base ports, which is the collision this script prevents.
+  if ! out="$(with_lock claim_slot "$(worktree_key)")" || [ -z "${out}" ]; then
+    echo "worktree-env: could not assign a slot for this worktree." >&2
+    exit 1
+  fi
+  printf '%s' "${out}"
+}
+
+# Name the Compose project publishing a host port, or print nothing.
+#
+# Every port in compose.yml is published on its own, and no two host ports are
+# adjacent, so Docker never collapses them into a range and a literal ":<port>->"
+# always matches.
+port_holder() {
+  local port="$1"
+  # Tab-separate the fields: a container outside Compose has an empty project
+  # label, and splitting on spaces would report its port list as the name.
+  docker ps --format '{{.Label "com.docker.compose.project"}}	{{.Ports}}' 2>/dev/null |
+    awk -F'\t' -v p=":${port}->" '$2 ~ p {print $1; exit}'
+}
+
+# Report any port in our block that a different Compose project holds.
+check_conflicts() {
+  local slot="$1" offset port holder conflicts=0
+  offset=$((slot * PORT_STRIDE))
+  for port in \
+    $((BASE_DB_PORT + offset)) \
+    $((BASE_REPLICA_PORT + offset)) \
+    $((BASE_BACKEND_PORT + offset)) \
+    $((BASE_METRICS_PORT + offset)) \
+    $((BASE_ANVIL_PORT + offset)) \
+    $((BASE_TOXIPROXY_API_PORT + offset)) \
+    $((BASE_TOXIPROXY_PORT + offset)) \
+    $((BASE_TEMPO_PORT + offset)) \
+    $((BASE_OTLP_GRPC_PORT + offset)) \
+    $((BASE_OTLP_HTTP_PORT + offset)) \
+    $((BASE_PROMETHEUS_PORT + offset)) \
+    $((BASE_GRAFANA_PORT + offset)); do
+    port_free "${port}" && continue
+    holder="$(port_holder "${port}")"
+    # Our own running stack is the normal case for a repeat `up`.
+    [ "${holder}" = "${XMTP_COMPOSE_PROJECT}" ] && continue
+    if [ -n "${holder}" ]; then
+      echo "worktree-env: port ${port} is held by Compose project '${holder}'." >&2
+    else
+      echo "worktree-env: port ${port} is in use by a non-Compose process." >&2
+    fi
+    conflicts=$((conflicts + 1))
+  done
+  if [ "${conflicts}" -gt 0 ]; then
+    echo "worktree-env: this worktree is '${XMTP_COMPOSE_PROJECT}' (slot ${slot}). Stop the other stack, or set XMTP_WORKTREE_SLOT to a free slot." >&2
+    return 1
+  fi
+  return 0
+}
+
+# Set a variable only when the environment has not already set it.
+emit() {
+  local name="$1" value="$2"
+  local current="${!name:-}"
+  if [ -n "${current}" ]; then
+    printf '%s=%s\n' "${name}" "${current}"
+  else
+    printf '%s=%s\n' "${name}" "${value}"
+  fi
+}
+
+main() {
+  local mode="${1:-write}"
+
+  local name slot offset
+  name="$(sanitize "${XMTP_WORKTREE_NAME:-$(derive_name)}")"
+  [ -n "${name}" ] || name="worktree"
+
+  if [ "${mode}" = "--release" ]; then
+    if is_main_checkout; then
+      echo "worktree-env: the main checkout holds slot 0 permanently; nothing to release." >&2
+      return 0
+    fi
+    touch "${slots_file}"
+    with_lock release_slot "$(worktree_key)"
+    rm -f "${env_file}"
+    echo "worktree-env: released the slot for '${name}'."
+    return 0
+  fi
+
+  slot="$(resolve_slot)"
+  offset=$((slot * PORT_STRIDE))
+
+  # The main checkout keeps the bare project name so its containers stay
+  # "libxmtp-*", matching the existing docs and CI.
+  local project
+  if [ "${slot}" = "0" ]; then
+    project="libxmtp"
+  else
+    project="libxmtp-${name}"
+  fi
+
+  local tmp
+  tmp="$(mktemp "${env_file}.XXXXXX")"
+  {
+    echo "# Generated by dev/worktree-env. Do not edit; do not commit."
+    echo "# Worktree '${name}' holds slot ${slot} (ports = base + ${offset})."
+    emit XMTP_COMPOSE_PROJECT "${project}"
+    emit XMTP_WORKTREE_NAME "${name}"
+    emit XMTP_WORKTREE_SLOT "${slot}"
+    emit XMTP_BACKEND_DB_PORT "$((BASE_DB_PORT + offset))"
+    emit XMTP_BACKEND_REPLICA_PORT "$((BASE_REPLICA_PORT + offset))"
+    emit XMTP_BACKEND_PORT "$((BASE_BACKEND_PORT + offset))"
+    emit XMTP_BACKEND_METRICS_PORT "$((BASE_METRICS_PORT + offset))"
+    emit XMTP_ANVIL_PORT "$((BASE_ANVIL_PORT + offset))"
+    emit XMTP_TOXIPROXY_API_PORT "$((BASE_TOXIPROXY_API_PORT + offset))"
+    emit XMTP_TOXIPROXY_PORT "$((BASE_TOXIPROXY_PORT + offset))"
+    emit XMTP_TEMPO_PORT "$((BASE_TEMPO_PORT + offset))"
+    emit XMTP_OTLP_GRPC_PORT "$((BASE_OTLP_GRPC_PORT + offset))"
+    emit XMTP_OTLP_HTTP_PORT "$((BASE_OTLP_HTTP_PORT + offset))"
+    emit XMTP_PROMETHEUS_PORT "$((BASE_PROMETHEUS_PORT + offset))"
+    emit XMTP_GRAFANA_PORT "$((BASE_GRAFANA_PORT + offset))"
+    # Derived URLs, so no consumer rebuilds one from parts. Use 127.0.0.1, not
+    # localhost: localhost can resolve to IPv6, where the Docker port forward
+    # resets the connection.
+    emit XMTP_BACKEND_URL "http://127.0.0.1:$((BASE_BACKEND_PORT + offset))"
+    emit XMTP_BACKEND_TOXIC_URL "http://127.0.0.1:$((BASE_TOXIPROXY_PORT + offset))"
+    emit XMTP_TOXIPROXY_API "http://127.0.0.1:$((BASE_TOXIPROXY_API_PORT + offset))"
+    emit ANVIL_URL "http://127.0.0.1:$((BASE_ANVIL_PORT + offset))"
+    emit DATABASE_URL "postgres://xmtp:xmtp@127.0.0.1:$((BASE_DB_PORT + offset))/xmtp_backend"
+    emit XMTP_REPLICA_URL "postgres://xmtp:xmtp@127.0.0.1:$((BASE_REPLICA_PORT + offset))/xmtp_backend"
+  } >"${tmp}"
+  mv "${tmp}" "${env_file}"
+
+  case "${mode}" in
+    --print)
+      cat "${env_file}"
+      ;;
+    --check)
+      # shellcheck disable=SC1090  # generated path, known contents
+      set -a && . "${env_file}" && set +a
+      check_conflicts "${slot}"
+      ;;
+  esac
+}
+
+main "$@"

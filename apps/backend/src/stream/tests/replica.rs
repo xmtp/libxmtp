@@ -16,7 +16,12 @@ static REPLAY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn replica(config: &mut Config) {
     let mut url = url::Url::parse(&config.database.url).unwrap();
-    url.set_port(Some(55433)).unwrap();
+    // Each worktree publishes the replica on its own port.
+    let port: u16 = std::env::var("XMTP_BACKEND_REPLICA_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(55433);
+    url.set_port(Some(port)).unwrap();
     config.database.replica_url = Some(url.to_string());
     config.streams.poll_interval_ms = 10;
 }

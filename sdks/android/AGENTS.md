@@ -24,7 +24,7 @@ dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testD
 - To use the published backend image, run `./dev/docker/up`.
 - The shared `dev/docker/compose.yml` runs `db`, `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
 - `sdks/android/dev/local/compose` forwards commands to the shared stack.
-- Emulator tests use `localApi()` with `http://10.0.2.2:5050`.
+- Emulator tests use `localApi()`, which reads `BuildConfig.XMTP_BACKEND_URL`. `library/build.gradle` sets it from `XMTP_BACKEND_PORT`, so each worktree reaches its own backend. The main checkout resolves to `http://10.0.2.2:5050`.
 - Smart contract wallet tests use anvil at `http://10.0.2.2:8545`.
 - Supply `ClientOptions.Api(backendUrl = "http://10.0.2.2:5050")`. The URL has no default. The optional `env` string selects the database file alias.
 

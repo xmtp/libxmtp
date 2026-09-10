@@ -9,6 +9,8 @@ import java.io.File
 import java.net.URL
 import java.security.SecureRandom
 
+// These unit tests only build cache keys; they never open a connection, so the
+// address stays fixed and ClientCacheKeyTest can assert on it.
 fun localApi(appVersion: String? = null): ClientOptions.Api =
     ClientOptions.Api(backendUrl = "http://10.0.2.2:5050", appVersion = appVersion)
 

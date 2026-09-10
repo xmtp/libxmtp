@@ -18,7 +18,7 @@ crate::if_native! {
     #[cfg(any(test, feature = "test-utils-network"))]
     mod toxiproxy;
     #[cfg(any(test, feature = "test-utils-network"))]
-    pub use toxiproxy::toxiproxy_test;
+    pub use toxiproxy::{toxiproxy, toxiproxy_test};
 }
 
 pub trait Generate {
