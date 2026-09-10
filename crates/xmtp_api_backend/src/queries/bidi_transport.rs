@@ -13,27 +13,27 @@
 //! The delivery positions discard overlap without storing message buffers.
 //!
 //! A connection failure keeps leases alive. Reconnect uses the current topic
-//! set and the meet of observed positions and lease floors. Suspend releases
+//! set and the minimum durable receipt position of its leases. Suspend releases
 //! the connection and keeps this state. Resume waits for all acknowledgements
 //! and targets. A slow lease is closed so its consumer can recover from storage.
 //!
-//! KNOWN COST (Phase 5.1): a lease floor never rises, so the meet in
-//! `resume_cursor` always equals the floor and the observed position adds
-//! nothing. Every reopen asks the server for the history since the lease
-//! started, which grows with the age of the lease: a week-old stream that
-//! flaps once re-reads a week of envelopes. Delivery stays correct, because
-//! each holder discards what it already saw, but resume cannot settle until
-//! every topic re-delivers through its new target. STR-036 forbids resuming
-//! from the received sequence id, so the fix is durable-progress feedback that
-//! raises the floor as the consumer commits, not a change to this meet.
+//! Ordered leases raise their floors only after durable receipt. A reconnect
+//! resets delivery positions to these floors so uncommitted batches replay.
 //! The consumer owns durable progress. This module does not decode MLS data
 //! or promise exactly-once callbacks across a process crash.
 
 use std::collections::{HashMap, HashSet};
 
+use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
-use xmtp_proto::types::Topic;
+use xmtp_proto::{
+    backend_v1::ServerEnvelope,
+    types::{
+        Cursor, IncomingBatchLimits, IncomingEvent, IncomingSubscription, OrderedEnvelopeBatch,
+        Topic, TopicCursor,
+    },
+};
 
 use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
 
@@ -153,7 +153,7 @@ where
     Self::WelcomeMessage: Clone,
 {
     /// A position that can represent each fixed backend target.
-    type Cursor: Copy + Send + std::fmt::Debug + From<u64> + 'static;
+    type Cursor: Copy + Send + std::fmt::Debug + From<u64> + Into<u64> + 'static;
 
     /// Build an update with a nonzero ID. IDs increase on each connection.
     fn build_mutate(
@@ -167,6 +167,8 @@ where
 
     fn group_cursor(msg: &Self::GroupMessage) -> Option<Self::Cursor>;
     fn welcome_cursor(msg: &Self::WelcomeMessage) -> Option<Self::Cursor>;
+    fn group_envelope(msg: &Self::GroupMessage) -> &ServerEnvelope;
+    fn welcome_envelope(msg: &Self::WelcomeMessage) -> &ServerEnvelope;
     fn advance(position: &mut Self::Cursor, delivered: Self::Cursor);
     /// Return true when the position is at or above the delivered cursor.
     fn covers(position: &Self::Cursor, delivered: &Self::Cursor) -> bool;
@@ -185,13 +187,26 @@ pub enum TransportError {
     /// The lease exceeds the topic limit. This error is not retryable.
     #[error("the bidi wire topic limit would be exceeded")]
     TooManyTopics,
+    #[error("invalid subscription frame: {0}")]
+    Protocol(&'static str),
+    #[error("incoming subscription delivery exceeds its receive limit")]
+    Capacity,
+    #[error(transparent)]
+    Wire(#[from] std::sync::Arc<super::bidi::ConnectionFailure>),
 }
+
+type IncomingFailure = std::sync::Arc<parking_lot::Mutex<Option<TransportError>>>;
 
 impl xmtp_common::RetryableError for TransportError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Open(e) => e.is_retryable(),
-            Self::Closed | Self::Empty | Self::TooManyTopics => false,
+            Self::Wire(e) => e.is_retryable(),
+            Self::Closed
+            | Self::Empty
+            | Self::TooManyTopics
+            | Self::Protocol(_)
+            | Self::Capacity => false,
         }
     }
 }
@@ -241,6 +256,8 @@ where
     id: LeaseId,
     topics: Vec<Topic>,
     events: mpsc::Receiver<LeaseEvent<B>>,
+    incoming: Option<mpsc::Receiver<Result<IncomingEvent, TransportError>>>,
+    incoming_failure: IncomingFailure,
     cmds: mpsc::UnboundedSender<Cmd<B>>,
 }
 
@@ -256,6 +273,35 @@ where
 
     pub fn topics(&self) -> &[Topic] {
         &self.topics
+    }
+
+    /// Read raw ordered events, including a terminal receive-capacity error.
+    pub async fn next_incoming(&mut self) -> Option<Result<IncomingEvent, TransportError>> {
+        self.incoming
+            .as_mut()?
+            .recv()
+            .await
+            .or_else(|| self.incoming_failure.lock().take().map(Err))
+    }
+
+    /// Call this only after the supplied positions commit to local storage.
+    pub fn acknowledge_received(&self, cursors: TopicCursor) {
+        let _ = self.cmds.send(Cmd::Received {
+            id: self.id,
+            cursors,
+        });
+    }
+
+    /// Keep this lease alive until its owned event stream is dropped.
+    pub fn into_incoming_subscription(self) -> IncomingSubscription<TransportError> {
+        let cmds = self.cmds.clone();
+        let id = self.id;
+        let events = futures::stream::unfold(self, |mut lease| async move {
+            lease.next_incoming().await.map(|event| (event, lease))
+        });
+        IncomingSubscription::new(Box::pin(events), move |cursors| {
+            let _ = cmds.send(Cmd::Received { id, cursors });
+        })
     }
 }
 
@@ -350,6 +396,31 @@ where
         response.await.map_err(|_| TransportError::Closed)?
     }
 
+    /// Register an ordered raw receiver. Receipt acknowledgements raise its resume floors.
+    pub async fn lease_ordered(
+        &self,
+        subs: Vec<(Topic, B::Cursor)>,
+        depth: usize,
+        limits: IncomingBatchLimits,
+    ) -> Result<TopicLease<B>, TransportError> {
+        if subs.is_empty() {
+            return Err(TransportError::Empty);
+        }
+        if limits.max_rows == 0 || limits.max_bytes == 0 {
+            return Err(TransportError::Capacity);
+        }
+        let (reply, response) = oneshot::channel();
+        self.cmds
+            .send(Cmd::LeaseOrdered {
+                subs,
+                depth,
+                limits,
+                reply,
+            })
+            .map_err(|_| TransportError::Closed)?;
+        response.await.map_err(|_| TransportError::Closed)?
+    }
+
     /// Half-close the connection. Keep leases and positions for resume.
     #[xmtp_common::span(prefix = "bidi")]
     pub async fn suspend(&self) -> Result<(), TransportError> {
@@ -395,6 +466,16 @@ where
         subs: Vec<(Topic, B::Cursor)>,
         depth: usize,
         reply: oneshot::Sender<Result<TopicLease<B>, TransportError>>,
+    },
+    LeaseOrdered {
+        subs: Vec<(Topic, B::Cursor)>,
+        depth: usize,
+        limits: IncomingBatchLimits,
+        reply: oneshot::Sender<Result<TopicLease<B>, TransportError>>,
+    },
+    Received {
+        id: LeaseId,
+        cursors: TopicCursor,
     },
     Deref(LeaseId),
     Suspend {
@@ -464,6 +545,11 @@ where
     unmet: usize,
     notified: bool,
     events: mpsc::Sender<LeaseEvent<B>>,
+    incoming: Option<(
+        mpsc::Sender<Result<IncomingEvent, TransportError>>,
+        IncomingBatchLimits,
+    )>,
+    incoming_failure: IncomingFailure,
 }
 
 struct Ledger<B: TransportBinding>
@@ -477,6 +563,7 @@ where
     registrations: HashMap<Topic, TopicRegistration<B::Cursor>>,
     pending_updates: HashMap<u64, PendingUpdate<B::Cursor>>,
     dirty_topics: HashSet<Topic>,
+    failed_incoming: HashSet<LeaseId>,
     next_lease: u64,
     next_update: u64,
     chunk_cap: usize,
@@ -496,6 +583,7 @@ where
             registrations: HashMap::new(),
             pending_updates: HashMap::new(),
             dirty_topics: HashSet::new(),
+            failed_incoming: HashSet::new(),
             next_lease: 0,
             next_update: 0,
             chunk_cap: MAX_MUTATE_TOPICS,
@@ -509,6 +597,170 @@ where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
 {
+    /// Raise reconnect floors from committed receipt, never from stream delivery.
+    fn received(&mut self, id: LeaseId, cursors: TopicCursor) {
+        let Some(lease) = self.leases.get_mut(&id) else {
+            return;
+        };
+        if lease.incoming.is_none() {
+            return;
+        }
+        for (topic, cursor) in cursors {
+            if cursor.0 > i64::MAX as u64 {
+                continue;
+            }
+            if let Some(floor) = lease.floors.get_mut(&topic) {
+                B::advance(floor, cursor.0.into());
+                if let Some(delivered) = lease.delivered.get_mut(&topic) {
+                    B::advance(delivered, cursor.0.into());
+                }
+                self.dirty_topics.insert(topic);
+            }
+        }
+    }
+
+    /// Emit the accepted read positions and fixed targets before raw data.
+    fn incoming_registered(&mut self, id: LeaseId, topics: impl IntoIterator<Item = Topic>) {
+        let Some(lease) = self.leases.get(&id) else {
+            return;
+        };
+        let Some((sender, _)) = &lease.incoming else {
+            return;
+        };
+        let mut starts = TopicCursor::new();
+        let mut targets = TopicCursor::new();
+        for topic in topics {
+            let Some(registration) = self.registrations.get(&topic) else {
+                continue;
+            };
+            let Some(target) = registration.target else {
+                continue;
+            };
+            let Some(start) = lease.delivered.get(&topic) else {
+                continue;
+            };
+            starts.insert(topic.clone(), Cursor((*start).into()));
+            targets.insert(topic, Cursor(target));
+        }
+        if !starts.is_empty() {
+            // A full channel is detected before the next payload copy.
+            if sender
+                .try_send(Ok(IncomingEvent::Registered { starts, targets }))
+                .is_err()
+            {
+                *lease.incoming_failure.lock() = Some(TransportError::Capacity);
+                self.failed_incoming.insert(id);
+            }
+        }
+    }
+
+    /// Require exactly one fixed target for each topic added by this update.
+    fn valid_targets(&self, id: u64, targets: &[(Topic, u64)]) -> bool {
+        let Some(update) = self.pending_updates.get(&id) else {
+            return false;
+        };
+        let unique: HashSet<_> = targets.iter().map(|(topic, _)| topic).collect();
+        targets.len() == update.adds.len()
+            && unique.len() == targets.len()
+            && targets.iter().all(|(topic, target)| {
+                *target <= i64::MAX as u64 && update.adds.iter().any(|(added, _)| added == topic)
+            })
+    }
+
+    /// Validate the full frame before copying it into any raw receive channel.
+    fn demux_incoming<M>(
+        &mut self,
+        messages: &[M],
+        envelope_of: impl Fn(&M) -> &ServerEnvelope,
+    ) -> Result<Vec<LeaseId>, &'static str> {
+        let mut positions = HashMap::new();
+        for message in messages {
+            let envelope = envelope_of(message);
+            let meta = envelope.meta.as_ref().ok_or("metadata")?;
+            let topic =
+                Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic).map_err(|_| "topic")?;
+            let (_, cursor, _) =
+                crate::envelope::metadata(meta, topic.kind()).map_err(|_| "metadata")?;
+            let Some(registration) = self.registrations.get(&topic) else {
+                continue;
+            };
+            if registration.target.is_none() {
+                return Err("messages before Applied");
+            }
+            let previous = positions
+                .entry(topic)
+                .or_insert_with(|| Cursor(registration.delivered.into()));
+            if cursor <= *previous {
+                return Err("cursor order");
+            }
+            *previous = cursor;
+        }
+        let mut dropped = Vec::new();
+        for (id, lease) in &mut self.leases {
+            let Some((sender, limits)) = &lease.incoming else {
+                continue;
+            };
+            let mut selected: HashMap<Topic, Vec<&ServerEnvelope>> = HashMap::new();
+            let mut rows = 0usize;
+            let mut bytes = 0usize;
+            for message in messages {
+                let envelope = envelope_of(message);
+                let meta = envelope.meta.as_ref().ok_or("metadata")?;
+                let topic = Topic::parse(&meta.topic.as_ref().ok_or("topic")?.topic)
+                    .map_err(|_| "topic")?;
+                let Some(registration) = self.registrations.get(&topic) else {
+                    continue;
+                };
+                if !registration.holders.contains(id) {
+                    continue;
+                }
+                let Some(delivered) = lease.delivered.get(&topic) else {
+                    continue;
+                };
+                if meta.cursor.as_ref().ok_or("cursor")?.sequence_id <= (*delivered).into() {
+                    continue;
+                }
+                rows += 1;
+                bytes = bytes
+                    .checked_add(envelope.encoded_len())
+                    .ok_or("byte count")?;
+                selected.entry(topic).or_default().push(envelope);
+            }
+            if rows > limits.max_rows
+                || bytes > limits.max_bytes
+                || sender.capacity() < selected.len()
+            {
+                *lease.incoming_failure.lock() = Some(TransportError::Capacity);
+                dropped.push(*id);
+                continue;
+            }
+            for (topic, envelopes) in selected {
+                let delivered = lease.delivered.get_mut(&topic).ok_or("lease topic")?;
+                let after = Cursor((*delivered).into());
+                let last = envelopes
+                    .last()
+                    .and_then(|envelope| envelope.meta.as_ref()?.cursor.as_ref())
+                    .ok_or("cursor")?
+                    .sequence_id;
+                let batch = OrderedEnvelopeBatch {
+                    topic,
+                    after,
+                    envelopes: envelopes.into_iter().cloned().collect(),
+                };
+                if sender
+                    .try_send(Ok(IncomingEvent::OrderedBatch(batch)))
+                    .is_err()
+                {
+                    *lease.incoming_failure.lock() = Some(TransportError::Capacity);
+                    dropped.push(*id);
+                    break;
+                }
+                B::advance(delivered, last.into());
+            }
+        }
+        Ok(dropped)
+    }
+
     fn next_update_id(&mut self) -> u64 {
         self.next_update += 1;
         self.next_update
@@ -538,6 +790,8 @@ where
                 floors,
                 notified: false,
                 events,
+                incoming: None,
+                incoming_failure: IncomingFailure::default(),
             },
         );
         id
@@ -551,6 +805,9 @@ where
         for lease in self.leases.values_mut() {
             lease.obligations.clear();
             lease.unmet = lease.floors.len();
+            if lease.incoming.is_some() {
+                lease.delivered.clone_from(&lease.floors);
+            }
         }
     }
 
@@ -578,7 +835,6 @@ where
         holders
             .iter()
             .filter_map(|id| self.leases.get(id)?.floors.get(topic).copied())
-            .chain(self.last_seen.get(topic).copied())
             .reduce(B::meet)
     }
 
@@ -648,6 +904,7 @@ where
     fn join(&mut self, id: LeaseId, subs: Vec<(Topic, B::Cursor)>) -> Vec<(u64, B::Mutate)> {
         let mut adds = Vec::new();
         let mut removes = Vec::new();
+        let mut joined = Vec::new();
         for (topic, floor) in subs {
             self.dirty_topics.insert(topic.clone());
             let Some(registration) = self.registrations.get_mut(&topic) else {
@@ -662,11 +919,13 @@ where
                 }
                 _ => {
                     registration.holders.insert(id);
+                    joined.push(topic);
                 }
             }
         }
         let mut updates = self.prepare_removes(removes);
         updates.extend(self.prepare_adds(adds));
+        self.incoming_registered(id, joined);
         updates
     }
 
@@ -684,6 +943,7 @@ where
                 readds.push((topic, cursor));
             }
         }
+        let mut registered: HashMap<LeaseId, Vec<Topic>> = HashMap::new();
         for (topic, _) in update.adds {
             self.dirty_topics.insert(topic.clone());
             if let Some(registration) = self.registrations.get_mut(&topic) {
@@ -694,13 +954,20 @@ where
                 if matches!(registration.state, RegistrationState::Adding) {
                     registration.state = RegistrationState::Active;
                 }
+                for holder in &registration.holders {
+                    registered.entry(*holder).or_default().push(topic.clone());
+                }
             }
+        }
+        for (holder, topics) in registered {
+            self.incoming_registered(holder, topics);
         }
         readds
     }
 
     /// Check changed topics only. Send completion after their message batches.
     fn recheck(&mut self) -> Vec<LeaseId> {
+        let failed: Vec<_> = self.failed_incoming.drain().collect();
         let mut candidates = HashSet::new();
         for topic in self.dirty_topics.drain() {
             let Some(registration) = self.registrations.get(&topic) else {
@@ -736,13 +1003,16 @@ where
             .filter_map(|id| {
                 let lease = self.leases.get_mut(&id)?;
                 if !lease.notified && lease.unmet == 0 {
-                    if lease.events.try_send(LeaseEvent::CatchUpComplete).is_err() {
+                    if lease.incoming.is_none()
+                        && lease.events.try_send(LeaseEvent::CatchUpComplete).is_err()
+                    {
                         return Some(id);
                     }
                     lease.notified = true;
                 }
                 None
             })
+            .chain(failed)
             .collect()
     }
 
@@ -803,6 +1073,9 @@ where
                 let Some(lease) = self.leases.get_mut(id) else {
                     continue;
                 };
+                if lease.incoming.is_some() {
+                    continue;
+                }
                 if let Some(cursor) = cursor {
                     let Some(position) = lease.delivered.get_mut(&topic) else {
                         continue;
@@ -950,7 +1223,17 @@ where
 
     async fn command(&mut self, cmd: Cmd<B>) -> Flow {
         match cmd {
-            Cmd::Lease { subs, depth, reply } => self.lease(subs, depth, reply).await,
+            Cmd::Lease { subs, depth, reply } => self.lease(subs, depth, None, reply).await,
+            Cmd::LeaseOrdered {
+                subs,
+                depth,
+                limits,
+                reply,
+            } => self.lease(subs, depth, Some(limits), reply).await,
+            Cmd::Received { id, cursors } => {
+                self.ledger.received(id, cursors);
+                Flow::Continue
+            }
             Cmd::Deref(id) => self.deref(id),
             Cmd::Suspend { reply } => self.suspend(reply),
             Cmd::Resume { reply } => self.resume(reply).await,
@@ -1004,6 +1287,7 @@ where
         &mut self,
         subs: Vec<(Topic, B::Cursor)>,
         depth: usize,
+        incoming_limits: Option<IncomingBatchLimits>,
         reply: oneshot::Sender<Result<TopicLease<B>, TransportError>>,
     ) -> Flow {
         let mut positions = HashMap::new();
@@ -1032,6 +1316,19 @@ where
         let topics = subs.iter().map(|(topic, _)| topic.clone()).collect();
         let (tx, events) = mpsc::channel(depth.max(1));
         let id = self.ledger.register(&subs, tx);
+        let incoming = incoming_limits.map(|limits| {
+            let (sender, receiver) = mpsc::channel(depth.max(1));
+            if let Some(lease) = self.ledger.leases.get_mut(&id) {
+                lease.incoming = Some((sender, limits));
+            }
+            receiver
+        });
+        let incoming_failure = self
+            .ledger
+            .leases
+            .get(&id)
+            .map(|lease| lease.incoming_failure.clone())
+            .unwrap_or_default();
         if cold {
             self.outbox.updates.extend(self.ledger.prepare_adds(subs));
             let Some((_, initial)) = self.outbox.updates.pop_front() else {
@@ -1070,6 +1367,8 @@ where
             id,
             topics,
             events,
+            incoming,
+            incoming_failure,
             cmds,
         }));
         Flow::Continue
@@ -1160,6 +1459,31 @@ where
     }
 
     fn wire_event(&mut self, event: Event<B::GroupMessage, B::WelcomeMessage>) -> Flow {
+        let has_incoming = self
+            .ledger
+            .leases
+            .values()
+            .any(|lease| lease.incoming.is_some());
+        let incoming_dropped = if has_incoming {
+            match &event {
+                Event::Applied { id, targets } if !self.ledger.valid_targets(*id, targets) => {
+                    return self.fail_incoming("Applied targets");
+                }
+                Event::GroupMessages { messages } => {
+                    self.ledger.demux_incoming(messages, B::group_envelope)
+                }
+                Event::WelcomeMessages { messages } => {
+                    self.ledger.demux_incoming(messages, B::welcome_envelope)
+                }
+                _ => Ok(Vec::new()),
+            }
+        } else {
+            Ok(Vec::new())
+        };
+        let incoming_dropped = match incoming_dropped {
+            Ok(dropped) => dropped,
+            Err(reason) => return self.fail_incoming(reason),
+        };
         let mut dropped = match event {
             Event::Started { .. } => Vec::new(),
             Event::Applied { id, targets } => {
@@ -1182,11 +1506,29 @@ where
                 LeaseEvent::WelcomeMessages,
             ),
         };
+        dropped.extend(incoming_dropped);
         dropped.extend(self.ledger.recheck());
         let removes = self.drop_leases(dropped);
         self.retire(removes);
         self.settle_idle_waiters();
         self.settle_caught_up_waiters();
+        Flow::Continue
+    }
+
+    fn fail_incoming(&mut self, reason: &'static str) -> Flow {
+        let dropped = self
+            .ledger
+            .leases
+            .iter()
+            .filter_map(|(id, lease)| {
+                lease.incoming.as_ref()?;
+                *lease.incoming_failure.lock() = Some(TransportError::Protocol(reason));
+                Some(*id)
+            })
+            .collect();
+        let removes = self.drop_leases(dropped);
+        self.retire(removes);
+        self.settle_idle_waiters();
         Flow::Continue
     }
 
@@ -1198,9 +1540,38 @@ where
 
     fn wire_died(&mut self) -> Flow {
         self.outbox.clear();
+        let failure = self.conn.as_ref().and_then(Connection::failure);
         drop(self.conn.take());
+        let dropped = self
+            .ledger
+            .leases
+            .iter()
+            .filter_map(|(id, lease)| {
+                let (sender, _) = lease.incoming.as_ref()?;
+                let event = failure
+                    .as_ref()
+                    .map_or(Ok(IncomingEvent::Disconnected), |error| {
+                        Err(TransportError::Wire(error.clone()))
+                    });
+                let full = match sender.try_send(event) {
+                    Ok(()) => false,
+                    Err(error) => {
+                        *lease.incoming_failure.lock() = Some(match error.into_inner() {
+                            Err(error) => error,
+                            Ok(_) => TransportError::Capacity,
+                        });
+                        true
+                    }
+                };
+                (full || failure.as_ref().is_some_and(|error| !error.is_retryable())).then_some(*id)
+            })
+            .collect();
+        self.drop_leases(dropped);
         self.ledger.reset_wire();
         self.close_wire_span("wire_end");
+        if failure.is_some_and(|error| !error.is_retryable()) {
+            return Flow::Shutdown;
+        }
         let stable = self
             .wire_opened_at
             .take()
@@ -1267,6 +1638,15 @@ where
                 self.ledger.reset_wire();
                 if !error.is_retryable() {
                     tracing::error!("bidi reconnect failed permanently: {error}");
+                    let error = std::sync::Arc::new(super::bidi::ConnectionFailure::Wire(
+                        xmtp_proto::api::NetworkError::new(error),
+                    ));
+                    for lease in self.ledger.leases.values() {
+                        if lease.incoming.is_some() {
+                            *lease.incoming_failure.lock() =
+                                Some(TransportError::Wire(error.clone()));
+                        }
+                    }
                     return AfterReopen::Shutdown;
                 }
                 self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);

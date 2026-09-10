@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::mls::{FfiCatchUpOptions, resume_streams, suspend_streams};
+use crate::stream_failure::{FfiStreamFailureKind, get_stream_failure_details};
 
 /// The Application-kind message payloads in a conversation's durable store, in
 /// order. Lets a test assert what catch-up/replay actually wrote to disk — the
@@ -152,12 +153,9 @@ async fn bidi_catch_up_to_live_replays_and_is_idempotent() {
     );
 }
 
-/// Cancellation safety: a deadline so short the run can be cut off mid-flight
-/// must leave no partial state. `tokio::time::timeout` DROPS the future on
-/// expiry, unwinding whatever `process_one`/welcome-join was in flight; a full
-/// run afterward must still converge the store from durable cursors, and a
-/// later call must find nothing owed. Convergence-after-cut is the assertion,
-/// so it holds whether or not the 1ms deadline actually fired.
+/// A short deadline can return partial committed progress and unfinished targets.
+/// A later full run resumes from durable cursors and stores every expected message.
+/// A repeated run then reports no new work.
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
     let alix = new_test_client().await;
@@ -182,22 +180,26 @@ async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
             .unwrap();
     }
 
-    // May finish or be cut short — both are contractually valid. On the deadline
-    // the summary carries the partial total persisted before the cut (possibly
-    // zero if nothing landed in time) and `completed` is false; the full run
-    // below proves the cut left no partial/corrupt state regardless.
+    // A deadline reports an error with partial committed counts and unfinished targets.
     let bounded = alix
         .catch_up_to_live(Some(FfiCatchUpOptions {
             timeout_ms: Some(1),
         }))
-        .await
-        .unwrap();
-    if !bounded.completed {
-        assert!(
-            bounded.messages <= 5,
-            "partial count cannot exceed what was owed"
-        );
-    }
+        .await;
+    let bounded_messages = match bounded {
+        Ok(summary) => {
+            assert!(summary.completed);
+            summary.messages
+        }
+        Err(error) => {
+            let details = get_stream_failure_details(error.to_string())?;
+            assert_eq!(details.kind, FfiStreamFailureKind::CatchUp);
+            let summary = details.summary?;
+            assert!(!summary.completed);
+            assert!(!details.barriers.is_empty());
+            summary.messages
+        }
+    };
 
     // Whether or not the bounded run was cut off, a full run converges the store
     // from durable cursors — proving the cut left no partial/corrupt state.
@@ -208,6 +210,11 @@ async fn bidi_catch_up_to_live_bounded_run_is_cancel_safe() {
         .list(FfiListConversationsOptions::default())
         .unwrap();
     assert_eq!(convos.len(), 1, "the group converges regardless of the cut");
+    let retained = convos[0]
+        .conversation()
+        .find_messages(FfiListMessagesOptions::default())
+        .await?;
+    assert!(bounded_messages <= retained.len() as u64);
 
     // Convergence means the whole history landed intact — all five owed messages,
     // in order, with nothing dropped or duplicated by the cut-off run.

@@ -934,6 +934,7 @@ mod tests {
                             entity_id: rand_vec::<24>(),
                             entity_kind: EntityKind::Welcome,
                             sequence_id: 1,
+                            received_sequence_id: None,
                         }
                         .store_or_ignore(&inner.db())?;
                         Ok::<_, StorageError>(Continue(()))

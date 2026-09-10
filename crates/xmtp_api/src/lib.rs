@@ -40,9 +40,6 @@ pub enum ApiError {
     /// The backend rejected a stale identity update. Not retryable here.
     #[error("identity history changed")]
     IdentityUpdateConflict,
-    /// The backend hash differs from the retained envelope hash. Not retryable.
-    #[error("publish response hash does not match the envelope")]
-    HashMismatch,
     /// One envelope exceeds the configured byte limit. Not retryable.
     #[error("envelope exceeds the byte limit")]
     EnvelopeTooLarge,

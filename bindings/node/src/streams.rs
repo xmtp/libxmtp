@@ -13,6 +13,7 @@ type StreamHandle = Box<GenericStreamHandle<Result<(), SubscribeError>>>;
 pub struct StreamCloser {
   handle: Arc<Mutex<Option<StreamHandle>>>,
   abort: Arc<Box<dyn AbortHandle>>,
+  message_control: Option<xmtp_mls::subscriptions::message_reader::MessageReaderControl>,
 }
 
 impl StreamCloser {
@@ -23,6 +24,25 @@ impl StreamCloser {
     Self {
       handle: Arc::new(Mutex::new(Some(Box::new(handle)))),
       abort: Arc::new(abort),
+      message_control: None,
+    }
+  }
+
+  pub fn new_message(
+    handle: impl XmtpStreamHandle<StreamOutput = Result<(), SubscribeError>> + 'static,
+    control: xmtp_mls::subscriptions::message_reader::MessageReaderControl,
+  ) -> Self {
+    let mut closer = Self::new(handle);
+    closer.message_control = Some(control);
+    closer
+  }
+}
+
+impl Drop for StreamCloser {
+  fn drop(&mut self) {
+    if let Some(control) = &self.message_control {
+      control.close();
+      self.abort.end();
     }
   }
 }
@@ -33,6 +53,9 @@ impl StreamCloser {
   /// Does not wait for the stream to end.
   #[napi]
   pub fn end(&self) {
+    if let Some(control) = &self.message_control {
+      control.close();
+    }
     self.abort.end();
   }
 
@@ -42,6 +65,9 @@ impl StreamCloser {
   #[napi]
   #[xmtp_common::err_span]
   pub async fn end_and_wait(&self) -> Result<(), Error> {
+    if let Some(control) = &self.message_control {
+      control.close();
+    }
     use StreamHandleError::*;
     if self.abort.is_finished() {
       return Ok(());
@@ -76,5 +102,20 @@ impl StreamCloser {
   #[napi]
   pub fn is_closed(&self) -> bool {
     self.abort.is_finished()
+  }
+
+  #[napi]
+  pub fn catch_up_snapshot(&self) -> Option<crate::message_delivery::MessageCatchUp> {
+    self
+      .message_control
+      .as_ref()
+      .map(|control| control.catch_up_snapshot().into())
+  }
+
+  #[napi]
+  pub async fn catch_up_changed(&self) -> Option<crate::message_delivery::MessageCatchUp> {
+    let control = self.message_control.as_ref()?;
+    control.changed().await;
+    Some(control.catch_up_snapshot().into())
   }
 }

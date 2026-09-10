@@ -26,13 +26,13 @@ The requirement count for an area is the number of distinct IDs that its tests u
 
 | Area | Test entries | Distinct requirement IDs |
 | --- | ---: | ---: |
-| [`xmtp_mls` group integration tests](existing-tests/xmtp-mls-groups.md) | 274 | 187 |
-| [`xmtp_mls` group implementation and messages](existing-tests/xmtp-mls-inline-groups.md) | 220 | 61 |
-| [`xmtp_mls` client, identity, subscriptions, and workers](existing-tests/xmtp-mls-client-workers.md) | 187 | 94 |
+| [`xmtp_mls` group integration tests](existing-tests/xmtp-mls-groups.md) | 280 | 192 |
+| [`xmtp_mls` group implementation and messages](existing-tests/xmtp-mls-inline-groups.md) | 230 | 73 |
+| [`xmtp_mls` client, identity, subscriptions, and workers](existing-tests/xmtp-mls-client-workers.md) | 220 | 129 |
 | [`xmtp_mls_common`](existing-tests/xmtp-mls-common.md) | 271 | 29 |
-| [Database, identity, cryptography, and archive crates](existing-tests/core-crates.md) | 237 | 97 |
-| [Mobile, Node, and WebAssembly bindings](existing-tests/bindings.md) | 365 | 102 |
-| [API crates](existing-tests/api.md) | 149 | 62 |
+| [Database, identity, cryptography, and archive crates](existing-tests/core-crates.md) | 265 | 125 |
+| [Mobile, Node, and WebAssembly bindings](existing-tests/bindings.md) | 379 | 112 |
+| [API crates](existing-tests/api.md) | 162 | 72 |
 | [Other Rust crates and applications](existing-tests/rust-apps-support.md) | 253 | 69 |
 | [JavaScript Agent SDK](existing-tests/agent-sdk.md) | 117 | 29 |
 | [Release tools](existing-tests/release-tools.md) | 179 | 28 |
@@ -40,7 +40,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 402 | 91 |
 | [Android SDK and example](existing-tests/android.md) | 210 | 101 |
 | [iOS SDK](existing-tests/ios.md) | 205 | 117 |
-| **Total** | **3,072** | **915 referenced IDs** |
+| **Total** | **3,176** | **1,015 referenced IDs** |
 
 ## Review records
 
@@ -48,7 +48,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 
 ## Phase 3 coverage gaps
 
-The source check found five live IDs without a current direct catalogue test.
+The source check found four live IDs without a current direct catalogue test.
 These IDs stay live because the subject was not proved obsolete. Do not treat
 this list as test coverage. Restoring tests is outside Task 14's consolidation scope.
 

@@ -180,26 +180,6 @@ async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
             .code(),
         Code::InvalidArgument
     );
-    for id in [0, u64::MAX] {
-        assert_eq!(
-            server
-                .query()
-                .get(api::GetRequest { sequence_id: id })
-                .await
-                .unwrap_err()
-                .code(),
-            Code::InvalidArgument
-        );
-    }
-    assert_eq!(
-        server
-            .query()
-            .get(api::GetRequest { sequence_id: 1 })
-            .await
-            .unwrap_err()
-            .code(),
-        Code::NotFound
-    );
     server.stop().await?;
 }
 

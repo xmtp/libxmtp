@@ -1,261 +1,86 @@
-use super::{LocalEvents, Result, SubscribeError, process_welcome::ProcessWelcomeResult};
-use crate::subscriptions::StreamKind;
-use crate::{
-    context::XmtpSharedContext, groups::MlsGroup,
-    subscriptions::process_welcome::ProcessWelcomeFuture,
-};
-use xmtp_api_grpc::streams::{MultiplexedStream, multiplexed};
-use xmtp_common::task::JoinSet;
-use xmtp_db::{consent_record::ConsentState, group::ConversationType};
+//! Live conversation notifications from committed group discovery.
 
+use super::{
+    LocalEvents, Result,
+    incoming::{IncomingCoordinator, IncomingScope},
+};
+use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::Stream;
-use pin_project::{pin_project, pinned_drop};
 use std::{
-    borrow::Cow,
-    collections::HashSet,
+    collections::{HashMap, VecDeque},
     pin::Pin,
-    task::{Poll, ready},
+    task::{Context, Poll},
 };
-use tokio_stream::wrappers::BroadcastStream;
-use xmtp_common::{BoxDynFuture, Event, MaybeSend};
-use xmtp_db::prelude::*;
-use xmtp_macro::log_event;
-use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::{Cursor, WelcomeMessage};
+use xmtp_common::{BoxDynStream, time::sleep};
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::{ConversationType, GroupQueryArgs, StoredGroup},
+    prelude::*,
+};
+use xmtp_proto::{
+    api_client::XmtpMlsStreams,
+    types::{GroupId, Topic},
+};
 
-#[derive(thiserror::Error, Debug)]
-pub enum ConversationStreamError {
-    #[error("unexpected message type in welcome")]
-    InvalidPayload,
-    #[error("the conversation was filtered because of the given conversation type")]
-    InvalidConversationType,
-    #[error("the welcome pointer was not found")]
-    WelcomePointerNotFound,
-}
+const ALL_CONSENT_STATES: [ConsentState; 3] = [
+    ConsentState::Allowed,
+    ConsentState::Unknown,
+    ConsentState::Denied,
+];
 
-impl xmtp_common::RetryableError for ConversationStreamError {
-    fn is_retryable(&self) -> bool {
-        use ConversationStreamError::*;
-        match self {
-            InvalidPayload | InvalidConversationType => false,
-            WelcomePointerNotFound => true,
-        }
-    }
-}
-
-pub enum WelcomeOrGroup {
-    Group(xmtp_proto::types::GroupId),
-    Welcome(xmtp_proto::types::WelcomeMessage),
-}
-
-impl std::fmt::Debug for WelcomeOrGroup {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Group(arg0) => f.debug_tuple("Group").field(arg0).finish(),
-            Self::Welcome(arg0) => f.debug_tuple("Welcome").field(arg0).finish(),
-        }
-    }
-}
-
-#[pin_project]
-/// Broadcast stream filtered + mapped to WelcomeOrGroup
-pub struct BroadcastGroupStream {
-    #[pin]
-    inner: BroadcastStream<LocalEvents>,
-}
-
-impl BroadcastGroupStream {
-    fn new(inner: BroadcastStream<LocalEvents>) -> Self {
-        Self { inner }
-    }
-}
-
-impl Stream for BroadcastGroupStream {
-    type Item = Result<WelcomeOrGroup>;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        use std::task::Poll::*;
-        let mut this = self.project();
-        // loop until the inner stream returns:
-        // - Ready with a group
-        // - Ready(None) - stream ended
-        // ignore None values, since it is not a group, but may indicate more values in the stream
-        // itself
-        loop {
-            if let Some(event) = ready!(this.inner.as_mut().poll_next(cx)) {
-                if let Some(group) =
-                    xmtp_common::optify!(event, "Missed messages due to event queue lag")
-                        .and_then(LocalEvents::group_filter)
-                {
-                    return Ready(Some(Ok(WelcomeOrGroup::Group(group))));
-                }
-            } else {
-                return Ready(None);
-            }
-        }
-    }
-}
-
-#[pin_project]
-/// Subscription Stream mapped to WelcomeOrGroup
-pub struct SubscriptionStream<S, E> {
-    #[pin]
-    inner: S,
-    _marker: std::marker::PhantomData<E>,
-}
-
-impl<S, E> SubscriptionStream<S, E> {
-    fn new(inner: S) -> Self {
-        Self {
-            inner,
-            _marker: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<S, E> Stream for SubscriptionStream<S, E>
-where
-    S: Stream<Item = std::result::Result<WelcomeMessage, E>> + MaybeSend,
-    E: xmtp_common::RetryableError + 'static,
-{
-    type Item = Result<WelcomeOrGroup>;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        use std::task::Poll::*;
-        let this = self.project();
-
-        match this.inner.poll_next(cx) {
-            Ready(Some(welcome)) => {
-                let welcome = welcome.map_err(|e| SubscribeError::BoxError(Box::new(e)))?;
-                Ready(Some(Ok(WelcomeOrGroup::Welcome(welcome))))
-            }
-            Pending => Pending,
-            Ready(None) => Ready(None),
-        }
-    }
-}
-
-/// The stream for conversations.
-/// Handles the state machine that processes welcome messages and groups. It handles
-/// two main states:
-///
-/// - `Waiting`: Ready to receive the next message from the inner stream
-/// - `Processing`: Currently processing a welcome/group through a future
-///
-/// The implementation ensures efficient processing by immediately attempting
-/// to advance futures when possible, rather than waiting for the next poll cycle.
-///
-/// # Arguments
-/// * `cx` - The task context for polling
-///
-/// # Returns
-/// * `Poll<Option<Result<MlsGroup<Context>>>>` - The polling result:
-///   - `Ready(Some(Ok(group)))` when a group is successfully processed
-///   - `Ready(Some(Err(e)))` when an error occurs
-///   - `Pending` when waiting for more data or for future completion
-///   - `Ready(None)` when the stream has ended
-#[pin_project(PinnedDrop)]
-pub struct StreamConversations<'a, Context: Clone + XmtpSharedContext, Subscription> {
-    #[pin]
-    inner: Subscription,
-    context: Cow<'a, Context>,
-    #[pin]
-    welcome_syncs: JoinSet<Result<ProcessWelcomeResult<Context>>>,
-    conversation_type: Option<ConversationType>,
-    known_welcome_ids: HashSet<Cursor>,
-    include_duplicated_dms: bool,
-    consent_states: Option<Vec<ConsentState>>,
-}
-
-#[pinned_drop]
-impl<'a, Context, Subscription> PinnedDrop for StreamConversations<'a, Context, Subscription>
-where
-    Context: Clone + XmtpSharedContext,
-{
-    fn drop(self: Pin<&mut Self>) {
-        log_event!(
-            Event::StreamClosed,
-            self.context.installation_id(),
-            kind = ?StreamKind::Conversations
-        );
-    }
-}
-
-#[pin_project(project = ProcessProject)]
+/// Local notification history, not durable receipt or processing progress.
 #[derive(Default)]
-enum ProcessState<'a, Context> {
-    /// State that indicates the stream is waiting on the next message from the network
-    #[default]
-    Waiting,
-    /// State that indicates the stream is waiting on a IO/Network future to finish processing the current message
-    /// before moving on to the next one
-    #[allow(unused)]
-    Processing {
-        #[pin]
-        future: BoxDynFuture<'a, Result<ProcessWelcomeResult<Context>>>,
-    },
+struct KnownConversations {
+    /// A later Welcome for an existing group is a new rejoin notification.
+    welcomes: HashMap<GroupId, Option<i64>>,
+    /// Keep one selected group per participant pair for this stream's lifetime.
+    dms: HashMap<String, GroupId>,
 }
 
-pub(super) type WelcomesApiSubscription<'a, ApiClient> = MultiplexedStream<
-    SubscriptionStream<
-        <ApiClient as XmtpMlsStreams>::WelcomeMessageStream,
-        <ApiClient as XmtpMlsStreams>::Error,
-    >,
-    BroadcastGroupStream,
->;
+impl KnownConversations {
+    /// Exclude groups already committed when the live stream starts.
+    fn from_groups(groups: Vec<StoredGroup>) -> Self {
+        let mut known = Self::default();
+        for group in groups {
+            known.welcomes.insert(group.id, group.sequence_id);
+            if let Some(dm_id) = group.dm_id {
+                known.dms.entry(dm_id).or_insert(group.id);
+            }
+        }
+        known
+    }
 
-impl<'a, C> StreamConversations<'a, C, WelcomesApiSubscription<'a, C::ApiClient>>
-where
-    C: XmtpSharedContext + 'a,
-    C::ApiClient: XmtpMlsStreams + 'a,
-    C::Db: 'a,
-{
-    /// Creates a new welcome message and conversation stream.
-    ///
-    /// This function initializes a stream that combines local and remote events
-    /// for receiving conversation updates. It handles both welcome messages from
-    /// the network and locally generated group events.
-    ///
-    /// Key initialization steps:
-    /// 1. Retrieves the last cursor position for welcome messages
-    /// 2. Sets up a broadcast stream for internal events
-    /// 3. Creates a network subscription starting from the cursor
-    /// 4. Loads existing welcome IDs to prevent reprocessing
-    /// 5. Combines these sources into a multiplexed stream
-    ///
-    /// # Arguments
-    /// * `client` - Reference to the client used for API communication
-    /// * `conversation_type` - Optional filter to only receive specific conversation types
-    /// * `include_duplicate_dms` - Optional filter to include duplicate dms in the stream
-    /// * `consent_states` - Optional filter to only receive conversations with specific consent states
-    ///
-    /// # Returns
-    /// * `Result<Self>` - A new conversation stream if successful
-    ///
-    /// # Errors
-    /// May return errors if:
-    /// - Database operations fail
-    /// - API subscription creation fails
-    ///
+    /// Observe committed discovery without letting DM list ranking change its identity.
+    fn observe(&mut self, group: &StoredGroup, include_duplicate_dms: bool) -> bool {
+        if self.welcomes.insert(group.id, group.sequence_id) == Some(group.sequence_id)
+            || ConversationType::virtual_types().contains(&group.conversation_type)
+        {
+            return false;
+        }
+        if !include_duplicate_dms && let Some(dm_id) = &group.dm_id {
+            return *self.dms.entry(dm_id.clone()).or_insert(group.id) == group.id;
+        }
+        true
+    }
+}
+
+/// Notify one subscriber of committed local creation and Welcome joins.
+pub struct StreamConversations<C: XmtpSharedContext> {
+    inner: BoxDynStream<'static, Result<MlsGroup<C>>>,
+}
+
+impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
     pub async fn new(
-        context: &'a C,
+        context: &C,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<Self> {
-        log_event!(
-            Event::StreamOpened,
-            context.installation_id(),
-            kind = ?StreamKind::Conversations
-        );
-        Self::from_cow(
-            Cow::Borrowed(context),
+    ) -> Result<Self>
+    where
+        C::ApiClient: XmtpMlsStreams,
+    {
+        Self::new_owned(
+            context.clone(),
             conversation_type,
             include_duplicate_dms,
             consent_states,
@@ -263,162 +88,95 @@ where
         .await
     }
 
-    pub async fn from_cow(
-        context: Cow<'a, C>,
-        conversation_type: Option<ConversationType>,
-        include_duplicated_dms: bool,
-        consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<Self> {
-        let conn = context.db();
-        let installation_key = context.installation_id();
-        tracing::debug!(
-            inbox_id = context.inbox_id(),
-            "Setting up conversation stream cursor",
-        );
-
-        let events =
-            BroadcastGroupStream::new(BroadcastStream::new(context.local_events().subscribe()));
-
-        let cursor = conn.get_last_cursor(
-            installation_key,
-            xmtp_db::refresh_state::EntityKind::Welcome,
-        )?;
-        let cursors = std::collections::HashMap::from([(
-            xmtp_proto::types::Topic::new_welcome_message(installation_key),
-            cursor,
-        )]);
-        let subscription = context
-            .api()
-            .subscribe_welcome_messages_with_cursors(&cursors)
-            .await?;
-        let subscription = SubscriptionStream::new(subscription);
-        let known_welcome_ids = HashSet::from_iter(conn.group_cursors()?);
-
-        let stream = multiplexed(subscription, events);
-
-        Ok(Self {
-            context,
-            inner: stream,
-            known_welcome_ids,
-            conversation_type,
-            welcome_syncs: JoinSet::new(),
-            include_duplicated_dms,
-            consent_states,
-        })
-    }
-}
-
-impl<C> StreamConversations<'static, C, WelcomesApiSubscription<'static, C::ApiClient>>
-where
-    C: XmtpSharedContext + 'static,
-    C::ApiClient: XmtpMlsStreams + 'static,
-    C::Db: 'static,
-{
+    /// Capture the local discovery baseline before starting the shared receiver.
     pub async fn new_owned(
         context: C,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
         consent_states: Option<Vec<ConsentState>>,
-    ) -> Result<Self> {
-        Self::from_cow(
-            Cow::Owned(context),
+    ) -> Result<Self>
+    where
+        C::ApiClient: XmtpMlsStreams,
+    {
+        let events = context.local_events().subscribe();
+        let known = KnownConversations::from_groups(context.db().find_groups(GroupQueryArgs {
+            include_sync_groups: true,
+            include_duplicate_dms: true,
+            consent_states: Some(ALL_CONSENT_STATES.to_vec()),
+            ..Default::default()
+        })?);
+        let coordinator = IncomingCoordinator::enable_stream_transport(&context);
+        let lease = coordinator.acquire(IncomingScope::Topics(vec![Topic::new_welcome_message(
+            context.installation_id(),
+        )]));
+        let query = GroupQueryArgs {
             conversation_type,
+            consent_states: Some(consent_states.unwrap_or_else(|| ALL_CONSENT_STATES.to_vec())),
             include_duplicate_dms,
-            consent_states,
-        )
-        .await
-    }
-}
-
-impl<'a, C, Subscription> Stream for StreamConversations<'a, C, Subscription>
-where
-    C: XmtpSharedContext + 'static,
-    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
-    C::ApiClient: 'static,
-    C::Db: 'static,
-{
-    type Item = Result<MlsGroup<C>>;
-
-    #[tracing::instrument(
-        skip_all,
-        level = "trace",
-        fields(operation = "stream.poll_next_stream_conversations")
-    )]
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        // We don't care if this is:
-        // - Pending: we return pending by-default in the next section
-        // - Ready(None): this just means the JoinSet is empty (no welcome syncs ongoing)
-        // - Ready(Some(Err(welcome_result))): processing the welcome failed and the task failed with
-        // a panic/error, we just ignore this.
-        if let Poll::Ready(Some(Ok(welcome_result))) =
-            self.as_mut().project().welcome_syncs.poll_join_next(cx)
-        {
-            // if filter is None, we continue to poll the inner stream.
-            // the inner stream propagates a Pending, if its not pending, we register the task for
-            // wakeup again. Therefore, we can ignore the None.
-            if let Some(new_welcome) = self.as_mut().filter_welcome(welcome_result) {
-                return Poll::Ready(Some(new_welcome));
-            }
-        }
-
-        let mut this = self.as_mut().project();
-        match ready!(this.inner.poll_next(cx)) {
-            Some(welcome_envelope) => {
-                let future = ProcessWelcomeFuture::new(
-                    this.known_welcome_ids.clone(),
-                    this.context.clone().into_owned(),
-                    welcome_envelope?,
-                    *this.conversation_type,
-                    *this.include_duplicated_dms,
-                    this.consent_states.clone(),
-                )?;
-                this.welcome_syncs.spawn(future.process());
-                cx.waker().wake_by_ref();
-                Poll::Pending
-            }
-            None => Poll::Ready(None),
-        }
-    }
-}
-
-impl<'a, C, Subscription> StreamConversations<'a, C, Subscription>
-where
-    C: XmtpSharedContext + 'static,
-    C::ApiClient: 'static,
-    C::Db: 'static,
-    Subscription: Stream<Item = Result<WelcomeOrGroup>> + 'static,
-{
-    /// adds the processed welcome id to our inner hashset
-    fn filter_welcome(
-        mut self: Pin<&mut Self>,
-        welcome: Result<ProcessWelcomeResult<C>>,
-    ) -> Option<<Self as Stream>::Item> {
-        let this = self.as_mut().project();
-        let result = match welcome {
-            Ok(result) => result,
-            Err(e) => return Some(Err(e)),
+            ..Default::default()
         };
-        // Interpretation (which group to surface, which cursor to record as seen) is
-        // shared with the bidi manager via `ProcessWelcomeResult::into_outcome`.
-        let outcome = result.into_outcome();
-        if let Some(seen) = outcome.seen {
-            this.known_welcome_ids.insert(seen);
-        }
-        match (&outcome.group, outcome.seen) {
-            (Some(group), _) => tracing::debug!(
-                group_id = %group.group_id,
-                "finished processing with group {}",
-                hex::encode(group.group_id)
-            ),
-            (None, Some(id)) => {
-                tracing::debug!("ignoring streamed conversation payload with welcome id {id}")
-            }
-            (None, None) => tracing::debug!("ignoring streamed conversation payload"),
-        }
-        outcome.group.map(Ok)
+        let stream = futures::stream::unfold(
+            (context, events, lease, known, VecDeque::new(), query),
+            |(context, mut events, lease, mut known, mut ready, query)| async move {
+                loop {
+                    if let Some(group) = ready.pop_front() {
+                        return Some((Ok(group), (context, events, lease, known, ready, query)));
+                    }
+                    if context.is_closed() {
+                        return None;
+                    }
+                    let groups = if query.consent_states.as_ref().is_some_and(Vec::is_empty) {
+                        Ok(Vec::new())
+                    } else {
+                        context.db().find_groups(&query)
+                    };
+                    match groups {
+                        Ok(groups) => {
+                            for group in groups {
+                                if known.observe(&group, query.include_duplicate_dms) {
+                                    ready.push_back(MlsGroup::new(
+                                        context.clone(),
+                                        group.id,
+                                        group.dm_id,
+                                        group.conversation_type,
+                                        group.created_at_ns,
+                                    ));
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            return Some((
+                                Err(error.into()),
+                                (context, events, lease, known, ready, query),
+                            ));
+                        }
+                    }
+                    if !ready.is_empty() {
+                        continue;
+                    }
+                    tokio::select! {
+                        _ = context.cancellation_token().cancelled() => return None,
+                        _ = lease.changed() => {},
+                        _ = sleep(context.stream_settings().active_database_poll_interval) => {},
+                        event = events.recv() => match event {
+                            Ok(LocalEvents::NewGroup(_)) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {},
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
+                            _ => {},
+                        },
+                    }
+                }
+            },
+        );
+        Ok(Self {
+            inner: Box::pin(stream),
+        })
+    }
+}
+
+impl<C: XmtpSharedContext> Stream for StreamConversations<C> {
+    type Item = Result<MlsGroup<C>>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
     }
 }
 
@@ -587,6 +345,49 @@ mod test {
         alix.sync_welcomes().await.unwrap();
         let find_groups_results = alix.find_groups(GroupQueryArgs::default()).unwrap();
         assert_eq!(2, find_groups_results.len());
+    }
+
+    /// Consent filtering cannot turn a group from the live baseline into a new join.
+    #[xmtp_common::test(unwrap_try = true)]
+    #[rstest::rstest]
+    #[case::unfiltered(None, 2)]
+    #[case::allowed_only(Some(vec![ConsentState::Allowed]), 1)]
+    #[case::empty_filter(Some(Vec::new()), 0)]
+    async fn conversation_consent_filter_preserves_live_baseline(
+        #[case] consent_states: Option<Vec<ConsentState>>,
+        #[case] expected_count: usize,
+    ) {
+        use xmtp_common::time::{Duration, timeout};
+
+        tester!(alix, disable_workers);
+        let old = alix.create_group(None, None)?;
+        old.update_consent_state(ConsentState::Denied)?;
+        let mut stream = StreamConversations::new(
+            &alix.context,
+            Some(ConversationType::Group),
+            false,
+            consent_states,
+        )
+        .await?;
+
+        old.update_consent_state(ConsentState::Allowed)?;
+        let denied = alix.create_group(None, None)?;
+        denied.update_consent_state(ConsentState::Denied)?;
+        let allowed = alix.create_group(None, None)?;
+        let expected = match expected_count {
+            2 => vec![denied.group_id, allowed.group_id],
+            1 => vec![allowed.group_id],
+            _ => Vec::new(),
+        };
+        for group_id in expected {
+            let observed = timeout(Duration::from_secs(5), stream.next()).await???;
+            assert_eq!(observed.group_id, group_id);
+        }
+        assert!(
+            timeout(Duration::from_millis(100), stream.next())
+                .await
+                .is_err()
+        );
     }
 
     #[xmtp_common::timeout(std::time::Duration::from_secs(5))]

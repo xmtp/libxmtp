@@ -602,3 +602,26 @@ No surviving test covers the removed subject. The old test rows are removed from
 - `BIND-REQ-073` keeps archive metadata conversion and supported-element filtering. Only its PIN and sender conversion subject is removed.
 - `RUST-REQ-043` keeps the bundled-root reqwest constructor test.
 - `IOS-REQ-136` and `IOS-REQ-137` keep their consent and preference test declarations. Both still have a pre-existing unconditional `XCTSkip`; they provide no active runtime coverage.
+
+## Phase 4 outgoing preparation
+
+| Retired ID | Removed subject | Reason |
+| --- | --- | --- |
+| `GINLINE-REQ-073` | Return a published intent to `ToPublish` after a send error. | Ambiguous publish errors must preserve and retry the exact prepared bytes. The replacement recovery contract is covered by `GINLINE-REQ-097`. |
+
+## Phase 4 incoming processing
+
+The removed `stream_messages::tests::test_stream_messages` declaration now maps
+to the durable reader tests under `SHARED-SYNC-REQ-005`, including the two-message
+rejoin sequence in `MLS-REQ-165`. The shared requirement remains live.
+
+| Retired ID | Removed subject | Reason |
+| --- | --- | --- |
+| `MLS-REQ-078` | Per-message cursor selection from recovery summaries. | The removed `MessageProcessor` no longer owns progress. The shared receiver records durable receipt and processing progress. |
+| `MLS-REQ-079` | Recovery-sync surfacing between failed cursors. | The removed per-message recovery path is replaced by ordered terminal processing and local delivery. `MLS-REQ-120` covers later progress after a rejected supported head. |
+| `MLS-REQ-080` | The `process_one` fast-path and async pipeline split. | The function and its stub tests were removed. `MLS-REQ-104` covers current delivery from live receipt and stored history. |
+| `MLS-REQ-081` | The `Ignore` and `IgnoreId` welcome outcomes. | The old result type was removed. Welcome processing now records durable per-envelope outcomes. |
+| `MLS-REQ-101` | The catch-up-specific update planner. | The planner and its tests were removed. Shared incoming scopes now own catch-up; `SHARED-GROUP-REQ-039` retains its stored-result assertions. |
+| `MLS-REQ-106` | `StreamDedup` replay windows. | The router and its in-memory deduplication tests were removed. Local delivery acknowledgements now own reader progress. |
+| `MLS-REQ-115` | Panicked welcome task propagation through the old router. | The router and its injected-task test were removed. No surviving test claims this exact panic path. |
+| `P3-API-005` | Terminal rejection of a backend hash that differs from client recomputation. | Backend outer hashes are authoritative. `API-REQ-085` covers preservation without recomputation. |

@@ -167,7 +167,7 @@ async fn test_dm_stream_correct_type() {
     assert_eq!(convo_list[0].conversation_type(), FfiConversationType::Dm);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_dm_streaming() {
     let alix = Tester::new().await;
     let bo = Tester::new().await;
@@ -256,9 +256,10 @@ async fn test_dm_streaming() {
 
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
+    assert_eq!(bo.api_statistics().subscribe_static, 0);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_all_dm_messages() {
     let alix = Tester::new().await;
     let bo = Tester::new().await;
@@ -363,6 +364,8 @@ async fn test_stream_all_dm_messages() {
         "Stream unexpectedly received a Group message"
     );
     assert_eq!(stream_callback.message_count(), 1);
+    stream.end_and_wait().await?;
+    assert_eq!(bo.api_statistics().subscribe_static, 0);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]

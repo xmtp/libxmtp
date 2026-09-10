@@ -89,7 +89,7 @@ async fn test_can_stream_group_messages_for_updates() {
     assert!(stream_messages.is_closed());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_conversation_streaming() {
     let amal = new_test_client().await;
     let bola = new_test_client().await;
@@ -123,9 +123,10 @@ async fn test_conversation_streaming() {
 
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
+    assert_eq!(bola.api_statistics().subscribe_static, 0);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_all_messages() {
     let alix = new_test_client().await;
     let bo = new_test_client().await;
@@ -183,9 +184,10 @@ async fn test_stream_all_messages() {
     assert_eq!(stream_callback.message_count(), 4);
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
+    assert_eq!(caro.api_statistics().subscribe_static, 0);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_message_streaming() {
     let amal = new_test_client().await;
     let bola = new_test_client().await;
@@ -221,13 +223,51 @@ async fn test_message_streaming() {
 
     assert_eq!(stream_callback.message_count(), 2);
     stream_closer.end_and_wait().await.unwrap();
+    assert_eq!(bola.api_statistics().subscribe_static, 0);
+}
+
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn test_dm_message_streaming_uses_bidi() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+    let alix_dm = alix
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await?;
+    bo.inner_client.sync_welcomes().await?;
+    let bo_dm = bo.conversation(alix_dm.id())?;
+    let callback = Arc::new(RustStreamCallback::default());
+    let stream = bo_dm.stream(callback.clone()).await;
+    stream.wait_for_ready().await;
+
+    alix_dm
+        .send(b"bidi dm".to_vec(), FfiSendMessageOpts::default())
+        .await?;
+    wait_for_eq(
+        || async { callback.message_contents() },
+        vec![b"bidi dm".to_vec()],
+    )
+    .await?;
+
+    stream.end_and_wait().await?;
+    assert_eq!(bo.api_statistics().subscribe_static, 0);
 }
 
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_message_streaming_when_removed_then_added() {
+    fn application_messages(callback: &RustStreamCallback) -> Vec<Vec<u8>> {
+        callback
+            .messages
+            .lock()
+            .iter()
+            .filter(|message| message.kind == FfiConversationMessageKind::Application)
+            .map(|message| message.content.clone())
+            .collect()
+    }
+
     async fn wait_for_message(callback: &RustStreamCallback, content: &[u8]) {
         wait_for_eq(
-            || async { callback.message_contents().iter().any(|m| m == content) },
+            || async { application_messages(callback).iter().any(|m| m == content) },
             true,
         )
         .await
@@ -244,9 +284,10 @@ async fn test_message_streaming_when_removed_then_added() {
         )
         .await?;
 
-    // Drain the initial membership transcript before starting the streams.
+    // Join Bola before testing removal. New streams can also read retained membership rows.
     amal.conversations().sync_all_conversations(None).await?;
     bola.conversations().sync_all_conversations(None).await?;
+    let bola_group = bola.conversation(amal_group.id())?;
 
     let bola_stream_callback = Arc::new(RustStreamCallback::default());
     let bola_stream_closer = bola
@@ -268,14 +309,10 @@ async fn test_message_streaming_when_removed_then_added() {
         wait_for_message(&bola_stream_callback, content).await;
         wait_for_message(&amal_stream_callback, content).await;
     }
-    assert_eq!(bola_stream_callback.message_count(), 2);
-    assert_eq!(amal_stream_callback.message_count(), 2);
-
     amal_group
         .remove_members(vec![bola.inbox_id().clone()])
         .await?;
-    wait_for_eq(|| async { bola_stream_callback.message_count() }, 3).await?;
-    wait_for_eq(|| async { amal_stream_callback.message_count() }, 3).await?;
+    wait_for_eq(|| async { bola_group.is_active().unwrap() }, false).await?;
 
     amal_group
         .send(b"hello3".to_vec(), FfiSendMessageOpts::default())
@@ -292,21 +329,20 @@ async fn test_message_streaming_when_removed_then_added() {
     wait_for_message(&bola_stream_callback, b"hello4").await;
     wait_for_message(&amal_stream_callback, b"hello4").await;
 
-    // Checking the full sequence after recovery also proves that hello3 was
-    // excluded. A delay while Bola is removed cannot establish that outcome.
-    let bola_messages: Vec<_> = bola_stream_callback
-        .messages
-        .lock()
-        .iter()
-        .filter(|m| m.kind == FfiConversationMessageKind::Application)
-        .map(|m| m.content.clone())
-        .collect();
+    // The full application sequence after rejoin proves that hello3 stayed excluded.
     assert_eq!(
-        bola_messages,
+        application_messages(&bola_stream_callback),
         vec![b"hello1".to_vec(), b"hello2".to_vec(), b"hello4".to_vec()]
     );
-    assert_eq!(bola_stream_callback.message_count(), 4);
-    wait_for_eq(|| async { amal_stream_callback.message_count() }, 6).await?;
+    assert_eq!(
+        application_messages(&amal_stream_callback),
+        vec![
+            b"hello1".to_vec(),
+            b"hello2".to_vec(),
+            b"hello3".to_vec(),
+            b"hello4".to_vec()
+        ]
+    );
     assert!(!bola_stream_closer.is_closed());
     assert!(!amal_stream_closer.is_closed());
 

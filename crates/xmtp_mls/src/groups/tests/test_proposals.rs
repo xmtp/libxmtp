@@ -3388,31 +3388,8 @@ async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
 //   - Pre-flip groups stay on the legacy GCE path:
 //     `test_update_group_name_uses_legacy_path_when_proposals_disabled`.
 
-/// Verify the receiver-side validator denies an inline AppDataUpdate
-/// proposal when the actor doesn't have permission for the targeted
-/// component. Installs a *deny*-policy registry so the per-element check
-/// rejects the update, then asserts the commit never applies.
-///
-/// This pins the invariant that
-/// [`validate_app_data_update_proposals_in_commit`] actually fires for
-/// inline proposals — without it, the new path would silently bypass
-/// permission checks because `extract_metadata_changes` only inspects
-/// the legacy GMM extension.
-///
-/// The assertion shape is intentionally three-part. Own-commit validation
-/// failures are non-retryable and `process_message` absorbs them by
-/// flipping the intent's DB row to `IntentState::Error`. The typed
-/// `CommitValidationError::InsufficientPermissions` is no longer dropped:
-/// it's captured into the summary's `process.errored` (see the
-/// `ProcessedMessageOutcome` path in mls_sync.rs) so the cause survives.
-/// What the public API returns is `GroupError::Sync(summary)` from
-/// `sync_until_intent_resolved_inner`, matching the pattern established by
-/// other permission-denial tests such as the `SyncFailedToWait` assertions
-/// in `tests/mod.rs`. We pin `Sync(_)`, that the summary carries the real
-/// `CommitValidation` cause, and the group-name-unchanged invariant: a
-/// validator-stopped-firing regression would either succeed (name changes)
-/// or produce a different `GroupError` variant — both detected; a
-/// cause-swallowing regression would drop the `CommitValidation` error.
+/// An inline update must obey the registry policy and leave the group unchanged.
+/// The failed intent must return its exact permission cause in the sync summary.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_inline_app_data_update_denied_by_registry_policy() {
     use crate::groups::{

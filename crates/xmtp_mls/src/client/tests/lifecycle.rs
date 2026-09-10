@@ -68,7 +68,140 @@ async fn should_stream_consent() {
     assert_eq!(item[0].state, ConsentState::Allowed);
 }
 
-/// P3-API-015, MLS-REQ-045: a severed registration wait ends before its deadline.
+/// API-089: only the exact identity topic's serving head confirms registration.
+#[xmtp_common::test(unwrap_try = true)]
+#[rstest::rstest]
+#[case(false)]
+#[case(true)]
+async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool) {
+    use crate::client::VisibilityConfirmationOptions;
+    use crate::identity::IdentityStrategy;
+    use xmtp_api_backend::MockBackendClient;
+    use xmtp_proto::backend_v1 as wire;
+    use xmtp_proto::types::Topic;
+
+    tester!(alix, disable_workers);
+    let identity: StoredIdentity = alix.db().fetch(&())?.unwrap();
+    let registration = identity.registration_cursor_sequence_id.unwrap() as u64;
+    assert!(registration > 1);
+    let topic = Topic::new_identity_update(hex::decode(alix.inbox_id())?);
+    let mut calls = 0;
+    let mut api = MockBackendClient::new();
+    api.expect_query_newest()
+        .times(3)
+        .returning(move |request| {
+            assert!(!request.include_full_envelope);
+            assert_eq!(
+                request.topics,
+                vec![wire::Topic {
+                    topic: topic.cloned_vec()
+                }]
+            );
+            calls += 1;
+            if calls == 1 {
+                return Ok(wire::QueryNewestResponse::default());
+            }
+            let sequence_id = if calls == 2 {
+                registration - 1
+            } else {
+                registration + u64::from(newer_head)
+            };
+            Ok(wire::QueryNewestResponse {
+                results: vec![wire::query_newest_response::Result {
+                    topic: Some(wire::Topic {
+                        topic: topic.cloned_vec(),
+                    }),
+                    meta: Some(wire::EnvelopeMeta {
+                        topic: Some(wire::Topic {
+                            topic: topic.cloned_vec(),
+                        }),
+                        cursor: Some(wire::Cursor { sequence_id }),
+                        message_hash: Some(wire::MessageHash {
+                            hash: Some(wire::message_hash::Hash::Sha256(vec![1; 32])),
+                        }),
+                        ..Default::default()
+                    }),
+                    envelope: None,
+                }],
+            })
+        });
+    let reader = Client::builder(IdentityStrategy::CachedOnly)
+        .store(alix.context.store().clone())
+        .api_client(api)
+        .with_scw_verifier(alix.context.scw_verifier())
+        .default_mls_store()?
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    reader
+        .wait_for_registration_visible(VisibilityConfirmationOptions { timeout_ms: 1_000 })
+        .await?;
+}
+
+/// API-089: a response with a different metadata topic cannot confirm registration.
+#[xmtp_common::test(unwrap_try = true)]
+async fn registration_visibility_rejects_mismatched_metadata() {
+    use crate::client::{ClientError, VisibilityConfirmationOptions};
+    use crate::identity::IdentityStrategy;
+    use xmtp_api_backend::MockBackendClient;
+    use xmtp_proto::backend_v1 as wire;
+    use xmtp_proto::types::Topic;
+
+    tester!(alix, disable_workers);
+    let topic = Topic::new_identity_update(hex::decode(alix.inbox_id())?);
+    let mut other_topic = topic.cloned_vec();
+    other_topic[1] ^= 1;
+    let mut api = MockBackendClient::new();
+    api.expect_query_newest()
+        .times(1)
+        .returning(move |request| {
+            assert!(!request.include_full_envelope);
+            assert_eq!(
+                request.topics,
+                vec![wire::Topic {
+                    topic: topic.cloned_vec()
+                }]
+            );
+            Ok(wire::QueryNewestResponse {
+                results: vec![wire::query_newest_response::Result {
+                    topic: Some(wire::Topic {
+                        topic: topic.cloned_vec(),
+                    }),
+                    meta: Some(wire::EnvelopeMeta {
+                        topic: Some(wire::Topic {
+                            topic: other_topic.clone(),
+                        }),
+                        cursor: Some(wire::Cursor {
+                            sequence_id: i64::MAX as u64,
+                        }),
+                        message_hash: Some(wire::MessageHash {
+                            hash: Some(wire::message_hash::Hash::Sha256(vec![1; 32])),
+                        }),
+                        ..Default::default()
+                    }),
+                    envelope: None,
+                }],
+            })
+        });
+    let reader = Client::builder(IdentityStrategy::CachedOnly)
+        .store(alix.context.store().clone())
+        .api_client(api)
+        .with_scw_verifier(alix.context.scw_verifier())
+        .default_mls_store()?
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert!(matches!(
+        reader
+            .wait_for_registration_visible(VisibilityConfirmationOptions { timeout_ms: 1_000 })
+            .await,
+        Err(ClientError::Api(xmtp_api::ApiError::InvalidResponse(_)))
+    ));
+}
+
+/// A severed registration wait ends before its deadline.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn registration_visibility_deadline_bounds_a_severed_connection() {
@@ -108,64 +241,116 @@ async fn registration_visibility_deadline_bounds_a_severed_connection() {
 }
 
 #[xmtp_common::timeout(Duration::from_secs(100))]
-#[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-// Detection of the black-holed connection comes from the h2 transport keepalive.
-// Pin it fast (5s ping / 5s ack) so the failure lands in seconds under nextest,
-// whose process-per-test isolation guarantees the pin is read before the
-// process-wide config latches. Under a plain `cargo test`, a sibling test may
-// latch the library defaults (45s/20s) first and the pin becomes a no-op, so
-// the timeout budget also covers their ~65s worst-case detection.
 #[cfg(not(target_arch = "wasm32"))]
+/// One conversation stream resumes from durable receipt after a black hole.
 async fn should_reconnect() {
+    use crate::subscriptions::incoming::{IncomingConnection, IncomingCoordinator, IncomingScope};
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+    use xmtp_db::incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic};
+    use xmtp_proto::types::Topic;
+
+    // Nextest starts a fresh process, so these values precede the first client.
     unsafe {
         std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
         std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
     }
     toxiproxy_test(async || {
-        let alix = Tester::builder().proxy().build().await;
-        let bo = Tester::builder().build().await;
-
+        tester!(alix, proxy, disable_workers);
+        tester!(bo, disable_workers);
         let start_new_convo = || async {
             bo.create_group_with_members(&[alix.inbox_id().to_string()], None, None)
                 .await
                 .unwrap()
         };
-
-        let stream = alix.client.stream_conversations(None, false).await.unwrap();
+        let stream = alix.stream_conversations(None, false).await.unwrap();
         futures::pin_mut!(stream);
+        let lease =
+            IncomingCoordinator::for_context(&alix.context).acquire(IncomingScope::Topics(vec![
+                Topic::new_welcome_message(alix.installation_public_key()),
+            ]));
+        let topic = StreamTopic {
+            entity_id: alix.installation_public_key().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        };
+        let wait = Duration::from_secs(20);
 
-        start_new_convo().await;
+        let initial = start_new_convo().await;
+        let delivered = xmtp_common::time::timeout(wait, stream.try_next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.group_id, initial.group_id);
+        let connected = xmtp_common::wait_for_some(|| async {
+            let status = lease.snapshot();
+            (status.connection == IncomingConnection::Connected).then_some(status)
+        })
+        .await
+        .expect("the initial receiver did not connect");
+        let before = alix.context.db().topic_progress(&topic).unwrap();
+        assert!(before.processed.0 > 0);
+        assert_eq!(before.received, before.processed);
 
-        let success_res = stream.try_next().await;
-        assert!(success_res.is_ok());
-
-        // Black hole the connection for a minute, then reconnect. The test will timeout without the keepalives.
         alix.for_each_proxy(async |p| {
             p.with_timeout("downstream".into(), 60_000, 1.0).await;
         })
         .await;
-
-        start_new_convo().await;
-
-        let should_fail = stream.try_next().await;
-        assert!(should_fail.is_err());
-
-        start_new_convo().await;
-
+        let outage = AssertUnwindSafe(async {
+            let missed = start_new_convo().await;
+            assert!(
+                xmtp_common::wait_for_some(|| async {
+                    (lease.snapshot().connection != IncomingConnection::Connected).then_some(())
+                })
+                .await
+                .is_some(),
+                "the receiver did not detect the black hole"
+            );
+            let pending = alix.context.db().topic_progress(&topic).unwrap();
+            assert_eq!(pending.received, before.received);
+            assert_eq!(pending.processed, before.processed);
+            missed
+        })
+        .catch_unwind()
+        .await;
+        // Restore the test's proxy before reporting any outage assertion failure.
         alix.for_each_proxy(async |p| {
             p.delete_all_toxics().await.unwrap();
         })
         .await;
-        xmtp_common::time::sleep(std::time::Duration::from_millis(500)).await;
+        let missed = outage.unwrap();
+        let delivered = xmtp_common::time::timeout(wait, stream.try_next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.group_id, missed.group_id);
+        assert!(
+            xmtp_common::wait_for_some(|| async {
+                let status = lease.snapshot();
+                (status.connection == IncomingConnection::Connected
+                    && status.connection_generation > connected.connection_generation)
+                    .then_some(())
+            })
+            .await
+            .is_some(),
+            "the original receiver did not reconnect"
+        );
+        let recovered = alix.context.db().topic_progress(&topic).unwrap();
+        assert!(recovered.processed > before.processed);
+        assert_eq!(recovered.received, recovered.processed);
 
-        // stream closes after it gets the broken pipe b/c of blackhole & HTTP/2 KeepAlive
-        futures_test::assert_stream_done!(stream);
-        xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
-        let mut new_stream = alix.client.stream_conversations(None, false).await.unwrap();
-        let new_res = new_stream.try_next().await;
-        assert!(new_res.is_ok());
-        assert!(new_res.unwrap().is_some());
+        let fresh = start_new_convo().await;
+        let delivered = xmtp_common::time::timeout(wait, stream.try_next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(delivered.group_id, fresh.group_id);
+        let after = alix.context.db().topic_progress(&topic).unwrap();
+        assert!(after.processed > recovered.processed);
+        assert_eq!(after.received, after.processed);
     })
     .await
 }

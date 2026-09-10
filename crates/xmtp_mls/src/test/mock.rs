@@ -7,10 +7,6 @@ use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::groups::summary::SyncSummary;
 use crate::identity::create_credential;
-use crate::subscriptions::SubscribeError;
-use crate::subscriptions::process_message::{
-    ProcessFutureFactory, ProcessMessageFuture, ProcessedMessage,
-};
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{MetricsCasting, WorkerKind};
@@ -49,7 +45,6 @@ pub type NewMockContext = XmtpMlsLocalContext<
     xmtp_db::MockXmtpDb,
     xmtp_db::test_utils::MlsMemoryStorage,
 >;
-pub type MockProcessMessageFuture = ProcessMessageFuture<MockContext>;
 pub type MockMlsGroup = MlsGroup<MockContext>;
 
 impl Identity {
@@ -62,14 +57,6 @@ impl Identity {
             signature_request: None,
             is_ready: AtomicBool::new(true),
         }
-    }
-}
-
-mock! {
-    pub ProcessFutureFactory {}
-    impl ProcessFutureFactory<'_> for ProcessFutureFactory {
-        fn create(&self, msg: xmtp_proto::types::GroupMessage) -> xmtp_common::BoxDynFuture<'_, Result<ProcessedMessage, SubscribeError>>;
-        fn retrieve(&self, msg: &xmtp_proto::types::GroupMessage) -> Result<Option<xmtp_db::group_message::StoredGroupMessage>, SubscribeError>;
     }
 }
 
@@ -87,6 +74,7 @@ impl Clone for NewMockContext {
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
+            #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
             local_events: self.local_events.clone(),
@@ -102,6 +90,10 @@ impl Clone for NewMockContext {
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
+            delivery_owner: self.delivery_owner.clone(),
+            stream_settings: self.stream_settings.clone(),
+            incoming_coordinator: self.incoming_coordinator.clone(),
+            identity_resolutions: self.identity_resolutions.clone(),
         }
     }
 }
@@ -162,6 +154,7 @@ impl XmtpSharedContext for NewMockContext {
         &self.local_events
     }
 
+    #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<crate::GroupCommitLock> {
         &self.mls_commit_lock
     }
@@ -191,6 +184,24 @@ impl XmtpSharedContext for NewMockContext {
 
     fn cancellation_token(&self) -> &CancellationToken {
         &self.cancellation_token
+    }
+
+    fn delivery_owner(&self) -> &parking_lot::Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        &self.delivery_owner
+    }
+
+    fn stream_settings(&self) -> &crate::subscriptions::settings::StreamSettings {
+        &self.stream_settings
+    }
+
+    fn incoming_coordinator(
+        &self,
+    ) -> &parking_lot::Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>> {
+        &self.incoming_coordinator
+    }
+
+    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
+        &self.identity_resolutions
     }
 
     fn shutdown_complete(&self) -> bool {

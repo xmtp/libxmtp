@@ -25,6 +25,7 @@
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::auto_pongs_server_ping_without_surfacing_it` | Backend protocol; native test | `API-REQ-058` |
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::probe_round_trips_and_pong_is_not_an_event` | Backend protocol; native test | `API-REQ-058` |
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::mutate_is_forwarded_to_the_wire` | Backend protocol; native test | `API-REQ-058` |
+| `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::unknown_frames_close_with_a_protocol_error` | XMTP native async; absent response oneof; stream ends and retains Protocol("response") | `API-REQ-058` |
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::inbound_error_closes_the_connection` | Backend protocol; native test | `API-REQ-059` |
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::closing_inbound_tears_down_sends` | Backend protocol; native test | `API-REQ-059` |
 | `crates/xmtp_api_backend/src/queries/backend/connection.rs` | `queries::backend::connection::tests::concurrent_mutate_and_probe_both_reach_the_wire` | Backend protocol; native test | `API-REQ-058`, `API-REQ-059` |
@@ -101,10 +102,11 @@
 | File | Qualified test | Form / gates / cases | Requirements |
 | --- | --- | --- | --- |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::publish_retries_identical_canonical_bytes_and_returns_metadata` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-001`, `API-REQ-007`, `P3-API-004` |
-| `crates/xmtp_api/src/tests/mod.rs` | `tests::publish_hash_mismatch_is_terminal` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-005` |
+| `crates/xmtp_api/src/tests/mod.rs` | `tests::publish_preserves_the_backend_hash_without_recomputing_it` | XMTP async; mock backend; authoritative 32-byte hash | `API-REQ-085` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::publish_size_errors_split_between_atomic_units` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-008`, `API-REQ-009`, `P3-API-019` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::one_rejected_atomic_unit_stops_without_splitting` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-019` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::publish_chunks_measure_bytes_and_distinct_topics` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-008`, `API-REQ-009`, `P3-API-003` |
+| `crates/xmtp_api/src/chunk.rs` | `chunk::tests::running_publish_measure_matches_encoded_mixed_request` | XMTP sync; four mixed publish units; repeated destination; 127- and 16384-byte bodies; encoded length after each addition and three distinct topics; no split assertion | `API-REQ-008`, `P3-API-003` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::query_pages_three_times_with_independent_topic_cursors` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-002`, `API-REQ-006`, `RUST-REQ-093`, `P3-API-006` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::oversized_query_reduces_limit_before_splitting_topics` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-019` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::query_rejects_has_more_without_progress` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-006` |
@@ -113,7 +115,7 @@
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::inbox_lookup_chunks_and_preserves_duplicates_and_absence` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-003`, `P3-API-012` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::inbox_lookup_rejects_unknown_response_kind` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-012` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::aborted_identity_publish_returns_conflict_without_retry` | XMTP test; mock backend; parameter cases stay in one row | `API-REQ-001`, `P3-API-008` |
-| `crates/xmtp_api/src/tests/mod.rs` | `tests::get_does_not_retry_not_found` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-008` |
+| `crates/xmtp_api/src/tests/mod.rs` | `tests::newest_does_not_retry_not_found` | XMTP async; exactly one metadata-only QueryNewest call; NOT_FOUND returned unchanged | `P3-API-008` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::group_decoder_keeps_payload_and_envelope_hashes_separate` | XMTP test; mock backend; parameter cases stay in one row | `P3-STR-011` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::welcome_decoder_retains_pointer_payload` | XMTP test; mock backend; parameter cases stay in one row | `P3-STR-011` |
 | `crates/xmtp_api/src/tests/mod.rs` | `tests::query_splits_at_the_topic_limit` | XMTP test; mock backend; parameter cases stay in one row | `P3-API-007` |
@@ -139,7 +141,7 @@
 | `crates/xmtp_api/src/tests/limits/native.rs` | `tests::limits::native::update_entry_boundary` | Native XMTP async; rstest; HTTP/2 asserts queue-then-admit; token-bucket cases require a burst before refill | `P3-TST-002` |
 | `crates/xmtp_api/src/tests/limits/native.rs` | `tests::limits::native::token_bucket_boundary` | Native XMTP async; rstest; HTTP/2 asserts queue-then-admit; token-bucket cases require a burst before refill | `P3-TST-002` |
 | `crates/xmtp_api/src/tests/limits/native.rs` | `tests::limits::native::http2_stream_boundary` | Native XMTP async; rstest; HTTP/2 asserts queue-then-admit; token-bucket cases require a burst before refill | `P3-TST-002` |
-| `crates/xmtp_api_backend/src/endpoints/backend/mod.rs` | `endpoints::backend::tests::endpoint_paths_match_backend_services` | XMTP test; one table for six unary paths and SubscribeStatic; bidi path stays in its transport test | `API-REQ-010` |
+| `crates/xmtp_api_backend/src/endpoints/backend/mod.rs` | `endpoints::backend::tests::endpoint_paths_match_backend_services` | XMTP test; one table for five unary paths and SubscribeStatic; bidi path stays in its transport test | `API-REQ-010` |
 | `crates/xmtp_api_backend/src/queries/stream/extractor.rs` | `queries::stream::extractor::tests::preserves_order_and_all_errors` | XMTP async; empty input, order, decode errors, and wire errors | `API-REQ-051` |
 | `crates/xmtp_api_backend/src/queries/stream/extractor.rs` | `queries::stream::extractor::tests::empty_stream_finishes` | XMTP async; empty input, order, decode errors, and wire errors | `API-REQ-051` |
 | `crates/xmtp_api_backend/src/streams/tests.rs` | `streams::tests::id_only_subscription_starts_after_newest_cursor_without_a_gap` | XMTP async; scripted static streams | `P3-STR-010` |
@@ -158,3 +160,21 @@
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/catch_up.rs` | `queries::bidi_transport::tests::catch_up::unknown_applied_warns_without_disturbing_delivery` | Native XMTP async; scripted backend peer | `P3-STR-001` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::coalescing_keeps_limits_boundaries_and_ack_ids` | Native XMTP async; scripted backend peer | `P3-STR-001` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::coalescing_commits_ack_ids_only_after_wire_acceptance` | Native XMTP async; scripted backend peer | `P3-STR-001` |
+
+## Phase 4 ordered receipt coverage
+
+These rows record source assertions. They do not report a runtime pass.
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::ordered_query_returns_one_bounded_page_with_its_start_cursor` | XMTP async; mock backend; row limit and sparse cursors | `API-REQ-086` |
+| `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::ordered_query_reduces_the_page_before_exceeding_the_byte_limit` | XMTP async; mock backend; request limits 4, 2, and 1 | `API-REQ-086` |
+| `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::one_envelope_above_the_byte_limit_fails_without_skipping_it` | XMTP async; mock backend; typed capacity error at one row | `API-REQ-087` |
+| `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::newest_targets_keep_absent_topics_at_zero` | XMTP async; mock backend; metadata-only targets 90 and 0 | `API-REQ-088` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_reconnect_replays_uncommitted_delivery_and_uses_received_floor` | native XMTP async; scripted backend; replay from 2, then acknowledge and resume from 20 | `API-REQ-089` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_capacity_error_survives_a_full_delivery_channel` | native XMTP async; scripted backend; depth-one full queue | `API-REQ-090` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_bad_order_blocks_the_complete_frame` | native XMTP async; scripted backend; decreasing cursors 8 then 7 | `API-REQ-091` |
+| `crates/xmtp_api_backend/src/envelope.rs` | `envelope::tests::ordered_batches_keep_sparse_positions_and_authoritative_bytes` | XMTP sync; two topics; starts 2 and 0; sparse positions 8, 11, and 20; raw ServerEnvelope retained | `API-REQ-092` |
+| `crates/xmtp_api_backend/src/envelope.rs` | `envelope::tests::failed_frame_does_not_advance_any_topic` | XMTP sync; zero cursor, decreasing cursor, and one-byte capacity cases; complete cursor map unchanged | `API-REQ-093` |
+| `crates/xmtp_api_backend/src/streams/tests.rs` | `streams::tests::raw_subscription_keeps_registration_targets_and_receipt_starts` | XMTP async; static receipt start 20; registration target 40; message positions 21 and 40; one Disconnected then end | `API-REQ-094` |
+| `crates/xmtp_api_backend/src/streams/tests.rs` | `streams::tests::raw_subscription_rejects_missing_targets_and_messages_before_started` | XMTP async; missing registration target and message-before-Started cases; one non-retryable error then end | `API-REQ-095` |

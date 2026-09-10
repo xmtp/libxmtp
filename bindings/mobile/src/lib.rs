@@ -7,6 +7,8 @@ pub mod inbox_owner;
 pub mod logger;
 pub mod message;
 pub mod mls;
+pub mod stream_failure;
+pub mod stream_settings;
 pub mod worker;
 pub mod worker_config;
 
@@ -98,6 +100,9 @@ pub enum GenericError {
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error(transparent)]
     #[error_code(inherit)]
+    LocalDelivery(#[from] xmtp_mls::subscriptions::local_delivery::LocalDeliveryError),
+    #[error(transparent)]
+    #[error_code(inherit)]
     CatchUp(#[from] xmtp_mls::subscriptions::catch_up::CatchUpError),
     #[error(transparent)]
     #[error_code(inherit)]
@@ -139,9 +144,8 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
     }
 }
 
-/// Wrapper that formats errors as `[error_code] message` for mobile SDKs.
-/// UniFFI uses Display to convert errors to strings, so this wrapper
-/// ensures mobile clients receive machine-readable error codes.
+/// Keep the error code prefix and append structured details for processing failures.
+/// The flat error keeps existing callback interfaces compatible.
 #[derive(Debug, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum FfiError {
@@ -151,7 +155,13 @@ pub enum FfiError {
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FfiError::Error(e) => write!(f, "[{}] {}", e.error_code(), e),
+            FfiError::Error(e) => {
+                write!(f, "[{}] {}", e.error_code(), e)?;
+                if let Some(details) = stream_failure::encode_error(e) {
+                    write!(f, "{details}")?;
+                }
+                Ok(())
+            }
         }
     }
 }

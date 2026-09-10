@@ -4,13 +4,14 @@
 
 use crate::context::XmtpSharedContext;
 use crate::identity::IdentityError;
+use crate::state_tx::state_write;
 use crate::worker::NeedsDbReconnect;
 use crate::worker::tasks::enqueue_pull_in;
-use openmls_traits::storage::StorageProvider;
 use thiserror::Error;
+use tls_codec::Serialize;
 use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-use xmtp_db::MlsProviderExt;
 use xmtp_db::StorageError;
+use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::prelude::*;
 use xmtp_db::sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY};
 use xmtp_db::tasks::{NEVER_EXPIRES, NewTask, TaskDataHash, data_hash_for};
@@ -81,9 +82,8 @@ pub(crate) fn kp_seed(proto: TaskProto, now: i64) -> Result<NewTask, StorageErro
         .build(proto)
 }
 
-/// Rotate + upload a fresh key package if the identity's rotation deadline is due.
-/// Returns whether a rotation happened. `rotate_and_upload_key_package` internally
-/// rolls the rotation column +30d and marks superseded KPs `delete_at = now+grace`.
+/// Upload a fresh key package when rotation is due and return whether it occurred.
+/// A confirmed receipt starts retirement of keys published earlier by the backend.
 pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<bool, KeyPackageMaintenanceError> {
@@ -107,81 +107,97 @@ pub(crate) async fn rotate_if_needed<Context: XmtpSharedContext>(
 }
 
 /// Delete one key package's local material (keystore entry + PQ references).
+#[cfg(test)]
 pub(crate) fn delete_key_package<Context: XmtpSharedContext>(
     context: &Context,
     hash_ref: Vec<u8>,
     pq_pub_key: Option<Vec<u8>>,
 ) -> Result<(), IdentityError> {
-    let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(&hash_ref)?;
-    let mls_provider = context.mls_provider();
-    let key_store = mls_provider.key_store();
+    state_write(context.mls_storage(), |tx| {
+        delete_key_package_material(&tx.storage(), &hash_ref, pq_pub_key.as_deref())?;
+        Ok::<_, IdentityError>(Continue(()))
+    })?;
+    Ok(())
+}
 
+/// Delete all parts of one key package under the current database writer.
+fn delete_key_package_material(
+    key_store: &impl XmtpMlsStorageProvider,
+    hash_ref: &[u8],
+    pq_pub_key: Option<&[u8]>,
+) -> Result<(), IdentityError> {
+    let openmls_hash_ref = crate::identity::deserialize_key_package_hash_ref(hash_ref)?;
+    let bundle: Option<openmls::prelude::KeyPackageBundle> =
+        key_store.key_package(&openmls_hash_ref)?;
+    if let Some(bundle) = bundle {
+        let init_key = bundle
+            .key_package()
+            .hpke_init_key()
+            .tls_serialize_detached()?;
+        key_store.delete(KEY_PACKAGE_REFERENCES, &init_key)?;
+    }
     key_store.delete_key_package(&openmls_hash_ref)?;
 
     if let Some(pq_pub_key) = pq_pub_key {
         key_store.delete(
             KEY_PACKAGE_REFERENCES,
-            crate::identity::pq_key_package_references_key(&pq_pub_key)?.as_slice(),
+            crate::identity::pq_key_package_references_key(pq_pub_key)?.as_slice(),
         )?;
-        key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &hash_ref)?;
+        key_store.delete(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, hash_ref)?;
     }
 
     Ok(())
 }
 
-/// Delete expired local key-package material (delete_at_ns <= now). Late execution
-/// is harmless — deletion is local-only; the network copy expires independently.
+/// Keep expired keys while any durable Welcome remains pending.
+/// Otherwise, delete each expired key's material and history in one transaction.
 pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), KeyPackageMaintenanceError> {
-    let conn = context.db();
-
-    // Propagate (don't swallow) so the supervisor's reconnect path can fire.
-    let expired_kps = conn
-        .get_expired_key_packages()
-        .map_err(KeyPackageMaintenanceError::Fetch)?;
-    if expired_kps.is_empty() {
-        return Ok(());
-    }
-
-    tracing::info!("Deleting {} expired key packages", expired_kps.len());
-    for kp in &expired_kps {
-        delete_key_package(
-            context,
-            kp.key_package_hash_ref.clone(),
-            kp.post_quantum_public_key.clone(),
-        )
-        .map_err(KeyPackageMaintenanceError::DeleteKeyPackage)?;
-    }
-
-    if let Some(max_id) = expired_kps.iter().map(|kp| kp.id).max() {
-        conn.delete_key_package_history_up_to_id(max_id)
-            .map_err(KeyPackageMaintenanceError::Deletion)?;
-        tracing::info!(
-            "Deleted {} expired key packages (up to ID {}) from local DB and state",
-            expired_kps.len(),
-            max_id
-        );
-    }
-
+    state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let conn = storage.db();
+        // The durable Welcome queue owns the key-retention obligation.
+        if conn.has_pending_welcomes()? {
+            return Ok::<_, IdentityError>(Continue(()));
+        }
+        let expired = conn.get_expired_key_packages()?;
+        for kp in &expired {
+            delete_key_package_material(
+                &storage,
+                &kp.key_package_hash_ref,
+                kp.post_quantum_public_key.as_deref(),
+            )?;
+            conn.delete_key_package_entry_with_id(kp.id)?;
+        }
+        Ok(Continue(()))
+    })?;
     Ok(())
 }
 
-/// Post-welcome rotation queue: atomically lower/init the rotation column (5s
-/// debounce — a security property) AND enqueue its pull-in in one transaction,
-/// then wake the worker. Neither write can land without the other. The rotation
-/// seed rides along in the same transaction (insert-or-ignore) so the pull-in
-/// always has a live target, even if startup seeding never ran.
+/// Queue rotation within five seconds and persist its task in one transaction.
+/// Create the recurring task before its deadline update, then wake after commit.
 pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
-    let now = xmtp_common::time::now_ns();
-    context
-        .db()
-        .queue_key_rotation_with_nudge(&kp_rotation_hash(), kp_seed(kp_rotation_proto(), now)?)?;
+    state_write(context.mls_storage(), |tx| {
+        queue_key_rotation_in(&tx.storage())?;
+        Ok::<_, StorageError>(Continue(()))
+    })?;
     // In-memory only; must stay outside the transaction.
     context.task_channels().wake();
     Ok(())
+}
+
+/// Queue rotation on the caller's writer so Welcome receipt can commit with it.
+/// The caller wakes TaskRunner only after commit. The task survives a lost wake.
+pub(crate) fn queue_key_rotation_in(
+    storage: &impl XmtpMlsStorageProvider,
+) -> Result<(), StorageError> {
+    let now = xmtp_common::time::now_ns();
+    storage
+        .db()
+        .queue_key_rotation_with_nudge(&kp_rotation_hash(), kp_seed(kp_rotation_proto(), now)?)
 }
 
 /// After anything marks superseded KPs for deletion: ensure the KpDeletion
@@ -220,16 +236,16 @@ pub(crate) fn seed_and_reconcile_kp_tasks<Context: XmtpSharedContext>(
     Ok(())
 }
 
-// Native-only: `PoolNeedsConnection` (and `db_needs_connection`) only exist with
-// teeth on native targets; wasm has no connection pool. Mirrors the gate on
-// worker.rs's disconnect_propagation_tests.
+// These tests use the native connection pool and its error variants.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
     use crate::tester;
     use crate::worker::tasks::TaskWorker;
     use crate::worker::{WorkerConfig, WorkerKind};
+    use openmls_traits::storage::StorageProvider;
     use prost::Message;
+    use xmtp_db::ConnectionExt;
     use xmtp_proto::xmtp::mls::database::Task as TaskProtoDecode;
 
     /// A `StorageError` that signals the connection pool was dropped.
@@ -308,6 +324,62 @@ mod tests {
         assert!(
             has_pull_in,
             "manual rotation must enqueue a deletion pull-in"
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn pending_welcome_preserves_expired_keys_until_completion() {
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::incoming_envelope::{
+            IncomingLimits, NetworkEntityKind, NewIncomingEnvelope, PendingBudget, StreamTopic,
+        };
+        use xmtp_db::schema::key_package_history::dsl;
+        use xmtp_proto::types::Cursor;
+
+        tester!(alix, disable_workers);
+        let db = alix.context.db();
+        let history = db
+            .find_key_package_history_entries_before_id(i32::MAX)?
+            .pop()?;
+        let hash =
+            crate::identity::deserialize_key_package_hash_ref(&history.key_package_hash_ref)?;
+        db.raw_query(|conn| {
+            diesel::update(dsl::key_package_history.filter(dsl::id.eq(history.id)))
+                .set(dsl::delete_at_ns.eq(0))
+                .execute(conn)
+        })?;
+        let topic = StreamTopic {
+            entity_id: alix.context.installation_id().to_vec(),
+            kind: NetworkEntityKind::Welcome,
+        };
+        let limit = PendingBudget { rows: 1, bytes: 1 };
+        db.admit_ordered_batch(
+            &topic,
+            Cursor(0),
+            &[NewIncomingEnvelope {
+                sequence_id: Cursor(1),
+                envelope: vec![1],
+            }],
+            IncomingLimits {
+                batch: limit,
+                topic: limit,
+                kind: limit,
+            },
+        )?;
+
+        sweep_expired(&alix.context)?;
+        let retained: Option<openmls::prelude::KeyPackageBundle> =
+            alix.context.mls_storage().key_package(&hash)?;
+        assert!(retained.is_some());
+
+        db.complete_pending_envelope(&topic, Cursor(1))?;
+        sweep_expired(&alix.context)?;
+        let removed: Option<openmls::prelude::KeyPackageBundle> =
+            alix.context.mls_storage().key_package(&hash)?;
+        assert!(removed.is_none());
+        assert!(
+            db.find_key_package_history_entry_by_hash_ref(history.key_package_hash_ref)
+                .is_err()
         );
     }
 

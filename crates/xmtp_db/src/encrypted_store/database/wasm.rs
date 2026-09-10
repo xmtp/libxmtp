@@ -13,6 +13,9 @@ use thiserror::Error;
 use web_sys::wasm_bindgen::JsCast;
 use xmtp_common::ErrorCode;
 
+mod restore;
+pub use restore::{clear_opfs_databases, delete_opfs_database, import_opfs_database};
+
 #[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
     /// OPFS error.
@@ -30,6 +33,24 @@ pub enum PlatformStorageError {
     /// Database query error. Retryable.
     #[error(transparent)]
     DieselResult(#[from] diesel::result::Error),
+    /// The persistent connection was closed. Reconnect before using it.
+    #[error("database connection is closed")]
+    Disconnected,
+    /// The file was restored or deleted. This object cannot reconnect.
+    #[error("database file changed; create a new client")]
+    Replaced,
+    /// A target connection is still open or has an active query.
+    #[error("close all target database connections before changing the file")]
+    DatabaseInUse,
+    /// Whole-database import does not replace an existing OPFS file.
+    #[error("import destination exists; use a new path or close and delete the target first")]
+    RestoreDestinationExists,
+    /// The restore input is not a complete SQLite database.
+    #[error("restore input is not a SQLite database")]
+    InvalidRestoreInput,
+    /// The OPFS utility could not be initialized.
+    #[error("OPFS initialization failed: {0}")]
+    Initialization(String),
 }
 
 impl xmtp_common::RetryableError for PlatformStorageError {
@@ -38,6 +59,8 @@ impl xmtp_common::RetryableError for PlatformStorageError {
             Self::SAH(_) => true,
             Self::Connection(_) => true,
             Self::DieselResult(_) => true,
+            Self::Disconnected | Self::DatabaseInUse | Self::Initialization(_) => true,
+            Self::Replaced | Self::RestoreDestinationExists | Self::InvalidRestoreInput => false,
         }
     }
 }
@@ -153,6 +176,7 @@ impl WasmDb {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
                 init_sqlite().await;
+                let _opening = restore::PendingOpen::acquire()?;
                 maybe_resize().await?;
                 tracing::debug!("creating persistent opfs db @{}", db_path);
                 PersistentOrMem::Persistent(WasmDbConnection::new(db_path)?)
@@ -165,18 +189,42 @@ impl WasmDb {
     }
 }
 
+/// A shared SQLite handle with explicit close and file-replacement fencing.
 pub struct WasmDbConnection {
-    conn: Rc<RefCell<SqliteConnection>>,
+    conn: Rc<RefCell<ConnectionState>>,
     path: String,
+    persistent: bool,
+}
+
+/// Lifecycle state shared by every clone of one database connection.
+struct ConnectionState {
+    /// `None` means the persistent handle was closed and may need reconnect.
+    connection: Option<SqliteConnection>,
+    /// A file change permanently prevents this object from reconnecting.
+    replaced: bool,
 }
 
 impl WasmDbConnection {
     pub fn new(path: &str) -> Result<Self, PlatformStorageError> {
+        restore::check_open_allowed()?;
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
+        #[derive(QueryableByName)]
+        struct DatabaseFile {
+            #[diesel(sql_type = diesel::sql_types::Text)]
+            file: String,
+        }
+        let file = diesel::sql_query("SELECT file FROM pragma_database_list WHERE name = 'main'")
+            .get_result::<DatabaseFile>(&mut conn)?;
+        let conn = Rc::new(RefCell::new(ConnectionState {
+            connection: Some(conn),
+            replaced: false,
+        }));
+        restore::register_connection(&file.file, &conn);
         Ok(Self {
-            conn: Rc::new(RefCell::new(conn)),
+            conn,
             path: path.to_string(),
+            persistent: true,
         })
     }
 
@@ -187,8 +235,12 @@ impl WasmDbConnection {
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
 
         Ok(Self {
-            conn: Rc::new(RefCell::new(conn)),
+            conn: Rc::new(RefCell::new(ConnectionState {
+                connection: Some(conn),
+                replaced: false,
+            })),
             path,
+            persistent: false,
         })
     }
 
@@ -203,15 +255,48 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        let mut conn = self.conn.borrow_mut();
-        Ok(fun(&mut conn)?)
+        let mut state = self
+            .conn
+            .try_borrow_mut()
+            .map_err(|_| PlatformStorageError::DatabaseInUse)?;
+        if state.replaced {
+            return Err(PlatformStorageError::Replaced.into());
+        }
+        let conn = state
+            .connection
+            .as_mut()
+            .ok_or(PlatformStorageError::Disconnected)?;
+        Ok(fun(conn)?)
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
+        // Preserve the existing ephemeral reconnect behavior. No file can replace it.
+        if !self.persistent {
+            return Ok(());
+        }
+        let mut state = self
+            .conn
+            .try_borrow_mut()
+            .map_err(|_| crate::ConnectionError::DisconnectInTransaction)?;
+        state.connection = None;
         Ok(())
     }
 
     fn reconnect(&self) -> Result<(), crate::ConnectionError> {
+        restore::check_open_allowed()?;
+        let mut state = self
+            .conn
+            .try_borrow_mut()
+            .map_err(|_| crate::ConnectionError::ReconnectInTransaction)?;
+        if state.replaced {
+            return Err(PlatformStorageError::Replaced.into());
+        }
+        if state.connection.is_none() {
+            let mut conn =
+                SqliteConnection::establish(&self.path).map_err(PlatformStorageError::from)?;
+            conn.batch_execute("PRAGMA foreign_keys = on;")?;
+            state.connection = Some(conn);
+        }
         Ok(())
     }
 }
@@ -234,11 +319,11 @@ impl XmtpDb for WasmDb {
     }
 
     fn reconnect(&self) -> Result<(), crate::ConnectionError> {
-        Ok(())
+        self.conn.reconnect()
     }
 
     fn disconnect(&self) -> Result<(), crate::ConnectionError> {
-        Ok(())
+        self.conn.disconnect()
     }
 
     fn opts(&self) -> &StorageOption {

@@ -6,6 +6,15 @@
 
 | File | Qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
+| `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | XMTP unit; no backend; 0-, 15-, and 17-byte database IDs | `BIND-REQ-102` |
+| `bindings/mobile/src/mls/local_delivery/tests.rs` | `catch_up_translation_keeps_previous_generation_and_typed_blocked_cause` | XMTP unit; no backend; current and previous status; one blocked topic | `BIND-REQ-103` |
+| `bindings/mobile/src/stream_settings.rs` | `tests::partial_stream_settings_keep_core_defaults` | XMTP unit; no backend; three supplied fields and retained core defaults | `BIND-REQ-101` |
+| `bindings/mobile/src/stream_settings.rs` | `tests::stream_settings_use_core_range_and_relationship_validation` | XMTP unit; no backend; five invalid range or relationship cases | `BIND-REQ-101` |
+| `bindings/mobile/src/stream_failure/tests.rs` | `flat_group_error_keeps_missing_target_and_typed_cursors` | XMTP unit; no backend; absent target, exact topic, and full-width cursors | `BIND-REQ-104` |
+| `bindings/mobile/src/stream_failure/tests.rs` | `flat_client_error_keeps_published_failure_and_zero_target` | XMTP unit; no backend; ClientError wrapper, intent 42, and zero target | `BIND-REQ-105` |
+| `bindings/mobile/src/stream_failure/tests.rs` | `flat_catch_up_error_keeps_all_barriers_and_partial_counts` | XMTP unit; no backend; two barriers and full-width incomplete summary | `BIND-REQ-106` |
+| `bindings/mobile/src/stream_failure/tests.rs` | `malformed_detail_values_and_ordinary_errors_return_none` | XMTP unit; no backend; ordinary error and u64 overflow | `BIND-REQ-107` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_dm_message_streaming_uses_bidi` | XMTP async multi-thread; local backend; one exact DM payload; zero static subscriptions | `BIND-REQ-055`, `BIND-REQ-108` |
 | `bindings/mobile/examples/ExampleInstrumentedTest.kt` | `ExampleInstrumentedTest.testHappyPath` | JUnit4 Android instrumentation; emulator and local backend; example has no local Gradle runner | `BIND-REQ-010` |
 | `bindings/mobile/examples/ExampleInstrumentedTest.kt` | `ExampleInstrumentedTest.testErrorThrows` | JUnit4 Android instrumentation; bad host; example has no local Gradle runner | `BIND-REQ-024` |
 | `bindings/mobile/src/builder_test.rs` | `test_primitive_constructor_and_setters` | Rust unit; file gated by cfg(test) | `BIND-REQ-001` |
@@ -86,15 +95,15 @@
 | `bindings/mobile/src/mls/tests/networking.rs` | `create_client_does_not_hit_network` | Tokio multi-thread, 1 worker; registration then existing-database open | `BIND-REQ-023`, `BIND-REQ-010` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `ffi_api_stats_exposed_correctly` | Tokio multi-thread, 1 worker; create, clear, and create | `BIND-REQ-023` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `test_is_connected_after_connect` | Tokio async; good and unreachable endpoints | `BIND-REQ-024` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | Tokio multi-thread, 5 workers; bidi env on; ignored with d14n; nextest isolation | `BIND-REQ-060` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | Tokio multi-thread, 5 workers; bidi env on; two runs | `BIND-REQ-061` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | Tokio multi-thread, 5 workers; bidi env on; 1 ms, full, and drained runs | `BIND-REQ-061` |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | XMTP async multi-thread, 5 workers; local backend; isolated suspend and resume | `BIND-REQ-060` |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | XMTP async multi-thread, 5 workers; local backend; two runs | `BIND-REQ-061` |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | XMTP async multi-thread, 5 workers; 1 ms completed-or-typed-incomplete branch; full and drained runs; five exact stored payloads | `BIND-REQ-061`, `BIND-REQ-106` |
 | `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | Tokio multi-thread, 5 workers; two exports and imports | `BIND-REQ-068` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_find_or_create_dm` | Tokio async; repeated and opposite-side calls | `SHARED-GROUP-REQ-001` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dms_sync_but_do_not_list` | Tokio multi-thread, 5 workers; DM versus group filters and summaries | `SHARED-GROUP-REQ-001`, `SHARED-GROUP-REQ-038` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_stream_correct_type` | Tokio multi-thread, 5 workers; DM-only stream | `SHARED-GROUP-REQ-028`, `SHARED-GROUP-REQ-006` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_streaming` | Tokio multi-thread, 5 workers; all, Group, and DM conversation streams | `SHARED-GROUP-REQ-028` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_stream_all_dm_messages` | Tokio multi-thread, 5 workers; all, Group, and DM message streams; ignored with d14n | `BIND-REQ-055` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_streaming` | XMTP async multi-thread, 5 workers; all, Group, and DM conversation streams; zero static subscriptions | `SHARED-GROUP-REQ-028`, `BIND-REQ-108` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_stream_all_dm_messages` | XMTP async multi-thread, 5 workers; all, Group, and DM message streams; zero static subscriptions | `BIND-REQ-055`, `BIND-REQ-108` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_first_messages` | Tokio multi-thread, 5 workers; DM and group histories | `SHARED-GROUP-REQ-026` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_get_dm_peer_inbox_id` | Tokio multi-thread, 5 workers; both participant views | `SHARED-GROUP-REQ-006` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_permissions_show_expected_values` | Tokio multi-thread, 5 workers; DM versus default group | `SHARED-GROUP-REQ-018` |
@@ -146,10 +155,10 @@
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_text_codec` | Tokio async; eight valid classes and invalid bytes | `BIND-REQ-075` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_delete_message_encode_decode` | Tokio async; normal, empty, long, Unicode, and invalid | `BIND-REQ-087` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_can_stream_group_messages_for_updates` | Tokio multi-thread, 5 workers; unconditionally ignored and wasm32-ignored; metadata, DM, and text sequence; intent checkpoints: Alix published/processed 2/2, Bo 1, Alix 3, Bo 3 then 4 | `BIND-REQ-055`, `BIND-REQ-058`, `BIND-REQ-023` |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_conversation_streaming` | Tokio multi-thread, 5 workers; two groups and close | `SHARED-GROUP-REQ-028` |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_all_messages` | Tokio multi-thread, 5 workers; two groups and four interleaved messages | `BIND-REQ-055` |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming` | Tokio multi-thread default workers; one group and two messages | `BIND-REQ-055` |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming_when_removed_then_added` | Tokio multi-thread, 5 workers; before, during, and after membership change | `BIND-REQ-056` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_conversation_streaming` | XMTP async multi-thread, 5 workers; two groups and close; zero static subscriptions | `SHARED-GROUP-REQ-028`, `BIND-REQ-108` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_all_messages` | XMTP async multi-thread, 5 workers; two groups and four interleaved messages; zero static subscriptions | `BIND-REQ-055`, `BIND-REQ-108` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming` | XMTP async multi-thread default workers; one group and two messages; zero static subscriptions | `BIND-REQ-055`, `BIND-REQ-108` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming_when_removed_then_added` | XMTP async multi-thread, 5 workers; removal waits for inactive state; immediate hello4 after rejoin; exact recipient and sender application sequences; retained membership rows do not affect counts | `BIND-REQ-056` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_groups_gets_callback_when_streaming_messages` | Tokio multi-thread, 5 workers; overlapping group and message streams | `SHARED-GROUP-REQ-031` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_consent` | Tokio multi-thread, 5 workers; ignored with d14n; two installations | `BIND-REQ-100` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_preferences` | Tokio multi-thread, 5 workers; HMAC preference notification | `BIND-REQ-100` |
@@ -166,6 +175,11 @@
 
 | File | Qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
+| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > rejects an invalid row limit before unsigned conversion: %s` | Vitest it.each; six numeric boundary cases; unreachable backend | `BIND-REQ-101` |
+| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > rejects an invalid byte budget: %s` | Vitest it.each; negative, zero, and overflowing bigint; unreachable backend | `BIND-REQ-101` |
+| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > uses core timer relationships` | Vitest it; lease equal to database poll interval; unreachable backend | `BIND-REQ-101` |
+| `bindings/node/test/MessageDelivery.test.ts` | `message reader constructors > awaits the all-groups constructor and reads retained rows with tokens` | Vitest async; generated Node binding and backend; two groups; exact atomic-history messages and cursors; owner checks, acknowledgements, and close | `BIND-REQ-109` |
+| `bindings/node/test/MessageDelivery.test.ts` | `message reader constructors > awaits the single-group constructor and replays only that group` | Vitest async; generated Node binding and backend; two selected messages after snapshot plus an excluded group; ordered replay positions and close | `BIND-REQ-110` |
 | `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should build with custom app version` | Vitest async | `BIND-REQ-002`, `BIND-REQ-006` |
 | `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should reject double build` | Vitest async; second build | `BIND-REQ-002` |
 | `bindings/node/test/Builder.test.ts` | `NapiTestBuilder :: should set required fields and apply defaults` | Vitest sync; binding built with test-utils | `BIND-REQ-001` |
@@ -318,10 +332,10 @@
 | `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > OPFS with persistent client :: should clear all database files` | Vitest async; Chromium and Firefox; two files | `BIND-REQ-092` |
 | `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should export a database file` | Vitest async; Chromium and Firefox; SQLite header | `BIND-REQ-093` |
 | `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should import a database file` | Vitest async; Chromium and Firefox; renamed copy | `BIND-REQ-093` |
-| `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should replace database by deleting then importing` | Vitest async; Chromium and Firefox; restore original bytes and size | `BIND-REQ-093` |
+| `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should replace database by deleting then importing` | Vitest async; Chromium and Firefox; close before deletion; restored database size equals original | `BIND-REQ-093` |
 | `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should fail to export non-existent database` | Vitest async; Chromium and Firefox; negative | `BIND-REQ-093` |
 | `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should fail to import invalid data` | Vitest async; Chromium and Firefox; bytes 1 through 5 | `BIND-REQ-093` |
-| `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should roundtrip export and import` | Vitest async; Chromium and Firefox; byte equality | `BIND-REQ-093` |
+| `bindings/wasm/test/opfs.test.ts` | `OPFS File Management > Database export and import :: should roundtrip export and import` | Vitest async; Chromium and Firefox; equal database size and changed bytes | `BIND-REQ-093` |
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Basic message retrieval :: should return enriched messages with basic fields populated` | Vitest async; Chromium and Firefox; two texts and initial update | `BIND-REQ-088` |
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Basic message retrieval :: should handle list options` | Vitest async; Chromium and Firefox; descending limit 2 | `BIND-REQ-088` |
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Message metadata :: should include message kind` | Vitest async; Chromium and Firefox | `BIND-REQ-088` |
@@ -375,7 +389,7 @@
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Content types > Group Updated :: should have correct content type` | Vitest sync descriptor; Chromium and Firefox | `BIND-REQ-089` |
 | `bindings/wasm/test/EnrichedMessage.test.ts` | `EnrichedMessage > Content types > Leave Request :: should have correct content type` | Vitest sync descriptor; Chromium and Firefox | `BIND-REQ-089` |
 
-Runner notes: the Node suite builds the N-API binding with `test-utils`, uses Node 22 or later, local xmtpd, and a 30-second default timeout. The Wasm Vitest suite builds with `test-utils` and runs every declaration in headless Chromium and Firefox with a 60-second timeout. Wasm OPFS cases use a dedicated Worker. The Rust Wasm case uses a dedicated wasm-bindgen worker. No executable doctests or parameterized or property declarations exist. The Android example tests are source declarations but have no Gradle project under `bindings/mobile`.
+Runner notes: the Node suite builds the N-API binding with `test-utils`, uses Node 22 or later, the local backend, and a 30-second default timeout. Node stream-setting validation uses parameterized numeric boundary cases. The Wasm Vitest suite builds with `test-utils` and runs every declaration in headless Chromium and Firefox with a 60-second timeout. Wasm OPFS cases use a dedicated Worker. The Rust Wasm case uses a dedicated wasm-bindgen worker. No executable doctests or property declarations exist. The Android example tests are source declarations but have no Gradle project under `bindings/mobile`.
 
 ## Phase 3 coverage
 

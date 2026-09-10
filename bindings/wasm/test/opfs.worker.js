@@ -61,7 +61,10 @@ const handlers = {
   async createClient({ dbPath }) {
     await ensureInit();
     const client = await createTestClient(dbPath);
-    return { inboxId: client.inboxId };
+    const result = { inboxId: client.inboxId };
+    await client.close();
+    client.free();
+    return result;
   },
 
   async exportDb({ filename }) {

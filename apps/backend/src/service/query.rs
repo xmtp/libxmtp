@@ -117,27 +117,6 @@ impl api::query_service_server::QueryService for Backend {
         };
         Ok(Response::new(api::QueryNewestResponse { results }))
     }
-
-    #[xmtp_common::rpc_span]
-    /// Fetch one envelope by its positive global sequence ID.
-    ///
-    /// A missing row is reported as `NOT_FOUND` without distinguishing replica
-    /// lag from any other absence.
-    async fn get(
-        &self,
-        request: Request<api::GetRequest>,
-    ) -> Result<Response<api::ServerEnvelope>, Status> {
-        let id = cursor(request.into_inner().sequence_id)?;
-        if id == 0 {
-            return Err(Status::invalid_argument("sequence id must be positive"));
-        }
-        self.store
-            .get(id)
-            .await?
-            .ok_or_else(|| Status::not_found("envelope not found"))?
-            .try_into()
-            .map(Response::new)
-    }
 }
 
 /// Validate and coalesce topic cursors for one query request.

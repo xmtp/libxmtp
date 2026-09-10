@@ -9,14 +9,12 @@ use prost::Message;
 use std::time::Duration;
 use xmtp_configuration::WELCOME_HPKE_LABEL;
 use xmtp_db::group::QueryGroup;
-use xmtp_db::tasks::QueryTasks;
+use xmtp_db::incoming_envelope::QueryIncomingEnvelope;
 use xmtp_id::key_package::WrapperAlgorithm;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     unwrap_payload_symmetric, wrap_payload_hpke, wrap_payload_symmetric,
 };
 use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType};
-use xmtp_proto::xmtp::mls::database::Task as DbTask;
-use xmtp_proto::xmtp::mls::database::task::Task as DbTaskKind;
 use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
@@ -438,7 +436,7 @@ async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_pointer_task_retry_resolution() {
+async fn test_welcome_pointer_pending_retry_resolution() {
     tester!(alix);
     tester!(bo);
 
@@ -450,6 +448,72 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .unwrap();
 
     let bo_hpke_public_key = bo_key_package.pq_pub_key.as_deref().unwrap();
+
+    let group = crate::groups::MlsGroup::create_and_insert(
+        alix.context.clone(),
+        xmtp_db::group::ConversationType::Group,
+        crate::groups::group_permissions::PolicySet::default(),
+        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        None,
+    )
+    .unwrap();
+
+    // Have to sync the group otherwise bo won't find it and it won't get created
+    group.sync().await.unwrap();
+
+    tracing::info!("Creating welcome for group");
+    // Now we send a welcome from this group to bo. To get the delay we want,
+    // we reach into some internals.
+    let intent = group
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    let signer = &group.context.identity().installation_keys;
+    let context = &group.context;
+    let old_membership = group.with_group_snapshot(|openmls_group| {
+        Ok(crate::groups::validated_commit::extract_group_membership(
+            openmls_group.extensions(),
+        )?)
+    })?;
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+    )
+    .await?;
+    let (send_welcome_action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |openmls_group, storage| {
+            let publish_intent_data =
+                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, signer)?
+                    .unwrap();
+            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
+                publish_intent_data.post_commit_data().unwrap().as_slice(),
+            )?;
+            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
+            let staged_commit = publish_intent_data.staged_commit().unwrap();
+            openmls_group.merge_staged_commit(
+                &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
+            )?;
+
+            Ok::<_, crate::groups::GroupError>(xmtp_db::TransactionOutcome::Continue((action, publish_intent_data.payloads_to_publish)))
+        })
+    })?
+    .into_continued();
+    let commit_units = group.prepare_group_messages(
+        payloads
+            .iter()
+            .map(|payload| (payload.as_slice(), false))
+            .collect(),
+    )?;
+    let commit_receipt = alix
+        .context
+        .api()
+        .send_group_messages(commit_units)
+        .await?
+        .pop()?;
+    let join_anchor = commit_receipt.cursor?.sequence_id;
 
     tracing::info!("Creating welcome pointer");
     let welcome_pointer_v1 = WelcomeV1Pointer {
@@ -524,81 +588,31 @@ async fn test_welcome_pointer_task_retry_resolution() {
         WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6
     );
 
-    tracing::info!("Syncing welcomes for bo");
-    let welcomes = bo.sync_welcomes().await.unwrap();
-    assert!(welcomes.is_empty());
+    crate::groups::welcome_sync::pending_welcome_for_test(&bo.context, &welcome_from_api).await?;
+    let service = crate::groups::welcome_sync::WelcomeService::new(bo.context.clone());
+    assert!(matches!(
+        service
+            .resolve_pending_welcome(welcome_from_api.cursor)
+            .await?,
+        crate::groups::welcome_sync::WelcomeHeadOutcome::Waiting { blocked: false, .. }
+    ));
 
-    // Have to give time for the task to be received by the task worker
-    xmtp_common::time::sleep(std::time::Duration::from_secs(1)).await;
-
-    tracing::info!("Getting tasks for bo");
-    // Filter to ProcessWelcomePointer only: KP seed tasks (KpRotation, KpDeletion)
-    // are also present when TaskRunner is enabled.
-    let all_tasks = bo.context.db().get_tasks().unwrap();
-    let tasks: Vec<_> = all_tasks
-        .into_iter()
-        .filter(|t| {
-            matches!(
-                DbTask::decode(t.data.as_slice()).ok().and_then(|p| p.task),
-                Some(DbTaskKind::ProcessWelcomePointer(_))
-            )
-        })
-        .collect();
-    assert_eq!(tasks.len(), 1, "{tasks:#?}");
-    let task = tasks.into_iter().next().unwrap();
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let pending = bo
+        .context
+        .db()
+        .pending_envelope(&topic, welcome_from_api.cursor)?
+        .unwrap();
+    assert_eq!(pending.error_code.as_deref(), Some("welcome_pointee"));
+    let first_expiry = pending.retry_expires_at_ns.unwrap();
     assert_eq!(
-        task.data,
-        DbTask {
-            task: Some(DbTaskKind::ProcessWelcomePointer(welcome_pointer.clone()))
-        }
-        .encode_to_vec()
+        first_expiry,
+        welcome_from_api.timestamp() + 3 * xmtp_common::NS_IN_DAY
     );
-    assert_eq!(
-        task.originating_message_sequence_id,
-        welcome_from_api.sequence_id() as i64
-    );
-    assert_eq!(task.created_at_ns, welcome_from_api.timestamp());
-    tracing::info!("Asserted tasks for bo are correct");
 
-    let group = crate::groups::MlsGroup::create_and_insert(
-        alix.context.clone(),
-        xmtp_db::group::ConversationType::Group,
-        crate::groups::group_permissions::PolicySet::default(),
-        xmtp_mls_common::group::GroupMetadataOptions::default(),
-        None,
-    )
-    .unwrap();
-
-    // Have to sync the group otherwise bo won't find it and it won't get created
-    group.sync().await.unwrap();
-
-    tracing::info!("Creating welcome for group");
-    // Now we send a welcome from this group to bo. To get the delay we want,
-    // we reach into some internals.
-    let intent = group
-        .get_membership_update_intent(&[bo.inbox_id()], &[])
-        .await?;
-    let signer = &group.context.identity().installation_keys;
-    let context = &group.context;
-    let send_welcome_action = group
-        .load_mls_group_with_lock_async(async |mut openmls_group| {
-            let publish_intent_data =
-                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
-                    .await?
-                    .unwrap();
-            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
-            )?;
-            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
-            openmls_group.merge_staged_commit(
-                &xmtp_db::XmtpOpenMlsProviderRef::new(context.mls_storage()),
-                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
-            )?;
-
-            Ok::<_, crate::groups::GroupError>(action)
-        })
-        .await?;
     let data = wrap_payload_symmetric(
         &send_welcome_action.welcome_message,
         WelcomePointersExtension::preferred_type(),
@@ -607,9 +621,11 @@ async fn test_welcome_pointer_task_retry_resolution() {
     )
     .unwrap();
     let welcome_metadata = wrap_payload_symmetric(
-        WelcomeMetadata { message_cursor: 0 }
-            .encode_to_vec()
-            .as_slice(),
+        WelcomeMetadata {
+            message_cursor: join_anchor,
+        }
+        .encode_to_vec()
+        .as_slice(),
         WelcomePointersExtension::preferred_type(),
         &welcome_pointer_v1.encryption_key,
         &welcome_pointer_v1.welcome_metadata_nonce,
@@ -634,9 +650,18 @@ async fn test_welcome_pointer_task_retry_resolution() {
     let conversations = bo.stream_conversations(None, true).await.unwrap();
     tokio::pin!(conversations);
 
-    // Let the task try once and fail
-    // This is tied to the delay in the task retry logic, so changing this can cause some lines to not be tested.
-    xmtp_common::time::sleep(std::time::Duration::from_secs(5)).await;
+    // A second attempt must keep the first pointer deadline.
+    let _ = service
+        .resolve_pending_welcome(welcome_from_api.cursor)
+        .await?;
+    assert_eq!(
+        bo.context
+            .db()
+            .pending_envelope(&topic, welcome_from_api.cursor)?
+            .unwrap()
+            .retry_expires_at_ns,
+        Some(first_expiry)
+    );
 
     tracing::info!("Sending welcome to where welcome pointer resolves to");
     alix.context
@@ -644,6 +669,7 @@ async fn test_welcome_pointer_task_retry_resolution() {
         .send_welcome_messages(&[welcome_data])
         .await
         .unwrap();
+    bo.sync_welcomes().await?;
 
     // TODO subscribe to all messages and then assert that group is received.
 

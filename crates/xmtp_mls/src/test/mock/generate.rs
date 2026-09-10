@@ -26,6 +26,7 @@ pub fn context() -> NewMockContext {
         api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
         store: xmtp_db::MockXmtpDb::new(),
         mutexes: MutexRegistry::new(),
+        #[cfg(test)]
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
         local_events,
@@ -43,6 +44,10 @@ pub fn context() -> NewMockContext {
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        delivery_owner: Default::default(),
+        stream_settings: Default::default(),
+        incoming_coordinator: Default::default(),
+        identity_resolutions: Default::default(),
     }
 }
 

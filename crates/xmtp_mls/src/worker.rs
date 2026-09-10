@@ -358,8 +358,8 @@ impl MetricsCasting for DynMetrics {
     }
 }
 
-// Native-only: `db_needs_connection` is always `false` on wasm, so the contract
-// these tests assert only has teeth on native targets.
+// These fixtures use native pool errors. Browser connection lifecycle tests
+// cover closed persistent handles in the WASM database module.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod disconnect_propagation_tests {
     //! Pins that a dropped-pool signal survives the wrapper error types each
@@ -390,6 +390,13 @@ mod disconnect_propagation_tests {
 
     #[xmtp_common::test]
     fn group_error_forwards_disconnect() {
+        use crate::subscriptions::barrier::{
+            BarrierCause, BarrierError, BarrierFailure, BarrierTopic,
+        };
+        use crate::subscriptions::incoming::IncomingError;
+        use std::sync::Arc;
+        use xmtp_proto::types::{Cursor, Topic};
+
         assert!(GroupError::Storage(disconnect_storage()).needs_db_reconnect());
         assert!(GroupError::Db(disconnect_connection()).needs_db_reconnect());
         assert!(
@@ -399,6 +406,48 @@ mod disconnect_propagation_tests {
         // A non-disconnect storage failure inside a GroupError must not stop the worker.
         assert!(!GroupError::Storage(benign_storage()).needs_db_reconnect());
         assert!(!GroupError::InvalidGroupMembership.needs_db_reconnect());
+
+        let barrier = |cause| BarrierError::Incomplete {
+            reason: BarrierFailure::Blocked,
+            unfinished: vec![BarrierTopic {
+                topic: Topic::new_group_message([1; 32]),
+                target: Some(Cursor(3)),
+                received: Cursor(2),
+                processed: Cursor(1),
+                unresolved_welcomes: Vec::new(),
+                inactive: false,
+                cause: Some(cause),
+            }],
+        };
+        assert!(
+            GroupError::StreamBarrier(barrier(BarrierCause::Storage(Arc::new(
+                disconnect_storage(),
+            ))))
+            .needs_db_reconnect()
+        );
+        assert!(
+            GroupError::PublishedButUnconfirmed {
+                intent_id: 1,
+                cause: Some(Box::new(barrier(BarrierCause::Receiver(Arc::new(
+                    IncomingError::Processing(
+                        crate::groups::mls_sync::GroupMessageProcessingError::Storage(
+                            disconnect_storage(),
+                        ),
+                    ),
+                ))))),
+            }
+            .needs_db_reconnect()
+        );
+        assert!(
+            GroupError::Sync(Box::new(crate::groups::summary::SyncSummary::other(
+                GroupError::Storage(disconnect_storage()),
+            )))
+            .needs_db_reconnect()
+        );
+        assert!(
+            !GroupError::StreamBarrier(barrier(BarrierCause::Blocked("unsupported".into())))
+                .needs_db_reconnect()
+        );
     }
 
     #[xmtp_common::test]

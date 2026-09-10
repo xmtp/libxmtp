@@ -320,8 +320,7 @@ pub trait QueryStream<T, C>
 where
     C: Client,
 {
-    /// stream items from an endpoint
-    /// [`QueryStreamExt::subscribe`] or [`crate::api::stream_as`] should be used to indicate
+    /// Stream items from an endpoint. Use [`QueryStreamExt::subscribe`] to set
     /// the type of item in the stream.
     async fn stream(&mut self, client: &C) -> Result<XmtpStream<T>, ApiClientError>;
 

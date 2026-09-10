@@ -81,6 +81,9 @@ pub trait DbQuery:
     + QueryDeviceSyncMessages
     + QueryRefreshState
     + QueryIdentityUpdates
+    + QueryIncomingEnvelope
+    + QueryDelivery
+    + QueryPreparedEnvelope
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
     + QueryAssociationStateCache
@@ -93,7 +96,7 @@ pub trait DbQuery:
 {
 }
 
-impl<T: ?Sized> DbQuery for T where
+impl<T> DbQuery for T where
     T: MaybeSend
         + MaybeSync
         + ReadOnly
@@ -111,6 +114,9 @@ impl<T: ?Sized> DbQuery for T where
         + QueryDeviceSyncMessages
         + QueryRefreshState
         + QueryIdentityUpdates
+        + QueryIncomingEnvelope
+        + QueryDelivery
+        + QueryPreparedEnvelope
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
         + QueryAssociationStateCache

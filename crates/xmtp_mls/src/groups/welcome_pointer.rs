@@ -56,15 +56,5 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
             }
             .into())
         }
-        WelcomeMessageType::DecryptedWelcomePointer(_) => {
-            // TODO: this should be unreachable, but leaving it as is for now.
-            tracing::warn!("Got a decrypted welcome pointer from a welcome pointer. Ignoring.");
-            Err(xmtp_proto::ConversionError::InvalidValue {
-                item: "WelcomeMessage.version",
-                expected: "V1",
-                got: "DecryptedWelcomePointer".into(),
-            }
-            .into())
-        }
     }
 }

@@ -242,6 +242,7 @@ mod backpressure;
 mod catch_up;
 mod coalescing;
 mod delivery;
+mod incoming;
 mod limits;
 mod reconnect;
 mod suspend;

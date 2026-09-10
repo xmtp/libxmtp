@@ -2,13 +2,41 @@
 
 [← Test inventory](../existing-tests.md) · [Requirements](../existing-requirements.md)
 
-- Inventory: 277 source declarations in 49 test-bearing files.
+- Inventory: 265 source declarations in 48 test-bearing files.
 - Count rule: one parameterized declaration is one row. Native and WASM `cfg_attr` expansions do not add rows.
 - The four ignored pool declarations each have two rstest cases. The two parameterized refresh-state declarations each have four cases.
 - No documentation tests were found in these crates.
 
 | File | Fully qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
+| crates/xmtp_db/tests/opfs.rs | `opfs_restore_rotates_identity_and_fences_old_handles` | WASM-only asynchronous XMTP test; unwrap_try; dedicated worker and OPFS. | `CORE-REQ-188` |
+| crates/xmtp_db/tests/opfs.rs | `opfs_failed_restore_preserves_existing_data` | WASM-only asynchronous XMTP test; unwrap_try; invalid bytes, unrelated schema, and damaged schema. | `CORE-REQ-189` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::welcome_discovery_is_immutable_and_excludes_local_and_imported_groups` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-162` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::welcome_discovery_rolls_back_with_installation_state` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-163` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::admission_rolls_back_the_batch_and_received_position` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-164` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::overlaps_and_sparse_ids_preserve_the_pending_head` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-165` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::bounds_leave_progress_unchanged_and_reserve_dependency_capacity` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-166` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::welcome_completion_retains_holes_and_the_first_retry_deadline` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-167` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::blocked_welcomes_require_a_generation_scan_not_a_timer_retry` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-168` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::pending_states_include_only_actual_topic_ids_through_the_target` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-169` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::welcome_read_budget_preserves_the_due_prefix_and_pending_state` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-170` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::outer_state_rollback_restores_pending_rows_and_processed_progress` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-171` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::validated_join_anchor_preserves_the_received_tail` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-172` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::independent_database_handles_resume_durable_receipt` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-173` |
+| crates/xmtp_db/src/encrypted_store/incoming_envelope/tests.rs | `encrypted_store::incoming_envelope::tests::terminal_rejection_is_bounded_and_rolls_back_with_processed_progress` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-174` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::local_order_survives_duplicates_deletion_and_lower_network_ids` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-175` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::optimistic_message_becomes_deliverable_only_after_publication` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-176` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::scope_progress_and_replay_remain_independent` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-177` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::expired_owner_cannot_acknowledge_or_scan_after_takeover` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-178` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::history_snapshot_cursor_and_restore_identity_prevent_gaps` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-179` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::allocator_exhaustion_rolls_back_message_insertion` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-180` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::local_byte_limit_retains_an_ordered_prefix_and_does_not_consume_oversized_rows` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-181` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::delayed_connection_uses_the_new_clock_before_acknowledgement_and_renewal` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-182` |
+| crates/xmtp_db/src/encrypted_store/delivery/tests.rs | `encrypted_store::delivery::tests::history_snapshot_filters_before_its_limit_in_the_same_database_snapshot` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-183` |
+| crates/xmtp_db/src/encrypted_store/key_package_history.rs | `encrypted_store::key_package_history::tests::duplicate_publication_preserves_the_first_retirement_deadline` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-184` |
+| crates/xmtp_db/src/encrypted_store/key_package_history.rs | `encrypted_store::key_package_history::tests::failed_publication_receipt_rolls_back_retirement` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-185` |
+| crates/xmtp_db/src/encrypted_store/key_package_history.rs | `encrypted_store::key_package_history::tests::publication_order_preserves_the_last_advertised_key` | Async xmtp_common::test; unwrap_try; persistent test database. | `CORE-REQ-186` |
+| crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::rejects_old_self_hosted_format_without_changing_data` | Async xmtp_common::test; unwrap_try; native-only; old database fixture. | `CORE-REQ-187` |
 | crates/xmtp_archive/src/archive_options.rs | `archive_options::tests::test_element_selection_round_trip` | `#[test]`; active. | `CORE-REQ-001` |
 | crates/xmtp_archive/src/archive_options.rs | `archive_options::tests::test_options_round_trip` | `#[test]`; active. | `CORE-REQ-002` |
 | crates/xmtp_archive/src/archive_options.rs | `archive_options::tests::test_default` | `#[test]`; active. | `CORE-REQ-003` |

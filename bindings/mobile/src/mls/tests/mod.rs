@@ -2,8 +2,8 @@
 
 use super::{
     FfiConsentCallback, FfiConversation, FfiMessage, FfiMessageCallback,
-    FfiMessageDeletionCallback, FfiPreferenceCallback, FfiPreferenceUpdate, FfiSignatureRequest,
-    FfiXmtpClient, create_client,
+    FfiMessageDeletionCallback, FfiMessageDelivery, FfiPreferenceCallback, FfiPreferenceUpdate,
+    FfiSignatureRequest, FfiXmtpClient, create_client,
 };
 use crate::{
     DbOptions, FfiAction, FfiActionStyle, FfiActions, FfiAttachment, FfiConsent,
@@ -165,7 +165,11 @@ impl RustStreamCallback {
 }
 
 impl FfiMessageCallback for RustStreamCallback {
-    fn on_message(&self, message: FfiMessage) {
+    fn on_message(&self, delivery: FfiMessageDelivery) -> Result<(), FfiError> {
+        if !delivery.acknowledgement.check_owner()? {
+            return Ok(());
+        }
+        let message = delivery.message;
         let mut messages = self.messages.lock();
         log::info!(
             inbox_id = self.inbox_id,
@@ -175,7 +179,9 @@ impl FfiMessageCallback for RustStreamCallback {
         );
         messages.push(message);
         let _ = self.num_messages.fetch_add(1, Ordering::SeqCst);
+        delivery.acknowledgement.acknowledge()?;
         self.notify.notify_one();
+        Ok(())
     }
 
     fn on_error(&self, error: FfiError) {
@@ -362,6 +368,7 @@ pub(crate) async fn new_test_client_with_wallet_and_sync_worker_mode(
         None,
         None,
         None,
+        None,
     )
     .await
     .unwrap();
@@ -394,6 +401,7 @@ pub(crate) async fn new_test_client_no_panic(
         &inbox_id,
         ident,
         nonce,
+        None,
         None,
         None,
         None,

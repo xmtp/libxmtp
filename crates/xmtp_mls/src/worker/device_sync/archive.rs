@@ -9,7 +9,7 @@ use crate::{
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    ConnectionExt, StoreOrIgnore,
+    ConnectionExt, StoreOrIgnore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
@@ -28,16 +28,27 @@ struct ImportContext {
 impl ImportContext {
     fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
         use xmtp_db::diesel::prelude::*;
+        use xmtp_db::diesel::sql_types::{BigInt, Nullable};
         use xmtp_db::schema::groups::dsl;
 
-        // We want to update the group timestamps to either be what they were before the import,
-        // or what they are in the archive group field.
-        // Propagate update errors to the supervisor rather than swallowing them.
+        // Keep a newer timestamp written by message receipt during the import.
+        // Each group update acquires the writer and uses the current row value.
         for (group_id, timestamp) in &self.group_timestamps {
-            context.db().raw_query(|conn| {
-                xmtp_db::diesel::update(dsl::groups.find(group_id))
-                    .set(dsl::last_message_ns.eq(*timestamp))
-                    .execute(conn)
+            crate::state_tx::state_write(context.mls_storage(), |tx| {
+                let storage = tx.storage();
+                storage.db().raw_query(|conn| {
+                    let newest = xmtp_db::diesel::dsl::sql::<Nullable<BigInt>>(
+                        "CASE WHEN last_message_ns IS NULL OR last_message_ns < ",
+                    )
+                    .bind::<Nullable<BigInt>, _>(*timestamp)
+                    .sql(" THEN ")
+                    .bind::<Nullable<BigInt>, _>(*timestamp)
+                    .sql(" ELSE last_message_ns END");
+                    xmtp_db::diesel::update(dsl::groups.find(group_id))
+                        .set(dsl::last_message_ns.eq(newest))
+                        .execute(conn)
+                })?;
+                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(()))
             })?;
         }
 
@@ -103,9 +114,8 @@ fn insert(
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
-            // Save the timestamp. We'll need to come back around and re-insert this
-            // because triggers will set this field to now_ns in the database which
-            // is sub-par UX.
+            // Imported messages update this field from their sent time.
+            // Keep the archive timestamp too, including messages omitted by export filters.
             import_context
                 .group_timestamps
                 .insert(save.id.clone(), save.last_message_ns);
@@ -189,6 +199,24 @@ mod tests {
         group_message::StoredGroupMessage,
         schema::{consent_records, group_messages, groups},
     };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_timestamp_keeps_a_message_received_during_import() {
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let pending_import = ImportContext {
+            group_timestamps: [(group.group_id.to_vec(), Some(0))].into(),
+        };
+
+        group.send_message_optimistic(b"message during import", Default::default())?;
+        let current = alix.db().find_group(&group.group_id)??.last_message_ns;
+        assert!(current > Some(0));
+        pending_import.post_import(&alix.context)?;
+        assert_eq!(
+            alix.db().find_group(&group.group_id)??.last_message_ns,
+            current
+        );
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_archive_timestamps() {
@@ -369,7 +397,11 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| {
+                group_messages::table
+                    .select(StoredGroupMessage::as_select())
+                    .load(conn)
+            })
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -384,7 +416,11 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| {
+                group_messages::table
+                    .select(StoredGroupMessage::as_select())
+                    .load(conn)
+            })
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -435,10 +471,11 @@ mod tests {
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
-        let old_messages: Vec<StoredGroupMessage> = alix
-            .context
-            .db()
-            .raw_query(|conn| group_messages::table.load(conn))?;
+        let old_messages: Vec<StoredGroupMessage> = alix.context.db().raw_query(|conn| {
+            group_messages::table
+                .select(StoredGroupMessage::as_select())
+                .load(conn)
+        })?;
         assert_eq!(old_messages.len(), 4);
 
         let opts = ArchiveOptions {
@@ -492,6 +529,7 @@ mod tests {
 
         let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query(|conn| {
             group_messages::table
+                .select(StoredGroupMessage::as_select())
                 .filter(group_messages::group_id.eq(&groups[0].id))
                 .load(conn)
         })?;

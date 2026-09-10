@@ -44,7 +44,6 @@ const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
 const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
 const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
 const DEFAULT_MAX_CONNECTIONS: u32 = 20;
-const DEFAULT_STATEMENT_TIMEOUT_MS: u64 = 5_000;
 const DEFAULT_PUBLISH_DURATION_MS: u64 = 10_000;
 const DEFAULT_BARRIER_WAIT_MS: u64 = 1_000;
 const DEFAULT_POLL_INTERVAL_MS: u64 = 100;
@@ -493,7 +492,7 @@ fn default_max_connections() -> u32 {
     DEFAULT_MAX_CONNECTIONS
 }
 fn default_statement_timeout_ms() -> u64 {
-    DEFAULT_STATEMENT_TIMEOUT_MS
+    xmtp_configuration::BACKEND_DEFAULT_STATEMENT_TIMEOUT_MS
 }
 
 impl std::fmt::Debug for DatabaseConfig {

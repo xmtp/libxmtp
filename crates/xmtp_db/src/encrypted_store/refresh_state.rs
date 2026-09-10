@@ -18,12 +18,14 @@ use crate::{StorageError, StoreOrIgnore, impl_store_or_ignore};
 #[diesel(sql_type = Integer)]
 pub enum EntityKind {
     Welcome = 1,
-    ApplicationMessage = 2,       // Application messages
+    ApplicationMessage = 2,       // All group envelopes, including commits
     CommitLogUpload = 3, // Rowid of the last local entry we uploaded to the remote commit log
     CommitLogDownload = 4, // Server log sequence id of last remote entry we downloaded from the remote commit log
     CommitLogForkCheckLocal = 5, // Last rowid verified in local commit log
     CommitLogForkCheckRemote = 6, // Last rowid verified in remote commit log
-    CommitMessage = 7,     // MLS commit messages
+    Identity = 8,
+    DeliveryAllocator = 9,
+    Delivery = 10,
 }
 
 pub trait HasEntityKind {
@@ -32,11 +34,7 @@ pub trait HasEntityKind {
 
 impl HasEntityKind for xmtp_proto::types::GroupMessage {
     fn entity_kind(&self) -> EntityKind {
-        if self.is_commit() {
-            EntityKind::CommitMessage
-        } else {
-            EntityKind::ApplicationMessage
-        }
+        EntityKind::ApplicationMessage
     }
 }
 
@@ -56,7 +54,9 @@ impl std::fmt::Display for EntityKind {
             CommitLogDownload => write!(f, "commit_log_download"),
             CommitLogForkCheckLocal => write!(f, "commit_log_fork_check_local"),
             CommitLogForkCheckRemote => write!(f, "commit_log_fork_check_remote"),
-            CommitMessage => write!(f, "commit_message"),
+            Identity => write!(f, "identity"),
+            DeliveryAllocator => write!(f, "delivery_allocator"),
+            Delivery => write!(f, "delivery"),
         }
     }
 }
@@ -83,19 +83,24 @@ where
             4 => Ok(EntityKind::CommitLogDownload),
             5 => Ok(EntityKind::CommitLogForkCheckLocal),
             6 => Ok(EntityKind::CommitLogForkCheckRemote),
-            7 => Ok(EntityKind::CommitMessage),
+            8 => Ok(EntityKind::Identity),
+            9 => Ok(EntityKind::DeliveryAllocator),
+            10 => Ok(EntityKind::Delivery),
             x => Err(format!("Unrecognized variant {}", x).into()),
         }
     }
 }
 
-#[derive(Insertable, Identifiable, Queryable, Debug, Clone)]
+#[derive(Insertable, Identifiable, Queryable, Selectable, Debug, Clone)]
 #[diesel(table_name = refresh_state)]
 #[diesel(primary_key(entity_id, entity_kind))]
 pub struct RefreshState {
     pub entity_id: Vec<u8>,
     pub entity_kind: EntityKind,
+    /// Network kinds store P here; local delivery kinds store their separate D position.
     pub sequence_id: i64,
+    /// F for ordered network admission. None is not proof of a received network prefix.
+    pub received_sequence_id: Option<i64>,
 }
 
 impl_store_or_ignore!(RefreshState, refresh_state);
@@ -200,6 +205,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
         Ok(self.raw_query(|conn| {
             refresh_state::table
                 .find((entity_id.as_ref(), entity_kind))
+                .select(RefreshState::as_select())
                 .first(conn)
                 .optional()
         })?)
@@ -215,6 +221,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             entity_id: id.as_ref().to_vec(),
             entity_kind,
             sequence_id: 0,
+            received_sequence_id: None,
         }
         .store_or_ignore(self)?;
         Ok(Cursor(
@@ -280,6 +287,7 @@ impl<C: ConnectionExt> QueryRefreshState for DbConnection<C> {
             entity_id: entity_id.as_ref().to_vec(),
             entity_kind,
             sequence_id: i64::try_from(cursor.0).map_err(|_| StorageError::DbSerialize)?,
+            received_sequence_id: None,
         };
         Ok(self.raw_query(|conn| {
             diesel::insert_into(dsl::refresh_state)
@@ -323,14 +331,14 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn cursor_meets_requested_kinds(
         #[case] application: Option<u64>,
-        #[case] commit: Option<u64>,
+        #[case] identity: Option<u64>,
         #[case] expected: u64,
     ) {
         with_connection(|conn| {
             let id = [1, 2, 3];
             for (kind, value) in [
                 (EntityKind::ApplicationMessage, application),
-                (EntityKind::CommitMessage, commit),
+                (EntityKind::Identity, identity),
             ] {
                 if let Some(value) = value {
                     conn.update_cursor(id, kind, Cursor(value)).unwrap();
@@ -338,7 +346,7 @@ mod tests {
             }
             conn.update_cursor(id, EntityKind::Welcome, Cursor(999))
                 .unwrap();
-            let kinds = [EntityKind::ApplicationMessage, EntityKind::CommitMessage];
+            let kinds = [EntityKind::ApplicationMessage, EntityKind::Identity];
             assert_eq!(
                 conn.latest_cursor_for_id(id, &kinds).unwrap(),
                 Cursor(expected)

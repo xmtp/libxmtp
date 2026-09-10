@@ -15,10 +15,12 @@ pub mod hmac_key;
 mod identity;
 pub mod inbox_id;
 mod inbox_state;
+mod message_delivery;
 mod messages;
 mod permissions;
 mod signatures;
 pub mod stats;
+mod stream_settings;
 mod streams;
 xmtp_common::if_test! {
   pub mod test_utils;
@@ -60,9 +62,11 @@ where
   }
 }
 
-impl<T: ErrorCode> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
+impl<T: ErrorCode + 'static> From<ErrorWrapper<T>> for napi::bindgen_prelude::Error {
   fn from(e: ErrorWrapper<T>) -> napi::bindgen_prelude::Error {
     let code = e.0.error_code();
-    Error::from_reason(format!("[{}] {}", code, e.0))
+    let details =
+      xmtp_mls::subscriptions::stream_failure::encode_stream_failure(&e.0).unwrap_or_default();
+    Error::from_reason(format!("[{}] {}{}", code, e.0, details))
   }
 }

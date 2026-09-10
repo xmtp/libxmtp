@@ -316,7 +316,7 @@ impl ConversationListItem {
 
 #[wasm_bindgen]
 pub struct Conversations {
-  inner_client: Arc<RustXmtpClient>,
+  pub(crate) inner_client: Arc<RustXmtpClient>,
 }
 
 impl Conversations {
@@ -635,18 +635,15 @@ impl Conversations {
     let consents: Option<Vec<XmtpConsentState>> =
       consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
 
-    let on_close_cb = callback.clone();
-    let stream_closer = RustXmtpClient::stream_all_messages_with_callback(
+    crate::message_delivery::callback_stream(
       self.inner_client.context.clone(),
-      conversation_type.map(Into::into),
-      consents,
-      move |message| match message {
-        Ok(m) => callback.on_message(m.into()),
-        Err(e) => callback.on_error(JsError::from(e)),
+      xmtp_mls::subscriptions::local_delivery::DeliveryScope::All,
+      xmtp_mls::subscriptions::local_delivery::LocalDeliveryFilter {
+        conversation_type: conversation_type.map(Into::into),
+        consent_states: consents,
       },
-      move || on_close_cb.on_close(),
-    );
-    Ok(StreamCloser::new(stream_closer))
+      callback,
+    )
   }
 
   #[wasm_bindgen(js_name = "streamConsent")]

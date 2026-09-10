@@ -38,3 +38,15 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - Exporting: `#[uniffi::export]`, `#[derive(uniffi::Record)]` for plain data, `uniffi::Object` for opaque handles, `uniffi::Enum`. Async must name the runtime: `#[uniffi::export(async_runtime = "tokio")]` (`src/mls.rs:142`). Foreign-implemented callback traits use `#[uniffi::export(with_foreign)]` (`src/inbox_owner.rs:29`). Scaffolding: `src/lib.rs:31 uniffi::setup_scaffolding!("xmtpv3")`.
 - Builders: `#[xmtp_macro::uniffi_builder]` (so far only in `src/builder_test.rs`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
 - Regeneration: no `.udl`. Bindings come from the proc macros via `bindgen/bin.rs` (`[[bin]] ffi-uniffi-bindgen`, `required-features = ["uniffi/cli"]`), driven by `nix/lib/uniffiGenerate.nix` (`--language swift|kotlin` only). `just ios build` / `just android build` run inside the SDK directories, where `sdks/android/dev/bindings` and `sdks/ios/dev/bindings` exist. There is no root-level `dev/bindings`. Nix targets `ios-xcframeworks` / `ios-xcframeworks-fast` (`flake.nix:108`) are an alternative.
+
+## Message delivery
+
+- `src/mls/local_delivery.rs` owns the mobile reader and opaque acknowledgement token. A callback receives `FfiMessageDelivery`, not only `FfiMessage`.
+- Carry the token through each SDK queue. Call `check_owner` only before the app handoff. False means discard the stale selection and read again. Queue insertion never acknowledges delivery.
+- SDK callbacks acknowledge after success. SDK iterators acknowledge on the next request. Cancellation and drop reject pending tokens. Kotlin Flow uses the direct collector return; app-added buffering has a separate boundary.
+- `FfiMessageReader` exposes scope and filter updates, catch-up snapshots, and change waits. Catch-up includes the current generation and at most one previous generation with typed cause codes.
+- Its native shutdown method is `end`. UniFFI reserves `close` for generated Kotlin object disposal. SDK readers keep their public `close` method and call native `end` first.
+- A typed delivery cursor contains the database identity and local delivery number. `from` opens independent replay. History snapshots return messages and a cursor from the same database snapshot.
+- `create_client` accepts optional `FfiStreamSettings`. All limits are optional. Timer overrides use milliseconds. Conversion fills core defaults and uses core validation before the client is built.
+- `FfiError` keeps its flat callback type. Processing failures append the shared `XMTP_STREAM_FAILURE_V1` detail suffix. `get_stream_failure_details` decodes it to typed records. Do not parse the normal error message for barrier state.
+- Barrier details keep missing targets separate from zero, all unfinished topics, received and processed cursors, unresolved Welcome IDs, cause codes, published intent IDs, and partial catch-up counts.

@@ -13,10 +13,14 @@ use support::{
 use tonic::Code;
 
 static REPLAY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+const DEFAULT_REPLICA_PORT: u16 = 55433;
 
 fn replica(config: &mut Config) {
     let mut url = url::Url::parse(&config.database.url).unwrap();
-    url.set_port(Some(55433)).unwrap();
+    let port = std::env::var("XMTP_BACKEND_REPLICA_PORT").map_or(DEFAULT_REPLICA_PORT, |value| {
+        value.parse().expect("replica port must be a valid u16")
+    });
+    url.set_port(Some(port)).unwrap();
     config.database.replica_url = Some(url.to_string());
     config.streams.poll_interval_ms = 10;
 }
@@ -28,7 +32,6 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let read = server.backend.store.read.clone();
     let (meta, mut stream) = with_paused_replay(&read, async {
     let meta = server.publish(vec![envelope(21, 1)]).await?.remove(0);
-    let id = meta.cursor.as_ref().unwrap().sequence_id;
     let primary = server
         .query()
         .query(api::QueryRequest {
@@ -38,15 +41,11 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
         .await?
         .into_inner();
     assert_eq!(primary.envelopes.len(), 1);
-    assert_eq!(
-        server
-            .query()
-            .get(api::GetRequest { sequence_id: id })
-            .await
-            .unwrap_err()
-            .code(),
-        Code::NotFound
-    );
+    let newest = server.query().query_newest(api::QueryNewestRequest {
+        topics: vec![meta.topic.clone().unwrap()],
+        include_full_envelope: false,
+    }).await?.into_inner();
+    assert!(newest.results.is_empty());
     let mut stream = Native::open(&server).await?;
     stream
         .update(
@@ -142,9 +141,22 @@ async fn late_gap_rows_precede_forward_rows_on_the_same_topic() {
     let _replay = REPLAY.lock().await;
     let server = TestServer::new(replica).await?;
     let first = server.publish(vec![envelope(23, 0)]).await?.remove(0);
-    xmtp_common::wait_for_ok(|| async {
-        server.query().get(api::GetRequest { sequence_id: 1 }).await
-    })
+    xmtp_common::wait_for_eq(
+        || async {
+            server
+                .query()
+                .query_newest(api::QueryNewestRequest {
+                    topics: vec![first.topic.clone().unwrap()],
+                    include_full_envelope: false,
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .results
+                .len()
+        },
+        1,
+    )
     .await?;
     let topic_a = first.topic.unwrap();
     let topic_b = support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[24; 32]);

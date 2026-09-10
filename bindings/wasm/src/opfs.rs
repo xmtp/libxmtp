@@ -41,31 +41,22 @@ pub async fn file_exists(filename: String) -> Result<bool, JsError> {
 /// Delete a specific database file from OPFS.
 /// Returns true if the file was deleted, false if it didn't exist.
 /// Note: The database must be closed before calling this function.
+/// Old objects for the deleted file cannot reconnect.
 #[wasm_bindgen(js_name = opfsDeleteFile)]
 pub async fn delete_file(filename: String) -> Result<bool, JsError> {
-  init_sqlite().await;
-  match get_sqlite() {
-    Some(Ok(util)) => util
-      .delete_db(&filename)
-      .map_err(|e| JsError::new(&format!("Failed to delete file: {e}"))),
-    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
-    None => Err(JsError::new("OPFS not initialized")),
-  }
+  xmtp_db::database::delete_opfs_database(&filename)
+    .await
+    .map_err(crate::ErrorWrapper::js)
 }
 
 /// Delete all database files from OPFS.
 /// Note: All databases must be closed before calling this function.
+/// Old persistent database objects cannot reconnect after the clear starts.
 #[wasm_bindgen(js_name = opfsClearAll)]
 pub async fn clear_all() -> Result<(), JsError> {
-  init_sqlite().await;
-  match get_sqlite() {
-    Some(Ok(util)) => util
-      .clear_all()
-      .await
-      .map_err(|e| JsError::new(&format!("Failed to clear all files: {e}"))),
-    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
-    None => Err(JsError::new("OPFS not initialized")),
-  }
+  xmtp_db::database::clear_opfs_databases()
+    .await
+    .map_err(crate::ErrorWrapper::js)
 }
 
 /// Get the number of database files stored in OPFS.
@@ -107,17 +98,13 @@ pub async fn export_db(filename: String) -> Result<Uint8Array, JsError> {
 }
 
 /// Import a database from a byte array into OPFS.
-/// This will overwrite any existing database with the same name.
-/// The byte array must contain a valid SQLite database.
-/// Note: Any existing database with the same name must be closed before importing.
+/// The destination must not exist. Close and delete an old target separately.
+/// The input must contain a current libxmtp SQLite database.
+/// Import rotates the database identity before it exposes the restored copy.
+/// Old cursors, delivery tokens, and target database objects cannot be reused.
 #[wasm_bindgen(js_name = opfsImportDb)]
 pub async fn import_db(filename: String, data: Uint8Array) -> Result<(), JsError> {
-  init_sqlite().await;
-  match get_sqlite() {
-    Some(Ok(util)) => util
-      .import_db(&filename, data.to_vec().as_slice())
-      .map_err(|e| JsError::new(&format!("Failed to import database: {e}"))),
-    Some(Err(e)) => Err(JsError::new(&format!("OPFS not initialized: {e}"))),
-    None => Err(JsError::new("OPFS not initialized")),
-  }
+  xmtp_db::database::import_opfs_database(&filename, data.to_vec().as_slice())
+    .await
+    .map_err(crate::ErrorWrapper::js)
 }

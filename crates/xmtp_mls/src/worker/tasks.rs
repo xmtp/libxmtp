@@ -11,10 +11,7 @@ use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
 use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
-use xmtp_proto::{
-    types::{WelcomeMessage, WelcomeMessageType},
-    xmtp::mls::database::Task as TaskProto,
-};
+use xmtp_proto::xmtp::mls::database::Task as TaskProto;
 
 /// How far out to push a task whose kind this build does not understand. Long
 /// enough that an old client sharing the database does not spin on it, short
@@ -337,11 +334,6 @@ where
             }
         };
         match task_proto.task {
-            Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                welcome_pointer,
-            )) => {
-                Self::process_welcome_pointer(task, welcome_pointer, context).await?;
-            }
             Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
                 pending,
             )) => {
@@ -506,34 +498,6 @@ where
             // A DB/connection error is transient — let it retry.
             Err(e) => Err(e.into()),
         }
-    }
-    async fn process_welcome_pointer(
-        task: &DbTask,
-        welcome_pointer: xmtp_proto::xmtp::mls::message_contents::WelcomePointer,
-        context: &Context,
-    ) -> Result<(), TaskWorkerError> {
-        let decrypted_welcome_pointer = WelcomeMessage {
-            cursor: xmtp_proto::types::Cursor(task.originating_message_sequence_id as u64),
-            created_ns: chrono::DateTime::from_timestamp_nanos(task.created_at_ns),
-            variant: WelcomeMessageType::DecryptedWelcomePointer(
-                welcome_pointer
-                    .try_into()
-                    .map_err(crate::groups::GroupError::from)?,
-            ),
-        };
-        let welcome_service = crate::groups::welcome_sync::WelcomeService::new(context.clone());
-        let validator = crate::groups::InitialMembershipValidator::new(context);
-        let group = welcome_service
-            // cursor_increment is false because the cursor has already been incremented
-            .process_new_welcome(&decrypted_welcome_pointer, false, validator)
-            .await?;
-        if let Some(group) = group {
-            context
-                .local_events()
-                .send(crate::subscriptions::LocalEvents::NewGroup(group.group_id))
-                .ok();
-        }
-        Ok(())
     }
 }
 

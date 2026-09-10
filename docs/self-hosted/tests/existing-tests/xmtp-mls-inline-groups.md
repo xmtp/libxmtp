@@ -87,6 +87,7 @@
 | `crates/xmtp_mls/src/groups/app_data/mod.rs` | `groups::app_data::tests::load_registry_with_valid_bytes_round_trips` | built-in sync | `GINLINE-REQ-022` |
 | `crates/xmtp_mls/src/groups/app_data/mod.rs` | `groups::app_data::tests::load_registry_with_malformed_bytes_surfaces_error` | built-in sync | `GINLINE-REQ-022` |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs` | `groups::app_data::migration::tests::synthesize_initial_component_values_is_deterministic` | custom async; `unwrap_try` | `GINLINE-REQ-029` |
+| `crates/xmtp_mls/src/groups/app_data/migration.rs` | `groups::app_data::migration::tests::synthesize_preserves_zero_membership_without_failed_installations` | XMTP async; mock context without query expectations; preserved zero sequence and empty failed list | `GINLINE-REQ-029` |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs` | `groups::app_data::migration::tests::synthesize_partitions_failed_installations_by_owner` | custom async; `unwrap_try` | `GINLINE-REQ-029` |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs` | `groups::app_data::migration::tests::synthesize_drops_unresolvable_failed_installations` | custom async; `unwrap_try` | `GINLINE-REQ-029` |
 | `crates/xmtp_mls/src/groups/app_data/migration.rs` | `groups::app_data::migration::tests::synthesize_emits_expected_component_keys` | custom async; `unwrap_try` | `GINLINE-REQ-029` |
@@ -171,7 +172,6 @@
 | `crates/xmtp_mls/src/groups/message_list.rs` | `groups::message_list::tests::test_reply_with_custom_inner_content` | custom async | `GINLINE-REQ-061` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::publish_intents_worst_case_scenario` | cfg_attr Tokio multi-thread with 10 workers; excluded on wasm family | `GINLINE-REQ-071` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::hmac_keys_work_as_expected` | custom async | `GINLINE-REQ-072` |
-| `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::send_failures_for_published_intents_revert_to_to_publish` | built-in sync | `GINLINE-REQ-073` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::test_process_delete_message_malformed_encoded_content` | custom async; `unwrap_try` | `GINLINE-REQ-074` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::test_process_delete_message_malformed_inner_proto` | custom async; `unwrap_try` | `GINLINE-REQ-074` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::test_process_delete_message_invalid_hex_message_id` | custom async; `unwrap_try` | `GINLINE-REQ-074` |
@@ -186,7 +186,7 @@
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_messages` | rstest + custom current-thread async; 10 s timeout | `SHARED-SYNC-REQ-005` |
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_multiple` | rstest + custom multi-thread async; 10 s timeout; ignored on wasm | `SHARED-SYNC-REQ-005` |
 | `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_subscribe_membership_changes` | rstest + custom async; 5 s timeout | `SHARED-SYNC-REQ-005` |
-| `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_process_streamed_group_message` | rstest context fixture + custom multi-thread/1-worker async; 5 s timeout | `GINLINE-REQ-070` |
+| `crates/xmtp_mls/src/groups/subscriptions.rs` | `groups::subscriptions::tests::test_process_streamed_group_message` | XMTP async; backend; raw envelope and exact plaintext assertion | `GINLINE-REQ-070` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::extend_tests::extend_preserves_first_other_cause` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::extend_tests::extend_takes_other_when_none_yet` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::tests::clean_summary_is_not_errored` | custom sync | `GINLINE-REQ-049` |
@@ -195,17 +195,14 @@
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::tests::other_error_is_errored_and_is_source` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::tests::per_message_failures_do_not_flip_errored` | custom sync | `GINLINE-REQ-049` |
 | `crates/xmtp_mls/src/groups/summary.rs` | `groups::summary::tests::source_prefers_other_over_per_message_error` | custom sync | `GINLINE-REQ-049` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::happy_path` | rstest context fixture + custom async | `GINLINE-REQ-076` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::increments_cursor_on_non_retryable_in_tx` | rstest context fixture + custom async | `GINLINE-REQ-077` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::increments_cursor_on_non_retryable_during_validation` | rstest context fixture + custom async | `GINLINE-REQ-077` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::increments_message_cursor_from_welcome_metadata` | rstest context fixture + custom async | `GINLINE-REQ-079` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::does_not_increment` | rstest + custom async; cases: non-retryable/flag false, retryable/flag true | `GINLINE-REQ-077`, `GINLINE-REQ-078` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::later_welcome_must_not_advance_cursor_past_retryable_failure` | rstest context fixture + custom async | `GINLINE-REQ-078` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_with_new_messages_basic_behavior` | custom sync | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_includes_never_synced_and_excludes_up_to_date` | custom sync | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_treats_zero_cursor_as_new` | custom sync | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_returns_empty_when_no_updates` | native-only rstest + custom sync; cases: empty maps, equal cursors | `GINLINE-REQ-080` |
-| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::filter_groups_comprehensive_mixed_states` | custom sync | `GINLINE-REQ-080` |
+| `crates/xmtp_mls/src/groups/welcomes/xmtp_welcome.rs` | `groups::welcomes::xmtp_welcome::tests::trial_validation_failure_preserves_welcome_keys` | XMTP async test; real storage and encrypted conversation after retry | `GINLINE-REQ-076` |
+| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::welcome_rejection_commits_only_terminal_progress` | XMTP async rstest; terminal and retryable cases | `GINLINE-REQ-077`, `GINLINE-REQ-078` |
+| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::later_welcome_completion_keeps_earlier_retry_pending` | XMTP async test; later completion preserves the earlier pending row and processed prefix | `GINLINE-REQ-078` |
+| `crates/xmtp_mls/src/groups/welcome_sync.rs` | `groups::welcome_sync::tests::blocked_welcome_does_not_hold_an_independent_join` | XMTP async test; blocked wire version and independent join | `GINLINE-REQ-077`, `GINLINE-REQ-078` |
+| `crates/xmtp_mls/src/groups/welcomes/xmtp_welcome.rs` | `groups::welcomes::xmtp_welcome::tests::rejoin_keeps_messages_before_removal` | XMTP async rstest; delayed-prefix and live-retired-controller cases; earlier history; post-rejoin receipt and peer convergence | `GINLINE-REQ-079` |
+| `crates/xmtp_mls/src/groups/welcomes/xmtp_welcome.rs` | `groups::welcomes::xmtp_welcome::tests::fresh_install_rejects_welcome_after_another_writer_advances_group` | XMTP async; validator performs another install and later commit; stale outer install rejected; peer convergence and messaging | `MLS-REQ-160` |
+| `crates/xmtp_mls/src/groups/validated_commit/identity_tests.rs` | `groups::validated_commit::identity_tests::identity_references_precede_the_group_envelope` | XMTP sync rstest; earlier, equal, and later identity sequence; safe rejection classification | `MLS-REQ-158` |
+| `crates/xmtp_mls/src/groups/validated_commit/identity_tests.rs` | `groups::validated_commit::identity_tests::a_missing_identity_proof_cannot_advance_processing` | XMTP sync; needed/absent identity proof; unsupported protocol; incoming versus installed metadata failure | `MLS-REQ-159` |
 | `crates/xmtp_mls/src/groups/welcomes/xmtp_welcome.rs` | `groups::welcomes::xmtp_welcome::tests::welcome_builds_with_default_events` | rstest context fixture + custom async | `GINLINE-REQ-081` |
 | `crates/xmtp_mls/src/messages/tests/test_deletion_validation.rs` | `messages::tests::test_deletion_validation::test_valid_deletion_by_sender` | built-in sync | `GINLINE-REQ-084`, `SHARED-CONTENT-REQ-005` |
 | `crates/xmtp_mls/src/messages/tests/test_deletion_validation.rs` | `messages::tests::test_deletion_validation::test_valid_deletion_by_super_admin` | built-in sync | `GINLINE-REQ-084`, `SHARED-CONTENT-REQ-005` |
@@ -229,3 +226,23 @@
 | --- | --- | --- | --- |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::publish_stores_envelope_metadata_without_sync` | XMTP async; stored hash and expiry; does not require a later sync | `P3-API-018` |
 | `crates/xmtp_mls/src/groups/mls_sync.rs` | `groups::mls_sync::tests::partial_envelope_metadata_preserves_stored_fields` | XMTP async; stored hash and expiry; does not require a later sync | `P3-API-018` |
+
+## Phase 4 outgoing coverage
+
+`GINLINE-REQ-073` is retired. An ambiguous publish error must not cause re-encryption.
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::prepared_proposals_keep_wire_order_after_reload` | XMTP async; Add and AppData proposal order; no unreceived pending proposals | `GINLINE-REQ-096` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::lost_publish_reply_retries_exact_prepared_envelopes` | XMTP async; lost reply; restart; exact bytes; one backend row; accepted target | `GINLINE-REQ-097` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::late_publish_reply_cannot_update_replacement_attempt` | XMTP async; delayed reply after modeled ordered supersession | `GINLINE-REQ-087` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::oversized_unprepared_message_does_not_block_later_intents` | XMTP async; oversized request followed by a valid request | `GINLINE-REQ-088` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::preparation_fences_a_second_snapshot_of_the_same_intent` | XMTP async; two resolved dependency sets and one current intent | `GINLINE-REQ-089` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::welcome_followup_retries_exact_bytes_after_restart` | XMTP async; last-intent sync resumes committed Welcome work after restart; exact persisted batch | `GINLINE-REQ-090` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::welcome_followup_requires_ordered_commit_cursor` | XMTP async; zero ordered commit cursor leaves the batch unprepared | `GINLINE-REQ-091` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests/deadlines.rs` | `groups::mls_sync::publish::tests::deadlines::intent_sync_deadline_bounds_a_stalled_target_query` | XMTP async; registered tester state; pending newest query; cancellation and prepared-state assertions | `GINLINE-REQ-092` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests/deadlines.rs` | `groups::mls_sync::publish::tests::deadlines::intent_sync_deadline_bounds_a_stalled_welcome_publish` | XMTP async; registered tester state; pending required Welcome publish; cancellation and committed-state assertions | `GINLINE-REQ-092` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::intent_sync_rejects_an_absent_intent` | XMTP async; settled group; unused intent ID | `GINLINE-REQ-093` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection` | native XMTP async; real denied commit; later malformed backend input; original client dropped and same persistent database reopened; exact typed cause and unchanged saved attempt | `GINLINE-REQ-094` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/tests.rs` | `groups::mls_sync::publish::tests::prepared_attempt_reads_the_prior_format_without_changing_envelopes` | XMTP async; real prepared attempt; explicit old-format serialization; current-format round trip | `GINLINE-REQ-095` |
+| `crates/xmtp_mls/src/groups/mls_sync/publish/rejection.rs` | `groups::mls_sync::publish::rejection::tests::stored_rejections_preserve_exact_unit_causes_without_private_error_data` | XMTP sync; bounded rejection-code round trip; exact parameter-free causes; no raw error data | `GINLINE-REQ-095` |

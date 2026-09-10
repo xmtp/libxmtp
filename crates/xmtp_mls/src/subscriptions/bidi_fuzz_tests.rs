@@ -625,11 +625,10 @@ fn spawn_collector(
 /// strictly-increasing delivery and chain-union completeness checked
 /// against the server's own record.
 ///
-/// Each subscriber's wire runs through its own toxiproxy so a fault op can
-/// sever any of them mid-anything (the transport must reconnect
-/// transparently and the invariants must still hold); the publishers and
-/// the ground-truth query stay on direct connections, so faults never blur
-/// what "the server holds" means.
+/// Subscriber wires share the local backend proxy. Each fault interrupts all
+/// subscribers; every transport must reconnect and retain its lease floors.
+/// Publishers and verification queries use direct connections. Run proxy tests
+/// serially in a separate nextest invocation to prevent shared fault changes.
 #[xmtp_common::timeout(Duration::from_secs(300))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn fuzz_transport_delivery_never_loses_above_the_floor() {
@@ -658,9 +657,8 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 .await,
         );
     }
-    // Consumers read raw frames off leased topics — no MLS membership
-    // needed — but each one is a real proxied client with its own faultable
-    // wire, its own transport, and its own welcome topic.
+    // Each consumer has its own transport and Welcome topic. All subscriber
+    // connections use the same proxy; MLS membership is not needed for reads.
     let mut consumers = Vec::new();
     for i in 0..n_consumers {
         consumers.push(
@@ -937,11 +935,9 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                     n_stalls += 1;
                 }
             }
-            // Sever a random consumer's TCP mid-anything — occasionally
-            // all of them at once (a correlated outage), occasionally long
-            // enough to eat several reconnect attempts. Every affected
-            // transport must reconnect transparently and re-serve whatever
-            // the cut ate.
+            // Selected consumer handles refer to the same backend proxy.
+            // Every cut is a shared outage, including repeated disable calls.
+            // All transports must recover their original delivery obligations.
             15 => {
                 let blip = if rng.random_range(0..4u8) == 0 {
                     Duration::from_millis(rng.random_range(1200..2400))

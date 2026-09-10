@@ -486,4 +486,37 @@ mod tests {
         drop(conn);
         std::fs::remove_file(path)?;
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejects_old_self_hosted_format_without_changing_data() {
+        use crate::encrypted_store::EmbeddedMigrationsExt;
+        use crate::{ConnectionExt, StorageError, TestDb, XmtpDb, XmtpTestDb};
+        use diesel::sql_types::Text;
+
+        let database = TestDb::create_database(None).await;
+        let connection = database.conn();
+        connection.raw_query(|conn| {
+            conn.batch_execute(
+                "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, PRIMARY KEY(entity_id, entity_kind)); INSERT INTO refresh_state VALUES (x'01', 2, 42);",
+            )?;
+            diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
+                .bind::<Text, _>(crate::MIGRATIONS.final_migration()).execute(conn)?;
+            Ok(())
+        })?;
+        let result = EncryptedMessageStore::new(database);
+        assert!(matches!(result, Err(StorageError::OldStreamDatabase)));
+        let value = connection.raw_query(|conn| {
+            crate::schema::refresh_state::table
+                .select(crate::schema::refresh_state::sequence_id)
+                .first::<i64>(conn)
+        })?;
+        assert_eq!(value, 42);
+        assert!(
+            connection
+                .raw_query(
+                    |conn| diesel::sql_query("SELECT * FROM incoming_envelopes").execute(conn)
+                )
+                .is_err()
+        );
+    }
 }

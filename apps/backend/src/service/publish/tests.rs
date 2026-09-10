@@ -243,11 +243,14 @@ async fn welcome_batch_commits_each_destination_and_canonical_payload() {
     for (envelope, meta) in envelopes.into_iter().zip(metas) {
         let fetched = server
             .query()
-            .get(api::GetRequest {
-                sequence_id: meta.cursor.as_ref().unwrap().sequence_id,
+            .query_newest(api::QueryNewestRequest {
+                topics: vec![meta.topic.clone().unwrap()],
+                include_full_envelope: true,
             })
             .await?
-            .into_inner();
+            .into_inner()
+            .results
+            .pop()?;
         assert_eq!(fetched.envelope, Some(envelope.clone()));
         assert_eq!(fetched.meta, Some(meta.clone()));
         assert_eq!(meta.expiry_ns - meta.server_ns, 7_776_000_000_000_000);
@@ -351,11 +354,17 @@ async fn permanent_payloads_and_expired_metadata_remain_readable() {
     .await?;
     let fetched = server
         .query()
-        .get(api::GetRequest {
-            sequence_id: id as u64,
+        .query(api::QueryRequest {
+            queries: vec![support::query_topic(
+                metas[0].topic.clone().unwrap(),
+                id as u64 - 1,
+            )],
+            limit: 1,
         })
         .await?
-        .into_inner();
+        .into_inner()
+        .envelopes
+        .pop()?;
     assert_eq!(fetched.envelope, Some(envelopes[0].clone()));
     assert_eq!(fetched.meta.unwrap().expiry_ns, 1);
     server.stop().await?;

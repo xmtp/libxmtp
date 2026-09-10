@@ -2,7 +2,7 @@ use crate::{ErrorWrapper, conversation::Conversation};
 use napi::bindgen_prelude::Result;
 use napi_derive::napi;
 
-/// Options for [`UnstableConversation::enableProposals`]. Mirrors
+/// Options for [`UnstableConversation::enable_proposals`]. Mirrors
 /// [`xmtp_mls::groups::EnableProposalsOptions`].
 #[napi(object)]
 pub struct EnableProposalsOptions {

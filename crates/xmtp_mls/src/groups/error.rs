@@ -17,7 +17,6 @@ use openmls::{
     },
     prelude::{BasicCredentialError, Error as TlsCodecError},
 };
-use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
 use xmtp_common::retry::RetryableError;
@@ -28,6 +27,7 @@ use xmtp_db::sql_key_store;
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError;
 use xmtp_mls_common::mls_ext::payload_encryption::{UnwrapPayloadError, WrapPayloadError};
+use xmtp_proto::types::GroupId;
 
 /// Installation IDs that failed key package verification during a membership update.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,57 +40,11 @@ impl std::fmt::Display for FailedInstallationIds {
     }
 }
 
-/// Wraps multiple message processing errors from a single receive operation.
-///
-/// Contains a list of message IDs that failed and their corresponding errors. May be retryable.
-#[derive(Error, Debug, ErrorCode)]
-#[error_code(internal)]
-pub struct ReceiveErrors {
-    /// list of message ids we received
-    ids: Vec<u64>,
-    errors: Vec<GroupMessageProcessingError>,
-}
-
-impl RetryableError for ReceiveErrors {
-    fn is_retryable(&self) -> bool {
-        self.errors.iter().any(|e| e.is_retryable())
-    }
-}
-
-impl ReceiveErrors {
-    pub fn new(errors: Vec<GroupMessageProcessingError>, ids: Vec<u64>) -> Self {
-        Self { ids, errors }
-    }
-}
-
-impl std::fmt::Display for ReceiveErrors {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let errs: HashSet<String> = self.errors.iter().map(|e| e.to_string()).collect();
-        let mut sorted = self.ids.clone();
-        sorted.sort();
-        writeln!(
-            f,
-            "\n=========================== Receive Errors  =====================\n\
-            total of [{}] errors processing [{}] messages in cursor range [{:?} ... {:?}]\n\
-            [{}] unique errors:",
-            self.errors.len(),
-            self.ids.len(),
-            sorted.first(),
-            sorted.last(),
-            errs.len(),
-        )?;
-        for err in errs.iter() {
-            writeln!(f, "{}", err)?;
-        }
-        writeln!(
-            f,
-            "================================================================="
-        )?;
-        Ok(())
-    }
-}
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupError {
+    #[error(transparent)]
+    #[error_code(inherit)]
+    OutgoingPreparation(#[from] super::mls_sync::publish::OutgoingPreparationError),
     #[error(transparent)]
     #[error_code(inherit)]
     NotFound(#[from] NotFound),
@@ -187,11 +141,6 @@ pub enum GroupError {
     /// Processing received group message failed. May be retryable.
     #[error("receive error: {0}")]
     ReceiveError(#[from] GroupMessageProcessingError),
-    /// Receive errors.
-    ///
-    /// Multiple message processing failures. May be retryable.
-    #[error("Receive errors: {0}")]
-    ReceiveErrors(ReceiveErrors),
     /// Address validation error.
     ///
     /// An address/identifier is invalid. Not retryable.
@@ -297,7 +246,7 @@ pub enum GroupError {
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
     /// proposal. Wraps the structured `GroupAppDataError` from
-    /// [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage
+    /// `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage
     /// failure is preserved instead of being string-flattened.
     #[error("app data commit error: {0}")]
     AppDataCommit(#[from] super::app_data::GroupAppDataError<sql_key_store::SqlKeyStoreError>),
@@ -306,14 +255,14 @@ pub enum GroupError {
     /// commit. Includes identity-update lookup failures.
     ///
     /// Conditionally retryable: delegates to the wrapped
-    /// [`BootstrapSynthesisError`], which retries only when an inner
+    /// [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner
     /// identity-update API error is itself retryable. Decode/registry-shape
     /// failures are deterministic and not retryable.
     #[error("bootstrap synthesis error: {0}")]
     BootstrapSynthesis(#[from] super::app_data::migration::BootstrapSynthesisError),
     /// Bootstrap commit-build failure.
     ///
-    /// Not retryable: every variant of [`BootstrapCommitError`] is a
+    /// Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a
     /// deterministic OpenMLS commit failure, a TLS codec error, or a
     /// caller-side precondition violation.
     #[error("bootstrap commit error: {0}")]
@@ -350,6 +299,17 @@ pub enum GroupError {
     /// Waiting for intent sync failed. Retryable.
     #[error("Sync failed to wait for intent: {}", _0)]
     SyncFailedToWait(Box<SyncSummary>),
+    /// Durable processing did not meet the fixed network targets. May be retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    StreamBarrier(#[from] crate::subscriptions::barrier::BarrierError),
+    /// The exact published attempt remains pending. A later call can confirm it. Retryable.
+    #[error("Intent {intent_id} was published but processing is not confirmed")]
+    PublishedButUnconfirmed {
+        intent_id: i32,
+        #[source]
+        cause: Option<Box<crate::subscriptions::barrier::BarrierError>>,
+    },
     /// Missing pending commit.
     ///
     /// Expected pending commit not found. Not retryable.
@@ -440,6 +400,15 @@ pub enum GroupError {
     /// Welcome data missing from topic. Not retryable.
     #[error("Failed to retrieve welcome data from topic {0}")]
     WelcomeDataNotFound(String),
+    /// The old group must process its ordered prefix before this Welcome can install. Retryable.
+    #[error("Welcome requires group {group_id} to process through {anchor}")]
+    WelcomeGroupPrefixPending { group_id: GroupId, anchor: u64 },
+    /// The Welcome has missing, malformed, or out-of-range join metadata. Not retryable.
+    #[error("Welcome join metadata is invalid")]
+    InvalidWelcomeMetadata,
+    /// The Welcome needs a newer client. Keep it blocked until upgrade. Retryable.
+    #[error("Welcome requires client version {0}")]
+    UnsupportedWelcomeVersion(String),
     /// Result not initialized.
     ///
     /// Expected result was not initialized. Not retryable.
@@ -521,7 +490,7 @@ pub enum MetadataPermissionsError {
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     /// Failed to decode a well-known component value from the
     /// AppData dictionary on a migrated group. Surfaces
-    /// [`ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// [`crate::groups::app_data::component_source::ComponentSourceError`] via `#[from]` so callers (e.g.
     /// `mutable_metadata()`, `metadata()`) preserve the structured
     /// source.
     #[error(transparent)]
@@ -588,7 +557,7 @@ impl RetryableError for DmValidationError {
 impl RetryableError for GroupError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::ReceiveErrors(errors) => errors.is_retryable(),
+            Self::OutgoingPreparation(error) => error.is_retryable(),
             Self::Client(client_error) => client_error.is_retryable(),
             Self::Storage(storage) => storage.is_retryable(),
             Self::ReceiveError(msg) => msg.is_retryable(),
@@ -596,6 +565,10 @@ impl RetryableError for GroupError {
             Self::UpdateGroupMembership(update) => update.is_retryable(),
             Self::GroupCreate(group) => group.is_retryable(),
             Self::SelfUpdate(update) => update.is_retryable(),
+            Self::WelcomeError(
+                openmls::prelude::WelcomeError::UnsupportedMlsVersion
+                | openmls::prelude::WelcomeError::UnsupportedExtensions,
+            ) => true,
             Self::WelcomeError(welcome) => welcome.is_retryable(),
             Self::SqlKeyStore(sql) => sql.is_retryable(),
             Self::InstallationDiff(diff) => diff.is_retryable(),
@@ -621,7 +594,10 @@ impl RetryableError for GroupError {
             Self::ProcessIntent(err) => err.is_retryable(),
             Self::LocalEvent(err) => err.is_retryable(),
             Self::LockUnavailable => true,
+            Self::WelcomeGroupPrefixPending { .. } | Self::UnsupportedWelcomeVersion(_) => true,
             Self::SyncFailedToWait(_) => true,
+            Self::StreamBarrier(error) => error.is_retryable(),
+            Self::PublishedButUnconfirmed { .. } => true,
             Self::CodecError(_) => true,
             Self::Sync(s) => s.is_retryable(),
             Self::Db(e) => e.is_retryable(),
@@ -642,6 +618,7 @@ impl RetryableError for GroupError {
             // that raced a new installation's identity propagation.
             Self::MissingSequenceId => true,
             Self::NotFound(_)
+            | Self::InvalidWelcomeMetadata
             | Self::UserLimitExceeded
             | Self::InvalidGroupMembership
             | Self::Intent(_)
@@ -682,6 +659,12 @@ impl crate::worker::NeedsDbReconnect for GroupError {
             Self::MlsStore(s) => s.needs_db_reconnect(),
             Self::Identity(i) => i.needs_db_reconnect(),
             Self::DeviceSync(d) => d.needs_db_reconnect(),
+            Self::StreamBarrier(error) => error.needs_db_reconnect(),
+            Self::PublishedButUnconfirmed { cause, .. } => cause
+                .as_ref()
+                .is_some_and(|error| error.needs_db_reconnect()),
+            Self::ReceiveError(error) => error.needs_db_reconnect(),
+            Self::Sync(summary) | Self::SyncFailedToWait(summary) => summary.needs_db_reconnect(),
             _ => false,
         }
     }

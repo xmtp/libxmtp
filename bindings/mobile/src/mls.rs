@@ -5,6 +5,7 @@ use crate::logger::init_logger;
 use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
+use crate::stream_settings::FfiStreamSettings;
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
 use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
@@ -76,7 +77,10 @@ use xmtp_mls::mls_common::group::GroupMetadataOptions;
 use xmtp_mls::mls_common::group_metadata::GroupMetadata;
 use xmtp_mls::mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
-use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
+use xmtp_mls::subscriptions::{
+    local_delivery::{DeliveryScope, LocalDeliveryFilter},
+    message_reader::MessageReaderControl,
+};
 use xmtp_mls::{
     client::Client as MlsClient,
     groups::{
@@ -114,6 +118,8 @@ pub use crate::message::{
 pub mod auth;
 pub mod change_callbacks;
 pub mod device_sync;
+pub mod local_delivery;
+pub use local_delivery::*;
 #[cfg(any(test, feature = "bench"))]
 pub mod inbox_owner;
 #[cfg(any(test, feature = "bench"))]
@@ -183,31 +189,16 @@ pub async fn is_connected(api: Arc<XmtpApiClient>) -> bool {
     api.wrapper.api_client.is_connected().await
 }
 
-/// Take the streaming wire off the network — the "app entered background" half
-/// of the lifecycle pair. Kept subscriptions and their wire positions survive;
-/// nothing reconnects until [`resume_streams`]. A no-op when nothing is
-/// streaming (the bidi path is off, or no stream was ever opened), so it is
-/// always safe to call.
-///
-/// Process-scoped: one streaming wire is shared across every client in the
-/// process, so this is a free function, not a client method.
+/// Suspend all shared bidi wires in this process until [`resume_streams`].
+/// Keep subscriptions and durable progress. New wires also start suspended.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn suspend_streams() -> Result<(), FfiError> {
     xmtp_mls::subscriptions::router_callbacks::suspend_bidi_streams().await?;
     Ok(())
 }
 
-/// Bring the streaming wire back after [`suspend_streams`] — the "app entered
-/// foreground" half. **Fire-and-forget**: it enqueues the resume and returns
-/// immediately; the reconnect (and its catch-up wave) proceeds in the
-/// background, unbounded while the network is down. Do **not** treat its return
-/// as "synced" — replayed messages are still arriving via the stream callbacks
-/// behind it. Let those callbacks update the UI as messages land, and use
-/// [`FfiXmtpClient::catch_up_to_live`] when you need a bounded, awaitable "I am
-/// current now". A no-op when nothing is streaming.
-///
-/// Process-scoped: one streaming wire is shared across every client in the
-/// process, so this is a free function, not a client method.
+/// Resume all shared bidi wires; return before reconnect and processing complete.
+/// Use [`FfiXmtpClient::catch_up_to_live`] to wait for bounded fixed-target processing.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn resume_streams() -> Result<(), FfiError> {
     xmtp_mls::subscriptions::router_callbacks::resume_bidi_streams().await?;
@@ -397,10 +388,11 @@ impl DbOptions {
 /// SDK-side default) registers nothing. See
 /// [`change_callbacks::FfiUnstableChangeCallbacks`].
 #[allow(clippy::too_many_arguments)]
-// `change_callbacks` is defaulted so adding it leaves the generated
-// Swift/Kotlin signature unchanged for callers that register nothing — the
-// same additive-by-default rule the options records follow.
-#[uniffi::export(async_runtime = "tokio", default(change_callbacks = None))]
+// Optional additions keep existing Swift and Kotlin create calls valid.
+#[uniffi::export(
+    async_runtime = "tokio",
+    default(change_callbacks = None, stream_settings = None)
+)]
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
     api: Arc<XmtpApiClient>,
@@ -414,6 +406,7 @@ pub async fn create_client(
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
     worker_config: Option<FfiWorkerConfig>,
     change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
+    stream_settings: Option<FfiStreamSettings>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
     let ident = account_identifier.clone();
     init_logger();
@@ -503,6 +496,14 @@ pub async fn create_client(
 
     if let Some(change_callbacks) = change_callbacks {
         builder = builder.unstable_change_callbacks(change_callbacks.into());
+    }
+
+    if let Some(stream_settings) = stream_settings {
+        builder = builder.stream_settings(
+            stream_settings
+                .try_into()
+                .map_err(xmtp_mls::builder::ClientBuilderError::from)?,
+        );
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
@@ -798,17 +799,10 @@ impl FfiXmtpClient {
         Ok(self.inner_client.close().await?)
     }
 
-    /// Bring the local store current with the server, then stop — for background
-    /// fetch and cold start, where a live stream would be wasted because the
-    /// process is about to be suspended. Pending welcomes are joined and every
-    /// conversation's missed messages are replayed from durable cursors and
-    /// persisted, then the wire closes.
-    ///
-    /// `opts.timeout_ms` bounds the whole call (`None` = unbounded). On the
-    /// deadline the returned summary has `completed = false` and its counts are
-    /// the partial total already persisted before the cut (the bidi path; the
-    /// legacy fallback reports zero). A later call resumes from durable state, so
-    /// cutting it short is always safe.
+    /// Process fixed starting targets and their enrolled Welcome discoveries.
+    /// The timeout bounds the whole call; `None` uses the client's barrier timeout.
+    /// Failure preserves committed progress and reports partial counts and unfinished targets.
+    /// Existing streams remain active, and application delivery progress is unchanged.
     #[tracing::instrument(skip_all)]
     pub async fn catch_up_to_live(
         &self,
@@ -1244,10 +1238,8 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for FfiGroupSyncSumm
 /// addition breaks compiled apps.
 #[derive(uniffi::Record, Default, Clone, Debug)]
 pub struct FfiCatchUpOptions {
-    /// Wall-clock bound on the whole catch-up. `None` runs to completion
-    /// (unbounded); on the deadline the returned summary is the partial persisted
-    /// so far with `completed == false`, and a later call resumes from durable
-    /// state.
+    /// Catch-up deadline in milliseconds. None uses the client's barrier timeout.
+    /// A deadline error retains partial committed counts and unfinished target details.
     #[uniffi(default = None)]
     pub timeout_ms: Option<u64>,
 }
@@ -1255,18 +1247,14 @@ pub struct FfiCatchUpOptions {
 /// Outcome of [`FfiXmtpClient::catch_up_to_live`].
 #[derive(uniffi::Record, Clone, Debug, PartialEq)]
 pub struct FfiCatchUpSummary {
-    /// Application messages newly persisted by this call. On a deadline
-    /// (`completed == false`) this is the partial total persisted before the cut
-    /// on the bidi path, or `0` on the legacy fallback — the messages themselves
-    /// are stored either way.
+    /// Newly deliverable retained rows from this run, including partial failed runs.
     pub messages: u64,
-    /// Conversations newly joined by this call. Same caveat as `messages`.
+    /// Conversations newly joined by this run.
     pub conversations: u64,
-    /// Whether catch-up finished before the deadline. `false` means `timeout_ms`
-    /// elapsed first; messages processed before then are persisted, and a later
-    /// call resumes from durable state.
+    /// True only when every fixed processing target completed.
+    /// Failed runs expose a false summary through structured error details.
     pub completed: bool,
-    /// Processing failures during this run.
+    /// Enrolled groups with a newly recorded terminal rejection during this run.
     pub failed: u64,
 }
 
@@ -1762,9 +1750,8 @@ impl From<&FfiMetadataField> for MetadataField {
 }
 
 impl FfiConversations {
-    /// One seam for every conversation stream: xmtp_mls dispatches between
-    /// the shared bidi wire and the legacy subscriptions. Lives outside the
-    /// exported impl (uniffi must not see the rust-only types).
+    /// Route every mobile conversation stream through shared bidi receipt.
+    /// Keep Rust-only callback types outside the exported UniFFI implementation.
     fn stream_conversations_dispatch(
         &self,
         conversation_type: Option<ConversationType>,
@@ -2065,6 +2052,43 @@ impl FfiConversations {
             .await
     }
 
+    /// Open the default consumer, or an independent replay reader when `from` is set.
+    pub async fn message_reader(
+        &self,
+        group_ids: Option<Vec<Vec<u8>>>,
+        conversation_type: Option<FfiConversationType>,
+        consent_states: Option<Vec<FfiConsentState>>,
+        from: Option<FfiDeliveryCursor>,
+    ) -> Result<Arc<FfiMessageReader>, FfiError> {
+        FfiMessageReader::open(
+            self.inner_client.context.clone(),
+            local_delivery::delivery_scope(group_ids)?,
+            local_delivery::delivery_filter(conversation_type, consent_states),
+            from,
+        )
+    }
+
+    /// Read retained history and its stream boundary in one database snapshot.
+    pub fn message_history_snapshot(
+        &self,
+        group_ids: Option<Vec<Vec<u8>>>,
+        conversation_type: Option<FfiConversationType>,
+        consent_states: Option<Vec<FfiConsentState>>,
+        limit: u32,
+    ) -> Result<FfiMessageHistorySnapshot, FfiError> {
+        local_delivery::history_snapshot(
+            &self.inner_client.context,
+            local_delivery::delivery_scope(group_ids)?,
+            local_delivery::delivery_filter(conversation_type, consent_states),
+            limit,
+        )
+    }
+
+    /// A database-bound replay cursor before the first retained delivery.
+    pub fn beginning_delivery_cursor(&self) -> Result<FfiDeliveryCursor, FfiError> {
+        local_delivery::beginning_cursor(&self.inner_client.context)
+    }
+
     async fn stream_messages(
         &self,
         message_callback: Arc<dyn FfiMessageCallback>,
@@ -2073,17 +2097,15 @@ impl FfiConversations {
     ) -> FfiStreamCloser {
         let consents: Option<Vec<ConsentState>> =
             consent_states.map(|states| states.into_iter().map(|state| state.into()).collect());
-        let close_cb = message_callback.clone();
-        FfiStreamCloser::new(RustXmtpClient::stream_all_messages_with_callback_dispatch(
-            self.inner_client.clone(),
-            conversation_type.map(Into::into),
-            consents,
-            move |msg| match msg {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
+        local_delivery::stream_messages(
+            self.inner_client.context.clone(),
+            DeliveryScope::All,
+            LocalDeliveryFilter {
+                conversation_type: conversation_type.map(Into::into),
+                consent_states: consents,
             },
-            move || close_cb.on_close(),
-        ))
+            message_callback,
+        )
     }
 
     /// Get notified when there is a new consent update either locally or is synced from another device
@@ -3190,17 +3212,43 @@ impl FfiConversation {
 
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn stream(&self, message_callback: Arc<dyn FfiMessageCallback>) -> FfiStreamCloser {
-        let close_cb = message_callback.clone();
-        let handle = stream_conversation_messages_with_callback_dispatch(
+        local_delivery::stream_messages(
             self.inner.context.clone(),
-            self.inner.group_id,
-            move |message| match message {
-                Ok(m) => message_callback.on_message(m.into()),
-                Err(e) => message_callback.on_error(e.into()),
-            },
-            move || close_cb.on_close(),
-        );
-        FfiStreamCloser::new(handle)
+            DeliveryScope::Groups(vec![self.inner.group_id]),
+            LocalDeliveryFilter::default(),
+            message_callback,
+        )
+    }
+
+    /// Read this conversation through bidi receipt. `from` opens independent replay.
+    pub async fn message_reader(
+        &self,
+        from: Option<FfiDeliveryCursor>,
+    ) -> Result<Arc<FfiMessageReader>, FfiError> {
+        FfiMessageReader::open(
+            self.inner.context.clone(),
+            DeliveryScope::Groups(vec![self.inner.group_id]),
+            LocalDeliveryFilter::default(),
+            from,
+        )
+    }
+
+    /// Read this conversation's retained messages and replay boundary from one snapshot.
+    pub fn message_history_snapshot(
+        &self,
+        limit: u32,
+    ) -> Result<FfiMessageHistorySnapshot, FfiError> {
+        local_delivery::history_snapshot(
+            &self.inner.context,
+            DeliveryScope::Groups(vec![self.inner.group_id]),
+            LocalDeliveryFilter::default(),
+            limit,
+        )
+    }
+
+    /// A database-bound replay cursor before the first retained delivery.
+    pub fn beginning_delivery_cursor(&self) -> Result<FfiDeliveryCursor, FfiError> {
+        local_delivery::beginning_cursor(&self.inner.context)
     }
 
     pub fn created_at_ns(&self) -> i64 {
@@ -3830,7 +3878,6 @@ pub struct FfiApiStats {
     pub publish: u64,
     pub query: u64,
     pub query_newest: u64,
-    pub get: u64,
     pub subscribe: u64,
     pub subscribe_static: u64,
 }
@@ -3841,7 +3888,6 @@ impl From<ApiStats> for FfiApiStats {
             publish: stats.publish.get_count() as u64,
             query: stats.query.get_count() as u64,
             query_newest: stats.query_newest.get_count() as u64,
-            get: stats.get.get_count() as u64,
             subscribe: stats.subscribe.get_count() as u64,
             subscribe_static: stats.subscribe_static.get_count() as u64,
         }
@@ -3890,6 +3936,7 @@ pub struct FfiStreamCloser {
     stream_handle: Arc<Mutex<Option<FfiHandle>>>,
     // for convenience, does not require locking mutex.
     abort_handle: Arc<Box<dyn AbortHandle>>,
+    message_control: Option<MessageReaderControl>,
 }
 
 impl FfiStreamCloser {
@@ -3902,14 +3949,64 @@ impl FfiStreamCloser {
         Self {
             abort_handle: Arc::new(stream_handle.abort_handle()),
             stream_handle: Arc::new(Mutex::new(Some(Box::new(stream_handle)))),
+            message_control: None,
+        }
+    }
+}
+
+impl Drop for FfiStreamCloser {
+    fn drop(&mut self) {
+        if self.message_control.is_some() && Arc::strong_count(&self.stream_handle) == 1 {
+            self.end();
         }
     }
 }
 
 #[uniffi::export(async_runtime = "tokio")]
 impl FfiStreamCloser {
-    /// Signal the stream to end
-    /// Does not wait for the stream to end.
+    /// Message streams have a snapshot. Other live-notification streams return None.
+    pub fn catch_up_snapshot(&self) -> Option<FfiMessageCatchUpSnapshot> {
+        self.message_control
+            .as_ref()
+            .map(|control| control.catch_up_snapshot().into())
+    }
+
+    /// Wait for message-stream status or close. Notification streams return None.
+    pub async fn catch_up_changed(&self) -> Option<FfiMessageCatchUpSnapshot> {
+        let control = self.message_control.as_ref()?;
+        control.changed().await;
+        Some(control.catch_up_snapshot().into())
+    }
+
+    /// Replace message scope and invalidate stale queued items. None selects all conversations.
+    pub fn update_scope(&self, group_ids: Option<Vec<Vec<u8>>>) -> Result<(), FfiError> {
+        let control = self
+            .message_control
+            .as_ref()
+            .ok_or_else(|| FfiError::generic("This is not a message stream"))?;
+        control.update_scope(local_delivery::delivery_scope(group_ids)?);
+        Ok(())
+    }
+
+    /// Replace message filters without acknowledging queued items.
+    pub fn update_filter(
+        &self,
+        conversation_type: Option<FfiConversationType>,
+        consent_states: Option<Vec<FfiConsentState>>,
+    ) -> Result<(), FfiError> {
+        let control = self
+            .message_control
+            .as_ref()
+            .ok_or_else(|| FfiError::generic("This is not a message stream"))?;
+        control.update_filter(local_delivery::delivery_filter(
+            conversation_type,
+            consent_states,
+        ));
+        Ok(())
+    }
+
+    /// Fence message delivery immediately, then request stream shutdown without waiting.
+    /// Pending messages remain unacknowledged.
     #[tracing::instrument(
         level = "debug",
         skip_all,
@@ -3920,6 +4017,9 @@ impl FfiStreamCloser {
         )
     )]
     pub fn end(&self) {
+        if let Some(control) = &self.message_control {
+            control.close();
+        }
         self.abort_handle.end();
     }
 
@@ -3927,6 +4027,10 @@ impl FfiStreamCloser {
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn end_and_wait(&self) -> Result<(), FfiError> {
         use xmtp_common::StreamHandleError::*;
+
+        if let Some(control) = &self.message_control {
+            control.close();
+        }
 
         if self.abort_handle.is_finished() {
             return Ok(());
@@ -3961,9 +4065,11 @@ impl FfiStreamCloser {
     }
 }
 
+/// SDK-owned callback boundary. Queue insertion does not acknowledge delivery.
 #[uniffi::export(with_foreign)]
 pub trait FfiMessageCallback: Send + Sync {
-    fn on_message(&self, message: FfiMessage);
+    /// Retain the token until app handoff. An error rejects the item and stops this stream.
+    fn on_message(&self, delivery: FfiMessageDelivery) -> Result<(), FfiError>;
     fn on_error(&self, error: FfiError);
     fn on_close(&self);
 }
