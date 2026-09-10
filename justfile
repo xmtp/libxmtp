@@ -103,3 +103,25 @@ test-validation:
     dev/check-validation test
 
 validation: check-validation test-validation
+
+# --- DISK ---
+
+# Show sccache hit rates and cache size.
+cache-stats:
+    sccache --show-stats
+
+# Delete stale incremental/ dirs across all worktrees (default: unused 14+ days).
+[script("bash")]
+clean-incremental days="14":
+    set -euo pipefail
+    roots=$(git worktree list --porcelain | awk '/^worktree /{print $2}')
+    total=0
+    for root in $roots; do
+      for dir in $(find "$root/target" -maxdepth 2 -type d -name incremental -atime +{{ days }} 2>/dev/null); do
+        size=$(du -sk "$dir" | cut -f1)
+        total=$((total + size))
+        echo "removing $dir ($((size / 1024)) MB)"
+        rm -rf "$dir"
+      done
+    done
+    echo "reclaimed $((total / 1024)) MB"

@@ -130,3 +130,57 @@ nix flake show
   CI and local builds skip redundant work
 - **Omnix for CI orchestration** — the `.envrc` integrates with
   [omnix](https://omnix.page) for CI workflow management
+
+## Shared Build Cache (sccache)
+
+Each git worktree keeps its own `target/` directory. Without a shared cache, N
+worktrees compile the same dependencies N times, and `target/` grows to tens of
+gigabytes per worktree.
+
+`sccache` is in the `rust` and `default` dev shells. It is **off by default**.
+Turn it on per shell:
+
+```bash
+source dev/sccache-env
+cargo build
+```
+
+Every worktree keeps its own cargo lock, so builds in different worktrees still
+run in parallel at full width. They share one compilation cache, so work that
+one worktree already did is copied instead of recompiled.
+
+### Trade-off: incremental compilation
+
+sccache cannot cache incremental compilation, so `dev/sccache-env` sets
+`CARGO_INCREMENTAL=0`. Choose per task:
+
+- **Many worktrees, fresh branches, agent-driven work** — use sccache.
+  Incremental has nothing to reuse in a fresh worktree.
+- **Hand-iterating on one crate in one worktree** — prefer incremental.
+  Do not source the script, or run:
+
+  ```bash
+  unset RUSTC_WRAPPER
+  export CARGO_INCREMENTAL=1
+  ```
+
+### Cache size
+
+The cache is bounded and evicts least-recently-used entries. Default is 60 GiB;
+override with `SCCACHE_CACHE_SIZE` before sourcing.
+
+```bash
+just cache-stats            # hit rates and current size
+just clean-incremental      # delete incremental/ dirs unused 14+ days
+just clean-incremental 30   # ...or a different age
+```
+
+### CI and releases
+
+`dev/sccache-env` is never sourced automatically and is for local use only.
+
+- **Nix builds** (`nix build`, releases, `.#validation`, `.#nextest`) run in a
+  sandbox and never see `RUSTC_WRAPPER`. They are unaffected.
+- **CI** sets its own sccache through the `sccache` input of
+  `.github/actions/setup-nix`, backed by the GitHub Actions cache. Workflows
+  that build inside `nix build` set `sccache: "false"` on purpose.
