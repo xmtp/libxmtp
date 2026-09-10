@@ -9,6 +9,11 @@ const PROXY_NAME = "backend";
 const TOXIPROXY_API = "http://localhost:8474";
 const TOXIPROXY_PORT = "6010";
 
+const DELIVERY_WAIT = { timeout: 30_000, interval: 100 };
+// The transport can wait 30 seconds plus up to 30 seconds of jitter before
+// its next reconnect attempt. Leave time for that attempt and catch-up.
+const RECOVERY_WAIT = { timeout: 75_000, interval: 100 };
+
 // Set transport deadlines before the first client reads them.
 process.env.XMTP_GRPC_KEEPALIVE_INTERVAL_SECS = "10";
 process.env.XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS = "10";
@@ -77,7 +82,7 @@ describe("Agent reconnect", () => {
       try {
         await agent.start();
         const first = await createConversation();
-        await expect.poll(() => received).toEqual([first.id]);
+        await expect.poll(() => received, DELIVERY_WAIT).toEqual([first.id]);
 
         if (fault === "black hole") await blackHole(true);
         else await enableBackend(false);
@@ -94,11 +99,11 @@ describe("Agent reconnect", () => {
         else await enableBackend(true);
         faultActive = false;
         await expect
-          .poll(() => received, { timeout: 15_000 })
+          .poll(() => received, RECOVERY_WAIT)
           .toEqual([first.id, missed.id]);
         const after = await createConversation();
         await expect
-          .poll(() => received)
+          .poll(() => received, DELIVERY_WAIT)
           .toEqual([first.id, missed.id, after.id]);
         expect(onStart).toHaveBeenCalledTimes(1);
         expect(onStop).not.toHaveBeenCalled();

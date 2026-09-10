@@ -216,6 +216,44 @@ mod tests {
     use rstest_reuse::{self, *};
     use xmtp_proto::types::GroupId;
 
+    /// A group envelope can arrive before the rejoin welcome is processed.
+    /// Drive the shared stream processor without a welcome consumer to fix that order.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn streamed_message_recovers_pending_rejoin_welcome() {
+        use crate::{tester, utils::MlsGroupExt};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.invite(&bo).await?;
+        bo.sync_welcomes().await?;
+        let bo_group = bo.group(&group.group_id)?;
+        bo_group.sync().await?;
+        let factory = ProcessMessageFuture::new(bo.context.clone());
+
+        group.remove_members(&[bo.inbox_id()]).await?;
+        let removal = group.test_get_last_message_from_network().await?;
+        process_one(&factory, removal).await?;
+        assert!(!bo_group.is_active()?);
+
+        group.send_msg(b"while removed").await;
+        let excluded = group.test_get_last_message_from_network().await?;
+        assert!(process_one(&factory, excluded).await?.message.is_none());
+
+        group.invite(&bo).await?;
+        group.send_msg(b"after rejoin").await;
+        let message = group.test_get_last_message_from_network().await?;
+        assert!(!bo_group.is_active()?);
+
+        let delivered = process_one(&factory, message).await?.message;
+        assert_eq!(
+            delivered.map(|message| message.decrypted_message_bytes),
+            Some(b"after rejoin".to_vec()),
+            "the stream must recover the welcome before consuming the message"
+        );
+        assert!(bo_group.is_active()?);
+    }
+
     #[template]
     #[rstest]
     #[case(vec![55, 60], vec![70, 80], 60)]

@@ -50,10 +50,16 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - run: just ios docs apps/docs/generated/reference/swift
+      - name: Archive Swift reference
+        # DocC symbol filenames contain colons, which upload-artifact rejects.
+        env:
+          # Keep macOS metadata files out of the published reference.
+          COPYFILE_DISABLE: "1"
+        run: tar -cf "${RUNNER_TEMP}/docs-swift.tar" -C apps/docs/generated/reference/swift .
       - uses: actions/upload-artifact@v7
         with:
           name: docs-swift
-          path: apps/docs/generated/reference/swift
+          path: ${{ runner.temp }}/docs-swift.tar
           if-no-files-found: error
 
   kotlin:
@@ -127,7 +133,11 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           name: docs-swift
-          path: apps/docs/generated/reference/swift
+          path: ${{ runner.temp }}/docs-swift
+      - name: Extract Swift reference
+        run: |
+          mkdir -p apps/docs/generated/reference/swift
+          tar -xf "${RUNNER_TEMP}/docs-swift/docs-swift.tar" -C apps/docs/generated/reference/swift
       - uses: actions/download-artifact@v8
         with:
           name: docs-kotlin
