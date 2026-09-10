@@ -28,7 +28,7 @@ This spec defines the security boundary of the self-hosted backend. It preserves
 - SEC-013: Do not add key-package credential inbox-ID format checks, an XMTP ciphersuite allow-list, extra leaf-local capability checks, or a maximum lifetime-range check. The existing path does not perform them. A credential inbox ID can therefore be empty or malformed even when the package passes its existing checks. Topic derivation must still satisfy the installation-key length in spec 001.
 - SEC-014: Welcome destinations need not be registered installations. Welcome pointers use random destinations. Both inline and pointer forms remain supported. Structural parsing is not decryption or signature validation.
 - SEC-015: Commit-log signatures are returned without verification by the backend. The client checks epoch and hash-chain continuity. Never drop or reorder committed log entries: skipping one defeats the client's fork detection.
-- SEC-016: The canonical envelope hash covers the protobuf envelope encoding. Inner byte fields are preserved exactly. This hash is distinct from the client's MLS message ID and payload hash. Share the canonical envelope encoder across backend and clients.
+- SEC-016: The backend's canonical envelope hash covers its protobuf envelope encoding. Canonical encoding and hash computation are backend-internal. Clients store the backend-provided `message_hash` as authoritative under API-024 and API-025 and must not depend on reproducing it. Inner byte fields are preserved exactly. The envelope hash is distinct from the client's MLS message ID and inner payload identity. Client matching and MLS validation use the unchanged inner bytes, not a locally recomputed outer envelope hash.
 
 ## 3. Identity state and identifiers
 

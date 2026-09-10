@@ -88,7 +88,6 @@ Replicas are supported from day one. Each configured replica URL names one physi
 | Publish, including validation history | Primary |
 | Query | Primary |
 | QueryNewest | Replica, or primary when none is configured |
-| Get | Replica, or primary when none is configured |
 | Subscribe and SubscribeStatic, replay and live | Replica, or primary when none is configured |
 | GetInboxIds | Replica, or primary when none is configured |
 | VerifySmartContractWalletSignatures | Configured chain RPC |
@@ -99,8 +98,9 @@ Replicas are supported from day one. Each configured replica URL names one physi
 - ARC-063: Newest reads join watermarks and envelopes in one statement. Metadata-only results select all metadata but not the payload. Full results add the payload. Do not omit an existing topic to fit a successful response into the byte limit.
 - ARC-064: Identity validation reads complete history from one snapshot. Reads still work if stored history exceeds the write cap. Do not use a separately read head as the validation position.
 - ARC-065: Identifier lookup selects the greatest association sequence ID among active associations for each normalized `(identifier, kind)`. Reconstruct the positional response, including duplicate inputs.
-- ARC-067: Get is one primary-key lookup on the envelope table by sequence id, returning the full row as a `ServerEnvelope`. A sequence id with no row visible in the serving database's snapshot is `NOT_FOUND`; the backend does not distinguish never-allocated, aborted, pruned, or not-yet-replicated. No additional index is needed.
 - ARC-066: Oversized responses eventually fail under spec 001's size-error contract. Preserve Tonic's normal size-limit statuses and details; do not add custom framing or status translation for them. An application response-size check may return `RESOURCE_EXHAUSTED`. No additional pagination protocol or structured size-error type is required.
+
+ARC-067 is retired with the Get endpoint. Registration visibility uses the metadata-only QueryNewest route and API-089. It must not substitute a primary Query or local identity state for a serving-head read.
 
 ## 6. Streaming architecture
 
@@ -341,6 +341,8 @@ The raw repository URL is the public schema publication target. Publish and vali
 Supported database failover must preserve acknowledged commits and fence the old primary. Promoting a replica that loses acknowledged data or restoring an old backup is an operator recovery event; durable client cursors cannot repair it. The backend does not implement a database failover manager.
 
 ## Review record
+
+The [approved stream-state plan](https://plan.ref.tools/JWa4T7fSmGBi69R2) removes Get and retires ARC-067 on 2026-09-10. Registration visibility uses the existing replica-served QueryNewest route.
 
 The [single-client streaming proposal](https://plan.ref.tools/BbNc54CedfhM1Snb), approved 2026-09-06, replaces the earlier wave design with fixed targets, coalesced live notices, and bounded fair fetch turns. Applications control which topics they stream.
 
