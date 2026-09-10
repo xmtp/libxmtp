@@ -33,7 +33,7 @@ pub async fn new_unregistered_client_for(
     } else {
         generate_wallet().into_alloy()
     };
-    new_client_inner(&local_wallet, None, backend).await
+    new_client_inner(&local_wallet, None, backend, false).await
 }
 
 /// Create a new client + Identity
@@ -63,6 +63,7 @@ pub async fn temp_client_for(
         &local_wallet,
         Some(tmp_dir.to_path_buf().join(name)),
         backend,
+        false,
     )
     .await
 }
@@ -87,6 +88,7 @@ async fn new_client_inner(
     wallet: &PrivateKeySigner,
     db_path: Option<PathBuf>,
     network: &crate::args::BackendOpts,
+    disable_workers: bool,
 ) -> Result<crate::DbgClient> {
     let api = network.connect()?;
     let ident = wallet.get_identifier()?;
@@ -122,6 +124,7 @@ async fn new_client_inner(
     .default_mls_store()?
     .with_remote_verifier()?
     .with_device_sync_worker_mode(Some(DeviceSyncMode::Disabled))
+    .with_disable_workers(disable_workers)
     .build()
     .await?;
 
@@ -157,7 +160,7 @@ fn existing_client_inner(db_path: PathBuf) -> Result<crate::DbgClient> {
     existing_client_inner_for(db_path, App::network())
 }
 
-fn existing_client_inner_for(
+pub(super) fn existing_client_inner_for(
     db_path: PathBuf,
     network: &crate::args::BackendOpts,
 ) -> Result<crate::DbgClient> {
@@ -191,6 +194,15 @@ fn existing_client_inner_for(
         .build_offline()?;
 
     Ok(client)
+}
+
+/// Create a scenario peer at an explicit path without background workers.
+pub(super) async fn new_disk_client_for(
+    wallet: &types::EthereumWallet,
+    path: PathBuf,
+    backend: &crate::args::BackendOpts,
+) -> Result<crate::DbgClient> {
+    new_client_inner(&wallet.clone().into_alloy(), Some(path), backend, true).await
 }
 
 /// Build clients for `identities` concurrently.

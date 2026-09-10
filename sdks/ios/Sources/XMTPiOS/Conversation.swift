@@ -277,6 +277,7 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// A message is acknowledged on the next iterator request. Cancellation and drop do not acknowledge it.
 	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<
 		DecodedMessage, Error
 	> {
@@ -285,6 +286,27 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 			group.streamMessages(onClose: onClose)
 		case let .dm(dm):
 			dm.streamMessages(onClose: onClose)
+		}
+	}
+
+	public func messageReader(from: DeliveryCursor? = nil) async throws -> MessageReader {
+		switch self {
+		case let .group(group): try await group.messageReader(from: from)
+		case let .dm(dm): try await dm.messageReader(from: from)
+		}
+	}
+
+	public func messageHistorySnapshot(limit: UInt32 = 100) throws -> MessageHistorySnapshot {
+		switch self {
+		case let .group(group): try group.messageHistorySnapshot(limit: limit)
+		case let .dm(dm): try dm.messageHistorySnapshot(limit: limit)
+		}
+	}
+
+	public func beginningDeliveryCursor() throws -> DeliveryCursor {
+		switch self {
+		case let .group(group): try group.beginningDeliveryCursor()
+		case let .dm(dm): try dm.beginningDeliveryCursor()
 		}
 	}
 

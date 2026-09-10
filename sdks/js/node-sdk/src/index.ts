@@ -18,6 +18,7 @@ export {
   type MessageDelivery,
   type MessageReaderSource,
 } from "./MessageStream";
+export * from "./utils/streamFailure";
 export type {
   DeliveryCursor,
   MessageCatchUp,
@@ -83,6 +84,7 @@ export type {
   WalletCall,
   WalletSendCalls,
   WorkerConfigOptions,
+  StreamSettings,
   WorkerIntervalOverride,
   WorkerJitterOverride,
 } from "@xmtp/node-bindings";

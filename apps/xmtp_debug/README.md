@@ -26,7 +26,7 @@ monitoring daemon via Docker.
 | Command | Description |
 | --- | --- |
 | `generate` | Create identities, groups, and messages on the network |
-| `test` | Run e2e latency test scenarios |
+| `test` | Run latency and durable-stream validation scenarios |
 | `inspect` | Inspect an inbox's groups, messages, or identity state |
 | `query` | Query backend APIs (identity updates, key packages, commit logs) |
 | `info` | Show information about local generated state |
@@ -125,6 +125,29 @@ dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 test message-visibility --
 ```text
 dev/nix-shell 'cargo xdbg --url http://127.0.0.1:5050 test group-sync --iterations 3 --message-count 20'
 ```
+
+##### Check durable streams with three independent peers
+
+```text
+dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 test durable-streams --iterations 3'
+```
+
+Each iteration creates three disk-backed peers on the local backend. It checks
+concurrent valid commits, an invalid supported MLS envelope, stream reconnect,
+an actual TCP outage for the third peer, and a clean client close/reopen from the
+same database. The TCP outage uses a private loopback proxy. The other peers
+commit and send while the proxy rejects connections. The same open reader must
+recover after the proxy resumes. This does not test process crashes.
+After each phase, all peers must
+have the same epoch and epoch authenticator. Every peer must also decrypt one
+new message from each sender exactly once.
+
+The command fails on the first failed check or timeout. It retains its databases
+and prints their directory. Use `--state-directory PATH` to choose the parent
+directory. The command creates a new run directory and does not overwrite an
+earlier run. It does not use existing xdbg identities or change backend
+configuration. It requires an HTTP backend URL and publishes new test identities,
+groups, and messages.
 
 ---
 

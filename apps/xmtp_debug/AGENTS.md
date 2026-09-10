@@ -11,6 +11,7 @@ just test crate xdbg
 dev/nix-shell 'cargo run -p xdbg -- --help'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 generate --entity identity --amount 5'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-packages'
+dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 test durable-streams --iterations 3'
 ```
 
 ## Backend options
@@ -27,6 +28,7 @@ dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-pa
   in one Tempo trace. It creates two identities, one group, and ten messages.
   `XDBG_DB_ROOT` isolates its temporary state. `--fail-fast` makes operation errors fail the check.
   See [backend observability](../../docs/backend-observability.md).
+- `test durable-streams` requires a local HTTP URL. It retains three independent peer databases per iteration. Use `--state-directory` to choose their parent directory. A private TCP proxy tests one peer's network outage without a shared backend change. The database reopen is a clean restart, not a process-crash test.
 - `--metrics` keeps CSV output. `PUSHGATEWAY_URL` keeps optional Prometheus output.
 
 ## Gotchas

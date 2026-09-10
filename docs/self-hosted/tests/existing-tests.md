@@ -36,11 +36,11 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [Other Rust crates and applications](existing-tests/rust-apps-support.md) | 253 | 69 |
 | [JavaScript Agent SDK](existing-tests/agent-sdk.md) | 117 | 29 |
 | [Release tools](existing-tests/release-tools.md) | 179 | 28 |
-| [Manual test scenarios](existing-tests/manual-scenarios.md) | 3 | 3 |
-| [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 402 | 91 |
-| [Android SDK and example](existing-tests/android.md) | 210 | 101 |
-| [iOS SDK](existing-tests/ios.md) | 205 | 117 |
-| **Total** | **3,188** | **1,027 referenced IDs** |
+| [Manual test scenarios](existing-tests/manual-scenarios.md) | 4 | 4 |
+| [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 458 | 126 |
+| [Android SDK and example](existing-tests/android.md) | 229 | 113 |
+| [iOS SDK](existing-tests/ios.md) | 220 | 128 |
+| **Total** | **3,279** | **1,086 referenced IDs** |
 
 ## Review records
 

@@ -2,11 +2,11 @@
 
 [← Test inventory](../existing-tests.md) · [Requirements](../existing-requirements.md)
 
-- Inventory: 423 source declarations in 30 test-bearing files. Browser has 224 declarations in 15 files. Node has 199 declarations in 15 files.
+- Inventory: 458 source declarations in 37 test-bearing files. Browser has 243 declarations in 19 files. Node has 215 declarations in 18 files.
 - Browser runner: Vitest browser mode uses headless Playwright with one Chromium instance and a 120-second test timeout. Vite serves the repository root so it can load the portal-linked WASM binding. Browser client tests use module Workers and OPFS-backed databases.
 - Node runner: Vitest uses globals, a 120-second test timeout, a 60-second hook timeout, and XMTP_NO_PANIC_ON_DB_LOCK=true. Global teardown removes database files.
 - CI starts the local backend first. Browser CI uses four Vitest shards. Node CI uses two shards. Local execution must build and stage the matching WASM or Node binding first.
-- Declaration forms: all 423 rows use it. No source declaration uses .each, .todo, or .only. Data matrices and asynchronous consumption loops stay inside the listed source declaration.
+- Declaration forms: each source declaration has one row. Parameterized it.each declarations include callback failure cases and structured-error input matrices. No source declaration uses .todo or .only.
 - Gate: the 12 OPFS declarations inherit describe.skip. Their two nested groups inherit describe.sequential and share database-path state. All other declarations are active.
 - Type and documentation checks: expectTypeOf assertions in content-type and validHex tests are included in their containing rows. README examples and helper or fixture declarations do not execute and are not index rows.
 - Ambiguities: the browser archive-list check catches every error, so that row does not require browser archive listing to succeed. Several Node createBackend option tests only assert successful construction. Group pausedForVersion creates a DM. The skipped OPFS cases depend on order and shared state.
@@ -15,6 +15,62 @@
 
 | File | Fully qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > acknowledges only at the following next request | it; active; fake reader and token spies; no backend. | `JSDK-REQ-129` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > leaves a returned item unacknowledged when iteration ends | it; active; fake reader and token spies; no backend. | `JSDK-REQ-130` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > reselects a stale queued item without consuming it | it; active; fake reader and token spies; no backend. | `JSDK-REQ-131` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > reselects when a removed item has no decoded value | it; active; fake reader and token spies; no backend. | `JSDK-REQ-132` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > rejects the retained token when next-request acknowledgement fails | it; active; fake reader and token spies; no backend. | `JSDK-REQ-133` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream acknowledgement boundaries > does not hand off a value after an async decode is cancelled | it; active; fake reader and token spies; no backend. | `JSDK-REQ-134` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > starts without iteration and acknowledges each successful callback | it; active; fake reader and token spies; no backend. | `JSDK-REQ-135` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > waits for the returned callback promise before acknowledgement or another read | it; active; fake reader and token spies; no backend. | `JSDK-REQ-136` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > rejects and closes when the callback uses %s | it.each; two cases: throw and reject; active; fake reader and token spies; no backend. | `JSDK-REQ-137` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > rejects a callback item immediately on close and never acknowledges it later | it; active; fake reader and token spies; no backend. | `JSDK-REQ-138` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > does not yield between a synchronous ownership check and the callback | it; active; fake reader and token spies; no backend. | `JSDK-REQ-139` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > keeps callback mode and its callback stable after construction | it; active; fake reader and token spies; no backend. | `JSDK-REQ-140` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > rejects the pending item when callback acknowledgement fails | it; active; fake reader and token spies; no backend. | `JSDK-REQ-141` |
+| sdks/js/node-sdk/test/MessageStream.test.ts | MessageStream callback mode > closes even when callback error handlers throw | it; active; fake reader and token spies; no backend. | `JSDK-REQ-142` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > acknowledges at the following next request, not worker receipt | it; active; fake reader and token spies; no backend. | `JSDK-REQ-129` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > discards a stale worker token and selects again | it; active; fake reader and token spies; no backend. | `JSDK-REQ-131` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > reselects when a removed worker item has no decoded value | it; active; fake reader and token spies; no backend. | `JSDK-REQ-132` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > closes once when a callback uses %s without an iterator or unhandled rejection | it.each; two cases: throw and reject; active; fake reader and token spies; no backend. | `JSDK-REQ-137` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > does not call the app when an ownership check finishes after close | it; active; fake reader and token spies; no backend. | `JSDK-REQ-143` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > automatically checks, calls, and acknowledges synchronous callbacks in order | it; active; fake reader and token spies; no backend. | `JSDK-REQ-135` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > waits for an async callback before acknowledgement or the next read | it; active; fake reader and token spies; no backend. | `JSDK-REQ-136` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > rejects a pending callback on close and does not acknowledge its later return | it; active; fake reader and token spies; no backend. | `JSDK-REQ-138` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > rejects next and for-await in callback mode without a second consumer | it; active; fake reader and token spies; no backend. | `JSDK-REQ-144` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > keeps the callback selected at construction when options change | it; active; fake reader and token spies; no backend. | `JSDK-REQ-140` |
+| sdks/js/browser-sdk/test/MessageStream.test.ts | MessageStream worker acknowledgement boundaries > keeps iterator mode when a callback is added after construction | it; active; fake reader and token spies; no backend. | `JSDK-REQ-145` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > retains an uncaptured target and exact large sequence values | it; active; pure decoder; no backend. | `JSDK-REQ-151` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > distinguishes an empty captured target from failed target capture | it; active; pure decoder; no backend. | `JSDK-REQ-152` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > retains blocked and pending obligations in the same failure | it; active; pure decoder; no backend. | `JSDK-REQ-153` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > retains the published intent when confirmation did not complete | it; active; pure decoder; no backend. | `JSDK-REQ-154` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > retains every sibling barrier and published intent in a sync summary | it; active; pure decoder; no backend. | `JSDK-REQ-155` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > reads messages copied across a worker boundary | it; active; pure decoder; no backend. | `JSDK-REQ-156` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > uses the last payload marker in a wrapped error | it; active; pure decoder; no backend. | `JSDK-REQ-157` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > returns undefined for missing or invalid details: %s | it.each; nine invalid inputs; active; pure decoder; no backend. | `JSDK-REQ-158` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > does not throw if an error message getter fails | it; active; pure decoder; no backend. | `JSDK-REQ-159` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > rejects an invalid sequence: %s | it.each; eight invalid sequences; active; pure decoder; no backend. | `JSDK-REQ-160` |
+| sdks/js/node-sdk/test/streamFailure.test.ts | structured stream failures > rejects an invalid field: %s | it.each; nine invalid fields; active; pure decoder; no backend. | `JSDK-REQ-161` |
+| sdks/js/node-sdk/test/MessageDelivery.integration.test.ts | durable message delivery > redelivers an unacknowledged item and keeps replay independent | it; active; generated Node binding and local backend. | `JSDK-REQ-162` |
+| sdks/js/node-sdk/test/MessageDelivery.integration.test.ts | durable message delivery > starts after the history snapshot without losing later messages | it; active; generated Node binding and local backend. | `JSDK-REQ-163` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > retains an uncaptured target and exact large sequence values | it; active; pure decoder; no backend. | `JSDK-REQ-151` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > distinguishes an empty captured target from failed target capture | it; active; pure decoder; no backend. | `JSDK-REQ-152` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > retains blocked and pending obligations in the same failure | it; active; pure decoder; no backend. | `JSDK-REQ-153` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > retains the published intent when confirmation did not complete | it; active; pure decoder; no backend. | `JSDK-REQ-154` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > retains every sibling barrier and published intent in a sync summary | it; active; pure decoder; no backend. | `JSDK-REQ-155` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > reads messages copied across a worker boundary | it; active; pure decoder; no backend. | `JSDK-REQ-156` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > uses the last payload marker in a wrapped error | it; active; pure decoder; no backend. | `JSDK-REQ-157` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > returns undefined for missing or invalid details: %s | it.each; nine invalid inputs; active; pure decoder; no backend. | `JSDK-REQ-158` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > does not throw if an error message getter fails | it; active; pure decoder; no backend. | `JSDK-REQ-159` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > rejects an invalid sequence: %s | it.each; eight invalid sequences; active; pure decoder; no backend. | `JSDK-REQ-160` |
+| sdks/js/browser-sdk/test/streamFailure.test.ts | structured stream failures > rejects an invalid field: %s | it.each; nine invalid fields; active; pure decoder; no backend. | `JSDK-REQ-161` |
+| sdks/js/browser-sdk/test/MessageDelivery.integration.test.ts | durable message delivery > redelivers an unacknowledged item and keeps replay independent | it; active; generated WASM worker binding and local backend. | `JSDK-REQ-162` |
+| sdks/js/browser-sdk/test/MessageDelivery.integration.test.ts | durable message delivery > starts after the history snapshot without losing later messages | it; active; generated WASM worker binding and local backend. | `JSDK-REQ-163` |
+| sdks/js/browser-sdk/test/WorkerBridge.test.ts | WorkerBridge close > fences new actions before the worker finishes closing | it; active; fake worker; no backend. | `JSDK-REQ-146` |
+| sdks/js/browser-sdk/test/WorkerBridge.test.ts | WorkerBridge close > rejects pending actions when the worker stops | it; active; fake worker; no backend. | `JSDK-REQ-147` |
+| sdks/js/browser-sdk/test/WorkerBridge.test.ts | WorkerBridge close > detaches legacy listeners and rejects their queued callbacks at close | it; active; fake worker; no backend. | `JSDK-REQ-148` |
+| sdks/js/browser-sdk/test/WorkerBridge.test.ts | WorkerBridge close > terminates the worker if core close fails | it; active; fake worker; no backend. | `JSDK-REQ-149` |
+| sdks/js/browser-sdk/test/WorkerBridge.test.ts | WorkerBridge close > rejects pending reads after a terminal worker error | it; active; fake worker; no backend. | `JSDK-REQ-150` |
 | sdks/js/browser-sdk/test/AsyncStream.test.ts | AsyncStream > should return values from push() in sequence | it; active; Queue values 1 through 5 and break after value 3. | `JSDK-REQ-001`, `JSDK-REQ-002` |
 | sdks/js/browser-sdk/test/AsyncStream.test.ts | AsyncStream > should handle values added during iteration | it; active; Push value 1, then values 2 and 3 while consuming. | `JSDK-REQ-001`, `JSDK-REQ-002` |
 | sdks/js/browser-sdk/test/AsyncStream.test.ts | AsyncStream > should catch an error thrown in the for..await loop and cleanup properly | it; active; One asynchronous iteration scenario. | `JSDK-REQ-002` |

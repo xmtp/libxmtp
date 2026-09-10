@@ -24,3 +24,13 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XMTPTests.ClientTests/testCr
 - CI supplies the URL of a Fly backend built from the tested commit.
 - Pass an installed simulator with `just ios test-simulator "platform=iOS Simulator,name=iPhone 17"`.
 - `Package.swift` is at the repo root. Run `swift` from the root, after `just ios build`.
+
+## Message delivery
+
+- Message streams use a one-item mailbox. Queue insertion does not acknowledge a message. A new iterator request acknowledges the previous item.
+- `MessageReader.next()` uses the same boundary. Close the reader when finished. Close, cancellation, and release of the full stream do not acknowledge pending items.
+- `AsyncThrowingStream` shares sequence and iterator storage. Releasing only the iterator does not close a sequence that the app still retains.
+- `messageReader(from: cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
+- Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
+- `ClientOptions.streamSettings` accepts optional limits and millisecond timers. Omitted fields use core defaults. Native client creation validates all values.
+- Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A nil target means capture failed; zero is a captured empty target. All cursors and counts remain `UInt64` values.

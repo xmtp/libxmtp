@@ -2,7 +2,7 @@
 
 [← Test inventory](../existing-tests.md) · [Requirements](../existing-requirements.md)
 
-- Inventory: 216 `@Test` source declarations in 31 Kotlin files.
+- Inventory: 229 `@Test` source declarations in 34 Kotlin files.
 - Android instrumentation uses `androidx.test.runner.AndroidJUnitRunner` on an API 23 or newer device or emulator. Most integration tests require the local XMTP node, validation service, Postgres stores, and history service.
 - Smart-contract-wallet tests also require Anvil on host port 8545. The DEV TLS history test requires `devTls=true`, internet access, and the DEV history endpoint.
 - Four declarations are ignored: two flaky RemoteAttachment tests and two HistorySync transfer tests.
@@ -10,6 +10,25 @@
 
 | File | Fully qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.acknowledgesOnlyAfterTheDirectCollectorReturnsAndClosesOnce` | Host JUnit and coroutines; controlled collector return; repeated close. | `ANDROID-REQ-113` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.cancellationRejectsTheCurrentItemAndTheQueuedItem` | Host JUnit and coroutines; cancel suspended collector with two owned receipts. | `ANDROID-REQ-115` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.selectionChangeReselectsWithoutAcknowledgement` | Host JUnit and coroutines; stale then current receipt. | `ANDROID-REQ-116` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.decodeAndCollectorFailuresRejectTheItem` | Host JUnit and coroutines; two-case decode or collector error loop. | `ANDROID-REQ-117` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.acknowledgementFailureStopsBeforeTheNextHandoff` | Host JUnit and coroutines; failed acknowledgement and queued second receipt. | `ANDROID-REQ-118` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.fullQueueRejectsBothItemsWithoutHandoff` | Host JUnit and coroutines; two arrivals before collection. | `ANDROID-REQ-119` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageDeliveryFlowTest.kt` | `MessageDeliveryFlowTest.nativeErrorsReachTheCollector` | Host JUnit and coroutines; native FFI error type and raw message. | `ANDROID-REQ-120` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.nextAcknowledgesOnlyThePreviousItemAndCloseRejectsTheLast` | Host JUnit and coroutines; two next calls; repeated close; next after close. | `ANDROID-REQ-114` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.cancellationWhileWaitingClosesTheReader` | Host JUnit and coroutines; cancel controlled pending native read. | `ANDROID-REQ-115` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.cancellationBeforeHandoffRejectsTheCurrentToken` | Host JUnit and coroutines; cancel during ownership check. | `ANDROID-REQ-115` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.selectionChangeDiscardsWithoutAcknowledgingAndReadsFreshSelection` | Host JUnit and coroutines; stale then current receipt. | `ANDROID-REQ-116` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.acknowledgementFailureRetainsTheTokenForExplicitRejection` | Host JUnit and coroutines; failed acknowledgement; no second native read. | `ANDROID-REQ-118` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.decodeFailureClosesWithoutAcknowledgement` | Host JUnit and coroutines; exact decode error; no ownership check. | `ANDROID-REQ-117` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.closeDuringOwnershipCheckPreventsHandoff` | Host JUnit and coroutines; close from ownership check. | `ANDROID-REQ-122` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/MessageReaderTest.kt` | `MessageReaderTest.concurrentNextClosesBothRequests` | Host JUnit and coroutines; two overlapping next calls. | `ANDROID-REQ-121` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/StreamSettingsTest.kt` | `StreamSettingsTest.unsetFieldsUseNativeDefaults` | Host JUnit; all 20 fields absent in FFI record. | `SHARED-IDENTITY-REQ-021` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/StreamSettingsTest.kt` | `StreamSettingsTest.suppliedFieldsKeepTheirValuesAndNativeIntegerWidths` | Host JUnit; all fields supplied; UInt and ULong maxima. | `SHARED-IDENTITY-REQ-021` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/StreamFailureTest.kt` | `StreamFailureTest.passesTheRawNativeErrorMessageToTheTypedDecoder` | Host JUnit; injected decoder and native FFI exception. | `SHARED-IDENTITY-REQ-022` |
+| `sdks/android/library/src/test/java/org/xmtp/android/library/StreamFailureTest.kt` | `StreamFailureTest.doesNotDecodeUnrelatedErrors` | Host JUnit; ordinary exception does not call decoder. | `SHARED-IDENTITY-REQ-022` |
 | apps/android/xmtpv3_example/app/src/test/java/com/example/xmtpv3_example/ExampleUnitTest.kt | `ExampleUnitTest.addition_isCorrect` | Host JUnit; active. | `ANDROID-REQ-001` |
 | sdks/android/example/src/androidTest/java/org/xmtp/android/example/MainActivityInstrumentedTest.kt | `MainActivityInstrumentedTest.useAppContext` | AndroidJUnit4; device or emulator. | `ANDROID-REQ-002` |
 | sdks/android/library/src/test/java/org/xmtp/android/library/CryptoTest.kt | `CryptoTest.testCodec` | Host JUnit; active. | `ANDROID-REQ-003` |

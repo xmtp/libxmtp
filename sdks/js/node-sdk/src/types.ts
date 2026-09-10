@@ -18,6 +18,7 @@ import {
   type VisibilityConfirmationOptions,
   type WalletSendCalls,
   type WorkerConfigOptions,
+  type StreamSettings,
 } from "@xmtp/node-bindings";
 import type { DecodedMessage } from "@/DecodedMessage";
 import type { HexString } from "./utils/validation";
@@ -148,6 +149,8 @@ export type OtherOptions = {
    * Intervals are specified in nanoseconds.
    */
   workerConfig?: WorkerConfigOptions;
+  /** Positive stream limits. Omitted fields use core defaults. Timers use milliseconds. */
+  streamSettings?: StreamSettings;
   /**
    * Disable automatic registration when creating a client
    */

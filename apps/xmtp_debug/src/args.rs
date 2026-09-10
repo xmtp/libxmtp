@@ -406,6 +406,9 @@ pub struct TestOpts {
     /// Number of messages for group-sync scenario
     #[arg(long, short, default_value = "10")]
     pub message_count: usize,
+    /// Parent directory for retained durable-streams scenario databases.
+    #[arg(long)]
+    pub state_directory: Option<PathBuf>,
 }
 
 #[derive(ValueEnum, Debug, Clone)]
@@ -414,6 +417,8 @@ pub enum TestScenario {
     MessageVisibility,
     /// Measure group sync latency after N messages
     GroupSync,
+    /// Check durable streams through commit races, invalid input, and restarts.
+    DurableStreams,
 }
 
 /// Cross-version libxmtp health check.

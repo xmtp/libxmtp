@@ -130,6 +130,7 @@ public struct ClientOptions {
 	/// Unstable: notifications for group state changes, for clients that
 	/// reconcile a group's `appData` themselves. See ``UnstableChangeCallbacks``.
 	public var unstableChangeCallbacks: UnstableChangeCallbacks?
+	public var streamSettings: StreamSettings?
 
 	public init(
 		api: Api,
@@ -142,7 +143,8 @@ public struct ClientOptions {
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
 		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil,
 		dbPoolOptions: DbPoolOptions? = nil,
-		unstableChangeCallbacks: UnstableChangeCallbacks? = nil
+		unstableChangeCallbacks: UnstableChangeCallbacks? = nil,
+		streamSettings: StreamSettings? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -155,6 +157,7 @@ public struct ClientOptions {
 		self.waitForRegistrationVisible = waitForRegistrationVisible
 		self.dbPoolOptions = dbPoolOptions
 		self.unstableChangeCallbacks = unstableChangeCallbacks
+		self.streamSettings = streamSettings
 	}
 }
 

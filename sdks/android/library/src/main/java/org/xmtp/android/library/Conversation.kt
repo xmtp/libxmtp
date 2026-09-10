@@ -517,6 +517,25 @@ sealed class Conversation {
             }
         }
 
+    suspend fun messageReader(from: DeliveryCursor? = null): MessageReader =
+        when (this) {
+            is Group -> group.messageReader(from)
+            is Dm -> dm.messageReader(from)
+        }
+
+    suspend fun messageHistorySnapshot(limit: UInt): MessageHistorySnapshot =
+        when (this) {
+            is Group -> group.messageHistorySnapshot(limit)
+            is Dm -> dm.messageHistorySnapshot(limit)
+        }
+
+    suspend fun beginningDeliveryCursor(): DeliveryCursor =
+        when (this) {
+            is Group -> group.beginningDeliveryCursor()
+            is Dm -> dm.beginningDeliveryCursor()
+        }
+
+    /** Acknowledges after the direct Flow collector returns. App-added buffering changes this boundary. */
     fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> =
         when (this) {
             is Group -> group.streamMessages(onClose)
