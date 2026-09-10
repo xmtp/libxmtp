@@ -15,7 +15,7 @@ use xmtp_db::{
 };
 use xmtp_mls::{
     context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
+    groups::MlsGroup,
     subscriptions::{barrier::wait_through, stream_messages::StreamGroupMessages},
 };
 use xmtp_proto::{
@@ -304,7 +304,7 @@ fn current_state(client: &DbgClient, group_id: GroupId) -> Result<(u64, Vec<u8>)
             let storage = tx.key_store();
             let group = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or_else(|| StorageError::from(NotFound::MlsGroup(group_id)))?;
-            Ok::<_, GroupError>(Continue((
+            Ok::<_, StorageError>(Continue((
                 group.epoch().as_u64(),
                 group.epoch_authenticator().as_slice().to_vec(),
             )))
