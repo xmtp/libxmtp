@@ -171,24 +171,27 @@ describe("Dm", () => {
       },
     });
 
-    await dm.sendText("gm");
-    await dm.sendText("gm2");
+    const consumedMessages: unknown[] = [];
+    const consumed = (async () => {
+      for await (const message of stream) {
+        consumedMessages.push(message.content);
+      }
+    })();
 
-    // End the stream once both messages have arrived. A fixed delay races a
-    // loaded machine, where the second message lands after the timer fires.
-    void vi
-      .waitFor(() => {
-        expect(streamedMessages.length).toBe(2);
-      }, WAIT)
-      .then(() => stream.end());
+    try {
+      await dm.sendText("gm");
+      await dm.sendText("gm2");
 
-    let count = 0;
-    for await (const message of stream) {
-      count++;
-      expect(message).toBeDefined();
+      // Callback delivery can precede iterator consumption. Closing the stream
+      // clears its queue, so wait for both consumers before closing it.
+      await vi.waitFor(() => {
+        expect(streamedMessages).toEqual(["gm", "gm2"]);
+        expect(consumedMessages).toEqual(["gm", "gm2"]);
+      }, WAIT);
+    } finally {
+      await stream.end();
+      await consumed;
     }
-    expect(count).toBe(2);
-    expect(streamedMessages).toEqual(["gm", "gm2"]);
   });
 
   it("should manage consent state", async () => {

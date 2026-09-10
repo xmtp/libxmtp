@@ -6,6 +6,7 @@ use crate::groups::{
     MlsGroup,
     mls_sync::GroupMessageProcessingError,
     summary::{MessageIdentifier, SyncSummary},
+    welcome_sync::WelcomeService,
 };
 use crate::subscriptions::SubscribeError;
 use crate::subscriptions::process_message::MessageIdentifierBuilder;
@@ -139,7 +140,21 @@ where
             ConversationType::Group,
             msg.timestamp(),
         );
-        match group.sync_with_conn().await {
+        let recovery = async {
+            // Group messages and welcomes have no cross-topic order. A rejoin
+            // welcome can still be pending when its first group message arrives.
+            // Recover it before group sync rejects the inactive group and the
+            // stream consumes the envelope without delivering its message.
+            if !group.is_active().map_err(SyncSummary::other)? {
+                WelcomeService::new(self.0.clone())
+                    .sync_welcomes()
+                    .await
+                    .map_err(SyncSummary::other)?;
+            }
+            group.sync_with_conn().await
+        }
+        .await;
+        match recovery {
             Ok(summary) => {
                 let epoch = group.epoch().await.unwrap_or(0);
                 tracing::debug!(
