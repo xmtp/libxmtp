@@ -151,7 +151,7 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 - ARC-099: Accept W3C `traceparent` and `tracestate`, including CORS preflight that names these headers. Install propagation even when export is off. With trace export enabled, the incoming context is the request span parent. Request spans identify the server kind, gRPC system, bounded service and method, and final gRPC status. Completion events include the status name and a trace ID only when a valid incoming or generated trace context exists.
   - No metric label, span field, or log field may derive from a topic, inbox ID, installation ID, group ID, cursor, payload, or request header. The only exceptions are W3C trace context and the server-generated request ID. Operation names and status reasons have bounded vocabularies. Never use request data as a metric name or label.
 
-The required operation span names are `db.commit_publish`, `db.find_duplicates`, `db.history`, `db.query`, `db.newest_envelopes`, `db.newest_metadata`, `db.get`, `db.inbox_ids`, `db.advance`, `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `tailer.poll`, `tailer.bootstrap`, `scw.verify`, `stream.update`, `stream.fetch`. A completed `tailer.poll` span includes INFO-level `rows` and `gaps` fields.
+The required operation span names are `db.commit_publish`, `db.find_duplicates`, `db.history`, `db.query`, `db.newest_envelopes`, `db.newest_metadata`, `db.inbox_ids`, `db.advance`, `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `tailer.poll`, `tailer.bootstrap`, `scw.verify`, `stream.update`, `stream.fetch`. A completed `tailer.poll` span includes INFO-level `rows` and `gaps` fields.
 
 ### Backend metric catalogue
 
