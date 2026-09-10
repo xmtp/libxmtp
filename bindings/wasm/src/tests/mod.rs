@@ -5,7 +5,7 @@ use crate::inbox_id::generate_inbox_id;
 use alloy::signers::SignerSync;
 use js_sys::Uint8Array;
 use wasm_bindgen::prelude::*;
-use xmtp_configuration::BACKEND_TEST_URL;
+use xmtp_configuration::backend_test_url;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_id::InboxOwner;
 
@@ -14,7 +14,7 @@ pub async fn create_test_client(path: Option<String>) -> Client {
   // crate::opfs::Opfs::wipe_files().await.unwrap();
   let wallet = generate_local_wallet();
   let account_address = wallet.get_identifier().unwrap_throw();
-  let host = BACKEND_TEST_URL.to_string();
+  let host = backend_test_url();
   let inbox_id = generate_inbox_id(account_address.clone().into(), None);
   let mut client = create_client(
     host.clone(),
@@ -58,7 +58,7 @@ pub async fn create_auth_test_client(
   // crate::opfs::Opfs::wipe_files().await.unwrap();
   let wallet = generate_local_wallet();
   let account_address = wallet.get_identifier().unwrap_throw();
-  let host = BACKEND_TEST_URL.to_string();
+  let host = backend_test_url();
   let inbox_id = generate_inbox_id(account_address.clone().into(), None);
   let mut client = create_client(
     host.clone(),

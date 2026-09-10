@@ -28,7 +28,7 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 
 ## Gotchas
 
-- Export `XMTP_BACKEND_URL=http://127.0.0.1:5050`. Tests require this URL.
+- Tests require `XMTP_BACKEND_URL`. The `just js` recipes export this worktree's value; `http://127.0.0.1:5050` is the main checkout's. Run `just backend status` to see it.
 - Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
 - Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.

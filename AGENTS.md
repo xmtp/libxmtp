@@ -8,7 +8,7 @@ Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `s
 - `docs/self-hosted/guidelines.md` — hard rules. They win.
 - `docs/self-hosted/style-guide.md` — code and doc style.
 - `docs/specs/` — approved specs.
-- Skills in `.claude/skills/`: `writing-rust-tests`, `working-with-nix`.
+- Skills in `.claude/skills/`: `writing-rust-tests`, `working-with-nix`, `working-with-worktrees`.
 
 ## Commands
 
@@ -20,6 +20,8 @@ just                    # list all recipes
 just backend up         # docker services. Most tests need them.
 just backend build      # self-hosted service through Nix. No database needed.
 just backend db-up      # disposable PostgreSQL 18 primary and replica.
+just backend status     # this worktree's Compose project, slot, ports, and URLs.
+just backend release    # stop this worktree's stack and free its port slot.
 just backend sql-prepare # migrate test DB and refresh checked SQL metadata.
 just backend sql-check  # verify checked SQL metadata against test DB.
 just backend test       # backend unit and RPC/storage tests.
@@ -40,6 +42,9 @@ The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`
 `just backend db-up` starts only `db` and `replica`, without an image build.
 `just backend logs [services...]` shows service logs.
 Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
+Ports above are the main checkout's. Every worktree gets its own Compose project
+and port block, so run `just backend status` for the checkout you are in. See the
+`working-with-worktrees` skill.
 `just test` excludes backend database tests; run them with `just backend test`.
 
 `default-members` = `apps/backend`, `bindings/*`, `crates/*`. Other apps: see their `AGENTS.md`.

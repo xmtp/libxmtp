@@ -6,8 +6,11 @@ import { createSigner, createUser } from "@/user/User";
 import { createClient } from "@/util/test";
 
 const PROXY_NAME = "backend";
-const TOXIPROXY_API = "http://localhost:8474";
-const TOXIPROXY_PORT = "6010";
+// Each worktree publishes Toxiproxy on its own ports. `just` exports these from
+// dev/docker/.env; the fallbacks are the main checkout's values.
+const TOXIPROXY_API = process.env.XMTP_TOXIPROXY_API ?? "http://localhost:8474";
+const TOXIC_BACKEND_URL =
+  process.env.XMTP_BACKEND_TOXIC_URL ?? "http://localhost:6010";
 
 const DELIVERY_WAIT = { timeout: 30_000, interval: 100 };
 // The transport can wait 30 seconds plus up to 30 seconds of jitter before
@@ -53,7 +56,7 @@ async function blackHole(enabled: boolean) {
 export async function createToxicAgent() {
   await enableBackend(true);
   return Agent.create(createSigner(createUser()), {
-    backendUrl: `http://localhost:${TOXIPROXY_PORT}`,
+    backendUrl: TOXIC_BACKEND_URL,
     env: "local",
     dbPath: null,
     disableDeviceSync: true,

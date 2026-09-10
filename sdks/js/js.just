@@ -1,9 +1,13 @@
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "js")
 
-# Every JS suite needs a backend. Keep the default here so a local run and CI
-# use the same address, and set the IPv4 form on purpose: `localhost` can
-# resolve to IPv6, where the Docker port forward resets the connection.
-export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "http://127.0.0.1:5050")
+root := justfile_directory() / ".." / ".."
+
+# Every JS suite needs a backend, and its port differs per worktree. `_env`
+# loads dev/docker/.env (written by dev/worktree-env) so each recipe picks up
+# this worktree's XMTP_BACKEND_URL. An already-set value always wins, so CI and
+# one-off overrides are untouched. The URL uses the IPv4 form on purpose:
+# `localhost` can resolve to IPv6, where the Docker port forward resets.
+_env := root + "/dev/worktree-env && set -a && . " + root + "/dev/docker/.env && set +a"
 
 set shell := ["../../dev/nix-shell"]
 
@@ -57,7 +61,9 @@ build-node: install-node-ci bindings-node
     yarn workspace @xmtp/agent-sdk run build
 
 # Run all JS SDK tests locally (builds bindings first)
+[script("bash")]
 test: install bindings
+    {{ _env }}
     yarn workspace @xmtp/node-sdk run test
     yarn workspace @xmtp/browser-sdk run test
     yarn workspace @xmtp/node-sdk run build
@@ -65,15 +71,21 @@ test: install bindings
 
 # CI: node-sdk tests. Bindings are a nix cache hit (built by test-node job).
 # Extra args (e.g. --shard N/M) are forwarded to vitest.
+[script("bash")]
 test-node-sdk-ci *args="": install-node-ci bindings-node
+    {{ _env }}
     yarn workspace @xmtp/node-sdk run test {{ args }}
 
 # CI: browser-sdk tests (Playwright). Bindings are a nix cache hit (test-wasm).
+[script("bash")]
 test-browser-sdk-ci *args="": install-ci bindings
+    {{ _env }}
     yarn workspace @xmtp/browser-sdk run test {{ args }}
 
 # CI: agent-sdk tests. Runs against the local node-sdk (workspace dependency),
 # which must be built first so its dist exists at runtime.
+[script("bash")]
 test-agent-sdk-ci *args="": install-node-ci bindings-node
+    {{ _env }}
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/agent-sdk run test {{ args }}

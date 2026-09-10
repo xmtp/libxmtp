@@ -24,6 +24,18 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
+
+        // Each worktree publishes the local stack on its own ports, so the test
+        // endpoints come from the environment that `dev/worktree-env` provides.
+        // 10.0.2.2 is how the emulator reaches the host; only the port moves.
+        buildConfigField "String", "XMTP_BACKEND_URL",
+            "\"http://10.0.2.2:${System.getenv("XMTP_BACKEND_PORT") ?: "5050"}\""
+        buildConfigField "String", "ANVIL_URL",
+            "\"http://10.0.2.2:${System.getenv("XMTP_ANVIL_PORT") ?: "8545"}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {
