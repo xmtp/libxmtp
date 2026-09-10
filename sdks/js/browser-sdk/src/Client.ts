@@ -82,6 +82,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #isReady = false;
   #libxmtpVersion?: string;
   #options?: ClientOptions;
+  #closePromise?: Promise<void>;
   #preferences: Preferences;
   #signer?: Signer;
   #worker: WorkerBridge<ClientWorkerAction>;
@@ -155,8 +156,17 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Shutdown the client
    */
   close() {
-    this.#worker.close();
+    if (this.#closePromise) return this.#closePromise;
+    if (!this.#isReady) {
+      this.#worker.close();
+      this.#closePromise = Promise.resolve();
+      return this.#closePromise;
+    }
     this.#isReady = false;
+    this.#closePromise = this.#worker.closeAfter(
+      this.#worker.action("client.close"),
+    );
+    return this.#closePromise;
   }
 
   /**
@@ -182,7 +192,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       }
       return client;
     } catch (error) {
-      client.close();
+      await client.close();
       throw error;
     }
   }
@@ -211,7 +221,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       await client.init(identifier);
       return client;
     } catch (error) {
-      client.close();
+      await client.close();
       throw error;
     }
   }

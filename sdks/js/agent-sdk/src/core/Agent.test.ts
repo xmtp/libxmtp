@@ -1,8 +1,10 @@
 import {
   encodeText,
+  isGroupUpdated,
   isReply,
   ReactionAction,
   ReactionSchema,
+  SortDirection,
   type BuiltInContentTypes,
   type Client,
   type Dm,
@@ -25,6 +27,11 @@ import { ConversationContext } from "@/core/ConversationContext";
 import { MessageContext } from "@/core/MessageContext";
 import { createSigner, createUser } from "@/user/User";
 import { createClient } from "@/util/test";
+
+// These middleware fixtures exercise text and replies, not retained setup messages.
+const textOrReplyOnly: AgentMiddleware = async (context, next) => {
+  if (context.isText() || context.isReply()) await next();
+};
 
 describe("Agent", () => {
   let agent: Agent<BuiltInContentTypes>;
@@ -263,8 +270,12 @@ describe("Agent", () => {
     });
 
     it("should emit 'group-update' events for group update messages", async () => {
+      const receivedIds: string[] = [];
       const groupUpdateEventSpy = vi.fn();
       agent.on("group-update", groupUpdateEventSpy);
+      agent.on("group-update", ({ message }) => {
+        receivedIds.push(message.id);
+      });
 
       await agent.start();
 
@@ -273,33 +284,43 @@ describe("Agent", () => {
         client.inboxId,
       ]);
       await group.addAdmin(client.inboxId);
-      const messages = await group.messages();
-      const message = messages[1]!;
+      const messages = await group.messages({
+        direction: SortDirection.Ascending,
+      });
+      expect(messages).toHaveLength(2);
+      expect(messages.every(isGroupUpdated)).toBe(true);
 
       await vi.waitFor(() => {
-        expect(groupUpdateEventSpy).toHaveBeenCalledTimes(1);
+        expect(receivedIds).toEqual(messages.map(({ id }) => id));
       });
-      expect(groupUpdateEventSpy).toHaveBeenCalledWith(
-        new MessageContext({
-          message,
-          conversation: group,
-          client: otherClient,
-        }),
-      );
+      for (const [index, message] of messages.entries()) {
+        expect(groupUpdateEventSpy).toHaveBeenNthCalledWith(
+          index + 1,
+          new MessageContext({
+            message,
+            conversation: group,
+            client: otherClient,
+          }),
+        );
+      }
     });
 
     it("should emit generic 'message' event for all message types", async () => {
-      const messageEventSpy = vi.fn();
+      const receivedIds: string[] = [];
+      const groupUpdateIds: string[] = [];
       const textEventSpy = vi.fn();
       const reactionEventSpy = vi.fn();
       const replyEventSpy = vi.fn();
-      const groupUpdateEventSpy = vi.fn();
 
-      agent.on("message", messageEventSpy);
+      agent.on("message", ({ message }) => {
+        receivedIds.push(message.id);
+      });
       agent.on("text", textEventSpy);
       agent.on("reaction", reactionEventSpy);
       agent.on("reply", replyEventSpy);
-      agent.on("group-update", groupUpdateEventSpy);
+      agent.on("group-update", ({ message }) => {
+        groupUpdateIds.push(message.id);
+      });
 
       await agent.start();
 
@@ -308,30 +329,39 @@ describe("Agent", () => {
         client.inboxId,
       ]);
       await group.addAdmin(client.inboxId);
+      const setupMessages = await group.messages({
+        direction: SortDirection.Ascending,
+      });
+      expect(setupMessages).toHaveLength(2);
+      expect(setupMessages.every(isGroupUpdated)).toBe(true);
+      const setupIds = setupMessages.map(({ id }) => id);
+
       const messageId = await group.sendText("gm");
-      await group.sendReaction({
+      const reactionId = await group.sendReaction({
         action: ReactionAction.Added,
         schema: ReactionSchema.Unicode,
         content: "👍",
         reference: messageId,
         referenceInboxId: client.inboxId,
       });
-      await group.sendReply({
+      const replyId = await group.sendReply({
         content: encodeText("gm"),
         reference: messageId,
         referenceInboxId: client.inboxId,
       });
 
       await vi.waitFor(() => {
-        expect(
-          messageEventSpy,
-          "Generic 'message' event should fire for all message types",
-        ).toHaveBeenCalledTimes(4);
+        expect(receivedIds).toEqual([
+          ...setupIds,
+          messageId,
+          reactionId,
+          replyId,
+        ]);
       });
+      expect(groupUpdateIds).toEqual(setupIds);
       expect(textEventSpy).toHaveBeenCalledTimes(1);
       expect(reactionEventSpy).toHaveBeenCalledTimes(1);
       expect(replyEventSpy).toHaveBeenCalledTimes(1);
-      expect(groupUpdateEventSpy).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -419,6 +449,10 @@ describe("Agent", () => {
   });
 
   describe("use", () => {
+    beforeEach(() => {
+      agent.use(textOrReplyOnly);
+    });
+
     it("should add middleware and return the agent instance", () => {
       const middleware = vi.fn();
       const result = agent.use(middleware);
@@ -639,6 +673,10 @@ describe("Agent", () => {
   });
 
   describe("errors.use", () => {
+    beforeEach(() => {
+      agent.use(textOrReplyOnly);
+    });
+
     it("propagates error, transforms, recovers, and resumes remaining middleware", async () => {
       const callOrder: string[] = [];
       const onError = vi.fn();

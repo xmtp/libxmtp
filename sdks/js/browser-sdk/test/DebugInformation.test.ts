@@ -11,7 +11,6 @@ describe("DebugInformation", () => {
     expect(apiStats.publish).toBeGreaterThanOrEqual(2n);
     expect(apiStats.query).toBeGreaterThanOrEqual(2n);
     expect(apiStats.queryNewest).toBe(0n);
-    expect(apiStats.get).toBe(0n);
     expect(apiStats.subscribe).toBe(0n);
     expect(apiStats.subscribeStatic).toBe(0n);
 
@@ -26,7 +25,6 @@ describe("DebugInformation", () => {
     expect(apiStats2.publish).toBeLessThanOrEqual(1n);
     expect(apiStats2.query).toBeLessThanOrEqual(1n);
     expect(apiStats2.queryNewest).toBeLessThanOrEqual(1n);
-    expect(apiStats2.get).toBeLessThanOrEqual(1n);
     expect(apiStats2.subscribe).toBeLessThanOrEqual(1n);
     expect(apiStats2.subscribeStatic).toBeLessThanOrEqual(1n);
 

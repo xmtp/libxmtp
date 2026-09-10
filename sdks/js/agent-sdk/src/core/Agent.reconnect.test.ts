@@ -119,18 +119,39 @@ describe("Agent reconnect", () => {
 
   it("should reconnect when start() fails initially", async () => {
     const agent = await createToxicAgent();
+    const sender = await createClient();
+    const receivedIds: string[] = [];
+    const onStart = vi.fn();
+    const onStop = vi.fn();
+    agent.on("start", onStart);
+    agent.on("stop", onStop);
+    agent.on("text", ({ message }) => {
+      receivedIds.push(message.id);
+    });
     try {
       await enableBackend(false);
       const started = once(agent, "start", {
-        signal: AbortSignal.timeout(10_000),
+        signal: AbortSignal.timeout(RECOVERY_WAIT.timeout),
       });
-      void agent.start();
-      await setTimeout(5_000);
-      await enableBackend(true);
-      await started;
+      const restoreBackend = async () => {
+        await setTimeout(5_000);
+        expect(onStart).not.toHaveBeenCalled();
+        await enableBackend(true);
+      };
+      await Promise.all([agent.start(), started, restoreBackend()]);
+
+      const group = await sender.conversations.createGroup([
+        agent.client.inboxId,
+      ]);
+      const messageId = await group.sendText("after startup recovery");
+      await expect.poll(() => receivedIds, DELIVERY_WAIT).toEqual([messageId]);
+      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(onStop).not.toHaveBeenCalled();
     } finally {
       await enableBackend(true);
       await agent.stop();
+      await Promise.all([agent.client.close(), sender.close()]);
     }
+    expect(onStop).toHaveBeenCalledTimes(1);
   });
 });

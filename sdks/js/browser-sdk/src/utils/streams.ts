@@ -35,9 +35,11 @@ export type StreamOptions<T = unknown, V = T> = {
    */
   onRetry?: (attempts: number, maxAttempts: number) => void;
   /**
-   * Called when a value is emitted from the stream
+   * Called when a value is emitted from the stream.
+   * For message streams, this selects callback mode. Do not also iterate that stream.
+   * Message delivery is acknowledged after this callback returns successfully.
    */
-  onValue?: (value: V) => void;
+  onValue?: (value: V) => void | Promise<void>;
   /**
    * The number of times to retry the stream
    * (default: 6)
@@ -187,7 +189,7 @@ export const createStream = async <T = unknown, V = T>(
                 // the stream may have ended while the value was mutating
                 if (!isStopped() && mutatedValue !== undefined) {
                   asyncStream.push(mutatedValue);
-                  onValue?.(mutatedValue);
+                  return onValue?.(mutatedValue);
                 }
               })
               .catch((error: unknown) => {
@@ -200,12 +202,12 @@ export const createStream = async <T = unknown, V = T>(
             // on the stopped flag to match the async branch above
             if (!isStopped() && mutatedValue !== undefined) {
               asyncStream.push(mutatedValue);
-              onValue?.(mutatedValue);
+              void onValue?.(mutatedValue);
             }
           }
         } else {
           asyncStream.push(value as unknown as V);
-          onValue?.(value as unknown as V);
+          void onValue?.(value as unknown as V);
         }
       } catch (error) {
         onError?.(error as Error);

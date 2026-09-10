@@ -14,10 +14,6 @@ import type {
 import type { StreamOptions } from "@/utils/streams";
 import { uuid } from "@/utils/uuid";
 
-const handleError = (event: ErrorEvent) => {
-  console.error(`[worker] error: ${event.message}`);
-};
-
 /**
  * Class that sets up a bridge for worker communications
  *
@@ -30,6 +26,10 @@ const handleError = (event: ErrorEvent) => {
 export class WorkerBridge<T extends UnknownAction> {
   #worker: Worker;
   #enableLogging: boolean;
+  #closed = false;
+  #streamHandlers = new Set<
+    (event: MessageEvent<StreamAction | StreamActionErrorData>) => void
+  >();
   #promises = new Map<
     string,
     {
@@ -41,7 +41,7 @@ export class WorkerBridge<T extends UnknownAction> {
   constructor(worker: Worker, enableLogging?: boolean) {
     this.#worker = worker;
     this.#worker.addEventListener("message", this.handleMessage);
-    this.#worker.addEventListener("error", handleError);
+    this.#worker.addEventListener("error", this.handleError);
     this.#enableLogging = enableLogging ?? false;
   }
 
@@ -57,6 +57,7 @@ export class WorkerBridge<T extends UnknownAction> {
     D = ExtractActionData<T, A>,
     R = ExtractActionResult<T, A>,
   >(action: A, ...args: D extends undefined ? [] : [data: D]) {
+    if (this.#closed) throw new Error("The client is closed");
     const promiseId = uuid();
     this.#worker.postMessage({
       action,
@@ -95,6 +96,11 @@ export class WorkerBridge<T extends UnknownAction> {
     }
   };
 
+  handleError = (event: ErrorEvent) => {
+    console.error(`[worker] error: ${event.message}`);
+    this.close();
+  };
+
   /**
    * Handles a stream message from the worker
    *
@@ -110,6 +116,7 @@ export class WorkerBridge<T extends UnknownAction> {
     const streamHandler = (
       event: MessageEvent<StreamAction | StreamActionErrorData>,
     ) => {
+      if (this.#closed) return;
       const eventData = event.data;
       // only handle messages for the passed stream ID
       if (eventData.streamId === streamId) {
@@ -126,14 +133,17 @@ export class WorkerBridge<T extends UnknownAction> {
       }
     };
     this.#worker.addEventListener("message", streamHandler);
+    this.#streamHandlers.add(streamHandler);
 
     return async () => {
-      await this.action<
-        "endStream",
-        EndStreamAction["data"],
-        EndStreamAction["result"]
-      >("endStream", { streamId });
       this.#worker.removeEventListener("message", streamHandler);
+      this.#streamHandlers.delete(streamHandler);
+      if (!this.#closed)
+        await this.action<
+          "endStream",
+          EndStreamAction["data"],
+          EndStreamAction["result"]
+        >("endStream", { streamId });
     };
   };
 
@@ -141,8 +151,36 @@ export class WorkerBridge<T extends UnknownAction> {
    * Removes all event listeners and terminates the worker
    */
   close() {
+    this.#closed = true;
+    this.#detachStreams();
+    for (const pending of this.#promises.values()) {
+      pending.reject(new Error("The client is closed"));
+    }
+    this.#promises.clear();
     this.#worker.removeEventListener("message", this.handleMessage);
-    this.#worker.removeEventListener("error", handleError);
+    this.#worker.removeEventListener("error", this.handleError);
     this.#worker.terminate();
+  }
+
+  get isClosed() {
+    return this.#closed;
+  }
+
+  /** Fence app dispatch now. Keep the worker until core close releases its database. */
+  closeAfter(operation: Promise<unknown>): Promise<void> {
+    this.#closed = true;
+    this.#detachStreams();
+    return operation
+      .then(() => {})
+      .finally(() => {
+        this.close();
+      });
+  }
+
+  #detachStreams() {
+    for (const handler of this.#streamHandlers) {
+      this.#worker.removeEventListener("message", handler);
+    }
+    this.#streamHandlers.clear();
   }
 }

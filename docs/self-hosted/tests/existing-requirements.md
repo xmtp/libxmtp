@@ -15,7 +15,7 @@ The following plan IDs identify new coverage. They do not rename existing IDs.
 | P3-API-002, P3-API-012 | `xmtp_api/src/tests/mod.rs`: keyed key-package absence and ordered inbox lookup results. |
 | P3-API-003, P3-API-004 | Wrapper tests: measured atomic publish chunks and byte-identical retry. Phase 4 replaces client hash comparison with backend hash preservation under `API-REQ-085`. |
 | P3-API-006, P3-API-007 | Wrapper and integration tests: has_more paging and request-limit chunking. |
-| P3-API-008, P3-API-009, P3-API-019 | Wrapper tests: unambiguous terminal statuses, size reduction, and bounded RESOURCE_EXHAUSTED retry at the floor. |
+| P3-API-008, P3-API-009, P3-API-019 | Wrapper and transport tests: typed status and cause retry rules, unambiguous terminal statuses, size reduction, and bounded RESOURCE_EXHAUSTED retry at the floor. |
 | P3-API-011, P3-API-015 | MLS identity conflict tests and the timed registration-visibility fault test. |
 | P3-API-018 | MLS publish-metadata tests: stored envelope hash and expiry, including partial metadata. |
 | P3-STR-001, P3-STR-002, P3-STR-003, P3-STR-004, P3-STR-013 | Backend ledger tests: update IDs, Applied targets, lower-cursor re-add, and wire-cap refusal. |

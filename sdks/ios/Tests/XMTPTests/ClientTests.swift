@@ -933,7 +933,6 @@ class ClientTests: XCTestCase {
 		XCTAssertGreaterThan(apiStats2.publish, 0)
 		XCTAssertGreaterThan(apiStats2.query, 0)
 		XCTAssertEqual(0, apiStats2.queryNewest)
-		XCTAssertEqual(0, apiStats2.get)
 		XCTAssertEqual(1, apiStats2.subscribe)
 		XCTAssertEqual(0, apiStats2.subscribeStatic)
 

@@ -85,6 +85,8 @@ public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
 	public let childMessages: [DecodedMessage]?
+	/// Cursor for this stream handoff. Reading it does not acknowledge delivery.
+	public let deliveryCursor: FfiDeliveryCursor?
 
 	public var id: String {
 		ffiMessage.id.toHex
@@ -178,7 +180,7 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
-	public static func create(ffiMessage: FfiMessage)
+	public static func create(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		-> DecodedMessage?
 	{
 		do {
@@ -196,7 +198,7 @@ public struct DecodedMessage: Identifiable {
 			let decodedContent: Any = try encodedContent.decoded()
 			return DecodedMessage(
 				ffiMessage: ffiMessage, decodedContent: decodedContent,
-				childMessages: nil
+				childMessages: nil, deliveryCursor: deliveryCursor
 			)
 		} catch {
 			print("Error creating Message: \(error)")
@@ -229,13 +231,13 @@ public struct DecodedMessage: Identifiable {
 				let decodedContent: Any = try encodedContent.decoded()
 				return DecodedMessage(
 					ffiMessage: reaction, decodedContent: decodedContent,
-					childMessages: nil
+					childMessages: nil, deliveryCursor: nil
 				)
 			}
 
 			return DecodedMessage(
 				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
-				childMessages: childMessages
+				childMessages: childMessages, deliveryCursor: nil
 			)
 		} catch {
 			print("Error creating Message: \(error)")

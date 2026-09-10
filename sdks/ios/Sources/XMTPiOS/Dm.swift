@@ -271,40 +271,28 @@ public struct Dm: Identifiable, Equatable, Hashable {
 	}
 
 	public func endStream() {
-		streamHolder.stream?.end()
+		streamHolder.end()
 	}
 
+	/// A message is acknowledged on the next iterator request. Cancellation and drop do not acknowledge it.
 	public func streamMessages(onClose: (() -> Void)? = nil) -> AsyncThrowingStream<
 		DecodedMessage, Error
 	> {
-		AsyncThrowingStream { continuation in
-			let task = Task.detached {
-				streamHolder.stream = await ffiConversation.stream(
-					messageCallback: MessageCallback {
-						message in
-						guard !Task.isCancelled else {
-							continuation.finish()
-							return
-						}
-						if let message = DecodedMessage.create(ffiMessage: message) {
-							continuation.yield(message)
-						}
-					} onClose: {
-						onClose?()
-						continuation.finish()
-					}
-				)
-
-				continuation.onTermination = { @Sendable _ in
-					streamHolder.stream?.end()
-				}
-			}
-
-			continuation.onTermination = { @Sendable _ in
-				task.cancel()
-				streamHolder.stream?.end()
-			}
+		messageDeliveryStream(holder: streamHolder, onClose: onClose) { callback in
+			await ffiConversation.stream(messageCallback: callback)
 		}
+	}
+
+	public func messageReader(from: DeliveryCursor? = nil) async throws -> MessageReader {
+		try await MessageReader(ffiConversation.messageReader(from: from))
+	}
+
+	public func messageHistorySnapshot(limit: UInt32 = 100) throws -> MessageHistorySnapshot {
+		try MessageHistorySnapshot(ffiConversation.messageHistorySnapshot(limit: limit))
+	}
+
+	public func beginningDeliveryCursor() throws -> DeliveryCursor {
+		try ffiConversation.beginningDeliveryCursor()
 	}
 
 	public func lastMessage() async throws -> DecodedMessage? {

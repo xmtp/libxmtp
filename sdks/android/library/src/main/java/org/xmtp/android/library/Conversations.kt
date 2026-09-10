@@ -28,8 +28,6 @@ import uniffi.xmtpv3.FfiGroupPermissionsOptions
 import uniffi.xmtpv3.FfiGroupQueryOrderBy
 import uniffi.xmtpv3.FfiGroupSyncSummary
 import uniffi.xmtpv3.FfiListConversationsOptions
-import uniffi.xmtpv3.FfiMessage
-import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDeletionCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiPermissionPolicySet
@@ -637,56 +635,73 @@ data class Conversations(
             awaitClose { stream.end() }
         }
 
+    /** Supply a cursor to replay independently of default delivery progress. */
+    suspend fun messageReader(
+        groupIds: List<String>? = null,
+        type: ConversationFilterType = ConversationFilterType.ALL,
+        consentStates: List<ConsentState>? = null,
+        from: DeliveryCursor? = null,
+    ): MessageReader =
+        MessageReader(
+            ffiConversations.messageReader(
+                groupIds?.map { it.hexToByteArray() },
+                type.toMessageConversationType(),
+                consentStates?.map { ConsentState.toFfiConsentState(it) },
+                from,
+            ),
+        )
+
+    suspend fun messageHistorySnapshot(
+        limit: UInt,
+        groupIds: List<String>? = null,
+        type: ConversationFilterType = ConversationFilterType.ALL,
+        consentStates: List<ConsentState>? = null,
+    ): MessageHistorySnapshot =
+        withContext(Dispatchers.IO) {
+            ffiConversations
+                .messageHistorySnapshot(
+                    groupIds?.map { it.hexToByteArray() },
+                    type.toMessageConversationType(),
+                    consentStates?.map { ConsentState.toFfiConsentState(it) },
+                    limit,
+                ).toMessageHistorySnapshot()
+        }
+
+    suspend fun beginningDeliveryCursor(): DeliveryCursor =
+        withContext(Dispatchers.IO) { ffiConversations.beginningDeliveryCursor() }
+
+    /** Acknowledges after the direct Flow collector returns. App-added buffering changes this boundary. */
     fun streamAllMessages(
         type: ConversationFilterType = ConversationFilterType.ALL,
         consentStates: List<ConsentState>? = null,
         onClose: (() -> Unit)? = null,
     ): Flow<DecodedMessage> =
-        callbackFlow {
-            val messageCallback =
-                object : FfiMessageCallback {
-                    override fun onMessage(message: FfiMessage) {
-                        val decodedMessage = DecodedMessage.create(message)
-                        decodedMessage?.let { trySend(it) }
-                    }
-
-                    override fun onError(error: FfiException) {
-                        Log.e("XMTP all message stream", error.toString())
-                    }
-
-                    override fun onClose() {
-                        onClose?.invoke()
-                        close()
-                    }
-                }
+        messageDeliveryFlow(onClose) { messageCallback ->
             val states =
                 consentStates?.let { states -> states.map { ConsentState.toFfiConsentState(it) } }
 
-            val stream =
-                when (type) {
-                    ConversationFilterType.ALL -> {
-                        ffiConversations.streamAllMessages(
-                            messageCallback,
-                            states,
-                        )
-                    }
-
-                    ConversationFilterType.GROUPS -> {
-                        ffiConversations.streamAllGroupMessages(
-                            messageCallback,
-                            states,
-                        )
-                    }
-
-                    ConversationFilterType.DMS -> {
-                        ffiConversations.streamAllDmMessages(
-                            messageCallback,
-                            states,
-                        )
-                    }
+            when (type) {
+                ConversationFilterType.ALL -> {
+                    ffiConversations.streamAllMessages(
+                        messageCallback,
+                        states,
+                    )
                 }
 
-            awaitClose { stream.end() }
+                ConversationFilterType.GROUPS -> {
+                    ffiConversations.streamAllGroupMessages(
+                        messageCallback,
+                        states,
+                    )
+                }
+
+                ConversationFilterType.DMS -> {
+                    ffiConversations.streamAllDmMessages(
+                        messageCallback,
+                        states,
+                    )
+                }
+            }
         }
 
     fun streamMessageDeletions(onClose: (() -> Unit)? = null): Flow<DecodedMessageV2> =

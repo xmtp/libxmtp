@@ -132,16 +132,6 @@ export type ConversationsAction =
       };
     }
   | {
-      action: "conversations.streamAllMessages";
-      id: string;
-      result: undefined;
-      data: {
-        streamId: string;
-        conversationType?: ConversationType;
-        consentStates?: ConsentState[];
-      };
-    }
-  | {
       action: "conversations.streamDeletedMessages";
       id: string;
       result: undefined;

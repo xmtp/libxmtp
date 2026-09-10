@@ -3,7 +3,8 @@ import init, {
   type Consent,
   type Conversation,
   type DecodedMessage,
-  type Message,
+  type MessageReader,
+  type MessageAcknowledgement,
   type SignatureRequestHandle,
   type StreamCloser,
   type UserPreferenceUpdate,
@@ -34,6 +35,28 @@ let enableLogging = false;
 
 const streamClosers = new Map<string, StreamCloser>();
 const signatureRequests = new Map<string, SignatureRequestHandle>();
+const messageReaders = new Map<string, MessageReader>();
+const deliveryTokens = new Map<
+  string,
+  { tokenId: string; acknowledgement: MessageAcknowledgement }
+>();
+
+const getMessageReader = (readerId: string) => {
+  const reader = messageReaders.get(readerId);
+  if (reader === undefined) throw new StreamNotFoundError(readerId);
+  return reader;
+};
+
+const getDeliveryToken = (readerId: string, tokenId: string) => {
+  const token = deliveryTokens.get(readerId);
+  if (token?.tokenId !== tokenId) throw new StreamNotFoundError(readerId);
+  return token.acknowledgement;
+};
+
+const clearDeliveryToken = (readerId: string) => {
+  deliveryTokens.get(readerId)?.acknowledgement.free();
+  deliveryTokens.delete(readerId);
+};
 
 /**
  * Type-safe postMessage
@@ -120,6 +143,134 @@ self.onmessage = async (
     };
 
     switch (action) {
+      case "client.close": {
+        for (const reader of messageReaders.values()) reader.close();
+        messageReaders.clear();
+        for (const readerId of deliveryTokens.keys())
+          clearDeliveryToken(readerId);
+        for (const closer of streamClosers.values()) closer.end();
+        streamClosers.clear();
+        await client.close();
+        maybeClient = undefined;
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.beginningCursor": {
+        postMessage({
+          id,
+          action,
+          result: client.conversations.beginningDeliveryCursor(),
+        });
+        break;
+      }
+      case "messageReader.open": {
+        const reader = client.conversations.messageReader(
+          data.groupIds,
+          data.conversationType,
+          data.consentStates,
+          data.from,
+        );
+        messageReaders.set(data.readerId, reader);
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.next": {
+        const reader = getMessageReader(data.readerId);
+        const item = await reader.nextDelivery();
+        if (item === undefined) {
+          postMessage({ id, action, result: undefined });
+          break;
+        }
+        const acknowledgement = item.acknowledgement;
+        const message = item.message;
+        const cursor = item.cursor;
+        item.free();
+        if (!messageReaders.has(data.readerId)) {
+          acknowledgement.reject();
+          acknowledgement.free();
+          postMessage({ id, action, result: undefined });
+          break;
+        }
+        clearDeliveryToken(data.readerId);
+        const tokenId = crypto.randomUUID();
+        deliveryTokens.set(data.readerId, { tokenId, acknowledgement });
+        const enriched = await client.conversations.getMessageById(message.id);
+        postMessage({
+          id,
+          action,
+          result: { message: enriched, cursor, tokenId },
+        });
+        break;
+      }
+      case "messageReader.check": {
+        const token = deliveryTokens.get(data.readerId);
+        const valid =
+          token?.tokenId === data.tokenId && token.acknowledgement.checkOwner();
+        if (!valid && token?.tokenId === data.tokenId)
+          clearDeliveryToken(data.readerId);
+        postMessage({ id, action, result: valid });
+        break;
+      }
+      case "messageReader.acknowledge": {
+        try {
+          getDeliveryToken(data.readerId, data.tokenId).acknowledge();
+        } finally {
+          clearDeliveryToken(data.readerId);
+        }
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.reject": {
+        if (deliveryTokens.get(data.readerId)?.tokenId === data.tokenId) {
+          getDeliveryToken(data.readerId, data.tokenId).reject();
+          clearDeliveryToken(data.readerId);
+        }
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.close": {
+        messageReaders.get(data.readerId)?.close();
+        messageReaders.delete(data.readerId);
+        clearDeliveryToken(data.readerId);
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.updateScope": {
+        getMessageReader(data.readerId).updateScope(data.groupIds);
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.updateFilter": {
+        getMessageReader(data.readerId).updateFilter(
+          data.conversationType,
+          data.consentStates,
+        );
+        postMessage({ id, action, result: undefined });
+        break;
+      }
+      case "messageReader.snapshot": {
+        postMessage({
+          id,
+          action,
+          result: getMessageReader(data.readerId).catchUpSnapshot(),
+        });
+        break;
+      }
+      case "messageReader.changed": {
+        const result = await getMessageReader(data.readerId).catchUpChanged();
+        postMessage({ id, action, result });
+        break;
+      }
+      case "messageReader.history": {
+        const result = client.conversations.messageHistorySnapshot(
+          data.limit,
+          data.groupIds,
+          data.conversationType,
+          data.consentStates,
+        );
+        postMessage({ id, action, result });
+        break;
+      }
       /**
        * Stream actions
        */
@@ -563,49 +714,6 @@ self.onmessage = async (
         postMessage({ id, action, result: undefined });
         break;
       }
-      case "conversations.streamAllMessages": {
-        const streamCallback = (
-          error: Error | null,
-          value: Message | undefined,
-        ) => {
-          if (error) {
-            postStreamMessageError({
-              action: "stream.message",
-              streamId: data.streamId,
-              error,
-            });
-          } else if (value) {
-            void client.conversations
-              .getMessageById(value.id)
-              .then((enrichedMessage) => {
-                // guard against any edge cases where the message is not found
-                if (enrichedMessage) {
-                  postStreamMessage({
-                    action: "stream.message",
-                    streamId: data.streamId,
-                    result: enrichedMessage,
-                  });
-                }
-              });
-          }
-        };
-        const streamCloser = client.conversations.streamAllMessages(
-          streamCallback,
-          () => {
-            streamClosers.delete(data.streamId);
-            postStreamMessage({
-              action: "stream.fail",
-              streamId: data.streamId,
-              result: undefined,
-            });
-          },
-          data.conversationType,
-          data.consentStates,
-        );
-        streamClosers.set(data.streamId, streamCloser);
-        postMessage({ id, action, result: undefined });
-        break;
-      }
       case "conversations.streamDeletedMessages": {
         const streamCallback = (
           error: Error | null,
@@ -961,45 +1069,6 @@ self.onmessage = async (
         const group = getGroup(data.id);
         const result = group.isMessageDisappearingEnabled();
         postMessage({ id, action, result });
-        break;
-      }
-      case "conversation.stream": {
-        const group = getGroup(data.groupId);
-        const streamCallback = (
-          error: Error | null,
-          value: Message | undefined,
-        ) => {
-          if (error) {
-            postStreamMessageError({
-              action: "stream.message",
-              streamId: data.streamId,
-              error,
-            });
-          } else if (value) {
-            void client.conversations
-              .getMessageById(value.id)
-              .then((enrichedMessage) => {
-                // guard against any edge cases where the message is not found
-                if (enrichedMessage) {
-                  postStreamMessage({
-                    action: "stream.message",
-                    streamId: data.streamId,
-                    result: enrichedMessage,
-                  });
-                }
-              });
-          }
-        };
-        const streamCloser = group.stream(streamCallback, () => {
-          streamClosers.delete(data.streamId);
-          postStreamMessage({
-            action: "stream.fail",
-            streamId: data.streamId,
-            result: undefined,
-          });
-        });
-        streamClosers.set(data.streamId, streamCloser);
-        postMessage({ id, action, result: undefined });
         break;
       }
       case "conversation.pausedForVersion": {

@@ -76,6 +76,10 @@
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/delivery.rs` | `queries::bidi_transport::tests::delivery::a_retire_remove_is_acked_without_closing_the_transport` | Backend protocol; native test | `API-REQ-075` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport_props.rs` | `queries::bidi_transport_props::ledger_delivers_exactly_the_asked_suffix_in_order` | Backend protocol; native test | `API-REQ-078` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport_props.rs` | `queries::bidi_transport_props::chunked_ledger_delivers_exactly_the_asked_suffix_in_order` | Backend protocol; native test | `API-REQ-078` |
+| `crates/xmtp_api_grpc/src/error.rs` | `error::tests::retry_by_status_code` | XMTP async; 17 status codes with four message strings each; retry decisions do not use the text | `P3-API-008` |
+| `crates/xmtp_api_grpc/src/error.rs` | `error::tests::explicit_rpc_cancellation_is_not_retryable` | XMTP sync; explicit Cancelled through API and network wrappers; plain IO cause does not change the decision | `P3-API-008` |
+| `crates/xmtp_api_grpc/src/error.rs` | `error::tests::cancelled_hyper_request_is_retryable_through_tonic_and_client_wrappers` | Native XMTP async; in-memory Hyper cancellation; direct Status conversion and typed Tonic source; API and network wrappers retain retryability | `P3-API-008` |
+| `crates/xmtp_api_grpc/src/error.rs` | `error::status_sources::typed_status_survives_client_error_wrappers` | XMTP sync; typed ABORTED and OUT_OF_RANGE remain available through distinct API error wrappers | `P3-API-008` |
 | `crates/xmtp_api_grpc/src/grpc_client/client.rs` | `grpc_client::client::tests::metadata_test` | custom async | `API-REQ-079` |
 | `crates/xmtp_api_grpc/src/grpc_client/native.rs` | `grpc_client::native::keepalive_tests::defaults_when_env_absent` | built-in sync; native-only module | `API-REQ-080` |
 | `crates/xmtp_api_grpc/src/grpc_client/native.rs` | `grpc_client::native::keepalive_tests::env_overrides_are_applied` | built-in sync; native-only module | `API-REQ-080` |

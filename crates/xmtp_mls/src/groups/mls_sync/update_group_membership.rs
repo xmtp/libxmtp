@@ -627,7 +627,7 @@ mod tests {
     #[rstest]
     #[xmtp_common::test(unwrap_try = true)]
     #[allow(clippy::readonly_write_lock)]
-    fn applies_group_membership_intent(context: NewMockContext) {
+    async fn applies_group_membership_intent(context: NewMockContext) {
         let mut credentials = HashMap::new();
         let installation_key = XmtpInstallationCredential::new();
         let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());

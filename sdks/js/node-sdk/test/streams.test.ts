@@ -8,6 +8,8 @@ const makeCloser = () => ({
   endAndWait: vi.fn().mockResolvedValue(undefined),
   isClosed: vi.fn().mockReturnValue(false),
   waitForReady: vi.fn().mockResolvedValue(undefined),
+  catchUpSnapshot: vi.fn(() => null),
+  catchUpChanged: vi.fn(async () => null),
 });
 
 type MockCloser = ReturnType<typeof makeCloser>;
@@ -424,12 +426,7 @@ describe("createStream", () => {
       setTimeout(() => {
         onFail();
       }, 0);
-      return Promise.resolve({
-        end: vi.fn(),
-        endAndWait: vi.fn().mockResolvedValue(undefined),
-        isClosed: vi.fn().mockReturnValue(false),
-        waitForReady: vi.fn().mockResolvedValue(undefined),
-      });
+      return Promise.resolve(makeCloser());
     });
 
     const stream = await createStream(mockStreamFunction, undefined, {

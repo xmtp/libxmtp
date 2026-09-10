@@ -2,6 +2,7 @@ import {
   type Actions,
   type Attachment,
   type ConsentState,
+  type DeliveryCursor,
   type EncodedContent,
   type Intent,
   type ListMessagesOptions,
@@ -17,15 +18,12 @@ import {
 } from "@xmtp/wasm-bindings";
 import type { CodecRegistry } from "@/CodecRegistry";
 import { DecodedMessage } from "@/DecodedMessage";
+import { MessageStream } from "@/MessageStream";
+import { createMessageReader } from "@/utils/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
 import type { SafeConversation } from "@/utils/conversions";
 import { nsToDate } from "@/utils/date";
-import {
-  createStream,
-  type StreamCallback,
-  type StreamOptions,
-} from "@/utils/streams";
-import { uuid } from "@/utils/uuid";
+import type { StreamOptions } from "@/utils/streams";
 import type { WorkerBridge } from "@/utils/WorkerBridge";
 
 /**
@@ -475,42 +473,47 @@ export class Conversation<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for new messages in this conversation
+   * Reads retained messages after the default acknowledgement position.
+   * Set `from` to replay after a cursor without changing default progress.
+   * Set `onValue` for callback mode, or request items with the iterator.
    *
    * @param options - Optional stream callbacks and retry settings
    * @returns Stream instance for new messages
    */
   async stream(
-    options?: StreamOptions<XmtpDecodedMessage, DecodedMessage<ContentTypes>>,
+    options?: StreamOptions<
+      XmtpDecodedMessage,
+      DecodedMessage<ContentTypes>
+    > & { from?: DeliveryCursor },
   ) {
-    const stream = async (
-      callback: StreamCallback<XmtpDecodedMessage>,
-      onFail: () => void,
+    const reader = await createMessageReader(this.#worker, {
+      groupIds: [this.#id],
+      from: options?.from,
+    });
+    const convertMessage = (
+      value: XmtpDecodedMessage | undefined,
+      cursor: DeliveryCursor,
     ) => {
-      const streamId = uuid();
-      if (!options?.disableSync) {
-        // sync the conversation
-        await this.sync();
-      }
-      // start the stream
-      await this.#worker.action("conversation.stream", {
-        groupId: this.#id,
-        streamId,
-      });
-      // handle stream messages
-      return this.#worker.handleStreamMessage<
-        XmtpDecodedMessage,
-        DecodedMessage<ContentTypes>
-      >(streamId, callback, {
-        ...options,
-        onFail,
-      });
+      if (value === undefined) return undefined;
+      const decoded = new DecodedMessage<ContentTypes>(
+        this.#codecRegistry,
+        value,
+      );
+      decoded.deliveryCursor = cursor;
+      return decoded;
     };
-    const convertMessage = (value: XmtpDecodedMessage) => {
-      return new DecodedMessage<ContentTypes>(this.#codecRegistry, value);
-    };
+    return new MessageStream(reader, convertMessage, options);
+  }
 
-    return createStream(stream, convertMessage, options);
+  messageHistorySnapshot(limit: number) {
+    return this.#worker.action("messageReader.history", {
+      limit,
+      groupIds: [this.#id],
+    });
+  }
+
+  beginningDeliveryCursor() {
+    return this.#worker.action("messageReader.beginningCursor", {});
   }
 
   async pausedForVersion() {

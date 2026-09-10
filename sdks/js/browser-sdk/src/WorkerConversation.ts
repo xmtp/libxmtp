@@ -13,7 +13,6 @@ import {
   type Identifier,
   type Intent,
   type ListMessagesOptions,
-  type Message,
   type MessageDisappearingSettings,
   type MetadataField,
   type MultiRemoteAttachment,
@@ -28,7 +27,6 @@ import {
   type WalletSendCalls,
 } from "@xmtp/wasm-bindings";
 import type { LastReadTimes } from "@/utils/conversions";
-import type { StreamCallback } from "@/utils/streams";
 import type { WorkerClient } from "@/WorkerClient";
 
 export class WorkerConversation {
@@ -289,19 +287,6 @@ export class WorkerConversation {
 
   isMessageDisappearingEnabled() {
     return this.#group.isMessageDisappearingEnabled();
-  }
-
-  stream(callback: StreamCallback<Message>, onFail: () => void) {
-    const on_message = (message: Message) => {
-      callback(null, message);
-    };
-    const on_error = (error: Error | null) => {
-      callback(error, undefined);
-    };
-    const on_close = () => {
-      onFail();
-    };
-    return this.#group.stream({ on_message, on_error, on_close });
   }
 
   pausedForVersion() {

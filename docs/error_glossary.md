@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**32 error types** across **10 crates** with **347 total error codes**.
+**36 error types** across **10 crates** with **372 total error codes**.
 
 ## mobile
 
@@ -70,7 +70,6 @@ when surfaced to JavaScript.
 |:-----------|:------------|
 | `ApiError::Api` | API client error. API operation error (network, deserialization, or other). May be retryable. |
 | `ApiError::IdentityUpdateConflict` | The backend rejected a stale identity update. Not retryable here. |
-| `ApiError::HashMismatch` | The backend hash differs from the retained envelope hash. Not retryable. |
 | `ApiError::EnvelopeTooLarge` | One envelope exceeds the configured byte limit. Not retryable. |
 | `ApiError::UnitTooLarge` | One atomic publish unit exceeds a request limit. Not retryable. |
 | `ApiError::ResponseTooLarge` | A single-topic response still exceeds a backend limit. Not retryable. |
@@ -133,6 +132,7 @@ when surfaced to JavaScript.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `NotFound::KeyPackageHistory` | The local key package history row no longer exists. |
 | `NotFound::GroupByWelcome` | Group with welcome ID not found. No group matches the welcome ID. Retryable. |
 | `NotFound::GroupById` | Group with ID not found. Group does not exist in local DB. Retryable. |
 | `NotFound::InstallationTimeForGroup` | Installation time for group not found. Missing installation timestamp. Retryable. |
@@ -179,6 +179,12 @@ when surfaced to JavaScript.
 | `PlatformStorageError::SAH` | OPFS error. Origin Private File System (OPFS) error. Retryable. |
 | `PlatformStorageError::Connection` | Connection error. Diesel connection error. Retryable. |
 | `PlatformStorageError::DieselResult` | Diesel result error. Database query error. Retryable. |
+| `PlatformStorageError::Disconnected` | The persistent connection was closed. Reconnect before using it. |
+| `PlatformStorageError::Replaced` | The file was restored or deleted. This object cannot reconnect. |
+| `PlatformStorageError::DatabaseInUse` | A target connection is still open or has an active query. |
+| `PlatformStorageError::RestoreDestinationExists` | Whole-database import does not replace an existing OPFS file. |
+| `PlatformStorageError::InvalidRestoreInput` | The restore input is not a complete SQLite database. |
+| `PlatformStorageError::Initialization` | The OPFS utility could not be initialized. |
 
 ### SqlKeyStoreError <sub>enum</sub>
 
@@ -203,6 +209,7 @@ General error type for Mls Storage Trait
 | Error Code | Description |
 |:-----------|:------------|
 | `StorageError::PreTransitionDatabase` | The database was created before the backend transition. Not retryable. |
+| `StorageError::OldStreamDatabase` | The database uses the previous self-hosted stream format. |
 | `StorageError::DieselConnect` | Diesel connection error. Failed to connect to SQLite. Retryable. |
 | `StorageError::DieselResult` | Diesel result error. Database query returned an error. May be retryable. |
 | `StorageError::MigrationError` | Migration error. Database migration failed. Not retryable. |
@@ -218,6 +225,27 @@ General error type for Mls Storage Trait
 | `StorageError::Connection` | Connection error. Database connection error. Retryable. |
 | `StorageError::InvalidHmacLength` | Invalid HMAC length. HMAC key must be 42 bytes. Not retryable. |
 | `StorageError::GroupIntent` | Group intent error. Group intent processing failed. May be retryable. |
+
+### StreamStorageError <sub>enum</sub>
+
+<small>`crates/xmtp_db/src/encrypted_store/stream_storage.rs`</small>
+
+Stable storage failures that preserve receipt, processing, and delivery invariants.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `StreamStorageError::InvalidBatch` | The batch does not have valid, strictly increasing envelope IDs. |
+| `StreamStorageError::MissingPrefix` | The source omitted a prefix not yet stored in this database. |
+| `StreamStorageError::UninitializedNetworkProgress` | Existing progress was not written by ordered admission. |
+| `StreamStorageError::Capacity` | Pending work exceeds its row or byte budget. Retry after processing drains it. |
+| `StreamStorageError::HeadChanged` | Another processor changed the pending head. Reload state before retrying. |
+| `StreamStorageError::StaleJoinAnchor` | Installing this welcome would rewind or replace processed state. |
+| `StreamStorageError::AlreadyActive` | Another default consumer holds an unexpired lease. |
+| `StreamStorageError::NotCurrentOwner` | The lease expired or a new consumer acquired ownership. |
+| `StreamStorageError::ForeignCursor` | The cursor was issued before restore or by another database. |
+| `StreamStorageError::DeliveryExhausted` | The persistent local message counter cannot allocate another number. |
+| `StreamStorageError::LocalReadCapacity` | The next retained message exceeds the local read byte limit. Not retryable. |
+| `StreamStorageError::InvalidDeliveryPosition` | The cursor is ahead of local history or the lease interval is empty. |
 
 ## xmtp_id
 
@@ -327,15 +355,21 @@ General error type for Mls Storage Trait
 
 ## xmtp_mls
 
+### BarrierError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/subscriptions/barrier.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `BarrierError::Incomplete` | Processing did not meet the fixed targets. Pending work remains durable. May be retryable. |
+
 ### CatchUpError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/catch_up.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
-| `CatchUpError::TooManyTopics` | The requested set exceeds the backend wire limit. Not retryable. |
-| `CatchUpError::DeadEnd` | Catch-up stream could not open. A wire open no redial can fix, without a capability verdict. The dispatch layer serves the call on the legacy sync path. Not retryable. |
-| `CatchUpError::Exhausted` | Catch-up did not complete. The wire kept dying before catch-up completed. Everything processed before each death is kept; calling again resumes from durable state. Retryable. |
+| `CatchUpError::Incomplete` | Fixed targets remain unfinished. Partial committed progress is retained. May be retryable. |
 
 ### ClientBuilderError <sub>enum</sub>
 
@@ -434,7 +468,6 @@ General error type for Mls Storage Trait
 | `GroupError::Signature` | Invalid signature. MLS signature verification failed. Not retryable. |
 | `GroupError::Client` | Client error. Client operation failed within group. May be retryable. |
 | `GroupError::ReceiveError` | Receive error. Processing received group message failed. May be retryable. |
-| `GroupError::ReceiveErrors` | Receive errors. Multiple message processing failures. May be retryable. |
 | `GroupError::AddressValidation` | Address validation error. An address/identifier is invalid. Not retryable. |
 | `GroupError::LocalEvent` | Local event error. Failed to process local event. Not retryable. |
 | `GroupError::InvalidPublicKeys` | Invalid public keys. Keys are not valid Ed25519 public keys. Not retryable. |
@@ -453,15 +486,16 @@ General error type for Mls Storage Trait
 | `GroupError::MinVersionDowngrade` | Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the floor already on the group. Monotonic-only: a downgrade would silently unpause peers between the old and new floors, defeating the gate. Not retryable. |
 | `GroupError::InvalidMinVersion` | Caller passed a `min_version` string that doesn't parse as semver. Surfaces from the send-side paths (`enable_proposals`, `update_group_min_version`) so SDK consumers can `match`-handle malformed input without parsing string-flattened wrappers. Not retryable. |
 | `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
-| `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from [`stage_app_data_propose_and_commit`] so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
-| `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
-| `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |
+| `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
+| `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
+| `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |
 | `GroupError::CredentialError` | Credential error. MLS credential validation failed. Not retryable. |
 | `GroupError::LeafNodeError` | Leaf node error. MLS leaf node operation failed. Not retryable. |
 | `GroupError::InstallationDiff` | Installation diff error. Installation diff computation failed. May be retryable. |
 | `GroupError::NoPSKSupport` | No PSK support. Pre-shared keys are not supported. Not retryable. |
 | `GroupError::SqlKeyStore` | SQL key store error. OpenMLS key store operation failed. May be retryable. |
 | `GroupError::SyncFailedToWait` | Sync failed to wait. Waiting for intent sync failed. Retryable. |
+| `GroupError::PublishedButUnconfirmed` | The exact published attempt remains pending. A later call can confirm it. Retryable. |
 | `GroupError::MissingPendingCommit` | Missing pending commit. Expected pending commit not found. Not retryable. |
 | `GroupError::ProcessIntent` | Process intent error. Failed to process group intent. May be retryable. |
 | `GroupError::LockUnavailable` | Failed to load lock. Concurrency lock acquisition failed. Retryable. |
@@ -479,6 +513,9 @@ General error type for Mls Storage Trait
 | `GroupError::WrapWelcome` | Wrap welcome error. Failed to wrap welcome message. Not retryable. |
 | `GroupError::UnwrapWelcome` | Unwrap welcome error. Failed to unwrap welcome message. Not retryable. |
 | `GroupError::WelcomeDataNotFound` | Welcome data not found. Welcome data missing from topic. Not retryable. |
+| `GroupError::WelcomeGroupPrefixPending` | The old group must process its ordered prefix before this Welcome can install. Retryable. |
+| `GroupError::InvalidWelcomeMetadata` | The Welcome has missing, malformed, or out-of-range join metadata. Not retryable. |
+| `GroupError::UnsupportedWelcomeVersion` | The Welcome needs a newer client. Keep it blocked until upgrade. Retryable. |
 | `GroupError::UninitializedResult` | Result not initialized. Expected result was not initialized. Not retryable. |
 | `GroupError::Diesel` | Diesel ORM error. Raw database query failed. May be retryable. |
 | `GroupError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
@@ -532,21 +569,39 @@ Errors that can occur when working with GroupMutablePermissions.
 | `IdentityError::Bincode` | Bincode serialization error. Binary serialization failed. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
 
+### InvalidStreamSettings <sub>struct</sub>
+
+<small>`crates/xmtp_mls/src/subscriptions/settings.rs`</small>
+
+A client limit is zero, out of range, or inconsistent. Not retryable.
+
+**Error code:** `InvalidStreamSettings`
+
+### LocalDeliveryError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/subscriptions/local_delivery/types.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `LocalDeliveryError::AcknowledgementRejected` | The callback failed or its token was dropped before acknowledgement. Not retryable. |
+| `LocalDeliveryError::AcknowledgementFailed` | A previous acknowledgement write failed. Reopen to retry delivery. Not retryable. |
+| `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |
+| `LocalDeliveryError::InvalidConfiguration` | The batch or timing settings cannot maintain a valid consumer lease. Not retryable. |
+| `LocalDeliveryError::Closed` | This reader has been closed. Not retryable. |
+
 ### SubscribeError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/subscriptions/mod.rs`</small>
 
 | Error Code | Description |
 |:-----------|:------------|
-| `SubscribeError::Router` | Subscribing through the bidi stream router failed. Boxed: RouterError itself wraps SubscribeError, so the cycle needs indirection. |
+| `SubscribeError::Transport` | The shared native transport failed. May be retryable. |
 | `SubscribeError::Group` | Group error. Group operation failed during subscription. May be retryable. |
 | `SubscribeError::NotFound` | Not found. Subscribed resource not found. Retryable. |
 | `SubscribeError::GroupMessageNotFound` | Group message not found. Expected message missing from database. Retryable. |
 | `SubscribeError::ReceiveGroup` | Receive group error. Processing streamed group message failed. May be retryable. |
 | `SubscribeError::Storage` | Storage error. Database operation failed. May be retryable. |
 | `SubscribeError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
-| `SubscribeError::MessageStream` | Message stream error. Message stream failed. Retryable. |
-| `SubscribeError::ConversationStream` | Conversation stream error. Conversation stream failed. Retryable. |
 | `SubscribeError::ApiClient` | API client error. Network request failed. Retryable. |
 | `SubscribeError::BoxError` | Boxed error. Wrapped dynamic error. May be retryable. |
 | `SubscribeError::Db` | Database connection error. Database connection failed. Retryable. |

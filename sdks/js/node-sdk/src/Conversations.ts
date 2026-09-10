@@ -4,6 +4,7 @@ import {
   type Conversation,
   type CreateDmOptions,
   type CreateGroupOptions,
+  type DeliveryCursor,
   type Identifier,
   type ListConversationsOptions,
   type Message,
@@ -15,6 +16,7 @@ import type { CodecRegistry } from "@/CodecRegistry";
 import { DecodedMessage } from "@/DecodedMessage";
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
+import { MessageStream } from "@/MessageStream";
 import {
   createStream,
   type StreamCallback,
@@ -431,7 +433,9 @@ export class Conversations<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for all new messages
+   * Reads retained messages after each group's default acknowledgement position.
+   * Set `from` to replay after a cursor without changing default progress.
+   * Set `onValue` for callback mode, or request items with the iterator.
    *
    * @param options - Optional stream options
    * @param options.conversationType - Optional conversation type to filter by
@@ -443,34 +447,47 @@ export class Conversations<ContentTypes = unknown> {
     options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
       conversationType?: ConversationType;
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
-    const streamAllMessages = async (
-      callback: StreamCallback<Message>,
-      onFail: () => void,
-    ) => {
-      if (!options?.disableSync) {
-        await this.syncAll(options?.consentStates);
-      }
-      return this.#conversations.streamAllMessages(
-        callback,
-        onFail,
-        options?.conversationType,
-        options?.consentStates,
-      );
-    };
-    const convertMessage = (value: Message) => {
+    const reader = await this.#conversations.messageReader(
+      options?.groupIds,
+      options?.conversationType,
+      options?.consentStates,
+      options?.from,
+    );
+    const convertMessage = (value: Message, cursor: DeliveryCursor) => {
       const enrichedMessage = this.getMessageById(value.id);
-      if (enrichedMessage === undefined) {
-        console.warn(`Streamed message with ID "${value.id}" not found`);
-      }
+      if (enrichedMessage !== undefined)
+        enrichedMessage.deliveryCursor = cursor;
       return enrichedMessage;
     };
-    return createStream(streamAllMessages, convertMessage, options);
+    return new MessageStream(reader, convertMessage, options);
+  }
+
+  messageHistorySnapshot(
+    limit: number,
+    options?: {
+      groupIds?: string[];
+      conversationType?: ConversationType;
+      consentStates?: ConsentState[];
+    },
+  ) {
+    return this.#conversations.messageHistorySnapshot(
+      limit,
+      options?.groupIds,
+      options?.conversationType,
+      options?.consentStates,
+    );
+  }
+
+  beginningDeliveryCursor() {
+    return this.#conversations.beginningDeliveryCursor();
   }
 
   /**
-   * Creates a stream for all new group messages
+   * Reads retained group messages with default progress or an explicit replay cursor.
    *
    * @param options - Optional stream options
    * @param options.consentStates - Optional array of consent states to filter by
@@ -480,6 +497,8 @@ export class Conversations<ContentTypes = unknown> {
   async streamAllGroupMessages(
     options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
     return this.streamAllMessages({
@@ -490,7 +509,7 @@ export class Conversations<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for all new DM messages
+   * Reads retained DM messages with default progress or an explicit replay cursor.
    *
    * @param options - Optional stream options
    * @param options.consentStates - Optional array of consent states to filter by
@@ -500,6 +519,8 @@ export class Conversations<ContentTypes = unknown> {
   async streamAllDmMessages(
     options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
     return this.streamAllMessages({

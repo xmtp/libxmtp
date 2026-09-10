@@ -207,7 +207,7 @@ pub enum GroupMessageProcessingError {
     /// pure-ciphertext wire format policy never emits.
     #[error("unexpected processed message content: {0}")]
     UnexpectedProcessedContent(&'static str),
-    #[error("commit validation")]
+    #[error("commit validation: {0}")]
     CommitValidation(#[from] CommitValidationError),
     #[error("epoch increment not allowed")]
     EpochIncrementNotAllowed,

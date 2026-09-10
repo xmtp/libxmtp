@@ -691,6 +691,7 @@ public class Conversations {
 		return Group(ffiGroup: ffiGroup, clientInboxId: clientInboxId)
 	}
 
+	/// A message is acknowledged on the next iterator request. Cancellation and drop do not acknowledge it.
 	public func streamAllMessages(
 		type: ConversationFilterType = .all,
 		consentStates: [ConsentState]? = nil,
@@ -698,54 +699,59 @@ public class Conversations {
 	)
 		-> AsyncThrowingStream<DecodedMessage, Error>
 	{
-		AsyncThrowingStream { continuation in
-			let ffiStreamActor = FfiStreamActor()
-
-			let messageCallback = MessageCallback {
-				message in
-				guard !Task.isCancelled else {
-					continuation.finish()
-					Task {
-						await ffiStreamActor.endStream()
-					}
-					return
-				}
-				if let message = DecodedMessage.create(ffiMessage: message) {
-					continuation.yield(message)
-				}
-			} onClose: {
-				onClose?()
-				continuation.finish()
-			}
-
-			let task = Task {
-				let stream: FfiStreamCloser = switch type {
-				case .groups:
-					await ffiConversations.streamAllGroupMessages(
-						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
-					)
-				case .dms:
-					await ffiConversations.streamAllDmMessages(
-						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
-					)
-				case .all:
-					await ffiConversations.streamAllMessages(
-						messageCallback: messageCallback,
-						consentStates: consentStates?.toFFI
-					)
-				}
-				await ffiStreamActor.setFfiStream(stream)
-			}
-
-			continuation.onTermination = { _ in
-				task.cancel()
-				Task {
-					await ffiStreamActor.endStream()
-				}
+		messageDeliveryStream(onClose: onClose) { [ffiConversations] callback in
+			switch type {
+			case .groups:
+				await ffiConversations.streamAllGroupMessages(
+					messageCallback: callback,
+					consentStates: consentStates?.toFFI
+				)
+			case .dms:
+				await ffiConversations.streamAllDmMessages(
+					messageCallback: callback,
+					consentStates: consentStates?.toFFI
+				)
+			case .all:
+				await ffiConversations.streamAllMessages(
+					messageCallback: callback,
+					consentStates: consentStates?.toFFI
+				)
 			}
 		}
+	}
+
+	/// Set `from` for independent replay. Without it, this opens the one default consumer.
+	public func messageReader(
+		conversationIds: [String]? = nil,
+		type: ConversationFilterType = .all,
+		consentStates: [ConsentState]? = nil,
+		from: DeliveryCursor? = nil
+	) async throws -> MessageReader {
+		let reader = try await ffiConversations.messageReader(
+			groupIds: conversationIds?.map(\.hexToData),
+			conversationType: type.deliveryConversationType,
+			consentStates: consentStates?.toFFI,
+			from: from
+		)
+		return MessageReader(reader)
+	}
+
+	public func messageHistorySnapshot(
+		conversationIds: [String]? = nil,
+		type: ConversationFilterType = .all,
+		consentStates: [ConsentState]? = nil,
+		limit: UInt32 = 100
+	) throws -> MessageHistorySnapshot {
+		try MessageHistorySnapshot(ffiConversations.messageHistorySnapshot(
+			groupIds: conversationIds?.map(\.hexToData),
+			conversationType: type.deliveryConversationType,
+			consentStates: consentStates?.toFFI,
+			limit: limit
+		))
+	}
+
+	public func beginningDeliveryCursor() throws -> DeliveryCursor {
+		try ffiConversations.beginningDeliveryCursor()
 	}
 
 	/// A stream of all deleted or disappeared messages

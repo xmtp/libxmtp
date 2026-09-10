@@ -18,6 +18,7 @@ import {
   type ContentTypeId,
   type DecodedMessageContent,
   type DeliveryStatus,
+  type DeliveryCursor,
   type EncodedContent,
   type EnrichedReply,
   type GroupMessageKind,
@@ -163,6 +164,8 @@ const getContentTypeFromDecodedMessageContent = (
  * @property {bigint} sentAtNs - Timestamp when the message was sent (in nanoseconds)
  */
 export class DecodedMessage<ContentTypes = unknown> {
+  /** Database-local position of this delivery. Absent for ordinary history reads. */
+  deliveryCursor?: DeliveryCursor;
   content: ContentTypes | undefined;
   contentType: ContentTypeId;
   conversationId: string;

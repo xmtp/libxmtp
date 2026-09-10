@@ -228,6 +228,7 @@ async fn test_message_streaming() {
 
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_dm_message_streaming_uses_bidi() {
+    const HISTORY_LIMIT: u32 = 10;
     let alix = new_test_client().await;
     let bo = new_test_client().await;
     let alix_dm = alix
@@ -236,18 +237,33 @@ async fn test_dm_message_streaming_uses_bidi() {
         .await?;
     bo.inner_client.sync_welcomes().await?;
     let bo_dm = bo.conversation(alix_dm.id())?;
+    let history = bo_dm.message_history_snapshot(HISTORY_LIMIT)?.messages;
+    assert!(history.len() < HISTORY_LIMIT as usize);
+    let mut expected_ids = history
+        .iter()
+        .map(|entry| entry.message.id.clone())
+        .collect::<Vec<_>>();
     let callback = Arc::new(RustStreamCallback::default());
     let stream = bo_dm.stream(callback.clone()).await;
     stream.wait_for_ready().await;
 
-    alix_dm
+    let sent_id = alix_dm
         .send(b"bidi dm".to_vec(), FfiSendMessageOpts::default())
         .await?;
+    expected_ids.push(sent_id);
     wait_for_eq(
-        || async { callback.message_contents() },
-        vec![b"bidi dm".to_vec()],
+        || async {
+            callback
+                .messages
+                .lock()
+                .iter()
+                .map(|message| message.id.clone())
+                .collect::<Vec<_>>()
+        },
+        expected_ids,
     )
     .await?;
+    assert_eq!(callback.messages.lock().last()?.content, b"bidi dm");
 
     stream.end_and_wait().await?;
     assert_eq!(bo.api_statistics().subscribe_static, 0);

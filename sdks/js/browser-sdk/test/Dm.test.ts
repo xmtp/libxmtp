@@ -157,41 +157,26 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId!);
 
-    // Settle before subscribing: the fixed sleep lets the server index the
-    // creation-time fanout so the subscription cursor starts after it. This
-    // is a server-side race with no client-observable condition — do NOT
-    // replace with client syncs, which trigger worker activity that injects
-    // extra messages into the stream.
-    await sleep(1000);
-
+    const history = await dm.messageHistorySnapshot(1);
     const streamedMessages: unknown[] = [];
     const stream = await dm.stream({
+      from: history.cursor,
       onValue: (message) => {
         streamedMessages.push(message.content);
       },
     });
 
-    const consumedMessages: unknown[] = [];
-    const consumed = (async () => {
-      for await (const message of stream) {
-        consumedMessages.push(message.content);
-      }
-    })();
-
     try {
       await dm.sendText("gm");
       await dm.sendText("gm2");
 
-      // Callback delivery can precede iterator consumption. Closing the stream
-      // clears its queue, so wait for both consumers before closing it.
       await vi.waitFor(() => {
         expect(streamedMessages).toEqual(["gm", "gm2"]);
-        expect(consumedMessages).toEqual(["gm", "gm2"]);
       }, WAIT);
     } finally {
       await stream.end();
-      await consumed;
     }
+    expect(streamedMessages).toEqual(["gm", "gm2"]);
   });
 
   it("should manage consent state", async () => {

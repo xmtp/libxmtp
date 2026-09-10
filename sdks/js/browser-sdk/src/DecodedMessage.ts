@@ -6,6 +6,7 @@ import {
   type ContentTypeId,
   type DecodedMessageContent,
   type DeliveryStatus,
+  type DeliveryCursor,
   type GroupMessageKind,
   type Reaction,
   type DecodedMessage as XmtpDecodedMessage,
@@ -165,6 +166,8 @@ const getContentTypeFromDecodedMessageContent = async (
  * @property {bigint} sentAtNs - Timestamp when the message was sent (in nanoseconds)
  */
 export class DecodedMessage<ContentTypes = unknown> {
+  /** Database-local position of this delivery. Absent for ordinary history reads. */
+  deliveryCursor?: DeliveryCursor;
   content: ContentTypes | undefined;
   contentType: ContentTypeId;
   conversationId: string;

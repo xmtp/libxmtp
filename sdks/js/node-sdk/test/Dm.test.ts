@@ -158,15 +158,10 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId);
 
-    // Settle before subscribing: the fixed sleep lets the server index the
-    // creation-time fanout so the subscription cursor starts after it. This
-    // is a server-side race with no client-observable condition — do NOT
-    // replace with client syncs, which trigger worker activity that injects
-    // extra messages into the stream.
-    await sleep(1000);
-
+    const history = await dm.messageHistorySnapshot(1);
     const streamedMessages: unknown[] = [];
     const stream = await dm.stream({
+      from: history.cursor,
       onValue: (message) => {
         streamedMessages.push(message.content);
       },
@@ -175,20 +170,10 @@ describe("Dm", () => {
     await dm.sendText("gm");
     await dm.sendText("gm2");
 
-    // End the stream once both messages have arrived. A fixed delay races a
-    // loaded machine, where the second message lands after the timer fires.
-    void vi
-      .waitFor(() => {
-        expect(streamedMessages.length).toBe(2);
-      }, WAIT)
-      .then(() => stream.end());
-
-    let count = 0;
-    for await (const message of stream) {
-      count++;
-      expect(message).toBeDefined();
-    }
-    expect(count).toBe(2);
+    await vi.waitFor(() => {
+      expect(streamedMessages).toEqual(["gm", "gm2"]);
+    }, WAIT);
+    await stream.end();
     expect(streamedMessages).toEqual(["gm", "gm2"]);
   });
 
