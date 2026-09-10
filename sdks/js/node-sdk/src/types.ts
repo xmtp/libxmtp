@@ -130,6 +130,10 @@ export type OtherOptions = {
    * Call {@link flushTelemetry} on graceful shutdown to flush buffered spans.
    */
   otelEndpoint?: string;
+  /** Service name attached to exported telemetry. */
+  otelServiceName?: string;
+  /** Fraction of root spans sampled, from 0 to 1. */
+  otelSampleRatio?: number;
   /**
    * Resource attributes attached to all exported telemetry spans
    * (e.g. `{ "service.instance.id": "herald-7", "deployment.environment": "prod" }`).

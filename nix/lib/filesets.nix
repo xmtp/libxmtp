@@ -58,6 +58,9 @@ let
     (src + /proto)
     (src + /webdriver.json)
     (lib.fileset.maybeMissing (src + /docs/schemas/backend-v1.json))
+    # The backend metric catalogue test reads these to keep the docs in step.
+    (lib.fileset.maybeMissing (src + /docs/backend-observability.md))
+    (lib.fileset.maybeMissing (src + /docs/specs/002_backend_architecture.md))
     (src + /dev/backend/local.toml)
     (src + /.config/nextest.toml)
     # all crates in `crates/` are treated as required library crates

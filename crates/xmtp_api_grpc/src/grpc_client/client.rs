@@ -86,7 +86,8 @@ impl GrpcClient {
         let request = request
             .body(body)
             .map_err(|e| tonic::Status::from_error(Box::new(e)))?;
-        let (parts, body) = request.into_parts();
+        let (mut parts, body) = request.into_parts();
+        xmtp_logging::propagation::inject(&tracing::Span::current(), &mut parts.headers);
         let mut tonic_request = tonic::Request::from_parts(
             MetadataMap::from_headers(parts.headers),
             parts.extensions,
@@ -144,7 +145,7 @@ impl Client for GrpcClient {
 
     // Manual form: #[rpc_span] can't produce the rpc.grpc.* sub-namespace nor
     // carry the bounded `path` field (it hard-codes skip_all + rpc.<fn_name>).
-    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.request", path = %path))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.request", otel.kind = "client", otel.name = "rpc.grpc.request", path = %path))]
     async fn request(
         &self,
         request: http::request::Builder,
@@ -167,7 +168,7 @@ impl Client for GrpcClient {
 
     // The span covers stream establishment only — the returned stream
     // outlives it.
-    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.stream", path = %path))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.stream", otel.kind = "client", otel.name = "rpc.grpc.stream", path = %path))]
     async fn stream(
         &self,
         request: request::Builder,
@@ -198,7 +199,7 @@ impl Client for GrpcClient {
     // Full-duplex needs a real HTTP/2 transport; the gRPC-Web service used on
     // wasm cannot carry it, so the browser keeps the trait's default error.
     #[cfg(not(target_arch = "wasm32"))]
-    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.bidi_stream", path = %path))]
+    #[tracing::instrument(err, skip_all, fields(operation = "rpc.grpc.bidi_stream", otel.kind = "client", otel.name = "rpc.grpc.bidi_stream", path = %path))]
     async fn bidi_stream(
         &self,
         request: request::Builder,
@@ -340,40 +341,55 @@ pub mod tests {
     use xmtp_proto::prelude::{NetConnectConfig, XmtpTestClient};
     use xmtp_proto::types::AppVersion;
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn metadata_test() {
         let mut client = BackendTestClient::create();
         let app_version = AppVersion::from("test/1.0.0");
         let libxmtp_version = "0.0.1".to_string();
-        client.set_app_version(app_version.clone()).unwrap();
-        client.set_libxmtp_version(libxmtp_version.clone()).unwrap();
-        let client = client.build().unwrap();
-        let request = client
-            .build_tonic_request(
-                Default::default(),
-                prost::bytes::Bytes::from(PublishRequest { envelopes: vec![] }.encode_to_vec()),
-            )
-            .unwrap();
-
-        assert_eq!(
-            request
-                .metadata()
-                .get("x-app-version")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
-            app_version
-        );
-        assert_eq!(
-            request
-                .metadata()
-                .get("x-libxmtp-version")
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
-            libxmtp_version
-        );
+        client.set_app_version(app_version.clone())?;
+        client.set_libxmtp_version(libxmtp_version.clone())?;
+        let client = client.build()?;
+        let check = |enabled: bool| {
+            let span = tracing::info_span!(
+                "client",
+                operation = "rpc.grpc.request",
+                otel.kind = "client",
+                otel.name = "rpc.grpc.request"
+            );
+            let _entered = span.enter();
+            let mut expected = http::HeaderMap::new();
+            xmtp_logging::propagation::inject(&span, &mut expected);
+            let request = client
+                .build_tonic_request(
+                    Default::default(),
+                    prost::bytes::Bytes::from(PublishRequest { envelopes: vec![] }.encode_to_vec()),
+                )
+                .unwrap();
+            let headers = request.metadata();
+            assert_eq!(
+                headers.get("x-app-version").unwrap().to_str().unwrap(),
+                app_version.to_string()
+            );
+            assert_eq!(
+                headers.get("x-libxmtp-version").unwrap().to_str().unwrap(),
+                libxmtp_version
+            );
+            assert_eq!(headers.get("traceparent").is_some(), enabled);
+            assert_eq!(
+                headers.get("traceparent").map(|v| v.to_str().unwrap()),
+                expected.get("traceparent").map(|v| v.to_str().unwrap())
+            );
+        };
+        xmtp_common::if_native! { @
+            for enabled in [false, true] {
+                xmtp_logging::test_logging::with_trace_layer(enabled, || check(enabled));
+            }
+        }
+        xmtp_common::if_wasm! { @ check(false); }
     }
+}
+
+xmtp_common::if_native! {
+    #[cfg(test)]
+    mod native_tests;
 }

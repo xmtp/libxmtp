@@ -49,7 +49,7 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
-hashbrown = { version = "0.17", features = ["serde"] }
+hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17", features = ["serde"] }
 hpke-rs = { version = "0.7", features = ["experimental", "hazmat", "serialization"] }
 hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes"] }
 idna = { version = "1" }
@@ -139,7 +139,7 @@ futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
-hashbrown = { version = "0.17", features = ["serde"] }
+hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17", features = ["serde"] }
 hpke-rs = { version = "0.7", features = ["experimental", "hazmat", "serialization"] }
 hybrid-array = { version = "0.4", default-features = false, features = ["alloc", "ctutils", "extra-sizes"] }
 idna = { version = "1" }
@@ -197,82 +197,98 @@ winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
@@ -280,53 +296,63 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.build-dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
@@ -334,52 +360,62 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.build-dependencies]
+aho-corasick = { version = "1", default-features = false, features = ["perf-literal", "std"] }
 alloy-provider = { version = "2", default-features = false, features = ["anvil-node"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 cc = { version = "1", default-features = false, features = ["parallel"] }
@@ -387,20 +423,24 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
+hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
 hex = { version = "0.4", features = ["serde"] }
 hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+opentelemetry = { version = "0.32", features = ["testing"] }
+opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
+tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
 uuid = { version = "1", features = ["fast-rng", "serde", "v4"] }

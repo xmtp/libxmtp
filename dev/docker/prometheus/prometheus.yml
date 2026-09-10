@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+rule_files: [alerts.yml]
+scrape_configs:
+  - job_name: backend
+    static_configs:
+      - targets: [backend:9464]
+  - job_name: tempo
+    static_configs:
+      - targets: [tempo:3200]

@@ -1,6 +1,7 @@
 mod fetch;
 mod keepalive;
 mod output;
+pub(crate) use output::StreamEnd;
 mod registry;
 mod session;
 mod tailer;
@@ -16,7 +17,7 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 
 const FETCH_TOPICS: usize = 256;
 const FETCH_ROWS: i64 = 64;
-const FETCH_WORKERS: usize = 8;
+pub(crate) const FETCH_WORKERS: usize = 8;
 const OUTBOUND_FRAMES: usize = 64;
 const ENVELOPE_OVERHEAD: usize = crate::config::ENVELOPE_METADATA_AND_FRAMING_BYTES;
 
@@ -41,11 +42,28 @@ impl StreamHub {
         }))
     }
 
+    /// Acquire one shared fetch worker and measure its queue wait.
+    pub(super) async fn fetch_permit(
+        &self,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, tonic::Status> {
+        let wait = crate::telemetry::FetchWait::start();
+        let result = self
+            .fetches
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| tonic::Status::unavailable("fetch service stopped"));
+        drop(wait);
+        result
+    }
+
     /// Fail sessions before aborting workers, so no client can mistake shutdown for
     /// completed history. Unary drain remains the transport's responsibility.
     pub fn stop(&self) {
-        self.registry
-            .fail_all(tonic::Status::unavailable("stream service stopped"));
+        self.registry.fail_all(
+            tonic::Status::unavailable("stream service stopped"),
+            StreamEnd::Shutdown,
+        );
         self.worker.abort();
     }
 }

@@ -48,6 +48,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
     for section in [
         "",
         "server",
+        "telemetry",
         "database",
         "publishing",
         "streams",
@@ -73,7 +74,7 @@ fn published_schema_enforces_every_numeric_scalar_range() {
     assert!(validator.is_valid(&baseline));
     for (section, properties) in baseline.as_object()? {
         for (field, value) in properties.as_object()? {
-            if !value.is_number() {
+            if !value.is_number() || field == "sample_ratio" {
                 continue;
             }
             let maximum = match (section.as_str(), field.as_str()) {
@@ -247,4 +248,39 @@ fn keepalive_interval_fits_the_started_wire_field() {
     config.validate()?;
     config.streams.keepalive_interval_ms += 1;
     assert!(config.validate().is_err());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn telemetry_schema_describes_all_keys_and_checks_values() {
+    let validator = validator();
+    let baseline = json!({"database": {"url": "env:DB"}, "telemetry": {
+        "metrics_listen": "", "otlp_endpoint": "env:OTLP", "otlp_logs": false,
+        "service_name": "xmtp-backend", "sample_ratio": 0.5,
+        "resource_attributes": {"deployment.environment": "test"}
+    }, "server": {"log_format": "env:LOG_FORMAT"}});
+    assert!(validator.is_valid(&baseline));
+    for (key, value) in [
+        ("metrics_listen", json!("bad")),
+        ("otlp_endpoint", json!("ftp://host")),
+        ("otlp_logs", json!("false")),
+        ("sample_ratio", json!(-0.1)),
+        ("sample_ratio", json!(1.1)),
+        ("resource_attributes", json!({"service.name": "bad"})),
+        ("resource_attributes", json!({"service.version": "bad"})),
+        ("unknown", json!(true)),
+    ] {
+        let mut instance = baseline.clone();
+        instance["telemetry"][key] = value;
+        assert!(!validator.is_valid(&instance), "{key}");
+    }
+    for format in ["text", "json"] {
+        let mut instance = baseline.clone();
+        instance["server"]["log_format"] = json!(format);
+        assert!(validator.is_valid(&instance));
+    }
+    for ratio in [0.0, 1.0] {
+        let mut instance = baseline.clone();
+        instance["telemetry"]["sample_ratio"] = json!(ratio);
+        assert!(validator.is_valid(&instance));
+    }
 }

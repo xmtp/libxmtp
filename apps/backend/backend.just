@@ -20,7 +20,7 @@ image:
 
 # Run the backend outside Docker against the `db-up` database.
 run:
-    XMTP_DATABASE_URL="{{ db_url }}" XMTP_CHAIN_31337_URL="http://localhost:8545" \
+    XMTP_DATABASE_URL="{{ db_url }}" XMTP_REPLICA_URL="${XMTP_REPLICA_URL:-postgres://xmtp:xmtp@localhost:55433/xmtp_backend}" XMTP_CHAIN_31337_URL="http://localhost:8545" \
       nix run {{ root }}#xmtp-backend -- --config {{ root }}/dev/backend/local.toml
 
 # Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
@@ -28,10 +28,10 @@ test *args="":
     DATABASE_URL="{{ db_url }}" RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
 
 db-up:
-    docker compose -f {{ root }}/dev/backend/compose.yml up --detach --wait
+    {{ root }}/dev/docker/up db replica
 
 db-down:
-    docker compose -f {{ root }}/dev/backend/compose.yml down
+    {{ root }}/dev/docker/down
 
 sql-prepare:
     DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
@@ -49,10 +49,17 @@ schema:
     cargo run --locked --quiet -p xmtp_backend --example config_schema > "$schema_tmp"
     mv "$schema_tmp" docs/schemas/backend-v1.json
 
-# Start the SDK test stack: db, backend (this host's image), toxiproxy, anvil.
-up: image
+# Start the shared SDK and observability stack.
+up *services: image
     docker load --input {{ root }}/result-backend-image
-    {{ root }}/dev/docker/up
+    {{ root }}/dev/docker/up {{ services }}
 
 down:
     {{ root }}/dev/docker/down
+
+logs *services:
+    {{ root }}/dev/docker/compose logs {{ services }}
+
+# Verify client traces, backend metrics, and the local dashboard.
+observe-check:
+    bash {{ root }}/dev/docker/observe-check.sh

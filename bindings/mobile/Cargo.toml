@@ -94,3 +94,8 @@ dev = ["xmtp_configuration/dev", "xmtp_mls/dev"]
 harness = false
 name = "create_client"
 required-features = ["bench"]
+
+# Separate process: this suite tests the process-global mobile logger.
+[[test]]
+name = "otlp_logger"
+path = "src/logger/otlp_tests.rs"

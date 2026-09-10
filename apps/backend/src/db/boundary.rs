@@ -8,7 +8,21 @@ mod tests;
 /// A lock or statement timeout while acquiring the barrier leaves the previous
 /// proof unchanged and requests another attempt. A shorter statement timeout
 /// can expire first. Errors after acquisition still fail the maintenance worker.
+#[xmtp_common::db_span]
 pub(crate) async fn advance(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, Error> {
+    let result = advance_boundary(pool, wait_ms).await;
+    crate::telemetry::boundary_advanced(match &result {
+        Ok(Some(_)) => crate::telemetry::BoundaryResult::Ok,
+        Ok(None) => {
+            tracing::warn!("allocation barrier lock timed out");
+            crate::telemetry::BoundaryResult::LockTimeout
+        }
+        Err(_) => crate::telemetry::BoundaryResult::Error,
+    });
+    result
+}
+
+async fn advance_boundary(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, Error> {
     let mut tx = pool
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")
         .await?;

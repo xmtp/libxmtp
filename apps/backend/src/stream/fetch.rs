@@ -20,18 +20,14 @@ pub(super) struct ResultPage {
 /// before reading payloads, preserve topic prefixes at a byte cutoff, and release
 /// the snapshot before returning. Cancellation discards local work, but retains
 /// its connection and worker permit until the database drains the statement.
+#[xmtp_common::span(prefix = "stream")]
 pub(super) async fn fetch(
     hub: Arc<StreamHub>,
     requests: Vec<Request>,
     budget: usize,
     reservation: Reservation,
 ) -> Result<ResultPage, Status> {
-    let slot = hub
-        .fetches
-        .clone()
-        .acquire_owned()
-        .await
-        .map_err(|_| Status::unavailable("fetch service stopped"))?;
+    let slot = hub.fetch_permit().await?;
     let ranges: Vec<_> = requests
         .iter()
         .map(|request| request.range.clone())

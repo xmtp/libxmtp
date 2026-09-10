@@ -31,7 +31,7 @@ impl api::identity_service_server::IdentityService for Backend {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .unzip();
-        let matches = self.store.lookup(&identifiers, &kinds).await?;
+        let matches = self.store.inbox_ids(&identifiers, &kinds).await?;
         let responses = request
             .requests
             .into_iter()
@@ -75,8 +75,7 @@ impl api::identity_service_server::IdentityService for Backend {
             .collect::<Result<Vec<_>, Status>>()?;
         let mut responses = Vec::with_capacity(inputs.len());
         for (account, hash, signature, block) in inputs {
-            let result = self
-                .verifier
+            let result = crate::validation::ObservedVerifier(&self.verifier)
                 .is_valid_signature(account, hash, signature.into(), block)
                 .await
                 .map_err(|error| {

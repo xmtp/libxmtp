@@ -344,6 +344,11 @@ fn encode_raw_frame(bytes: Vec<u8>) -> Vec<u8> {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn oversized_publish_response_reports_transport_error_after_commit() {
+    let Some(metrics) = support::metrics::isolated(
+        "server::tests::transport::oversized_publish_response_reports_transport_error_after_commit",
+    ) else {
+        return;
+    };
     let server = TestServer::new(|config| {
         config.limits.max_envelope_bytes = 1_024;
         config.limits.max_response_bytes = 66_560;
@@ -379,6 +384,30 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
         .fetch_one(&server.backend.store.primary)
         .await?;
     assert_eq!(count, 800);
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        800.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "duplicate")]
+        ),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "stored")]
+        ),
+        0.0
+    );
     server.stop().await?;
 }
 

@@ -81,6 +81,8 @@ export const createClient = async (
     level: options?.loggingLevel ?? LogLevel.Off,
     stdoutLevel: options?.stdoutLoggingLevel,
     otelEndpoint: options?.otelEndpoint,
+    otelServiceName: options?.otelServiceName,
+    otelSampleRatio: options?.otelSampleRatio,
     resourceAttributes: options?.resourceAttributes,
   };
   const deviceSyncWorkerMode = options?.disableDeviceSync

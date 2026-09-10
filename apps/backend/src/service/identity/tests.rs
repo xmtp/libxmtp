@@ -423,6 +423,11 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "service::identity::tests::scw_verdicts_preserve_input_order_and_resolved_blocks",
+    ) else {
+        return;
+    };
     let server = TestServer::with_verifier(|_| {}, VerdictVerifier).await?;
     let signatures = [(1, None), (0, Some(12)), (1, Some(13))]
         .map(|(byte, block_number)| {
@@ -449,11 +454,32 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
             .collect::<Vec<_>>(),
         vec![(true, Some(42)), (false, Some(12)), (true, Some(13))]
     );
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_scw_verifications_total",
+            &[("result", "valid")]
+        ),
+        2.0
+    );
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_scw_verifications_total",
+            &[("result", "invalid")]
+        ),
+        1.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn configured_chain_provider_failure_is_unavailable() {
+    let Some(metrics) = crate::test_support::metrics::isolated(
+        "service::identity::tests::configured_chain_provider_failure_is_unavailable",
+    ) else {
+        return;
+    };
     let unavailable = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = unavailable.local_addr()?;
     drop(unavailable);
@@ -477,5 +503,13 @@ async fn configured_chain_provider_failure_is_unavailable() {
         .await
         .unwrap_err();
     assert_eq!(error.code(), Code::Unavailable);
+    assert_eq!(
+        crate::test_support::metrics::value(
+            &metrics,
+            "xmtp_scw_verifications_total",
+            &[("result", "error")]
+        ),
+        1.0
+    );
     server.stop().await?;
 }

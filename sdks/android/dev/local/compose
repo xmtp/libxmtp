@@ -1,4 +1,4 @@
 #!/bin/bash
-set -eou pipefail
-
-docker compose -f dev/local/docker-compose.yml -p "xmtp-android" "$@"
+set -euo pipefail
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+exec "$script_dir/../../../../dev/docker/compose" "$@"

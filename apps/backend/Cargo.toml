@@ -12,12 +12,17 @@ name = "xmtp-backend"
 path = "src/main.rs"
 
 [dependencies]
+alloy-primitives.workspace = true
+async-trait.workspace = true
 bytes.workspace = true
 clap.workspace = true
 futures.workspace = true
 hex.workspace = true
 http.workspace = true
 http-body.workspace = true
+metrics.workspace = true
+metrics-exporter-prometheus.workspace = true
+opentelemetry.workspace = true
 parking_lot.workspace = true
 pin-project.workspace = true
 prost.workspace = true
@@ -43,13 +48,11 @@ xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_id.workspace = true
-xmtp_logging.workspace = true
+xmtp_logging = { workspace = true, features = ["metrics"] }
 xmtp_mls_validation.workspace = true
 xmtp_proto = { workspace = true, features = ["grpc_server_impls"] }
 
 [dev-dependencies]
-alloy-primitives.workspace = true
-async-trait.workspace = true
 h2 = "0.4"
 http.workspace = true
 http-body-util.workspace = true

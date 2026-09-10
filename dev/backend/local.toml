@@ -5,6 +5,7 @@ log_level = "info"
 
 [database]
 url = "env:XMTP_DATABASE_URL"
+replica_url = "env:XMTP_REPLICA_URL"
 
 [chains]
 "eip155:31337" = "env:XMTP_CHAIN_31337_URL"

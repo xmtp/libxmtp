@@ -22,6 +22,8 @@ use xmtp_configuration::{
 };
 
 mod schema;
+mod telemetry;
+pub use telemetry::TelemetryConfig;
 
 const SCHEMA_ID: &str =
     "https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json";
@@ -94,6 +96,8 @@ fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
 pub struct Config {
     #[serde(default)]
     pub server: ServerConfig,
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
     pub database: DatabaseConfig,
     #[serde(default)]
     pub publishing: PublishingConfig,
@@ -150,6 +154,7 @@ impl Config {
             validate_deadline(milliseconds, field)?;
         }
         self.server.validate()?;
+        self.telemetry.validate()?;
         self.database.validate()?;
         self.publishing
             .validate(self.database.max_statement_timeout_ms)?;
@@ -422,6 +427,8 @@ pub struct ServerConfig {
     /// Global backend log level. Request summaries and mutations use INFO.
     #[schemars(schema_with = "schema::log_level")]
     pub log_level: LogLevel,
+    #[schemars(schema_with = "schema::log_format")]
+    pub log_format: LogFormat,
     /// Emit one summary when each gRPC response finishes or is cancelled.
     pub request_logger: bool,
     #[schemars(schema_with = "schema::positive_integer::<{ u64::MAX }>")]
@@ -433,6 +440,7 @@ impl Default for ServerConfig {
         Self {
             listen: DEFAULT_LISTEN.to_owned(),
             log_level: LogLevel::Info,
+            log_format: LogFormat::Text,
             request_logger: true,
             max_drain_duration_ms: DEFAULT_DRAIN_DURATION_MS,
         }
@@ -744,3 +752,12 @@ impl Default for LimitsConfig {
 
 #[cfg(test)]
 mod tests;
+
+/// Stdout encoding. Each JSON event occupies one line.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum LogFormat {
+    #[default]
+    Text,
+    Json,
+}

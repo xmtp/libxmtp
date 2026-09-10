@@ -14,22 +14,57 @@ use std::{
 use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore, mpsc};
 use tonic::Status;
 
+/// A fixed reason follows the terminal status through cancellation and task drop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StreamEnd {
+    Client,
+    Backpressure,
+    Capacity,
+    Keepalive,
+    Tailer,
+    Database,
+    Shutdown,
+    Invalid,
+    RateLimited,
+}
+impl StreamEnd {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Client => "client",
+            Self::Backpressure => "backpressure",
+            Self::Capacity => "capacity",
+            Self::Keepalive => "keepalive",
+            Self::Tailer => "tailer",
+            Self::Database => "database",
+            Self::Shutdown => "shutdown",
+            Self::Invalid => "invalid",
+            Self::RateLimited => "rate_limited",
+        }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Terminal {
-    error: Mutex<Option<Status>>,
+    error: Mutex<Option<(Status, StreamEnd)>>,
     waker: AtomicWaker,
     pub wake: Notify,
     closed: AtomicBool,
 }
 
 impl Terminal {
-    pub fn fail(&self, error: Status) {
-        self.error.lock().get_or_insert(error);
+    pub fn fail(&self, error: Status, reason: StreamEnd) {
+        self.error.lock().get_or_insert((error, reason));
         self.waker.wake();
         self.wake.notify_one();
     }
     pub fn error(&self) -> Option<Status> {
-        self.error.lock().clone()
+        self.error.lock().as_ref().map(|(error, _)| error.clone())
+    }
+    pub fn reason(&self) -> StreamEnd {
+        self.error
+            .lock()
+            .as_ref()
+            .map_or(StreamEnd::Client, |(_, reason)| *reason)
     }
     pub fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)

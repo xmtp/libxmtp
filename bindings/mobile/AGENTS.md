@@ -7,6 +7,7 @@ uniffi bindings. Feeds `sdks/android` and `sdks/ios`.
 ```bash
 just check crate xmtpv3
 just lint-rust                          # workspace-wide. No per-crate lint.
+dev/nix-shell 'cargo test --locked -p xmtpv3 --test otlp_logger' # isolated OTLP logger lifecycle
 just test crate xmtpv3
 dev/nix-shell 'cargo nextest run --profile ci -p xmtpv3 --ignore-default-filter test_can_send_and_receive_reaction'   # one test
 dev/nix-shell "cargo nextest run --profile ci -p xmtpv3 -E 'test(/mls::/)'"   # one module
@@ -21,6 +22,14 @@ just ios build                          # xcframework + Swift bindings, via Nix
 - `just android test` and `just ios test` rebuild the bindings first. Bare Gradle or Swift runs do not.
 
 ## Conventions
+
+`enable_otlp_telemetry(FfiOtlpConfig)` enables OTLP gRPC trace export. Configure
+endpoint, optional service name, sample ratio, and resource attributes. The shared
+logger initializes on first use. Disable Sentry before enabling OTLP if it owns
+the telemetry slot. `flush_telemetry` flushes before background or exit;
+`disable_otlp_telemetry` stops export. Never put secrets in resource attributes.
+See [backend observability](../../docs/backend-observability.md) for a trace walkthrough.
+`just backend observe-check` checks propagation with xdbg against the full stack.
 
 A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a shared crate.
 

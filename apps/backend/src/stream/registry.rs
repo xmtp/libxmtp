@@ -1,7 +1,9 @@
+use super::StreamEnd;
 use super::{
     ENVELOPE_OVERHEAD,
     output::{Budget, Reservation, Terminal},
 };
+use crate::telemetry::{self, StreamKind};
 use crate::{config::DELIVERY_FRAME_BYTES, db::StoredEnvelope};
 use parking_lot::Mutex;
 use std::{
@@ -43,6 +45,7 @@ struct Watcher {
     current: bool,
 }
 struct Client {
+    kind: StreamKind,
     mailbox: Arc<Mailbox>,
     topics: HashSet<Vec<u8>>,
 }
@@ -59,9 +62,10 @@ pub(crate) struct Registry(Mutex<State>);
 impl Registry {
     pub fn ready(&self) {
         self.0.lock().ready = true;
+        telemetry::tailer_ready(true);
     }
     /// Enroll an empty session only after recovery is ready.
-    pub(super) fn connect(&self, mailbox: Arc<Mailbox>) -> Result<u64, Status> {
+    pub(super) fn connect(&self, mailbox: Arc<Mailbox>, kind: StreamKind) -> Result<u64, Status> {
         let mut state = self.0.lock();
         if !state.ready {
             return Err(Status::unavailable("stream recovery in progress"));
@@ -74,10 +78,12 @@ impl Registry {
         state.clients.insert(
             id,
             Client {
+                kind,
                 mailbox,
                 topics: HashSet::new(),
             },
         );
+        telemetry::stream_registered(kind);
         Ok(id)
     }
     /// Register before target capture. Catching-up registrations retain heads,
@@ -87,12 +93,15 @@ impl Registry {
         if !state.ready {
             return Err(Status::unavailable("stream recovery in progress"));
         }
-        state
+        let added = state
             .clients
             .get_mut(&id)
             .ok_or_else(|| Status::unavailable("session closed"))?
             .topics
             .insert(topic.clone());
+        if added {
+            telemetry::stream_topic_registered();
+        }
         state.topics.entry(topic).or_default().insert(
             id,
             Watcher {
@@ -113,7 +122,9 @@ impl Registry {
             }
         }
         if let Some(client) = state.clients.get_mut(&id) {
-            client.topics.remove(topic);
+            if client.topics.remove(topic) {
+                telemetry::stream_topic_removed();
+            }
             client.mailbox.mail.lock().heads.remove(topic);
         }
     }
@@ -139,6 +150,7 @@ impl Registry {
     pub(super) fn disconnect(&self, id: u64) {
         let mut state = self.0.lock();
         if let Some(client) = state.clients.remove(&id) {
+            telemetry::stream_deregistered(client.kind, client.topics.len());
             for topic in client.topics {
                 if let Some(watchers) = state.topics.get_mut(&topic) {
                     watchers.remove(&id);
@@ -150,11 +162,13 @@ impl Registry {
         }
     }
     /// Publish a terminal error before clearing recovery registrations.
-    pub fn fail_all(&self, error: Status) {
+    pub fn fail_all(&self, error: Status, reason: StreamEnd) {
         let mut state = self.0.lock();
         state.ready = false;
+        telemetry::tailer_ready(false);
         for client in state.clients.values() {
-            client.mailbox.terminal.fail(error.clone());
+            client.mailbox.terminal.fail(error.clone(), reason);
+            telemetry::stream_deregistered(client.kind, client.topics.len());
         }
         state.topics.clear();
         state.clients.clear();
@@ -217,9 +231,10 @@ fn flush(mailbox: &Mailbox, rows: Vec<(u64, Arc<StoredEnvelope>)>, bytes: usize)
             .push_back(LiveBatch { rows, reservation });
         mailbox.wake.notify_one();
     } else {
-        mailbox.terminal.fail(Status::resource_exhausted(
-            "stream output capacity exceeded",
-        ));
+        mailbox.terminal.fail(
+            Status::resource_exhausted("stream output capacity exceeded"),
+            StreamEnd::Backpressure,
+        );
     }
 }
 
@@ -241,14 +256,20 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn catching_up_coalesces_heads_while_current_sessions_share_the_same_payload() {
+        use crate::test_support::metrics::{isolated, value};
+        let Some(metrics) = isolated(
+            "stream::registry::tests::catching_up_coalesces_heads_while_current_sessions_share_the_same_payload",
+        ) else {
+            return;
+        };
         let registry = Registry::default();
         registry.ready();
         let first = Arc::new(Mailbox::default());
         let second = Arc::new(Mailbox::default());
         let catching_up = Arc::new(Mailbox::default());
-        let a = registry.connect(first.clone())?;
-        let b = registry.connect(second.clone())?;
-        let c = registry.connect(catching_up.clone())?;
+        let a = registry.connect(first.clone(), StreamKind::Bidi)?;
+        let b = registry.connect(second.clone(), StreamKind::Bidi)?;
+        let c = registry.connect(catching_up.clone(), StreamKind::Bidi)?;
         let topic = vec![1; 33];
         for id in [a, b, c] {
             registry.add(id, topic.clone(), 1)?;
@@ -266,5 +287,27 @@ mod tests {
         let pending = catching_up.mail.lock();
         assert_eq!(pending.heads[&topic], (1, 3));
         assert!(pending.live.is_empty());
+        drop(pending);
+        registry.add(a, topic.clone(), 1)?;
+        assert_eq!(value(&metrics, "xmtp_stream_topics_registered", &[]), 3.0);
+        registry.remove(a, &topic);
+        registry.remove(a, &topic);
+        registry.disconnect(a);
+        registry.disconnect(a);
+        assert_eq!(value(&metrics, "xmtp_stream_topics_registered", &[]), 2.0);
+        assert_eq!(
+            value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+            2.0
+        );
+        registry.fail_all(Status::unavailable("test recovery"), StreamEnd::Tailer);
+        registry.fail_all(Status::unavailable("test shutdown"), StreamEnd::Shutdown);
+        registry.disconnect(b);
+        registry.disconnect(c);
+        assert_eq!(value(&metrics, "xmtp_stream_topics_registered", &[]), 0.0);
+        assert_eq!(
+            value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+            0.0
+        );
+        assert_eq!(catching_up.terminal.reason(), StreamEnd::Tailer);
     }
 }

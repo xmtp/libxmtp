@@ -29,6 +29,7 @@ pub struct Store {
 
 impl Store {
     /// Read the authoritative clock used to form finite expiry timestamps.
+    #[xmtp_common::db_span]
     pub(crate) async fn clock_ns(&self) -> Result<i64, Error> {
         Ok(sqlx::query_scalar!(
             r#"SELECT (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint AS "now!""#
@@ -41,6 +42,7 @@ impl Store {
     ///
     /// A replica is never used for migrations. If no replica URL is configured,
     /// both fields share the primary pool and all reads use the same database.
+    #[xmtp_common::db_span]
     pub async fn connect(config: &Config) -> Result<Self, Error> {
         let primary = connect_pool(&config.database.url, config).await?;
         sqlx::migrate!().run(&primary).await?;
@@ -81,6 +83,7 @@ async fn release(connection: &mut PgConnection) -> Result<bool, sqlx::Error> {
             .await?
             .try_get(0)?;
     if in_transaction {
+        crate::telemetry::released_open_transaction();
         sqlx::raw_sql("ROLLBACK").execute(connection).await?;
         tracing::warn!("rolled back an open transaction on pool release");
     }
@@ -90,6 +93,7 @@ async fn release(connection: &mut PgConnection) -> Result<bool, sqlx::Error> {
 /// Open the tailer's dedicated selected-read connection outside the request pool.
 /// Its loss must remain visible to recovery, even when the pool replaces connections.
 /// The same TLS options and statement timeout apply to both connection paths.
+#[xmtp_common::db_span]
 pub(crate) async fn dedicated_read(pool: &PgPool, timeout_ms: u64) -> Result<PgConnection, Error> {
     let mut connection = PgConnection::connect_with(&pool.connect_options()).await?;
     configure(&mut connection, &format!("{timeout_ms}ms")).await?;

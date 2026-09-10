@@ -22,3 +22,16 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_logging -E 'test(/layers::
 - `src/lib.rs` owns the whole pipeline: `XmtpLoggingBuilder`, `LoggingHandle`, `filter_directive`, `Level` / `Rotation` / `ProcessType` (`src/config.rs`), OTLP `init` (native only), and the optional Sentry backend (`src/sentry.rs`, feature `sentry`). Never add a second subscriber or pull `tracing-subscriber` into a new crate.
 - Component tag: Sentry events carry a `component` tag defaulting to `"libxmtp"`; a caller-supplied one wins (`sentry.rs:148-155`). Set it, do not shadow it.
 - The explicit filter includes the backend and shared validation targets. New application crates must opt into this filter before their logs are visible.
+
+## Telemetry
+
+- `propagation` owns W3C trace headers. Native builds inject and extract contexts; wasm exports the same no-op API.
+- `TelemetryConfig` sets endpoint, service name, root sample ratio, log export, and resource attributes. Identity attributes cannot be overridden.
+- Feature `metrics` adds only the metrics facade. `span_metrics::SpanMetricsLayer` records one lifetime sample per operation span. Exporters belong to the host application.
+- `LoggingHandle::disable_telemetry` removes OTLP and frees the shared slot. `telemetry_enabled` reports ownership.
+- Tests here use plain test attributes because `xmtp_common` depends on this crate.
+- Backend metrics are recorded in process and do not depend on trace sampling.
+  Tempo client span metrics depend on sampled trace export.
+- Resource attributes are exported verbatim. Never put secrets in them.
+- `just backend observe-check` checks client and backend spans in one trace.
+  See [backend observability](../../docs/backend-observability.md) for configuration and limits.

@@ -64,6 +64,16 @@ async fn publish_topic_limit_accepts_exact_count_and_rejects_one_past() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_retries_preserve_original_metadata_and_positions() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::concurrent_retries_preserve_original_metadata_and_positions"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
     let server = TestServer::new(|_| {}).await?;
     let first = inline_welcome_envelope([1; 32]);
     let second = inline_welcome_envelope([2; 32]);
@@ -83,11 +93,45 @@ async fn concurrent_retries_preserve_original_metadata_and_positions() {
         .fetch_one(&server.backend.store.primary)
         .await?;
     assert_eq!(count, Some(2));
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "stored")]
+        ),
+        3.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "duplicate")]
+        ),
+        5.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        0.0
+    );
     server.stop().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::failed_batch_leaves_new_topics_empty_and_reports_first_original_error"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
     let server = TestServer::new(|_| {}).await?;
     let retained = inline_welcome_envelope([3; 32]);
     server.publish(vec![retained.clone()]).await?;
@@ -113,6 +157,30 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
         .fetch_one(&server.backend.store.primary)
         .await?;
     assert_eq!(watermarks, Some(1));
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "stored")]
+        ),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        4.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_rejections_total",
+            &[("reason", Reason::InvalidKeyPackage.as_str_name())]
+        ),
+        1.0
+    );
     server.stop().await?;
 }
 
@@ -198,6 +266,16 @@ async fn welcome_batch_commits_each_destination_and_canonical_payload() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn watermark_guard_failure_rolls_back_every_new_envelope() {
+    let Some(metrics) = support::metrics::isolated(
+        concat!(
+            module_path!(),
+            "::watermark_guard_failure_rolls_back_every_new_envelope"
+        )
+        .strip_prefix("xmtp_backend::")
+        .unwrap(),
+    ) else {
+        return;
+    };
     let server = TestServer::new(|_| {}).await?;
     let topic = xmtp_proto::types::TopicKind::WelcomeMessagesV1
         .create([7; 32])
@@ -229,6 +307,18 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
             .fetch_one(&server.backend.store.primary)
             .await?,
         Some(1)
+    );
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_db_errors_total", &[("kind", "invariant")]),
+        1.0
+    );
+    assert_eq!(
+        support::metrics::value(
+            &metrics,
+            "xmtp_publish_envelopes_total",
+            &[("outcome", "rejected")]
+        ),
+        2.0
     );
     server.stop().await?;
 }

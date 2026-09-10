@@ -227,6 +227,11 @@ async fn late_gap_rows_precede_forward_rows_on_the_same_topic() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn replica_connection_loss_fails_existing_sessions_before_recovery() {
     let _replay = REPLAY.lock().await;
+    let Some(metrics) = support::metrics::isolated(
+        "stream::tests::replica::replica_connection_loss_fails_existing_sessions_before_recovery",
+    ) else {
+        return;
+    };
     let server = TestServer::new(replica).await?;
     let mut stream = Native::open(&server).await?;
     let mut connection = server.backend.store.read.acquire().await?;
@@ -242,6 +247,18 @@ async fn replica_connection_loss_fails_existing_sessions_before_recovery() {
         .code(),
         Code::Unavailable
     );
+    xmtp_common::wait_for_eq(
+        || async {
+            support::metrics::value(&metrics, "xmtp_stream_ended_total", &[("reason", "tailer")])
+        },
+        1.0,
+    )
+    .await?;
+    assert_eq!(
+        support::metrics::value(&metrics, "xmtp_stream_sessions", &[("kind", "bidi")]),
+        0.0
+    );
+    assert!(support::metrics::value(&metrics, "xmtp_tailer_restarts_total", &[]) >= 2.0);
     drop(connection);
     drop(stream);
     server.stop().await?;

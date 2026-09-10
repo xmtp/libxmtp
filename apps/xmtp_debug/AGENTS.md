@@ -22,6 +22,11 @@ dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-pa
 - Queries use `ApiClientWrapper`. Streams use the `xmtp_mls` stream methods.
 - `MessageBackendBuilder` builds the API client. Do not add a local builder.
 - The Docker monitor requires `XMTP_BACKEND_URL`.
+- `--otel-endpoint <URL>` exports traces through the shared OTLP pipeline. The logger holds the provider guard until exit.
+- `just backend observe-check` uses this flag to check client and backend spans
+  in one Tempo trace. It creates two identities, one group, and ten messages.
+  `XDBG_DB_ROOT` isolates its temporary state. `--fail-fast` makes operation errors fail the check.
+  See [backend observability](../../docs/backend-observability.md).
 - `--metrics` keeps CSV output. `PUSHGATEWAY_URL` keeps optional Prometheus output.
 
 ## Gotchas

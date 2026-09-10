@@ -15,7 +15,7 @@ The generated artifacts of this crate are the bindings interface (`xmtpv3.kt`) g
 - Run `./gen_kotlin.sh` to generate the bindings interface.
 - Run `./setup_android_example.sh` to copy these artifacts into the example Android app. Alternatively, modify the script to set up an app of your choice.
 - Open the `build.gradle` of the example Android app in Android Studio.
-- Run the local server via `dev/up` from the root of this repo. If running from elsewhere, make sure your `docker-compose.yml` matches the one in this repo.
+- Run the local server via `just backend up` from the root of this repo. It starts the stack in `dev/docker/compose.yml`.
 
 ## Rebuilding this crate (Android)
 

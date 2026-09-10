@@ -22,7 +22,7 @@ async fn query_uses_primary_while_get_newest_and_lookup_use_read_pool() {
         .remove(0);
 
     let mut backend: Backend = primary.backend.clone();
-    backend.store.read = selected.backend.store.primary.clone();
+    std::sync::Arc::make_mut(&mut backend.store).read = selected.backend.store.primary.clone();
 
     let query = QueryService::query(
         &backend,

@@ -8,7 +8,9 @@ use crate::{
     api,
     config::{Config, DELIVERY_FRAME_BYTES},
     db,
+    stream::StreamEnd,
     stream::fetch::Request,
+    telemetry::{self, DeliveryPhase, Frame as MetricFrame, StreamKind, UpdateOutcome},
 };
 use futures::{
     FutureExt, StreamExt,
@@ -64,10 +66,13 @@ struct Session {
     send_idle: Instant,
     challenge: Option<Challenge>,
     nonce: u64,
+    outbound_wait: Option<Instant>,
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
+        self.finish_outbound_wait();
+        telemetry::stream_ended(self.mailbox.terminal.reason());
         self.hub.registry.disconnect(self.id);
     }
 }
@@ -128,7 +133,14 @@ fn start(
         frame_bytes: DELIVERY_FRAME_BYTES.min(config.limits.max_response_bytes.saturating_add(5)),
         ..Default::default()
     });
-    let id = hub.registry.connect(mailbox.clone())?;
+    let id = hub.registry.connect(
+        mailbox.clone(),
+        if initial.is_some() {
+            StreamKind::Static
+        } else {
+            StreamKind::Bidi
+        },
+    )?;
     let (output, receiver) = mpsc::channel(OUTBOUND_FRAMES);
     let mut session = Session {
         static_subscription: initial.is_some(),
@@ -156,6 +168,7 @@ fn start(
         send_idle: Instant::now(),
         challenge: None,
         nonce: 0,
+        outbound_wait: None,
     };
     if let Some(topics) = initial {
         session.update(api::subscribe_request::Update {
@@ -170,7 +183,14 @@ fn start(
     let task = tokio::spawn(
         async move {
             if let Err(error) = session.run(input).await {
-                mailbox.terminal.fail(error);
+                let reason = match error.code() {
+                    tonic::Code::ResourceExhausted => StreamEnd::Backpressure,
+                    tonic::Code::DeadlineExceeded => StreamEnd::Keepalive,
+                    tonic::Code::Unavailable | tonic::Code::Internal => StreamEnd::Database,
+                    tonic::Code::Cancelled => StreamEnd::Client,
+                    _ => StreamEnd::Invalid,
+                };
+                mailbox.terminal.fail(error, reason);
             }
         }
         .instrument(span)
@@ -180,10 +200,20 @@ fn start(
 }
 
 impl Session {
+    fn fail(&self, error: Status, reason: StreamEnd) -> Status {
+        self.mailbox.terminal.fail(error.clone(), reason);
+        error
+    }
+    fn finish_outbound_wait(&mut self) {
+        if let Some(started) = self.outbound_wait.take() {
+            telemetry::stream_outbound_waited(started.elapsed());
+        }
+    }
+
     /// Serialize control, targets, history, live data, and timers in one owner.
     /// Target reads and history remain cancellable while input is processed.
     async fn run(
-        mut self,
+        &mut self,
         mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
     ) -> Result<(), Status> {
         if !self.static_subscription {
@@ -299,10 +329,14 @@ impl Session {
             let mut bytes = 0;
             while let Some(frame) = input.next().now_or_never() {
                 let Some(frame) = frame else {
-                    return Err(Status::unavailable("request half-closed"));
+                    return Err(self.fail(
+                        Status::unavailable("request half-closed"),
+                        StreamEnd::Client,
+                    ));
                 };
                 let frame = frame?;
                 if let Some(api::subscribe_request::Request::Pong(pong)) = &frame.request {
+                    telemetry::stream_frame_received(MetricFrame::Pong);
                     self.pong(pong.nonce)?;
                     if self.challenge.is_none() {
                         return Ok(());
@@ -310,8 +344,9 @@ impl Session {
                 } else {
                     bytes += frame.encoded_len();
                     if bytes > self.config.limits.max_request_bytes {
-                        return Err(Status::resource_exhausted(
-                            "pending control capacity exceeded",
+                        return Err(self.fail(
+                            Status::resource_exhausted("pending control capacity exceeded"),
+                            StreamEnd::Capacity,
                         ));
                     }
                     pending_input.push_back(frame);
@@ -346,14 +381,20 @@ impl Session {
             .ok_or_else(|| Status::invalid_argument("request is absent"))?
         {
             api::subscribe_request::Request::Update(update) => {
+                telemetry::stream_frame_received(MetricFrame::Update);
                 if !self.updates.take() {
-                    return Err(Status::resource_exhausted("update rate exceeded"));
+                    telemetry::stream_updated(UpdateOutcome::RateLimited);
+                    return Err(self.fail(
+                        Status::resource_exhausted("update rate exceeded"),
+                        StreamEnd::RateLimited,
+                    ));
                 }
                 if self.pending_update.is_some() || !self.deferred_updates.is_empty() {
                     self.deferred_bytes += update.encoded_len();
                     if self.deferred_bytes > self.config.limits.max_request_bytes {
-                        return Err(Status::resource_exhausted(
-                            "pending update capacity exceeded",
+                        return Err(self.fail(
+                            Status::resource_exhausted("pending update capacity exceeded"),
+                            StreamEnd::Capacity,
                         ));
                     }
                     self.deferred_updates.push_back(update);
@@ -363,14 +404,21 @@ impl Session {
                 }
             }
             api::subscribe_request::Request::Ping(ping) => {
+                telemetry::stream_frame_received(MetricFrame::Ping);
                 if !self.pings.take() {
-                    return Err(Status::resource_exhausted("ping rate exceeded"));
+                    return Err(self.fail(
+                        Status::resource_exhausted("ping rate exceeded"),
+                        StreamEnd::RateLimited,
+                    ));
                 }
                 self.control(api::subscribe_response::Response::Pong(api::Pong {
                     nonce: ping.nonce,
                 }))
             }
-            api::subscribe_request::Request::Pong(pong) => self.pong(pong.nonce),
+            api::subscribe_request::Request::Pong(pong) => {
+                telemetry::stream_frame_received(MetricFrame::Pong);
+                self.pong(pong.nonce)
+            }
         }
     }
 
@@ -395,8 +443,12 @@ impl Session {
 
     /// Validate the complete update before changing interests. Register all new
     /// topics before starting their head read; no history may precede Applied.
+    #[xmtp_common::span(prefix = "stream")]
     fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
-        let adds = self.validate_update(&update)?;
+        let adds = self.validate_update(&update).map_err(|error| {
+            telemetry::stream_updated(UpdateOutcome::Invalid);
+            self.fail(error, StreamEnd::Invalid)
+        })?;
         self.update_id = update.id;
         let mut removed_topics = 0;
         for topic in update.removes {
@@ -465,6 +517,7 @@ impl Session {
                 added_targets: targets,
             },
         ))?;
+        telemetry::stream_updated(UpdateOutcome::Applied);
         if self.static_subscription {
             tracing::info!(request_id = %self.request_id, added_topics = update.topics.len(),
                 removed_topics = update.removed_topics, "static subscription started");
@@ -562,6 +615,7 @@ impl Session {
     /// Reserve one bounded data frame before scheduling at most one fair turn.
     fn start_fetch(&mut self) -> Option<PendingFetch> {
         if self.ready.is_empty() {
+            self.finish_outbound_wait();
             return None;
         }
         let budget = self
@@ -570,9 +624,14 @@ impl Session {
             .available()
             .min(self.mailbox.frame_bytes);
         if budget < self.config.limits.max_envelope_bytes + ENVELOPE_OVERHEAD {
+            self.outbound_wait.get_or_insert_with(Instant::now);
             return None;
         }
-        let reservation = self.mailbox.budget.reserve(budget)?;
+        let Some(reservation) = self.mailbox.budget.reserve(budget) else {
+            self.outbound_wait.get_or_insert_with(Instant::now);
+            return None;
+        };
+        self.finish_outbound_wait();
         let mut requests = Vec::new();
         while requests.len() < FETCH_TOPICS {
             let Some((topic, generation)) = self.ready.pop_front() else {
@@ -648,7 +707,7 @@ impl Session {
             }
         }
         if !envelopes.is_empty() {
-            self.messages(envelopes, page.reservation)?;
+            self.messages(envelopes, page.reservation, DeliveryPhase::CatchUp)?;
             for (topic, floor) in advances {
                 if let Some(registration) = self.topics.get_mut(&topic) {
                     registration.floor = floor;
@@ -711,7 +770,7 @@ impl Session {
         if envelopes.is_empty() {
             return Ok(());
         }
-        self.messages(envelopes, batch.reservation)?;
+        self.messages(envelopes, batch.reservation, DeliveryPhase::Live)?;
         for (topic, floor) in advances {
             if let Some(registration) = self.topics.get_mut(&topic) {
                 registration.floor = floor;
@@ -724,7 +783,9 @@ impl Session {
         &mut self,
         envelopes: Vec<api::ServerEnvelope>,
         reservation: Reservation,
+        phase: DeliveryPhase,
     ) -> Result<(), Status> {
+        let count = envelopes.len();
         let value = if self.static_subscription {
             WireResponse::Static(api::SubscribeStaticResponse {
                 response: Some(api::subscribe_static_response::Response::Messages(
@@ -741,7 +802,9 @@ impl Session {
         if value.encoded_len() + 5 > self.mailbox.frame_bytes {
             return Err(capacity());
         }
-        self.admit(value, reservation, None)
+        self.admit(value, reservation, None)?;
+        telemetry::stream_envelopes_sent(phase, count);
+        Ok(())
     }
 
     fn control(&mut self, response: api::subscribe_response::Response) -> Result<(), Status> {
@@ -782,6 +845,7 @@ impl Session {
         mut reservation: Reservation,
         challenge: Option<tokio::sync::oneshot::Sender<Instant>>,
     ) -> Result<(), Status> {
+        let frame = metric_frame(&value);
         reservation.shrink(value.encoded_len() + 5);
         self.output
             .try_send(Frame {
@@ -790,6 +854,9 @@ impl Session {
                 challenge,
             })
             .map_err(|_| capacity())?;
+        if let Some(frame) = frame {
+            telemetry::stream_frame_sent(frame);
+        }
         self.send_idle = Instant::now();
         Ok(())
     }
@@ -797,4 +864,24 @@ impl Session {
 
 fn capacity() -> Status {
     Status::resource_exhausted("stream output capacity exceeded")
+}
+
+fn metric_frame(value: &WireResponse) -> Option<MetricFrame> {
+    use api::{
+        subscribe_response::Response as Native, subscribe_static_response::Response as Static,
+    };
+    match value {
+        WireResponse::Native(value) => value.response.as_ref().map(|response| match response {
+            Native::Started(_) => MetricFrame::Started,
+            Native::Applied(_) => MetricFrame::Applied,
+            Native::Messages(_) => MetricFrame::Messages,
+            Native::Ping(_) => MetricFrame::Ping,
+            Native::Pong(_) => MetricFrame::Pong,
+        }),
+        WireResponse::Static(value) => value.response.as_ref().map(|response| match response {
+            Static::Started(_) => MetricFrame::Started,
+            Static::Messages(_) => MetricFrame::Messages,
+            Static::Keepalive(_) => MetricFrame::Keepalive,
+        }),
+    }
 }

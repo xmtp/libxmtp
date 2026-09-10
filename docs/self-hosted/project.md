@@ -110,7 +110,7 @@ Replace all backend selection in `xmtp_mls` with the self-hosted backend. This r
 - `apps/xmtp_debug` stays as an app. Its backend selection and other dead functionality are deleted as the code they depend on goes.
 - The `anvil` service stays. The SCW verifier tests keep using it, as the owner decided on 2026-09-08.
 - Audit all scripts in the dev folder and justfile and remove any scripts or configuration that is now dead code.
-- The `anvil` service stays in `dev/docker/docker-compose.yml`. The stack contains `db` (Postgres 18), `backend`, `anvil`, and `toxiproxy`. The legacy node, validation, and history services and the separate d14n compose file are removed.
+- The `anvil` service stays in `dev/docker/compose.yml`. The stack now contains `db` (Postgres 18), `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`. The legacy node, validation, and history services and the separate d14n compose file are removed.
 
 ### Phase 4: Polish
 
@@ -135,6 +135,9 @@ Replace all backend selection in `xmtp_mls` with the self-hosted backend. This r
 - Add support for rate-limiting using an in-memory token bucket rate limiter. Create a mapping of rate limit costs to request types, such that each request (or mutation of a bidi stream) consumes a certain number of tokens. If authentication is enabled, user identifier for rate limiting is the `sub` claim from the JWT. If auth is disabled, use the client IP. Reject requests that exceed rate limits.
 
 #### 4.5: Metrics And Telemetry
+
+Status: done. See [backend observability](../backend-observability.md) for
+configuration, metrics, traces, alerts, and the end-to-end check.
 
 - Full OpenTelemetry and Prometheus metrics for the backend. Reuse metric names, labels, and conventions from `xmtpd` and `xmtp-node-go` where applicable.
 

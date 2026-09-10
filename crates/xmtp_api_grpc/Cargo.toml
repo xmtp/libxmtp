@@ -22,6 +22,7 @@ url.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
+xmtp_logging.workspace = true
 xmtp_proto.workspace = true
 
 
@@ -60,6 +61,7 @@ tower.workspace = true
 futures-test.workspace = true
 rstest.workspace = true
 toxiproxy_rust.workspace = true
+xmtp_logging = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]

@@ -39,15 +39,13 @@ pub(crate) fn empty_file_layer() -> FileLayer {
         .with_filter(EnvFilter::new("off"))
 }
 
-/// Build the OTLP trace layer, the OTLP logs appender layer, and the guard that
-/// owns both providers. Both layers go into the telemetry slot together so they
-/// are enabled/disabled atomically.
+/// Build the OTLP tracer, log appender, and provider guard. The handle
+/// changes them under one ownership lock.
 pub(crate) fn build_telemetry_layer(
     cfg: TelemetryConfig,
-) -> Result<(BoxLayer, BoxLayer, TelemetryGuard), Error> {
-    let (trace_layer, appender, guard) =
-        telemetry::init::<Registry>(cfg.endpoint, cfg.resource_attributes)?;
-    Ok((trace_layer.boxed(), appender, guard))
+) -> Result<(opentelemetry_sdk::trace::Tracer, BoxLayer, TelemetryGuard), Error> {
+    let (_, appender, guard) = telemetry::init::<Registry>(cfg)?;
+    Ok((guard.tracer(), appender, guard))
 }
 
 /// Worker guards that must stay alive for the lifetime of the process: the
@@ -100,6 +98,7 @@ pub struct LoggingHandle {
     native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
     file: reload::Handle<FileLayer, Registry>,
     telemetry: reload::Handle<Option<BoxLayer>, Registry>,
+    tracer: telemetry::switch::SwitchTracer,
     guards: Mutex<Guards>,
 }
 
@@ -112,6 +111,7 @@ impl LoggingHandle {
         native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
         file: reload::Handle<FileLayer, Registry>,
         telemetry: reload::Handle<Option<BoxLayer>, Registry>,
+        tracer: telemetry::switch::SwitchTracer,
         guards: Guards,
     ) -> Self {
         Self {
@@ -119,6 +119,7 @@ impl LoggingHandle {
             native_filters,
             file,
             telemetry,
+            tracer,
             guards: Mutex::new(guards),
         }
     }
@@ -193,10 +194,12 @@ impl LoggingHandle {
                     "sentry telemetry active; disable it before enabling OTLP".into(),
                 ));
             }
-            let (trace_layer, appender, guard) = build_telemetry_layer(cfg)?;
-            let combined: BoxLayer = vec![trace_layer, appender].boxed();
-            match self.telemetry.reload(Some(combined)) {
-                Ok(()) => guards.telemetry.replace(guard),
+            let (tracer, appender, guard) = build_telemetry_layer(cfg)?;
+            match self.telemetry.reload(Some(appender)) {
+                Ok(()) => {
+                    self.tracer.set(Some(tracer));
+                    guards.telemetry.replace(guard)
+                }
                 // Release the lock before the fresh guard's shutdown-on-drop.
                 Err(e) => {
                     drop(guards);
@@ -208,6 +211,26 @@ impl LoggingHandle {
         // it outside the lock, as `enable_sentry` does.
         drop(previous);
         Ok(())
+    }
+
+    /// Remove OTLP export and free its slot. Leave a Sentry-owned slot unchanged.
+    pub fn disable_telemetry(&self) -> Result<(), Error> {
+        let previous = {
+            let mut guards = self.guards.lock();
+            if guards.telemetry.is_none() {
+                return Ok(());
+            }
+            self.telemetry.reload(None)?;
+            self.tracer.set(None);
+            guards.telemetry.take()
+        };
+        drop(previous);
+        Ok(())
+    }
+
+    /// Return whether this handle owns an active OTLP exporter.
+    pub fn telemetry_enabled(&self) -> bool {
+        self.guards.lock().telemetry.is_some()
     }
 
     /// Flush pending telemetry spans (best-effort) **without** stopping the
@@ -329,6 +352,7 @@ impl Drop for LoggingHandle {
     /// client-close and no layer is left routing events into a restored host
     /// client.
     fn drop(&mut self) {
+        self.tracer.set(None);
         let _ = self.telemetry.reload(None);
     }
 }

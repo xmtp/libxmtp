@@ -1,41 +1,76 @@
 # Self-hosted backend operations
 
 The backend serves native gRPC, gRPC-Web, and standard gRPC health on one port.
-It stores durable state in PostgreSQL 18. Client SDK integration is separate work.
+It stores durable state in PostgreSQL 18. The local stack also serves SDK tests.
 
 ## Local development
 
 Run commands from the repository root. Use the Nix shell and the project recipes.
 
 ```sh
-just backend-db-up
-just backend-sql-prepare
-just test-backend
+just backend db-up
+just backend sql-prepare
+just backend test
 ```
 
 The database listens on `127.0.0.1:55432`. The credentials and database name are
-in `dev/backend/compose.yml`. These credentials are for disposable local tests only.
+in `dev/docker/compose.yml`. These credentials are for disposable local tests only.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.
 The test recipe uses four test threads by default to bound database connections.
 
-Set `XMTP_DATABASE_URL` before starting the service with the example config:
+`just backend db-up` starts the primary and replica without building an image.
+The replica listens on `127.0.0.1:55433`. `just backend run` sets both database
+URLs and uses `dev/backend/local.toml`.
+
+The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
+`anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
+Run `just backend up` to build and load the backend image and start all services.
+Use `just backend up [services...]` to select services and their dependencies.
+Use `just backend logs [services...]` for logs. Both `just backend down` and
+`just backend db-down` stop the entire stack and delete its temporary state.
+
+For migration from the old database project, run
+`docker compose -p xmtp-backend down` once. If Compose cannot find the old file,
+run `docker compose -f dev/docker/compose.yml -p xmtp-backend down --remove-orphans`.
+The startup script prints a hint if that project still holds port 55432.
+
+## Local observability
+
+Run `just backend observe-check` after `just backend up`. It checks real client
+operations, both services in one trace, backend metrics, and the dashboard.
+See [backend observability](../backend-observability.md) for configuration,
+the metric catalogue, span names, failure modes, alerts, and client walkthroughs.
+
+- Grafana: <http://127.0.0.1:3000>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
+- Prometheus: <http://127.0.0.1:9090>. It scrapes the backend and Tempo every five seconds and evaluates 25 alert rules.
+- Backend metrics: <http://127.0.0.1:9464/metrics>.
+- Tempo: <http://127.0.0.1:3200>. OTLP receivers use ports 4317 (gRPC) and 4318 (HTTP).
+
+Tempo generates service graphs and span metrics and sends them to Prometheus
+with exemplars. Client panels use sampled traces. Prometheus and Tempo are
+provisioned as Grafana datasources. All service data is temporary.
+The backend exports traces to `http://tempo:4317` inside the stack.
+
+To check observability without a backend image, run:
 
 ```sh
-dev/nix-shell 'cargo run --locked -p xmtp_backend -- --config dev/backend/config.toml'
+./dev/docker/up db replica tempo prometheus grafana anvil
+./dev/docker/up --no-deps toxiproxy
 ```
 
-The default listener is `0.0.0.0:5050`. Use another listener address when the old
-SDK test services already use that port. Do not replace those services before
-the SDK integration phase.
+Toxiproxy normally depends on backend health. The second command skips that
+startup dependency; proxy traffic still needs a running backend.
+Tempo has no container healthcheck because its image is distroless.
+Check its readiness with `curl -sf http://127.0.0.1:3200/ready`.
 
 ## Configuration
 
 Use `--config` to select one TOML file. The primary database URL is required.
 Other settings have defaults. Unknown keys and invalid values fail startup.
 The config schema is in `docs/schemas/backend-v1.json`. After changing the typed
-config, run `just backend-schema` to regenerate it, then run the config tests.
+config, run `just backend schema` to regenerate it, then run the config tests.
 
 A value such as `env:XMTP_DATABASE_URL` reads an environment variable at startup.
 Keep secrets in environment variables. Do not commit them in config files.
@@ -73,7 +108,14 @@ counted; gRPC-Web trailers encoded as body data are counted.
 Accepted stream mutations log added and removed topic counts at INFO. They do
 not log topic values or payloads. Turning off the request logger suppresses only
 completion events; use a higher log level to suppress INFO mutation events too.
-Full OpenTelemetry configuration is deferred to Phase 4.
+The local stack configures the OTLP endpoint for Tempo.
+
+`server.log_format` selects `text` (default) or `json`. `[telemetry]` configures
+the metrics listener, OTLP endpoint, optional log export, service name, sample
+ratio, and resource attributes. An absent endpoint uses
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Resource attributes are exported verbatim; never
+put secrets in them. Backend metrics do not depend on trace sampling.
+Tempo-derived client metrics depend on `sample_ratio` and successful export.
 
 ## Schema changes and builds
 
@@ -82,10 +124,10 @@ permanent deployments that need an incremental upgrade path. Recreate the
 disposable database after a migration edit, then refresh checked SQL metadata:
 
 ```sh
-just backend-db-down
-just backend-db-up
-just backend-sql-prepare
-just backend-sql-check
+just backend db-down
+just backend db-up
+just backend sql-prepare
+just backend sql-check
 ```
 
 Stopping this test topology deletes its temporary database state. It cannot be
@@ -101,9 +143,9 @@ backend-only dependency.
 
 ```sh
 dev/nix-shell 'SQLX_OFFLINE=true cargo build --locked -p xmtp_backend'
-just build-backend
-just backend-image
-just backend-image aarch64
+just backend build
+just backend image
+dev/nix-shell 'nix build .#backend-image-aarch64-unknown-linux-musl'
 ```
 
 Nix builds need no database. The images use `ghcr.io/xmtp/backend:self-hosted`
@@ -121,7 +163,7 @@ The backend test suite includes an HTTPS ingress check. A test-only TLS terminat
 passes HTTP bytes to the service without gRPC conversion. The check requires a
 Started frame before publication, then requires the published envelope while the
 same response stays open. It also checks CORS, request headers, and error details.
-Run this check with `just test-backend --lib https_passthrough`.
+Run this check with `just backend test --lib https_passthrough`.
 
 Shutdown stops request admission and ends active subscriptions. Unary requests
 already admitted can finish within `server.max_drain_duration_ms`. At the end of

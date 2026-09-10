@@ -21,8 +21,9 @@ dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testD
 ## Local services
 
 - Run `just backend up` for the main test stack.
-- To use the published backend image, run `dev/nix-shell 'docker compose -f sdks/android/dev/local/docker-compose.yml up --detach --wait'`.
-- Both stacks run `db`, `backend`, `anvil`, and `toxiproxy`.
+- To use the published backend image, run `./dev/docker/up`.
+- The shared `dev/docker/compose.yml` runs `db`, `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
+- `sdks/android/dev/local/compose` forwards commands to the shared stack.
 - Emulator tests use `localApi()` with `http://10.0.2.2:5050`.
 - Smart contract wallet tests use anvil at `http://10.0.2.2:8545`.
 - Supply `ClientOptions.Api(backendUrl = "http://10.0.2.2:5050")`. The URL has no default. The optional `env` string selects the database file alias.

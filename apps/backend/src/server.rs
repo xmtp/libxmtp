@@ -19,7 +19,7 @@ use xmtp_id::scw_verifier::{
 };
 
 mod lifecycle;
-pub(crate) mod request_logger;
+pub(crate) mod telemetry;
 #[cfg(test)]
 mod tests;
 
@@ -102,10 +102,11 @@ pub async fn serve(
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
         .layer(cors)
-        .layer(request_logger::RequestLoggerLayer(
+        .layer(telemetry::GrpcTelemetryLayer(
             backend.config.server.request_logger,
         ))
         .layer(GrpcWebLayer::new())
+        .layer(telemetry::GrpcStatusLayer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
         .add_service(query)
@@ -137,6 +138,7 @@ async fn report_health(
     reporter: &tonic_health::server::HealthReporter,
     status: tonic_health::ServingStatus,
 ) {
+    crate::telemetry::ready(status == tonic_health::ServingStatus::Serving);
     for service in [
         "",
         QueryServiceServer::<Backend>::NAME,

@@ -1,0 +1,126 @@
+groups:
+  - name: xmtp-backend
+    rules:
+      - alert: BackendDown
+        expr: >-
+          up{job="backend"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Backend scrape is down."
+      - alert: BackendNotReady
+        expr: >-
+          xmtp_backend_ready == 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Backend is not ready."
+      - alert: TailerNotReady
+        expr: >-
+          xmtp_tailer_ready == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "Tailer is not ready."
+      - alert: HighErrorRate
+        expr: >-
+          sum(rate(grpc_server_handled_total{grpc_code=~"Unavailable|Internal|DeadlineExceeded|Unknown"}[5m])) / sum(rate(grpc_server_started_total[5m])) > 0.02
+        for: 5m
+        labels:
+          severity: page
+        annotations:
+          summary: "Backend error ratio exceeds 2%."
+      - alert: DatabaseUnavailable
+        expr: >-
+          rate(xmtp_db_errors_total{kind="connection"}[5m]) > 0
+        for: 2m
+        labels:
+          severity: page
+        annotations:
+          summary: "Database connections fail."
+      - alert: StorageInvariant
+        expr: >-
+          increase(xmtp_db_errors_total{kind="invariant"}[10m]) > 0
+        labels:
+          severity: page
+        annotations:
+          summary: "Storage invariant failed."
+      - alert: PublishLatencyHigh
+        expr: >-
+          histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method="Publish",grpc_code="OK"}[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Publish p99 exceeds one second."
+      - alert: QueryLatencyHigh
+        expr: >-
+          histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method=~"Query|QueryNewest|Get",grpc_code="OK"}[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Query p99 exceeds half a second."
+      - alert: LockWaitHigh
+        expr: >-
+          histogram_quantile(0.99, sum by (le) (rate(xmtp_operation_duration_seconds_bucket{operation="publish.locks"}[5m]))) > 0.5
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Publish lock wait is high."
+      - alert: LeakedTransactions
+        expr: >-
+          increase(xmtp_db_released_open_transactions_total[10m]) > 0
+        labels:
+          severity: warn
+        annotations:
+          summary: "A connection was released with an open transaction."
+      - alert: TailerRestarting
+        expr: >-
+          increase(xmtp_tailer_restarts_total[10m]) > 2
+        labels:
+          severity: page
+        annotations:
+          summary: "Tailer restarted more than twice."
+      - alert: GapRangesGrowing
+        expr: >-
+          xmtp_tailer_gap_ranges > 5000
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Tailer gap ranges exceed 5000."
+      - alert: BarrierStarved
+        expr: >-
+          sum by (instance) (rate(xmtp_boundary_advances_total{result="lock_timeout"}[10m])) > sum by (instance) (rate(xmtp_boundary_advances_total{result="ok"}[10m]))
+        labels:
+          severity: warn
+        annotations:
+          summary: "Boundary lock timeouts exceed successful advances."
+      - alert: StreamsFailing
+        expr: >-
+          sum(rate(xmtp_stream_ended_total{reason=~"backpressure|capacity|tailer|database"}[5m])) > 0.1
+        labels:
+          severity: warn
+        annotations:
+          summary: "Stream failure rate is high."
+      - alert: ChainRpcFailing
+        expr: >-
+          sum(rate(xmtp_scw_verifications_total{result="error"}[5m])) / sum(rate(xmtp_scw_verifications_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Chain verification error ratio exceeds 10%."
+      - alert: ExportFailing
+        expr: >-
+          rate(xmtp_telemetry_export_failures_total[5m]) > 0
+        for: 10m
+        labels:
+          severity: warn
+        annotations:
+          summary: "Telemetry export fails."
