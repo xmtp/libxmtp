@@ -144,7 +144,7 @@ API-074 is safe under per-topic order: a topic's cursor moves only when that top
 
 ## 8. Subscribe (bidirectional)
 
-One client owns one ingestion cursor per topic. Spec 004 defines the complete contract. The protocol replaces XIP-83; it does not support independent replay cursors for multiple downstream clients.
+One logical client database shares durable receipt and processing per topic. Spec 004 defines the separate client positions and local message readers. The protocol replaces XIP-83; one upstream registration does not support independent network replay cursors for multiple downstream clients.
 
 - API-090: The first frame is `Started`, carrying the keepalive interval. No topics are registered yet. An interval of zero means the client uses its default.
 - API-091: An `Update` applies adds and removes atomically, in receive order. Each add supplies a topic and exclusive starting cursor. A topic may occur only once across both lists; duplicate or overlapping entries fail with `INVALID_ARGUMENT`.
@@ -159,12 +159,12 @@ One client owns one ingestion cursor per topic. Spec 004 defines the complete co
 - API-100: Adding an active topic is a no-op regardless of the supplied cursor. Removing an absent topic is a no-op. Removal cancels that registration; already queued messages may precede its `Applied`, but none from it may follow. A later add starts a new registration and target from the supplied cursor.
 - API-101: There is no application-level quota for concurrent subscriptions in v1. The HTTP/2 concurrency limit in API-132 still applies. Phase 6 adds caller quotas.
 - API-102: Reconnect with the current desired topic set and safe durable cursors. The new connection returns fresh targets. Clients remove overlap duplicates using local state; received-but-unprocessed rows must remain recoverable.
-- API-103: A client shares one ordered ingestion path per topic across its local application streams. Their callbacks remain independent. A later local consumer does not rewind the upstream topic. Use history APIs for historical reads.
+- API-103: THE CLIENT SHALL share durable receipt and ordered processing per topic. App message streams SHALL read local storage under spec 004's default-consumer and explicit-replay rules. A later reader SHALL NOT rewind the upstream topic. Local history and message replay SHALL remain independent of network receipt progress.
 - API-104: A bidirectional stream with no topics stays open.
 - API-105: The application chooses topics and filters. Consent and membership can inform that choice, but denied topics may be streamed. The subscription protocol does not enforce consent or membership. Existing payload validation and MLS processing rules still apply.
 - API-106: An unset request oneof fails with `INVALID_ARGUMENT`.
 - API-107: Update and client Ping frames each have a per-stream token bucket of 10 frames/s with burst 100. Exhaustion fails the stream with `RESOURCE_EXHAUSTED`. Pong consumes neither bucket. These are the Phase 2 exception to API-133.
-- API-108: Cancellation and native request half-close end the session. Half-close is not a catch-up command. A bounded SDK sync uses the same stream, processes through fixed targets and any groups discovered within them, then cancels; later traffic does not extend that run.
+- API-108: Cancellation and native request half-close end the session. Half-close is not a catch-up command. THE SDK SHALL implement bounded sync as spec 004's fixed processing barrier over shared receipt, with unary fallback. It SHALL include required groups discovered within fixed Welcome targets. Later traffic SHALL NOT extend the run. Ending the run SHALL release only its own interests, without cancelling a receiver needed elsewhere.
 
 ## 9. Subscribe (static)
 
@@ -225,7 +225,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 - API-146: Key-package reads, inbox-id lookups, query paging, and static-subscription splitting are unchunked in the client today. The chunking in API-140, API-141, and API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API. The status-based retry classifier and per-topic client ledger must land in the same phase.
 - API-148: The backend must reject an identity update for an inbox whose log already holds 256 entries with `INVALID_ARGUMENT` and reason `REASON_INVALID_IDENTITY_UPDATE`, as both existing backends do.
 - API-147: The client must add a fifth topic kind for the commit log and publish and read commit-log entries as envelopes.
-- API-149: Phase 3 replaces the wave ledger with shared per-topic ingestion, processing-based catch-up status, and bounded sync through the same stream. Preserve application-selected filters, including denied topics.
+- API-149: THE CLIENT SHALL replace the wave ledger with spec 004's separate durable receipt, ordered processing, and local app-delivery positions. Catch-up and bounded sync SHALL use its fixed processing predicates and shared receipt. THE SDK SHALL CONTINUE TO preserve app-selected filters, including denied topics. This is required client integration work, not a statement that the revised behavior has landed.
 
 ## 12. Error contract
 
