@@ -90,16 +90,12 @@ test target="workspace" *args="":
     just _test-{{ target }} {{ args }}
 
 [private]
-[script("bash")]
 _test-workspace *args="":
-    {{ _env }}
-    {{ cargo_test }} --profile ci {{ args }}
+    {{ _env }} && {{ cargo_test }} --profile ci {{ args }}
 
 [private]
-[script("bash")]
 _test-crate +crates:
-    {{ _env }}
-    args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
+    {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
     {{ cargo_test }} --profile ci $args
 
 # Verify the shared validation crate without workspace feature unification.

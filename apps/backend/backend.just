@@ -23,17 +23,15 @@ image:
     nix build {{ root }}#backend-image-{{ musl_arch }}-unknown-linux-musl --out-link {{ root }}/result-backend-image
 
 # Run the backend outside Docker against the `db-up` database.
-[script("bash")]
 run:
-    {{ _env }}
-    XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$XMTP_REPLICA_URL" XMTP_CHAIN_31337_URL="$ANVIL_URL" \
+    {{ _env }} && \
+      XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$XMTP_REPLICA_URL" XMTP_CHAIN_31337_URL="$ANVIL_URL" \
       nix run {{ root }}#xmtp-backend -- --config {{ root }}/dev/backend/local.toml
 
 # Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
-[script("bash")]
 test *args="":
-    {{ _env }}
-    RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
+    {{ _env }} && \
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
 
 db-up:
     {{ root }}/dev/docker/up db replica
@@ -41,17 +39,13 @@ db-up:
 db-down:
     {{ root }}/dev/docker/down
 
-[script("bash")]
 sql-prepare:
-    {{ _env }}
-    cargo sqlx migrate run --source apps/backend/migrations
-    cd apps/backend && cargo sqlx prepare -- --all-targets
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare -- --all-targets
 
-[script("bash")]
 sql-check:
-    {{ _env }}
-    cargo sqlx migrate run --source apps/backend/migrations
-    cd apps/backend && cargo sqlx prepare --check -- --all-targets
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare --check -- --all-targets
 
 [script("bash")]
 schema:
@@ -73,10 +67,8 @@ logs *services:
     {{ root }}/dev/docker/compose logs {{ services }}
 
 # Show this worktree's stack identity: project, slot, ports, and URLs.
-[script("bash")]
 status:
-    {{ _env }}
-    echo "worktree:  $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)"
+    {{ _env }} && echo "worktree:  $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)"
     echo "project:   $XMTP_COMPOSE_PROJECT"
     echo "backend:   $XMTP_BACKEND_URL"
     echo "toxic:     $XMTP_BACKEND_TOXIC_URL"
