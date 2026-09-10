@@ -213,7 +213,7 @@ impl std::fmt::Debug for Config {
 /// Attach the configuration field to an environment error without including its value.
 /// Resolve string references once, before typed decoding, including string enums.
 /// Resolved values are never included in errors and are not recursively expanded.
-fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
+pub(crate) fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
     match value {
         toml::Value::String(text) => {
             *text = resolve_env(text).map_err(|error| match error {

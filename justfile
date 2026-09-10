@@ -87,12 +87,12 @@ test target="workspace" *args="":
 
 [private]
 _test-workspace *args="":
-    {{ cargo_test }} --profile ci {{ args }}
+    SQLX_OFFLINE=true DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" {{ cargo_test }} --profile ci {{ args }}
 
 [private]
 _test-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
-    {{ cargo_test }} --profile ci $args
+    SQLX_OFFLINE=true DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" {{ cargo_test }} --profile ci $args
 
 # Verify the shared validation crate without workspace feature unification.
 check-validation:

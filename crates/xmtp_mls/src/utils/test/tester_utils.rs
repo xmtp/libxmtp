@@ -41,6 +41,7 @@ xmtp_common::if_native! {
     use xmtp_proto::api_client::{ToxicProxies, ToxicTestClient};
 }
 use xmtp_api::{ApiError, XmtpApi};
+use xmtp_api_backend::{AuthCallback, AuthMiddleware, BackendClient, TrackedStatsClient};
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_configuration::DockerUrls;
@@ -70,6 +71,7 @@ use xmtp_id::{
     },
     scw_verifier::SmartContractSignatureVerifier,
 };
+use xmtp_proto::api::ToBoxedClient;
 use xmtp_proto::{
     api::ApiClientError,
     api_client::ApiBuilder,
@@ -203,11 +205,11 @@ where
                     proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
                     ToxicOnlyTestClientCreator::create().build().unwrap()
                 } else {
-                    DefaultTestClientCreator::create().build().unwrap()
+                    self.api_endpoint.client()
                 };
             },
             wasm => {
-                api_client = DefaultTestClientCreator::create().build().unwrap();
+                api_client = self.api_endpoint.client();
             }
         }
         let api_client = self
@@ -413,6 +415,8 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     pub proxy: bool,
     pub api_client: Option<crate::utils::TestClient>,
+    /// Kept separately so `auth` and `backend` may be given in any order.
+    pub auth_callback: Option<Arc<dyn AuthCallback>>,
     pub commit_log_worker: bool,
     pub ephemeral_db: bool,
     pub api_endpoint: ApiEndpoint,
@@ -431,6 +435,28 @@ where
 pub enum ApiEndpoint {
     Local,
     Dev,
+    Url {
+        url: String,
+        auth: Option<Arc<dyn AuthCallback>>,
+    },
+}
+
+impl ApiEndpoint {
+    fn client(&self) -> xmtp_api_backend::TestClient {
+        match self {
+            Self::Local | Self::Dev => DefaultTestClientCreator::create().build().unwrap(),
+            Self::Url { url, auth } => {
+                let transport = xmtp_api_grpc::GrpcClient::create(url.parse().unwrap()).unwrap();
+                let transport = match auth {
+                    Some(callback) => {
+                        AuthMiddleware::new(transport, Some(callback.clone()), None).arced()
+                    }
+                    None => transport.arced(),
+                };
+                TrackedStatsClient::new(BackendClient::new(transport))
+            }
+        }
+    }
 }
 
 impl TesterBuilder<PrivateKeySigner> {
@@ -452,6 +478,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             #[cfg(not(target_arch = "wasm32"))]
             proxy: false,
             api_client: None,
+            auth_callback: None,
             commit_log_worker: true, // Default to enabled to match production
             installation: false,
             ephemeral_db: true,
@@ -486,6 +513,7 @@ where
             #[cfg(not(target_arch = "wasm32"))]
             proxy: self.proxy,
             api_client: self.api_client,
+            auth_callback: self.auth_callback,
             commit_log_worker: self.commit_log_worker,
             installation: self.installation,
             ephemeral_db: self.ephemeral_db,
@@ -498,6 +526,25 @@ where
             worker_config: self.worker_config,
             change_callbacks: self.change_callbacks,
         }
+    }
+
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    pub fn backend(mut self, backend: &super::backend::EphemeralBackend) -> Self {
+        self.api_endpoint = ApiEndpoint::Url {
+            url: backend.url().to_owned(),
+            auth: self.auth_callback.clone(),
+        };
+        self
+    }
+
+    /// Set the callback for a URL endpoint. The order of `backend` and `auth`
+    /// does not matter: a callback set first is kept when `backend` follows.
+    pub fn auth(mut self, callback: Arc<dyn AuthCallback>) -> Self {
+        self.auth_callback = Some(callback.clone());
+        if let ApiEndpoint::Url { auth, .. } = &mut self.api_endpoint {
+            *auth = Some(callback);
+        }
+        self
     }
 
     pub fn api_client(mut self, api_client: crate::utils::TestClient) -> Self {

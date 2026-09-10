@@ -1,17 +1,21 @@
 use crate::{BackendClient, TrackedStatsClient};
 use xmtp_api_grpc::{
-    ClientBuilder, GrpcClient,
+    ClientBuilder,
     test::{BackendTestClient, ToxicBackendTestClient},
 };
 use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
 
-pub type TestClient = TrackedStatsClient<BackendClient<GrpcClient>>;
+use xmtp_proto::api::{ArcClient, ToBoxedClient};
+
+pub type TestClient = TrackedStatsClient<BackendClient<ArcClient>>;
 pub struct TestClientBuilder(ClientBuilder);
 impl ApiBuilder for TestClientBuilder {
     type Output = TestClient;
     type Error = xmtp_api_grpc::error::GrpcBuilderError;
     fn build(self) -> Result<Self::Output, Self::Error> {
-        Ok(TrackedStatsClient::new(BackendClient::new(self.0.build()?)))
+        Ok(TrackedStatsClient::new(BackendClient::new(
+            self.0.build()?.arced(),
+        )))
     }
 }
 impl XmtpTestClient for TestClient {

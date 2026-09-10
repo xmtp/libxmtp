@@ -7,8 +7,8 @@ pub mod server;
 pub mod service;
 mod stream;
 pub mod telemetry;
-#[cfg(test)]
-mod test_support;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod test_support;
 mod validation;
 
 pub use service::Backend;
