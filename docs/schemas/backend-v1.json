@@ -5,6 +5,16 @@
   "description": "Complete backend configuration.",
   "type": "object",
   "properties": {
+    "auth": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AuthConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "server": {
       "$ref": "#/$defs/ServerConfig",
       "default": {
@@ -111,6 +121,135 @@
     "database"
   ],
   "$defs": {
+    "AuthConfig": {
+      "type": "object",
+      "properties": {
+        "jwks_url": {
+          "description": "Fetch signing keys from HTTPS, or HTTP on a loopback host.",
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uri",
+                  "pattern": "^https?://"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "keys": {
+          "description": "Inline public signing keys. Exactly one key source must be set.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/AuthKeyConfig"
+          },
+          "default": null
+        },
+        "audiences": {
+          "description": "Require an audience that matches one of these values when set.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "issuers": {
+          "description": "Require an issuer that matches one of these values when set.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "required_scopes": {
+          "description": "Require every one of these scopes on every authenticated RPC.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "leeway_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "maximum": 300,
+          "default": 60
+        },
+        "jwks_refresh_seconds": {
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 1,
+          "default": 300
+        },
+        "jwks_max_stale_seconds": {
+          "description": "Must be at least the refresh interval plus the ten-second fetch timeout.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 3600
+        }
+      },
+      "additionalProperties": false
+    },
+    "AuthKeyConfig": {
+      "type": "object",
+      "properties": {
+        "kid": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "default": ""
+        },
+        "alg": {
+          "type": "string",
+          "enum": [
+            "RS256",
+            "RS384",
+            "RS512",
+            "ES256",
+            "ES384",
+            "EdDSA"
+          ]
+        },
+        "public_key": {
+          "description": "PEM SubjectPublicKeyInfo for the selected algorithm, or env:NAME.",
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^-----BEGIN PUBLIC KEY-----"
+            },
+            {
+              "type": "string",
+              "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "alg",
+        "public_key"
+      ]
+    },
     "ServerConfig": {
       "type": "object",
       "properties": {

@@ -8,7 +8,14 @@ use crate::{
     config::Config,
     db::Store,
 };
-use std::{collections::HashMap, num::NonZeroUsize};
+use std::{
+    collections::HashMap,
+    num::NonZeroUsize,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+};
 use tokio::net::TcpListener;
 use tokio_stream::wrappers::TcpListenerStream;
 use tonic::{server::NamedService, transport::Server};
@@ -18,6 +25,7 @@ use xmtp_id::scw_verifier::{
     CachedSmartContractSignatureVerifier, MultiSmartContractSignatureVerifier,
 };
 
+mod auth;
 mod lifecycle;
 pub(crate) mod telemetry;
 #[cfg(test)]
@@ -27,12 +35,19 @@ mod tests;
 ///
 /// The primary database is migrated before the backend is returned. A verifier
 /// cache is created with the configured non-zero capacity, and cryptography is
-/// installed before any chain-RPC client is built.
+/// installed before any chain-RPC client is built. Auth keys load before storage;
+/// an exhausted JWKS startup fetch returns a host-only error before binding.
 pub async fn initialize(
     config: Config,
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
     config.validate()?;
     xmtp_cryptography::install_crypto_provider();
+    let auth = match &config.auth {
+        Some(auth) => Some(std::sync::Arc::new(
+            crate::auth::Authentication::initialize(auth).await?,
+        )),
+        None => None,
+    };
     let routes = config
         .chains
         .iter()
@@ -48,19 +63,34 @@ pub async fn initialize(
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier);
     backend.streams = Some(streams);
+    backend.auth = auth;
     Ok(backend)
+}
+
+/// Server failures after the normal bounded drain.
+#[derive(Debug, thiserror::Error)]
+pub enum ServeError {
+    #[error("auth state does not match configuration; initialize the backend before serving")]
+    AuthNotInitialized,
+    #[error(transparent)]
+    Transport(#[from] tonic::transport::Error),
+    #[error("JWKS keys exceeded the maximum stale time")]
+    JwksStale,
 }
 
 /// Configure gRPC, gRPC-Web, health, size limits, and graceful shutdown.
 ///
 /// The service implementations share the supplied backend. The listener and
 /// shutdown future belong to the caller, which controls when serving starts and
-/// ends.
+/// ends. Auth state must come from `initialize`; inconsistent state fails closed.
 pub async fn serve(
     backend: Backend,
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
-) -> Result<(), tonic::transport::Error> {
+) -> Result<(), ServeError> {
+    if backend.config.auth.is_some() != backend.auth.is_some() {
+        return Err(ServeError::AuthNotInitialized);
+    }
     let limits = &backend.config.limits;
     let receive = limits.max_request_bytes;
     let send = limits.max_response_bytes;
@@ -97,6 +127,32 @@ pub async fn serve(
     let incoming_lifecycle = lifecycle.clone();
     let incoming = TcpListenerStream::new(listener)
         .map(move |socket| socket.map(|socket| incoming_lifecycle.connection(socket)));
+    let jwks_stale = Arc::new(AtomicBool::new(false));
+    let mut refresh = tokio::task::JoinSet::new();
+    if let Some(auth) = backend.auth.clone().filter(|auth| auth.jwks.is_some()) {
+        let stale = jwks_stale.clone();
+        refresh.spawn(async move {
+            if let Some(source) = &auth.jwks {
+                source.refresh(&auth.verifier.keys, auth.last_success).await;
+                stale.store(true, Ordering::Release);
+            }
+        });
+    }
+    let stale = async {
+        if refresh.is_empty() {
+            std::future::pending::<()>().await;
+        }
+        let _ = refresh.join_next().await;
+    };
+    let shutdown = async {
+        tokio::select! { biased; _ = stale => {}, _ = shutdown => {} }
+    };
+    let auth_layer = tower::ServiceBuilder::new().option_layer(
+        backend
+            .auth
+            .as_ref()
+            .map(|auth| auth::AuthLayer(auth.verifier.clone())),
+    );
     let (stop, stopped) = tokio::sync::oneshot::channel();
     let serving = Server::builder()
         .accept_http1(true)
@@ -107,6 +163,7 @@ pub async fn serve(
         ))
         .layer(GrpcWebLayer::new())
         .layer(telemetry::GrpcStatusLayer)
+        .layer(auth_layer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
         .add_service(query)
@@ -117,7 +174,7 @@ pub async fn serve(
             let _ = stopped.await;
         });
     tokio::pin!(serving);
-    tokio::select! {
+    let result = tokio::select! {
         result = &mut serving => result,
         _ = shutdown => {
             guard.stop();
@@ -129,6 +186,11 @@ pub async fn serve(
                 Err(_) => { lifecycle.cancel(); Ok(()) },
             }
         }
+    };
+    if jwks_stale.load(Ordering::Acquire) {
+        Err(ServeError::JwksStale)
+    } else {
+        result.map_err(ServeError::from)
     }
 }
 
