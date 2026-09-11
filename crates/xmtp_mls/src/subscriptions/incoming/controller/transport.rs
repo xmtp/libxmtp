@@ -110,6 +110,11 @@ impl Transport {
     }
 
     pub(super) fn fail(&mut self, error: NetworkError, delay: Duration) {
+        tracing::warn!(
+            error = %error,
+            retryable = error.is_retryable(),
+            "incoming receiver failed"
+        );
         self.disconnect(delay);
         if !error.is_retryable() {
             self.state = TransportState::Failed;
