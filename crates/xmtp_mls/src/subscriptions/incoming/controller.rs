@@ -137,6 +137,10 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
     welcome_blocked_scan: Option<Cursor>,
+    /// When the next full blocked-Welcome rescan is due. Blocked rows are
+    /// otherwise only revisited on a new controller, so a long-lived process
+    /// would never reach their retention deadline.
+    welcome_blocked_rescan_at: Option<Instant>,
     extra_topics: HashSet<Topic>,
     topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
@@ -165,6 +169,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
             welcome_blocked_scan: Some(Cursor(0)),
+            welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
             topics: HashMap::new(),
             storage_error: None,

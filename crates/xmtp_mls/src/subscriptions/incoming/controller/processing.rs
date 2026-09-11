@@ -119,6 +119,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         continue;
                     }
                     let service = WelcomeService::new(self.context.clone());
+                    // A blocked row is only revisited by this scan. Rearm it on
+                    // an interval so a client that stays up reaches the
+                    // retention deadline of work it cannot process.
+                    if self.welcome_blocked_scan.is_none()
+                        && self
+                            .welcome_blocked_rescan_at
+                            .is_some_and(|at| Instant::now() >= at)
+                    {
+                        self.welcome_blocked_scan = Some(Cursor(0));
+                        self.welcome_blocked_rescan_at = None;
+                    }
                     let outcomes = match self.welcome_blocked_scan {
                         Some(after) => service.retry_blocked_welcomes_after(after),
                         None => service.process_pending_welcomes_once(),
@@ -135,6 +146,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                                         | WelcomeHeadOutcome::Progress { cursor, .. } => *cursor,
                                     })
                                     .max();
+                                if self.welcome_blocked_scan.is_none() {
+                                    // The scan is exhausted. Schedule the next one.
+                                    self.welcome_blocked_rescan_at = Some(
+                                        Instant::now()
+                                            + self
+                                                .context
+                                                .incoming_runtime()
+                                                .policy()
+                                                .blocked_welcome_rescan_interval,
+                                    );
+                                }
                             }
                             for outcome in outcomes {
                                 progress |= self.welcome_outcome(outcome);
