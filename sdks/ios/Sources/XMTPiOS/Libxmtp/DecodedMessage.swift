@@ -192,7 +192,9 @@ public struct DecodedMessage: Identifiable {
 	}
 
 	/// Return nil only for content that forges a reserved membership change.
-	/// Parse and codec errors must not consume a delivery.
+	/// Parse and codec errors are raised to the caller, which decides what they
+	/// mean. The delivery stream skips and acknowledges such a message: holding
+	/// the cursor behind one undecodable row stops every later delivery.
 	static func decodeForDelivery(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		throws -> DecodedMessage?
 	{

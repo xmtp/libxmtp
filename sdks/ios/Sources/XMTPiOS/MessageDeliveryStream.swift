@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Holds the last stream without preventing iterator-drop cleanup.
 final class StreamHolder: @unchecked Sendable {
@@ -161,10 +162,20 @@ final class MessageDeliveryStream: @unchecked Sendable {
 				}
 				while let delivery = try await receiveNext() {
 					try Task.checkCancellation()
-					let decoded = try DecodedMessage.decodeForDelivery(
-						ffiMessage: delivery.message,
-						deliveryCursor: delivery.cursor
-					)
+					let decoded: DecodedMessage?
+					do {
+						decoded = try DecodedMessage.decodeForDelivery(
+							ffiMessage: delivery.message,
+							deliveryCursor: delivery.cursor
+						)
+					} catch {
+						// An unregistered content type must not end the stream or hold the cursor.
+						// Skip the item, like the message queries that use DecodedMessage.create.
+						XMTPLogger.main.error("Error decoding delivered message: \(error)")
+						try delivery.acknowledgement.acknowledge()
+						clearActive(reject: false)
+						continue
+					}
 					// Decode before dispatch. A scope change during decoding must still exclude this item.
 					guard try delivery.acknowledgement.checkOwner() else {
 						clearActive(reject: true)

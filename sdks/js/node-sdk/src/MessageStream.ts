@@ -109,7 +109,19 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           break;
         }
         this.#pending = item.acknowledgement;
-        const value = await this.#convert(item.message, item.cursor);
+        // A message this client cannot decode is skipped, not fatal. Rejecting
+        // it would leave the delivery cursor behind it, so every later stream
+        // would select the same row and stop again, and every message stored
+        // after it would be unreachable through streams.
+        let value: V | undefined;
+        try {
+          value = await this.#convert(item.message, item.cursor);
+        } catch (error) {
+          this.#options.onError?.(error as Error);
+          if (this.#hasEnded()) break;
+          await this.#acknowledgePending();
+          continue;
+        }
         if (this.#hasEnded()) break;
         const checked = item.acknowledgement.checkOwner();
         const valid = typeof checked === "boolean" ? checked : await checked;
@@ -119,8 +131,12 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           await item.acknowledgement.reject();
           continue;
         }
-        if (value === undefined)
-          throw new Error("The retained message could not be decoded");
+        if (value === undefined) {
+          // Intentional filtering, not a failure: the converter excludes this
+          // item. Acknowledge it so the reader moves past it, and stay quiet.
+          await this.#acknowledgePending();
+          continue;
+        }
         // Do not await between the final ownership check and the app handoff.
         this.#cursor = item.cursor;
         if (this.#onValue) {
