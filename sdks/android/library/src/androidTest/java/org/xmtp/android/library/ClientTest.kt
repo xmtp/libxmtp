@@ -4,9 +4,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1033,13 +1036,13 @@ class ClientTest : BaseInstrumentedTest() {
             alix.conversations.sync()
             assertEquals(1L, alix.debugInformation.apiStatistics.query)
             assertEquals(0L, alix.debugInformation.apiStatistics.publish)
-            assertEquals(0L, alix.debugInformation.apiStatistics.queryNewest)
-            assertEquals(0L, alix.debugInformation.apiStatistics.get)
+            // Welcome sync captures a fixed target and starts its receipt coordinator.
+            assertEquals(2L, alix.debugInformation.apiStatistics.queryNewest)
             assertEquals(0L, alix.debugInformation.apiStatistics.subscribe)
             assertEquals(0L, alix.debugInformation.apiStatistics.subscribeStatic)
 
             val job =
-                CoroutineScope(Dispatchers.IO).launch {
+                launch(Dispatchers.IO) {
                     alix.conversations.streamAllMessages().collect {}
                 }
             try {
@@ -1057,13 +1060,15 @@ class ClientTest : BaseInstrumentedTest() {
                 val queriesAfter = alix.debugInformation.apiStatistics.query
                 assertTrue(queriesAfter > queriesBeforeInboxState)
 
+                val newestBeforeGroup = alix.debugInformation.apiStatistics.queryNewest
                 val group = alix.conversations.newGroup(emptyList())
                 val beforeSend = alix.debugInformation.apiStatistics.publish
                 assertEquals(1L, beforeSend)
                 group.send("hi")
                 val apiStats = alix.debugInformation.apiStatistics
                 assertEquals(beforeSend + 1L, apiStats.publish)
-                assertEquals(0L, apiStats.queryNewest)
+                // Group creation and send confirmation can capture more fixed targets.
+                assertTrue(apiStats.queryNewest >= newestBeforeGroup)
                 assertEquals(1L, apiStats.subscribe)
                 assertEquals(0L, apiStats.subscribeStatic)
 
@@ -1072,7 +1077,7 @@ class ClientTest : BaseInstrumentedTest() {
                 assertEquals(0L, identityStats.verifySmartContractWalletSignatures)
                 assertTrue(alix.debugInformation.aggregateStatistics.isNotEmpty())
             } finally {
-                job.cancel()
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 

@@ -378,6 +378,14 @@ async fn wait_for_targets<C: XmtpSharedContext>(
         deadline,
     });
     loop {
+        #[cfg(test)]
+        tests::before_progress_read();
+        // Read completion before discovery. A completed Welcome transaction also
+        // records its groups, so the later discovery scan must include them.
+        let mut topics: Vec<_> = targets
+            .iter()
+            .map(|(topic, target)| read_topic(context, topic, *target))
+            .collect();
         let mut discovery_failure = None;
         if let Some(discovery) = &discovery {
             let discovered = (|| -> Result<Vec<GroupId>, StorageError> {
@@ -414,6 +422,8 @@ async fn wait_for_targets<C: XmtpSharedContext>(
                             targets: targets.clone(),
                             deadline,
                         });
+                        // The prior snapshot did not include these obligations.
+                        continue;
                     }
                 }
                 Err(error) => {
@@ -424,10 +434,6 @@ async fn wait_for_targets<C: XmtpSharedContext>(
             }
         }
         let receiver = lease.snapshot();
-        let mut topics: Vec<_> = targets
-            .iter()
-            .map(|(topic, target)| read_topic(context, topic, *target))
-            .collect();
         for topic in &mut topics {
             if topic.complete() {
                 continue;

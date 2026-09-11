@@ -2189,6 +2189,26 @@ where
         if !self.maybe_update_cursor(&db, envelope)? {
             return Ok(());
         }
+        if matches!(
+            error,
+            GroupMessageProcessingError::FutureEpoch(..)
+                | GroupMessageProcessingError::OpenMlsProcessMessage(
+                    ProcessMessageError::ValidationError(ValidationError::WrongEpoch)
+                )
+                | GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                    super::app_data::ProcessMessageWithAppDataError::OpenMls(
+                        ProcessMessageError::ValidationError(ValidationError::WrongEpoch)
+                    )
+                )
+        ) {
+            db.mark_group_as_maybe_forked(
+                &self.group_id,
+                format!(
+                    "Message epoch mismatch at sequence {}",
+                    envelope.sequence_id()
+                ),
+            )?;
+        }
         if envelope.is_commit() {
             group.mark_failed_commit_logged(
                 &XmtpOpenMlsProviderRef::new(storage),

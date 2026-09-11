@@ -233,21 +233,6 @@ async fn test_dm_stream_all_messages() {
     assert_msg!(stream, "second");
 }
 
-use std::collections::HashMap;
-fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
-    let mut counts = HashMap::new();
-
-    // Count occurrences
-    for string in strings {
-        *counts.entry(string).or_insert(0) += 1;
-    }
-
-    // Filter to keep only strings that appear more than once
-    counts.retain(|_, count| *count > 1);
-
-    counts
-}
-
 #[xmtp_common::timeout(Duration::from_secs(60))]
 #[rstest::rstest]
 #[xmtp_common::test]
@@ -322,7 +307,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
                 match msg {
                     Ok(m) => messages.push(m),
                     Err(e) => {
-                        tracing::error!("error in stream test {e}");
+                        panic!("stream failed: {e}");
                     }
                 }
             },
@@ -330,16 +315,54 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         }
     }
 
-    let msgs = &messages
+    let ids: HashSet<_> = messages.iter().map(|message| &message.id).collect();
+    assert_eq!(ids.len(), messages.len(), "duplicate message IDs");
+    let application_messages: Vec<_> = messages
         .iter()
-        .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
-        .collect::<Vec<String>>();
-    let duplicates = find_duplicates_with_count(msgs);
-    assert!(duplicates.is_empty());
+        .filter(|message| message.kind == GroupMessageKind::Application)
+        .map(|message| String::from_utf8(message.decrypted_message_bytes.clone()).unwrap())
+        .collect();
+    let expected: HashSet<_> = (0..15)
+        .flat_map(|i| {
+            [
+                format!("main spam {i}"),
+                format!("EVE spam {i} from new group"),
+                format!("bo msg {i}"),
+            ]
+        })
+        .collect();
+    assert_eq!(application_messages.len(), 45);
     assert_eq!(
-        messages.len(),
-        45,
-        "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient."
+        application_messages.into_iter().collect::<HashSet<_>>(),
+        expected
+    );
+    let memberships: Vec<_> = messages
+        .iter()
+        .filter(|message| message.kind == GroupMessageKind::MembershipChange)
+        .collect();
+    assert_eq!(memberships.len(), 16);
+    assert_eq!(
+        memberships
+            .iter()
+            .map(|message| message.group_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        16,
+    );
+    let history = LocalDelivery::history_snapshot(
+        &caro.context,
+        &DeliveryScope::All,
+        &LocalDeliveryFilter::default(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(
+        messages,
+        history
+            .messages
+            .into_iter()
+            .map(|entry| entry.message)
+            .collect::<Vec<_>>()
     );
 }
 

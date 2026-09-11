@@ -165,8 +165,10 @@ async fn test_request_readd_dm() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_installation_succeeds() {
+    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+
     tester!(alix);
     tester!(bo);
     tester!(caro);
@@ -198,6 +200,21 @@ async fn test_readd_installation_succeeds() {
     let c_group_authenticator = c_group.epoch_authenticator().await.unwrap();
     assert_eq!(c_group_authenticator, new_authenticator);
 
+    // Process the removal at the same anchor carried by the replacement Welcome.
+    b_group.sync_with_conn().await?;
+    assert!(!b_group.is_active()?);
+    assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
+    let anchor = alix
+        .context
+        .db()
+        .latest_cursor_for_id(a_group.group_id, &[EntityKind::ApplicationMessage])?;
+    assert_eq!(
+        bo.context
+            .db()
+            .latest_cursor_for_id(a_group.group_id, &[EntityKind::ApplicationMessage],)?,
+        anchor
+    );
+
     // Verify welcome was received and applied on B
     tracing::warn!("Syncing welcomes");
     bo.sync_welcomes().await.unwrap();
@@ -205,6 +222,8 @@ async fn test_readd_installation_succeeds() {
         b_group.epoch_authenticator().await.unwrap(),
         new_authenticator
     );
+    assert!(b_group.is_active()?);
+    a_group.test_can_talk_with(&b_group).await?;
 }
 
 #[xmtp_common::test]

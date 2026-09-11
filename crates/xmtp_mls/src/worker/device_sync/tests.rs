@@ -17,7 +17,7 @@ fn unknown_device_sync_content_is_ignored() {
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn test_hmac_and_consent_preference_sync() {
-    tester!(alix1, stream, sync_worker);
+    tester!(alix1, sync_worker);
     tester!(bo);
 
     let (dm, _) = alix1.test_talk_in_dm_with(&bo).await?;
@@ -68,7 +68,6 @@ async fn test_hmac_and_consent_preference_sync() {
         .wait()
         .await?;
 
-    alix2.sync_all_device_sync_groups().await?;
     alix2
         .worker()
         .register_interest(SyncMetric::ConsentReceived, 1)
@@ -86,11 +85,8 @@ async fn test_hmac_and_consent_preference_sync() {
     let alix1_group = alix1.group(&bo_group.group_id)?;
     assert_eq!(alix1_group.consent_state()?, ConsentState::Unknown);
 
-    // Wait for alix1 to publish the consent update to the sync group before
-    // alix2 syncs. `register_interest(ConsentReceived).wait()` only waits
-    // passively on the metric — it does not drive a re-sync — so alix2's
-    // one-shot `sync_all_welcomes_and_groups` below is the only chance to pull
-    // this consent.
+    // Wait for publication before syncing the new group. The device-sync
+    // worker keeps receiving consent without an app message stream.
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
     alix1_group.update_consent_state(ConsentState::Allowed)?;
     alix1

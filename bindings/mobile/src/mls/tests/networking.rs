@@ -90,15 +90,20 @@ async fn create_client_does_not_hit_network() {
     let api_stats = client.api_statistics();
     // The sync worker also publishes its group.
     assert_eq!(api_stats.publish, 3);
-    assert_eq!(api_stats.query_newest, 0);
+    // Fixed-target barriers require these reads. The sync receiver can add background reads.
+    assert!(api_stats.query_newest >= 3);
 
     let identity_stats = client.api_identity_statistics();
-    assert_eq!(api_stats.query, 5);
+    assert!(api_stats.query >= 6);
     assert_eq!(identity_stats.get_inbox_ids, 1);
     assert_eq!(identity_stats.verify_smart_contract_wallet_signatures, 0);
 
+    // Stop the first client's receiver before measuring the offline reopen.
+    client.shutdown().await?;
     client.clear_all_statistics();
 
+    // Offline construction does not require network access. Disable the background
+    // sync receiver separately so this check can require complete radio silence.
     let build = create_client(
         connection.clone(),
         DbOptions::new(Some(path.clone()), Some(key.clone()), None, None, None),
@@ -106,7 +111,7 @@ async fn create_client_does_not_hit_network() {
         ffi_inbox_owner.identifier(),
         nonce,
         None,
-        None,
+        Some(FfiDeviceSyncMode::Disabled),
         Some(true),
         None,
         None,

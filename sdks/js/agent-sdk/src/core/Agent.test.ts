@@ -284,7 +284,13 @@ describe("Agent", () => {
         client.inboxId,
       ]);
       await group.addAdmin(client.inboxId);
-      const messages = await group.messages({
+      await agent.client.conversations.sync();
+      const agentGroup = await agent.client.conversations.getConversationById(
+        group.id,
+      );
+      expect(agentGroup).toBeDefined();
+      await agentGroup!.sync();
+      const messages = await agentGroup!.messages({
         direction: SortDirection.Ascending,
       });
       expect(messages).toHaveLength(2);
@@ -298,8 +304,8 @@ describe("Agent", () => {
           index + 1,
           new MessageContext({
             message,
-            conversation: group,
-            client: otherClient,
+            conversation: agentGroup!,
+            client: agent.client,
           }),
         );
       }
@@ -329,7 +335,13 @@ describe("Agent", () => {
         client.inboxId,
       ]);
       await group.addAdmin(client.inboxId);
-      const setupMessages = await group.messages({
+      await agent.client.conversations.sync();
+      const agentGroup = await agent.client.conversations.getConversationById(
+        group.id,
+      );
+      expect(agentGroup).toBeDefined();
+      await agentGroup!.sync();
+      const setupMessages = await agentGroup!.messages({
         direction: SortDirection.Ascending,
       });
       expect(setupMessages).toHaveLength(2);

@@ -2,6 +2,7 @@
 //! `resume_streams` (the foreground/background pair) and
 //! `FfiXmtpClient::catch_up_to_live` (the bounded one-shot catch-up).
 
+use super::streaming::{assert_streamed_history, wait_for_application_messages};
 use super::*;
 use crate::mls::{FfiCatchUpOptions, resume_streams, suspend_streams};
 use crate::stream_failure::{FfiStreamFailureKind, get_stream_failure_details};
@@ -37,6 +38,14 @@ async fn bidi_suspend_and_resume_redelivers() {
         .await
         .unwrap();
     alix.inner_client.sync_welcomes().await.unwrap();
+    let alix_group = alix.conversation(bo_group.id())?;
+    let baseline = alix_group.message_history_snapshot(10)?.messages;
+    assert_eq!(baseline.len(), 1);
+    assert_eq!(
+        baseline[0].message.kind,
+        FfiConversationMessageKind::MembershipChange
+    );
+    let mut expected_ids = vec![baseline[0].message.id.clone()];
 
     let cb = Arc::new(RustStreamCallback::default());
     let stream = alix
@@ -44,52 +53,87 @@ async fn bidi_suspend_and_resume_redelivers() {
         .stream_all_messages(cb.clone(), None)
         .await;
     stream.wait_for_ready().await;
+    xmtp_common::time::timeout(
+        Duration::from_secs(15),
+        wait_for_eq(
+            || async {
+                cb.messages
+                    .lock()
+                    .iter()
+                    .map(|message| message.id.clone())
+                    .collect::<Vec<_>>()
+            },
+            expected_ids.clone(),
+        ),
+    )
+    .await??;
 
     // Baseline: a live message is delivered over the bidi wire.
-    bo_group
+    let before_id = bo_group
         .send(b"before".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    cb.wait_for_delivery(Some(15)).await.unwrap();
+    let mut expected = vec![(before_id.clone(), b"before".to_vec())];
+    xmtp_common::time::timeout(
+        Duration::from_secs(15),
+        wait_for_application_messages(&cb, &expected),
+    )
+    .await?;
+    expected_ids.push(before_id);
+    let before_history = alix_group
+        .message_history_snapshot(10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
     assert_eq!(
-        cb.message_contents(),
-        vec![b"before".to_vec()],
-        "the live message is delivered before suspending"
+        before_history
+            .iter()
+            .map(|message| message.id.clone())
+            .collect::<Vec<_>>(),
+        expected_ids
     );
+    assert_streamed_history(&cb, &before_history);
 
     // Background: take the shared wire off the network.
     suspend_streams().await.unwrap();
 
     // Published while suspended — must not reach the stream until resume.
-    bo_group
+    let during_id = bo_group
         .send(b"during".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
 
-    // Prove suspend actually withholds. Give the (now offline) wire a generous
-    // window to misbehave: were suspend a no-op, the live wire would deliver
-    // "during" here and this wait would return `Ok`, failing the test. A timeout
-    // (`Err`) is the pass — nothing arrived.
-    assert!(
-        cb.wait_for_delivery(Some(5)).await.is_err(),
-        "suspend must withhold delivery: nothing may arrive until resume"
-    );
-    assert_eq!(
-        cb.message_contents(),
-        vec![b"before".to_vec()],
-        "the message published while suspended must not have been delivered"
-    );
+    // Check retained messages after the full window, not a cached Notify permit.
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_streamed_history(&cb, &before_history);
 
     // Foreground: the kept lease reconnects and replays from its durable cursor.
     resume_streams().await.unwrap();
-    cb.wait_for_delivery(Some(15)).await.unwrap();
-    assert_eq!(
-        cb.message_contents(),
-        vec![b"before".to_vec(), b"during".to_vec()],
-        "resume must redeliver exactly the withheld message, and only it, in order"
-    );
+    expected.push((during_id.clone(), b"during".to_vec()));
+    xmtp_common::time::timeout(
+        Duration::from_secs(15),
+        wait_for_application_messages(&cb, &expected),
+    )
+    .await?;
+    expected_ids.push(during_id);
 
-    stream.end();
+    stream.end_and_wait().await?;
+    let history = alix_group
+        .message_history_snapshot(10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        history
+            .iter()
+            .map(|message| message.id.clone())
+            .collect::<Vec<_>>(),
+        expected_ids
+    );
+    assert_streamed_history(&cb, &history);
+    assert_eq!(alix.api_statistics().subscribe_static, 0);
 }
 
 /// One-shot catch-up joins a pending group and replays its history from durable

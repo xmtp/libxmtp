@@ -4,8 +4,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import app.cash.turbine.test
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +32,7 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
@@ -444,64 +448,82 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanStreamDmMessages() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             val group =
                 fixtures.boClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
             fixtures.alixClient.conversations.sync()
             val alixDm =
-                fixtures.alixClient.conversations.findDmByIdentity(
-                    PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
+                requireNotNull(
+                    fixtures.alixClient.conversations.findDmByIdentity(
+                        PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
+                    ),
                 )
             group.sync()
+            val retained = group.messageHistorySnapshot(10U).messages
+            assertEquals(1, retained.size)
+            assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
 
-            group.streamMessages().test {
-                alixDm?.send("hi")
-                assertEquals("hi", awaitItem().body)
-                alixDm?.send("hi again")
-                assertEquals("hi again", awaitItem().body)
+            val messages = StreamTestMessages()
+            val job = launch(Dispatchers.IO) { group.streamMessages().collect { messages.add(it) } }
+            try {
+                messages.awaitHistory(retained)
+                val firstId = alixDm.send("hi")
+                messages.awaitApplications(listOf(firstId to "hi"))
+                val secondId = alixDm.send("hi again")
+                messages.awaitApplications(listOf(firstId to "hi", secondId to "hi again"))
+                messages.awaitHistory(group.messageHistorySnapshot(10U).messages)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
     @Test
-    fun testCanStreamAllMessages() {
-        val boDm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
-        runBlocking { alixClient.conversations.sync() }
-
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    fixtures.alixClient.conversations
-                        .streamAllMessages(
-                            type = ConversationFilterType.DMS,
-                        ).collect { message -> allMessages.add(message) }
-                } catch (e: Exception) {
+    fun testCanStreamAllMessages() =
+        runBlocking {
+            val boDm = boClient.conversations.findOrCreateDm(alixClient.inboxId)
+            alixClient.conversations.sync()
+            val messages = StreamTestMessages()
+            val expected = mutableListOf<Pair<String, String>>()
+            val job =
+                launch(Dispatchers.IO) {
+                    alixClient.conversations
+                        .streamAllMessages(type = ConversationFilterType.DMS)
+                        .collect { messages.add(it) }
                 }
+            try {
+                val retained =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.DMS).messages
+                assertEquals(1, retained.size)
+                assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+                messages.awaitHistory(retained)
+                repeat(2) {
+                    val body = "Bo Message $it"
+                    expected.add(boDm.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+
+                val caroDm = caroClient.conversations.findOrCreateDm(alixClient.inboxId)
+                repeat(2) {
+                    val body = "Caro Message $it"
+                    expected.add(caroDm.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+
+                val history =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.DMS).messages
+                assertEquals(6, history.size)
+                assertEquals(
+                    setOf(boDm.id, caroDm.id),
+                    history
+                        .filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+                        .map { it.conversationId }
+                        .toSet(),
+                )
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
-        Thread.sleep(2500)
-
-        for (i in 0 until 2) {
-            runBlocking { boDm.send(text = "Message $i") }
-            Thread.sleep(100)
         }
-        assertEquals(2, allMessages.size)
-
-        val caroDm =
-            runBlocking {
-                fixtures.caroClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
-            }
-        Thread.sleep(2500)
-
-        for (i in 0 until 2) {
-            runBlocking { caroDm.send(text = "Message $i") }
-            Thread.sleep(100)
-        }
-
-        assertEquals(4, allMessages.size)
-
-        job.cancel()
-    }
 
     @Test
     fun testCanStreamConversations() =

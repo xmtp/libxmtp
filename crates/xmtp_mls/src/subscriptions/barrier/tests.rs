@@ -1,11 +1,39 @@
 use super::*;
 use crate::tester;
-use futures::FutureExt;
 use prost::Message;
 use xmtp_db::incoming_envelope::{IncomingRetry, NewIncomingEnvelope};
 use xmtp_proto::backend_v1 as wire;
 
 const TEST_TIMEOUT: Duration = Duration::from_secs(2);
+
+std::thread_local! {
+    static BEFORE_PROGRESS_READ: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn before_progress_read() {
+    let hook = BEFORE_PROGRESS_READ.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
+struct ProgressReadHook(std::marker::PhantomData<std::rc::Rc<()>>);
+
+impl Drop for ProgressReadHook {
+    fn drop(&mut self) {
+        BEFORE_PROGRESS_READ.with(|slot| slot.borrow_mut().take());
+    }
+}
+
+fn on_next_progress_read(hook: impl FnOnce() + 'static) -> ProgressReadHook {
+    assert!(
+        BEFORE_PROGRESS_READ
+            .with(|slot| slot.replace(Some(Box::new(hook))))
+            .is_none()
+    );
+    ProgressReadHook(std::marker::PhantomData)
+}
 
 fn admit_pending<C: XmtpSharedContext>(
     context: &C,
@@ -85,53 +113,53 @@ async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups(
     ]
     .into();
 
-    let (snapshot, discovered_id, later_id, local_id) = {
-        let waiting = wait_for_targets(
-            &alix.context,
-            targets,
-            Vec::new(),
-            Some(WelcomeDiscovery {
-                topic: welcome_topic.clone(),
-                target: welcome_target,
-                consent_states: None,
-            }),
-            Instant::now() + TEST_TIMEOUT,
-            &mut groups,
-        );
-        let mut waiting = std::pin::pin!(waiting);
-        assert!(waiting.as_mut().now_or_never().is_none());
-
-        let local = alix.create_group(None, None)?;
-        let discovered = alix.create_group(None, None)?;
-        let later = alix.create_group(None, None)?;
-        let db = alix.context.db();
-        db.record_welcome_discovery(discovered.group_id, welcome_target)?;
-        let mut rejoined = db
-            .find_groups(GroupQueryArgs {
-                include_sync_groups: true,
-                include_duplicate_dms: true,
-                ..Default::default()
-            })?
-            .into_iter()
-            .find(|group| group.id == discovered.group_id)?;
-        rejoined.sequence_id = Some(100);
-        db.insert_or_replace_group(rejoined)?;
-        db.record_welcome_discovery(discovered.group_id, Cursor(100))?;
-        db.record_welcome_discovery(later.group_id, Cursor(20))?;
-        db.complete_pending_envelope(
-            &StreamTopic {
-                entity_id: alix.context.installation_id().to_vec(),
-                kind: NetworkEntityKind::Welcome,
-            },
-            welcome_target,
-        )?;
-        (
-            waiting.await?,
-            discovered.group_id,
-            later.group_id,
-            local.group_id,
-        )
-    };
+    let local_id = alix.create_group(None, None)?.group_id;
+    let discovered_id = alix.create_group(None, None)?.group_id;
+    let later_id = alix.create_group(None, None)?.group_id;
+    let context = alix.context.clone();
+    // Complete Welcome installation at the old gap between discovery and progress.
+    let _hook = on_next_progress_read(move || {
+        crate::state_tx::state_write(context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            db.record_welcome_discovery(discovered_id, welcome_target)?;
+            let mut rejoined = db
+                .find_groups(GroupQueryArgs {
+                    include_sync_groups: true,
+                    include_duplicate_dms: true,
+                    ..Default::default()
+                })?
+                .into_iter()
+                .find(|group| group.id == discovered_id)
+                .unwrap();
+            rejoined.sequence_id = Some(100);
+            db.insert_or_replace_group(rejoined)?;
+            db.record_welcome_discovery(discovered_id, Cursor(100))?;
+            db.record_welcome_discovery(later_id, Cursor(20))?;
+            db.complete_pending_envelope(
+                &StreamTopic {
+                    entity_id: context.installation_id().to_vec(),
+                    kind: NetworkEntityKind::Welcome,
+                },
+                welcome_target,
+            )?;
+            Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(()))
+        })
+        .unwrap();
+    });
+    let snapshot = wait_for_targets(
+        &alix.context,
+        targets,
+        Vec::new(),
+        Some(WelcomeDiscovery {
+            topic: welcome_topic.clone(),
+            target: welcome_target,
+            consent_states: None,
+        }),
+        Instant::now() + TEST_TIMEOUT,
+        &mut groups,
+    )
+    .await?;
 
     assert_eq!(groups, HashSet::from([initial.group_id, discovered_id]));
     let topics: HashSet<_> = snapshot

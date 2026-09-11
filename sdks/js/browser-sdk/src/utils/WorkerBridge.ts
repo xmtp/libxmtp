@@ -98,7 +98,8 @@ export class WorkerBridge<T extends UnknownAction> {
 
   handleError = (event: ErrorEvent) => {
     console.error(`[worker] error: ${event.message}`);
-    this.close();
+    const error: unknown = event.error;
+    this.close(error instanceof Error ? error : new Error(event.message));
   };
 
   /**
@@ -150,11 +151,11 @@ export class WorkerBridge<T extends UnknownAction> {
   /**
    * Removes all event listeners and terminates the worker
    */
-  close() {
+  close(error = new Error("The client is closed")) {
     this.#closed = true;
     this.#detachStreams();
     for (const pending of this.#promises.values()) {
-      pending.reject(new Error("The client is closed"));
+      pending.reject(error);
     }
     this.#promises.clear();
     this.#worker.removeEventListener("message", this.handleMessage);

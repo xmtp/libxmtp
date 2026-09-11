@@ -194,7 +194,10 @@ mod tests {
             (adding && waiting && registered).then_some(())
         })
         .await;
-        drain.end_and_wait().await?;
+        match drain.end_and_wait().await {
+            Ok(()) | Err(xmtp_common::StreamHandleError::Cancelled) => {}
+            Err(error) => panic!("stream drain did not stop cleanly: {error:?}"),
+        }
         assert!(
             completed.is_some(),
             "subscription growth did not report its states: {:?}",

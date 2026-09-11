@@ -59,7 +59,7 @@
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_create_new_installation_without_breaking_group` | Tokio multi-thread, 5 workers; local backend | `BIND-REQ-064`, `BIND-REQ-042` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_create_new_installations_does_not_fork_group` | Tokio multi-thread, 5 workers; streams and second Bo installation | `BIND-REQ-064`, `BIND-REQ-055` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_sync_all_groups` | Tokio multi-thread, 5 workers; 30 groups; ignored with d14n | `SHARED-GROUP-REQ-038` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_sync_all_groups_active_only` | Tokio multi-thread, 5 workers; 30 groups; ignored with d14n | `SHARED-GROUP-REQ-038`, `SHARED-GROUP-REQ-013` |
+| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_sync_all_groups_active_only` | XMTP multi-thread, 5 workers; 30 eligible groups become inactive; synced counts only groups still active | `SHARED-GROUP-REQ-038`, `SHARED-GROUP-REQ-013` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_send_message_when_out_of_sync` | Tokio multi-thread, 5 workers; stale by 3 epochs | `BIND-REQ-063` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_send_messages_when_epochs_behind` | Tokio multi-thread, 5 workers; stale by 4 metadata epochs | `BIND-REQ-063` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_add_members_when_out_of_sync` | Tokio multi-thread, 5 workers; stale by 3 epochs | `BIND-REQ-063`, `SHARED-GROUP-REQ-011` |

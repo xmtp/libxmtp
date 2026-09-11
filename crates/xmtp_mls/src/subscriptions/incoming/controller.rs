@@ -280,6 +280,21 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         } else {
             HashSet::new()
         };
+        let sync_groups = if self
+            .scopes
+            .values()
+            .any(|scope| matches!(scope.scope, IncomingScope::DeviceSyncGroups))
+        {
+            self.context
+                .db()
+                .all_sync_groups()
+                .map_err(|error| IncomingError::Storage(error.into()))?
+                .into_iter()
+                .map(|group| Topic::new_group_message(group.id))
+                .collect::<HashSet<_>>()
+        } else {
+            HashSet::new()
+        };
         for scope in self.scopes.values_mut() {
             if let IncomingScope::Groups(groups) = &scope.scope {
                 for group_id in groups {
@@ -304,6 +319,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
                 IncomingScope::Barrier { targets, .. } => targets.keys().cloned().collect(),
                 IncomingScope::AllGroups => discoveries
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(Topic::new_welcome_message(
+                        self.context.installation_id(),
+                    )))
+                    .collect(),
+                IncomingScope::DeviceSyncGroups => sync_groups
                     .iter()
                     .cloned()
                     .chain(std::iter::once(Topic::new_welcome_message(

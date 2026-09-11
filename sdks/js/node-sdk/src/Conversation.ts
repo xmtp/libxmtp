@@ -140,8 +140,9 @@ export class Conversation<ContentTypes = unknown> {
    * Reads retained messages after the default acknowledgement position.
    * Set `from` to replay after a cursor without changing default progress.
    * Set `onValue` for callback mode, or request items with the iterator.
+   * Core owns network recovery. Legacy retry options and `disableSync` do not apply.
    *
-   * @param options - Optional stream options
+   * @param options - Optional delivery callbacks and replay cursor
    * @returns Stream instance for new messages
    */
   async stream(

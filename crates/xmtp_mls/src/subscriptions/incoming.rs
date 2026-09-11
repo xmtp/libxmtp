@@ -102,6 +102,8 @@ pub enum IncomingScope {
     },
     /// Includes the installation's welcome topic and every stored group.
     AllGroups,
+    /// Keeps device-sync groups and new installation Welcomes receiving without app delivery.
+    DeviceSyncGroups,
 }
 
 /// Shares receipt and ordered processing across all readers in one context.

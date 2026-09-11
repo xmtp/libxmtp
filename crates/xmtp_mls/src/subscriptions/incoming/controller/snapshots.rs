@@ -116,12 +116,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             snapshot.scope_generation = scope.generation;
             snapshot.connection_generation = self.connection_generation;
             snapshot.connection = self.connection;
-            snapshot.discovery_pending = matches!(scope.scope, IncomingScope::AllGroups)
-                && topics.iter().any(|topic| {
-                    topic.registration == IncomingRegistration::Pending
-                        || (topic.topic.kind() == TopicKind::WelcomeMessagesV1
-                            && topic.processing != IncomingProcessing::Complete)
-                });
+            snapshot.discovery_pending = matches!(
+                scope.scope,
+                IncomingScope::AllGroups | IncomingScope::DeviceSyncGroups
+            ) && topics.iter().any(|topic| {
+                topic.registration == IncomingRegistration::Pending
+                    || (topic.topic.kind() == TopicKind::WelcomeMessagesV1
+                        && topic.processing != IncomingProcessing::Complete)
+            });
             snapshot.processing = if topics
                 .iter()
                 .any(|topic| topic.processing == IncomingProcessing::Blocked)

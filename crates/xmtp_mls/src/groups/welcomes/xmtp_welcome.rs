@@ -34,7 +34,7 @@ use xmtp_db::{
     consent_record::{ConsentState, StoredConsentRecord},
     group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
-    incoming_envelope::{NetworkEntityKind, StoredIncomingEnvelope, StreamTopic},
+    incoming_envelope::{JoinAnchorMode, NetworkEntityKind, StoredIncomingEnvelope, StreamTopic},
     prelude::*,
     refresh_state::EntityKind,
 };
@@ -382,6 +382,7 @@ where
         // Extract group_id before consuming staged_welcome
         let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
         let existing_group = db.find_group(&group_id)?;
+        let mut anchor_mode = JoinAnchorMode::Advance;
 
         if let Some(existing) = &existing_group {
             let current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
@@ -390,7 +391,22 @@ where
             let incoming_epoch = staged_welcome.public_group().group_context().epoch();
             let active =
                 current.is_active() && existing.membership_state != GroupMembershipState::Restored;
-            if processed >= anchor || (active && current.epoch() >= incoming_epoch) {
+            // A remove-and-re-add commit can retire this installation at the join anchor.
+            // Removal can advance its public epoch without installing that epoch's secrets.
+            // Only a newer Welcome for that inactive MLS group can replace state there.
+            if processed == anchor
+                && !current.is_active()
+                && current.epoch() <= incoming_epoch
+                && existing
+                    .sequence_id
+                    .is_some_and(|previous| previous >= 0 && welcome.cursor.0 > previous as u64)
+            {
+                anchor_mode = JoinAnchorMode::InactiveReadd;
+            }
+            if processed > anchor
+                || (processed == anchor && anchor_mode != JoinAnchorMode::InactiveReadd)
+                || (active && current.epoch() >= incoming_epoch)
+            {
                 return Err(ProcessIntentError::WelcomeAlreadyProcessed(welcome.cursor).into());
             }
             if active {
@@ -607,7 +623,7 @@ where
         }
 
         // State, progress, and removal of pre-join work commit together.
-        db.install_group_anchor(group.group_id, anchor)?;
+        db.install_group_anchor(group.group_id, anchor, anchor_mode)?;
         db.record_welcome_discovery(group.group_id, welcome.cursor)?;
         MlsGroup::<C>::mark_readd_requests_as_responded(
             &storage,

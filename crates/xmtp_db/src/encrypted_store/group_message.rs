@@ -1315,6 +1315,14 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             cursor
         );
         super::stream_storage::stream_transaction(self, |conn| {
+            let Some((group_id, previous_sent_at_ns)) = dsl::group_messages
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .select((dsl::group_id, dsl::sent_at_ns))
+                .first::<(GroupId, i64)>(conn)
+                .optional()?
+            else {
+                return Ok(0);
+            };
             let changed = diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
@@ -1325,6 +1333,23 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                 ))
                 .execute(conn)?;
             if changed > 0 {
+                let latest_sent_at_ns = dsl::group_messages
+                    .filter(dsl::group_id.eq(group_id))
+                    .order(dsl::sent_at_ns.desc())
+                    .select(dsl::sent_at_ns)
+                    .first::<i64>(conn)?;
+                // Correct the replaced timestamp in either direction. Keep a newer message
+                // or independent cached activity that does not match the replaced timestamp.
+                diesel::update(groups_dsl::groups)
+                    .filter(groups_dsl::id.eq(group_id))
+                    .filter(
+                        groups_dsl::last_message_ns
+                            .is_null()
+                            .or(groups_dsl::last_message_ns.eq(previous_sent_at_ns))
+                            .or(groups_dsl::last_message_ns.lt(latest_sent_at_ns)),
+                    )
+                    .set(groups_dsl::last_message_ns.eq(latest_sent_at_ns))
+                    .execute(conn)?;
                 super::delivery::assign_sequence(conn, msg_id.as_ref())?;
             }
             Ok(changed)

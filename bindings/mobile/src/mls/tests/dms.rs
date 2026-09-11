@@ -1,5 +1,6 @@
 //! Tests for DM-specific functionality including creation, syncing, and threading
 
+use super::streaming::{assert_streamed_history, wait_for_application_messages};
 use super::*;
 
 use xmtp_proto::types::GroupId;
@@ -83,7 +84,7 @@ async fn test_find_or_create_dm() {
     assert_eq!(dms.len(), 1, "Should still have one DM conversation");
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_dms_sync_but_do_not_list() {
     let alix = Tester::new().await;
     let bola = Tester::new().await;
@@ -108,9 +109,9 @@ async fn test_dms_sync_but_do_not_list() {
         .await
         .unwrap();
     assert_eq!(alix_sync_summary.num_eligible, 1);
-    assert_eq!(alix_sync_summary.num_synced, 0);
+    assert_eq!(alix_sync_summary.num_synced, 1);
     assert_eq!(bola_sync_summary.num_eligible, 1);
-    assert_eq!(bola_sync_summary.num_synced, 0);
+    assert_eq!(bola_sync_summary.num_synced, 1);
 
     let alix_groups = alix_conversations
         .list_groups(FfiListConversationsOptions::default())
@@ -289,21 +290,48 @@ async fn test_stream_all_dm_messages() {
         .await;
     stream.wait_for_ready().await;
 
-    alix_group
+    let mut expected_memberships = vec![alix_dm.id(), alix_group.id()];
+    expected_memberships.sort();
+    wait_for_eq(
+        || async {
+            let mut groups = stream_callback
+                .messages
+                .lock()
+                .iter()
+                .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+                .map(|message| message.conversation_id.clone())
+                .collect::<Vec<_>>();
+            groups.sort();
+            groups
+        },
+        expected_memberships,
+    )
+    .await?;
+
+    let first_group_id = alix_group
         .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    assert_eq!(stream_callback.message_count(), 1);
+    let mut expected = vec![(first_group_id, b"first".to_vec())];
+    wait_for_application_messages(&stream_callback, &expected).await;
 
-    alix_dm
+    let first_dm_id = alix_dm
         .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    assert_eq!(stream_callback.message_count(), 2);
+    expected.push((first_dm_id, b"second".to_vec()));
+    wait_for_application_messages(&stream_callback, &expected).await;
 
     stream.end_and_wait().await.unwrap();
+    let history = bo
+        .conversations()
+        .message_history_snapshot(None, None, None, 10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 4);
+    assert_streamed_history(&stream_callback, &history);
     assert!(stream.is_closed());
     bo.conversations()
         .sync_all_conversations(None)
@@ -317,20 +345,32 @@ async fn test_stream_all_dm_messages() {
         .await;
     stream.wait_for_ready().await;
 
-    alix_group
-        .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
+    let group_only_id = alix_group
+        .send(b"group-only".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    assert_eq!(stream_callback.message_count(), 1);
+    let expected = vec![(group_only_id.clone(), b"group-only".to_vec())];
+    wait_for_application_messages(&stream_callback, &expected).await;
 
-    alix_dm
-        .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
+    let withheld_dm_id = alix_dm
+        .send(
+            b"dm while group-only".to_vec(),
+            FfiSendMessageOpts::default(),
+        )
         .await
         .unwrap();
-    let result = stream_callback.wait_for_delivery(Some(2)).await;
-    assert!(result.is_err(), "Stream unexpectedly received a DM message");
+    tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(stream_callback.message_count(), 1);
+    let history = bo
+        .conversation(alix_group.id())?
+        .message_history_snapshot(10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .filter(|message| message.id == group_only_id)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 1);
+    assert_streamed_history(&stream_callback, &history);
 
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
@@ -347,24 +387,46 @@ async fn test_stream_all_dm_messages() {
         .await;
     stream.wait_for_ready().await;
 
-    alix_dm
-        .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
-        .await
-        .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    assert_eq!(stream_callback.message_count(), 1);
-
-    alix_group
-        .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
-        .await
-        .unwrap();
-    let result = stream_callback.wait_for_delivery(Some(2)).await;
+    // Conversation-type filters scan excluded rows. A filter change does not replay them.
     assert!(
-        result.is_err(),
-        "Stream unexpectedly received a Group message"
+        bo.conversation(alix_dm.id())?
+            .message_history_snapshot(10)?
+            .messages
+            .iter()
+            .any(|entry| entry.message.id == withheld_dm_id)
     );
+    let dm_only_id = alix_dm
+        .send(b"dm-only".to_vec(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+    let expected = vec![(dm_only_id.clone(), b"dm-only".to_vec())];
+    wait_for_application_messages(&stream_callback, &expected).await;
+
+    let withheld_group_id = alix_group
+        .send(
+            b"group while dm-only".to_vec(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(2)).await;
     assert_eq!(stream_callback.message_count(), 1);
     stream.end_and_wait().await?;
+    let history = bo
+        .conversation(alix_dm.id())?
+        .message_history_snapshot(10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .filter(|message| message.id == dm_only_id)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 1);
+    assert_streamed_history(&stream_callback, &history);
+    assert!(stream_callback.messages.lock().iter().all(|message| {
+        message.conversation_id == alix_dm.id()
+            && message.id != withheld_group_id
+            && message.id != withheld_dm_id
+    }));
     assert_eq!(bo.api_statistics().subscribe_static, 0);
 }
 

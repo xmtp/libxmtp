@@ -348,11 +348,11 @@ mod test {
     }
 
     /// Consent filtering cannot turn a group from the live baseline into a new join.
-    #[xmtp_common::test(unwrap_try = true)]
     #[rstest::rstest]
     #[case::unfiltered(None, 2)]
     #[case::allowed_only(Some(vec![ConsentState::Allowed]), 1)]
     #[case::empty_filter(Some(Vec::new()), 0)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn conversation_consent_filter_preserves_live_baseline(
         #[case] consent_states: Option<Vec<ConsentState>>,
         #[case] expected_count: usize,
@@ -360,27 +360,32 @@ mod test {
         use xmtp_common::time::{Duration, timeout};
 
         tester!(alix, disable_workers);
-        let old = alix.create_group(None, None)?;
-        old.update_consent_state(ConsentState::Denied)?;
+        let old = alix.create_group(None, None).unwrap();
+        old.update_consent_state(ConsentState::Denied).unwrap();
         let mut stream = StreamConversations::new(
             &alix.context,
             Some(ConversationType::Group),
             false,
             consent_states,
         )
-        .await?;
+        .await
+        .unwrap();
 
-        old.update_consent_state(ConsentState::Allowed)?;
-        let denied = alix.create_group(None, None)?;
-        denied.update_consent_state(ConsentState::Denied)?;
-        let allowed = alix.create_group(None, None)?;
+        old.update_consent_state(ConsentState::Allowed).unwrap();
+        let denied = alix.create_group(None, None).unwrap();
+        denied.update_consent_state(ConsentState::Denied).unwrap();
+        let allowed = alix.create_group(None, None).unwrap();
         let expected = match expected_count {
             2 => vec![denied.group_id, allowed.group_id],
             1 => vec![allowed.group_id],
             _ => Vec::new(),
         };
         for group_id in expected {
-            let observed = timeout(Duration::from_secs(5), stream.next()).await???;
+            let observed = timeout(Duration::from_secs(5), stream.next())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
             assert_eq!(observed.group_id, group_id);
         }
         assert!(

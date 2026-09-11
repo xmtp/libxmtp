@@ -27,14 +27,12 @@ mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
-use std::sync::Arc;
-
 use crate::groups::send_message_opts::SendMessageOpts;
 use prost::Message;
 use xmtp_db::ConnectionExt;
 use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_id::InboxOwner;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, Topic};
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
@@ -83,6 +81,54 @@ use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_mls_common::group_metadata::GroupMetadata;
 use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
+
+#[track_caller]
+fn assert_blocked_obligation(
+    error: &crate::subscriptions::barrier::BarrierError,
+    topic: &Topic,
+    processed: Cursor,
+    code: &str,
+) -> crate::subscriptions::barrier::BarrierTopic {
+    use crate::subscriptions::barrier::{BarrierCause, BarrierError, BarrierFailure};
+    let BarrierError::Incomplete { reason, unfinished } = error;
+    assert_eq!(*reason, BarrierFailure::Blocked);
+    let [status] = unfinished.as_slice() else {
+        panic!("expected one blocked obligation, got {unfinished:?}");
+    };
+    assert_eq!(&status.topic, topic);
+    let target = status
+        .target
+        .expect("blocked work must have a fixed target");
+    assert!(status.received >= target);
+    assert_eq!(status.processed, processed);
+    assert!(target > processed);
+    assert!(!status.inactive);
+    assert!(matches!(&status.cause, Some(BarrierCause::Blocked(actual)) if actual == code));
+    status.clone()
+}
+
+#[track_caller]
+fn assert_version_sync_blocked(error: GroupError, topic: &Topic, processed: Cursor) {
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a blocked sync summary, got {error:?}");
+    };
+    let Some(GroupError::StreamBarrier(error)) = summary.other.as_deref() else {
+        panic!("expected the processing barrier cause, got {summary:?}");
+    };
+    let status = assert_blocked_obligation(error, topic, processed, "unsupported_protocol_version");
+    assert!(status.unresolved_welcomes.is_empty());
+}
+
+#[track_caller]
+fn assert_paused_sync(error: GroupError, expected_version: &str) {
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a paused sync summary, got {error:?}");
+    };
+    assert!(matches!(
+        summary.other.as_deref(),
+        Some(GroupError::GroupPausedUntilUpdate(version)) if version == expected_version
+    ));
+}
 
 async fn receive_group_invite(client: &FullXmtpClient) -> TestMlsGroup {
     client.sync_welcomes().await.unwrap();
@@ -300,6 +346,7 @@ async fn test_add_member_conflict() {
         .add_members(&[charlie.inbox_id()])
         .await
         .expect("failed to add charlie");
+    let added_authenticator = amal_group.epoch_authenticator().await.unwrap();
     tracing::info!("Adding charlie from bola");
     bola_group
         .add_members(&[charlie.inbox_id()])
@@ -307,7 +354,16 @@ async fn test_add_member_conflict() {
         .expect("bola's add should succeed in a no-op");
 
     let summary = amal_group.receive().await.unwrap();
-    assert!(summary.is_errored());
+    assert!(!summary.is_errored());
+    assert!(summary.errored.is_empty());
+    assert_eq!(
+        amal_group.epoch_authenticator().await.unwrap(),
+        added_authenticator
+    );
+    assert_eq!(
+        bola_group.epoch_authenticator().await.unwrap(),
+        added_authenticator
+    );
 
     // Check Amal's MLS group state.
     let amal_db = amal.context.db();
@@ -322,7 +378,7 @@ async fn test_add_member_conflict() {
     // Check Bola's MLS group state.
     let bola_db = bola.context.db();
     let bola_members_len = bola_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
+        .load_mls_group_with_lock(bola.context.mls_storage(), |mls_group| {
             Ok(mls_group.members().count())
         })
         .unwrap();
@@ -366,50 +422,55 @@ async fn test_add_member_conflict() {
     assert!(matching_message.is_some());
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_create_from_welcome_validation() {
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_create_from_welcome_validation() {
     use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
-    use xmtp_common::assert_logged;
-    xmtp_common::traced_test!(async {
-        tracing::info!("TEST");
-        tester!(alix);
-        tester!(bo);
+    tester!(alix);
+    tester!(bo);
 
-        let alix_group = alix.create_group(None, None).unwrap();
-        let provider = alix.context.mls_provider();
-        // Doctor the group membership
-        let mut mls_group = alix_group
-            .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
-                let mut existing_extensions = mls_group.extensions().clone();
-                let mut group_membership = GroupMembership::new();
-                group_membership.add("deadbeef".to_string(), 1);
-                existing_extensions
-                    .add_or_replace(build_group_membership_extension(&group_membership))
-                    .unwrap();
+    let alix_group = alix.create_group(None, None).unwrap();
+    let provider = alix.context.mls_provider();
+    // Doctor the group membership
+    let mut mls_group = alix_group
+        .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("deadbeef".to_string(), 1);
+            existing_extensions
+                .add_or_replace(build_group_membership_extension(&group_membership))
+                .unwrap();
 
-                mls_group
-                    .update_group_context_extensions(
-                        &provider,
-                        existing_extensions.clone(),
-                        &alix.identity().installation_keys,
-                    )
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-                Ok(mls_group) // Return the updated group if necessary
-            })
-            .unwrap();
+            Ok(mls_group) // Return the updated group if necessary
+        })
+        .unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+    // Now add bo to the group
+    force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
-    });
+    // Bo should not be able to actually read this group
+    bo.sync_welcomes().await.unwrap();
+    let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(groups.len(), 0);
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let db = bo.context.db();
+    let rejected = db.read_last_rejection(&topic)??;
+    assert_eq!(rejected.code, "invalid_welcome");
+    assert!(rejected.sequence_id > Cursor(0));
+    assert!(db.pending_envelope(&topic, rejected.sequence_id)?.is_none());
+    assert!(db.find_group(&alix_group.group_id)?.is_none());
 }
 
 #[xmtp_common::test]
@@ -3681,7 +3742,12 @@ async fn add_missing_installs_reentrancy() {
 
     // Now I am going to sync twice
     alix1_group.sync_with_conn().await.unwrap();
+    let settled_authenticator = alix1_group.epoch_authenticator().await.unwrap();
     alix1_group.sync_with_conn().await.unwrap();
+    assert_eq!(
+        alix1_group.epoch_authenticator().await.unwrap(),
+        settled_authenticator
+    );
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
@@ -3692,17 +3758,34 @@ async fn add_missing_installs_reentrancy() {
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
-    // We expect two group messages to have been sent,
-    // but only the first is valid
-    let group_messages = alix1
-        .context
-        .api()
-        .query_group_messages(alix1_group.group_id)
-        .await
-        .unwrap();
-    assert_eq!(group_messages.len(), 2);
-
     let alix2_group = receive_group_invite(&alix2).await;
+    assert_eq!(
+        alix2_group.epoch_authenticator().await.unwrap(),
+        settled_authenticator
+    );
+    for group in [&alix1_group, &alix2_group] {
+        let installations = group
+            .load_mls_group_with_lock(group.context.mls_storage(), |mls_group| {
+                Ok(mls_group.members().count())
+            })
+            .unwrap();
+        assert_eq!(installations, 2);
+    }
+    assert!(
+        alix1
+            .db()
+            .find_group_intents(
+                alix1_group.group_id,
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Error
+                ]),
+                None,
+            )
+            .unwrap()
+            .is_empty()
+    );
 
     // Send a message from alix1
     alix1_group
@@ -4353,7 +4436,7 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
             .as_str(),
     );
     tester!(bo, version: bo_version);
-    tester!(caro);
+    tester!(caro, disable_workers);
 
     assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
     assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
@@ -4413,14 +4496,13 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
         .unwrap()
         .pop()
         .unwrap();
+    let pending = crate::groups::welcome_sync::pending_welcome_for_test(&caro.context, &welcome)
+        .await
+        .unwrap();
     let result = crate::groups::XmtpWelcome::builder()
         .context(caro.context.clone())
         .welcome(&welcome)
-        .pending(
-            crate::groups::welcome_sync::pending_welcome_for_test(&caro.context, &welcome)
-                .await
-                .unwrap(),
-        )
+        .pending(pending.clone())
         .validator(crate::groups::InitialMembershipValidator::new(
             caro.context.clone(),
         ))
@@ -4428,12 +4510,42 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
         .await;
     assert!(matches!(
         result,
-        Err(GroupError::UnsupportedWelcomeVersion(_))
+        Err(GroupError::UnsupportedWelcomeVersion(version))
+            if version == amal.version_info().pkg_version()
     ));
     assert!(
         caro.find_groups(GroupQueryArgs::default())
             .unwrap()
             .is_empty()
+    );
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: caro.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let Err(GroupError::StreamBarrier(error)) = caro.sync_welcomes().await else {
+        panic!("the unsupported Welcome must remain blocked");
+    };
+    let status = assert_blocked_obligation(
+        &error,
+        &Topic::new_welcome_message(caro.context.installation_id()),
+        Cursor(0),
+        "welcome_blocked",
+    );
+    assert_eq!(status.unresolved_welcomes, vec![welcome.cursor]);
+    let retained = caro
+        .context
+        .db()
+        .pending_envelope(&db_topic, welcome.cursor)
+        .unwrap()
+        .unwrap();
+    assert!(retained.blocked);
+    assert_eq!(retained.envelope, pending.envelope);
+    assert!(
+        caro.context
+            .db()
+            .find_group(&amal_group.group_id)
+            .unwrap()
+            .is_none()
     );
 
     // Caro updates to the supported version and retries the same Welcome.
@@ -4444,14 +4556,46 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
             .as_str(),
     );
 
-    let snapshot = Arc::new(caro.db_snapshot());
-    drop(caro);
-    tester!(caro, snapshot: snapshot, version: caro_version);
+    let installation_id = caro.context.installation_id();
+    let inbox_id = caro.inbox_id().to_string();
+    let caro = ClientBuilder::from_client(caro.client)
+        .version(caro_version)
+        .with_disable_workers(true)
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(caro.context.installation_id(), installation_id);
+    assert_eq!(caro.inbox_id(), inbox_id);
+    assert_eq!(
+        caro.context
+            .db()
+            .pending_envelope(&db_topic, welcome.cursor)
+            .unwrap()
+            .unwrap()
+            .envelope,
+        pending.envelope,
+    );
     caro.sync_welcomes().await.unwrap();
     let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
     caro_group.sync().await.unwrap();
+    assert!(
+        caro.context
+            .db()
+            .pending_envelope(&db_topic, welcome.cursor)
+            .unwrap()
+            .is_none()
+    );
+    let fresh_id = amal_group
+        .send_message(b"Hello after Caro upgrade", SendMessageOpts::default())
+        .await
+        .unwrap();
+    caro_group.sync().await.unwrap();
+    let fresh_messages = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let fresh = fresh_messages.last().unwrap();
+    assert_eq!(fresh.id, fresh_id);
+    assert_eq!(fresh.decrypted_message_bytes, b"Hello after Caro upgrade");
 
     // Caro should now be able to send a message
     caro_group
@@ -4560,18 +4704,32 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     bo.sync_welcomes().await.unwrap();
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = binding.first().unwrap();
+    let topic = Topic::new_group_message(bo_group.group_id);
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic).unwrap().processed;
+    let before = bo_group.epoch_authenticator().await.unwrap();
 
-    // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
+    // The send cannot publish or process through the unsupported version bump.
     let result = bo_group
         .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
         .await;
-    assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait(_))),
-        "Expected SyncFailedToWait error, got {:?}",
-        result
+    let Err(GroupError::SyncFailedToWait(summary)) = result else {
+        panic!("expected an unpublished blocked send, got {result:?}");
+    };
+    let Some(GroupError::StreamBarrier(error)) = summary.other.as_deref() else {
+        panic!("expected the unsupported version barrier, got {summary:?}");
+    };
+    assert_blocked_obligation(error, &topic, processed, "unsupported_protocol_version");
+    assert_eq!(bo_group.epoch_authenticator().await.unwrap(), before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic).unwrap().processed,
+        processed
     );
 
-    bo_group.sync().await.unwrap();
+    assert_paused_sync(
+        bo_group.sync().await.unwrap_err(),
+        amal.version_info().pkg_version(),
+    );
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
     let result = bo_group
@@ -4617,6 +4775,10 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
+    let topic = Topic::new_group_message(bo_group.group_id);
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic).unwrap().processed;
+    let before = bo_group.epoch_authenticator().await.unwrap();
 
     // Amal sets new minimum version requirement
     amal_group
@@ -4625,21 +4787,72 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .unwrap();
     amal_group.sync().await.unwrap();
 
-    // Bo's attempt to send message before syncing should now fail with SyncFailedToWait error
+    // The backend accepts Bo's send, but the unsupported prefix prevents confirmation.
+    let envelopes = amal
+        .context
+        .api()
+        .query_group_messages(amal_group.group_id)
+        .await
+        .unwrap();
+    let commit = envelopes.last().unwrap();
+    assert!(commit.is_commit());
+    let blocked_cursor = commit.cursor;
+    let predecessor = envelopes.iter().rev().nth(1).unwrap().cursor;
+    assert!(predecessor >= processed);
+
     let result = bo_group
         .send_message(
             "Second message from Bo".as_bytes(),
             SendMessageOpts::default(),
         )
         .await;
+    let Err(GroupError::PublishedButUnconfirmed {
+        intent_id,
+        cause: Some(error),
+    }) = result
+    else {
+        panic!("expected an accepted send with a blocked processing obligation, got {result:?}");
+    };
+    assert_blocked_obligation(&error, &topic, predecessor, "unsupported_protocol_version");
     assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait(_))),
-        "Expected SyncFailedToWait error, got {:?}",
-        result
+        bo.context
+            .db()
+            .prepared_envelopes(intent_id)
+            .unwrap()
+            .is_some()
     );
+    assert_eq!(bo_group.epoch_authenticator().await.unwrap(), before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic).unwrap().processed,
+        predecessor
+    );
+    let pending = bo
+        .context
+        .db()
+        .first_pending_envelope(&db_topic)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.sequence_id as u64, blocked_cursor.0);
+    assert!(pending.blocked);
+    assert_eq!(
+        pending.error_code.as_deref(),
+        Some("unsupported_protocol_version")
+    );
+    if predecessor > processed {
+        let rejection = bo
+            .context
+            .db()
+            .read_last_rejection(&db_topic)
+            .unwrap()
+            .unwrap();
+        assert_eq!(rejection.sequence_id, predecessor);
+        assert_eq!(rejection.code, "mls_processing_failure");
+    }
 
-    // Bo syncs to get the version update
-    bo_group.sync().await.unwrap();
+    assert_paused_sync(
+        bo_group.sync().await.unwrap_err(),
+        amal.version_info().pkg_version(),
+    );
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
     let result = bo_group
@@ -4760,7 +4973,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[tokio::test(flavor = "multi_thread")]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
 
@@ -4785,6 +4998,19 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     let group_debug_info = group_b.debug_info().await.unwrap();
     assert!(group_debug_info.maybe_forked);
     assert!(!group_debug_info.fork_details.is_empty());
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(group_b.group_id);
+    let db = client_b.context.db();
+    let rejection = db.read_last_rejection(&topic)??;
+    assert_eq!(rejection.code, "mls_processing_failure");
+    assert_eq!(db.topic_progress(&topic)?.processed, rejection.sequence_id);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+
+    group_a
+        .send_message(&[2], SendMessageOpts::default())
+        .await?;
+    group_b.sync().await?;
+    assert_eq!(group_b.test_last_message_bytes().await??, vec![2]);
+    assert!(db.topic_progress(&topic)?.processed > rejection.sequence_id);
     client_b
         .context
         .db()

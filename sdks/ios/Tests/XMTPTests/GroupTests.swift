@@ -1222,14 +1222,20 @@ class GroupTests: XCTestCase {
 		}
 
 		// first syncAllGroups after removal still sync groups in order to process the removal
-		var numGroupsSynced = try await fixtures.boClient.conversations
+		let numGroupsSynced = try await fixtures.boClient.conversations
 			.syncAllConversations().numEligible
 		XCTAssertEqual(numGroupsSynced, 101)
 
-		// next syncAllGroups will not sync any groups, since there are no new messages
-		numGroupsSynced = try await fixtures.boClient.conversations
-			.syncAllConversations().numSynced
-		XCTAssertEqual(numGroupsSynced, 0)
+		let boGroups = try await fixtures.boClient.conversations.listGroups()
+		XCTAssertEqual(boGroups.count, 100)
+		for group in boGroups {
+			XCTAssertFalse(try group.isActive())
+		}
+
+		// Only the internal device-sync group remains eligible.
+		let finalSync = try await fixtures.boClient.conversations.syncAllConversations()
+		XCTAssertEqual(finalSync.numEligible, 1)
+		XCTAssertEqual(finalSync.numSynced, 1)
 		try fixtures.cleanUpDatabases()
 	}
 

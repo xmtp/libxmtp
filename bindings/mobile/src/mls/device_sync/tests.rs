@@ -294,7 +294,7 @@ async fn test_can_sync_all_groups() {
     assert_eq!(bo_messages5.len(), 2);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_sync_all_groups_active_only() {
     let alix = new_test_client().await;
     let bo = new_test_client().await;
@@ -336,7 +336,16 @@ async fn test_can_sync_all_groups_active_only() {
         .sync_all_conversations(None)
         .await
         .unwrap();
-    assert_eq!(sync_summary_2.num_synced, 30);
+    assert_eq!(sync_summary_2.num_eligible, 30);
+    // Synced counts groups that remain active when all required work completes.
+    assert_eq!(sync_summary_2.num_synced, 0);
+    let removed = bo
+        .conversations()
+        .list(FfiListConversationsOptions::default())?;
+    assert_eq!(removed.len(), 30);
+    for group in removed {
+        assert!(!group.conversation.is_active()?);
+    }
 
     // Send a message to each group to make sure there is something to sync
     for group in alix

@@ -119,9 +119,9 @@ async fn test_app_data_callback_silent_for_unrelated_changes() {
 
 /// Publishing a merged value straight back into the same group is the whole
 /// point of the callback, and it is also the one thing that can deadlock:
-/// `update_app_data` waits on `sync_until_intent_resolved`, which re-enters
-/// `sync_with_conn` and takes the per-group sync mutex. Dispatching while sync
-/// still held that mutex hung the caller forever.
+/// `update_app_data` waits for the same group's processor. The callback must run
+/// after the state transaction and outside the processor's event loop, so that
+/// the processor can apply the callback's new commit.
 ///
 /// Wrapped in a timeout so a regression fails the run instead of parking it
 /// until the CI job's own limit.
@@ -134,6 +134,7 @@ async fn test_callback_can_publish_back_into_the_same_group() {
     struct RepublishingCallback {
         group: OnceLock<TestMlsGroup>,
         published: Mutex<Vec<String>>,
+        completed: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     }
 
     #[xmtp_common::async_trait]
@@ -149,10 +150,17 @@ async fn test_callback_can_publish_back_into_the_same_group() {
                 .await
                 .expect("republish from callback");
             self.published.lock().expect("lock poisoned").push(merged);
+            if let Some(completed) = self.completed.lock().expect("lock poisoned").take() {
+                completed.send(()).expect("test awaits callback completion");
+            }
         }
     }
 
-    let callback = Arc::new(RepublishingCallback::default());
+    let (completed, completion) = tokio::sync::oneshot::channel();
+    let callback = Arc::new(RepublishingCallback {
+        completed: Mutex::new(Some(completed)),
+        ..Default::default()
+    });
     let callbacks = UnstableChangeCallbacks {
         app_data: Some(callback.clone() as Arc<dyn AppDataChangeCallback>),
         ..Default::default()
@@ -176,9 +184,15 @@ async fn test_callback_can_publish_back_into_the_same_group() {
         .update_app_data("from alix".to_string(), None)
         .await?;
 
-    xmtp_common::time::timeout(std::time::Duration::from_secs(30), bo_group.sync())
-        .await
-        .expect("sync deadlocked: the callback was dispatched while sync held the group mutex")?;
+    xmtp_common::time::timeout(Duration::from_secs(30), async {
+        bo_group.sync().await.expect("sync remote app_data change");
+        // Sync can finish before the callback's reentrant write completes.
+        completion
+            .await
+            .expect("callback completion channel closed");
+    })
+    .await
+    .expect("callback did not complete: reentrant publication may have deadlocked");
 
     assert_eq!(
         callback.published.lock().expect("lock poisoned").as_slice(),

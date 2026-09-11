@@ -145,7 +145,8 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     let Some(Payload::GroupMessage(message)) = &mut malformed.payload else {
         panic!("expected a group envelope");
     };
-    message.data = vec![0, 1, 0];
+    // Keep valid TLS framing so backend admission reaches the client rejection path.
+    *message.data.last_mut().unwrap() ^= 1;
     let receipts = group
         .context
         .api()
@@ -162,7 +163,7 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         .read_last_rejection(&stream_topic)?
         .unwrap();
     assert_eq!(later_rejection.sequence_id, later_cursor);
-    assert_eq!(later_rejection.code, "malformed_envelope");
+    assert_eq!(later_rejection.code, "own_message_without_attempt");
     assert_eq!(group.group_name()?, original_name);
     assert_eq!(group.epoch_authenticator().await?, original_authenticator);
 

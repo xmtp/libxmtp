@@ -4,7 +4,10 @@ use super::{
 };
 use crate::{
     context::XmtpSharedContext,
-    subscriptions::{LocalEvents, SyncWorkerEvent},
+    subscriptions::{
+        LocalEvents, SyncWorkerEvent,
+        incoming::{IncomingCoordinator, IncomingScope},
+    },
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
         WorkerKind, WorkerResult, metrics::WorkerMetrics,
@@ -107,6 +110,9 @@ where
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
         self.sync_init().await?;
+        // Receipt must outlive each sync call so remote updates can wake this worker.
+        let _receipt = IncomingCoordinator::for_context(&self.client.context)
+            .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
         let tick_fut = Self::tick(self.client.context.clone());

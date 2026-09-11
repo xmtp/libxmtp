@@ -319,6 +319,9 @@ where
                 xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table)
                     .execute(c)
                     .unwrap();
+                xmtp_db::diesel::delete(xmtp_db::schema::incoming_envelopes::table)
+                    .execute(c)
+                    .unwrap();
                 xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
                     .execute(c)
                     .unwrap();

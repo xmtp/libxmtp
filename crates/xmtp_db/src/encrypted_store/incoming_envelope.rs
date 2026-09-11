@@ -122,6 +122,16 @@ pub struct TopicProgress {
     pub received: Cursor,
 }
 
+/// The group-state proof required to install a validated Welcome's anchor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinAnchorMode {
+    /// The anchor must advance an existing processed position.
+    Advance,
+    /// The caller proved that an inactive group has a newer re-add Welcome.
+    /// Its anchor must equal the processed removal position in the same transaction.
+    InactiveReadd,
+}
+
 /// Receipt progress visible only after the full admission transaction commits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdmissionResult {
@@ -654,7 +664,12 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
 
     /// Install a validated join anchor without rewinding either durable position.
     /// The caller must check the group state and install MLS state in the same transaction.
-    fn install_group_anchor(&self, group_id: GroupId, anchor: Cursor) -> Result<(), StorageError> {
+    fn install_group_anchor(
+        &self,
+        group_id: GroupId,
+        anchor: Cursor,
+        mode: JoinAnchorMode,
+    ) -> Result<(), StorageError> {
         let anchor = i64::try_from(anchor.0).map_err(|_| StreamStorageError::InvalidBatch)?;
         let topic = StreamTopic::group(group_id);
         stream_transaction(self, |conn| {
@@ -665,6 +680,9 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                 .optional()?;
             match state {
                 None => {
+                    if mode == JoinAnchorMode::InactiveReadd {
+                        return Err(StreamStorageError::StaleJoinAnchor.into());
+                    }
                     diesel::insert_into(progress::table)
                         .values((
                             progress::entity_id.eq(&topic.entity_id),
@@ -675,13 +693,17 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
                         .execute(conn)?;
                 }
                 Some((processed, received)) => {
-                    if anchor <= processed {
+                    let valid = match mode {
+                        JoinAnchorMode::Advance => anchor > processed,
+                        JoinAnchorMode::InactiveReadd => anchor == processed,
+                    };
+                    if !valid {
                         return Err(StreamStorageError::StaleJoinAnchor.into());
                     }
                     let changed = diesel::update(
                         progress::table
                             .find((&topic.entity_id, EntityKind::ApplicationMessage))
-                            .filter(progress::sequence_id.lt(anchor)),
+                            .filter(progress::sequence_id.eq(processed)),
                     )
                     .set((
                         progress::sequence_id.eq(anchor),

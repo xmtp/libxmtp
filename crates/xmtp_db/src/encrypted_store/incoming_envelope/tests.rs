@@ -50,7 +50,7 @@ async fn welcome_discovery_is_immutable_and_excludes_local_and_imported_groups()
         group.store(&db)?;
     }
     db.record_welcome_discovery(discovered.id, Cursor(10))?;
-    db.install_group_anchor(discovered.id, Cursor(50))?;
+    db.install_group_anchor(discovered.id, Cursor(50), JoinAnchorMode::Advance)?;
     let mut rejoin = discovered.clone();
     rejoin.sequence_id = Some(100);
     assert_eq!(db.insert_or_replace_group(rejoin)?.sequence_id, Some(100));
@@ -90,7 +90,9 @@ async fn welcome_discovery_rolls_back_with_installation_state() {
         provider
             .db()
             .record_welcome_discovery(group.id, Cursor(10))?;
-        provider.db().install_group_anchor(group.id, Cursor(50))?;
+        provider
+            .db()
+            .install_group_anchor(group.id, Cursor(50), JoinAnchorMode::Advance)?;
         Ok(TransactionOutcome::Rollback)
     })?;
     assert!(matches!(outcome, TransactionOutcome::Rollback));
@@ -419,7 +421,7 @@ async fn validated_join_anchor_preserves_the_received_tail() {
     let group = GroupId::from([7; 16]);
     let topic = StreamTopic::group(group);
     db.admit_ordered_batch(&topic, Cursor(0), &batch(&[10, 30, 50]), limits())?;
-    db.install_group_anchor(group, Cursor(30))?;
+    db.install_group_anchor(group, Cursor(30), JoinAnchorMode::Advance)?;
     assert_eq!(
         db.topic_progress(&topic)?,
         TopicProgress {
@@ -429,10 +431,34 @@ async fn validated_join_anchor_preserves_the_received_tail() {
     );
     assert_eq!(db.first_pending_envelope(&topic)?.unwrap().sequence_id, 50);
     assert!(matches!(
-        db.install_group_anchor(group, Cursor(20)),
+        db.install_group_anchor(group, Cursor(30), JoinAnchorMode::Advance),
         Err(StorageError::Stream(StreamStorageError::StaleJoinAnchor))
     ));
-    db.install_group_anchor(GroupId::from([8; 16]), Cursor(0))?;
+    db.install_group_anchor(group, Cursor(30), JoinAnchorMode::InactiveReadd)?;
+    assert_eq!(
+        db.topic_progress(&topic)?,
+        TopicProgress {
+            processed: Cursor(30),
+            received: Cursor(50)
+        }
+    );
+    assert_eq!(db.first_pending_envelope(&topic)?.unwrap().sequence_id, 50);
+    for mode in [JoinAnchorMode::Advance, JoinAnchorMode::InactiveReadd] {
+        assert!(matches!(
+            db.install_group_anchor(group, Cursor(20), mode),
+            Err(StorageError::Stream(StreamStorageError::StaleJoinAnchor))
+        ));
+    }
+    assert!(matches!(
+        db.install_group_anchor(group, Cursor(50), JoinAnchorMode::InactiveReadd),
+        Err(StorageError::Stream(StreamStorageError::StaleJoinAnchor))
+    ));
+    let fresh_group = GroupId::from([8; 16]);
+    assert!(matches!(
+        db.install_group_anchor(fresh_group, Cursor(0), JoinAnchorMode::InactiveReadd),
+        Err(StorageError::Stream(StreamStorageError::StaleJoinAnchor))
+    ));
+    db.install_group_anchor(fresh_group, Cursor(0), JoinAnchorMode::Advance)?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
