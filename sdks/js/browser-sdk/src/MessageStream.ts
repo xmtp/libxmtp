@@ -149,7 +149,11 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     } catch (error) {
       if (!this.#hasEnded()) {
         try {
+          // A handler that throws must not replace the real failure. The
+          // caller needs the original cause to know why the stream ended.
           this.#options.onError?.(error as Error);
+        } catch {
+          // Reported through the rethrow below.
         } finally {
           await this.return();
         }

@@ -71,6 +71,27 @@ describe("MessageStream decode failures", () => {
     expect(good.acknowledge).not.toHaveBeenCalled();
   });
 
+  it("reports the original failure when onError itself throws", async () => {
+    // A host handler must not be able to replace the real cause. Without the
+    // guard the caller receives the handler's error and cannot tell why the
+    // stream ended.
+    const { reader } = makeReader([makeItem("1")]);
+    const stream = new MessageStream<Item, Item>(
+      reader,
+      () => {
+        throw new Error("codec exploded");
+      },
+      {
+        onError: () => {
+          throw new Error("onError itself threw");
+        },
+      },
+    );
+
+    await expect(stream.next()).rejects.toThrow("codec exploded");
+    expect(stream.isDone).toBe(true);
+  });
+
   it("does not skip a message whose lookup failed", async () => {
     const missing = makeItem("1");
     const good = makeItem("2");
