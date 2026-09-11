@@ -129,7 +129,7 @@ internal class AcknowledgedMessageReader<T>(
                     return null
                 }
                 currentCoroutineContext().ensureActive()
-                val message = decodeOrSkip(item)
+                val message = item.decode()
                 currentCoroutineContext().ensureActive()
                 if (!item.checkOwner()) {
                     clearPending(item)?.reject()

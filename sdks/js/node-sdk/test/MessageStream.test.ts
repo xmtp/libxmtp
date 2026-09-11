@@ -52,86 +52,23 @@ const makeReader = (items: ReturnType<typeof makeItem>[]) => {
 };
 
 describe("MessageStream decode failures", () => {
-  it("skips and acknowledges a message it cannot decode, then keeps delivering", async () => {
+  it("propagates a codec failure and leaves the message replayable", async () => {
     const bad = makeItem("1");
     const good = makeItem("2");
     const { reader } = makeReader([bad, good]);
-    const onError = vi.fn();
 
-    const stream = new MessageStream<Item, Item>(
-      reader,
-      (message) => {
-        if (message.id === "1") throw new Error("codec exploded");
-        return message;
-      },
-      { onError },
-    );
+    const stream = new MessageStream<Item, Item>(reader, (message) => {
+      if (message.id === "1") throw new Error("codec exploded");
+      return message;
+    });
 
-    // The undecodable message never reaches the caller, but the next one does.
-    const first = await stream.next();
-    expect(first.done).toBe(false);
-    expect(first.value?.id).toBe("2");
-
-    // It must be acknowledged, not rejected: a rejected item is re-served by
-    // the core on every later stream, which would stop delivery permanently.
-    expect(bad.acknowledge).toHaveBeenCalledTimes(1);
-    expect(bad.reject).not.toHaveBeenCalled();
-    expect(stream.isDone).toBe(false);
-
-    // The failure is reported rather than silently swallowed.
-    expect(onError).toHaveBeenCalledTimes(1);
-    expect((onError.mock.calls[0]![0] as Error).message).toBe("codec exploded");
-  });
-
-  it("discards an undecodable item the selection invalidated, without ending the stream", async () => {
-    // updateScope/updateFilter can invalidate the token while an async
-    // converter runs. Acknowledging it then throws SelectionChanged, which
-    // would terminate the stream — the exact failure the skip exists to avoid.
-    const stale = makeItem("1", false);
-    const good = makeItem("2");
-    const { reader } = makeReader([stale, good]);
-    const onError = vi.fn();
-
-    const stream = new MessageStream<Item, Item>(
-      reader,
-      (message) => {
-        if (message.id === "1") throw new Error("codec exploded");
-        return message;
-      },
-      { onError },
-    );
-
-    const first = await stream.next();
-    expect(first.done).toBe(false);
-    expect(first.value?.id).toBe("2");
-    // The failed acknowledgement is tolerated rather than ending the stream.
-    // The core moved the item to reselect, so it stays replayable.
-    expect(stale.acknowledge).toHaveBeenCalledTimes(1);
-    expect(stream.isDone).toBe(false);
-  });
-
-  it("propagates an acknowledgement that failed to persist", async () => {
-    // A failed durable write is not a stale token. Swallowing it would report
-    // a skip that never landed, so the item would be served again with no
-    // signal that anything went wrong.
-    const item = makeItem("1");
-    item.acknowledge.mockRejectedValue(
-      new Error("[LocalDeliveryError::AcknowledgementFailed] write failed"),
-    );
-    const { reader } = makeReader([item, makeItem("2")]);
-    const onError = vi.fn();
-
-    const stream = new MessageStream<Item, Item>(
-      reader,
-      (message) => {
-        if (message.id === "1") throw new Error("codec exploded");
-        return message;
-      },
-      { onError },
-    );
-
-    await expect(stream.next()).rejects.toThrow(/AcknowledgementFailed/);
-    expect(stream.isDone).toBe(true);
+    // A message this client cannot decode must not be skipped. Acknowledging
+    // it would advance the durable cursor past a retained message that
+    // nothing has read, so a later reader with the codec registered would
+    // never see it.
+    await expect(stream.next()).rejects.toThrow("codec exploded");
+    expect(bad.acknowledge).not.toHaveBeenCalled();
+    expect(good.acknowledge).not.toHaveBeenCalled();
   });
 
   it("does not skip a message whose lookup failed", async () => {
