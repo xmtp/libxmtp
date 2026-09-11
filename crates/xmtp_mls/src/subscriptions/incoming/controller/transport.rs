@@ -9,7 +9,7 @@ pub(super) struct RetryBackoff {
 
 impl RetryBackoff {
     /// `failures` counts consecutive permanent errors and starts at one.
-    fn delay(&self, failures: u32) -> Duration {
+    pub(super) fn delay(&self, failures: u32) -> Duration {
         let shift = failures.saturating_sub(1).min(u32::BITS - 1);
         self.initial
             .checked_mul(1u32 << shift)

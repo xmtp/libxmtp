@@ -96,8 +96,26 @@ struct TopicSchedule {
 #[derive(Clone, Copy, Default)]
 struct ReceiptSchedule {
     paused: bool,
-    blocked: bool,
+    /// Earliest retry after a permanent receipt error. A permanent
+    /// classification describes one response, so the topic always retries;
+    /// only the delay grows.
+    blocked_until: Option<Instant>,
+    /// Consecutive permanent receipt errors, used to grow the retry delay.
+    blocked_failures: u32,
     last_read: Option<Instant>,
+}
+
+impl ReceiptSchedule {
+    /// True only while a scheduled retry has not come due.
+    fn blocked(&self) -> bool {
+        self.blocked_until.is_some_and(|at| Instant::now() < at)
+    }
+
+    /// True when a permanent error is still unresolved, due or not. Status
+    /// reporting uses this so a retrying topic is not shown as healthy.
+    fn failing(&self) -> bool {
+        self.blocked_failures > 0
+    }
 }
 
 #[derive(Default)]
@@ -459,7 +477,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let topics: HashSet<_> = self
             .interested()
             .into_iter()
-            .filter(|topic| !self.receipt(topic).paused && !self.receipt(topic).blocked)
+            .filter(|topic| !self.receipt(topic).paused && !self.receipt(topic).blocked())
             .collect();
         self.transport.request(topics);
         if !self.transport.can_open() {
@@ -588,6 +606,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 match self.admit_received_batch(batch) {
                     Ok(()) => {
                         self.topics.entry(topic.clone()).or_default().error = None;
+                        self.clear_receipt_failure(&topic);
                     }
                     Err(error) => self.receive_error(topic, error),
                 }
@@ -712,7 +731,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             };
             self.read_queue.push_back(topic.clone());
             if self.receipt(&topic).paused
-                || self.receipt(&topic).blocked
+                || self.receipt(&topic).blocked()
                 || self.is_retired(&topic)
             {
                 continue;
@@ -865,6 +884,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     ) {
         match result {
             Ok(page) => {
+                self.clear_receipt_failure(&topic);
                 if page.has_more {
                     self.topics
                         .entry(topic.clone())
@@ -905,11 +925,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if capacity(&error) {
             self.topics.entry(topic.clone()).or_default().receipt.paused = true;
         } else if !error.is_retryable() {
-            self.topics
-                .entry(topic.clone())
-                .or_default()
-                .receipt
-                .blocked = true;
+            let policy = self.context.incoming_runtime().policy();
+            let backoff = RetryBackoff {
+                initial: policy.permanent_retry_initial,
+                max: policy.permanent_retry_max,
+            };
+            let receipt = &mut self.topics.entry(topic.clone()).or_default().receipt;
+            receipt.blocked_failures = receipt.blocked_failures.saturating_add(1);
+            receipt.blocked_until = Some(now + backoff.delay(receipt.blocked_failures));
+        } else {
+            self.clear_receipt_failure(&topic);
         }
         self.topic_error(topic, error);
     }
@@ -925,6 +950,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         self.topics
             .get(topic)
             .is_some_and(|state| state.processing.retired)
+    }
+
+    /// A successful or retryable outcome ends a permanent-failure streak.
+    fn clear_receipt_failure(&mut self, topic: &Topic) {
+        if let Some(state) = self.topics.get_mut(topic) {
+            state.receipt.blocked_until = None;
+            state.receipt.blocked_failures = 0;
+        }
     }
 
     fn clear_read_times(&mut self) {
