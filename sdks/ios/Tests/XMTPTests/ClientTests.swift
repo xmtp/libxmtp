@@ -359,6 +359,7 @@ class ClientTests: XCTestCase {
 			alixClient.publicIdentity.identifier
 		)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
+
 		try alixClient.deleteLocalDatabase()
 	}
 

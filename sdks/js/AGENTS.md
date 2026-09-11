@@ -34,3 +34,21 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 - Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
 - Formatting is treefmt prettier (`just lint-config`), not eslint.
+
+## Durable message delivery
+
+- Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
+- Supplying `onValue` selects callback mode and starts consumption. Successful callback return acknowledges delivery. Do not also iterate that stream.
+- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, `onRestart`, or `disableSync` options. These options still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
+- Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
+- Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
+- `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.
+- `getStreamFailureDetails(error)` reads typed barrier, catch-up, and published-but-unconfirmed details. It preserves all topic obligations. Sequence values are `bigint`. A null target means that target capture did not complete.
+- Await the Browser SDK client's `close()` before a whole-database restore. Close releases the database owner before it stops the worker.
+
+The pure delivery-boundary tests do not need a backend or generated bindings:
+
+```bash
+NIX_DEVSHELL=js-node dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk exec vitest run test/MessageStream.test.ts test/streamFailure.test.ts'
+NIX_DEVSHELL=js-node dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/browser-sdk exec vitest run test/MessageStream.test.ts test/WorkerBridge.test.ts test/streamFailure.test.ts --browser.enabled=false'
+```

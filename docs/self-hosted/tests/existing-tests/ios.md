@@ -4,6 +4,17 @@
 
 | File | Qualified test | Form / gates / cases | Requirements |
 | --- | --- | --- | --- |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testReceiveAndFirstNextDoNotAcknowledgeButSecondNextDoes` | XCTest; iOS 16+; controlled receipt tokens and two delivery cursors | `IOS-REQ-164` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testFinishRejectsTheLastAndQueuedItemsAndClosesOnce` | XCTest; iOS 16+; last and queued items; repeated finish | `IOS-REQ-165` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testDroppingTheFullStreamRejectsPendingItemsAndClosesTheSubscription` | XCTest; iOS 16+; production stream factory and callback; drop before or after handoff; native closer called once | `IOS-REQ-165` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testCancellationBeforeHandoffRejectsTheItem` | XCTest; iOS 16+; cancellation during ownership check | `IOS-REQ-166` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testSelectionChangeRejectsTheStaleItemAndWaitsForFreshSelection` | XCTest; iOS 16+; stale then current receipt | `IOS-REQ-167` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testFinishDuringOwnershipCheckPreventsHandoff` | XCTest; iOS 16+; finish from ownership check | `IOS-REQ-168` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testConcurrentNextStopsBothCallsWithoutAcknowledgement` | XCTest; iOS 16+; two overlapping next calls | `IOS-REQ-169` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testDecodeFailureRejectsTheItemAndStops` | XCTest; iOS 16+; malformed content and a later arrival | `IOS-REQ-170` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testAcknowledgementFailureRejectsBothItemsAndStops` | XCTest; iOS 16+; failed acknowledgement and queued second item | `IOS-REQ-171` |
+| `sdks/ios/Tests/XMTPTests/MessageDeliveryStreamTests.swift` | `XMTPTests.MessageDeliveryStreamTests.testOneSlotOverflowRejectsBothItemsWithoutHandoff` | XCTest; iOS 16+; two arrivals before next | `IOS-REQ-172` |
+| `sdks/ios/Tests/XMTPTests/StreamFailureTests.swift` | `XMTPTests.StreamFailureTests.testReadsTypedDetailsFromThePublicErrorProperty` | XCTest; real native decoder through the public property; typed barrier fields and unrelated errors | `SHARED-IDENTITY-REQ-022` |
 | sdks/ios/Tests/XMTPTests/ArchiveTests.swift | XMTPTests.ArchiveTests.testClientArchives | iOS 15+ | `SHARED-SYNC-REQ-002` |
 | sdks/ios/Tests/XMTPTests/ArchiveTests.swift | XMTPTests.ArchiveTests.testInActiveDmsStitchIfDuplicated | iOS 15+ | `SHARED-SYNC-REQ-003` |
 | sdks/ios/Tests/XMTPTests/ArchiveTests.swift | XMTPTests.ArchiveTests.testImportArchiveWorksEvenOnFullDatabase | iOS 15+ | `SHARED-SYNC-REQ-004` |

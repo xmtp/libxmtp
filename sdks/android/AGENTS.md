@@ -34,3 +34,11 @@ dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testD
 - `library/src/test` contains JVM unit tests.
 - `library/src/androidTest` contains instrumented tests. These tests need a running backend and an emulator.
 - Instrumented fixtures disable automatic stream lifecycle handling and resume streams. They restore the setting after each test. There is no foreground Activity to keep streams active.
+
+## Message delivery
+
+- Message streams keep native acknowledgement tokens through the SDK queue. The direct Flow collector return is the acknowledgement boundary. App-added buffering has a separate boundary.
+- `MessageReader.next()` acknowledges the previous item, not the returned item. Close the reader when finished. Close and cancellation do not acknowledge pending items.
+- `messageReader(from = cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
+- Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
+- Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A null target means capture failed; zero is a captured empty target. All cursors and counts remain `ULong` values.
