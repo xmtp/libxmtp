@@ -2499,6 +2499,19 @@ where
             self.validate_and_process_external_message(mls_group, envelope, storage, events)?;
             ProcessedMessageOutcome::new(mls_group.is_active())
         };
+        // Removal is terminal for unaccepted outgoing work. Abandon it in the
+        // same transaction that applies the removal, so no stranded intent can
+        // preempt publishing after a later re-add (STR-086).
+        if !outcome.group_active {
+            let superseded = db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;
+            if superseded > 0 {
+                tracing::info!(
+                    group_id = %self.group_id,
+                    superseded,
+                    "superseded pending intents for an inactive group"
+                );
+            }
+        }
         self.maybe_update_cursor(&db, envelope)?;
         Self::save_envelope_metadata_with_db(&db, envelope)?;
         Ok(outcome)

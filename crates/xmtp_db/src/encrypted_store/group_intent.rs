@@ -282,6 +282,17 @@ pub trait QueryGroupIntent {
     /// compare-and-swap guard no longer matches the committed state.
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError>;
 
+    /// Abandon every unpublished and unconfirmed intent for a group that this
+    /// installation is no longer a member of. Returns the number abandoned.
+    ///
+    /// `Committed` intents are deliberately excluded: their post-commit work
+    /// already landed on the network and may still owe Welcomes to members this
+    /// installation added, which must still be published.
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError>;
+
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -362,6 +373,13 @@ where
 
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).set_group_intent_superseded(intent_id)
+    }
+
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        (**self).supersede_pending_intents_for_inactive_group(group_id)
     }
 
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -537,6 +555,40 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         }
 
         Ok(())
+    }
+
+    /// Removal is terminal for work that has not been accepted by the group.
+    /// A `ToPublish` intent can never be published now, and a `Published` one
+    /// can never be confirmed: its own echo is unreachable behind the inactive
+    /// boundary, and a later re-add installs fresh state past it. Leaving those
+    /// intents in place strands them, and a stranded `Published` state change
+    /// preempts every later intent on the group.
+    ///
+    /// The prepared attempt is cleared with the state so no stale bytes can be
+    /// reused against a new membership generation.
+    #[tracing::instrument(level = "debug", skip(self))]
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        let rows_changed = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::group_id.eq(group_id))
+                .filter(
+                    dsl::state
+                        .eq(IntentState::ToPublish)
+                        .or(dsl::state.eq(IntentState::Published)),
+                )
+                .set((
+                    dsl::state.eq(IntentState::Superseded),
+                    dsl::prepared_envelopes.eq(None::<Vec<u8>>),
+                    dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::payload_hash.eq(None::<Vec<u8>>),
+                    dsl::published_in_epoch.eq(None::<i64>),
+                ))
+                .execute(conn)
+        })?;
+        Ok(rows_changed)
     }
 
     // Set the intent with the given ID to `Committed`
