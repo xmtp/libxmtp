@@ -278,3 +278,59 @@ async fn a_snapshot_tester_can_still_allocate_delivery_sequences() {
     let cursor = alix2.context.db().current_delivery_cursor()?;
     assert!(cursor.delivery_sequence > 0);
 }
+
+/// An echo whose own intent kind a newer build wrote must HOLD the head, not
+/// skip it. The envelope may be a commit every other member applied; advancing
+/// past it would leave this installation behind the group with no way back.
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_unreadable_own_intent_kind_holds_the_head() {
+    use xmtp_db::group_intent::IntentKind;
+    use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
+    use xmtp_db::prelude::QueryGroupIntent;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+
+    // Bo publishes, so an echo for Bo's own payload hash is on the topic.
+    bo_group
+        .send_message(b"from bo", SendMessageOpts::default())
+        .await?;
+    let hash = bo
+        .context
+        .db()
+        .find_group_intents(bo_group.group_id, None, Some(IntentKind::all().collect()))?
+        .into_iter()
+        .find_map(|intent| intent.payload_hash)
+        .expect("the send must have stored a payload hash");
+
+    // Rewrite the kind to one this build cannot decode: the state a newer
+    // build leaves behind before a downgrade.
+    let future_kind = IntentKind::all().count() as i32 + 1;
+    bo.context.db().raw_query(|conn| {
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::group_intents::dsl;
+        diesel::update(dsl::group_intents.filter(dsl::payload_hash.eq(&hash)))
+            .set(dsl::kind.eq(future_kind))
+            .execute(conn)
+    })?;
+
+    // The probe reports it without erroring, which is what lets the caller
+    // hold the head instead of failing the query and retrying forever.
+    assert!(bo.context.db().own_intent_kind_is_unreadable(&hash)?);
+
+    // The head is held: P does not advance past the envelope, so a commit
+    // everyone else applied is never skipped.
+    let topic = StreamTopic::group(bo_group.group_id);
+    let before = bo.context.db().topic_progress(&topic)?.processed;
+    let _ = bo_group.sync().await;
+    let after = bo.context.db().topic_progress(&topic)?.processed;
+    assert_eq!(
+        before, after,
+        "an unreadable own intent kind must not advance the processed cursor"
+    );
+}

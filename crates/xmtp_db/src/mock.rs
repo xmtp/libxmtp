@@ -324,6 +324,8 @@ mock! {
             payload_hash: &[u8],
         ) -> Result<Option<crate::group_intent::StoredGroupIntent>, StorageError>;
 
+        fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError>;
+
         #[mockall::concretize]
         fn find_dependant_commits<P: AsRef<[u8]>>(
             &self,
