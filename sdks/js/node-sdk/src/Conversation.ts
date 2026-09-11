@@ -20,7 +20,10 @@ import {
 } from "@xmtp/node-bindings";
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
 import { MessageStream } from "@/MessageStream";
 import { nsToDate } from "@/utils/date";
 import { MissingContentTypeError } from "@/utils/errors";
@@ -155,8 +158,10 @@ export class Conversation<ContentTypes = unknown> {
       const enrichedMessage = this.#client.conversations.getMessageById(
         value.id,
       );
-      if (enrichedMessage !== undefined)
+      if (enrichedMessage !== undefined) {
+        assertMessageDecodedForDelivery(enrichedMessage);
         enrichedMessage.deliveryCursor = cursor;
+      }
       return enrichedMessage;
     };
     return new MessageStream(reader, convertMessage, options);

@@ -15,7 +15,7 @@ import java.util.concurrent.atomic.AtomicReference
 private const val MESSAGE_DELIVERY_QUEUE_CAPACITY = 1
 
 internal class QueuedMessageDelivery<T>(
-    val decode: () -> T,
+    val decode: () -> T?,
     val checkOwner: () -> Boolean,
     val acknowledge: () -> Unit,
     val reject: () -> Unit,
@@ -23,10 +23,7 @@ internal class QueuedMessageDelivery<T>(
 
 internal fun FfiMessageDelivery.toQueuedMessageDelivery(): QueuedMessageDelivery<DecodedMessage> =
     QueuedMessageDelivery(
-        decode = {
-            DecodedMessage.create(message, cursor)
-                ?: throw XMTPException("Failed to decode a delivered message")
-        },
+        decode = { DecodedMessage.createForDelivery(message, cursor) },
         checkOwner = { acknowledgement.checkOwner() },
         acknowledge = { acknowledgement.acknowledge() },
         reject = { acknowledgement.reject() },
@@ -83,7 +80,7 @@ internal fun <T> acknowledgedMessageFlow(
                     val message = delivery.decode()
                     currentCoroutineContext().ensureActive()
                     if (!delivery.checkOwner()) continue
-                    emit(message)
+                    if (message != null) emit(message)
                     currentCoroutineContext().ensureActive()
                     failure.get()?.let { throw it }
                     delivery.acknowledge()

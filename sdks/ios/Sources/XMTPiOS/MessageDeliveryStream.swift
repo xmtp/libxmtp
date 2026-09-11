@@ -46,7 +46,6 @@ private final class MessageDeliveryCallback: FfiMessageCallback, @unchecked Send
 enum MessageDeliveryStreamError: Error, Equatable {
 	case queueFull
 	case concurrentNext
-	case decodeFailed
 }
 
 protocol MessageDeliveryToken: AnyObject {
@@ -162,20 +161,24 @@ final class MessageDeliveryStream: @unchecked Sendable {
 				}
 				while let delivery = try await receiveNext() {
 					try Task.checkCancellation()
-					guard let decoded = DecodedMessage.create(
+					let decoded = try DecodedMessage.decodeForDelivery(
 						ffiMessage: delivery.message,
 						deliveryCursor: delivery.cursor
-					) else {
-						throw MessageDeliveryStreamError.decodeFailed
-					}
+					)
 					// Decode before dispatch. A scope change during decoding must still exclude this item.
 					guard try delivery.acknowledgement.checkOwner() else {
 						clearActive(reject: true)
 						continue
 					}
 					try Task.checkCancellation()
-					guard markHandedOff() else {
+					guard setHandedOff(decoded != nil) else {
 						throw CancellationError()
+					}
+					guard let decoded else {
+						// Intentional filtering consumes this item without an app handoff.
+						try delivery.acknowledgement.acknowledge()
+						clearActive(reject: false)
+						continue
 					}
 					return decoded
 				}
@@ -225,11 +228,11 @@ final class MessageDeliveryStream: @unchecked Sendable {
 		}
 	}
 
-	private func markHandedOff() -> Bool {
+	private func setHandedOff(_ value: Bool) -> Bool {
 		lock.lock()
 		defer { lock.unlock() }
 		guard !ended, active != nil else { return false }
-		handedOff = true
+		handedOff = value
 		return true
 	}
 

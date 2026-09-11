@@ -1113,9 +1113,11 @@ class GroupTest : BaseInstrumentedTest() {
         runBlocking {
             syncSummary = alixClient.conversations.syncAllConversations()
         }
-        // The active group and device-sync group reach their fixed targets. The inactive group is excluded.
-        assertEquals(2UL, syncSummary?.numEligible)
+        // All enrolled groups are eligible. Only the active group and device-sync group reach their targets.
+        assertEquals(3UL, syncSummary?.numEligible)
         assertEquals(2UL, syncSummary?.numSynced)
+        assertEquals(false, runBlocking { alixGroup2.isActive() })
+        assertEquals(true, runBlocking { alixGroup.isActive() })
     }
 
     @Test

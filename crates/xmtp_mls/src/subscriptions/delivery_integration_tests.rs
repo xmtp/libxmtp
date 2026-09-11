@@ -65,10 +65,10 @@ async fn durable_reader_delivers_live_messages() {
 }
 
 /// A group-only reader recovers a rejoin without a Welcome consumer.
-#[xmtp_common::test(unwrap_try = true)]
 #[rstest::rstest]
 #[case::reader_before_removal(false)]
 #[case::reader_opened_while_inactive(true)]
+#[xmtp_common::test(unwrap_try = true)]
 async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_inactive: bool) {
     use super::incoming::{IncomingProcessing, IncomingRegistration};
     use xmtp_common::wait_for_eq;
@@ -77,11 +77,11 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
-    let group = alix.create_group(None, None)?;
-    group.invite(&bo).await?;
+    let group = alix.create_group(None, None).unwrap();
+    group.invite(&bo).await.unwrap();
     // Only the initial fixture join is explicit. Recovery has no Welcome consumer.
-    bo.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
+    bo.sync_welcomes().await.unwrap();
+    let bo_group = bo.group(&group.group_id).unwrap();
     let open_reader = || {
         let _coordinator = IncomingCoordinator::enable_bidi_transport(&bo.context);
         MessageReader::new(
@@ -94,33 +94,40 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
     let mut reader = if open_while_inactive {
         None
     } else {
-        Some(open_reader()?)
+        Some(open_reader().unwrap())
     };
     group.send_msg(b"before removal").await;
     if let Some(reader) = &mut reader {
         assert_eq!(
-            next_application(reader).await?.decrypted_message_bytes,
+            next_application(reader)
+                .await
+                .unwrap()
+                .decrypted_message_bytes,
             b"before removal"
         );
     }
-    group.remove_members(&[bo.inbox_id()]).await?;
+    group.remove_members(&[bo.inbox_id()]).await.unwrap();
     if open_while_inactive {
-        bo_group.sync().await?;
-        assert!(!bo_group.is_active()?);
+        bo_group.sync().await.unwrap();
+        assert!(!bo_group.is_active().unwrap());
         // Start without the previous sync controller's in-memory retirement state.
         wait_for_eq(
             || async { bo.context.incoming_coordinator().lock().is_none() },
             true,
         )
-        .await?;
-        let mut opened = open_reader()?;
+        .await
+        .unwrap();
+        let mut opened = open_reader().unwrap();
         assert_eq!(
-            next_application(&mut opened).await?.decrypted_message_bytes,
+            next_application(&mut opened)
+                .await
+                .unwrap()
+                .decrypted_message_bytes,
             b"before removal"
         );
         reader = Some(opened);
     }
-    let mut reader = reader?;
+    let mut reader = reader.unwrap();
     let control = reader.control();
     let topic = Topic::new_group_message(group.group_id);
     xmtp_common::time::timeout(WAIT, async {
@@ -133,7 +140,8 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
             control.changed().await;
         }
     })
-    .await?;
+    .await
+    .unwrap();
     let status = control.catch_up_snapshot();
     assert_eq!(status.topics.len(), 1);
     assert_eq!(status.topics[0].topic, topic);
@@ -141,17 +149,21 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
     assert!(!status.discovery_pending);
 
     group.send_msg(b"while removed").await;
-    group.invite(&bo).await?;
+    group.invite(&bo).await.unwrap();
     group.send_msg(b"after rejoin").await;
     assert_eq!(
-        next_application(&mut reader).await?.decrypted_message_bytes,
+        next_application(&mut reader)
+            .await
+            .unwrap()
+            .decrypted_message_bytes,
         b"after rejoin"
     );
-    assert!(bo_group.is_active()?);
+    assert!(bo_group.is_active().unwrap());
     let stored = bo
         .context
         .db()
-        .get_group_messages(&group.group_id, &Default::default())?;
+        .get_group_messages(&group.group_id, &Default::default())
+        .unwrap();
     let applications: Vec<_> = stored
         .into_iter()
         .filter(|message| message.kind == GroupMessageKind::Application)

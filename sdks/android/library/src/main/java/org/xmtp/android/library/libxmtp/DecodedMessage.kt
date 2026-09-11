@@ -97,18 +97,25 @@ class DecodedMessage private constructor(
             deliveryCursor: FfiDeliveryCursor?,
         ): DecodedMessage? =
             try {
-                val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
-                if (encodedContent.type == ContentTypeGroupUpdated &&
-                    libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
-                ) {
-                    throw XMTPException("Error decoding group membership change")
-                }
-                // Decode the content once during creation
-                val decodedContent = encodedContent.decoded<Any>()
-                DecodedMessage(libXMTPMessage, encodedContent, decodedContent, deliveryCursor = deliveryCursor)
+                createForDelivery(libXMTPMessage, deliveryCursor)
             } catch (e: Exception) {
                 null // Return null if decoding fails
             }
+
+        /** Null excludes forged membership content. Parse and codec errors remain errors. */
+        internal fun createForDelivery(
+            libXMTPMessage: FfiMessage,
+            deliveryCursor: FfiDeliveryCursor?,
+        ): DecodedMessage? {
+            val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
+            if (encodedContent.type == ContentTypeGroupUpdated &&
+                libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
+            ) {
+                return null
+            }
+            val decodedContent = encodedContent.decoded<Any>()
+            return DecodedMessage(libXMTPMessage, encodedContent, decodedContent, deliveryCursor = deliveryCursor)
+        }
 
         fun create(libXMTPMessageWithReactions: FfiMessageWithReactions): DecodedMessage? =
             try {

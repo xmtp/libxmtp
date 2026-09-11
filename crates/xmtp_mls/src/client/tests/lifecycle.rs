@@ -69,10 +69,10 @@ async fn should_stream_consent() {
 }
 
 /// API-089: only the exact identity topic's serving head confirms registration.
-#[xmtp_common::test(unwrap_try = true)]
 #[rstest::rstest]
 #[case(false)]
 #[case(true)]
+#[xmtp_common::test(unwrap_try = true)]
 async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool) {
     use crate::client::VisibilityConfirmationOptions;
     use crate::identity::IdentityStrategy;
@@ -81,10 +81,10 @@ async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool
     use xmtp_proto::types::Topic;
 
     tester!(alix, disable_workers);
-    let identity: StoredIdentity = alix.db().fetch(&())?.unwrap();
+    let identity: StoredIdentity = alix.db().fetch(&()).unwrap().unwrap();
     let registration = identity.registration_cursor_sequence_id.unwrap() as u64;
     assert!(registration > 1);
-    let topic = Topic::new_identity_update(hex::decode(alix.inbox_id())?);
+    let topic = Topic::new_identity_update(hex::decode(alix.inbox_id()).unwrap());
     let mut calls = 0;
     let mut api = MockBackendClient::new();
     api.expect_query_newest()
@@ -129,14 +129,17 @@ async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool
         .store(alix.context.store().clone())
         .api_client(api)
         .with_scw_verifier(alix.context.scw_verifier())
-        .default_mls_store()?
+        .default_mls_store()
+        .unwrap()
         .with_allow_offline(Some(true))
         .with_disable_workers(true)
         .build()
-        .await?;
+        .await
+        .unwrap();
     reader
         .wait_for_registration_visible(VisibilityConfirmationOptions { timeout_ms: 1_000 })
-        .await?;
+        .await
+        .unwrap();
 }
 
 /// API-089: a response with a different metadata topic cannot confirm registration.

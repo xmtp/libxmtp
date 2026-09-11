@@ -1038,28 +1038,38 @@ mod tests {
         }
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
     #[rstest]
     #[case::terminal(false)]
     #[case::retry(true)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn welcome_rejection_commits_only_terminal_progress(#[case] retryable: bool) {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        let group = alix.create_group(None, None)?;
-        group.invite(&bo).await?;
+        let group = alix.create_group(None, None).unwrap();
+        group.invite(&bo).await.unwrap();
         let welcome = bo
             .context
             .api()
             .query_welcome_messages(bo.context.installation_id())
-            .await?
-            .pop()?;
-        pending_welcome_for_test(&bo.context, &welcome).await?;
+            .await
+            .unwrap()
+            .pop()
+            .unwrap();
+        pending_welcome_for_test(&bo.context, &welcome)
+            .await
+            .unwrap();
         let service = WelcomeService::new(bo.context.clone());
         let result = service
             .process_new_welcome(&welcome, RejectMembership { retryable })
             .await;
         assert!(result.is_err());
-        assert!(bo.context.db().find_group(&group.group_id)?.is_none());
+        assert!(
+            bo.context
+                .db()
+                .find_group(&group.group_id)
+                .unwrap()
+                .is_none()
+        );
         let expected = if !retryable {
             welcome.cursor
         } else {
@@ -1068,7 +1078,8 @@ mod tests {
         assert_eq!(
             bo.context
                 .db()
-                .get_last_cursor(bo.context.installation_id(), EntityKind::Welcome)?,
+                .get_last_cursor(bo.context.installation_id(), EntityKind::Welcome)
+                .unwrap(),
             expected
         );
     }

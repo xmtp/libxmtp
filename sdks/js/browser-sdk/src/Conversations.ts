@@ -10,7 +10,10 @@ import {
 } from "@xmtp/wasm-bindings";
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
 import { MessageStream } from "@/MessageStream";
@@ -507,6 +510,7 @@ export class Conversations<ContentTypes = unknown> {
         this.#codecRegistry,
         value,
       );
+      assertMessageDecodedForDelivery(decoded);
       decoded.deliveryCursor = cursor;
       return decoded;
     };

@@ -2,7 +2,7 @@
 
 [← Test inventory](../existing-tests.md) · [Requirements](../existing-requirements.md)
 
-- Inventory: 265 source declarations in 48 test-bearing files.
+- Inventory: 268 source declarations in 48 test-bearing files.
 - Count rule: one parameterized declaration is one row. Native and WASM `cfg_attr` expansions do not add rows.
 - The four ignored pool declarations each have two rstest cases. The two parameterized refresh-state declarations each have four cases.
 - No documentation tests were found in these crates.
@@ -114,15 +114,18 @@
 | crates/xmtp_db/src/encrypted_store/database/instrumentation.rs | `encrypted_store::database::instrumentation::tests::db_lock_panic_opt_out_values` | `#[test]`; values `1` and `true`. | `CORE-REQ-055` |
 | crates/xmtp_db/src/encrypted_store/database/instrumentation.rs | `encrypted_store::database::instrumentation::tests::db_lock_panic_ignores_other_values` | `#[test]`; six other values. | `CORE-REQ-055` |
 | crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::releases_db_lock` | Native-only `tokio::test`; persistent pool release and reconnect. | `CORE-REQ-063` |
-| crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::mismatched_encryption_key` | Native-only `tokio::test`; pooled wrong-key case. | `CORE-REQ-064` |
+| crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::mismatched_encryption_key` | Native-only async `xmtp_common::test`; `unwrap_try`; pooled wrong-key case, stable code, and non-retryability. | `CORE-REQ-064` |
 | crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::single_connection_roundtrip_and_reconnect` | Native-only `tokio::test`; Single arm. | `CORE-REQ-063` |
 | crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::single_connection_disconnect_releases_then_reconnect` | Native-only `tokio::test`; disconnected query and reconnect. | `CORE-REQ-063` |
-| crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::single_connection_mismatched_key_fails` | Native-only `tokio::test`; Single wrong-key case. | `CORE-REQ-064` |
+| crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::single_connection_mismatched_key_fails` | Native-only async `xmtp_common::test`; `unwrap_try`; Single wrong-key case, stable code, and non-retryability. | `CORE-REQ-064` |
 | crates/xmtp_db/src/encrypted_store/database/native.rs | `encrypted_store::database::native::tests::single_connection_nested_transaction_no_deadlock` | Native-only `tokio::test`; transaction plus nested savepoint. | `CORE-REQ-067` |
 | crates/xmtp_db/src/encrypted_store/database/native/pool.rs | `encrypted_store::database::native::pool::tests::sets_busy_timeout` | Ignored rstest declaration; encrypted and unencrypted cases. | `CORE-REQ-062` |
 | crates/xmtp_db/src/encrypted_store/database/native/pool.rs | `encrypted_store::database::native::pool::tests::sets_journal_mode` | Ignored rstest declaration; encrypted and unencrypted cases. | `CORE-REQ-062` |
 | crates/xmtp_db/src/encrypted_store/database/native/pool.rs | `encrypted_store::database::native::pool::tests::sets_synchronous` | Ignored rstest declaration; encrypted and unencrypted cases. | `CORE-REQ-062` |
 | crates/xmtp_db/src/encrypted_store/database/native/pool.rs | `encrypted_store::database::native::pool::tests::sets_autocheckpoint` | Ignored rstest declaration; encrypted and unencrypted cases. | `CORE-REQ-062` |
+| crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::same_key_reopen_waits_for_transient_lock` | Native-only async `xmtp_common::test`; `unwrap_try`; synchronized WAL lock, validation timeout, and stored value. | `CORE-REQ-190` |
+| crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::expired_reopen_lock_keeps_database_error` | Native-only async `xmtp_common::test`; `unwrap_try`; unreleased WAL lock, exact Diesel cause, and retryability. | `CORE-REQ-191` |
+| crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::schema_corruption_stays_non_retryable` | Native-only async `xmtp_common::test`; `unwrap_try`; three rstest cases with constructed unreadable-schema error messages. | `CORE-REQ-192` |
 | crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::test_sqlcipher_version` | Native-only `tokio::test`. | `CORE-REQ-068` |
 | crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::test_db_creates_with_plaintext_header` | Native-only `tokio::test`; new database. | `CORE-REQ-069` |
 | crates/xmtp_db/src/encrypted_store/database/native/sqlcipher_connection.rs | `encrypted_store::database::native::sqlcipher_connection::tests::test_db_migrates` | Native-only `tokio::test`; legacy encrypted-header database. | `CORE-REQ-070` |

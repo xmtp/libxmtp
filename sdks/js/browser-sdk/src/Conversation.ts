@@ -17,7 +17,10 @@ import {
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/wasm-bindings";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
 import { MessageStream } from "@/MessageStream";
 import { createMessageReader } from "@/utils/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
@@ -500,6 +503,7 @@ export class Conversation<ContentTypes = unknown> {
         this.#codecRegistry,
         value,
       );
+      assertMessageDecodedForDelivery(decoded);
       decoded.deliveryCursor = cursor;
       return decoded;
     };

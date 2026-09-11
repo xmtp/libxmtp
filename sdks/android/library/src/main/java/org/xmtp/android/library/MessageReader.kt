@@ -24,9 +24,8 @@ data class MessageHistorySnapshot(
 internal fun FfiMessageHistorySnapshot.toMessageHistorySnapshot(): MessageHistorySnapshot =
     MessageHistorySnapshot(
         messages =
-            messages.map { item ->
-                DecodedMessage.create(item.message, item.cursor)
-                    ?: throw XMTPException("Failed to decode a history snapshot message")
+            messages.mapNotNull { item ->
+                DecodedMessage.createForDelivery(item.message, item.cursor)
             },
         cursor = cursor,
     )
@@ -137,6 +136,12 @@ internal class AcknowledgedMessageReader<T>(
                     continue
                 }
                 currentCoroutineContext().ensureActive()
+                if (message == null) {
+                    if (isClosed()) return null
+                    item.acknowledge()
+                    clearPending(item)
+                    continue
+                }
                 return if (isClosed()) null else message
             }
             return null

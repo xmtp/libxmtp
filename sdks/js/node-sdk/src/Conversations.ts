@@ -13,7 +13,10 @@ import {
 } from "@xmtp/node-bindings";
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
 import { MessageStream } from "@/MessageStream";
@@ -460,8 +463,10 @@ export class Conversations<ContentTypes = unknown> {
     );
     const convertMessage = (value: Message, cursor: DeliveryCursor) => {
       const enrichedMessage = this.getMessageById(value.id);
-      if (enrichedMessage !== undefined)
+      if (enrichedMessage !== undefined) {
+        assertMessageDecodedForDelivery(enrichedMessage);
         enrichedMessage.deliveryCursor = cursor;
+      }
       return enrichedMessage;
     };
     return new MessageStream(reader, convertMessage, options);

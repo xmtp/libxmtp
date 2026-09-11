@@ -580,6 +580,13 @@ data class Conversations(
     fun stream(
         type: ConversationFilterType = ConversationFilterType.ALL,
         onClose: (() -> Unit)? = null,
+    ): Flow<Conversation> = streamWithReadiness(type, onClose) {}
+
+    /** Signals after the native stream captures its live-only conversation baseline. */
+    internal fun streamWithReadiness(
+        type: ConversationFilterType = ConversationFilterType.ALL,
+        onClose: (() -> Unit)? = null,
+        onReady: suspend () -> Unit,
     ): Flow<Conversation> =
         callbackFlow {
             val conversationCallback =
@@ -632,7 +639,13 @@ data class Conversations(
                     }
                 }
 
-            awaitClose { stream.end() }
+            try {
+                stream.waitForReady()
+                onReady()
+                awaitClose {}
+            } finally {
+                stream.end()
+            }
         }
 
     /** Supply a cursor to replay independently of default delivery progress. */

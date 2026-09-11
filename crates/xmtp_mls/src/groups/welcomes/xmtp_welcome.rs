@@ -776,10 +776,10 @@ mod tests {
         alix_group.test_can_talk_with(&bo_group).await?;
     }
 
-    #[xmtp_common::test(unwrap_try = true)]
     #[rstest::rstest]
     #[case::late_active_prefix(false)]
     #[case::live_retired_controller(true)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn rejoin_keeps_messages_before_removal(#[case] live_receiver: bool) {
         use crate::subscriptions::incoming::{
             IncomingCoordinator, IncomingRegistration, IncomingScope,
@@ -788,15 +788,15 @@ mod tests {
 
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
-        let alix_group = alix.create_group(None, None)?;
-        alix_group.invite(&bo).await?;
-        let bo_group = bo.sync_welcomes().await?.pop()?;
+        let alix_group = alix.create_group(None, None).unwrap();
+        alix_group.invite(&bo).await.unwrap();
+        let bo_group = bo.sync_welcomes().await.unwrap().pop().unwrap();
         let lease = live_receiver.then(|| {
             IncomingCoordinator::for_context(&bo.context).acquire(IncomingScope::AllGroups)
         });
         let topic = xmtp_proto::types::Topic::new_group_message(bo_group.group_id);
         alix_group.send_msg(b"before removal").await;
-        alix_group.remove_members(&[bo.inbox_id()]).await?;
+        alix_group.remove_members(&[bo.inbox_id()]).await.unwrap();
         if let Some(lease) = &lease {
             timeout(Duration::from_secs(10), async {
                 loop {
@@ -808,23 +808,25 @@ mod tests {
                     lease.changed().await;
                 }
             })
-            .await?;
+            .await
+            .unwrap();
         }
-        alix_group.invite(&bo).await?;
+        alix_group.invite(&bo).await.unwrap();
 
-        bo.sync_welcomes().await?;
+        bo.sync_welcomes().await.unwrap();
         let messages = bo
             .context
             .db()
-            .get_group_messages(&bo_group.group_id, &Default::default())?;
+            .get_group_messages(&bo_group.group_id, &Default::default())
+            .unwrap();
         assert!(
             messages
                 .iter()
                 .any(|message| message.decrypted_message_bytes == b"before removal")
         );
         assert_eq!(
-            alix_group.epoch_authenticator().await?,
-            bo_group.epoch_authenticator().await?
+            alix_group.epoch_authenticator().await.unwrap(),
+            bo_group.epoch_authenticator().await.unwrap()
         );
         if let Some(lease) = &lease {
             alix_group.send_msg(b"after rejoin").await;
@@ -833,7 +835,8 @@ mod tests {
                     let messages = bo
                         .context
                         .db()
-                        .get_group_messages(&bo_group.group_id, &Default::default())?;
+                        .get_group_messages(&bo_group.group_id, &Default::default())
+                        .unwrap();
                     if messages
                         .iter()
                         .any(|message| message.decrypted_message_bytes == b"after rejoin")
@@ -843,9 +846,11 @@ mod tests {
                     lease.changed().await;
                 }
             })
-            .await??;
+            .await
+            .unwrap()
+            .unwrap();
         }
-        alix_group.test_can_talk_with(&bo_group).await?;
+        alix_group.test_can_talk_with(&bo_group).await.unwrap();
     }
 
     // Is async so that the async timeout from rstest is used in wasm (does not spawn thread)
