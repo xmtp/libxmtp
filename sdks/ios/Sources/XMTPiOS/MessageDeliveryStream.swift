@@ -162,20 +162,15 @@ final class MessageDeliveryStream: @unchecked Sendable {
 				}
 				while let delivery = try await receiveNext() {
 					try Task.checkCancellation()
-					let decoded: DecodedMessage?
-					do {
-						decoded = try DecodedMessage.decodeForDelivery(
-							ffiMessage: delivery.message,
-							deliveryCursor: delivery.cursor
-						)
-					} catch {
-						// An unregistered content type must not end the stream or hold the cursor.
-						// Skip the item, like the message queries that use DecodedMessage.create.
-						XMTPLogger.main.error("Error decoding delivered message: \(error)")
-						try delivery.acknowledgement.acknowledge()
-						clearActive(reject: false)
-						continue
-					}
+					// A decode failure must not advance the cursor. Acknowledging here
+					// would skip a retained message that nothing has read, so a later
+					// reader with the codec registered would never see it. Only an
+					// intentional filter, signalled by a nil result below, consumes
+					// the item without a handoff.
+					let decoded: DecodedMessage? = try DecodedMessage.decodeForDelivery(
+						ffiMessage: delivery.message,
+						deliveryCursor: delivery.cursor
+					)
 					// Decode before dispatch. A scope change during decoding must still exclude this item.
 					guard try delivery.acknowledgement.checkOwner() else {
 						clearActive(reject: true)

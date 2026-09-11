@@ -30,15 +30,6 @@ export type MessageReaderSource<T> = {
   catchUpChanged(): Promise<MessageCatchUp>;
 };
 
-/**
- * A stale acknowledgement is reported with this stable code, so it can be told
- * apart from a persistence failure that must not be swallowed.
- */
-const SELECTION_CHANGED_CODE = "LocalDeliveryError::SelectionChanged";
-
-const isStaleSelection = (error: unknown) =>
-  error instanceof Error && error.message.includes(SELECTION_CHANGED_CODE);
-
 /** One pending item. Construction selects callback mode or next-request acknowledgement. */
 export class MessageStream<T, V> implements AsyncIterable<V> {
   #reader: MessageReaderSource<T>;
@@ -118,31 +109,16 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           break;
         }
         this.#pending = item.acknowledgement;
-        // A message this client cannot decode is skipped, not fatal. Rejecting
-        // it would leave the delivery cursor behind it, so every later stream
-        // would select the same row and stop again, and every message stored
-        // after it would be unreachable through streams.
-        let value: V | undefined;
-        try {
-          value = await this.#convert(item.message, item.cursor);
-        } catch (error) {
-          this.#options.onError?.(error as Error);
-          if (this.#hasEnded()) break;
-          try {
-            await this.#acknowledgePending();
-          } catch (failure) {
-            // Only a stale selection is benign here: the scope or filter
-            // changed, the message was deleted, or consent moved. Checking
-            // ownership first would not help — that is a separate lock, so
-            // the acknowledgement can still lose the race. The item is being
-            // discarded either way, the cursor is untouched, and it stays
-            // replayable. Any other failure means the skip was not persisted,
-            // so it takes the normal error path rather than passing silently.
-            if (!isStaleSelection(failure)) throw failure;
-            this.#pending = undefined;
-          }
-          continue;
-        }
+        // A codec that throws must not advance the cursor. The message is
+        // retained and a later reader, or the same client with the codec
+        // registered, must still see it. Acknowledging here would skip a
+        // message nothing has read. This matches the undefined case below:
+        // both mean this client could not decode the message, so both hold
+        // the item rather than discarding it.
+        const value: V | undefined = await this.#convert(
+          item.message,
+          item.cursor,
+        );
         if (this.#hasEnded()) break;
         const checked = item.acknowledgement.checkOwner();
         const valid = typeof checked === "boolean" ? checked : await checked;
