@@ -73,7 +73,8 @@ operations, both services in one trace, backend metrics, and the dashboard.
 See [backend observability](../backend-observability.md) for configuration,
 the metric catalogue, span names, failure modes, alerts, and client walkthroughs.
 
-- Grafana: <http://127.0.0.1:3000>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
+- Grafana: <http://127.0.0.1:3001>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
+  Port 3001, not 3000: 3000 shares a residue with Tempo's 3200 and would collide across worktree slots.
 - Prometheus: <http://127.0.0.1:9090>. It scrapes the backend and Tempo every five seconds and evaluates 25 alert rules.
 - Backend metrics: <http://127.0.0.1:9464/metrics>.
 - Tempo: <http://127.0.0.1:3200>. OTLP receivers listen on 4317 (gRPC) and 4318

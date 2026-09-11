@@ -31,6 +31,10 @@ readonly PORT_STRIDE=100
 readonly MAX_SLOT=40
 
 # Base ports. Slot 0 keeps exactly these, which are the documented values.
+#
+# Every base port must be unique modulo PORT_STRIDE. Two bases sharing a residue
+# collide across slots: with Grafana on 3000 and Tempo on 3200, slot 2's Grafana
+# would land on slot 0's Tempo port. `assert_port_layout` enforces this.
 readonly BASE_DB_PORT=55432
 readonly BASE_REPLICA_PORT=55433
 readonly BASE_BACKEND_PORT=5050
@@ -44,7 +48,8 @@ readonly BASE_OTLP_GRPC_PORT=4317
 # range, which would defeat the port-conflict check below. See compose.yml.
 readonly BASE_OTLP_HTTP_PORT=4328
 readonly BASE_PROMETHEUS_PORT=9090
-readonly BASE_GRAFANA_PORT=3000
+# Not 3000: that shares a residue with Tempo's 3200 (see above).
+readonly BASE_GRAFANA_PORT=3001
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly repo_root
@@ -147,29 +152,60 @@ slot_is_taken() {
 }
 
 # True when every host port in this slot's block is free or already ours.
+# Every base port, in one place. `slot_ports_free` and `check_conflicts` both
+# walk this, so a new service is added once.
+base_ports() {
+  printf '%s\n' \
+    "${BASE_DB_PORT}" \
+    "${BASE_REPLICA_PORT}" \
+    "${BASE_BACKEND_PORT}" \
+    "${BASE_METRICS_PORT}" \
+    "${BASE_ANVIL_PORT}" \
+    "${BASE_TOXIPROXY_API_PORT}" \
+    "${BASE_TOXIPROXY_PORT}" \
+    "${BASE_TEMPO_PORT}" \
+    "${BASE_OTLP_GRPC_PORT}" \
+    "${BASE_OTLP_HTTP_PORT}" \
+    "${BASE_PROMETHEUS_PORT}" \
+    "${BASE_GRAFANA_PORT}"
+}
+
+slot_ports() {
+  local offset=$(($1 * PORT_STRIDE)) base
+  while read -r base; do
+    printf '%s\n' "$((base + offset))"
+  done < <(base_ports)
+}
+
+# Two base ports sharing a residue modulo PORT_STRIDE would collide across
+# slots, which the per-slot free check cannot see: it would claim the slot and
+# only fail later, when the other worktree's stack is already up. Catch it here
+# rather than shipping a layout that breaks for some pair of slots.
+assert_port_layout() {
+  local base residue seen=""
+  while read -r base; do
+    residue=$((base % PORT_STRIDE))
+    case " ${seen} " in
+      *" ${residue} "*)
+        echo "worktree-env: base ports must be unique modulo ${PORT_STRIDE}; ${base} reuses residue ${residue}." >&2
+        return 1
+        ;;
+    esac
+    seen="${seen} ${residue}"
+  done < <(base_ports)
+  return 0
+}
+
 port_free() {
   local port="$1"
   ! nc -z 127.0.0.1 "${port}" >/dev/null 2>&1
 }
 
 slot_ports_free() {
-  local slot="$1" offset port
-  offset=$((slot * PORT_STRIDE))
-  for port in \
-    $((BASE_DB_PORT + offset)) \
-    $((BASE_REPLICA_PORT + offset)) \
-    $((BASE_BACKEND_PORT + offset)) \
-    $((BASE_METRICS_PORT + offset)) \
-    $((BASE_ANVIL_PORT + offset)) \
-    $((BASE_TOXIPROXY_API_PORT + offset)) \
-    $((BASE_TOXIPROXY_PORT + offset)) \
-    $((BASE_TEMPO_PORT + offset)) \
-    $((BASE_OTLP_GRPC_PORT + offset)) \
-    $((BASE_OTLP_HTTP_PORT + offset)) \
-    $((BASE_PROMETHEUS_PORT + offset)) \
-    $((BASE_GRAFANA_PORT + offset)); do
+  local port
+  while read -r port; do
     port_free "${port}" || return 1
-  done
+  done < <(slot_ports "$1")
   return 0
 }
 
@@ -254,21 +290,8 @@ port_holder() {
 
 # Report any port in our block that a different Compose project holds.
 check_conflicts() {
-  local slot="$1" offset port holder conflicts=0
-  offset=$((slot * PORT_STRIDE))
-  for port in \
-    $((BASE_DB_PORT + offset)) \
-    $((BASE_REPLICA_PORT + offset)) \
-    $((BASE_BACKEND_PORT + offset)) \
-    $((BASE_METRICS_PORT + offset)) \
-    $((BASE_ANVIL_PORT + offset)) \
-    $((BASE_TOXIPROXY_API_PORT + offset)) \
-    $((BASE_TOXIPROXY_PORT + offset)) \
-    $((BASE_TEMPO_PORT + offset)) \
-    $((BASE_OTLP_GRPC_PORT + offset)) \
-    $((BASE_OTLP_HTTP_PORT + offset)) \
-    $((BASE_PROMETHEUS_PORT + offset)) \
-    $((BASE_GRAFANA_PORT + offset)); do
+  local slot="$1" port holder conflicts=0
+  while read -r port; do
     port_free "${port}" && continue
     holder="$(port_holder "${port}")"
     # Our own running stack is the normal case for a repeat `up`.
@@ -279,7 +302,7 @@ check_conflicts() {
       echo "worktree-env: port ${port} is in use by a non-Compose process." >&2
     fi
     conflicts=$((conflicts + 1))
-  done
+  done < <(slot_ports "${slot}")
   if [ "${conflicts}" -gt 0 ]; then
     echo "worktree-env: this worktree is '${XMTP_COMPOSE_PROJECT}' (slot ${slot}). Stop the other stack, or set XMTP_WORKTREE_SLOT to a free slot." >&2
     return 1
@@ -287,19 +310,30 @@ check_conflicts() {
   return 0
 }
 
-# Set a variable only when the environment has not already set it.
-emit() {
-  local name="$1" value="$2"
+# Resolve a variable: the environment's value if it has one, else the derived
+# default. Echoes the effective value so a caller can build on it.
+effective() {
+  local name="$1" fallback="$2"
   local current="${!name:-}"
   if [ -n "${current}" ]; then
-    printf '%s=%s\n' "${name}" "${current}"
+    printf '%s' "${current}"
   else
-    printf '%s=%s\n' "${name}" "${value}"
+    printf '%s' "${fallback}"
   fi
+}
+
+# Write one `NAME='value'` line. The file is sourced, so single-quote the value:
+# an overridden DATABASE_URL may hold a password containing `$`, `&` or a space,
+# which unquoted would expand, break the line, or abort under `set -u`.
+emit() {
+  local name="$1" value="$2"
+  printf "%s='%s'\n" "${name}" "${value//\'/\'\\\'\'}"
 }
 
 main() {
   local mode="${1:-write}"
+
+  assert_port_layout || return 1
 
   local name slot offset
   name="$(sanitize "${XMTP_WORKTREE_NAME:-$(derive_name)}")"
@@ -334,30 +368,49 @@ main() {
   {
     echo "# Generated by dev/worktree-env. Do not edit; do not commit."
     echo "# Worktree '${name}' holds slot ${slot} (ports = base + ${offset})."
-    emit XMTP_COMPOSE_PROJECT "${project}"
-    emit XMTP_WORKTREE_NAME "${name}"
-    emit XMTP_WORKTREE_SLOT "${slot}"
-    emit XMTP_BACKEND_DB_PORT "$((BASE_DB_PORT + offset))"
-    emit XMTP_BACKEND_REPLICA_PORT "$((BASE_REPLICA_PORT + offset))"
-    emit XMTP_BACKEND_PORT "$((BASE_BACKEND_PORT + offset))"
-    emit XMTP_BACKEND_METRICS_PORT "$((BASE_METRICS_PORT + offset))"
-    emit XMTP_ANVIL_PORT "$((BASE_ANVIL_PORT + offset))"
-    emit XMTP_TOXIPROXY_API_PORT "$((BASE_TOXIPROXY_API_PORT + offset))"
-    emit XMTP_TOXIPROXY_PORT "$((BASE_TOXIPROXY_PORT + offset))"
-    emit XMTP_TEMPO_PORT "$((BASE_TEMPO_PORT + offset))"
-    emit XMTP_OTLP_GRPC_PORT "$((BASE_OTLP_GRPC_PORT + offset))"
-    emit XMTP_OTLP_HTTP_PORT "$((BASE_OTLP_HTTP_PORT + offset))"
-    emit XMTP_PROMETHEUS_PORT "$((BASE_PROMETHEUS_PORT + offset))"
-    emit XMTP_GRAFANA_PORT "$((BASE_GRAFANA_PORT + offset))"
+    # Resolve every port first, honouring an override, then build the URLs from
+    # the resolved values. Deriving from the base would leave a URL pointing at
+    # the default port while Compose published the overridden one.
+    local db_port replica_port backend_port metrics_port anvil_port
+    local toxi_api_port toxi_port tempo_port otlp_grpc_port otlp_http_port
+    local prometheus_port grafana_port
+    db_port="$(effective XMTP_BACKEND_DB_PORT "$((BASE_DB_PORT + offset))")"
+    replica_port="$(effective XMTP_BACKEND_REPLICA_PORT "$((BASE_REPLICA_PORT + offset))")"
+    backend_port="$(effective XMTP_BACKEND_PORT "$((BASE_BACKEND_PORT + offset))")"
+    metrics_port="$(effective XMTP_BACKEND_METRICS_PORT "$((BASE_METRICS_PORT + offset))")"
+    anvil_port="$(effective XMTP_ANVIL_PORT "$((BASE_ANVIL_PORT + offset))")"
+    toxi_api_port="$(effective XMTP_TOXIPROXY_API_PORT "$((BASE_TOXIPROXY_API_PORT + offset))")"
+    toxi_port="$(effective XMTP_TOXIPROXY_PORT "$((BASE_TOXIPROXY_PORT + offset))")"
+    tempo_port="$(effective XMTP_TEMPO_PORT "$((BASE_TEMPO_PORT + offset))")"
+    otlp_grpc_port="$(effective XMTP_OTLP_GRPC_PORT "$((BASE_OTLP_GRPC_PORT + offset))")"
+    otlp_http_port="$(effective XMTP_OTLP_HTTP_PORT "$((BASE_OTLP_HTTP_PORT + offset))")"
+    prometheus_port="$(effective XMTP_PROMETHEUS_PORT "$((BASE_PROMETHEUS_PORT + offset))")"
+    grafana_port="$(effective XMTP_GRAFANA_PORT "$((BASE_GRAFANA_PORT + offset))")"
+
+    emit XMTP_COMPOSE_PROJECT "$(effective XMTP_COMPOSE_PROJECT "${project}")"
+    emit XMTP_WORKTREE_NAME "$(effective XMTP_WORKTREE_NAME "${name}")"
+    emit XMTP_WORKTREE_SLOT "$(effective XMTP_WORKTREE_SLOT "${slot}")"
+    emit XMTP_BACKEND_DB_PORT "${db_port}"
+    emit XMTP_BACKEND_REPLICA_PORT "${replica_port}"
+    emit XMTP_BACKEND_PORT "${backend_port}"
+    emit XMTP_BACKEND_METRICS_PORT "${metrics_port}"
+    emit XMTP_ANVIL_PORT "${anvil_port}"
+    emit XMTP_TOXIPROXY_API_PORT "${toxi_api_port}"
+    emit XMTP_TOXIPROXY_PORT "${toxi_port}"
+    emit XMTP_TEMPO_PORT "${tempo_port}"
+    emit XMTP_OTLP_GRPC_PORT "${otlp_grpc_port}"
+    emit XMTP_OTLP_HTTP_PORT "${otlp_http_port}"
+    emit XMTP_PROMETHEUS_PORT "${prometheus_port}"
+    emit XMTP_GRAFANA_PORT "${grafana_port}"
     # Derived URLs, so no consumer rebuilds one from parts. Use 127.0.0.1, not
     # localhost: localhost can resolve to IPv6, where the Docker port forward
     # resets the connection.
-    emit XMTP_BACKEND_URL "http://127.0.0.1:$((BASE_BACKEND_PORT + offset))"
-    emit XMTP_BACKEND_TOXIC_URL "http://127.0.0.1:$((BASE_TOXIPROXY_PORT + offset))"
-    emit XMTP_TOXIPROXY_API "http://127.0.0.1:$((BASE_TOXIPROXY_API_PORT + offset))"
-    emit ANVIL_URL "http://127.0.0.1:$((BASE_ANVIL_PORT + offset))"
-    emit DATABASE_URL "postgres://xmtp:xmtp@127.0.0.1:$((BASE_DB_PORT + offset))/xmtp_backend"
-    emit XMTP_REPLICA_URL "postgres://xmtp:xmtp@127.0.0.1:$((BASE_REPLICA_PORT + offset))/xmtp_backend"
+    emit XMTP_BACKEND_URL "$(effective XMTP_BACKEND_URL "http://127.0.0.1:${backend_port}")"
+    emit XMTP_BACKEND_TOXIC_URL "$(effective XMTP_BACKEND_TOXIC_URL "http://127.0.0.1:${toxi_port}")"
+    emit XMTP_TOXIPROXY_API "$(effective XMTP_TOXIPROXY_API "http://127.0.0.1:${toxi_api_port}")"
+    emit ANVIL_URL "$(effective ANVIL_URL "http://127.0.0.1:${anvil_port}")"
+    emit DATABASE_URL "$(effective DATABASE_URL "postgres://xmtp:xmtp@127.0.0.1:${db_port}/xmtp_backend")"
+    emit XMTP_REPLICA_URL "$(effective XMTP_REPLICA_URL "postgres://xmtp:xmtp@127.0.0.1:${replica_port}/xmtp_backend")"
   } >"${tmp}"
   mv "${tmp}" "${env_file}"
 
