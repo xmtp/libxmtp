@@ -11912,6 +11912,7 @@ dependencies = [
  "rstest",
  "thiserror 2.0.19",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-subscriber",
  "url",

@@ -749,3 +749,53 @@ async fn invalid_input_returns_invalid_request_without_rpc() {
         assert!(!error.is_retryable());
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn auth_codes_and_retryability_survive_api_erasure() {
+    use xmtp_common::ErrorCode;
+    use xmtp_proto::api::AuthError;
+    for (auth, code, message, retryable) in [
+        (
+            AuthError::CredentialRejected { retryable: true },
+            "AuthError::CredentialRejected",
+            "credential rejected",
+            true,
+        ),
+        (
+            AuthError::CallbackFailed { retryable: false },
+            "AuthError::CallbackFailed",
+            "auth callback failed",
+            false,
+        ),
+        (
+            AuthError::Exhausted,
+            "AuthError::Exhausted",
+            "auth attempts exhausted",
+            false,
+        ),
+        (
+            AuthError::MissingCredential,
+            "AuthError::MissingCredential",
+            "auth credential missing",
+            false,
+        ),
+    ] {
+        let client = ApiClientError::from(auth);
+        assert_eq!(client.error_code(), code);
+        assert_eq!(client.is_retryable(), retryable);
+        let api = crate::dyn_err(client);
+        assert!(matches!(api, ApiError::Auth(_)));
+        assert_eq!(api.error_code(), code);
+        assert_eq!(api.to_string(), message);
+        assert_eq!(api.is_retryable(), retryable);
+        assert_eq!(crate::dyn_err(auth).error_code(), code);
+        // `Box<E>` implements `RetryableError`, so a boxed error reaches
+        // `dyn_err` with the code one level down. It must still be found.
+        let boxed = crate::dyn_err(Box::new(ApiClientError::from(auth)));
+        assert!(matches!(boxed, ApiError::Auth(_)));
+        assert_eq!(boxed.error_code(), code);
+    }
+    let transport = crate::dyn_err(status(tonic::Code::Unavailable));
+    assert!(transport.is_retryable());
+    assert_eq!(grpc_status(&transport)?.code(), tonic::Code::Unavailable);
+}

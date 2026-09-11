@@ -1,6 +1,6 @@
 # bindings_node
 
-NAPI-RS bindings for Node. Tests are TypeScript (`test/*.test.ts`), not Rust.
+NAPI-RS bindings for Node. API tests are TypeScript (`test/*.test.ts`). Error conversion also has a Rust unit test.
 
 ## Commands
 
@@ -32,3 +32,9 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - Exporting: `#[napi]`, `#[napi(object)]`, `#[napi(getter)]`, `#[napi(string_enum)]`, `#[napi(js_name = "...")]`. `pub async fn` becomes a Promise. Add `#[xmtp_common::err_span]` to exported methods (`src/client/mod.rs:54`).
 - Builders: `#[xmtp_macro::napi_builder]` (`src/client/backend.rs:9`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
 - Regeneration: `just node build` (`yarn napi build --platform --esm`, then `node.just:_prepare-dist` moves output to `dist/`). `dist/` is a build product. Never hand-edit it.
+
+Auth callback bridges return only `auth callback failed` on failure. Never retain
+or log callback error text or credential values. The middleware owns retryability.
+
+Run the error conversion test without a Node runtime:
+`dev/nix-shell 'cargo nextest run --profile ci -p bindings_node --features napi/dyn-symbols,napi/noop auth_codes_reach_node_errors'`.

@@ -33,7 +33,15 @@ use std::collections::{HashMap, HashSet};
 
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
+#[cfg(not(test))]
+use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
+use xmtp_proto::api::ApiClientError;
 use xmtp_proto::types::Topic;
+
+/// Keep the cool-down wait short in tests. Match the middleware's test value,
+/// so the wire waits exactly one cool-down and no longer.
+#[cfg(test)]
+const AUTH_LOCKOUT_COOLDOWN: std::time::Duration = std::time::Duration::from_millis(500);
 
 use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
 
@@ -97,6 +105,7 @@ const GRACEFUL_CLOSE_BUDGET: std::time::Duration = std::time::Duration::from_sec
 #[derive(Debug)]
 pub struct OpenError {
     retryable: bool,
+    locked_out: bool,
     source: Box<dyn std::error::Error + Send + Sync + 'static>,
 }
 
@@ -107,14 +116,22 @@ impl OpenError {
     {
         Self {
             retryable: e.is_retryable(),
+            locked_out: Self::locked_out_of(&e),
             source: Box::new(e),
         }
+    }
+
+    /// True while an authentication cool-down runs. The open cannot succeed now
+    /// but will become possible again without any caller action.
+    fn is_locked_out(&self) -> bool {
+        self.locked_out
     }
 
     #[cfg(test)]
     pub fn retryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: true,
+            locked_out: false,
             source: e.into(),
         }
     }
@@ -123,8 +140,18 @@ impl OpenError {
     pub fn unretryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: false,
+            locked_out: false,
             source: e.into(),
         }
+    }
+}
+
+impl OpenError {
+    /// Capture the lockout state of a concrete error before it is erased.
+    fn locked_out_of<E: 'static>(error: &E) -> bool {
+        (error as &dyn std::any::Any)
+            .downcast_ref::<ApiClientError>()
+            .is_some_and(ApiClientError::is_locked_out)
     }
 }
 
@@ -1265,6 +1292,16 @@ where
             OpenOutcome::Failed(error) => {
                 self.outbox.clear();
                 self.ledger.reset_wire();
+                if error.is_locked_out() {
+                    // The cool-down clears on its own, so the wire must wait for
+                    // it. A shutdown here would lose every subscription for the
+                    // life of the process because nothing restarts this task.
+                    tracing::warn!("bidi reopen waits for the auth cool-down: {error}");
+                    self.reconnect_delay = AUTH_LOCKOUT_COOLDOWN;
+                    self.arm_reconnect();
+                    self.park_deferred_resumes();
+                    return AfterReopen::Proceed;
+                }
                 if !error.is_retryable() {
                     tracing::error!("bidi reconnect failed permanently: {error}");
                     return AfterReopen::Shutdown;

@@ -25,13 +25,42 @@ pub mod strategies {
     }
 }
 
-// Erases Api Error type (which may be Http or Grpc)
+/// Preserve auth codes before transport errors lose their concrete type.
+///
+/// The error may arrive boxed, and `Box<E>` implements `RetryableError`, so a
+/// downcast of the outer value alone would miss the code. Check the source
+/// chain too: `ApiClientError::Auth` is `#[error(transparent)]` over the
+/// `AuthError`.
 pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
+    fn find(error: &(dyn std::any::Any + 'static)) -> Option<xmtp_proto::api::AuthError> {
+        if let Some(xmtp_proto::api::ApiClientError::Auth(auth)) = error.downcast_ref() {
+            return Some(*auth);
+        }
+        if let Some(auth) = error.downcast_ref::<xmtp_proto::api::AuthError>() {
+            return Some(*auth);
+        }
+        // A boxed error downcasts as the box, never as its contents. Unwrap the
+        // shapes that reach this function; `source()` cannot help, because
+        // `#[error(transparent)]` forwards Display without forwarding `source`.
+        if let Some(boxed) = error.downcast_ref::<Box<xmtp_proto::api::ApiClientError>>() {
+            return find(&**boxed);
+        }
+        if let Some(boxed) = error.downcast_ref::<Box<xmtp_proto::api::AuthError>>() {
+            return Some(**boxed);
+        }
+        None
+    }
+    if let Some(auth) = find(&e) {
+        return ApiError::Auth(auth);
+    }
     ApiError::Api(xmtp_proto::api::NetworkError::new(e))
 }
 
 #[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum ApiError {
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Auth(#[from] xmtp_proto::api::AuthError),
     /// API client error.
     ///
     /// API operation error (network, deserialization, or other). May be retryable.
@@ -74,6 +103,7 @@ pub enum ApiError {
 impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::Auth(e) => retryable!(e),
             Self::Api(e) => retryable!(e),
             _ => false,
         }

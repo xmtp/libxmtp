@@ -23,3 +23,11 @@ The connection, transport, and property tests share the scripted peer in
 
 Tests use a mock transport. Fault tests can use `ToxicTestClientCreator` with
 the local `backend` proxy on port 6010 after `just backend up`. Backend test URLs come from `xmtp_configuration`.
+
+Auth state belongs to `AuthHandle`. All changes take its state lock, including
+`set` and callback completion. Callback errors must not retain or log their text.
+Unary and server-stream calls replay once after a current credential is rejected.
+Bidi opens return the auth error and leave reopen policy to the transport.
+Three consecutive failures block requests for 60 seconds. The next request
+runs one probe. Unit tests use a shorter cool-down in `middleware/auth.rs`.
+Run auth tests with `dev/nix-shell 'cargo nextest run --profile ci -p xmtp_api_backend middleware::auth'`.

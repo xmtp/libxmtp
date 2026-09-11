@@ -30,6 +30,7 @@ prost.workspace = true
 regex.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tonic.workspace = true
 tracing.workspace = true
 url.workspace = true
 xmtp-workspace-hack.workspace = true
