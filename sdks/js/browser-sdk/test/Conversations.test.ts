@@ -2,37 +2,11 @@ import {
   ConversationType,
   ListConversationsOrderBy,
 } from "@xmtp/wasm-bindings";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { uuid } from "@/utils/uuid";
-import {
-  createRegisteredClient as createTestClient,
-  createSigner,
-} from "@test/helpers";
+import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("Conversations", () => {
-  const clients = new Set<Awaited<ReturnType<typeof createTestClient>>>();
-
-  const createRegisteredClient = async (
-    ...args: Parameters<typeof createTestClient>
-  ) => {
-    const client = await createTestClient(...args);
-    clients.add(client);
-    return client;
-  };
-
-  afterEach(async () => {
-    // Client workers keep network streams open after public streams end.
-    const results = await Promise.allSettled(
-      [...clients].map((client) => client.close()),
-    );
-    clients.clear();
-    for (const result of results) {
-      if (result.status === "rejected") {
-        throw result.reason;
-      }
-    }
-  });
-
   it("should have a topic", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);

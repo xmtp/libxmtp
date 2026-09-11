@@ -1113,6 +1113,15 @@ describe('Conversations', () => {
     const group1 = await client1
       .conversations()
       .createGroup([client2.inboxId(), client3.inboxId()])
+    // Install the first Welcome before removal. An absent group can instead
+    // join from the later Welcome when both are pending.
+    for (const client of [client2, client2_2, client3]) {
+      await client.conversations().sync()
+      const joined = client.conversations().getConversationById(group1.id())
+      const initialMessages = await joined.listMessages()
+      expect(initialMessages).toHaveLength(1)
+      expect(initialMessages[0].content.type).toEqual(contentTypeGroupUpdated())
+    }
     const firstMessage = await group1.sendText('gm1')
     await group1.removeMembers([client2.inboxId()])
     const excludedMessage = await group1.sendText('gm2')

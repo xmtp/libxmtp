@@ -20,6 +20,7 @@ dev/nix-shell 'cd bindings/node && yarn vitest run -t "should generate an inbox 
   The helper uses the IPv4 address on purpose: `localhost` can resolve to IPv6,
   where the Docker port forward resets the connection.
 - Tests import `../dist`. Run `just node test` once before a single-file run.
+- Run one Vitest process at a time. Its teardown deletes all test database files in `test/`.
 - `test-ci` makes the copied Nix output writable so later runs can replace it.
 - `check` builds `--release`. `test` rebuilds with `--features test-utils`. Each switch is a full rebuild.
 

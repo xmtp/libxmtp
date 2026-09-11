@@ -232,7 +232,7 @@
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: stream should process dm messages from new installations without sync` | Vitest async; second installation | `BIND-REQ-055`, `BIND-REQ-042` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should get hmac keys` | Vitest async; collection includes one group and one DM; each has three 42-byte keys with bigint epochs | `SHARED-GROUP-REQ-041` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should sync groups across installations` | Vitest async; second installation, group and DM | `BIND-REQ-042` |
-| `bindings/node/test/Conversations.test.ts` | `Conversations :: should create initial group updated messages for added members` | Vitest async; removal, re-add, and second installation | `BIND-REQ-085`, `BIND-REQ-042` |
+| `bindings/node/test/Conversations.test.ts` | `Conversations :: should create initial group updated messages for added members` | Vitest async; initial Welcome installed on each client before removal; delayed group processing, re-add, and second installation | `BIND-REQ-085`, `BIND-REQ-042` |
 | `bindings/node/test/Conversations.test.ts` | `Conversations :: should stream deleted messages` | Vitest async; one deletion | `BIND-REQ-053` |
 | `bindings/node/test/EnrichedMessage.test.ts` | `EnrichedMessage > Basic message retrieval :: should return enriched messages with basic fields populated` | Vitest async in describe.concurrent; two texts and initial update | `BIND-REQ-088` |
 | `bindings/node/test/EnrichedMessage.test.ts` | `EnrichedMessage > Basic message retrieval :: should handle list options` | Vitest async in describe.concurrent; descending limit 2 | `BIND-REQ-088` |

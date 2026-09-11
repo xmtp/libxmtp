@@ -89,8 +89,10 @@ async fn create_client_does_not_hit_network() {
     let api_stats = client.api_statistics();
     // The sync worker also publishes its group.
     assert_eq!(api_stats.publish, 3);
-    // Fixed-target barriers require these reads. The sync receiver can add background reads.
-    assert!(api_stats.query_newest >= 3);
+    // Registration reads visibility; the sync receiver captures targets through Subscribe.
+    assert!(api_stats.query_newest >= 1);
+    assert!(api_stats.subscribe >= 1);
+    assert_eq!(api_stats.subscribe_static, 0);
 
     let identity_stats = client.api_identity_statistics();
     assert!(api_stats.query >= 6);
@@ -126,6 +128,8 @@ async fn create_client_does_not_hit_network() {
     let api_stats = build.api_statistics();
     assert_eq!(api_stats.publish, 0);
     assert_eq!(api_stats.query_newest, 0);
+    assert_eq!(api_stats.subscribe, 0);
+    assert_eq!(api_stats.subscribe_static, 0);
 
     let identity_stats = build.api_identity_statistics();
     assert_eq!(api_stats.query, 0);
