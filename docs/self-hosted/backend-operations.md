@@ -13,16 +13,19 @@ just backend sql-prepare
 just backend test
 ```
 
-The database listens on `127.0.0.1:55432`. The credentials and database name are
-in `dev/docker/compose.yml`. These credentials are for disposable local tests only.
+In the main checkout the database listens on `127.0.0.1:55432`. Other worktrees
+use other ports; see [Several worktrees](#several-worktrees). Run
+`just backend status` to print the ports for the checkout you are in.
+The credentials and database name are in `dev/docker/compose.yml`. These
+credentials are for disposable local tests only.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.
 The test recipe uses four test threads by default to bound database connections.
 
 `just backend db-up` starts the primary and replica without building an image.
-The replica listens on `127.0.0.1:55433`. `just backend run` sets both database
-URLs and uses `dev/backend/local.toml`.
+The replica listens on `127.0.0.1:55433` in the main checkout. `just backend run`
+sets both database URLs and uses `dev/backend/local.toml`.
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
 `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
@@ -36,6 +39,33 @@ For migration from the old database project, run
 run `docker compose -f dev/docker/compose.yml -p xmtp-backend down --remove-orphans`.
 The startup script prints a hint if that project still holds port 55432.
 
+## Several worktrees
+
+Several worktrees can run the stack at the same time. Each gets its own Compose
+project and its own host ports, so no two share a database or a backend.
+
+`dev/worktree-env` resolves the checkout to a slot and writes `dev/docker/.env`.
+Compose reads that file; the recipes and `dev/docker/*` scripts source it. Ports
+follow `base + slot * 100`. The main checkout is always slot 0, so its ports
+never move, and a plain clone — which is what CI uses — is also slot 0.
+
+```sh
+just backend status     # project, slot, ports, and URLs for this checkout
+just backend release    # stop this worktree's stack and free its slot
+```
+
+`just backend up` refuses to start when another Compose project holds one of this
+worktree's ports, and names the port and the project.
+
+Every port in this document is the slot-0 value. Do not assume it applies to a
+worktree; run `just backend status`. Code reads the address from the environment:
+`XMTP_BACKEND_URL` and `DATABASE_URL` in scripts and SDK tests,
+`xmtp_configuration::backend_test_url()` in Rust.
+
+Override the derivation with `XMTP_WORKTREE_NAME` or `XMTP_WORKTREE_SLOT`. Slot
+claims live in `$GIT_COMMON_DIR/xmtp-worktree-slots`; entries for deleted
+worktrees are pruned on the next run, so a freed slot is reused automatically.
+
 ## Local observability
 
 Run `just backend observe-check` after `just backend up`. It checks real client
@@ -43,10 +73,13 @@ operations, both services in one trace, backend metrics, and the dashboard.
 See [backend observability](../backend-observability.md) for configuration,
 the metric catalogue, span names, failure modes, alerts, and client walkthroughs.
 
-- Grafana: <http://127.0.0.1:3000>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
+- Grafana: <http://127.0.0.1:3001>, dashboard **XMTP Backend**. Local anonymous users have Admin access.
+  Port 3001, not 3000: 3000 shares a residue with Tempo's 3200 and would collide across worktree slots.
 - Prometheus: <http://127.0.0.1:9090>. It scrapes the backend and Tempo every five seconds and evaluates 25 alert rules.
 - Backend metrics: <http://127.0.0.1:9464/metrics>.
-- Tempo: <http://127.0.0.1:3200>. OTLP receivers use ports 4317 (gRPC) and 4318 (HTTP).
+- Tempo: <http://127.0.0.1:3200>. OTLP receivers listen on 4317 (gRPC) and 4318
+  (HTTP) inside the stack. The HTTP receiver is published on host port 4328, kept
+  off 4317 so Docker does not collapse the two into a published range.
 
 Tempo generates service graphs and span metrics and sends them to Prometheus
 with exemplars. Client panels use sampled traces. Prometheus and Tempo are

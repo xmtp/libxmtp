@@ -135,7 +135,7 @@ pub async fn spawned_provider() -> EthereumProvider {
 
 #[fixture]
 pub async fn docker_provider() -> EthereumProvider {
-    let url = std::env::var("ANVIL_URL").unwrap_or_else(|_| DockerUrls::ANVIL.to_string());
+    let url = DockerUrls::anvil();
     provider(Some(url)).await
 }
 

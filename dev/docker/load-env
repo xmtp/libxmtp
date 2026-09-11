@@ -1,0 +1,55 @@
+# Load this worktree's stack settings, without overriding the caller.
+#
+# Source this; do not execute it. Run dev/worktree-env first to generate
+# dev/docker/.env.
+#
+#   dev/worktree-env && . dev/docker/load-env
+#
+# Why not `set -a && . dev/docker/.env`: a variable already set in the calling
+# environment must win. `dev/worktree-env` preserves any variable it can see,
+# but it cannot see one that never reached it — a `just` recipe does not export
+# job-level variables unless the justfile declares `export`. CI sets
+# XMTP_BACKEND_URL to a deployed backend for the iOS suite, so a blind source
+# would replace that URL with a local one and every test would fail DNS.
+#
+# So: remember what the caller already set, source the file, then put the
+# caller's values back.
+
+__load_env_file="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/.env"
+
+if [ ! -f "${__load_env_file}" ]; then
+  echo "load-env: ${__load_env_file} is missing. Run dev/worktree-env first." >&2
+  unset __load_env_file
+  # `return` works when sourced, which is the supported use. `exit` is the
+  # fallback if someone executes this file directly.
+  # shellcheck disable=SC2317  # reachable only when executed, not sourced
+  return 1 2>/dev/null || exit 1
+fi
+
+# Snapshot every name the file defines that the caller has already set.
+__load_env_saved=""
+while IFS='=' read -r __load_env_name _; do
+  case "${__load_env_name}" in
+    '' | \#*) continue ;;
+  esac
+  if [ -n "${!__load_env_name:-}" ]; then
+    __load_env_saved="${__load_env_saved}${__load_env_name}=${!__load_env_name}"$'\n'
+  fi
+done <"${__load_env_file}"
+
+set -a
+# shellcheck disable=SC1090  # generated path, known contents
+. "${__load_env_file}"
+set +a
+
+# Restore the caller's values, which outrank the generated defaults.
+if [ -n "${__load_env_saved}" ]; then
+  while IFS='=' read -r __load_env_name __load_env_value; do
+    [ -n "${__load_env_name}" ] || continue
+    export "${__load_env_name}=${__load_env_value}"
+  done <<EOF
+${__load_env_saved}
+EOF
+fi
+
+unset __load_env_file __load_env_saved __load_env_name __load_env_value

@@ -161,7 +161,7 @@ system works. Readiness does not prove that a client received a message.
 
 ## Dashboard
 
-Open <http://127.0.0.1:3000> and select **XMTP Backend**. Local anonymous users have
+Open <http://127.0.0.1:3001> and select **XMTP Backend**. Local anonymous users have
 Admin access. The dashboard source is
 `dev/docker/grafana/dashboards/backend.json`. The table lists every data panel;
 row headings only group panels. Queries are copied from that source.

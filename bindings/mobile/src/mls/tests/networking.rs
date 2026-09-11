@@ -214,8 +214,7 @@ async fn backend_url_is_required() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn api_client_cache_key_uses_backend_url_and_app_version() {
-    let url = std::env::var("XMTP_BACKEND_URL")
-        .unwrap_or_else(|_| xmtp_configuration::BACKEND_TEST_URL.into());
+    let url = xmtp_configuration::backend_test_url();
     let client =
         connect_to_backend(url.clone(), None, Some("TestApp/1.0".into()), None, None).await?;
     assert_eq!(client.cache_key(), format!("{url}|TestApp/1.0"));
