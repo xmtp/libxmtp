@@ -1,4 +1,5 @@
 import Foundation
+import SwiftProtobuf
 import XCTest
 @testable import XMTPiOS
 
@@ -6,6 +7,12 @@ import XCTest
 final class MessageDeliveryStreamTests: XCTestCase {
 	private enum TestError: Error, Equatable {
 		case acknowledgement
+	}
+
+	private enum TestContent {
+		case text
+		case forgedMembership
+		case malformed
 	}
 
 	private final class Token: MessageDeliveryToken, @unchecked Sendable {
@@ -72,17 +79,20 @@ final class MessageDeliveryStreamTests: XCTestCase {
 	private func delivery(
 		_ id: UInt8 = 1,
 		token: Token,
-		validContent: Bool = true
+		content: TestContent = .text
 	) throws -> QueuedMessageDelivery {
-		let content: Data = if validContent {
+		let bytes: Data = switch content {
+		case .text:
 			try TextCodec().encode(content: "message \(id)").serializedData()
-		} else {
+		case .forgedMembership:
+			try GroupUpdatedCodec().encode(content: GroupUpdated()).serializedData()
+		case .malformed:
 			Data([0xFF])
 		}
 		return QueuedMessageDelivery(
 			message: FfiMessage(
 				id: Data([id]), sentAtNs: 1, conversationId: Data(repeating: 1, count: 16),
-				senderInboxId: "sender", content: content, kind: .application,
+				senderInboxId: "sender", content: bytes, kind: .application,
 				deliveryStatus: .published, sequenceId: UInt64(id), insertedAtNs: 1,
 				expireAtNs: nil
 			),
@@ -92,27 +102,50 @@ final class MessageDeliveryStreamTests: XCTestCase {
 	}
 
 	func testReceiveAndFirstNextDoNotAcknowledgeButSecondNextDoes() async throws {
-		let acknowledged = expectation(description: "first item acknowledged")
-		let first = Token(onAcknowledgement: { acknowledged.fulfill() })
-		let second = Token()
-		let stream = MessageDeliveryStream(onClose: nil)
-		defer { stream.finish() }
-		try stream.receive(delivery(token: first))
-		XCTAssertEqual(first.counts().checks, 0)
-		XCTAssertEqual(first.counts().acknowledgements, 0)
-		let initial = try await stream.next()
-		XCTAssertEqual(initial?.deliveryCursor?.deliverySequence, 1)
-		XCTAssertEqual(first.counts().checks, 1)
-		XCTAssertEqual(first.counts().acknowledgements, 0)
+		for includeFiltered in [false, true] {
+			let acknowledged = expectation(description: "first item acknowledged")
+			let first = Token(onAcknowledgement: { acknowledged.fulfill() })
+			let second = Token()
+			let stream = MessageDeliveryStream(onClose: nil)
+			defer { stream.finish() }
+			let initial: DecodedMessage?
+			if includeFiltered {
+				let filteredAcknowledged = expectation(description: "filtered item acknowledged")
+				let filtered = Token(onAcknowledgement: { filteredAcknowledged.fulfill() })
+				try stream.receive(delivery(0, token: filtered, content: .forgedMembership))
+				XCTAssertEqual(filtered.counts().checks, 0)
+				XCTAssertEqual(filtered.counts().acknowledgements, 0)
+				let next = Task { try await stream.next() }
+				defer { next.cancel() }
+				await fulfillment(of: [filteredAcknowledged], timeout: 3)
+				XCTAssertEqual(filtered.counts().checks, 1)
+				XCTAssertEqual(filtered.counts().acknowledgements, 1)
+				XCTAssertEqual(filtered.counts().rejections, 0)
+				try stream.receive(delivery(token: first))
+				initial = try await next.value
+			} else {
+				try stream.receive(delivery(token: first))
+				XCTAssertEqual(first.counts().checks, 0)
+				XCTAssertEqual(first.counts().acknowledgements, 0)
+				initial = try await stream.next()
+			}
+			XCTAssertEqual(initial?.id, "01")
+			XCTAssertEqual(try initial?.content() as String?, "message 1")
+			XCTAssertEqual(initial?.deliveryCursor?.deliverySequence, 1)
+			XCTAssertEqual(first.counts().checks, 1)
+			XCTAssertEqual(first.counts().acknowledgements, 0)
 
-		let next = Task { try await stream.next() }
-		defer { next.cancel() }
-		await fulfillment(of: [acknowledged], timeout: 3)
-		try stream.receive(delivery(2, token: second))
-		let following = try await next.value
-		XCTAssertEqual(following?.deliveryCursor?.deliverySequence, 2)
-		XCTAssertEqual(first.counts().acknowledgements, 1)
-		XCTAssertEqual(second.counts().acknowledgements, 0)
+			let next = Task { try await stream.next() }
+			defer { next.cancel() }
+			await fulfillment(of: [acknowledged], timeout: 3)
+			try stream.receive(delivery(2, token: second))
+			let following = try await next.value
+			XCTAssertEqual(following?.id, "02")
+			XCTAssertEqual(try following?.content() as String?, "message 2")
+			XCTAssertEqual(following?.deliveryCursor?.deliverySequence, 2)
+			XCTAssertEqual(first.counts().acknowledgements, 1)
+			XCTAssertEqual(second.counts().acknowledgements, 0)
+		}
 	}
 
 	func testFinishRejectsTheLastAndQueuedItemsAndClosesOnce() async throws {
@@ -165,46 +198,56 @@ final class MessageDeliveryStreamTests: XCTestCase {
 	}
 
 	func testCancellationBeforeHandoffRejectsTheItem() async throws {
-		let token = Token(onCheck: {
-			withUnsafeCurrentTask { $0?.cancel() }
-		})
-		let stream = MessageDeliveryStream(onClose: nil)
-		try stream.receive(delivery(token: token))
-		let next = Task { try await stream.next() }
-		try await assertThrowsAsyncError(await next.value) { error in
-			XCTAssertTrue(error is CancellationError)
+		for content in [TestContent.text, .forgedMembership] {
+			let token = Token(onCheck: {
+				withUnsafeCurrentTask { $0?.cancel() }
+			})
+			let stream = MessageDeliveryStream(onClose: nil)
+			defer { stream.finish() }
+			try stream.receive(delivery(token: token, content: content))
+			let next = Task { try await stream.next() }
+			defer { next.cancel() }
+			try await assertThrowsAsyncError(await next.value) { error in
+				XCTAssertTrue(error is CancellationError)
+			}
+			XCTAssertEqual(token.counts().rejections, 1)
+			XCTAssertEqual(token.counts().acknowledgements, 0)
 		}
-		XCTAssertEqual(token.counts().rejections, 1)
-		XCTAssertEqual(token.counts().acknowledgements, 0)
 	}
 
 	func testSelectionChangeRejectsTheStaleItemAndWaitsForFreshSelection() async throws {
-		let rejected = expectation(description: "stale item rejected")
-		let stale = Token(current: false, onReject: { rejected.fulfill() })
-		let fresh = Token()
-		let stream = MessageDeliveryStream(onClose: nil)
-		defer { stream.finish() }
-		try stream.receive(delivery(token: stale))
-		let next = Task { try await stream.next() }
-		defer { next.cancel() }
-		await fulfillment(of: [rejected], timeout: 3)
-		try stream.receive(delivery(2, token: fresh))
-		let selected = try await next.value
-		XCTAssertEqual(selected?.deliveryCursor?.deliverySequence, 2)
-		XCTAssertEqual(stale.counts().acknowledgements, 0)
-		XCTAssertEqual(stale.counts().rejections, 1)
-		XCTAssertEqual(fresh.counts().acknowledgements, 0)
+		for content in [TestContent.text, .forgedMembership] {
+			let rejected = expectation(description: "stale item rejected")
+			let stale = Token(current: false, onReject: { rejected.fulfill() })
+			let fresh = Token()
+			let stream = MessageDeliveryStream(onClose: nil)
+			defer { stream.finish() }
+			try stream.receive(delivery(token: stale, content: content))
+			let next = Task { try await stream.next() }
+			defer { next.cancel() }
+			await fulfillment(of: [rejected], timeout: 3)
+			try stream.receive(delivery(2, token: fresh))
+			let selected = try await next.value
+			XCTAssertEqual(selected?.id, "02")
+			XCTAssertEqual(try selected?.content() as String?, "message 2")
+			XCTAssertEqual(selected?.deliveryCursor?.deliverySequence, 2)
+			XCTAssertEqual(stale.counts().acknowledgements, 0)
+			XCTAssertEqual(stale.counts().rejections, 1)
+			XCTAssertEqual(fresh.counts().acknowledgements, 0)
+		}
 	}
 
 	func testFinishDuringOwnershipCheckPreventsHandoff() async throws {
-		let stream = MessageDeliveryStream(onClose: nil)
-		let token = Token(onCheck: { [weak stream] in stream?.finish() })
-		try stream.receive(delivery(token: token))
-		try await assertThrowsAsyncError(await stream.next()) { error in
-			XCTAssertTrue(error is CancellationError)
+		for content in [TestContent.text, .forgedMembership] {
+			let stream = MessageDeliveryStream(onClose: nil)
+			let token = Token(onCheck: { [weak stream] in stream?.finish() })
+			try stream.receive(delivery(token: token, content: content))
+			try await assertThrowsAsyncError(await stream.next()) { error in
+				XCTAssertTrue(error is CancellationError)
+			}
+			XCTAssertEqual(token.counts().acknowledgements, 0)
+			XCTAssertEqual(token.counts().rejections, 1)
 		}
-		XCTAssertEqual(token.counts().acknowledgements, 0)
-		XCTAssertEqual(token.counts().rejections, 1)
 	}
 
 	func testConcurrentNextStopsBothCallsWithoutAcknowledgement() async throws {
@@ -229,30 +272,65 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		let token = Token()
 		let later = Token()
 		let stream = MessageDeliveryStream(onClose: nil)
-		try stream.receive(delivery(token: token, validContent: false))
+		defer { stream.finish() }
+		let malformed = try delivery(token: token, content: .malformed)
+		let valid = try delivery(2, token: later)
+		stream.receive(malformed)
 		try await assertThrowsAsyncError(await stream.next()) { error in
-			XCTAssertEqual(error as? MessageDeliveryStreamError, .decodeFailed)
+			XCTAssertTrue(error is BinaryDecodingError)
 		}
-		try stream.receive(delivery(2, token: later))
+		stream.receive(valid)
 		XCTAssertEqual(token.counts().checks, 0)
+		XCTAssertEqual(token.counts().acknowledgements, 0)
 		XCTAssertEqual(token.counts().rejections, 1)
+		XCTAssertEqual(later.counts().checks, 0)
+		XCTAssertEqual(later.counts().acknowledgements, 0)
 		XCTAssertEqual(later.counts().rejections, 1)
+
+		let forged = try delivery(0, token: Token(), content: .forgedMembership)
+		let snapshotCursor = FfiDeliveryCursor(
+			databaseId: valid.cursor.databaseId, deliverySequence: 3
+		)
+		let snapshot = try MessageHistorySnapshot(FfiMessageHistorySnapshot(
+			messages: [forged, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
+			cursor: snapshotCursor
+		))
+		XCTAssertEqual(snapshot.messages.map(\.id), ["02"])
+		XCTAssertEqual(try snapshot.messages.map { try $0.content() as String }, ["message 2"])
+		XCTAssertEqual(snapshot.messages.first?.deliveryCursor, valid.cursor)
+		XCTAssertEqual(snapshot.cursor, snapshotCursor)
+		XCTAssertThrowsError(try MessageHistorySnapshot(FfiMessageHistorySnapshot(
+			messages: [forged, malformed, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
+			cursor: snapshotCursor
+		))) { error in
+			XCTAssertTrue(error is BinaryDecodingError)
+		}
 	}
 
 	func testAcknowledgementFailureRejectsBothItemsAndStops() async throws {
-		let first = Token(acknowledgementFails: true)
-		let queued = Token()
-		let stream = MessageDeliveryStream(onClose: nil)
-		try stream.receive(delivery(token: first))
-		_ = try await stream.next()
-		try stream.receive(delivery(2, token: queued))
-		try await assertThrowsAsyncError(await stream.next()) { error in
-			XCTAssertEqual(error as? TestError, .acknowledgement)
+		for content in [TestContent.text, .forgedMembership] {
+			let queued = Token()
+			let pending = try delivery(2, token: queued)
+			let stream = MessageDeliveryStream(onClose: nil)
+			defer { stream.finish() }
+			let first = Token(acknowledgementFails: true, onCheck: { [weak stream] in
+				stream?.receive(pending)
+			})
+			try stream.receive(delivery(token: first, content: content))
+			if case .text = content {
+				let initial = try await stream.next()
+				XCTAssertEqual(initial?.id, "01")
+			}
+			try await assertThrowsAsyncError(await stream.next()) { error in
+				XCTAssertEqual(error as? TestError, .acknowledgement)
+			}
+			XCTAssertEqual(first.counts().checks, 1)
+			XCTAssertEqual(first.counts().rejections, 1)
+			XCTAssertEqual(first.counts().acknowledgements, 0)
+			XCTAssertEqual(queued.counts().checks, 0)
+			XCTAssertEqual(queued.counts().acknowledgements, 0)
+			XCTAssertEqual(queued.counts().rejections, 1)
 		}
-		XCTAssertEqual(first.counts().rejections, 1)
-		XCTAssertEqual(first.counts().acknowledgements, 0)
-		XCTAssertEqual(queued.counts().checks, 0)
-		XCTAssertEqual(queued.counts().rejections, 1)
 	}
 
 	func testOneSlotOverflowRejectsBothItemsWithoutHandoff() async throws {
