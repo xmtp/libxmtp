@@ -21,7 +21,9 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.Conversations.ConversationFilterType
+import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.ContentTypeReaction
+import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
@@ -35,6 +37,7 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
 import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiException
 
@@ -69,6 +72,7 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanSuccessfullyThreadDms() {
+        Client.register(codec = GroupUpdatedCodec())
         val convoBo =
             runBlocking {
                 fixtures.boClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
@@ -78,17 +82,80 @@ class DmTest : BaseInstrumentedTest() {
                 fixtures.alixClient.conversations.findOrCreateDm(fixtures.boClient.inboxId)
             }
 
+        data class ExpectedDm(
+            val creator: String,
+            val peer: String,
+        )
+
+        data class ExpectedApplication(
+            val sender: String,
+            val body: String,
+            val group: String,
+        )
+
+        val expectedDms =
+            linkedMapOf(
+                convoBo.id to ExpectedDm(fixtures.boClient.inboxId, fixtures.alixClient.inboxId),
+            )
+        expectedDms.putIfAbsent(
+            convoAlix.id,
+            ExpectedDm(fixtures.alixClient.inboxId, fixtures.boClient.inboxId),
+        )
+        val expectedApplications = mutableMapOf<String, ExpectedApplication>()
+
+        fun assertHistory(
+            messages: List<DecodedMessage>,
+            requiredMembershipGroups: Set<String>,
+        ) {
+            assertEquals("Message IDs are unique", messages.size, messages.map { it.id }.toSet().size)
+            val applications = messages.filter { it.kind == FfiConversationMessageKind.APPLICATION }
+            assertEquals(expectedApplications.keys, applications.map { it.id }.toSet())
+            val membership = messages.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+            val membershipGroups = membership.map { it.conversationId }.toSet()
+            assertEquals("One membership event per physical DM", membership.size, membershipGroups.size)
+            assertTrue("Required DM membership is present", membershipGroups.containsAll(requiredMembershipGroups))
+
+            for (message in messages) {
+                if (message.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                    val expected =
+                        requireNotNull(expectedDms[message.conversationId]) {
+                            "Unexpected membership group ${message.conversationId}"
+                        }
+                    val expectedUpdate =
+                        GroupUpdated
+                            .newBuilder()
+                            .setInitiatedByInboxId(expected.creator)
+                            .addAddedInboxes(GroupUpdated.Inbox.newBuilder().setInboxId(expected.peer))
+                            .build()
+                    assertEquals(ContentTypeGroupUpdated, message.encodedContent.type)
+                    assertEquals(expected.creator, message.senderInboxId)
+                    assertEquals(expectedUpdate, requireNotNull(message.content<GroupUpdated>()))
+                } else {
+                    assertEquals(FfiConversationMessageKind.APPLICATION, message.kind)
+                    val expected = requireNotNull(expectedApplications[message.id])
+                    assertEquals(expected.body, message.content<String>())
+                    assertEquals(expected.sender, message.senderInboxId)
+                    assertEquals(expected.group, message.conversationId)
+                }
+            }
+        }
+
         runBlocking {
-            assertEquals(1, convoBo.messages().size) // memberAdd
-            assertEquals(1, convoAlix.messages().size) // memberAdd
+            // Background receipt can install the other DM before explicit sync.
+            assertHistory(convoBo.messages(), setOf(convoBo.id))
+            assertHistory(convoAlix.messages(), setOf(convoAlix.id))
         }
 
         runBlocking { fixtures.boClient.conversations.syncAllConversations() }
         runBlocking { fixtures.alixClient.conversations.syncAllConversations() }
 
         runBlocking {
-            assertEquals(2, convoBo.messages().size) // memberAdd
-            assertEquals(2, convoAlix.messages().size) // memberAdd
+            val boMessages = convoBo.messages()
+            val alixMessages = convoAlix.messages()
+            assertEquals(expectedDms.size, boMessages.size)
+            assertEquals(expectedDms.size, alixMessages.size)
+            assertHistory(boMessages, expectedDms.keys)
+            assertHistory(alixMessages, expectedDms.keys)
         }
 
         val sameConvoBo =
@@ -129,21 +196,24 @@ class DmTest : BaseInstrumentedTest() {
         }
 
         runBlocking {
-            sameConvoBo.send("Bo hey2")
-            sameConvoAlix.send("Alix hey2")
+            val boMessageId = sameConvoBo.send("Bo hey2")
+            val alixMessageId = sameConvoAlix.send("Alix hey2")
+            expectedApplications[boMessageId] =
+                ExpectedApplication(fixtures.alixClient.inboxId, "Bo hey2", sameConvoBo.id)
+            expectedApplications[alixMessageId] =
+                ExpectedApplication(fixtures.boClient.inboxId, "Alix hey2", sameConvoAlix.id)
+            assertEquals(2, expectedApplications.size)
             sameConvoAlix.sync()
             sameConvoBo.sync()
         }
 
         runBlocking {
-            assertEquals(
-                4,
-                sameConvoBo.messages().size,
-            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
-            assertEquals(
-                4,
-                sameConvoAlix.messages().size,
-            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
+            val boMessages = sameConvoBo.messages()
+            val alixMessages = sameConvoAlix.messages()
+            assertEquals(expectedDms.size + 2, boMessages.size)
+            assertEquals(expectedDms.size + 2, alixMessages.size)
+            assertHistory(boMessages, expectedDms.keys)
+            assertHistory(alixMessages, expectedDms.keys)
         }
     }
 
