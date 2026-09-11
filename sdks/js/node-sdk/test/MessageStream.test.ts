@@ -9,8 +9,15 @@ const cursor = (deliverySequence: bigint) => ({
 }) as never;
 
 // One acknowledgeable delivery, recording which terminal action it received.
-const makeItem = (id: string) => {
-  const acknowledge = vi.fn().mockResolvedValue(undefined);
+const makeItem = (id: string, owned = true) => {
+  // Acknowledging a token the selection invalidated throws, matching the core.
+  const acknowledge = vi
+    .fn()
+    .mockImplementation(() =>
+      owned
+        ? Promise.resolve(undefined)
+        : Promise.reject(new Error("SelectionChanged")),
+    );
   const reject = vi.fn().mockResolvedValue(undefined);
   return {
     acknowledge,
@@ -21,7 +28,7 @@ const makeItem = (id: string) => {
       acknowledgement: {
         acknowledge,
         reject,
-        checkOwner: () => true,
+        checkOwner: () => owned,
       },
     },
   };
@@ -72,6 +79,33 @@ describe("MessageStream decode failures", () => {
     // The failure is reported rather than silently swallowed.
     expect(onError).toHaveBeenCalledTimes(1);
     expect((onError.mock.calls[0]![0] as Error).message).toBe("codec exploded");
+  });
+
+  it("discards an undecodable item the selection invalidated, without ending the stream", async () => {
+    // updateScope/updateFilter can invalidate the token while an async
+    // converter runs. Acknowledging it then throws SelectionChanged, which
+    // would terminate the stream — the exact failure the skip exists to avoid.
+    const stale = makeItem("1", false);
+    const good = makeItem("2");
+    const { reader } = makeReader([stale, good]);
+    const onError = vi.fn();
+
+    const stream = new MessageStream<Item, Item>(
+      reader,
+      (message) => {
+        if (message.id === "1") throw new Error("codec exploded");
+        return message;
+      },
+      { onError },
+    );
+
+    const first = await stream.next();
+    expect(first.done).toBe(false);
+    expect(first.value?.id).toBe("2");
+    // The failed acknowledgement is tolerated rather than ending the stream.
+    // The core moved the item to reselect, so it stays replayable.
+    expect(stale.acknowledge).toHaveBeenCalledTimes(1);
+    expect(stream.isDone).toBe(false);
   });
 
   it("does not skip a message whose lookup failed", async () => {
