@@ -898,14 +898,61 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
         .or_default()
         .receipt
         .blocked = false;
+    // A permanent source error is reported to the host, but it must not stop
+    // the unary read path: bounded Query is how the client recovers. The read
+    // is now gated only by per-topic receipt state, never by stream health.
     controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
         "cursor order",
     )));
-    controller.start_read();
-    assert!(controller.read.is_none());
     assert_eq!(
         controller.transport.connection(),
         IncomingConnection::Failed
+    );
+    assert_eq!(controller.transport.permanent_failures, 1);
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .blocked = true;
+    controller.start_read();
+    assert!(controller.read.is_none());
+}
+
+/// A permanently failing source retries on a growing delay and recovers
+/// without recreating the client.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_permanent_source_error_retries_with_backoff_and_recovers() {
+    let mut controller = controller(context());
+    let permanent = || NetworkError::new(xmtp_api::ApiError::InvalidResponse("cursor order"));
+    assert!(!permanent().is_retryable());
+
+    controller.source_error(permanent());
+    assert_eq!(controller.transport.permanent_failures, 1);
+    assert!(controller.transport.backing_off());
+    let first = controller.transport.retry_at();
+
+    controller.source_error(permanent());
+    assert_eq!(controller.transport.permanent_failures, 2);
+    assert!(
+        controller.transport.retry_at() > first,
+        "the delay must grow with consecutive permanent failures"
+    );
+
+    // A wake advances a scheduled retry; no failure is terminal.
+    controller.transport.wake();
+    assert!(!controller.transport.backing_off());
+
+    controller.transport.request(HashSet::from([Topic::new_group_message(
+        GroupId::generate(),
+    )]));
+    assert!(controller.transport.can_open());
+
+    controller.opened(Ok(Opened::Unary(TopicCursor::new())));
+    assert_eq!(controller.transport.permanent_failures, 0);
+    assert_eq!(
+        controller.transport.connection(),
+        IncomingConnection::Connected
     );
 }
 
@@ -1062,7 +1109,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     assert_eq!(acknowledged.lock()[1][&topic], Cursor(20));
     assert!(controller.receipt(&topic).paused);
     assert!(!controller.receipt(&welcome).paused);
-    assert!(!controller.transport.is_failed());
+    assert_eq!(controller.transport.permanent_failures, 0);
     assert!(controller.transport.subscription().is_none());
 
     crate::state_tx::state_write(client.context.mls_storage(), |tx| {

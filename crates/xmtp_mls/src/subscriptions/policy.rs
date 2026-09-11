@@ -41,6 +41,10 @@ pub(crate) struct StreamPolicy {
     pub(crate) identity_reference_wait: Duration,
     /// One budget for target capture, receipt, processing, and required send follow-up work.
     pub(crate) barrier_timeout: Duration,
+    /// First delay before retrying a source that failed with a permanent error.
+    pub(crate) permanent_retry_initial: Duration,
+    /// Longest delay between retries of a repeatedly failing source.
+    pub(crate) permanent_retry_max: Duration,
 }
 
 impl Default for StreamPolicy {
@@ -72,6 +76,8 @@ impl Default for StreamPolicy {
             default_consumer_lease_duration: DEFAULT_CONSUMER_LEASE_DURATION,
             identity_reference_wait: IDENTITY_REFERENCE_WAIT,
             barrier_timeout: STREAM_BARRIER_TIMEOUT,
+            permanent_retry_initial: STREAM_PERMANENT_RETRY_INITIAL,
+            permanent_retry_max: STREAM_PERMANENT_RETRY_MAX,
         }
     }
 }
@@ -148,6 +154,8 @@ mod tests {
                 ),
                 ("identity_reference_wait", self.identity_reference_wait),
                 ("barrier_timeout", self.barrier_timeout),
+                ("permanent_retry_initial", self.permanent_retry_initial),
+                ("permanent_retry_max", self.permanent_retry_max),
             ] {
                 // The same timer values must work on native and browser clients.
                 if value.is_zero() || value.as_millis() > i32::MAX as u128 {
@@ -156,6 +164,9 @@ mod tests {
             }
             if self.active_database_poll_interval >= self.default_consumer_lease_duration {
                 return Err("default_consumer_lease_duration");
+            }
+            if self.permanent_retry_initial > self.permanent_retry_max {
+                return Err("permanent_retry_max");
             }
             if self.identity_reference_wait
                 <= Duration::from_millis(BACKEND_DEFAULT_STATEMENT_TIMEOUT_MS)

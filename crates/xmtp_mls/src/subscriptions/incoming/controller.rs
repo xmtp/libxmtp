@@ -21,7 +21,7 @@ mod dependencies;
 mod processing;
 mod snapshots;
 mod transport;
-use transport::{Transport, TransportEvent, TransportState};
+use transport::{RetryBackoff, Transport, TransportEvent, TransportState};
 #[cfg(test)]
 mod tests;
 use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
@@ -496,11 +496,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             Ok(Opened::Stream(subscription)) => {
                 self.transport.state = TransportState::Streaming(subscription);
                 self.transport.error = None;
+                self.transport.opened();
             }
             Ok(Opened::Unary(targets)) => {
                 self.registered(targets);
                 self.transport.state = TransportState::Unary;
                 self.transport.error = None;
+                self.transport.opened();
             }
             Err(error) => self.source_error(error),
         }
@@ -520,11 +522,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     // A new scope can share an active registration. Capture its own fixed target
     // without replacing the connection or reusing an older scope's target.
     fn start_targets(&mut self) {
-        if self.targets.is_some()
-            || self.transport.is_failed()
-            || self.live_suspended()
-            || self.transport.backing_off()
-        {
+        if self.targets.is_some() || self.live_suspended() || self.transport.backing_off() {
             return;
         }
         let mut scopes = Vec::new();
@@ -689,18 +687,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn source_error(&mut self, error: NetworkError) {
+        let policy = self.context.incoming_runtime().policy();
         self.transport.fail(
             error,
-            self.context
-                .incoming_runtime()
-                .policy()
-                .receiver_fallback_interval,
+            policy.receiver_fallback_interval,
+            RetryBackoff {
+                initial: policy.permanent_retry_initial,
+                max: policy.permanent_retry_max,
+            },
         );
         self.clear_read_times();
     }
 
+    /// Unary reads are independent of the stream receiver. A failing or
+    /// backing-off stream must not stop bounded Query recovery.
     fn start_read(&mut self) {
-        if self.read.is_some() || self.transport.is_failed() {
+        if self.read.is_some() {
             return;
         }
         let now = Instant::now();
