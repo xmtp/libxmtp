@@ -913,6 +913,38 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     assert!(controller.read.is_none());
 }
 
+/// A scope acquired after a permanent stream failure must still receive work.
+/// `source_error` clears the registration set, so a target request cannot be
+/// what starts recovery: unary Query has to run without one.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_scope_acquired_after_a_permanent_failure_still_reads() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
+        "cursor order",
+    )));
+    assert_eq!(controller.transport.permanent_failures, 1);
+    assert!(
+        controller.transport.registered.is_empty(),
+        "a failed source drops its registrations"
+    );
+
+    // The scope arrives after the failure, so it never had a registration and
+    // never gets a fixed target. Neither may gate the bounded read.
+    add_scope(&mut controller, 1, &topic);
+    controller.read_queue.push_back(topic.clone());
+    assert!(!controller.scopes[&1].targets.contains_key(&topic));
+
+    // read_due is the gate the recovery depends on. A missing target skips the
+    // scope loop but must not return early: an uncovered topic still falls
+    // through to the bounded Query interval.
+    let key = topic_key(&topic)?;
+    assert!(
+        controller.read_due(&topic, &key, Instant::now())?,
+        "an unregistered topic with no target must fall back to Query"
+    );
+}
+
 /// A capacity pause supersedes a permanent-error backoff. They are different
 /// conditions, and leaving both set gates the topic after storage drains.
 #[xmtp_common::test(unwrap_try = true)]
