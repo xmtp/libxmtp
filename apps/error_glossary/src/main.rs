@@ -59,12 +59,8 @@ fn main() {
             continue;
         }
 
-        // Use the source path to order types with the same name.
-        error_types.sort_by(|a, b| {
-            a.name
-                .cmp(&b.name)
-                .then_with(|| a.source_file.cmp(&b.source_file))
-        });
+        // Sort types by name within each crate
+        error_types.sort_by(|a, b| a.name.cmp(&b.name));
 
         total_types += error_types.len();
         total_variants += error_types
