@@ -64,7 +64,6 @@ data class ClientOptions(
      * reconcile a group's `appData` themselves. See [UnstableChangeCallbacks].
      */
     val unstableChangeCallbacks: UnstableChangeCallbacks? = null,
-    val streamSettings: StreamSettings? = null,
 ) {
     data class Api(
         val backendUrl: String,

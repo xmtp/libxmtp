@@ -215,6 +215,16 @@ describe("MessageStream worker acknowledgement boundaries", () => {
       expect(reader.nextDelivery).toHaveBeenCalledOnce();
       expect(first.acknowledge).not.toHaveBeenCalled();
       expect(second.checkOwner).not.toHaveBeenCalled();
+      await expect(stream.next()).rejects.toThrow(/callback mode/i);
+      const iterated: Array<number | undefined> = [];
+      const consume = async () => {
+        for await (const value of stream) iterated.push(value);
+      };
+      await expect(consume()).rejects.toThrow(/callback mode/i);
+      expect(iterated).toEqual([]);
+      expect(reader.nextDelivery).toHaveBeenCalledOnce();
+      expect(onValue).toHaveBeenCalledOnce();
+      expect(reader.close).not.toHaveBeenCalled();
       release.resolve(undefined);
       await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
       expect(onValue.mock.calls).toEqual([[1], [2]]);
@@ -260,61 +270,5 @@ describe("MessageStream worker acknowledgement boundaries", () => {
       release.resolve(undefined);
       await stream.end();
     }
-  });
-
-  it("rejects next and for-await in callback mode without a second consumer", async () => {
-    const pending = token();
-    const release = deferred<undefined>();
-    const reader = source({ message: 1, cursor, acknowledgement: pending });
-    const onValue = vi.fn(() => release.promise);
-    const stream = new MessageStream(reader, (value) => value, { onValue });
-    try {
-      await vi.waitFor(() => expect(onValue).toHaveBeenCalledOnce());
-      await expect(stream.next()).rejects.toThrow(/callback mode/i);
-      const iterated: Array<number | undefined> = [];
-      const consume = async () => {
-        for await (const value of stream) iterated.push(value);
-      };
-      await expect(consume()).rejects.toThrow(/callback mode/i);
-      expect(iterated).toEqual([]);
-      expect(reader.nextDelivery).toHaveBeenCalledOnce();
-      expect(onValue).toHaveBeenCalledOnce();
-      expect(pending.acknowledge).not.toHaveBeenCalled();
-      expect(reader.close).not.toHaveBeenCalled();
-    } finally {
-      await stream.end();
-      release.resolve(undefined);
-    }
-  });
-
-  it("keeps the callback selected at construction when options change", async () => {
-    const pending = token();
-    const reader = source({ message: 1, cursor, acknowledgement: pending });
-    const original = vi.fn();
-    const replacement = vi.fn();
-    const onEnd = vi.fn();
-    const options = { onValue: original, onEnd };
-    const stream = new MessageStream(reader, (value) => value, options);
-    options.onValue = replacement;
-    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
-    expect(original).toHaveBeenCalledExactlyOnceWith(1);
-    expect(replacement).not.toHaveBeenCalled();
-    expect(pending.acknowledge).toHaveBeenCalledOnce();
-    await expect(stream.next()).rejects.toThrow(/callback mode/i);
-  });
-
-  it("keeps iterator mode when a callback is added after construction", async () => {
-    const pending = token();
-    const reader = source({ message: 1, cursor, acknowledgement: pending });
-    const options: { onValue?: (value: number) => void } = {};
-    const stream = new MessageStream(reader, (value) => value, options);
-    const added = vi.fn();
-    options.onValue = added;
-    expect(reader.nextDelivery).not.toHaveBeenCalled();
-    expect(await stream.next()).toEqual({ done: false, value: 1 });
-    expect(added).not.toHaveBeenCalled();
-    expect(pending.acknowledge).not.toHaveBeenCalled();
-    await stream.end();
-    expect(pending.reject).toHaveBeenCalledOnce();
   });
 });

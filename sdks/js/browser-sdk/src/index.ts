@@ -81,7 +81,6 @@ export type {
   WalletCall,
   WalletSendCalls,
   WorkerConfigOptions,
-  StreamSettings,
   WorkerIntervalOverride,
 } from "@xmtp/wasm-bindings";
 export {

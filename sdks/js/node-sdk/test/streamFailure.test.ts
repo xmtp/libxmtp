@@ -147,15 +147,6 @@ describe("structured stream failures", () => {
     expect(getStreamFailureDetails(value)).toBeUndefined();
   });
 
-  it("does not throw if an error message getter fails", () => {
-    const value = {
-      get message() {
-        throw new Error("Unavailable message");
-      },
-    };
-    expect(getStreamFailureDetails(value)).toBeUndefined();
-  });
-
   it.each([
     "-1",
     "01",

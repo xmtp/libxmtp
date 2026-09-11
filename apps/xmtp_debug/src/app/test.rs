@@ -27,9 +27,6 @@ impl Test {
         match self.opts.scenario {
             TestScenario::MessageVisibility => self.message_visibility_test().await,
             TestScenario::GroupSync => self.group_sync_test().await,
-            TestScenario::DurableStreams => {
-                super::durable_streams::run(self.opts, &self.network).await
-            }
         }
     }
 

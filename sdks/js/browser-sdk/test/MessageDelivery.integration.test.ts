@@ -29,6 +29,7 @@ describe("durable message delivery", () => {
       const group = await client.conversations.createGroup([]);
       const firstId = await group.sendText("first retained message");
       const secondId = await group.sendText("second retained message");
+      const thirdId = await group.sendText("third retained message");
       const history = await group.messageHistorySnapshot(128);
       const original = await group.stream();
       streams.push(original);
@@ -60,6 +61,7 @@ describe("durable message delivery", () => {
       const replay = await group.stream({ from: cursor });
       streams.push(replay);
       expect((await nextWithin(replay)).value?.id).toBe(secondId);
+      expect((await nextWithin(replay)).value?.id).toBe(thirdId);
       await replay.end();
 
       const unchanged = await group.stream();

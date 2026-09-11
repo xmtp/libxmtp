@@ -628,3 +628,8 @@ rejoin sequence in `MLS-REQ-165`. The shared requirement remains live.
 | `MLS-REQ-147` | Concurrent promotion from generic to bidi transport. | Transport is now selected once during construction. `MLS-REQ-167` covers lazy startup and the selected platform path. |
 | `MLS-REQ-164` | Keep a selected factory command alive before the first lease. | The factory command and promotion API are removed. `MLS-REQ-168` covers retirement, recreation, and context release. |
 | `BIND-REQ-101` | Public stream-setting conversion and validation. | Public stream settings are removed. `MLS-REQ-166` covers the bounds of internal named limits and timers. |
+| `SHARED-IDENTITY-REQ-021` | Android and iOS public stream-setting conversion. | The public settings wrappers are removed. Internal bounds remain covered by `MLS-REQ-166`. |
+| `JSDK-REQ-140` | Mutation of callback options after construction. | Removed after the SDK test audit. Delivery mode selection remains covered by real callback and iterator tests. |
+| `JSDK-REQ-145` | Adding callbacks to an existing iterator's options. | Removed after the SDK test audit. No public option-mutation contract is required. |
+| `JSDK-REQ-159` | Error objects with a throwing message getter. | Removed after the SDK test audit. Real native, worker, and malformed error payloads retain decoder coverage. |
+| `MANUAL-REQ-004` | Temporary durable-stream CLI acceptance scenario. | The final three-iteration run passed before removal. `MLS-REQ-172`, `GINLINE-REQ-098`, and `MLS-REQ-120` cover the outage, competing commits, and invalid-ciphertext behavior in core tests. Existing durable-reader tests cover close and reopen. |

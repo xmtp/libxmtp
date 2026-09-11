@@ -116,7 +116,6 @@ export const createClient = async (
     undefined, // allowOffline
     options?.nonce,
     changeCallbacks,
-    options?.streamSettings,
   );
 
   return { client, env };

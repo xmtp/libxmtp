@@ -19,7 +19,6 @@ import type {
   WalletSendCalls,
   WasmVisibilityConfirmationOptions,
   WorkerConfigOptions,
-  StreamSettings,
 } from "@xmtp/wasm-bindings";
 import type { DecodedMessage } from "@/DecodedMessage";
 
@@ -100,8 +99,6 @@ export type OtherOptions = {
    * Intervals are specified in nanoseconds.
    */
   workerConfig?: WorkerConfigOptions;
-  /** Positive stream limits. Omitted fields use core defaults. Timers use milliseconds. */
-  streamSettings?: StreamSettings;
   /**
    * Disable automatic registration when creating a client
    */

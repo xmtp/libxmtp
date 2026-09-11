@@ -2,8 +2,6 @@
 
 /// Different ways to generate a client
 mod clients;
-/// Durable stream validation with independent disk-backed peers.
-mod durable_streams;
 /// Export commands
 mod export;
 /// Generate functionality
@@ -246,15 +244,7 @@ impl App {
             strict_versioning,
             ..
         } = crate::config_unchecked();
-        // This scenario owns fresh peer databases and never uses the identity store.
-        let isolated_scenario = matches!(
-            cmd,
-            Some(args::Commands::Test(args::TestOpts {
-                scenario: args::TestScenario::DurableStreams,
-                ..
-            }))
-        );
-        if !clear && !isolated_scenario {
+        if !clear {
             self.init_db()?
         }
         use args::Commands::*;

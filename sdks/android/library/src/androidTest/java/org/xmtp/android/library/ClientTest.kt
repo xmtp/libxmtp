@@ -127,7 +127,6 @@ class ClientTest : BaseInstrumentedTest() {
                         localApi(appVersion = "Testing/0.0.0"),
                         appContext = context,
                         dbEncryptionKey = key,
-                        streamSettings = StreamSettings(maxLocalReadRows = 8u),
                         unstableChangeCallbacks =
                             UnstableChangeCallbacks(
                                 appData =
@@ -158,29 +157,6 @@ class ClientTest : BaseInstrumentedTest() {
                 val change = withTimeout(callbackTimeoutMs) { appDataChange.await() }
                 assertEquals(group.id, change.groupId)
                 assertEquals(newAppData, change.newValue)
-
-                val invalidOptions =
-                    options.copy(
-                        unstableChangeCallbacks = null,
-                        streamSettings = StreamSettings(maxLocalReadRows = 0u),
-                    )
-                val invalidWallet = PrivateKeyBuilder()
-                val error =
-                    requireNotNull(
-                        runCatching {
-                            if (inMemory) {
-                                Client.createInMemory(account = invalidWallet, options = invalidOptions)
-                            } else {
-                                Client.create(account = invalidWallet, options = invalidOptions)
-                            }
-                        }.exceptionOrNull(),
-                    ) { "A zero stream limit must fail native client creation" }
-                assertEquals(XMTPException::class.java, error::class.java)
-                assertTrue(error.cause is FfiException.Exception)
-                assertEquals(
-                    "[InvalidStreamSettings] Client builder error: invalid stream setting: max_local_read_rows",
-                    error.cause?.message,
-                )
             }
         }
 

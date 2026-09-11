@@ -84,7 +84,6 @@ export type {
   WalletCall,
   WalletSendCalls,
   WorkerConfigOptions,
-  StreamSettings,
   WorkerIntervalOverride,
   WorkerJitterOverride,
 } from "@xmtp/node-bindings";

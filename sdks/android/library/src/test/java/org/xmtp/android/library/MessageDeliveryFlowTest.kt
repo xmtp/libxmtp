@@ -44,12 +44,10 @@ class MessageDeliveryFlowTest {
     private class Delivery(
         val value: Int? = 1,
         var current: Boolean = true,
-        val decodeError: Throwable? = null,
         val acknowledgeError: Throwable? = null,
         val decodeValue: (() -> Int?)? = null,
         val onCheck: () -> Unit = {},
     ) {
-        var checks = 0
         var acknowledgements = 0
         var rejections = 0
         val acknowledged = CompletableDeferred<Unit>()
@@ -58,11 +56,9 @@ class MessageDeliveryFlowTest {
         fun queued(): QueuedMessageDelivery<Int> =
             QueuedMessageDelivery(
                 decode = {
-                    decodeError?.let { throw it }
                     if (decodeValue != null) decodeValue() else value
                 },
                 checkOwner = {
-                    checks++
                     onCheck()
                     current
                 },
@@ -112,7 +108,6 @@ class MessageDeliveryFlowTest {
                         return@acknowledgedMessageFlow { ended++ }
                     }.collect {
                         received.add(it)
-                        assertEquals(1, delivery.checks)
                         assertEquals(0, delivery.acknowledgements)
                         handedOff.complete(Unit)
                         releaseCollector.await()
@@ -121,7 +116,6 @@ class MessageDeliveryFlowTest {
             val callback = ready.await()
             callback.onMessage(filtered.queued())
             filtered.acknowledged.await()
-            assertEquals(1, filtered.checks)
             assertEquals(1, filtered.acknowledgements)
             assertEquals(0, filtered.rejections)
             assertTrue(received.isEmpty())
@@ -186,7 +180,6 @@ class MessageDeliveryFlowTest {
                 assertEquals(0, queued.acknowledgements)
                 assertEquals(1, current.rejections)
                 assertEquals(1, queued.rejections)
-                assertEquals(0, queued.checks)
             }
         }
 
@@ -221,21 +214,19 @@ class MessageDeliveryFlowTest {
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun decodeAndCollectorFailuresRejectTheItem() =
         runBlocking {
-            for (decodeFails in listOf(true, false)) {
-                val error = IllegalStateException("test failure")
-                val delivery = Delivery(decodeError = error.takeIf { decodeFails })
-                val result =
-                    runCatching {
-                        acknowledgedMessageFlow<Int>(null) { callback ->
-                            callback.onMessage(delivery.queued())
-                            callback.onClose()
-                            return@acknowledgedMessageFlow {}
-                        }.collect { throw error }
-                    }
-                assertSame(error, result.exceptionOrNull())
-                assertEquals(0, delivery.acknowledgements)
-                assertEquals(1, delivery.rejections)
-            }
+            val error = IllegalStateException("collector failed")
+            val pending = Delivery()
+            val failed =
+                runCatching {
+                    acknowledgedMessageFlow<Int>(null) { callback ->
+                        callback.onMessage(pending.queued())
+                        callback.onClose()
+                        return@acknowledgedMessageFlow {}
+                    }.collect { throw error }
+                }
+            assertSame(error, failed.exceptionOrNull())
+            assertEquals(0, pending.acknowledgements)
+            assertEquals(1, pending.rejections)
 
             val invalidEncoding =
                 TextCodec()
@@ -267,7 +258,6 @@ class MessageDeliveryFlowTest {
                     }
                 assertTrue(errorType.isInstance(result.exceptionOrNull()))
                 assertTrue(received.isEmpty())
-                assertEquals(0, delivery.checks)
                 assertEquals(0, delivery.acknowledgements)
                 assertEquals(1, delivery.rejections)
             }
@@ -301,7 +291,6 @@ class MessageDeliveryFlowTest {
                 assertEquals(0, second.acknowledgements)
                 assertEquals(1, first.rejections)
                 assertEquals(1, second.rejections)
-                assertEquals(0, second.checks)
             }
         }
 

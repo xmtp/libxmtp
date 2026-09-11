@@ -32,5 +32,4 @@ NIX_DEVSHELL=ios dev/nix-shell 'swift test --filter XMTPTests.ClientTests/testCr
 - `AsyncThrowingStream` shares sequence and iterator storage. Releasing only the iterator does not close a sequence that the app still retains.
 - `messageReader(from: cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
 - Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
-- `ClientOptions.streamSettings` accepts optional limits and millisecond timers. Omitted fields use core defaults. Native client creation validates all values.
 - Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A nil target means capture failed; zero is a captured empty target. All cursors and counts remain `UInt64` values.

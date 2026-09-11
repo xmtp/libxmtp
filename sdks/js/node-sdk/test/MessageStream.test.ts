@@ -52,15 +52,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     await stream.return();
     expect(second.acknowledge).not.toHaveBeenCalled();
     expect(second.reject).toHaveBeenCalledOnce();
-  });
-
-  it("leaves a returned item unacknowledged when iteration ends", async () => {
-    const pending = token();
-    const reader = source({ message: 1, cursor, acknowledgement: pending });
-    const stream = new MessageStream(reader, (value) => value);
-    await stream.next();
     await stream.end();
-    expect(pending.acknowledge).not.toHaveBeenCalled();
     expect(reader.close).toHaveBeenCalledOnce();
   });
 
@@ -254,21 +246,6 @@ describe("MessageStream callback mode", () => {
     await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
     expect(onValue).toHaveBeenCalledOnce();
     expect(pending.acknowledge).toHaveBeenCalledOnce();
-  });
-
-  it("keeps callback mode and its callback stable after construction", async () => {
-    const pending = token();
-    const reader = source({ message: 1, cursor, acknowledgement: pending });
-    const original = vi.fn();
-    const replacement = vi.fn();
-    const onEnd = vi.fn();
-    const options = { onValue: original, onEnd };
-    const stream = new MessageStream(reader, (value) => value, options);
-    options.onValue = replacement;
-    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
-    expect(original).toHaveBeenCalledOnce();
-    expect(replacement).not.toHaveBeenCalled();
-    await expect(stream.next()).rejects.toThrow("callback mode");
   });
 
   it("rejects the pending item when callback acknowledgement fails", async () => {

@@ -43,7 +43,6 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
 - `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.
-- Client `streamSettings` fields are optional. Core defaults and validation apply. Timer fields use milliseconds.
 - `getStreamFailureDetails(error)` reads typed barrier, catch-up, and published-but-unconfirmed details. It preserves all topic obligations. Sequence values are `bigint`. A null target means that target capture did not complete.
 - Await the Browser SDK client's `close()` before a whole-database restore. Close releases the database owner before it stops the worker.
 

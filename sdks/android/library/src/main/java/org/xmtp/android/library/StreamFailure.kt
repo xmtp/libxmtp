@@ -24,12 +24,8 @@ typealias StreamFailureDetails = FfiStreamFailureDetails
  * Cursors and counts retain their full unsigned 64-bit values.
  */
 val Throwable.streamFailureDetails: StreamFailureDetails?
-    get() = readStreamFailureDetails(this)
-
-internal fun readStreamFailureDetails(
-    error: Throwable,
-    decode: (String) -> StreamFailureDetails? = ::getStreamFailureDetails,
-): StreamFailureDetails? {
-    if (error !is FfiException) return null
-    return error.message?.let(decode)
-}
+    get() {
+        val nativeError = if (this is XMTPException) cause else this
+        if (nativeError !is FfiException) return null
+        return nativeError.message?.let(::getStreamFailureDetails)
+    }

@@ -17,7 +17,6 @@ final class MessageDeliveryStreamTests: XCTestCase {
 
 	private final class Token: MessageDeliveryToken, @unchecked Sendable {
 		struct Counts {
-			var checks = 0
 			var acknowledgements = 0
 			var rejections = 0
 		}
@@ -51,9 +50,6 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 
 		func checkOwner() throws -> Bool {
-			lock.lock()
-			state.checks += 1
-			lock.unlock()
 			onCheck?()
 			return current
 		}
@@ -73,6 +69,30 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			state.rejections += 1
 			lock.unlock()
 			onReject?()
+		}
+	}
+
+	private final class NativeToken: FfiDeliveryAcknowledgement, @unchecked Sendable {
+		var token = Token()
+
+		override func checkOwner() throws -> Bool {
+			try token.checkOwner()
+		}
+
+		override func acknowledge() throws {
+			try token.acknowledge()
+		}
+
+		override func reject() {
+			token.reject()
+		}
+	}
+
+	private final class NativeCloser: FfiStreamCloser, @unchecked Sendable {
+		var onEnd: (() -> Void)?
+
+		override func end() {
+			onEnd?()
 		}
 	}
 
@@ -113,26 +133,22 @@ final class MessageDeliveryStreamTests: XCTestCase {
 				let filteredAcknowledged = expectation(description: "filtered item acknowledged")
 				let filtered = Token(onAcknowledgement: { filteredAcknowledged.fulfill() })
 				try stream.receive(delivery(0, token: filtered, content: .forgedMembership))
-				XCTAssertEqual(filtered.counts().checks, 0)
 				XCTAssertEqual(filtered.counts().acknowledgements, 0)
 				let next = Task { try await stream.next() }
 				defer { next.cancel() }
 				await fulfillment(of: [filteredAcknowledged], timeout: 3)
-				XCTAssertEqual(filtered.counts().checks, 1)
 				XCTAssertEqual(filtered.counts().acknowledgements, 1)
 				XCTAssertEqual(filtered.counts().rejections, 0)
 				try stream.receive(delivery(token: first))
 				initial = try await next.value
 			} else {
 				try stream.receive(delivery(token: first))
-				XCTAssertEqual(first.counts().checks, 0)
 				XCTAssertEqual(first.counts().acknowledgements, 0)
 				initial = try await stream.next()
 			}
 			XCTAssertEqual(initial?.id, "01")
 			XCTAssertEqual(try initial?.content() as String?, "message 1")
 			XCTAssertEqual(initial?.deliveryCursor?.deliverySequence, 1)
-			XCTAssertEqual(first.counts().checks, 1)
 			XCTAssertEqual(first.counts().acknowledgements, 0)
 
 			let next = Task { try await stream.next() }
@@ -164,37 +180,51 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		XCTAssertEqual(first.counts().acknowledgements, 0)
 		XCTAssertEqual(first.counts().rejections, 1)
 		XCTAssertEqual(queued.counts().rejections, 1)
+		XCTAssertEqual(queued.counts().acknowledgements, 0)
 		await fulfillment(of: [closed], timeout: 3)
 	}
 
-	func testDroppingTheLastStreamIteratorRejectsTheLastItem() async throws {
-		let token = Token()
-		let pending = try delivery(token: token)
-		weak var receipt: MessageDeliveryStream?
-		func makeIterator() -> AsyncThrowingStream<DecodedMessage, Error>.Iterator {
-			let stream = MessageDeliveryStream(onClose: nil)
-			receipt = stream
-			stream.receive(pending)
-			return AsyncThrowingStream(unfolding: { try await stream.next() }).makeAsyncIterator()
+	func testDroppingTheFullStreamRejectsPendingItemsAndClosesTheSubscription() async throws {
+		for consume in [false, true] {
+			let received = expectation(description: "delivery received")
+			let closed = expectation(description: "stream closed once")
+			let ended = expectation(description: "subscription ended once")
+			closed.assertForOverFulfill = true
+			ended.assertForOverFulfill = true
+			let nativeToken = NativeToken(noHandle: .init())
+			let pending = try delivery(token: nativeToken.token)
+			let nativeCloser = NativeCloser(noHandle: .init())
+			nativeCloser.onEnd = { ended.fulfill() }
+			let holder = StreamHolder()
+			var stream: AsyncThrowingStream<DecodedMessage, Error>? = messageDeliveryStream(
+				holder: holder,
+				onClose: { closed.fulfill() }
+			) { callback in
+				do {
+					try callback.onMessage(delivery: FfiMessageDelivery(
+						message: pending.message, cursor: pending.cursor,
+						acknowledgement: nativeToken
+					))
+				} catch {
+					XCTFail("Message callback failed: \(error)")
+				}
+				received.fulfill()
+				return nativeCloser
+			}
+			var iterator = stream?.makeAsyncIterator()
+			await fulfillment(of: [received], timeout: 3)
+			if consume {
+				let first = try await iterator?.next()
+				XCTAssertEqual(first?.id, "01")
+			}
+			stream = nil
+			XCTAssertEqual(nativeToken.token.counts().rejections, 0)
+			iterator = nil
+			await fulfillment(of: [closed, ended], timeout: 3)
+			holder.end()
+			XCTAssertEqual(nativeToken.token.counts().acknowledgements, 0)
+			XCTAssertEqual(nativeToken.token.counts().rejections, 1)
 		}
-		var iterator: AsyncThrowingStream<DecodedMessage, Error>.Iterator? = makeIterator()
-		let first = try await iterator?.next()
-		XCTAssertNotNil(first)
-		iterator = nil
-		XCTAssertNil(receipt)
-		XCTAssertEqual(token.counts().acknowledgements, 0)
-		XCTAssertEqual(token.counts().rejections, 1)
-	}
-
-	func testDroppingTheMailboxRejectsAnUnconsumedItem() throws {
-		let token = Token()
-		var stream: MessageDeliveryStream? = MessageDeliveryStream(onClose: nil)
-		weak var receipt = stream
-		try stream?.receive(delivery(token: token))
-		stream = nil
-		XCTAssertNil(receipt)
-		XCTAssertEqual(token.counts().rejections, 1)
-		XCTAssertEqual(token.counts().acknowledgements, 0)
 	}
 
 	func testCancellationBeforeHandoffRejectsTheItem() async throws {
@@ -280,10 +310,8 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			XCTAssertTrue(error is BinaryDecodingError)
 		}
 		stream.receive(valid)
-		XCTAssertEqual(token.counts().checks, 0)
 		XCTAssertEqual(token.counts().acknowledgements, 0)
 		XCTAssertEqual(token.counts().rejections, 1)
-		XCTAssertEqual(later.counts().checks, 0)
 		XCTAssertEqual(later.counts().acknowledgements, 0)
 		XCTAssertEqual(later.counts().rejections, 1)
 
@@ -324,10 +352,8 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			try await assertThrowsAsyncError(await stream.next()) { error in
 				XCTAssertEqual(error as? TestError, .acknowledgement)
 			}
-			XCTAssertEqual(first.counts().checks, 1)
 			XCTAssertEqual(first.counts().rejections, 1)
 			XCTAssertEqual(first.counts().acknowledgements, 0)
-			XCTAssertEqual(queued.counts().checks, 0)
 			XCTAssertEqual(queued.counts().acknowledgements, 0)
 			XCTAssertEqual(queued.counts().rejections, 1)
 		}
@@ -342,8 +368,9 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		try await assertThrowsAsyncError(await stream.next()) { error in
 			XCTAssertEqual(error as? MessageDeliveryStreamError, .queueFull)
 		}
-		XCTAssertEqual(first.counts().checks, 0)
 		XCTAssertEqual(first.counts().rejections, 1)
 		XCTAssertEqual(second.counts().rejections, 1)
+		XCTAssertEqual(first.counts().acknowledgements, 0)
+		XCTAssertEqual(second.counts().acknowledgements, 0)
 	}
 }

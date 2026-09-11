@@ -41,5 +41,4 @@ dev/nix-shell 'cd sdks/android && ./dev/bindings && ./gradlew -p . library:testD
 - `MessageReader.next()` acknowledges the previous item, not the returned item. Close the reader when finished. Close and cancellation do not acknowledge pending items.
 - `messageReader(from = cursor)` opens independent replay. `messageHistorySnapshot` returns messages and a cursor from one database snapshot. Each delivered message has a typed `deliveryCursor`.
 - Readers expose scope and filter updates, catch-up snapshots, and change waits. Catch-up keeps the current generation and at most one previous generation.
-- `ClientOptions.streamSettings` accepts optional limits and millisecond timers. Omitted fields use core defaults. Native client creation validates all values.
 - Read `error.streamFailureDetails` for typed barrier, publish-confirmation, and catch-up failures. A null target means capture failed; zero is a captured empty target. All cursors and counts remain `ULong` values.
