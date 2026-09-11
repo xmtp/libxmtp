@@ -1,5 +1,7 @@
 package org.xmtp.android.library
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
@@ -129,7 +131,7 @@ internal class AcknowledgedMessageReader<T>(
                     return null
                 }
                 currentCoroutineContext().ensureActive()
-                val message = item.decode()
+                val message = decodeOrSkip(item)
                 currentCoroutineContext().ensureActive()
                 if (!item.checkOwner()) {
                     clearPending(item)?.reject()
@@ -152,6 +154,21 @@ internal class AcknowledgedMessageReader<T>(
             nextLock.unlock()
         }
     }
+
+    /**
+     * Null skips the item so delivery continues. A decode failure is reported and then
+     * acknowledged, because a rejected item is served again and would stop delivery for good.
+     * Cancellation stays terminal.
+     */
+    private fun decodeOrSkip(item: QueuedMessageDelivery<T>): T? =
+        try {
+            item.decode()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.e("XMTP message delivery", "Skipping an undecodable message", error)
+            null
+        }
 
     private fun clearPending(item: QueuedMessageDelivery<T>): QueuedMessageDelivery<T>? =
         synchronized(stateLock) {
