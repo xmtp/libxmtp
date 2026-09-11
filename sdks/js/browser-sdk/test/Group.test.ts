@@ -960,16 +960,15 @@ describe("Group", () => {
     // messages and welcomes must be synced
     await client2.conversations.syncAll();
 
-    // client1's worker processes the removal request; poll until the removal
-    // commit reaches client2
+    // The removal worker publishes before either client must process the commit.
+    // Wait for both clients to apply it.
     await vi.waitFor(async () => {
       await client1.conversations.syncAll();
       await group2.sync();
       expect(await group2.isActive()).toBe(false);
+      expect(await group.members()).toHaveLength(1);
+      expect(await group2.members()).toHaveLength(1);
     }, WAIT);
     expect(await group2.isPendingRemoval()).toBe(true);
-
-    expect(await group.members()).toHaveLength(1);
-    expect(await group2.members()).toHaveLength(1);
   });
 });

@@ -663,7 +663,9 @@ where
      * Group syncing may involve picking up messages unrelated to the intent, so simply checking for errors
      * does not give a clear signal as to whether the intent was successfully completed or not.
      *
-     * This method will retry up to `xmtp_configuration::MAX_GROUP_SYNC_RETRIES` times.
+     * Failed or stalled rounds use `xmtp_configuration::MAX_GROUP_SYNC_RETRIES`.
+     * Completing an earlier state change does not consume that retry budget.
+     * The same overall deadline bounds all rounds.
      */
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(inbox_id = %self.context.inbox_id(), operation = "intent"), skip(self)))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
@@ -716,7 +718,8 @@ where
             .build();
 
         // Return the last error to the caller if we fail to sync
-        for attempt in 0..MAX_GROUP_SYNC_RETRIES {
+        let mut attempt = 0;
+        while attempt < MAX_GROUP_SYNC_RETRIES {
             let remaining = self
                 .context
                 .incoming_runtime()
@@ -726,6 +729,19 @@ where
             if remaining.is_zero() {
                 break;
             }
+            let predecessor = db
+                .find_group_intents(
+                    self.group_id,
+                    Some(vec![
+                        IntentState::ToPublish,
+                        IntentState::Published,
+                        IntentState::Committed,
+                    ]),
+                    Some(IntentKind::all().collect()),
+                )?
+                .into_iter()
+                .find(|intent| intent.id < intent_id && intent.kind != IntentKind::SendMessage)
+                .map(|intent| intent.id);
             let wait_for = backoff
                 .backoff(attempt + 1, time_spent)
                 .unwrap_or(Duration::from_millis(50));
@@ -741,18 +757,27 @@ where
             // Accumulate each attempt's outcome into `summary`. The terminal
             // GroupSyncFinished event (in sync_until_intent_resolved) is the
             // single place the summary is logged — no per-attempt logging here.
+            let mut round_succeeded = false;
             match xmtp_common::time::timeout(
                 remaining,
                 self.sync_intent_round(intent_id, remaining),
             )
             .await
             {
-                Ok(Ok(s)) => summary.extend(s),
+                Ok(Ok(s)) => {
+                    round_succeeded = !s.is_errored();
+                    summary.extend(s);
+                }
                 Ok(Err(error @ GroupError::PublishedButUnconfirmed { .. })) => return Err(error),
                 Ok(Err(error)) => summary.add_other(error),
                 Err(_) => break,
             }
-            match Fetch::<StoredGroupIntent>::fetch(&db, &intent_id) {
+            let current = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id);
+            let waiting_to_publish = matches!(
+                &current,
+                Ok(Some(intent)) if intent.state == IntentState::ToPublish
+            );
+            match current {
                 Ok(Some(StoredGroupIntent {
                     state: IntentState::Processed,
                     ..
@@ -819,7 +844,18 @@ where
                     summary.add_other(GroupError::Storage(err));
                 }
             };
-            if attempt + 1 < MAX_GROUP_SYNC_RETRIES {
+            // A round can finish a queued state change without publishing the
+            // requested intent. That is progress, not a failed send attempt.
+            if round_succeeded
+                && waiting_to_publish
+                && let Some(predecessor) = predecessor
+                && Fetch::<StoredGroupIntent>::fetch(&db, &predecessor)?
+                    .is_some_and(|intent| intent.state == IntentState::Processed)
+            {
+                continue;
+            }
+            attempt += 1;
+            if attempt < MAX_GROUP_SYNC_RETRIES {
                 let remaining = self
                     .context
                     .incoming_runtime()

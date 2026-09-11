@@ -664,3 +664,43 @@ async fn intent_sync_rejects_an_absent_intent() {
         Err(GroupError::NotFound(xmtp_db::NotFound::IntentById(id))) if id == absent_id
     ));
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_completes_after_queued_state_changes() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    let peer = bo.group(&group.group_id)?;
+    let queued_changes = MAX_GROUP_SYNC_RETRIES + 1;
+    for index in 0..queued_changes {
+        QueueIntent::metadata_update()
+            .data(Vec::<u8>::from(
+                UpdateMetadataIntentData::new_update_group_name(format!("queued {index}")),
+            ))
+            .queue(&group)?;
+    }
+
+    group
+        .send_message(b"after queued changes", Default::default())
+        .await?;
+
+    peer.sync().await?;
+    let expected_name = format!("queued {}", queued_changes - 1);
+    assert_eq!(group.group_name()?, expected_name);
+    assert_eq!(peer.group_name()?, expected_name);
+    assert_eq!(
+        group.epoch_authenticator().await?,
+        peer.epoch_authenticator().await?
+    );
+    let messages = peer.find_messages(&xmtp_db::group_message::MsgQueryArgs::default())?;
+    assert_eq!(
+        messages
+            .iter()
+            .filter(|message| message.decrypted_message_bytes == b"after queued changes")
+            .count(),
+        1
+    );
+}
