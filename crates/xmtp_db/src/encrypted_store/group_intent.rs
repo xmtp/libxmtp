@@ -311,6 +311,16 @@ pub trait QueryGroupIntent {
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
 
+    /// True when a row with this payload hash exists but carries an
+    /// `IntentKind` this build cannot decode.
+    ///
+    /// The hash is unique and is the SHA-256 of this installation's own
+    /// prepared envelope, so a match identifies our own echo. Identity must not
+    /// be filtered by kind: reporting "no intent" for our own message sends it
+    /// down the external-message path. Callers use this to reject the envelope
+    /// terminally instead of failing the whole query and retrying forever.
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError>;
+
     /// find the commit message refresh state for each intent payload hash
     fn find_dependant_commits<P: AsRef<[u8]>>(
         &self,
@@ -399,6 +409,10 @@ where
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
         (**self).find_group_intent_by_payload_hash(payload_hash)
+    }
+
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        (**self).own_intent_kind_is_unreadable(payload_hash)
     }
 
     fn find_dependant_commits<P: AsRef<[u8]>>(
@@ -675,6 +689,22 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         })?;
 
         Ok(result)
+    }
+
+    #[xmtp_common::db_span]
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        // Read the discriminant, not the enum: this must answer for a row whose
+        // kind a newer build wrote and this one cannot decode.
+        let kind = self.raw_query(|conn| {
+            dsl::group_intents
+                .filter(dsl::payload_hash.eq(payload_hash))
+                .select(dsl::kind)
+                .first::<i32>(conn)
+                .optional()
+        })?;
+        // Derive the known set from the same iterator the kind filters use,
+        // so a newly added variant is covered without editing this.
+        Ok(kind.is_some_and(|kind| !IntentKind::all().any(|known| known as i32 == kind)))
     }
 
     /// Find the commit message refresh state for each intent by payload hash.
@@ -960,6 +990,68 @@ pub(crate) mod tests {
                 conn.find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
                     .is_err(),
                 "unfiltered query should surface the FromSql error for unknown kinds"
+            );
+        })
+    }
+
+    /// Identity by payload hash must survive an unreadable kind. Filtering it
+    /// away would report "not our message" for our own echo, which sends a
+    /// commit we authored down the external-message path.
+    #[xmtp_common::test]
+    fn an_unreadable_own_intent_kind_is_reported_not_hidden() {
+        let group_id = GroupId::generate();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id);
+            let known_hash = rand_vec::<32>();
+            let future_hash = rand_vec::<32>();
+
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(IntentKind::SendMessage),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(known_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let future_kind = IntentKind::all().count() as i32 + 1;
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(future_kind),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(future_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            // A readable kind is unaffected, and an absent hash is not ours.
+            assert!(!conn.own_intent_kind_is_unreadable(&known_hash).unwrap());
+            assert!(
+                !conn
+                    .own_intent_kind_is_unreadable(&rand_vec::<32>())
+                    .unwrap()
+            );
+
+            // The unreadable row is reported rather than erroring the query,
+            // so the caller can reject the envelope terminally.
+            assert!(conn.own_intent_kind_is_unreadable(&future_hash).unwrap());
+            assert!(
+                conn.find_group_intent_by_payload_hash(&future_hash)
+                    .is_err(),
+                "the typed lookup still cannot decode it; the probe is what callers use"
             );
         })
     }

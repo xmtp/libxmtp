@@ -16,6 +16,7 @@ impl GroupMessageProcessingError {
             Self::GroupInactive => "group_inactive",
             Self::IncomingHeadChanged => "incoming_head_changed",
             Self::OwnMessageWithoutAttempt => "own_message_without_attempt",
+            Self::UnsupportedOwnIntentKind(_) => "unsupported_own_intent_kind",
             Self::OldEpoch(..) => "stale_epoch",
             Self::FutureEpoch(..) => "impossible_future_epoch",
             Self::Envelope(_) | Self::InvalidPayload | Self::DecodeProto(_) | Self::TlsError(_) => {

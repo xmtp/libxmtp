@@ -169,6 +169,18 @@ pub enum GroupMessageProcessingError {
     /// Own ciphertext has no durable prepared attempt.
     #[error("own envelope has no prepared attempt")]
     OwnMessageWithoutAttempt,
+    /// Our own echo names an intent whose kind a newer build wrote and this
+    /// one cannot decode.
+    ///
+    /// This holds the head rather than rejecting it. The envelope may be a
+    /// commit every other member applied; skipping it would leave this
+    /// installation behind the group with no way back. It is also not an
+    /// external message — treating it as one would validate a commit we
+    /// authored against external-actor rules. Not retryable, so the head is
+    /// marked blocked and reconsidered once a build that can read the kind
+    /// runs again.
+    #[error("own intent kind for payload {0} is not supported by this version")]
+    UnsupportedOwnIntentKind(String),
     /// A local prepared attempt cannot safely explain this own envelope.
     #[error("prepared attempt state: {0}")]
     PreparedAttempt(Box<GroupError>),
@@ -280,7 +292,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
             | Self::Envelope(_)
-            | Self::OwnMessageWithoutAttempt => false,
+            | Self::OwnMessageWithoutAttempt
+            | Self::UnsupportedOwnIntentKind(_) => false,
             Self::RejectedIntent(_) => false,
             Self::Storage(err) => err.is_retryable(),
             Self::Diesel(err) => err.is_retryable(),
@@ -2470,6 +2483,16 @@ where
             return Ok(outcome);
         }
 
+        // An unreadable kind must not reach the external-message path: that
+        // would validate a commit we authored against external-actor rules.
+        // Hold the head instead of skipping it. This envelope may be a commit
+        // every other member applied, so advancing past it would leave this
+        // installation behind the group with no way back.
+        if db.own_intent_kind_is_unreadable(envelope.payload_hash.as_slice())? {
+            return Err(GroupMessageProcessingError::UnsupportedOwnIntentKind(
+                hex::encode(&envelope.payload_hash),
+            ));
+        }
         let intent = db
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())?
             .filter(|intent| intent.group_id == self.group_id);
