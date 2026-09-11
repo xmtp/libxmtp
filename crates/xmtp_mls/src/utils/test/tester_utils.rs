@@ -322,9 +322,17 @@ where
                 xmtp_db::diesel::delete(xmtp_db::schema::incoming_envelopes::table)
                     .execute(c)
                     .unwrap();
-                xmtp_db::diesel::delete(xmtp_db::schema::refresh_state::table)
-                    .execute(c)
-                    .unwrap();
+                // Keep the delivery-sequence allocator. It shares this table but
+                // is not network progress, and deleting it leaves the client
+                // unable to store or deliver any message at all.
+                xmtp_db::diesel::delete(
+                    xmtp_db::schema::refresh_state::table.filter(
+                        xmtp_db::schema::refresh_state::entity_kind
+                            .ne(xmtp_db::refresh_state::EntityKind::DeliveryAllocator),
+                    ),
+                )
+                .execute(c)
+                .unwrap();
 
                 Ok(())
             })

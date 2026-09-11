@@ -981,9 +981,11 @@ fn a_permanent_source_error_retries_with_backoff_and_recovers() {
     controller.transport.wake();
     assert!(!controller.transport.backing_off());
 
-    controller.transport.request(HashSet::from([Topic::new_group_message(
-        GroupId::generate(),
-    )]));
+    controller
+        .transport
+        .request(HashSet::from([Topic::new_group_message(
+            GroupId::generate(),
+        )]));
     assert!(controller.transport.can_open());
 
     controller.opened(Ok(Opened::Unary(TopicCursor::new())));

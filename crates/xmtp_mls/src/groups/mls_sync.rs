@@ -2391,7 +2391,15 @@ where
         }
         let db = storage.db();
         for intent in
-            db.find_group_intents(self.group_id, Some(vec![IntentState::Published]), None)?
+            // Filter kinds in SQL. An unfiltered load fails outright on a row a
+            // newer build wrote with an IntentKind this build cannot decode,
+            // and that error is neither retryable nor a safe rejection, so the
+            // group head would stop advancing after a downgrade.
+            db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Published]),
+                Some(IntentKind::all().collect()),
+            )?
         {
             let Some(bytes) = db.prepared_envelopes(intent.id)? else {
                 continue;
@@ -2503,7 +2511,8 @@ where
         // same transaction that applies the removal, so no stranded intent can
         // preempt publishing after a later re-add (STR-086).
         if !outcome.group_active {
-            let superseded = db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;
+            let superseded =
+                db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;
             if superseded > 0 {
                 tracing::info!(
                     group_id = %self.group_id,
