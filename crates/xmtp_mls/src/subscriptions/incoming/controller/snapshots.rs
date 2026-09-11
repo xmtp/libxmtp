@@ -72,10 +72,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .or_else(|| self.transport.error.clone());
                 let runnable_welcome = key.kind == NetworkEntityKind::Welcome
                     && pending.iter().any(|row| !row.blocked);
+                // Receipt is only pending while a source can still deliver it. A
+                // source that keeps failing permanently reports Blocked rather
+                // than hiding the stall, even though it does keep retrying.
                 let welcome_receipt_pending = key.kind == NetworkEntityKind::Welcome
                     && target.is_none_or(|target| progress.received < target)
                     && !self.receipt(topic).blocked
-                    && !self.transport.is_failed();
+                    && self.transport.permanent_failures == 0;
                 let processing = if removed {
                     IncomingProcessing::Cancelled
                 } else if complete && registered {
