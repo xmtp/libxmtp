@@ -67,19 +67,23 @@ logs *services:
     {{ root }}/dev/docker/compose logs {{ services }}
 
 # Show this worktree's stack identity: project, slot, ports, and URLs.
-status:
-    {{ _env }} && echo "worktree:  $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)"
-    echo "project:   $XMTP_COMPOSE_PROJECT"
-    echo "backend:   $XMTP_BACKEND_URL"
-    echo "toxic:     $XMTP_BACKEND_TOXIC_URL"
-    echo "anvil:     $ANVIL_URL"
-    echo "database:  $DATABASE_URL"
-    echo "replica:   $XMTP_REPLICA_URL"
-    echo "grafana:   http://127.0.0.1:$XMTP_GRAFANA_PORT"
-    echo "prometheus: http://127.0.0.1:$XMTP_PROMETHEUS_PORT"
-    echo "tempo:     http://127.0.0.1:$XMTP_TEMPO_PORT"
-    echo "metrics:   http://127.0.0.1:$XMTP_BACKEND_METRICS_PORT/metrics"
-    docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
+#
+# One shell for the whole recipe: each recipe line is its own shell, so the
+# environment has to be loaded in the same command that reads it.
+@status:
+    {{ _env }} && printf '%s\n' \
+      "worktree:   $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)" \
+      "project:    $XMTP_COMPOSE_PROJECT" \
+      "backend:    $XMTP_BACKEND_URL" \
+      "toxic:      $XMTP_BACKEND_TOXIC_URL" \
+      "anvil:      $ANVIL_URL" \
+      "database:   $DATABASE_URL" \
+      "replica:    $XMTP_REPLICA_URL" \
+      "grafana:    http://127.0.0.1:$XMTP_GRAFANA_PORT" \
+      "prometheus: http://127.0.0.1:$XMTP_PROMETHEUS_PORT" \
+      "tempo:      http://127.0.0.1:$XMTP_TEMPO_PORT" \
+      "metrics:    http://127.0.0.1:$XMTP_BACKEND_METRICS_PORT/metrics" \
+      && docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
 
 # Stop this worktree's stack and give up its port slot.
 [script("bash")]
