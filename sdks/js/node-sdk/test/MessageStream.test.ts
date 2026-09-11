@@ -16,7 +16,9 @@ const makeItem = (id: string, owned = true) => {
     .mockImplementation(() =>
       owned
         ? Promise.resolve(undefined)
-        : Promise.reject(new Error("SelectionChanged")),
+        : Promise.reject(
+            new Error("[LocalDeliveryError::SelectionChanged] stale token"),
+          ),
     );
   const reject = vi.fn().mockResolvedValue(undefined);
   return {
@@ -106,6 +108,30 @@ describe("MessageStream decode failures", () => {
     // The core moved the item to reselect, so it stays replayable.
     expect(stale.acknowledge).toHaveBeenCalledTimes(1);
     expect(stream.isDone).toBe(false);
+  });
+
+  it("propagates an acknowledgement that failed to persist", async () => {
+    // A failed durable write is not a stale token. Swallowing it would report
+    // a skip that never landed, so the item would be served again with no
+    // signal that anything went wrong.
+    const item = makeItem("1");
+    item.acknowledge.mockRejectedValue(
+      new Error("[LocalDeliveryError::AcknowledgementFailed] write failed"),
+    );
+    const { reader } = makeReader([item, makeItem("2")]);
+    const onError = vi.fn();
+
+    const stream = new MessageStream<Item, Item>(
+      reader,
+      (message) => {
+        if (message.id === "1") throw new Error("codec exploded");
+        return message;
+      },
+      { onError },
+    );
+
+    await expect(stream.next()).rejects.toThrow(/AcknowledgementFailed/);
+    expect(stream.isDone).toBe(true);
   });
 
   it("does not skip a message whose lookup failed", async () => {
