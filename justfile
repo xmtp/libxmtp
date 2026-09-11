@@ -135,3 +135,38 @@ clean-incremental days="14":
       done
     done
     echo "reclaimed $((total / 1024)) MB"
+
+# --- AGENT HELPERS ---
+# Compact output for agents. See .agents/skills/check-ci.
+
+# Signature outline of a source file: declarations and line numbers, no bodies.
+outline file:
+    @rg -n '^\s{0,8}(pub(\([a-z]+\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' {{ file }}
+
+# CI status for a PR: failures first, then a one-line summary.
+[script("bash")]
+ci-status pr:
+    set -euo pipefail
+    gh pr view {{ pr }} --repo xmtp/libxmtp --json statusCheckRollup --jq '
+      [.statusCheckRollup[] | select(.__typename == "CheckRun")]
+      | group_by(.name) | map(max_by(.startedAt // ""))
+      | (map(select(.conclusion == "FAILURE"))
+         | if length > 0 then "FAILED:\n" + (map("  \(.name)  \(.detailsUrl)") | join("\n")) else "" end),
+        (map(select(.status != "COMPLETED"))
+         | if length > 0 then "RUNNING: \(length) job(s)" else "" end),
+        ("SUMMARY: \(map(select(.conclusion == "SUCCESS")) | length) ok, \(map(select(.conclusion == "FAILURE")) | length) failed, \(map(select(.conclusion == "SKIPPED")) | length) skipped, \(map(select(.status != "COMPLETED")) | length) running")
+      | select(. != "")'
+
+# Why one job failed. Strips timestamps and ANSI, keeps failure markers only.
+[script("bash")]
+ci-failures job:
+    set -euo pipefail
+    gh api repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
+      | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //; s/\x1b\[[0-9;]*[mGKH]//g' \
+      | rg -N '(^##\[error\]|^\s*FAIL |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error\[E[0-9]+\]|^error: recipe .* failed|Tests\s+[0-9]+ failed|test result: FAILED)' \
+      | sort -u | head -40
+
+# Annotations for a check run. Cheaper than logs when the job records them.
+ci-annotations check:
+    @gh api repos/xmtp/libxmtp/check-runs/{{ check }}/annotations \
+      --jq '.[] | "\(.path // "-"):\(.start_line // 0)  \(.message | split("\n")[0])"'

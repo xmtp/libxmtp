@@ -15,7 +15,6 @@ counts identify deleted code. This record overrides their original actions.
 | History server and validation service | Done. Remove the services and server-based archive transfer. Keep shared validation, message-based preferences, and file archives. |
 | Shared HTTP client | Keep `xmtp_common::http`, its Android rustls workaround, and `reqwest` for backend tests and debug metrics. |
 | Test services | Done. `db`, `backend`, `anvil`, and `toxiproxy` remain. The owner kept anvil on 2026-09-08. |
-| Test catalogue | See `tests/existing-tests.md` and `tests/retired-requirement-ids.md`. The Phase 0 test-deletion document is removed. |
 | Final identifier sweep | Done in Task 14 fix round 1. Remove the six unused generated iOS legacy protobuf files. The sweep excludes the released Node 1.11.0 notes and the archive protobuf plus its generated iOS mapping. The archive field stays for backward compatibility. |
 
 Phase 5.1 must add durable-progress feedback to the lease ledger. Reopen after
@@ -832,7 +831,6 @@ URL and is not affected.
 | Path | Edit |
 | --- | --- |
 | `docs/self-hosted/existing/libxmtp-api-callers.md:1094-1096` | Already stale: documents `LOCAL_ADDRESS`, `DEV_ADDRESS`, `PRODUCTION_ADDRESS` with a wrong production hostname. Delete the block |
-| `docs/self-hosted/tests/existing-tests/xmtp-mls-client-workers.md:117`, `docs/self-hosted/tests/existing-requirements.md:497` | MLS-REQ-063 covers the device-sync request/reply. Retire the requirement |
 | `sdks/js/node-sdk/src/types.ts:74`, `sdks/js/browser-sdk/src/types/options.ts:65` | Links to `docs.xmtp.org/.../history-sync`; go with the option |
 
 ### 17.7 Behavior change

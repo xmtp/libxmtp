@@ -49,13 +49,11 @@ Expected specs by the end of the project:
 
 ### Guidelines
 
-`docs/self-hosted/guidelines.md` is an ephemeral set of hard rules for implementer agents: which rules must be followed and which may be broken. Target under 50 lines and 750 tokens. Every word must earn its place and be unambiguous. Because of the project's scope, it may contradict otherwise good advice (for example: leaving a branch with failing CI, or deleting existing functionality). Example rules: common functions and utilities between crates live in a shared crate or module; the backend is a single binary that can be horizontally scaled and load balanced, with no local state.
-
-`docs/self-hosted/style-guide.md` covers the macros, utilities, and coding practices idiomatic in this repository and encourages use of pre-existing utilities.
+`docs/self-hosted/agent-context.md` is the single standing document for implementer agents. It carries the hard rules for this project - which must be followed and which may be broken - together with the macros, utilities, and coding practices idiomatic in this repository. Because of the project's scope it may contradict otherwise good advice, for example leaving a branch with failing CI or deleting existing functionality. Agents read it once at the start of a session. It is deleted when the project ends.
 
 ### Phase 0 documents
 
-Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing-behavior wiki in `existing/`, the deletion inventory in `deletions.md`, the test catalogue in `tests/`, and the retirement record in `tests/retired-requirement-ids.md`. They are deleted when the project ends.
+Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing-behavior wiki in `existing/` and the deletion inventory in `deletions.md`. They are deleted when the project ends.
 
 ## Phases
 
@@ -63,12 +61,12 @@ Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing
 
 - Dispatch sub-agents to research the existing implementations in `libxmtp`, `xmtp-node-go`, `xmtpd`, and `proto`, and catalog all current behaviors and requirements of the existing endpoints in a detailed wiki at `docs/self-hosted/existing`. Required content: the input parameters of each endpoint and their exact formats (serialization, bindings of fields to database tables), the database schema, what conditions trigger errors and how errors are surfaced to the client, limits applied to endpoints, rate limiting, and anything else relevant to future implementers. All claims cite function names and file paths. The goal is a complete and accurate specification of the relevant parts of the existing services.
 - Interrogate the proposed `proto/backend/v1/backend.proto`. Will it lead to a performant backend that can handle all needs of the new client? Analyze the expected callers of each backend API in `libxmtp` and ensure their core business requirements can be met.
-- Look for macros, utilities, and coding practices that are idiomatic in this repository. Create `docs/self-hosted/style-guide.md`.
+- Look for macros, utilities, and coding practices that are idiomatic in this repository. Record them for implementer agents.
 - Review `libxmtp` and determine what code can be removed by the end of the project: a concrete list of deletions, and the downstream change of each.
 - Refine this document: shorter, tighter, internally consistent.
 - Audit all `AGENTS.md` and `CLAUDE.md` files. They must be up to date with the code at project start and extremely concise. Prefer `AGENTS.md` over `CLAUDE.md`; each `AGENTS.md` has a sibling `CLAUDE.md` pointer. Each package, crate, and app involved in this project has an `AGENTS.md` with the basic commands to build, check, and test the package, and to test a single file or function. Language can be borderline caveman.
-- Write `docs/self-hosted/guidelines.md`.
-- Using the test report in `docs/self-hosted/tests/`, take a first pass at tests that will not be needed at the end of the project, and create a pull request that deletes them now. The same pull request deletes `apps/xnet` and its Nix references.
+- Write the hard rules for implementer agents.
+- Using the Phase 0 test report, take a first pass at tests that will not be needed at the end of the project, and create a pull request that deletes them now. The same pull request deletes `apps/xnet` and its Nix references.
 
 Expected pull requests: a stack of two, one for documentation changes and one for test deletions. They can be worked on in parallel worktrees.
 
@@ -97,7 +95,7 @@ Specs 001 and 002 must be completed and approved before this phase begins. This 
 
 ### Phase 3: Client Support And Cleanup
 
-Status: implementation complete. Tasks 1 to 14 implement the backend transition. The identifier sweep passes with documented historical and archive-format exceptions. The five coverage gaps remain explicit in `tests/existing-tests.md`. Full CI verification is still required. The follow-ups below remain outside Phase 3.
+Status: implementation complete. Tasks 1 to 14 implement the backend transition. The identifier sweep passes with documented historical and archive-format exceptions. Full CI verification is still required. The follow-ups below remain outside Phase 3.
 
 Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
 

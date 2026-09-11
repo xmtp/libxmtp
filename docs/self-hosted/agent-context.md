@@ -1,15 +1,64 @@
-# libxmtp Style Guide
+<!-- markdownlint-configure-file {"MD029": false} -->
+# Agent Context
 
-Use this guide when writing `apps/backend`, shared crates, or changes to `crates/xmtp_mls`.
-Search for an existing helper before adding one. Move shared code to a shared crate; do not copy it.
-Read the package's `AGENTS.md` before working in it. Package-specific conventions belong there.
-Follow `docs/self-hosted/project.md`, approved specs in `docs/specs/`, and `docs/self-hosted/guidelines.md` when they override this guide.
+Read this once at the start of a session. Do not re-read it, and do not re-read
+the package docs it points at unless you are working in that package.
 
-Run commands through `just` or `dev/nix-shell '<cmd>'`. Run `just lint` before opening a PR; project guidelines allow mid-phase commits to skip it.
-The lint recipes check Rust, configuration, and Markdown. `just lint-rust` runs Clippy with `-Dwarnings`, checks formatting, and checks Cargo hakari output.
-See `justfile` for the commands.
+Sections 1-2 are project rules for the self-hosted transition; they override
+normal repository practice, and an approved spec in `docs/specs/` overrides them.
+Sections 3-13 are the style guide for `apps/backend`, shared crates, and
+`crates/xmtp_mls`.
 
-## 1. Errors
+Search for an existing helper before adding one. Move shared code to a shared
+crate; do not copy it. Read a package's `AGENTS.md` before working in it -
+package-specific conventions belong there.
+
+## 1. Project rules
+
+1. Branch from `origin/self-hosted`. Open every PR into `self-hosted`, as a `gh stack` for a very large phase. Never into `main`.
+2. `cargo build` must pass at the end of each phase. Mid-phase it may fail.
+3. Failing tests are allowed mid-phase. Do not disable a test to hide a real bug.
+4. `just lint` must pass before a PR is opened. Mid-phase commits may skip it.
+5. Work in one checkout. Add a worktree only for work that shares no files and has no dependency on other work.
+6. Every implementation task needs an approved plan in Ref before you write code.
+7. Approved specs go in `docs/specs`. Specs state behavior and errors, and name no files. Plans use EARS requirements and may name files, modules, and lines.
+8. Public API surface belongs in the plan. When a change adds or alters a type exposed through `bindings/*` or `sdks/*`, describe that surface in the plan so it is approved with the rest of the work. Default to constants - a configuration knob should name the caller that needs a non-default value.
+9. Ask when a rule here blocks you. Do not work around it.
+
+## 2. Deleting code
+
+10. Delete code `docs/self-hosted/deletions.md` marks for deletion as soon as every keeper and dependent has moved off it. It gives the order and the keep list.
+11. Delete dead code in the same PR that orphans it. Do not comment it out. Do not deprecate.
+12. Delete a test when its behavior no longer exists.
+13. Never add a compatibility shim for the xmtpd or xmtp-node-go wire formats.
+
+## 3. Architecture
+
+- The backend is one binary. It scales horizontally behind a load balancer.
+- Durable state lives in Postgres. Instance-local stream state and caches are disposable; reconnect must not depend on them.
+- Code used by both the backend and a client goes in a shared crate. Not in `apps/backend`. Not in `xmtp_mls`.
+- Never copy a function between crates. Move it to the shared crate and import it.
+- Values shared by more than one crate go in `xmtp_configuration`. A constant used by one module stays in that module. Every number has a name.
+
+## 4. Commands
+
+Run everything through `just` or `dev/nix-shell '<cmd>'`. `just` is not on your
+PATH outside the Nix shell - a bare `just lint` fails with "No such file or
+directory". Each shell you get is fresh, so prefix every call.
+
+```bash
+dev/nix-shell 'just check'      # cargo check, default-members
+dev/nix-shell 'just test'       # workspace tests
+dev/nix-shell 'just lint'       # rust + config + markdown; run before a PR
+dev/nix-shell 'just format'     # formatters across all surfaces
+dev/nix-shell 'just outline <file>'   # signature outline, not the whole file
+```
+
+`just lint-rust` runs Clippy with `-Dwarnings`, checks formatting, and checks
+Cargo hakari output. See `justfile` for the rest, and the `check-ci` skill for
+reading CI results.
+
+## 5. Errors
 
 - A module may contain several related error enums. Derive `ErrorCode` when an error needs a stable code across the FFI boundary.
 - Wrap sub-errors with `#[from]`; use `#[error(transparent)]` when the variant adds no context.
@@ -24,7 +73,7 @@ See `justfile` for the commands.
   `docs/error_glossary.md` with `dev/nix-shell 'dev/gen-error-glossary'` (source `apps/error_glossary/src/main.rs`).
 - Preserve public error codes when renaming variants. Use an `#[error_code("Old::Name")]` override where needed.
 
-## 2. Async and runtime
+## 6. Async and runtime
 
 - Use `parking_lot::Mutex` for short synchronous backend state access. Never hold
   its guard across `.await`. Non-poisoning locks do not make panicking code safe.
@@ -54,7 +103,7 @@ See `justfile` for the commands.
 - **HTTP**: build every `reqwest` client with `crates/xmtp_common/src/http.rs:client` or `client_builder`. `.clippy.toml` forbids `reqwest::Client::new`,
   `Client::builder`, `ClientBuilder::new` — these helpers pin webpki roots on Android, where a default client aborts the process on its first TLS connection.
 
-## 3. Logging and tracing
+## 7. Logging and tracing
 
 - Backend request-completion summaries belong in transport middleware, not repeated handler logs. Stream-interest logs contain counts and request correlation, never topic values or payloads.
 
@@ -73,12 +122,11 @@ See `justfile` for the commands.
   Omit keys and payloads even when truncated. Truncate IDs with `crates/xmtp_common/src/fmt.rs:debug_hex` / `truncate_hex`, `crates/xmtp_common/src/snippet.rs:Snippet::snippet`, or
   `crates/xmtp_proto/src/traits/short_hex.rs:ShortHex::short_hex`.
 
-## 4. Configuration
+## 8. Configuration
 
-- Constants that **cross crate boundaries** — URLs, page sizes, shared timeouts — live in `crates/xmtp_configuration`. A private implementation constant stays in its
-  own module. Never copy a shared value locally. Layout, naming, and the `prod/` vs `test/` split: `crates/xmtp_configuration/AGENTS.md`.
+- Layout, naming, and the `prod/` vs `test/` split for `xmtp_configuration`: `crates/xmtp_configuration/AGENTS.md`. The rule itself is in section 3.
 
-## 5. Database
+## 9. Database
 
 - Client persistence (`crates/xmtp_db` and everything below `crates/xmtp_mls`) is Diesel + encrypted SQLite. Model traits, the `impl_*!` macros, `Query*` traits,
   transactions, migrations, and errors: `crates/xmtp_db/AGENTS.md`.
@@ -91,7 +139,7 @@ See `justfile` for the commands.
   Treat stored payload bytes as opaque. The API layer owns protobuf encoding, decoding, and conversion to wire responses.
   Database errors stay typed; the API layer maps them to transport errors. Validate and normalize request collections before database calls.
 
-## 6. Protobuf and types
+## 10. Protobuf and types
 
 - Protobuf sources live under `proto/`. The `xmtp_proto` build script writes generated prost and serde code to Cargo `OUT_DIR`.
 - **Use the newtypes, not `Vec<u8>`/`String`**: `GroupId`, `InstallationId`, `Topic`, the payload wrappers, and the `Cursor` constructors in
@@ -101,7 +149,7 @@ See `justfile` for the commands.
 - Inbox ids are lowercase hex `String` (`crates/xmtp_common/src/types.rs:InboxId`). Normalize untrusted input with
   `crates/xmtp_common/src/hex.rs:NormalizeHex::normalize_hex` — never hand-roll `to_lowercase().trim_start_matches("0x")`.
 
-## 7. Cryptography and identity
+## 11. Cryptography and identity
 
 - `xmtp_cryptography` owns every primitive (hashing, randomness, signatures, installation credentials). `xmtp_common` re-exports the hash and random functions
   at its root. Use `xmtp_common::sha256_bytes` or `xmtp_common::sha256_array` for SHA-256. See `crates/xmtp_cryptography/AGENTS.md` for entry points.
@@ -115,10 +163,12 @@ See `justfile` for the commands.
 - `ErrorCode` / `RetryableError` coverage is **not** uniform across these crates — check before assuming, wrap with `#[from]` rather than stringifying, and add the
   missing derive if a code must cross the FFI boundary.
 
-## 8. Testing
+## 12. Testing
 
-Read `.claude/skills/writing-rust-tests/SKILL.md` and its required references before writing tests.
-The project test rules in `docs/self-hosted/guidelines.md` take precedence.
+Read `.agents/skills/writing-rust-tests/SKILL.md` and its required references before writing tests.
+
+- New `xmtp_mls` tests that need a client use the `tester!` macro from `xmtp_mls` test utils.
+- Every new API endpoint gets an integration test: happy path, each error, each limit.
 
 - Keep tests beside the module they exercise. Use a module-local `tests.rs` for a small suite, or a `tests/` directory split by behavior for a larger suite.
   Do not collect unrelated module tests in a crate-wide `tests/` directory. RPC and database integration tests can live in module-local test modules and must still use real service boundaries.
@@ -145,7 +195,7 @@ The project test rules in `docs/self-hosted/guidelines.md` take precedence.
 - Running: `just test`, `just test crate <name>`, `just wasm test`.
   Use `dev/nix-shell "cargo nextest run -p <name> -E 'test(pat)'"` for a test filter.
 
-## 9. Crate and module conventions
+## 13. Crate and module conventions
 
 - Prefer Rust files with fewer than 1,000 lines. Aim for fewer than 500 lines.
   Keep tests in the same file when both the code and tests are short. Move a large
@@ -173,10 +223,11 @@ The project test rules in `docs/self-hosted/guidelines.md` take precedence.
   After dependency changes, run `dev/nix-shell 'cargo hakari generate'` and `dev/nix-shell 'cargo hakari manage-deps'`.
   See `.config/hakari.toml`; `just lint-rust` checks both outputs.
 - Put new crates in `crates/` and new binaries in `apps/`. Root `Cargo.toml` includes both through workspace globs.
+- Agent instructions go in `AGENTS.md`, with a `CLAUDE.md` beside it holding `@AGENTS.md`. Update a package's `AGENTS.md` in the same PR that changes its build or test commands.
 - Read version settings from their source files: `rust-toolchain.toml` selects the active toolchain; root `Cargo.toml` sets `rust-version` (MSRV) and the Cargo edition;
   `rustfmt.toml` sets the formatter edition and import ordering. Clippy configuration is in `.clippy.toml` and the workspace lint tables.
 
-## 10. Bindings
+## 14. Bindings
 
 Three surfaces, one rule: a binding is a thin translation layer; business logic belongs in `xmtp_mls` or a shared crate.
 
@@ -189,7 +240,7 @@ Three surfaces, one rule: a binding is a thin translation layer; business logic 
   (`crates/xmtp_macro/src/builders.rs`).
 - `dist/` output is a build product. Never hand-edit it. Regeneration commands per surface are in the binding's `AGENTS.md`.
 
-## 11. Anti-patterns
+## 15. Anti-patterns
 
 | Do not | Use instead |
 | --- | --- |

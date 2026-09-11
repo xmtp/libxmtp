@@ -4,16 +4,20 @@ Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `s
 
 ## Read first
 
+- `docs/self-hosted/agent-context.md` — project rules, commands, and code style.
+  Read it once at session start. Do not re-read it.
 - `docs/self-hosted/project.md` — scope, phases.
-- `docs/self-hosted/guidelines.md` — hard rules. They win.
-- `docs/self-hosted/style-guide.md` — code and doc style.
-- `docs/specs/` — approved specs.
-- Skills in `.claude/skills/`: `writing-rust-tests`, `working-with-nix`, `working-with-worktrees`.
+- `docs/specs/` — approved specs. They win.
+- Skills in `.agents/skills/`: `writing-rust-tests`, `working-with-nix`, `working-with-worktrees`, `check-ci`.
 
 ## Commands
 
 Every `just` recipe runs inside `nix develop` (`dev/nix-shell`).
 Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix-shell '<cmd>'`.
+
+`just` is not on your PATH outside the Nix shell, and each shell you get is
+fresh. Prefix every call: `dev/nix-shell 'just lint'`, not `just lint`.
+Prefer a `just` recipe over a hand-rolled `cargo` line.
 
 ```bash
 just                    # list all recipes
@@ -35,6 +39,10 @@ just docs build         # Starlight site. Run just docs install first.
 just docs lint          # site code and Markdown.
 just docs format-check  # site formatting.
 just docs test          # site build-tool tests.
+just outline <file>     # signature outline of a source file. No bodies.
+just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
+just ci-failures <job>  # why one job failed. Filtered, not the raw log.
+just ci-annotations <check>  # file and line annotations for a check run.
 ```
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
@@ -54,6 +62,16 @@ and port block, so run `just backend status` for the checkout you are in. See th
 - Tests use `#[xmtp_common::test(unwrap_try = true)]`. Never `#[test]`.
 - Every package has an `AGENTS.md`. Read it before working there. Update it when its commands change.
 - `CLAUDE.md` is only a pointer (`@AGENTS.md`). Content goes in `AGENTS.md`.
+- Public API surface belongs in the plan. When a change adds or alters a type
+  exposed through `bindings/*` or `sdks/*`, describe that surface in the Ref plan
+  so it is approved with the rest of the work. Default to constants — a
+  configuration knob should name the caller that needs a non-default value. If
+  new surface turns out to be needed mid-implementation, note it in the plan and
+  keep going.
+- Read a file's outline before reading the file: `just outline <path>`. Reading
+  whole files repeatedly is the largest single source of wasted context.
+- For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
+  raw log fetch. See the `check-ci` skill.
 
 ## Ephemeral test backends
 
