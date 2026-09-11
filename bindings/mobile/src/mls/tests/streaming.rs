@@ -55,6 +55,35 @@ pub(super) fn assert_streamed_history(callback: &RustStreamCallback, history: &[
 
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_stream_group_messages_for_updates() {
+    async fn wait_for_names(callback: &RustStreamCallback, group_id: &[u8], names: &[&str]) {
+        wait_for_eq(
+            || async {
+                callback
+                    .messages
+                    .lock()
+                    .iter()
+                    .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+                    .flat_map(|message| {
+                        decode_group_updated(message.content.clone())
+                            .unwrap()
+                            .metadata_field_changes
+                            .into_iter()
+                            .filter(|change| change.field_name == "group_name")
+                            .map(move |change| {
+                                (message.conversation_id.clone(), change.new_value.unwrap())
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            },
+            names
+                .iter()
+                .map(|name| (group_id.to_vec(), (*name).to_string()))
+                .collect(),
+        )
+        .await
+        .expect("stream did not deliver the exact group name updates");
+    }
+
     let alix = Tester::new().await;
     let bo = Tester::new().await;
 
@@ -80,7 +109,7 @@ async fn test_can_stream_group_messages_for_updates() {
         .update_group_name("Old Name".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(&message_callbacks, &alix_group.id(), &["Old Name"]).await;
 
     let bo_groups = bo
         .conversations()
@@ -98,14 +127,20 @@ async fn test_can_stream_group_messages_for_updates() {
         .update_group_name("Old Name2".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(
+        &message_callbacks,
+        &alix_group.id(),
+        &["Old Name", "Old Name2"],
+    )
+    .await;
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 1);
 
-    alix_group
+    let first_id = alix_group
         .send(b"Hello there".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(first_id, b"Hello there".to_vec())];
+    wait_for_application_messages(&message_callbacks, &expected).await;
     assert_eq!(alix.client.inner_client.context.db().intents_published(), 3);
 
     let dm = bo
@@ -116,27 +151,42 @@ async fn test_can_stream_group_messages_for_updates() {
         )
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
-    dm.send(b"Hello again".to_vec(), FfiSendMessageOpts::default())
+    let second_id = dm
+        .send(b"Hello again".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 3);
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((second_id, b"Hello again".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
-    // Uncomment the following lines to add more group name updates
     bo_group
         .conversation
         .update_group_name("Old Name3".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(
+        &message_callbacks,
+        &alix_group.id(),
+        &["Old Name", "Old Name2", "Old Name3"],
+    )
+    .await;
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 4);
 
-    wait_for_eq(|| async { message_callbacks.message_count() }, 6)
+    // Two group creations, three name changes, and two application messages.
+    wait_for_eq(|| async { message_callbacks.message_count() }, 7)
         .await
         .unwrap();
 
     stream_messages.end_and_wait().await.unwrap();
+    let history = bo
+        .conversations()
+        .message_history_snapshot(None, None, None, 10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 7);
+    assert_streamed_history(&message_callbacks, &history);
     assert!(stream_messages.is_closed());
 }
 
