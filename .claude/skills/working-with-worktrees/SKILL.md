@@ -14,8 +14,10 @@ just backend release    # stop this worktree's stack and free its slot
 ```
 
 `dev/worktree-env` resolves the checkout to a slot and writes `dev/docker/.env`,
-which Compose and the recipes read. Ports are `base + slot * 100`. The main
-checkout and any plain clone (so CI) are slot 0, so their ports never move.
+which Compose reads and `dev/docker/load-env` sources for the recipes. A variable
+already set in the environment always wins, so CI pointing a suite at a deployed
+backend still works. Ports are `base + slot * 100`. The main checkout and any
+plain clone (so CI) are slot 0, so their ports never move.
 
 Read addresses from the environment, never a literal: `XMTP_BACKEND_URL` and
 `DATABASE_URL` in scripts and SDK tests, `xmtp_configuration::backend_test_url()`

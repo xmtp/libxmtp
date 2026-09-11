@@ -6,7 +6,7 @@ root := justfile_directory()
 # The backend and anvil ports differ per worktree. `_env` loads dev/docker/.env,
 # written by dev/worktree-env, so Gradle bakes this worktree's endpoints into
 # BuildConfig (see library/build.gradle).
-_env := root + "/dev/worktree-env && set -a && . " + root + "/dev/docker/.env && set +a"
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Verify Android SDK builds (bindings + Gradle)
 check: build

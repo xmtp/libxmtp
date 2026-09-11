@@ -7,7 +7,7 @@ root := justfile_directory()
 # this worktree's XMTP_BACKEND_URL. An already-set value always wins, so CI and
 # one-off overrides are untouched. The URL uses the IPv4 form on purpose:
 # `localhost` can resolve to IPv6, where the Docker port forward resets.
-_env := root + "/dev/worktree-env && set -a && . " + root + "/dev/docker/.env && set +a"
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 set shell := ["../../dev/nix-shell"]
 

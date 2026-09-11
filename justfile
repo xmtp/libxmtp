@@ -18,7 +18,7 @@ cargo_test := env("CARGO_TEST_CMD", "cargo nextest run")
 
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
-_env := justfile_directory() + "/dev/worktree-env && set -a && . " + justfile_directory() + "/dev/docker/.env && set +a"
+_env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() + "/dev/docker/load-env"
 
 [script("bash")]
 default:

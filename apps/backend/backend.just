@@ -8,7 +8,7 @@ musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so a recipe inherits this worktree's values. An already-set
 # variable always wins, so CI and one-off overrides are untouched.
-_env := root + "/dev/worktree-env && set -a && . " + root + "/dev/docker/.env && set +a"
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Build the binary.
 build:

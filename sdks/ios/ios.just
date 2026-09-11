@@ -1,12 +1,16 @@
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "ios")
 
+# CI points the suite at a deployed backend. Re-export it so it reaches the
+# recipe shell; dev/docker/load-env then keeps it ahead of the local default.
+export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "")
+
 set shell := ["../../dev/nix-shell"]
 
 root := justfile_directory()
 
 # The backend port differs per worktree. `_env` loads dev/docker/.env, written
 # by dev/worktree-env, so the suites reach this worktree's own backend.
-_env := root + "/dev/worktree-env && set -a && . " + root + "/dev/docker/.env && set +a"
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Verify iOS SDK builds (bindings + Swift)
 
