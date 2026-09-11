@@ -5,7 +5,7 @@ use super::*;
 #[case::same(10, 10, false)]
 #[case::future(11, 10, false)]
 #[xmtp_common::test(unwrap_try = true)]
-fn identity_references_precede_the_group_envelope(
+async fn identity_references_precede_the_group_envelope(
     #[case] identity_sequence: u64,
     #[case] envelope_sequence: u64,
     #[case] valid: bool,

@@ -1,11 +1,12 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.cash.turbine.test
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -15,6 +16,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -852,14 +854,43 @@ class GroupTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanStreamGroups() =
-        kotlinx.coroutines.test.runTest {
-            boClient.conversations.stream(type = ConversationFilterType.GROUPS).test {
+        runBlocking {
+            val notificationTimeoutMs = 3_000L
+            val lifecycleTimeoutMs = 30_000L
+            val ready = CompletableDeferred<Unit>()
+            val closed = CompletableDeferred<Unit>()
+            val conversations = Channel<String>(Channel.UNLIMITED)
+            val job =
+                launch(Dispatchers.IO) {
+                    boClient.conversations
+                        .streamWithReadiness(
+                            type = ConversationFilterType.GROUPS,
+                            onClose = { closed.complete(Unit) },
+                            onReady = { ready.complete(Unit) },
+                        ).collect { conversations.send(it.id) }
+                }
+            try {
+                withTimeout(lifecycleTimeoutMs) { ready.await() }
                 val group =
                     alixClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group.id, awaitItem().id)
+                assertEquals(group.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
                 val group2 =
                     caroClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group2.id, awaitItem().id)
+                assertEquals(group2.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
+                assertTrue("Unexpected conversation", conversations.tryReceive().isFailure)
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        withTimeout(lifecycleTimeoutMs) {
+                            job.cancelAndJoin()
+                            if (ready.isCompleted) {
+                                closed.await()
+                            }
+                        }
+                    } finally {
+                        conversations.cancel()
+                    }
+                }
             }
         }
 

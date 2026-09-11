@@ -1,19 +1,22 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.cash.turbine.test
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -527,18 +530,47 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanStreamConversations() =
-        kotlinx.coroutines.test.runTest {
-            fixtures.boClient.conversations.stream(type = ConversationFilterType.DMS).test {
+        runBlocking {
+            val notificationTimeoutMs = 3_000L
+            val lifecycleTimeoutMs = 30_000L
+            val ready = CompletableDeferred<Unit>()
+            val closed = CompletableDeferred<Unit>()
+            val conversations = Channel<String>(Channel.UNLIMITED)
+            val job =
+                launch(Dispatchers.IO) {
+                    fixtures.boClient.conversations
+                        .streamWithReadiness(
+                            type = ConversationFilterType.DMS,
+                            onClose = { closed.complete(Unit) },
+                            onReady = { ready.complete(Unit) },
+                        ).collect { conversations.send(it.id) }
+                }
+            try {
+                withTimeout(lifecycleTimeoutMs) { ready.await() }
                 val dm =
                     fixtures.alixClient.conversations.findOrCreateDm(
                         fixtures.boClient.inboxId,
                     )
-                assertEquals(dm.id, awaitItem().id)
+                assertEquals(dm.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
                 val dm2 =
                     fixtures.caroClient.conversations.findOrCreateDm(
                         fixtures.boClient.inboxId,
                     )
-                assertEquals(dm2.id, awaitItem().id)
+                assertEquals(dm2.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
+                assertTrue("Unexpected conversation", conversations.tryReceive().isFailure)
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        withTimeout(lifecycleTimeoutMs) {
+                            job.cancelAndJoin()
+                            if (ready.isCompleted) {
+                                closed.await()
+                            }
+                        }
+                    } finally {
+                        conversations.cancel()
+                    }
+                }
             }
         }
 

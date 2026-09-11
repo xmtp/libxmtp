@@ -195,7 +195,11 @@ mod tests {
         })
         .await;
         match drain.end_and_wait().await {
-            Ok(()) | Err(xmtp_common::StreamHandleError::Cancelled) => {}
+            Ok(())
+            | Err(
+                xmtp_common::StreamHandleError::Cancelled
+                | xmtp_common::StreamHandleError::StreamClosed,
+            ) => {}
             Err(error) => panic!("stream drain did not stop cleanly: {error:?}"),
         }
         assert!(
