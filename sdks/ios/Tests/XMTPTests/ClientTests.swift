@@ -359,6 +359,28 @@ class ClientTests: XCTestCase {
 			alixClient.publicIdentity.identifier
 		)
 		XCTAssertEqual(alixClient2.inboxID, alixClient.inboxID)
+
+		var settingsOptions = options
+		settingsOptions.streamSettings = StreamSettings(maxLocalReadRows: 1)
+		var invalidOptions = settingsOptions
+		invalidOptions.streamSettings = StreamSettings(maxLocalReadRows: 0)
+		for inMemory in [false, true] {
+			let makeClient = inMemory ? Client.createInMemory : Client.create
+			let settingsClient = try await makeClient(alix, settingsOptions)
+			XCTAssertEqual(settingsClient.inboxID, inboxId)
+			XCTAssertEqual(settingsClient.isInMemory, inMemory)
+			do {
+				_ = try await makeClient(alix, invalidOptions)
+				XCTFail("Expected invalid stream settings for inMemory=\(inMemory)")
+			} catch {
+				XCTAssertEqual(
+					error as? FfiError,
+					FfiError.Error(
+						message: "[InvalidStreamSettings] Client builder error: invalid stream setting: max_local_read_rows"
+					)
+				)
+			}
+		}
 		try alixClient.deleteLocalDatabase()
 	}
 
