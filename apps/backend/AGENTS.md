@@ -78,3 +78,19 @@ Backend metrics do not depend on trace sampling. Client span metrics do.
 Nix outputs: `xmtp-backend`, `backend-image`, and
 `backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`
 entry point and the `ghcr.io/xmtp/backend:self-hosted` tag.
+
+## Ephemeral test backends
+
+`just test` needs `just backend up db replica` and the shared backend services.
+It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
+The database URL defaults to `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
+Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
+`tester!(alix, backend: &backend)` with optional `auth: callback`.
+This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.
+The backend exports its fixtures through `xmtp_backend/test-utils`. Its own
+`cargo test` still uses the existing dev-dependencies.
+
+Use the shared backend on port 5050 by default. Use an ephemeral backend only
+when a test needs a specific configuration. Nextest runs each test in its own
+process, so tests cannot share an ephemeral backend. Each such test pays for
+a database create, a migration, and a listener bind.

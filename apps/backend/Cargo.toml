@@ -11,15 +11,35 @@ publish.workspace = true
 name = "xmtp-backend"
 path = "src/main.rs"
 
+[features]
+test-utils = [
+  "dep:h2",
+  "dep:http-body-util",
+  "dep:rcgen",
+  "dep:tokio-rustls",
+  "dep:tonic-prost",
+  "dep:jsonschema",
+  "dep:reqwest",
+  "dep:rustls",
+  "xmtp_common/test-utils",
+  "xmtp_id/test-utils",
+  "xmtp_logging/test-utils",
+  "xmtp_mls_validation/test-utils",
+  "xmtp_proto/grpc_client_impls",
+]
+
 [dependencies]
 alloy-primitives.workspace = true
 async-trait.workspace = true
 bytes.workspace = true
 clap.workspace = true
 futures.workspace = true
+h2 = { version = "0.4", optional = true }
 hex.workspace = true
 http.workspace = true
 http-body.workspace = true
+http-body-util = { workspace = true, optional = true }
+jsonschema = { version = "0.55", default-features = false, optional = true }
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 opentelemetry.workspace = true
@@ -27,16 +47,25 @@ parking_lot.workspace = true
 pin-project.workspace = true
 prost.workspace = true
 prost-types.workspace = true
+rcgen = { version = "0.14.10", default-features = false, features = [
+  "ring",
+], optional = true }
+reqwest = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "signal"] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "ring",
+], optional = true }
 tokio-stream = { workspace = true, features = ["net"] }
 toml.workspace = true
 tonic = { workspace = true, features = ["transport", "router", "gzip"] }
 tonic-health.workspace = true
+tonic-prost = { version = "0.14", optional = true }
 tonic-types.workspace = true
 tonic-web.workspace = true
 tower = { workspace = true, features = ["util"] }

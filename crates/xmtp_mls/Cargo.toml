@@ -169,6 +169,7 @@ tracing-subscriber.workspace = true
 xmtp_api_grpc = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dev-dependencies]
+xmtp_backend = { path = "../../apps/backend", features = ["test-utils"] }
 ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"

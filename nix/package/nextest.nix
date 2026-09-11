@@ -26,6 +26,7 @@ let
   };
 
   commonArgs = xmtp.base.commonArgs // {
+    SQLX_OFFLINE = "true";
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [
       cargo-llvm-cov
     ];
@@ -44,6 +45,7 @@ rust.cargoNextest (
   // {
     inherit src cargoArtifacts;
     doCheck = true;
+    DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend";
     pnameSuffix = "nextest";
     partitions = 1;
     partitionType = "count";

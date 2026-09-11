@@ -59,8 +59,12 @@ fn main() {
             continue;
         }
 
-        // Sort types by name within each crate
-        error_types.sort_by(|a, b| a.name.cmp(&b.name));
+        // Sort types by name within each crate. Break ties on the source file,
+        // because two files may declare the same type name behind different
+        // `cfg` gates. Without the tiebreaker the order follows the file system
+        // walk, which differs between macOS and Linux and makes the generated
+        // glossary unstable across platforms.
+        error_types.sort_by(|a, b| a.name.cmp(&b.name).then(a.source_file.cmp(&b.source_file)));
 
         total_types += error_types.len();
         total_variants += error_types
