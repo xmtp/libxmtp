@@ -304,6 +304,11 @@ mock! {
             intent_id: crate::group_intent::ID,
         ) -> Result<(), StorageError>;
 
+        fn supersede_pending_intents_for_inactive_group(
+            &self,
+            group_id: &[u8],
+        ) -> Result<usize, StorageError>;
+
         fn set_group_intent_to_publish(
             &self,
             intent_id: crate::group_intent::ID,

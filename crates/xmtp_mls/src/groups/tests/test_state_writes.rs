@@ -160,3 +160,61 @@ async fn welcome_admission_queues_rotation_atomically_before_decode() {
     assert_eq!(store.admit_incoming_batch(&batch, limits)?.inserted, 0);
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
 }
+
+/// A removal must abandon this installation's unaccepted outgoing work in the
+/// same transaction. A `Published` state change that outlives the removal can
+/// never be confirmed — a re-add installs fresh state past its own echo — and
+/// the publish loop prefers such an intent over every later one, so leaving it
+/// behind stops the conversation from ever publishing again.
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
+    use xmtp_db::group_intent::{IntentKind, IntentState};
+    use xmtp_db::prelude::QueryGroupIntent;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+
+    // Bo queues a real state change but never publishes it, then is removed.
+    // The queued intent is exactly the work that must not outlive membership.
+    crate::groups::intents::QueueIntent::key_update().queue(&bo_group)?;
+    let queued = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(!queued.is_empty(), "the test needs an unaccepted intent");
+
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    // Receive the removal without publishing: a removed member's queued work
+    // cannot reach the network anyway.
+    bo_group.sync().await.ok();
+    assert!(!bo_group.is_active()?);
+
+    // Nothing unaccepted survives the removal, and no prepared bytes remain to
+    // be reused against a new membership generation.
+    let remaining = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(
+        remaining.is_empty(),
+        "removal must abandon unaccepted intents, found {remaining:?}"
+    );
+
+    // The re-added installation can publish again.
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    assert!(bo_group.is_active()?);
+    bo_group
+        .send_message(b"after readd", SendMessageOpts::default())
+        .await?;
+}
