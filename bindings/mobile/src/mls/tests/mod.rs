@@ -358,7 +358,6 @@ pub(crate) async fn new_test_client_with_wallet_and_sync_worker_mode(
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -391,7 +390,6 @@ pub(crate) async fn new_test_client_no_panic(
         &inbox_id,
         ident,
         nonce,
-        None,
         None,
         None,
         None,

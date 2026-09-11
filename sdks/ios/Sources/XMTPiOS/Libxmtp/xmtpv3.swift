@@ -7992,6 +7992,79 @@ public func FfiConverterTypeFfiCatchUpSummary_lower(_ value: FfiCatchUpSummary) 
   return FfiConverterTypeFfiCatchUpSummary.lower(value)
 }
 
+/// Optional callbacks and stream limits for client creation.
+/// Keep future runtime options in this record. Another separate argument exceeds
+/// the argument-buffer space in the pinned JNA ARM64 implementation.
+public struct FfiClientRuntimeOptions {
+  /**
+   * Callbacks for group-state changes. `None` registers no callbacks.
+   */
+  public var changeCallbacks: FfiUnstableChangeCallbacks?
+  /**
+   * Stream limit overrides. `None` uses core defaults.
+   */
+  public var streamSettings: FfiStreamSettings?
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    /**
+     * Callbacks for group-state changes. `None` registers no callbacks.
+     */
+    changeCallbacks: FfiUnstableChangeCallbacks? = nil,
+    /**
+     * Stream limit overrides. `None` uses core defaults.
+     */
+    streamSettings: FfiStreamSettings? = nil
+  ) {
+    self.changeCallbacks = changeCallbacks
+    self.streamSettings = streamSettings
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiClientRuntimeOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiClientRuntimeOptions: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiClientRuntimeOptions
+  {
+    return
+      try FfiClientRuntimeOptions(
+        changeCallbacks: FfiConverterOptionTypeFfiUnstableChangeCallbacks.read(from: &buf),
+        streamSettings: FfiConverterOptionTypeFfiStreamSettings.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiClientRuntimeOptions, into buf: inout [UInt8]) {
+    FfiConverterOptionTypeFfiUnstableChangeCallbacks.write(value.changeCallbacks, into: &buf)
+    FfiConverterOptionTypeFfiStreamSettings.write(value.streamSettings, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiClientRuntimeOptions_lift(_ buf: RustBuffer) throws
+  -> FfiClientRuntimeOptions
+{
+  return try FfiConverterTypeFfiClientRuntimeOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiClientRuntimeOptions_lower(_ value: FfiClientRuntimeOptions)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiClientRuntimeOptions.lower(value)
+}
+
 public struct FfiConsent: Equatable, Hashable {
   public var entityType: FfiConsentEntityType
   public var state: FfiConsentState
@@ -17115,6 +17188,30 @@ private struct FfiConverterOptionTypeFfiCatchUpSummary: FfiConverterRustBuffer {
 #if swift(>=5.8)
   @_documentation(visibility: private)
 #endif
+private struct FfiConverterOptionTypeFfiClientRuntimeOptions: FfiConverterRustBuffer {
+  typealias SwiftType = FfiClientRuntimeOptions?
+
+  public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+    guard let value = value else {
+      writeInt(&buf, Int8(0))
+      return
+    }
+    writeInt(&buf, Int8(1))
+    FfiConverterTypeFfiClientRuntimeOptions.write(value, into: &buf)
+  }
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+    switch try readInt(&buf) as Int8 {
+    case 0: return nil
+    case 1: return try FfiConverterTypeFfiClientRuntimeOptions.read(from: &buf)
+    default: throw UniffiInternalError.unexpectedOptionalTag
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
 private struct FfiConverterOptionTypeFfiContentTypeId: FfiConverterRustBuffer {
   typealias SwiftType = FfiContentTypeId?
 
@@ -19569,16 +19666,18 @@ public func connectToBackend(
 /// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// `change_callbacks` is unstable: notifications for group-state changes,
+/// `runtime_options.change_callbacks` is unstable: notifications for group-state changes,
 /// registered here because the changes they report arrive from the stream and
 /// sync paths, where no SDK call is on the stack to carry them. `None` (the
 /// SDK-side default) registers nothing. See
 /// [`change_callbacks::FfiUnstableChangeCallbacks`].
+/// Raw FFI callers pass callbacks and stream settings in `runtime_options`.
+/// This changes the raw FFI signature, not the public SDK creation options.
 public func createClient(
   api: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier,
   nonce: UInt64, legacySignedPrivateKeyProto: Data?, deviceSyncMode: FfiDeviceSyncMode?,
   allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?, workerConfig: FfiWorkerConfig?,
-  changeCallbacks: FfiUnstableChangeCallbacks? = nil, streamSettings: FfiStreamSettings? = nil
+  runtimeOptions: FfiClientRuntimeOptions? = nil
 ) async throws -> FfiXmtpClient {
   return
     try await uniffiRustCallAsync(
@@ -19592,8 +19691,7 @@ public func createClient(
           FfiConverterOptionBool.lower(allowOffline),
           FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts),
           FfiConverterOptionTypeFfiWorkerConfig.lower(workerConfig),
-          FfiConverterOptionTypeFfiUnstableChangeCallbacks.lower(changeCallbacks),
-          FfiConverterOptionTypeFfiStreamSettings.lower(streamSettings)
+          FfiConverterOptionTypeFfiClientRuntimeOptions.lower(runtimeOptions)
         )
       },
       pollFunc: ffi_xmtpv3_rust_future_poll_u64,
@@ -20060,7 +20158,7 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_func_connect_to_backend() != 61897 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_create_client() != 51318 {
+  if uniffi_xmtpv3_checksum_func_create_client() != 20654 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_func_decode_actions() != 30649 {

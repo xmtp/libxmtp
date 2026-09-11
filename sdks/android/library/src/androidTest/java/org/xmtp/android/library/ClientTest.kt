@@ -2,6 +2,7 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -26,10 +27,12 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.DbOptions
+import uniffi.xmtpv3.FfiClientRuntimeOptions
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
+import uniffi.xmtpv3.FfiStreamSettings
 import uniffi.xmtpv3.FfiWorkerConfig
 import uniffi.xmtpv3.FfiWorkerKind
 import uniffi.xmtpv3.generateInboxId
@@ -113,27 +116,51 @@ class ClientTest : BaseInstrumentedTest() {
         }
 
     @Test
-    fun testCreatesAClient() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val options =
-            ClientOptions(
-                localApi(appVersion = "Testing/0.0.0"),
-                appContext = context,
-                dbEncryptionKey = key,
-            )
-        val clientIdentity = fakeWallet.publicIdentity
-
-        val inboxId = runBlocking { Client.getOrCreateInboxId(options.api, clientIdentity) }
-        val client = runBlocking { Client.create(account = fakeWallet, options = options) }
+    fun testCreatesAClient() =
         runBlocking {
-            client.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
+            val callbackTimeoutMs = 3_000L
+            val key = SecureRandom().generateSeed(32)
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            for (inMemory in listOf(false, true)) {
+                val fakeWallet = PrivateKeyBuilder()
+                val appDataChange = CompletableDeferred<AppDataChange>()
+                val options =
+                    ClientOptions(
+                        localApi(appVersion = "Testing/0.0.0"),
+                        appContext = context,
+                        dbEncryptionKey = key,
+                        unstableChangeCallbacks =
+                            UnstableChangeCallbacks(
+                                appData =
+                                    object : AppDataChangeHandler {
+                                        override suspend fun onAppDataChanged(change: AppDataChange) {
+                                            appDataChange.complete(change)
+                                        }
+                                    },
+                            ),
+                    )
+                val clientIdentity = fakeWallet.publicIdentity
+                val inboxId = Client.getOrCreateInboxId(options.api, clientIdentity)
+                val client =
+                    if (inMemory) {
+                        Client.createInMemory(account = fakeWallet, options = options)
+                    } else {
+                        Client.create(account = fakeWallet, options = options)
+                    }
+                assertEquals(true, client.canMessage(listOf(clientIdentity))[clientIdentity.identifier])
+                assertTrue(client.installationId.isNotEmpty())
+                assertEquals(inboxId, client.inboxId)
+                assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
+                assertEquals(inMemory, client.isInMemory)
+
+                val group = client.conversations.newGroup(emptyList())
+                val newAppData = "client-runtime-options"
+                group.updateAppData(newAppData)
+                val change = withTimeout(callbackTimeoutMs) { appDataChange.await() }
+                assertEquals(group.id, change.groupId)
+                assertEquals(newAppData, change.newValue)
+            }
         }
-        assert(client.installationId.isNotEmpty())
-        assertEquals(inboxId, client.inboxId)
-        assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
-    }
 
     @Test
     fun testStaticCanMessage() {
@@ -1017,7 +1044,11 @@ class ClientTest : BaseInstrumentedTest() {
                             workerJittersNs = emptyList(),
                             disabledWorkers = FfiWorkerKind.entries.toList(),
                         ),
-                    changeCallbacks = null,
+                    runtimeOptions =
+                        FfiClientRuntimeOptions(
+                            changeCallbacks = null,
+                            streamSettings = FfiStreamSettings(maxLocalReadRows = 8u),
+                        ),
                 )
             val alix =
                 Client(

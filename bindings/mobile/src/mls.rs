@@ -362,6 +362,19 @@ impl DbOptions {
     }
 }
 
+/// Optional callbacks and stream limits for client creation.
+/// Keep future runtime options in this record. Another separate argument exceeds
+/// the argument-buffer space in the pinned JNA ARM64 implementation.
+#[derive(uniffi::Record, Clone, Default)]
+pub struct FfiClientRuntimeOptions {
+    /// Callbacks for group-state changes. `None` registers no callbacks.
+    #[uniffi(default = None)]
+    pub change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
+    /// Stream limit overrides. `None` uses core defaults.
+    #[uniffi(default = None)]
+    pub stream_settings: Option<FfiStreamSettings>,
+}
+
 /// It returns a new client of the specified `inbox_id`.
 /// Note that the `inbox_id` must be either brand new or already associated with the `account_identifier`.
 /// i.e. `inbox_id` cannot be associated with another account address.
@@ -382,16 +395,17 @@ impl DbOptions {
 /// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// `change_callbacks` is unstable: notifications for group-state changes,
+/// `runtime_options.change_callbacks` is unstable: notifications for group-state changes,
 /// registered here because the changes they report arrive from the stream and
 /// sync paths, where no SDK call is on the stack to carry them. `None` (the
 /// SDK-side default) registers nothing. See
 /// [`change_callbacks::FfiUnstableChangeCallbacks`].
+/// Raw FFI callers pass callbacks and stream settings in `runtime_options`.
+/// This changes the raw FFI signature, not the public SDK creation options.
 #[allow(clippy::too_many_arguments)]
-// Optional additions keep existing Swift and Kotlin create calls valid.
 #[uniffi::export(
     async_runtime = "tokio",
-    default(change_callbacks = None, stream_settings = None)
+    default(runtime_options = None)
 )]
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
@@ -405,9 +419,12 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
     worker_config: Option<FfiWorkerConfig>,
-    change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
-    stream_settings: Option<FfiStreamSettings>,
+    runtime_options: Option<FfiClientRuntimeOptions>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
+    let FfiClientRuntimeOptions {
+        change_callbacks,
+        stream_settings,
+    } = runtime_options.unwrap_or_default();
     let ident = account_identifier.clone();
     init_logger();
     // See `connect_to_backend` — ensure the rustls provider is installed before an HTTP

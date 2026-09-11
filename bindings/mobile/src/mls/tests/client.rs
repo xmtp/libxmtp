@@ -25,7 +25,6 @@ async fn test_create_client_with_storage() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -40,7 +39,6 @@ async fn test_create_client_with_storage() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -83,7 +81,6 @@ async fn test_create_client_with_key() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -105,7 +102,6 @@ async fn test_create_client_with_key() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -137,7 +133,6 @@ async fn test_can_message() {
         &amal_inbox_id,
         amal.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -179,7 +174,6 @@ async fn test_can_message() {
         &bola_inbox_id,
         bola.identifier(),
         nonce,
-        None,
         None,
         None,
         None,

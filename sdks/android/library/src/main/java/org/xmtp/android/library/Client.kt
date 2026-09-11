@@ -19,6 +19,7 @@ import org.xmtp.android.library.libxmtp.toFfi
 import uniffi.xmtpv3.DbOptions
 import uniffi.xmtpv3.FfiCatchUpOptions
 import uniffi.xmtpv3.FfiClientMode
+import uniffi.xmtpv3.FfiClientRuntimeOptions
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
 import uniffi.xmtpv3.FfiForkRecoveryPolicy
@@ -379,7 +380,7 @@ class Client(
                         workerConfig = null,
                         // Identity-probe client: never processes messages, so
                         // nothing to notify about.
-                        changeCallbacks = null,
+                        runtimeOptions = null,
                     )
 
                 useClient(ffiClient)
@@ -606,7 +607,10 @@ class Client(
                             allowOffline = buildOffline,
                             forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                             workerConfig = null,
-                            changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
+                            runtimeOptions =
+                                options.unstableChangeCallbacks?.let {
+                                    FfiClientRuntimeOptions(changeCallbacks = it.toFfi(), streamSettings = null)
+                                },
                         )
                     return@withContext Pair(ffiClient, IN_MEMORY_DB_PATH)
                 }
@@ -652,7 +656,10 @@ class Client(
                         allowOffline = buildOffline,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
                         workerConfig = null,
-                        changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
+                        runtimeOptions =
+                            options.unstableChangeCallbacks?.let {
+                                FfiClientRuntimeOptions(changeCallbacks = it.toFfi(), streamSettings = null)
+                            },
                     )
                 Pair(ffiClient, dbPath)
             }
