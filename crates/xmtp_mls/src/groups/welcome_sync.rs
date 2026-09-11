@@ -328,7 +328,8 @@ where
                 });
             }
             // The first deadline wins; defer_pending never extends it.
-            let deadline = xmtp_common::time::now_ns().saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS);
+            let deadline =
+                xmtp_common::time::now_ns().saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS);
             self.defer_pending(&pending, "unsupported_welcome", true, Some(deadline))?;
             return Ok(WelcomeHeadOutcome::Waiting {
                 cursor,

@@ -218,3 +218,32 @@ async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
         .send_message(b"after readd", SendMessageOpts::default())
         .await?;
 }
+
+/// A snapshot-built client must still be able to store and deliver messages.
+/// The delivery-sequence allocator shares `refresh_state` with network
+/// progress, so a reset that clears the whole table leaves the client unable
+/// to allocate a delivery number and silently disables every test built on it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_snapshot_tester_can_still_allocate_delivery_sequences() {
+    use std::sync::Arc;
+    use xmtp_db::delivery::QueryDelivery;
+
+    tester!(alix);
+    let snapshot = Arc::new(alix.db_snapshot());
+    tester!(alix2, snapshot: snapshot);
+
+    let group = alix2.create_group(None, None)?;
+    group
+        .send_message(b"after snapshot", SendMessageOpts::default())
+        .await?;
+
+    let messages = group.find_messages(&Default::default())?;
+    assert!(
+        !messages.is_empty(),
+        "a snapshot client must store messages"
+    );
+    // Storing a deliverable message allocates from the shared allocator row,
+    // so a usable cursor proves the row survived the reset.
+    let cursor = alix2.context.db().current_delivery_cursor()?;
+    assert!(cursor.delivery_sequence > 0);
+}
