@@ -18,7 +18,9 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{Cursor, GroupId, Topic, TopicCursor, TopicKind};
 
-use super::incoming::{IncomingCoordinator, IncomingError, IncomingProcessing, IncomingScope};
+use super::incoming::{
+    IncomingCoordinator, IncomingError, IncomingProcessing, IncomingReceivePolicy, IncomingScope,
+};
 use crate::{
     context::XmtpSharedContext,
     groups::{GroupError, MlsGroup},
@@ -216,7 +218,8 @@ fn read_topic<C: XmtpSharedContext>(context: &C, topic: &Topic, target: Cursor) 
     status
 }
 
-/// Sample each backend target once. Traffic after these targets cannot extend the call.
+/// Sample targets once and query missing receipt without first waiting for a live stream.
+/// Traffic after these targets cannot extend the call.
 pub async fn receive_through_current<C: XmtpSharedContext>(
     context: &C,
     topics: Vec<Topic>,
@@ -239,6 +242,7 @@ pub async fn receive_through_current_until<C: XmtpSharedContext>(
         targets,
         unavailable,
         None,
+        IncomingReceivePolicy::ImmediateQuery,
         deadline,
         &mut HashSet::new(),
     )
@@ -288,6 +292,7 @@ pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
         targets,
         unavailable,
         discovery,
+        IncomingReceivePolicy::ImmediateQuery,
         deadline,
         &mut groups,
     )
@@ -347,6 +352,7 @@ async fn capture_targets<C: XmtpSharedContext>(
 }
 
 /// Wait for all independent obligations before reporting blocked work.
+/// Prefer a healthy receiver for caller-supplied targets, with bounded Query fallback.
 pub async fn wait_through<C: XmtpSharedContext>(
     context: &C,
     targets: TopicCursor,
@@ -358,6 +364,7 @@ pub async fn wait_through<C: XmtpSharedContext>(
         targets,
         Vec::new(),
         None,
+        IncomingReceivePolicy::StreamFirst,
         deadline,
         &mut HashSet::new(),
     )
@@ -369,6 +376,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
     mut targets: TopicCursor,
     mut unavailable: Vec<BarrierTopic>,
     discovery: Option<WelcomeDiscovery>,
+    receive_policy: IncomingReceivePolicy,
     deadline: Instant,
     groups: &mut HashSet<GroupId>,
 ) -> Result<BarrierSnapshot, BarrierError> {
@@ -376,6 +384,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
     let lease = coordinator.acquire(IncomingScope::Barrier {
         targets: targets.clone(),
         deadline,
+        receive_policy,
     });
     loop {
         #[cfg(test)]
@@ -421,6 +430,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
                         lease.replace_scope(IncomingScope::Barrier {
                             targets: targets.clone(),
                             deadline,
+                            receive_policy,
                         });
                         // The prior snapshot did not include these obligations.
                         continue;

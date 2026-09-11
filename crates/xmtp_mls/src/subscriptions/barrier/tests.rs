@@ -156,6 +156,7 @@ async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups(
             target: welcome_target,
             consent_states: None,
         }),
+        IncomingReceivePolicy::ImmediateQuery,
         Instant::now() + TEST_TIMEOUT,
         &mut groups,
     )
@@ -222,6 +223,7 @@ async fn a_stalled_welcome_does_not_hold_known_group_processing() {
             target: Cursor(20),
             consent_states: None,
         }),
+        IncomingReceivePolicy::ImmediateQuery,
         Instant::now() + TEST_TIMEOUT,
         &mut groups,
     )

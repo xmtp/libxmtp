@@ -50,6 +50,7 @@ fn add_barrier_scope<C: XmtpSharedContext + 'static>(
         scope: IncomingScope::Barrier {
             targets: [(topic.clone(), target)].into(),
             deadline,
+            receive_policy: IncomingReceivePolicy::StreamFirst,
         },
     });
 }
@@ -205,6 +206,7 @@ async fn a_barrier_keeps_its_fixed_target_across_registration_and_target_replies
         scope: IncomingScope::Barrier {
             targets: [(topic.clone(), Cursor(60))].into(),
             deadline,
+            receive_policy: IncomingReceivePolicy::StreamFirst,
         },
     });
     controller.reconcile()?;
@@ -300,6 +302,35 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
     controller.registered([(topic.clone(), Cursor(20))].into());
     let started = controller.scopes[&1].receipt_wait_started;
     assert!(!controller.read_due(&topic, &key, started)?);
+
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::Barrier {
+            targets: [(topic.clone(), Cursor(20))].into(),
+            deadline,
+            receive_policy: IncomingReceivePolicy::ImmediateQuery,
+        },
+    });
+    controller.reconcile()?;
+    let query_started = controller.scopes[&2].receipt_wait_started;
+    assert!(
+        controller.read_due(&topic, &key, query_started)?,
+        "explicit sync must not wait for a send on the same healthy stream"
+    );
+    controller.start_read();
+    let result = controller.read.take().unwrap().await;
+    controller.read_finished(result);
+    assert_eq!(
+        controller.context.db().topic_progress(&key)?.received,
+        Cursor(0)
+    );
+    controller.command(Command::Release(2));
+    controller.reconcile()?;
+    assert!(
+        !controller.read_due(&topic, &key, query_started)?,
+        "releasing explicit sync must leave the send's original stream wait"
+    );
+
     controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
         OrderedEnvelopeBatch {
             topic: topic.clone(),
@@ -315,6 +346,15 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
     controller.scopes.get_mut(&1).unwrap().scope = IncomingScope::Topics(vec![topic.clone()]);
     assert!(!controller.read_due(&topic, &key, started + interval / 2)?);
     assert!(controller.read_due(&topic, &key, started + interval)?);
+    controller.command(Command::Acquire {
+        id: 3,
+        scope: IncomingScope::Barrier {
+            targets: [(topic.clone(), Cursor(20))].into(),
+            deadline,
+            receive_policy: IncomingReceivePolicy::ImmediateQuery,
+        },
+    });
+    controller.reconcile()?;
     controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
         OrderedEnvelopeBatch {
             topic: topic.clone(),
@@ -327,7 +367,7 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
     ))));
     assert!(
         !controller.read_due(&topic, &key, started + interval * 2)?,
-        "a caught-up healthy live stream must not poll the network"
+        "completed explicit sync and a caught-up healthy stream must not query again"
     );
 }
 
@@ -883,7 +923,6 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
                     ..Default::default()
                 },
             )),
-            ..Default::default()
         }),
     };
     let limits = client

@@ -31,7 +31,7 @@ pub struct StreamSettings {
     pub max_local_read_rows: u32,
     /// Maximum candidate bytes checked before loading message blobs.
     pub max_local_read_bytes: u64,
-    /// Bound on waiting for live receipt before unary catch-up is eligible.
+    /// Bound on stream-first receipt waits. Explicit sync queries without this wait.
     pub receiver_fallback_interval: Duration,
     /// Poll interval for cross-process progress and missed local wake events.
     pub active_database_poll_interval: Duration,

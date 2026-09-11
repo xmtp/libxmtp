@@ -721,7 +721,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    /// A fixed target owns its first receiver wait. Partial receipt does not restart it.
+    /// Explicit sync queries immediately. Stream-first targets keep one fixed receiver wait.
     fn read_due(
         &self,
         topic: &Topic,
@@ -740,11 +740,21 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let mut received = None;
         let suspended = self.live_suspended();
         for scope in self.scopes.values() {
-            let (target, deadline) = match &scope.scope {
-                IncomingScope::Barrier { targets, deadline } => {
-                    (self.barrier_receipt_target(topic, targets), Some(*deadline))
-                }
-                _ if !suspended => (scope.targets.get(topic).copied(), None),
+            let (target, deadline, receive_policy) = match &scope.scope {
+                IncomingScope::Barrier {
+                    targets,
+                    deadline,
+                    receive_policy,
+                } => (
+                    self.barrier_receipt_target(topic, targets),
+                    Some(*deadline),
+                    *receive_policy,
+                ),
+                _ if !suspended => (
+                    scope.targets.get(topic).copied(),
+                    None,
+                    IncomingReceivePolicy::StreamFirst,
+                ),
                 _ => continue,
             };
             let Some(target) = target else {
@@ -764,7 +774,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             unfinished = true;
             let wait_until = scope.receipt_wait_started + settings.receiver_fallback_interval;
-            if !covered
+            if receive_policy == IncomingReceivePolicy::ImmediateQuery
+                || !covered
                 || deadline.is_some_and(|deadline| wait_until >= deadline)
                 || now >= wait_until
             {

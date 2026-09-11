@@ -85,6 +85,15 @@ enum TransportMode {
     Bidi,
 }
 
+/// When a fixed-target operation may query beyond durable receipt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IncomingReceivePolicy {
+    /// Give a healthy receiver one bounded wait before using Query fallback.
+    StreamFirst,
+    /// Query immediately when receipt is below the target, even with a healthy receiver.
+    ImmediateQuery,
+}
+
 /// Network interest held by one reader or bounded sync run.
 #[derive(Clone, Debug)]
 pub enum IncomingScope {
@@ -99,6 +108,8 @@ pub enum IncomingScope {
         targets: TopicCursor,
         /// One absolute deadline, including target capture and processing.
         deadline: Instant,
+        /// This operation's preference does not restrict reads required by other operations.
+        receive_policy: IncomingReceivePolicy,
     },
     /// Includes the installation's welcome topic and every stored group.
     AllGroups,
