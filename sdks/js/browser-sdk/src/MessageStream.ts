@@ -119,7 +119,17 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
         } catch (error) {
           this.#options.onError?.(error as Error);
           if (this.#hasEnded()) break;
-          await this.#acknowledgePending();
+          try {
+            await this.#acknowledgePending();
+          } catch {
+            // The selection no longer covers this item: the scope or filter
+            // changed, the message was deleted, or consent moved. Checking
+            // ownership first would not help — that is a separate lock, so
+            // the acknowledgement can still lose the race. This item is being
+            // discarded either way, so a failure here only means it is no
+            // longer ours. The cursor is untouched and it stays replayable.
+            this.#pending = undefined;
+          }
           continue;
         }
         if (this.#hasEnded()) break;
