@@ -20,22 +20,19 @@ mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_send_message_opts;
 mod test_starting_membership_sequence_id;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_state_processes;
+mod test_state_writes;
 mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 
-use std::sync::Arc;
-
 use crate::groups::send_message_opts::SendMessageOpts;
-use chrono::DateTime;
-use openmls::prelude::MlsMessageIn;
 use prost::Message;
-use tls_codec::Deserialize;
 use xmtp_db::ConnectionExt;
 use xmtp_db::XmtpOpenMlsProviderRef;
-use xmtp_db::refresh_state::EntityKind;
 use xmtp_id::InboxOwner;
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, Topic};
 
 use super::group_permissions::PolicySet;
 use crate::context::XmtpSharedContext;
@@ -56,7 +53,6 @@ use crate::{
         build_mutable_metadata_extension_default, build_protected_metadata_extension,
         intents::{PermissionPolicyOption, PermissionUpdateType},
         members::{GroupMember, PermissionLevel},
-        mls_sync::GroupMessageProcessingError,
         validate_dm_group,
     },
     utils::test::FullXmtpClient,
@@ -85,6 +81,54 @@ use xmtp_id::associations::test_utils::WalletTestExt;
 use xmtp_mls_common::group_metadata::GroupMetadata;
 use xmtp_mls_common::group_mutable_metadata::{MessageDisappearingSettings, MetadataField};
 use xmtp_proto::xmtp::mls::message_contents::{EncodedContent, PlaintextEnvelope};
+
+#[track_caller]
+fn assert_blocked_obligation(
+    error: &crate::subscriptions::barrier::BarrierError,
+    topic: &Topic,
+    processed: Cursor,
+    code: &str,
+) -> crate::subscriptions::barrier::BarrierTopic {
+    use crate::subscriptions::barrier::{BarrierCause, BarrierError, BarrierFailure};
+    let BarrierError::Incomplete { reason, unfinished } = error;
+    assert_eq!(*reason, BarrierFailure::Blocked);
+    let [status] = unfinished.as_slice() else {
+        panic!("expected one blocked obligation, got {unfinished:?}");
+    };
+    assert_eq!(&status.topic, topic);
+    let target = status
+        .target
+        .expect("blocked work must have a fixed target");
+    assert!(status.received >= target);
+    assert_eq!(status.processed, processed);
+    assert!(target > processed);
+    assert!(!status.inactive);
+    assert!(matches!(&status.cause, Some(BarrierCause::Blocked(actual)) if actual == code));
+    status.clone()
+}
+
+#[track_caller]
+fn assert_version_sync_blocked(error: GroupError, topic: &Topic, processed: Cursor) {
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a blocked sync summary, got {error:?}");
+    };
+    let Some(GroupError::StreamBarrier(error)) = summary.other.as_deref() else {
+        panic!("expected the processing barrier cause, got {summary:?}");
+    };
+    let status = assert_blocked_obligation(error, topic, processed, "unsupported_protocol_version");
+    assert!(status.unresolved_welcomes.is_empty());
+}
+
+#[track_caller]
+fn assert_paused_sync(error: GroupError, expected_version: &str) {
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a paused sync summary, got {error:?}");
+    };
+    assert!(matches!(
+        summary.other.as_deref(),
+        Some(GroupError::GroupPausedUntilUpdate(version)) if version == expected_version
+    ));
+}
 
 async fn receive_group_invite(client: &FullXmtpClient) -> TestMlsGroup {
     client.sync_welcomes().await.unwrap();
@@ -302,6 +346,7 @@ async fn test_add_member_conflict() {
         .add_members(&[charlie.inbox_id()])
         .await
         .expect("failed to add charlie");
+    let added_authenticator = amal_group.epoch_authenticator().await.unwrap();
     tracing::info!("Adding charlie from bola");
     bola_group
         .add_members(&[charlie.inbox_id()])
@@ -309,7 +354,16 @@ async fn test_add_member_conflict() {
         .expect("bola's add should succeed in a no-op");
 
     let summary = amal_group.receive().await.unwrap();
-    assert!(summary.is_errored());
+    assert!(!summary.is_errored());
+    assert!(summary.errored.is_empty());
+    assert_eq!(
+        amal_group.epoch_authenticator().await.unwrap(),
+        added_authenticator
+    );
+    assert_eq!(
+        bola_group.epoch_authenticator().await.unwrap(),
+        added_authenticator
+    );
 
     // Check Amal's MLS group state.
     let amal_db = amal.context.db();
@@ -324,7 +378,7 @@ async fn test_add_member_conflict() {
     // Check Bola's MLS group state.
     let bola_db = bola.context.db();
     let bola_members_len = bola_group
-        .load_mls_group_with_lock(amal.context.mls_storage(), |mls_group| {
+        .load_mls_group_with_lock(bola.context.mls_storage(), |mls_group| {
             Ok(mls_group.members().count())
         })
         .unwrap();
@@ -368,50 +422,55 @@ async fn test_add_member_conflict() {
     assert!(matching_message.is_some());
 }
 
-#[cfg_attr(not(target_arch = "wasm32"), test)]
 #[cfg(not(target_arch = "wasm32"))]
-fn test_create_from_welcome_validation() {
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_create_from_welcome_validation() {
     use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
-    use xmtp_common::assert_logged;
-    xmtp_common::traced_test!(async {
-        tracing::info!("TEST");
-        tester!(alix);
-        tester!(bo);
+    tester!(alix);
+    tester!(bo);
 
-        let alix_group = alix.create_group(None, None).unwrap();
-        let provider = alix.context.mls_provider();
-        // Doctor the group membership
-        let mut mls_group = alix_group
-            .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
-                let mut existing_extensions = mls_group.extensions().clone();
-                let mut group_membership = GroupMembership::new();
-                group_membership.add("deadbeef".to_string(), 1);
-                existing_extensions
-                    .add_or_replace(build_group_membership_extension(&group_membership))
-                    .unwrap();
+    let alix_group = alix.create_group(None, None).unwrap();
+    let provider = alix.context.mls_provider();
+    // Doctor the group membership
+    let mut mls_group = alix_group
+        .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
+            let mut existing_extensions = mls_group.extensions().clone();
+            let mut group_membership = GroupMembership::new();
+            group_membership.add("deadbeef".to_string(), 1);
+            existing_extensions
+                .add_or_replace(build_group_membership_extension(&group_membership))
+                .unwrap();
 
-                mls_group
-                    .update_group_context_extensions(
-                        &provider,
-                        existing_extensions.clone(),
-                        &alix.identity().installation_keys,
-                    )
-                    .unwrap();
-                mls_group.merge_pending_commit(&provider).unwrap();
+            mls_group
+                .update_group_context_extensions(
+                    &provider,
+                    existing_extensions.clone(),
+                    &alix.identity().installation_keys,
+                )
+                .unwrap();
+            mls_group.merge_pending_commit(&provider).unwrap();
 
-                Ok(mls_group) // Return the updated group if necessary
-            })
-            .unwrap();
+            Ok(mls_group) // Return the updated group if necessary
+        })
+        .unwrap();
 
-        // Now add bo to the group
-        force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
+    // Now add bo to the group
+    force_add_member(&alix, &bo, &alix_group, &mut mls_group, &provider).await;
 
-        // Bo should not be able to actually read this group
-        bo.sync_welcomes().await.unwrap();
-        let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-        assert_eq!(groups.len(), 0);
-        assert_logged!("failed to create group from welcome", 1);
-    });
+    // Bo should not be able to actually read this group
+    bo.sync_welcomes().await.unwrap();
+    let groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
+    assert_eq!(groups.len(), 0);
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let db = bo.context.db();
+    let rejected = db.read_last_rejection(&topic)??;
+    assert_eq!(rejected.code, "invalid_welcome");
+    assert!(rejected.sequence_id > Cursor(0));
+    assert!(db.pending_envelope(&topic, rejected.sequence_id)?.is_none());
+    assert!(db.find_group(&alix_group.group_id)?.is_none());
 }
 
 #[xmtp_common::test]
@@ -1366,7 +1425,7 @@ async fn test_self_removal_simple() {
     );
 }
 
-#[xmtp_common::test(flavor = "current_thread")]
+#[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn test_membership_state_after_readd() {
     tester!(amal);
     tester!(bola);
@@ -1417,6 +1476,19 @@ async fn test_membership_state_after_readd() {
 
     // Amal syncs to send the add
     amal_group.sync().await.unwrap();
+
+    // Model an older Welcome published after the replacement Welcome.
+    // This fixture changes its stored ID; it does not delay network publication.
+    let delayed_welcome_sequence = i64::MAX;
+    let mut stored_group = bola.context.db().find_group(&amal_group.group_id)?.unwrap();
+    stored_group.sequence_id = Some(delayed_welcome_sequence);
+    assert_eq!(
+        bola.context
+            .db()
+            .insert_or_replace_group(stored_group)?
+            .sequence_id,
+        Some(delayed_welcome_sequence)
+    );
 
     // Bola syncs to receive the welcome message for being re-added
     bola.sync_welcomes().await.unwrap();
@@ -3394,96 +3466,146 @@ async fn test_dm_creation() {
     assert!(!is_bola_super_admin);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn process_messages_abort_on_retryable_error() {
-    tester!(alix);
-    tester!(bo);
+    use crate::groups::mls_sync::GroupHeadOutcome;
+    use xmtp_db::incoming_envelope::{IncomingRetry, QueryIncomingEnvelope, StreamTopic};
+    use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
-    let alix_group = alix.create_group(None, None).unwrap();
-
-    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
-
-    // Create two commits
-    alix_group
-        .update_group_name("foo".to_string())
-        .await
-        .unwrap();
-    alix_group
-        .update_group_name("bar".to_string())
-        .await
-        .unwrap();
-
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = receive_group_invite(&bo).await;
-    // Get the group messages before we lock the DB, simulating an error that happens
-    // in the middle of a sync instead of the beginning
-    let bo_messages = bo
+    bo_group.receive().await?;
+    let topic = StreamTopic::group(bo_group.group_id);
+    let before = bo.context.db().topic_progress(&topic)?;
+    let message_count = bo_group.find_messages(&MsgQueryArgs::default())?.len();
+    for text in [b"first".as_slice(), b"second".as_slice()] {
+        alix_group
+            .send_message(text, SendMessageOpts::default())
+            .await?;
+    }
+    let wire_topic = Topic::new_group_message(bo_group.group_id);
+    let envelopes = bo
         .context
         .api()
-        .query_group_messages(bo_group.group_id)
-        .await
-        .unwrap();
-
+        .query_all([(wire_topic.clone(), before.received)].into(), 100)
+        .await?;
+    assert_eq!(envelopes.len(), 2);
+    bo.mls_store().admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: wire_topic,
+            after: before.received,
+            envelopes,
+        },
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
+    )?;
     let db = bo.context.store().db();
-    db.raw_query(|c| {
-        c.batch_execute("BEGIN EXCLUSIVE").unwrap();
-        Ok::<_, diesel::result::Error>(())
-    })
-    .unwrap();
+    let received = db.topic_progress(&topic)?.received;
+    let crypto_before = bo.context.mls_storage().hash_all()?;
+    db.raw_query(|conn| {
+        conn.batch_execute(
+            "CREATE TRIGGER abort_pending_completion BEFORE DELETE ON incoming_envelopes \
+         BEGIN SELECT RAISE(FAIL, 'test completion failure'); END;",
+        )
+    })?;
+    assert!(matches!(
+        bo_group.process_pending_group_head(None)?,
+        GroupHeadOutcome::Waiting { blocked: false, .. }
+    ));
+    assert_eq!(db.topic_progress(&topic)?.processed, before.processed);
+    assert_eq!(db.pending_states_through(&topic, received)?.len(), 2);
+    assert_eq!(
+        bo_group.find_messages(&MsgQueryArgs::default())?.len(),
+        message_count
+    );
+    assert_eq!(bo.context.mls_storage().hash_all()?, crypto_before);
 
-    let process_result = bo_group.process_messages(bo_messages).await;
-    assert!(process_result.is_errored());
-    assert_eq!(process_result.errored.len(), 1);
-    assert!(process_result.errored.iter().any(|(_, err)| {
-        err.to_string()
-            .contains("cannot start a transaction within a transaction")
-    }));
+    db.raw_query(|conn| conn.batch_execute("DROP TRIGGER abort_pending_completion"))?;
+    let head = db.first_pending_envelope(&topic)?.unwrap();
+    db.set_incoming_retry(
+        &topic,
+        Cursor(head.sequence_id as u64),
+        &IncomingRetry {
+            retry_at_ns: 0,
+            blocked: false,
+            error_code: None,
+            retry_expires_at_ns: None,
+        },
+    )?;
+    for _ in 0..2 {
+        assert!(matches!(
+            bo_group.process_pending_group_head(None)?,
+            GroupHeadOutcome::Progress { result: Ok(_), .. }
+        ));
+    }
+    assert_eq!(db.topic_progress(&topic)?.processed, received);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+    assert_eq!(
+        bo_group.find_messages(&MsgQueryArgs::default())?.len(),
+        message_count + 2
+    );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn skip_already_processed_messages() {
-    tester!(alix);
-    tester!(bo);
+    use crate::groups::mls_sync::GroupHeadOutcome;
+    use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
+    use xmtp_proto::types::{OrderedEnvelopeBatch, Topic};
 
-    let alix_group = alix.create_group(None, None).unwrap();
-
-    alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
-
-    let alix_message = vec![1];
-    alix_group
-        .send_message(&alix_message, SendMessageOpts::default())
-        .await
-        .unwrap();
-    bo.sync_welcomes().await.unwrap();
-    let bo_groups = bo.find_groups(GroupQueryArgs::default()).unwrap();
-    let bo_group = bo_groups.first().unwrap();
-
-    let mut bo_messages_from_api = bo
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = receive_group_invite(&bo).await;
+    bo_group.receive().await?;
+    let topic = StreamTopic::group(bo_group.group_id);
+    let wire_topic = Topic::new_group_message(bo_group.group_id);
+    let limits = bo
         .context
-        .api()
-        .query_group_messages(bo_group.group_id)
-        .await
-        .unwrap();
-
-    let _process_result = bo_group
-        .process_messages(bo_messages_from_api.clone())
-        .await;
-    alix_group
-        .send_message(&alix_message, SendMessageOpts::default())
-        .await
-        .unwrap();
-
-    // get new, unprocessed messages
-    let new_message = bo
-        .mls_store()
-        .query_group_messages(bo_group.group_id)
-        .await
-        .unwrap();
-    bo_messages_from_api.extend(new_message);
-
-    let process_result = bo_group.process_messages(bo_messages_from_api).await;
-    assert_eq!(process_result.new_messages.len(), 3);
-    // We no longer error when the message is previously processed
-    assert_eq!(process_result.errored.len(), 0);
+        .incoming_runtime()
+        .policy()
+        .incoming_limits(topic.kind);
+    let initial_count = bo_group.find_messages(&MsgQueryArgs::default())?.len();
+    for expected_count in 1..=2 {
+        alix_group
+            .send_message(&[1], SendMessageOpts::default())
+            .await?;
+        let envelopes = bo
+            .context
+            .api()
+            .query_all([(wire_topic.clone(), Cursor(0))].into(), 100)
+            .await?;
+        let batch = OrderedEnvelopeBatch {
+            topic: wire_topic.clone(),
+            after: Cursor(0),
+            envelopes,
+        };
+        let admission = bo.mls_store().admit_incoming_batch(&batch, limits)?;
+        assert_eq!(admission.inserted, 1);
+        assert!(matches!(
+            bo_group.process_pending_group_head(None)?,
+            GroupHeadOutcome::Progress { result: Ok(_), .. }
+        ));
+        assert_eq!(
+            bo.mls_store()
+                .admit_incoming_batch(&batch, limits)?
+                .inserted,
+            0
+        );
+        let progress = bo.context.db().topic_progress(&topic)?;
+        assert_eq!(progress.received, admission.received);
+        assert_eq!(progress.processed, admission.received);
+        assert!(bo.context.db().first_pending_envelope(&topic)?.is_none());
+        assert_eq!(
+            bo_group.find_messages(&MsgQueryArgs::default())?.len(),
+            initial_count + expected_count
+        );
+    }
 }
 #[xmtp_common::test]
 async fn skip_already_processed_intents() {
@@ -3640,7 +3762,12 @@ async fn add_missing_installs_reentrancy() {
 
     // Now I am going to sync twice
     alix1_group.sync_with_conn().await.unwrap();
+    let settled_authenticator = alix1_group.epoch_authenticator().await.unwrap();
     alix1_group.sync_with_conn().await.unwrap();
+    assert_eq!(
+        alix1_group.epoch_authenticator().await.unwrap(),
+        settled_authenticator
+    );
 
     // Make sure that only one welcome was sent
     let alix2_welcomes = alix1
@@ -3651,17 +3778,34 @@ async fn add_missing_installs_reentrancy() {
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
-    // We expect two group messages to have been sent,
-    // but only the first is valid
-    let group_messages = alix1
-        .context
-        .api()
-        .query_group_messages(alix1_group.group_id)
-        .await
-        .unwrap();
-    assert_eq!(group_messages.len(), 2);
-
     let alix2_group = receive_group_invite(&alix2).await;
+    assert_eq!(
+        alix2_group.epoch_authenticator().await.unwrap(),
+        settled_authenticator
+    );
+    for group in [&alix1_group, &alix2_group] {
+        let installations = group
+            .load_mls_group_with_lock(group.context.mls_storage(), |mls_group| {
+                Ok(mls_group.members().count())
+            })
+            .unwrap();
+        assert_eq!(installations, 2);
+    }
+    assert!(
+        alix1
+            .db()
+            .find_group_intents(
+                alix1_group.group_id,
+                Some(vec![
+                    IntentState::ToPublish,
+                    IntentState::Published,
+                    IntentState::Error
+                ]),
+                None,
+            )
+            .unwrap()
+            .is_empty()
+    );
 
     // Send a message from alix1
     alix1_group
@@ -3691,35 +3835,6 @@ async fn add_missing_installs_reentrancy() {
         alix2_messages
             .iter()
             .any(|m| m.decrypted_message_bytes == "hi from alix1".as_bytes())
-    );
-}
-
-#[xmtp_common::test(flavor = "multi_thread")]
-async fn respect_allow_epoch_increment() {
-    tester!(client);
-
-    let group = client.create_group(None, None).unwrap();
-
-    tester!(_client_2);
-
-    // Sync the group to get the message adding client_2 published to the network
-    group.sync().await.unwrap();
-
-    // Retrieve the envelope for the commit from the network
-    let messages = client
-        .context
-        .api()
-        .query_group_messages(group.group_id)
-        .await
-        .unwrap();
-
-    let first_message = messages.first().unwrap();
-
-    let process_result = group.process_message(first_message, false).await;
-
-    assert_err!(
-        process_result,
-        GroupMessageProcessingError::EpochIncrementNotAllowed
     );
 }
 
@@ -4323,7 +4438,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
 }
 
 #[xmtp_common::test]
-async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
+async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
     let mut amal_version = VersionInfo::default();
     amal_version.test_update_version(
         increment_patch_version(amal_version.pkg_version())
@@ -4341,7 +4456,7 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
             .as_str(),
     );
     tester!(bo, version: bo_version);
-    tester!(caro);
+    tester!(caro, disable_workers);
 
     assert!(caro.version_info().pkg_version() != amal.version_info().pkg_version());
     assert!(bo.version_info().pkg_version() == amal.version_info().pkg_version());
@@ -4392,21 +4507,68 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
         .await
         .unwrap();
 
-    // Caro received the invite for the group
-    caro.sync_welcomes().await.unwrap();
-    let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
-    let caro_group = binding.first().unwrap();
-    assert!(caro_group.group_id == amal_group.group_id);
-
-    // Caro group is paused immediately after joining
-    let is_paused = caro_group.paused_for_version().unwrap().is_some();
-    assert!(is_paused);
-    let result = caro_group
-        .send_message("Hello from Caro".as_bytes(), SendMessageOpts::default())
+    // The unsupported Welcome must keep its keys and leave the group uninstalled.
+    let welcome = caro
+        .context
+        .api()
+        .query_welcome_messages(caro.context.installation_id())
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    let pending = crate::groups::welcome_sync::pending_welcome_for_test(&caro.context, &welcome)
+        .await
+        .unwrap();
+    let result = crate::groups::XmtpWelcome::builder()
+        .context(caro.context.clone())
+        .welcome(&welcome)
+        .pending(pending.clone())
+        .validator(crate::groups::InitialMembershipValidator::new(
+            caro.context.clone(),
+        ))
+        .process()
         .await;
-    assert!(matches!(result, Err(GroupError::GroupPausedUntilUpdate(_))));
+    assert!(matches!(
+        result,
+        Err(GroupError::UnsupportedWelcomeVersion(version))
+            if version == amal.version_info().pkg_version()
+    ));
+    assert!(
+        caro.find_groups(GroupQueryArgs::default())
+            .unwrap()
+            .is_empty()
+    );
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: caro.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let Err(GroupError::StreamBarrier(error)) = caro.sync_welcomes().await else {
+        panic!("the unsupported Welcome must remain blocked");
+    };
+    let status = assert_blocked_obligation(
+        &error,
+        &Topic::new_welcome_message(caro.context.installation_id()),
+        Cursor(0),
+        "welcome_blocked",
+    );
+    assert_eq!(status.unresolved_welcomes, vec![welcome.cursor]);
+    let retained = caro
+        .context
+        .db()
+        .pending_envelope(&db_topic, welcome.cursor)
+        .unwrap()
+        .unwrap();
+    assert!(retained.blocked);
+    assert_eq!(retained.envelope, pending.envelope);
+    assert!(
+        caro.context
+            .db()
+            .find_group(&amal_group.group_id)
+            .unwrap()
+            .is_none()
+    );
 
-    // Caro updates their client to the same version as amal and syncs to unpause the group
+    // Caro updates to the supported version and retries the same Welcome.
     let mut caro_version = caro.version_info().clone();
     caro_version.test_update_version(
         increment_patch_version(caro_version.pkg_version())
@@ -4414,13 +4576,46 @@ async fn test_client_on_old_version_pauses_after_joining_min_version_group() {
             .as_str(),
     );
 
-    let snapshot = Arc::new(caro.db_snapshot());
-    drop(caro);
-    tester!(caro, snapshot: snapshot, version: caro_version);
+    let installation_id = caro.context.installation_id();
+    let inbox_id = caro.inbox_id().to_string();
+    let caro = ClientBuilder::from_client(caro.client)
+        .version(caro_version)
+        .with_disable_workers(true)
+        .build()
+        .await
+        .unwrap();
+    assert_eq!(caro.context.installation_id(), installation_id);
+    assert_eq!(caro.inbox_id(), inbox_id);
+    assert_eq!(
+        caro.context
+            .db()
+            .pending_envelope(&db_topic, welcome.cursor)
+            .unwrap()
+            .unwrap()
+            .envelope,
+        pending.envelope,
+    );
+    caro.sync_welcomes().await.unwrap();
     let binding = caro.find_groups(GroupQueryArgs::default()).unwrap();
     let caro_group = binding.first().unwrap();
     assert!(caro_group.group_id == amal_group.group_id);
     caro_group.sync().await.unwrap();
+    assert!(
+        caro.context
+            .db()
+            .pending_envelope(&db_topic, welcome.cursor)
+            .unwrap()
+            .is_none()
+    );
+    let fresh_id = amal_group
+        .send_message(b"Hello after Caro upgrade", SendMessageOpts::default())
+        .await
+        .unwrap();
+    caro_group.sync().await.unwrap();
+    let fresh_messages = caro_group.find_messages(&MsgQueryArgs::default()).unwrap();
+    let fresh = fresh_messages.last().unwrap();
+    assert_eq!(fresh.id, fresh_id);
+    assert_eq!(fresh.decrypted_message_bytes, b"Hello after Caro upgrade");
 
     // Caro should now be able to send a message
     caro_group
@@ -4529,18 +4724,32 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     bo.sync_welcomes().await.unwrap();
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
     let bo_group = binding.first().unwrap();
+    let topic = Topic::new_group_message(bo_group.group_id);
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic).unwrap().processed;
+    let before = bo_group.epoch_authenticator().await.unwrap();
 
-    // If bo tries to send a message before syncing the group, we get a SyncFailedToWait error
+    // The send cannot publish or process through the unsupported version bump.
     let result = bo_group
         .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
         .await;
-    assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait(_))),
-        "Expected SyncFailedToWait error, got {:?}",
-        result
+    let Err(GroupError::SyncFailedToWait(summary)) = result else {
+        panic!("expected an unpublished blocked send, got {result:?}");
+    };
+    let Some(GroupError::StreamBarrier(error)) = summary.other.as_deref() else {
+        panic!("expected the unsupported version barrier, got {summary:?}");
+    };
+    assert_blocked_obligation(error, &topic, processed, "unsupported_protocol_version");
+    assert_eq!(bo_group.epoch_authenticator().await.unwrap(), before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic).unwrap().processed,
+        processed
     );
 
-    bo_group.sync().await.unwrap();
+    assert_paused_sync(
+        bo_group.sync().await.unwrap_err(),
+        amal.version_info().pkg_version(),
+    );
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
     let result = bo_group
@@ -4586,6 +4795,10 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .send_message("Hello from Bo".as_bytes(), SendMessageOpts::default())
         .await
         .unwrap();
+    let topic = Topic::new_group_message(bo_group.group_id);
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic).unwrap().processed;
+    let before = bo_group.epoch_authenticator().await.unwrap();
 
     // Amal sets new minimum version requirement
     amal_group
@@ -4594,21 +4807,72 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         .unwrap();
     amal_group.sync().await.unwrap();
 
-    // Bo's attempt to send message before syncing should now fail with SyncFailedToWait error
+    // The backend accepts Bo's send, but the unsupported prefix prevents confirmation.
+    let envelopes = amal
+        .context
+        .api()
+        .query_group_messages(amal_group.group_id)
+        .await
+        .unwrap();
+    let commit = envelopes.last().unwrap();
+    assert!(commit.is_commit());
+    let blocked_cursor = commit.cursor;
+    let predecessor = envelopes.iter().rev().nth(1).unwrap().cursor;
+    assert!(predecessor >= processed);
+
     let result = bo_group
         .send_message(
             "Second message from Bo".as_bytes(),
             SendMessageOpts::default(),
         )
         .await;
+    let Err(GroupError::PublishedButUnconfirmed {
+        intent_id,
+        cause: Some(error),
+    }) = result
+    else {
+        panic!("expected an accepted send with a blocked processing obligation, got {result:?}");
+    };
+    assert_blocked_obligation(&error, &topic, predecessor, "unsupported_protocol_version");
     assert!(
-        matches!(result, Err(GroupError::SyncFailedToWait(_))),
-        "Expected SyncFailedToWait error, got {:?}",
-        result
+        bo.context
+            .db()
+            .prepared_envelopes(intent_id)
+            .unwrap()
+            .is_some()
     );
+    assert_eq!(bo_group.epoch_authenticator().await.unwrap(), before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic).unwrap().processed,
+        predecessor
+    );
+    let pending = bo
+        .context
+        .db()
+        .first_pending_envelope(&db_topic)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.sequence_id as u64, blocked_cursor.0);
+    assert!(pending.blocked);
+    assert_eq!(
+        pending.error_code.as_deref(),
+        Some("unsupported_protocol_version")
+    );
+    if predecessor > processed {
+        let rejection = bo
+            .context
+            .db()
+            .read_last_rejection(&db_topic)
+            .unwrap()
+            .unwrap();
+        assert_eq!(rejection.sequence_id, predecessor);
+        assert_eq!(rejection.code, "mls_processing_failure");
+    }
 
-    // Bo syncs to get the version update
-    bo_group.sync().await.unwrap();
+    assert_paused_sync(
+        bo_group.sync().await.unwrap_err(),
+        amal.version_info().pkg_version(),
+    );
 
     // After syncing if we attempt to send message - should fail with GroupPausedUntilUpdate error
     let result = bo_group
@@ -4729,7 +4993,7 @@ async fn test_can_make_inbox_with_a_bad_key_package_an_admin() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[tokio::test(flavor = "multi_thread")]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
 
@@ -4754,6 +5018,19 @@ async fn test_when_processing_message_return_future_wrong_epoch_group_marked_pro
     let group_debug_info = group_b.debug_info().await.unwrap();
     assert!(group_debug_info.maybe_forked);
     assert!(!group_debug_info.fork_details.is_empty());
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(group_b.group_id);
+    let db = client_b.context.db();
+    let rejection = db.read_last_rejection(&topic)??;
+    assert_eq!(rejection.code, "mls_processing_failure");
+    assert_eq!(db.topic_progress(&topic)?.processed, rejection.sequence_id);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+
+    group_a
+        .send_message(&[2], SendMessageOpts::default())
+        .await?;
+    group_b.sync().await?;
+    assert_eq!(group_b.test_last_message_bytes().await??, vec![2]);
+    assert!(db.topic_progress(&topic)?.processed > rejection.sequence_id);
     client_b
         .context
         .db()
@@ -4848,154 +5125,139 @@ async fn can_stream_out_of_order_without_forking() {
     // Get reference to last message
     let last_message = messages.last().unwrap();
 
-    // This is the key line, because we pass in false for incrementing epoch/cursor (simulating streaming)
-    // This processing will not longer update the cursor, so we will not be forked
-    let increment_epoch = false;
-    let result = group_a.process_message(last_message, increment_epoch).await;
+    // A notification fetches and processes its complete ordered prefix.
+    let wire = group_a
+        .context
+        .api()
+        .query_all(
+            [(
+                xmtp_proto::types::Topic::new_group_message(group_a.group_id),
+                Cursor(0),
+            )]
+            .into(),
+            xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+        )
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|envelope| {
+            envelope
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.cursor.as_ref())
+                .is_some_and(|cursor| cursor.sequence_id == last_message.cursor.0)
+        })
+        .unwrap();
+    let result = group_a
+        .process_streamed_group_message(wire.encode_to_vec())
+        .await;
     assert!(result.is_ok());
 
-    // Now syncing a will update group_a group name since the cursor has NOT moved on past it
+    // All three installations must retain the intervening group-name commit.
     group_a.sync().await.unwrap();
     group_b.sync().await.unwrap();
     group_c.sync().await.unwrap();
 
     assert_eq!(group_b.epoch().await.unwrap(), 4);
     assert_eq!(group_c.epoch().await.unwrap(), 4);
-    // We pass on the last line because a's cursor has not moved past any commits, even though it processed
-    // messages out of order
     assert_eq!(group_a.epoch().await.unwrap(), 4);
 }
 
-#[xmtp_common::test(flavor = "multi_thread")]
+#[xmtp_common::test(unwrap_try = true)]
 async fn own_message_without_intent_skips_and_increments_cursor() {
-    let alice = ClientBuilder::new_test_client_vanilla(&generate_local_wallet()).await;
+    use crate::state_tx::state_write;
+    use xmtp_db::TransactionOutcome::Continue;
+    use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
 
-    // Create a group
-    let group = alice.create_group(None, None).unwrap();
-    group.add_members::<String>(&[]).await.unwrap();
+    tester!(alice, disable_workers);
+    let group = alice.create_group(None, None)?;
+    group.key_update().await?;
+    let topic = StreamTopic::group(group.group_id);
+    let before = alice.context.db().topic_progress(&topic)?;
+    let initial_count = group.find_messages(&MsgQueryArgs::default())?.len();
 
-    let storage = alice.context.mls_storage();
-
-    // Create a message authored by this client, then feed it back through
-    // processing as if the delivery service fanned it out and the matching
-    // published intent were already gone. The own sender ratchet is
-    // encryption-only, so the content is undecryptable — openmls surfaces
-    // this as `ProcessedMessageContent::OwnPrivateMessage` (older versions
-    // produced an opaque decryption error) and processing must skip the
-    // message while still advancing the cursor past it. The payload
-    // contents never matter here; decryption is skipped before parsing.
-    let invalid_payload_message = PlaintextEnvelope { content: None };
-    let invalid_message_bytes = invalid_payload_message.encode_to_vec();
-    let message = group
-        .load_mls_group_with_lock(storage, |mut mls_group| {
-            let m = mls_group
-                .create_message(
-                    &XmtpOpenMlsProviderRef::new(storage),
-                    &alice.context.identity().installation_keys,
-                    invalid_message_bytes.as_slice(),
-                )
-                .unwrap();
-            Ok(m)
+    // Create own ciphertext without a matching intent. Own ratchets cannot decrypt it.
+    let payload = PlaintextEnvelope { content: None }.encode_to_vec();
+    let message = state_write(alice.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
+            let message = mls_group.create_message(
+                &XmtpOpenMlsProviderRef::new(storage),
+                &alice.context.identity().installation_keys,
+                &payload,
+            )?;
+            Ok::<_, GroupError>(Continue(message.to_bytes()?))
         })
-        .unwrap();
-
-    // what the new cursor should be
-    // set cursor to the max u64 value -1_000 to ensure its higher than the cursor in the backend
-    // TODO: using u64::MAX here causes an implicit overflow for the i64 comparison (i think),
-    // making us actually return the message as already processed, since it loops back to 0,
-    // thereby less than group cursor. Thats why we take i64 max before casting to u64, rather than
-    // u64::MAX.
-    let new_cursor = Cursor((i64::MAX - 1_000) as u64);
-
-    let message = xmtp_proto::types::GroupMessage {
-        cursor: new_cursor,
-        created_ns: DateTime::from_timestamp_nanos(xmtp_common::time::now_ns()),
-        group_id: group.group_id,
-        message: MlsMessageIn::tls_deserialize(&mut message.to_bytes().unwrap().as_slice())
-            .unwrap()
-            .try_into_protocol_message()
-            .unwrap(),
-        sender_hmac: vec![],
-        should_push: false,
-        payload_hash: vec![],
-        envelope_hash: None,
-        expiry_ns: None,
-    };
-
-    let res = group.process_message(&message, true).await;
-    assert!(res.is_ok());
-    let last_cursor = alice
+    })?
+    .into_continued();
+    alice
         .context
-        .db()
-        .get_last_cursor(group.group_id, EntityKind::ApplicationMessage)
-        .unwrap();
-    assert_eq!(new_cursor, last_cursor);
+        .api()
+        .send_group_messages(group.prepare_group_messages(vec![(&message, false)])?)
+        .await?;
+    group.receive().await?;
+
+    let db = alice.context.db();
+    let rejected = db.read_last_rejection(&topic)?.unwrap();
+    assert_eq!(rejected.code, "own_message_without_attempt");
+    assert!(rejected.sequence_id > before.processed);
+    let progress = db.topic_progress(&topic)?;
+    assert_eq!(progress.processed, rejected.sequence_id);
+    assert_eq!(progress.received, rejected.sequence_id);
+    assert!(db.first_pending_envelope(&topic)?.is_none());
+    assert_eq!(
+        group.find_messages(&MsgQueryArgs::default())?.len(),
+        initial_count
+    );
+
+    group
+        .send_message(b"after terminal rejection", SendMessageOpts::default())
+        .await?;
+    assert!(db.topic_progress(&topic)?.processed > rejected.sequence_id);
+    assert_eq!(db.read_last_rejection(&topic)?, Some(rejected));
+    assert_eq!(
+        group.find_messages(&MsgQueryArgs::default())?.len(),
+        initial_count + 1
+    );
 }
 
-#[xmtp_common::test]
-async fn test_generate_commit_with_rollback() {
-    tester!(alix);
-    tester!(bo);
-    let group = alix.create_group(None, None).unwrap();
-    group.add_members(&[bo.inbox_id()]).await.unwrap();
-    group.sync().await.unwrap();
+#[xmtp_common::test(unwrap_try = true)]
+async fn prepared_commit_keeps_keys_without_advancing_epoch() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    group.sync().await?;
 
-    let provider = alix.context.mls_storage();
-    let hash = || provider.hash_all().map(hex::encode).unwrap();
-
-    let start_hash = hash();
-    tracing::info!("start_hash: {start_hash}");
-
-    let group_provider = group.context.mls_storage();
-    let installation_keys = group.context.identity().installation_keys.clone();
-    let mut in_generate_commit_before_hash = None;
-    let mut in_generate_commit_after_hash = None;
-    let in_generate_commit_before_hash_mut = &mut in_generate_commit_before_hash;
-    let in_generate_commit_after_hash_mut = &mut in_generate_commit_after_hash;
-    group
-        .load_mls_group_with_lock_async(async |mut mls_group| {
+    let storage = alix.context.mls_storage();
+    let start_hash = storage.hash_all()?;
+    let start_epoch = group.epoch().await?;
+    let installation_keys = &group.context.identity().installation_keys;
+    crate::state_tx::state_write(storage, |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
             let extensions = super::build_extensions_for_metadata_update(
-                &mls_group,
+                mls_group,
                 "foo".to_string(),
                 "bar".to_string(),
-            )
-            .unwrap();
-            // Simulate mutable metadata update
-            let (_, _, _) = super::mls_sync::generate_commit_with_rollback(
-                group_provider,
-                &mut mls_group,
+            )?;
+            let (_, staged_commit, epoch) = super::mls_sync::generate_prepared_commit(
+                storage,
+                mls_group,
                 |group, provider| {
-                    use xmtp_db::MlsProviderExt;
-                    *in_generate_commit_before_hash_mut =
-                        provider.key_store().hash_all().map(hex::encode).ok();
-                    let result = group.update_group_context_extensions(
-                        provider,
-                        extensions,
-                        &installation_keys,
-                    );
-                    *in_generate_commit_after_hash_mut =
-                        provider.key_store().hash_all().map(hex::encode).ok();
-                    result
+                    group.update_group_context_extensions(provider, extensions, installation_keys)
                 },
-            )
-            .unwrap();
-            Ok::<_, GroupError>(())
+            )?;
+            assert!(staged_commit.is_some());
+            assert_eq!(epoch, start_epoch);
+            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(()))
         })
-        .await
-        .unwrap();
-    let in_generate_commit_before_hash = in_generate_commit_before_hash.unwrap();
-    let in_generate_commit_after_hash = in_generate_commit_after_hash.unwrap();
-    tracing::info!("in_generate_commit_before_hash: {in_generate_commit_before_hash}");
-    tracing::info!("in_generate_commit_after_hash: {in_generate_commit_after_hash}");
-    let end_hash = hash();
-    tracing::info!("end_hash: {end_hash}");
-    assert_eq!(start_hash, end_hash);
-    assert_ne!(
-        in_generate_commit_before_hash,
-        in_generate_commit_after_hash
-    );
-    assert_eq!(start_hash, in_generate_commit_before_hash);
-    assert_ne!(end_hash, in_generate_commit_after_hash);
+    })?;
+
+    assert_ne!(start_hash, storage.hash_all()?);
+    group.with_group_snapshot(|mls_group| {
+        assert_eq!(mls_group.epoch().as_u64(), start_epoch);
+        assert!(mls_group.pending_commit().is_none());
+        Ok(())
+    })?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

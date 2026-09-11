@@ -243,7 +243,7 @@ async fn create_client_inner(
   let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_client(api_client)
+    .api_client_with_streams(api_client)
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)

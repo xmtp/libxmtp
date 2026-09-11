@@ -138,7 +138,7 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
 
 #[napi]
 pub struct Conversations {
-  inner_client: Arc<RustXmtpClient>,
+  pub(crate) inner_client: Arc<RustXmtpClient>,
 }
 
 #[napi]

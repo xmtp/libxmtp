@@ -18,11 +18,22 @@ use xmtp_db::prelude::*;
 #[derive(Default)]
 struct RecordingCallback {
     changes: Mutex<Vec<AppDataChange>>,
+    changed: tokio::sync::Notify,
 }
 
 impl RecordingCallback {
     fn recorded(&self) -> Vec<AppDataChange> {
         self.changes.lock().expect("lock poisoned").clone()
+    }
+
+    async fn wait_for_changes(&self, count: usize) {
+        xmtp_common::time::timeout(Duration::from_secs(30), async {
+            while self.recorded().len() < count {
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .expect("app-data notifications did not arrive");
     }
 }
 
@@ -30,6 +41,7 @@ impl RecordingCallback {
 impl AppDataChangeCallback for RecordingCallback {
     async fn on_app_data_changed(&self, change: AppDataChange) {
         self.changes.lock().expect("lock poisoned").push(change);
+        self.changed.notify_one();
     }
 }
 
@@ -58,6 +70,7 @@ async fn test_app_data_callback_fires_for_remote_change() {
     let bo_group = bo.group(&group.group_id)?;
     bo_group.sync().await?;
 
+    recorder.wait_for_changes(1).await;
     let recorded = recorder.recorded();
     assert_eq!(
         recorded.len(),
@@ -82,6 +95,7 @@ async fn test_app_data_callback_fires_for_local_change() {
     let group = alix.create_group(None, None)?;
     group.update_app_data("from alix".to_string(), None).await?;
 
+    recorder.wait_for_changes(1).await;
     let recorded = recorder.recorded();
     assert_eq!(
         recorded.len(),
@@ -119,9 +133,9 @@ async fn test_app_data_callback_silent_for_unrelated_changes() {
 
 /// Publishing a merged value straight back into the same group is the whole
 /// point of the callback, and it is also the one thing that can deadlock:
-/// `update_app_data` waits on `sync_until_intent_resolved`, which re-enters
-/// `sync_with_conn` and takes the per-group sync mutex. Dispatching while sync
-/// still held that mutex hung the caller forever.
+/// `update_app_data` waits for the same group's processor. The callback must run
+/// after the state transaction and outside the processor's event loop, so that
+/// the processor can apply the callback's new commit.
 ///
 /// Wrapped in a timeout so a regression fails the run instead of parking it
 /// until the CI job's own limit.
@@ -134,6 +148,7 @@ async fn test_callback_can_publish_back_into_the_same_group() {
     struct RepublishingCallback {
         group: OnceLock<TestMlsGroup>,
         published: Mutex<Vec<String>>,
+        completed: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     }
 
     #[xmtp_common::async_trait]
@@ -149,10 +164,17 @@ async fn test_callback_can_publish_back_into_the_same_group() {
                 .await
                 .expect("republish from callback");
             self.published.lock().expect("lock poisoned").push(merged);
+            if let Some(completed) = self.completed.lock().expect("lock poisoned").take() {
+                completed.send(()).expect("test awaits callback completion");
+            }
         }
     }
 
-    let callback = Arc::new(RepublishingCallback::default());
+    let (completed, completion) = tokio::sync::oneshot::channel();
+    let callback = Arc::new(RepublishingCallback {
+        completed: Mutex::new(Some(completed)),
+        ..Default::default()
+    });
     let callbacks = UnstableChangeCallbacks {
         app_data: Some(callback.clone() as Arc<dyn AppDataChangeCallback>),
         ..Default::default()
@@ -176,9 +198,15 @@ async fn test_callback_can_publish_back_into_the_same_group() {
         .update_app_data("from alix".to_string(), None)
         .await?;
 
-    xmtp_common::time::timeout(std::time::Duration::from_secs(30), bo_group.sync())
-        .await
-        .expect("sync deadlocked: the callback was dispatched while sync held the group mutex")?;
+    xmtp_common::time::timeout(Duration::from_secs(30), async {
+        bo_group.sync().await.expect("sync remote app_data change");
+        // Sync can finish before the callback's reentrant write completes.
+        completion
+            .await
+            .expect("callback completion channel closed");
+    })
+    .await
+    .expect("callback did not complete: reentrant publication may have deadlocked");
 
     assert_eq!(
         callback.published.lock().expect("lock poisoned").as_slice(),
@@ -235,6 +263,7 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
     alix_group.sync().await?;
     alix_group.sync().await?;
 
+    recorder.wait_for_changes(3).await;
     let values: Vec<_> = recorder
         .recorded()
         .into_iter()
@@ -310,6 +339,7 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
         Some(IntentState::Superseded),
         "an abandoned guarded intent must be Superseded, not Processed"
     );
+    recorder.wait_for_changes(2).await;
     let values: Vec<_> = recorder
         .recorded()
         .into_iter()
@@ -397,6 +427,7 @@ const WEDGE: &str = "wedge";
 struct WedgingCallback {
     entered: Mutex<Vec<String>>,
     returned: Mutex<Vec<String>>,
+    changed: tokio::sync::Notify,
 }
 
 impl WedgingCallback {
@@ -406,6 +437,16 @@ impl WedgingCallback {
 
     fn returned(&self) -> Vec<String> {
         self.returned.lock().expect("lock poisoned").clone()
+    }
+
+    async fn wait_for_counts(&self, entered: usize, returned: usize) {
+        xmtp_common::time::timeout(Duration::from_secs(30), async {
+            while self.entered().len() < entered || self.returned().len() < returned {
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .expect("callback dispatch did not reach the expected state");
     }
 
     /// Drop whatever arrived while the group was being set up, so the
@@ -424,10 +465,12 @@ impl AppDataChangeCallback for WedgingCallback {
             .lock()
             .expect("lock poisoned")
             .push(value.clone());
+        self.changed.notify_one();
         if value == WEDGE {
             futures::future::pending::<()>().await;
         }
         self.returned.lock().expect("lock poisoned").push(value);
+        self.changed.notify_one();
     }
 }
 
@@ -463,6 +506,7 @@ async fn test_wedged_callback_does_not_stall_sync_forever() {
         .await
         .expect("sync never returned: the wedged callback was not abandoned")?;
 
+    callback.wait_for_counts(1, 0).await;
     assert_eq!(
         callback.entered(),
         [WEDGE.to_string()],
@@ -482,6 +526,7 @@ async fn test_wedged_callback_does_not_stall_sync_forever() {
         .update_app_data("after".to_string(), None)
         .await?;
     bo_group.sync().await?;
+    callback.wait_for_counts(2, 1).await;
     assert_eq!(
         callback.returned(),
         ["after".to_string()],

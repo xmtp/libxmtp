@@ -98,10 +98,9 @@ async fn deliveries_demux_by_topic() {
         group_msg(2, b"g2"),
         group_msg(3, b"g1"),
     );
-    let unroutable = GroupMessage::default();
     let w = welcome_msg(9, b"i1");
     server.send(messages(
-        vec![m1.clone(), unroutable, m2.clone(), m3.clone()],
+        vec![m1.clone(), m2.clone(), m3.clone()],
         vec![w.clone()],
     ));
 

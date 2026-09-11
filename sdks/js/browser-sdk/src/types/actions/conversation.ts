@@ -120,15 +120,6 @@ export type ConversationAction =
       };
     }
   | {
-      action: "conversation.stream";
-      id: string;
-      result: undefined;
-      data: {
-        groupId: string;
-        streamId: string;
-      };
-    }
-  | {
       action: "conversation.pausedForVersion";
       id: string;
       result: string | undefined;

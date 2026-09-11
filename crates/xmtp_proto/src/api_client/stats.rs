@@ -8,7 +8,6 @@ pub struct ApiStats {
     pub publish: Arc<EndpointStats>,
     pub query: Arc<EndpointStats>,
     pub query_newest: Arc<EndpointStats>,
-    pub get: Arc<EndpointStats>,
     pub subscribe: Arc<EndpointStats>,
     pub subscribe_static: Arc<EndpointStats>,
 }
@@ -18,7 +17,6 @@ impl ApiStats {
         self.publish.clear();
         self.query.clear();
         self.query_newest.clear();
-        self.get.clear();
         self.subscribe.clear();
         self.subscribe_static.clear();
     }

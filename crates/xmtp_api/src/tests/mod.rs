@@ -21,6 +21,7 @@ use xmtp_proto::{
     xmtp::identity::associations::IdentifierKind,
 };
 
+mod incoming;
 mod integration;
 mod limits;
 
@@ -112,7 +113,7 @@ async fn publish_retries_identical_canonical_bytes_and_returns_metadata() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn publish_hash_mismatch_is_terminal() {
+async fn publish_preserves_the_backend_hash_without_recomputing_it() {
     let mut mock = MockBackendClient::new();
     mock.expect_publish().times(1).returning(|request| {
         let mut response = published(request);
@@ -121,12 +122,15 @@ async fn publish_hash_mismatch_is_terminal() {
         });
         Ok(response)
     });
-    let error = wrapper(mock)
+    let response = wrapper(mock)
         .publish_units(vec![PublishUnit::single(welcome(1))?])
-        .await
-        .unwrap_err();
-    assert!(matches!(error, ApiError::HashMismatch));
-    assert!(!error.is_retryable());
+        .await?;
+    assert_eq!(
+        response[0].message_hash,
+        Some(wire::MessageHash {
+            hash: Some(wire::message_hash::Hash::Sha256(vec![0; 32])),
+        })
+    );
 }
 
 fn size_status(code: tonic::Code) -> ApiClientError {
@@ -493,13 +497,16 @@ async fn aborted_identity_publish_returns_conflict_without_retry() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn get_does_not_retry_not_found() {
+async fn newest_does_not_retry_not_found() {
     let mut mock = MockBackendClient::new();
-    mock.expect_get().times(1).returning(|request| {
-        assert_eq!(request.sequence_id, 23);
+    mock.expect_query_newest().times(1).returning(|request| {
+        assert!(!request.include_full_envelope);
         Err(status(tonic::Code::NotFound))
     });
-    let error = wrapper(mock).get_envelope(23).await.unwrap_err();
+    let error = wrapper(mock)
+        .newest_topic_cursors(vec![Topic::new_group_message(GROUP_ID)])
+        .await
+        .unwrap_err();
     assert_eq!(grpc_status(&error).unwrap().code(), tonic::Code::NotFound);
 }
 

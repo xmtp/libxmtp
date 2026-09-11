@@ -1,10 +1,13 @@
 use crate::api::IsConnectedCheck;
 pub use crate::backend_v1::{
-    GetInboxIdsRequest, GetInboxIdsResponse, GetRequest, PublishRequest, PublishResponse,
-    QueryNewestRequest, QueryNewestResponse, QueryRequest, QueryResponse, ServerEnvelope,
+    GetInboxIdsRequest, GetInboxIdsResponse, PublishRequest, PublishResponse, QueryNewestRequest,
+    QueryNewestResponse, QueryRequest, QueryResponse, ServerEnvelope,
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
-use crate::types::{GroupId, GroupMessage, InstallationId, TopicCursor, WelcomeMessage};
+use crate::types::{
+    GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
+    InstallationId, TopicCursor, WelcomeMessage,
+};
 use futures::Stream;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -24,6 +27,9 @@ xmtp_common::if_test! {
 pub type BoxedXmtpApi<Error> = Box<dyn BoxableXmtpApi<Error>>;
 /// A type-erased version of the Xntp Api in a [`Arc`]
 pub type ArcedXmtpApi<Error> = Arc<dyn BoxableXmtpApi<Error>>;
+
+/// Owned transport events. Durable receipt remains the caller's responsibility.
+pub type BoxedIncomingS<Err> = xmtp_common::BoxDynStream<'static, Result<IncomingEvent, Err>>;
 
 xmtp_common::if_native! {
     pub type BoxedGroupS<Err> = Pin<Box<dyn Stream<Item = Result<GroupMessage, Err>> + Send>>;
@@ -71,7 +77,7 @@ where
 
 impl<T> XmtpApi for T where T: XmtpBackendClient + ?Sized {}
 
-/// The six unary RPCs of the backend API. Callers own retries and chunking.
+/// The five unary RPCs of the backend API. Callers own retries and chunking.
 #[xmtp_common::async_trait]
 pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
@@ -81,7 +87,6 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
         &self,
         request: QueryNewestRequest,
     ) -> Result<QueryNewestResponse, Self::Error>;
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error>;
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -101,6 +106,14 @@ pub trait XmtpMlsStreams: MaybeSend + MaybeSync {
     type WelcomeMessageStream: Stream<Item = Result<WelcomeMessage, Self::Error>> + MaybeSend;
 
     type Error: RetryableError + 'static;
+
+    /// Subscribe after committed receipt positions without decoding MLS payloads.
+    /// Acknowledge new positions only after the raw envelopes commit to storage.
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: IncomingBatchLimits,
+    ) -> Result<IncomingSubscription<Self::Error>, Self::Error>;
 
     async fn subscribe_group_messages(
         &self,

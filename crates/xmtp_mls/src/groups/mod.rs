@@ -32,14 +32,17 @@ use self::{
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
     },
 };
+#[cfg(test)]
+use crate::GroupCommitLock;
+use crate::context::XmtpSharedContext;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
 use crate::messages::enrichment::EnrichMessageError;
+use crate::state_tx::state_write;
 use crate::subscriptions::SyncWorkerEvent;
-use crate::{GroupCommitLock, context::XmtpSharedContext};
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
 use crate::{
     groups::send_message_opts::SendMessageOpts,
@@ -89,6 +92,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};
+use xmtp_db::{TransactionOutcome, TransactionOutcome::Continue, XmtpOpenMlsProviderRef};
 use xmtp_db::{
     XmtpMlsStorageProvider,
     remote_commit_log::{RemoteCommitLog, RemoteCommitLogOrder},
@@ -128,6 +132,7 @@ const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
 const MAX_GROUP_NAME_LENGTH: usize = 100;
 const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
 const MAX_APP_DATA_LENGTH: usize = 8192;
+const DEFAULT_IDEMPOTENCY_KEY_BYTES: usize = 16;
 
 /// An LibXMTP MlsGroup
 /// _NOTE:_ The Eq implementation compares [`GroupId`], so a dm group with the same identity will be
@@ -139,6 +144,7 @@ pub struct MlsGroup<Context> {
     pub conversation_type: ConversationType,
     pub created_at_ns: i64,
     pub context: Context,
+    #[cfg(test)]
     mls_commit_lock: Arc<GroupCommitLock>,
     mutex: Arc<Mutex<()>>,
 }
@@ -192,6 +198,7 @@ impl<Context: XmtpSharedContext> Clone for MlsGroup<Context> {
             created_at_ns: self.created_at_ns,
             context: self.context.clone(),
             mutex: self.mutex.clone(),
+            #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock.clone(),
         }
     }
@@ -344,6 +351,7 @@ impl<Context: Clone> From<MlsGroup<&Context>> for MlsGroup<Context> {
             group_id: group.group_id,
             dm_id: group.dm_id,
             created_at_ns: group.created_at_ns,
+            #[cfg(test)]
             mls_commit_lock: group.mls_commit_lock,
             mutex: group.mutex,
             conversation_type: group.conversation_type,
@@ -502,11 +510,25 @@ where
             created_at_ns,
             mutex: mutexes.get_mutex(group_id),
             context: context.clone(),
+            #[cfg(test)]
             mls_commit_lock: Arc::clone(context.mls_commit_lock()),
         }
     }
 
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
+    /// Read a consistent MLS snapshot. Only immutable results leave the transaction.
+    pub(crate) fn with_group_snapshot<R>(
+        &self,
+        operation: impl FnOnce(&OpenMlsGroup) -> Result<R, GroupError>,
+    ) -> Result<R, GroupError> {
+        state_write(self.context.mls_storage(), |tx| {
+            tx.with_group(self.group_id, |group, _| operation(group))
+                .map(Continue)
+        })
+        .map(TransactionOutcome::into_continued)
+    }
+
+    // Test fixtures can deliberately retain an MLS object to construct stale state.
+    #[cfg(test)]
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn load_mls_group_with_lock<F, R>(
         &self,
@@ -531,7 +553,8 @@ where
         operation(mls_group)
     }
 
-    // Load the stored OpenMLS group from the OpenMLS provider's keystore
+    // Test fixtures can deliberately retain an MLS object across a network wait.
+    #[cfg(test)]
     #[tracing::instrument(level = "trace", skip(operation))]
     pub(crate) async fn load_mls_group_with_lock_async<R, E>(
         &self,
@@ -568,28 +591,29 @@ where
         &self,
         mls_group: &OpenMlsGroup,
     ) -> Result<bool, GroupError> {
-        // The standard MLS Capabilities extension advertises support
-        // for the `AppDataDictionary` extension type. A leaf that lists
-        // it can participate in a migrated group; a leaf that doesn't
-        // can't. This replaces the XMTP-specific PROPOSAL_SUPPORT
-        // extension we used to advertise in parallel.
-        let extension_type = ExtensionType::AppDataDictionary;
+        let (supported, installation_ids) = self.proposal_support_snapshot(mls_group);
+        self.published_members_support_proposals(supported, installation_ids)
+            .await
+    }
 
-        // Check leaf nodes in the group first (fast path).
-        // If all leaf nodes advertise support, we're done — no network call needed.
-        if mls_group.check_extension_support(&[extension_type]).is_ok() {
-            return Ok(true);
-        }
-
-        // Leaf nodes can be stale (they aren't updated after the first message),
-        // so fall back to checking the latest published key packages from the network.
-        let installation_ids: Vec<Vec<u8>> = mls_group
+    fn proposal_support_snapshot(&self, group: &OpenMlsGroup) -> (bool, Vec<Vec<u8>>) {
+        let supported = group
+            .check_extension_support(&[ExtensionType::AppDataDictionary])
+            .is_ok();
+        let installation_ids = group
             .members()
             .map(|member| member.signature_key)
             .filter(|id| id.as_slice() != self.context.installation_id().as_slice())
             .collect();
+        (supported, installation_ids)
+    }
 
-        if installation_ids.is_empty() {
+    async fn published_members_support_proposals(
+        &self,
+        supported: bool,
+        installation_ids: Vec<Vec<u8>>,
+    ) -> Result<bool, GroupError> {
+        if supported || installation_ids.is_empty() {
             return Ok(true);
         }
 
@@ -602,7 +626,10 @@ where
             match result {
                 Ok(verified_kp) => {
                     let capabilities = verified_kp.inner.leaf_node().capabilities();
-                    if !capabilities.extensions().contains(&extension_type) {
+                    if !capabilities
+                        .extensions()
+                        .contains(&ExtensionType::AppDataDictionary)
+                    {
                         return Ok(false);
                     }
                 }
@@ -613,6 +640,23 @@ where
         }
 
         Ok(true)
+    }
+
+    /// Check published capabilities using immutable member IDs from one snapshot.
+    async fn ensure_members_support_proposals(&self) -> Result<(), GroupError> {
+        let (supported, installation_ids) =
+            self.with_group_snapshot(|group| Ok(self.proposal_support_snapshot(group)))?;
+        if self
+            .published_members_support_proposals(supported, installation_ids)
+            .await?
+        {
+            Ok(())
+        } else {
+            Err(GroupError::ProposalsNotSupported(
+                "Cannot enable proposals: not all members support the proposal extension"
+                    .to_string(),
+            ))
+        }
     }
 
     /// Snapshot this group's membership capabilities: the extension types in
@@ -641,17 +685,15 @@ where
         // (below) is read in a separate lock acquisition, so this is a
         // best-effort snapshot rather than a single atomic view — fine for a
         // debug surface.
-        let context_extensions = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                Ok::<_, GroupError>(
-                    mls_group
-                        .extensions()
-                        .iter()
-                        .map(|ext| MlsExtensionType::from(ext.extension_type()))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .await?;
+        let context_extensions = self.with_group_snapshot(|mls_group| {
+            Ok::<_, GroupError>(
+                mls_group
+                    .extensions()
+                    .iter()
+                    .map(|ext| MlsExtensionType::from(ext.extension_type()))
+                    .collect::<Vec<_>>(),
+            )
+        })?;
 
         let members = self.members().await?;
         let own_installation_id = self.context.installation_id();
@@ -766,9 +808,7 @@ where
     /// instead of taking a caller-held `OpenMlsGroup`. The convenience
     /// shape bindings need for a plain "is this group migrated?" read.
     pub fn is_proposals_enabled(&self) -> Result<bool, GroupError> {
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(self.proposals_enabled(&mls_group))
-        })
+        self.with_group_snapshot(|mls_group| Ok(self.proposals_enabled(mls_group)))
     }
 
     /// Enable proposals on this group (proposal-by-reference flow).
@@ -828,10 +868,9 @@ where
         let result = self.enable_proposals_inner(options).await;
         if let Err(ref err) = result {
             let migrated_anyway = self
-                .load_mls_group_with_lock_async(async |mls_group| {
-                    Ok::<bool, GroupError>(self.proposals_enabled(&mls_group))
+                .with_group_snapshot(|mls_group| {
+                    Ok::<bool, GroupError>(self.proposals_enabled(mls_group))
                 })
-                .await
                 .unwrap_or_else(|check_err| {
                     tracing::warn!(
                         inbox_id = self.context.inbox_id(),
@@ -945,14 +984,11 @@ where
             min_version = min_version.as_str(),
             force
         );
+        if !force {
+            self.ensure_members_support_proposals().await?;
+        }
         let (already_migrated, needs_min_version_bump) = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                if !force && !self.all_members_support_proposals(&mls_group).await? {
-                    return Err(GroupError::ProposalsNotSupported(
-                        "Cannot enable proposals: not all members support the proposal extension"
-                            .to_string(),
-                    ));
-                }
+            .with_group_snapshot(|mls_group| {
                 // Idempotency: re-calling enable_proposals on an
                 // already-migrated group is a no-op success.
                 // The footgun clamp below MUST run after this
@@ -960,7 +996,7 @@ where
                 // forward-looking constant in idempotent retry code
                 // would error post-migration even when the floor was
                 // already set by the original call.
-                if self.proposals_enabled(&mls_group) {
+                if self.proposals_enabled(mls_group) {
                     return Ok::<(bool, bool), GroupError>((true, false));
                 }
                 // Footgun guard: a caller setting min_version above
@@ -1008,7 +1044,7 @@ where
                 }
                 let metadata =
                     xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata(
-                        &mls_group,
+                        mls_group,
                     )
                     .ok();
                 let current = metadata.and_then(|m| Self::min_protocol_version_from_extensions(&m));
@@ -1035,8 +1071,7 @@ where
                     },
                 };
                 Ok::<(bool, bool), GroupError>((false, needs_bump))
-            })
-            .await?;
+            })?;
 
         if already_migrated {
             log_event!(
@@ -1087,50 +1122,45 @@ where
         // disabled the capability check there, honor that here too so
         // a freshly-joined member can't re-block the migration mid-
         // flight.
-        let new_extensions = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                if !force && !self.all_members_support_proposals(&mls_group).await? {
-                    return Err(GroupError::ProposalsNotSupported(
-                        "Cannot enable proposals: not all members support the proposal extension"
-                            .to_string(),
-                    ));
-                }
-                // Re-check `proposals_enabled` inside the lock: a
-                // concurrent migrator may have completed the migration
-                // between the first idempotency check and this second
-                // lock acquisition. Returning `None` here lets the
-                // outer code skip queuing a redundant bootstrap intent
-                // — preserves the idempotency contract documented at
-                // the top of `enable_proposals_inner`.
-                if self.proposals_enabled(&mls_group) {
-                    return Ok::<Option<Extensions<GroupContext>>, GroupError>(None);
-                }
-                let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
+        if !force {
+            self.ensure_members_support_proposals().await?;
+        }
+        let new_extensions = self.with_group_snapshot(|mls_group| {
+            // Re-check `proposals_enabled` inside the lock: a
+            // concurrent migrator may have completed the migration
+            // between the first idempotency check and this second
+            // lock acquisition. Returning `None` here lets the
+            // outer code skip queuing a redundant bootstrap intent
+            // — preserves the idempotency contract documented at
+            // the top of `enable_proposals_inner`.
+            if self.proposals_enabled(mls_group) {
+                return Ok::<Option<Extensions<GroupContext>>, GroupError>(None);
+            }
+            let mut extensions: Extensions<GroupContext> = mls_group.extensions().clone();
 
-                // 1. Remove the four legacy XMTP extensions. The
-                //    bootstrap commit's job is to eliminate them so
-                //    the dict becomes the sole source of truth.
-                //    The bundled `AppDataUpdate(COMPONENT_REGISTRY)`
-                //    proposal triggers openmls to add the standard
-                //    `AppDataDictionary` group-context extension when
-                //    the commit applies — that extension's presence
-                //    (plus the registry entry) IS the migrated marker.
-                //    No separate XMTP-flavored marker is needed.
-                extensions.remove(ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID));
-                extensions.remove(ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID));
-                extensions.remove(ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID));
-                extensions.remove(ExtensionType::ImmutableMetadata);
+            // 1. Remove the four legacy XMTP extensions. The
+            //    bootstrap commit's job is to eliminate them so
+            //    the dict becomes the sole source of truth.
+            //    The bundled `AppDataUpdate(COMPONENT_REGISTRY)`
+            //    proposal triggers openmls to add the standard
+            //    `AppDataDictionary` group-context extension when
+            //    the commit applies — that extension's presence
+            //    (plus the registry entry) IS the migrated marker.
+            //    No separate XMTP-flavored marker is needed.
+            extensions.remove(ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID));
+            extensions.remove(ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID));
+            extensions.remove(ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID));
+            extensions.remove(ExtensionType::ImmutableMetadata);
 
-                // 2. Update RequiredCapabilities: require
-                //    `AppDataDictionary` (the standard extension that
-                //    carries the dict) and drop the four legacy
-                //    extension types so receivers don't reject the
-                //    commit for missing required extensions.
-                update_required_capabilities_for_bootstrap(&mut extensions)?;
+            // 2. Update RequiredCapabilities: require
+            //    `AppDataDictionary` (the standard extension that
+            //    carries the dict) and drop the four legacy
+            //    extension types so receivers don't reject the
+            //    commit for missing required extensions.
+            update_required_capabilities_for_bootstrap(&mut extensions)?;
 
-                Ok(Some(extensions))
-            })
-            .await?;
+            Ok(Some(extensions))
+        })?;
 
         // Concurrent migrator won the race between the two lock
         // acquisitions — group is already migrated, no bootstrap
@@ -1153,11 +1183,9 @@ where
 
         self.sync_until_intent_resolved(bootstrap_intent.id).await?;
 
-        let enabled = self
-            .load_mls_group_with_lock_async(async |mls_group| {
-                Ok::<bool, GroupError>(self.proposals_enabled(&mls_group))
-            })
-            .await?;
+        let enabled = self.with_group_snapshot(|mls_group| {
+            Ok::<bool, GroupError>(self.proposals_enabled(mls_group))
+        })?;
 
         if !enabled {
             return Err(GroupError::ProposalsNotSupported(
@@ -1262,44 +1290,56 @@ where
             mutable_permissions,
         )?;
 
-        let provider = context.mls_provider();
-        let mls_group = if let Some(existing_group_id) = existing_group_id {
-            // TODO: For groups restored from backup, in order to support queries on metadata such as
-            // the group title and description, a stubbed OpenMLS group is created, and later overwritten
-            // when a welcome is received.
-            OpenMlsGroup::from_backup_stub_logged(
-                &provider,
-                context.identity(),
-                &group_config,
-                GroupId::try_from(existing_group_id)?,
-            )?
-        } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
-        };
+        state_write(context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            if let Some(existing_group_id) = existing_group_id {
+                let group_id = GroupId::try_from(existing_group_id)?;
+                if let Some(existing) = db.find_group(&group_id)? {
+                    return Ok(Continue(existing));
+                }
+            }
+            let provider = XmtpOpenMlsProviderRef::new(&storage);
+            let mls_group = if let Some(existing_group_id) = existing_group_id {
+                // TODO: For groups restored from backup, in order to support queries on metadata such as
+                // the group title and description, a stubbed OpenMLS group is created, and later overwritten
+                // when a welcome is received.
+                OpenMlsGroup::from_backup_stub_logged(
+                    &provider,
+                    context.identity(),
+                    &group_config,
+                    GroupId::try_from(existing_group_id)?,
+                )?
+            } else {
+                OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+            };
 
-        let group_id: GroupId = mls_group.group_id().try_into()?;
-        // If not an existing group, the creator is a super admin and should publish the commit log
-        // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
-        let should_publish_commit_log = existing_group_id.is_none();
+            let group_id: GroupId = mls_group.group_id().try_into()?;
+            // If not an existing group, the creator is a super admin and should publish the commit log
+            // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
+            let should_publish_commit_log = existing_group_id.is_none();
 
-        let stored_group = StoredGroup::builder()
-            .id(group_id)
-            .created_at_ns(now_ns())
-            .membership_state(membership_state)
-            .conversation_type(conversation_type)
-            .added_by_inbox_id(context.inbox_id().to_string())
-            .message_disappear_from_ns(
-                opts.message_disappearing_settings
-                    .as_ref()
-                    .map(|m| m.from_ns),
-            )
-            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
-            .should_publish_commit_log(should_publish_commit_log)
-            .build()?;
+            let stored_group = StoredGroup::builder()
+                .id(group_id)
+                .created_at_ns(now_ns())
+                .membership_state(membership_state)
+                .conversation_type(conversation_type)
+                .added_by_inbox_id(context.inbox_id().to_string())
+                .message_disappear_from_ns(
+                    opts.message_disappearing_settings
+                        .as_ref()
+                        .map(|m| m.from_ns),
+                )
+                .message_disappear_in_ns(
+                    opts.message_disappearing_settings.as_ref().map(|m| m.in_ns),
+                )
+                .should_publish_commit_log(should_publish_commit_log)
+                .build()?;
 
-        stored_group.store_or_ignore(&context.db())?;
-
-        Ok(stored_group)
+            stored_group.store_or_ignore(&db)?;
+            Ok::<_, GroupError>(Continue(stored_group))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 
     // Create a new DM and save it to the DB
@@ -1310,7 +1350,6 @@ where
         opts: DMMetadataOptions,
         existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
-        let provider = context.mls_provider();
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
         let mutable_metadata = build_dm_mutable_metadata_extension_default(
@@ -1329,48 +1368,65 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group = if let Some(group_id) = existing_group_id {
-            OpenMlsGroup::from_backup_stub_logged(
-                &provider,
-                context.identity(),
-                &group_config,
-                GroupId::try_from(group_id)?,
-            )?
-        } else {
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
-        };
-
-        let group_id: GroupId = mls_group.group_id().try_into()?;
-        let stored_group = StoredGroup::builder()
-            .id(group_id)
-            .created_at_ns(now_ns())
-            .membership_state(membership_state)
-            .added_by_inbox_id(context.inbox_id().to_string())
-            .message_disappear_from_ns(
-                opts.message_disappearing_settings
-                    .as_ref()
-                    .map(|m| m.from_ns),
-            )
-            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
-            .dm_id(Some(
-                DmMembers {
-                    member_one_inbox_id: dm_target_inbox_id,
-                    member_two_inbox_id: context.identity().inbox_id().to_string(),
+        let (stored_group, created) = state_write(context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            if let Some(group_id) = existing_group_id {
+                let group_id = GroupId::try_from(group_id)?;
+                if let Some(existing) = db.find_group(&group_id)? {
+                    return Ok(Continue((existing, false)));
                 }
-                .to_string(),
-            ))
-            .build()?;
+            }
+            let provider = XmtpOpenMlsProviderRef::new(&storage);
+            let mls_group = if let Some(group_id) = existing_group_id {
+                OpenMlsGroup::from_backup_stub_logged(
+                    &provider,
+                    context.identity(),
+                    &group_config,
+                    GroupId::try_from(group_id)?,
+                )?
+            } else {
+                OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+            };
 
-        stored_group.store(&context.db())?;
+            let group_id: GroupId = mls_group.group_id().try_into()?;
+            let stored_group = StoredGroup::builder()
+                .id(group_id)
+                .created_at_ns(now_ns())
+                .membership_state(membership_state)
+                .added_by_inbox_id(context.inbox_id().to_string())
+                .message_disappear_from_ns(
+                    opts.message_disappearing_settings
+                        .as_ref()
+                        .map(|m| m.from_ns),
+                )
+                .message_disappear_in_ns(
+                    opts.message_disappearing_settings.as_ref().map(|m| m.in_ns),
+                )
+                .dm_id(Some(
+                    DmMembers {
+                        member_one_inbox_id: dm_target_inbox_id,
+                        member_two_inbox_id: context.identity().inbox_id().to_string(),
+                    }
+                    .to_string(),
+                ))
+                .build()?;
+
+            stored_group.store(&db)?;
+            Ok::<_, GroupError>(Continue((stored_group, true)))
+        })?
+        .into_continued();
         let new_group = Self::new_from_arc(
             context.clone(),
-            group_id,
+            stored_group.id,
             stored_group.dm_id,
             ConversationType::Dm,
             stored_group.created_at_ns,
         );
         // Consent state defaults to allowed when the user creates the group
-        new_group.update_consent_state(ConsentState::Allowed)?;
+        if created {
+            new_group.update_consent_state(ConsentState::Allowed)?;
+        }
         Ok(new_group)
     }
 
@@ -1420,11 +1476,9 @@ where
     /// OpenMLS blocks message creation when there are pending proposals,
     /// so we need to commit them first.
     async fn commit_pending_proposals_if_any(&self) -> Result<(), GroupError> {
-        let has_pending = self
-            .load_mls_group_with_lock_async(async |openmls_group| {
-                Ok::<bool, GroupError>(openmls_group.pending_proposals().next().is_some())
-            })
-            .await?;
+        let has_pending = self.with_group_snapshot(|openmls_group| {
+            Ok::<bool, GroupError>(openmls_group.pending_proposals().next().is_some())
+        })?;
 
         if has_pending {
             tracing::debug!(
@@ -1487,7 +1541,7 @@ where
     /// * `message` - The message content bytes
     /// * `should_push` - Whether to send a push notification when publishing
     /// * `idempotency_key` - Optional caller-supplied key the message id is
-    ///   derived from. Defaults to the send timestamp when `None`.
+    ///   derived from. Defaults to a random key when `None`.
     ///
     /// Returns the message ID.
     pub fn prepare_message_for_later_publish(
@@ -1496,10 +1550,32 @@ where
         should_push: bool,
         idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
+        state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let message = self.store_message_for_later_publish(
+                &storage.db(),
+                message,
+                should_push,
+                idempotency_key,
+            )?;
+            Ok::<_, GroupError>(Continue(message.id))
+        })
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Store an optimistic message using the caller's transaction.
+    fn store_message_for_later_publish(
+        &self,
+        db: &impl DbQuery,
+        message: &[u8],
+        should_push: bool,
+        idempotency_key: Option<String>,
+    ) -> Result<StoredGroupMessage, GroupError> {
         let now = now_ns();
-        // Resolve the key once: a caller-supplied key makes the resulting id
-        // deterministic; otherwise we fall back to the timestamp (always unique).
-        let idempotency_key = idempotency_key.unwrap_or_else(|| now.to_string());
+        // Resolve the key once. Random defaults do not depend on clock resolution.
+        let idempotency_key = idempotency_key.unwrap_or_else(|| {
+            hex::encode(xmtp_common::rand_vec::<DEFAULT_IDEMPOTENCY_KEY_BYTES>())
+        });
         let queryable_content_fields = Self::extract_queryable_content_fields(message);
 
         let message_id = calculate_message_id(self.group_id, message, &idempotency_key);
@@ -1507,8 +1583,8 @@ where
         // Idempotent: a retry with the same key + content resolves to the same id.
         // Return the existing message rather than failing on the PK conflict, so
         // crash-recovery retries are at-least-once-with-dedup instead of an error.
-        if let Some(existing) = self.context.db().get_group_message(&message_id)? {
-            return Ok(existing.id);
+        if let Some(existing) = db.get_group_message(&message_id)? {
+            return Ok(existing);
         }
 
         let group_message = StoredGroupMessage {
@@ -1533,9 +1609,8 @@ where
             should_push,
             idempotency_key,
         };
-        group_message.store(&self.context.db())?;
-
-        Ok(message_id)
+        group_message.store(db)?;
+        Ok(group_message)
     }
 
     /// Publish a previously stored message by ID.
@@ -1552,31 +1627,29 @@ where
         }
         self.ensure_not_paused().await?;
 
-        // Fetch the message
-        let message = self
-            .context
-            .db()
-            .get_group_message(message_id)?
-            .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
-
-        // Silent no-op if already published
-        if message.delivery_status == DeliveryStatus::Published {
+        let queued = state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let message = db
+                .get_group_message(message_id)?
+                .filter(|message| message.group_id == self.group_id)
+                .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
+            if message.delivery_status == DeliveryStatus::Published {
+                return Ok(Continue(false));
+            }
+            let envelope =
+                Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
+            let intent_data: Vec<u8> = SendMessageIntentData::new(envelope.encode_to_vec()).into();
+            QueueIntent::send_message()
+                .data(intent_data)
+                .should_push(message.should_push)
+                .queue_in(&db, self)?;
+            Ok::<_, GroupError>(Continue(true))
+        })?
+        .into_continued();
+        if !queued {
             return Ok(());
         }
-
-        // Create envelope from stored message, reusing the idempotency key the
-        // message id was derived from so receivers recompute the same id.
-        let plain_envelope =
-            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        let mut encoded_envelope = vec![];
-        plain_envelope.encode(&mut encoded_envelope)?;
-
-        // Queue the intent (use should_push from stored message)
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        QueueIntent::send_message()
-            .data(intent_data)
-            .should_push(message.should_push)
-            .queue(self)?;
 
         // Publish
         self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
@@ -1698,33 +1771,33 @@ where
     where
         F: FnOnce(&str) -> PlaintextEnvelope,
     {
-        // Store the message locally first (with should_push preference)
-        let message_id = self.prepare_message_for_later_publish(
-            message,
-            opts.should_push,
-            opts.idempotency_key,
-        )?;
+        state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let stored_message = self.store_message_for_later_publish(
+                &db,
+                message,
+                opts.should_push,
+                opts.idempotency_key,
+            )?;
+            if stored_message.delivery_status == DeliveryStatus::Published {
+                return Ok(Continue(stored_message.id));
+            }
+            // Create envelope using the stored idempotency key so the id stays consistent
+            let plain_envelope = envelope(&stored_message.idempotency_key);
+            let mut encoded_envelope = vec![];
+            plain_envelope.encode(&mut encoded_envelope)?;
 
-        // Fetch the stored message to get the resolved idempotency key
-        let stored_message = self
-            .context
-            .db()
-            .get_group_message(&message_id)?
-            .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.clone())))?;
+            // Queue the intent (use should_push from stored message)
+            let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
+            QueueIntent::send_message()
+                .data(intent_data)
+                .should_push(stored_message.should_push)
+                .queue_in(&db, self)?;
 
-        // Create envelope using the stored idempotency key so the id stays consistent
-        let plain_envelope = envelope(&stored_message.idempotency_key);
-        let mut encoded_envelope = vec![];
-        plain_envelope.encode(&mut encoded_envelope)?;
-
-        // Queue the intent (use should_push from stored message)
-        let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-        QueueIntent::send_message()
-            .data(intent_data)
-            .should_push(stored_message.should_push)
-            .queue(self)?;
-
-        Ok(message_id)
+            Ok::<_, GroupError>(Continue(stored_message.id))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {
@@ -2971,24 +3044,22 @@ where
 
     /// Get the current epoch number of the group.
     pub async fn epoch(&self) -> Result<u64, GroupError> {
-        self.load_mls_group_with_lock_async(async |mls_group| Ok(mls_group.epoch().as_u64()))
-            .await
+        self.with_group_snapshot(|mls_group| Ok(mls_group.epoch().as_u64()))
     }
 
     /// Get the encryption state of the current epoch. Should match for all installations
     /// in the same epoch.
+    #[cfg(test)]
     pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
-        self.load_mls_group_with_lock_async(async |mls_group| {
+        self.with_group_snapshot(|mls_group| {
             Ok(mls_group.epoch_authenticator().as_slice().to_vec())
         })
-        .await
     }
 
-    pub async fn cursor(&self) -> Result<[Cursor; 2], GroupError> {
+    pub async fn cursor(&self) -> Result<Cursor, GroupError> {
         let db = self.context.db();
         let msgs = db.get_last_cursor(self.group_id, EntityKind::ApplicationMessage)?;
-        let commits = db.get_last_cursor(self.group_id, EntityKind::CommitMessage)?;
-        Ok([msgs, commits])
+        Ok(msgs)
     }
 
     pub async fn local_commit_log(&self) -> Result<Vec<LocalCommitLog>, GroupError> {
@@ -3024,7 +3095,7 @@ where
             is_commit_log_forked: stored_group.is_commit_log_forked,
             local_commit_log: format!("{:?}", commit_log),
             remote_commit_log: format!("{:?}", remote_commit_log),
-            cursor: cursor.to_vec(),
+            cursor: vec![cursor],
         })
     }
 
@@ -3056,9 +3127,7 @@ where
             return Ok(false);
         }
 
-        self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            Ok(mls_group.is_active())
-        })
+        self.with_group_snapshot(|mls_group| Ok(mls_group.is_active()))
     }
 
     /// Returns the membership state of the current user in this group.
@@ -3088,10 +3157,10 @@ where
     /// "incomplete migration" condition explicit at the originating
     /// site.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        self.load_mls_group_with_lock_async(async |mls_group| {
-            if self::app_data::is_migrated_group(&mls_group) {
+        self.with_group_snapshot(|mls_group| {
+            if self::app_data::is_migrated_group(mls_group) {
                 let seed =
-                    self::app_data::component_source::read_group_metadata_from_dict(&mls_group)
+                    self::app_data::component_source::read_group_metadata_from_dict(mls_group)
                         .map_err(MetadataPermissionsError::from)?
                         .ok_or_else(|| {
                             MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
@@ -3117,7 +3186,6 @@ where
                 .map_err(MetadataPermissionsError::from)
                 .map_err(Into::into)
         })
-        .await
     }
 
     /// Read the group's `GroupContext` from storage — a single KV round-trip,

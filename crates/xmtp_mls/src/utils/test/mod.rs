@@ -42,7 +42,7 @@ impl<A, S> ClientBuilder<A, S> {
     }
 
     pub fn local(self) -> ClientBuilder<TestClient, S> {
-        self.api_client(Arc::new(
+        self.api_client_with_streams(Arc::new(
             DefaultTestClientCreator::create().build().unwrap(),
         ))
     }

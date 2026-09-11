@@ -484,41 +484,102 @@ class DmTests: XCTestCase {
 	}
 
 	func testCanSuccessfullyThreadDms() async throws {
-		let fixtures = try await fixtures()
+		func independentClient() async throws -> Client {
+			let account = try PrivateKey.generate()
+			let api = localApi()
+			let dbPath = randomTempFile()
+			let ffi = try await createClient(
+				api: Client.connectToApiBackend(api: api),
+				db: DbOptions(db: dbPath, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
+				inboxId: generateInboxId(accountIdentifier: account.identity.ffiPrivate, nonce: 0),
+				accountIdentifier: account.identity.ffiPrivate,
+				nonce: 0, legacySignedPrivateKeyProto: nil, deviceSyncMode: .disabled,
+				allowOffline: false, forkRecoveryOpts: nil,
+				workerConfig: FfiWorkerConfig(
+					defaultIntervalNs: nil, workerIntervalsNs: [], workerJittersNs: [],
+					disabledWorkers: [.deviceSync, .disappearingMessages, .keyPackageCleaner, .commitLog, .taskRunner]
+				),
+				changeCallbacks: nil
+			)
+			let signatureRequest = try XCTUnwrap(ffi.signatureRequest())
+			let signature = try await account.sign(signatureRequest.signatureText())
+			try await signatureRequest.addEcdsaSignature(signatureBytes: signature.rawData)
+			try await ffi.registerIdentity(signatureRequest: signatureRequest, visibilityConfirmationOptions: nil)
+			let client = try Client(
+				ffiClient: ffi, dbPath: dbPath, installationID: ffi.installationId().toHex,
+				inboxID: ffi.inboxId(), environment: api.env, publicIdentity: account.identity
+			)
+			addTeardownBlock { try client.deleteLocalDatabase() }
+			return client
+		}
+
+		// Neither client receives Welcomes before both physical DMs exist.
+		let fixtures = try await (boClient: independentClient(), alixClient: independentClient())
+		Client.register(codec: GroupUpdatedCodec())
 
 		let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
 			with: fixtures.alixClient.inboxID
 		)
 		let convoAlix = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
+		XCTAssertNotEqual(convoBo.id, convoAlix.id)
 
-		try await convoBo.send(content: "Bo hey")
+		let boMessageID = try await convoBo.send(content: "Bo hey")
 		try await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds delay
-		try await convoAlix.send(content: "Alix hey")
+		let alixMessageID = try await convoAlix.send(content: "Alix hey")
 
-		let boMessages = try await convoBo.messages().map { try $0.body }
-			.joined(separator: ",")
-		let alixMessages = try await convoAlix.messages().map { try $0.body }
-			.joined(separator: ",")
+		var expectedApplications = [
+			boMessageID: (sender: fixtures.boClient.inboxID, body: "Bo hey", group: convoBo.id),
+			alixMessageID: (sender: fixtures.alixClient.inboxID, body: "Alix hey", group: convoAlix.id),
+		]
 
-		print("LOPI Bo original: \(boMessages)")
-		print("LOPI Alix original: \(alixMessages)")
+		func assertHistory(_ messages: [DecodedMessage], requiredIDs: Set<String>) throws {
+			XCTAssertEqual(Set(messages.map(\.id)).count, messages.count)
+			let applications = messages.filter { $0.kind == .application }
+			XCTAssertTrue(requiredIDs.isSubset(of: Set(applications.map(\.id))))
+			let setup = messages.filter { $0.kind == .membershipChange }
+			XCTAssertTrue((1 ... 2).contains(setup.count))
+			XCTAssertEqual(Set(setup.map(\.conversationId)).count, setup.count)
+			for message in messages {
+				XCTAssertTrue([convoBo.id, convoAlix.id].contains(message.conversationId))
+				if message.kind == .application {
+					let expected = try XCTUnwrap(expectedApplications[message.id])
+					let body: String = try message.content()
+					XCTAssertEqual(body, expected.body)
+					XCTAssertEqual(message.senderInboxId, expected.sender)
+					XCTAssertEqual(message.conversationId, expected.group)
+				} else {
+					XCTAssertEqual(message.kind, .membershipChange)
+					XCTAssertEqual(try message.encodedContent.type, ContentTypeGroupUpdated)
+					let update: GroupUpdated = try message.content()
+					var expected = GroupUpdated()
+					expected.initiatedByInboxID = update.initiatedByInboxID
+					var added = GroupUpdated.Inbox()
+					if update.initiatedByInboxID == fixtures.boClient.inboxID {
+						added.inboxID = fixtures.alixClient.inboxID
+					} else {
+						XCTAssertEqual(update.initiatedByInboxID, fixtures.alixClient.inboxID)
+						added.inboxID = fixtures.boClient.inboxID
+					}
+					expected.addedInboxes = [added]
+					XCTAssertEqual(update, expected)
+				}
+			}
+		}
 
-		let convoBoMessageCount = try await convoBo.messages().count
-		let convoAlixMessageCount = try await convoAlix.messages().count
-
-		XCTAssertEqual(convoBoMessageCount, 2) // memberAdd and Bo hey
-		XCTAssertEqual(convoAlixMessageCount, 2) // memberAdd and Alix hey
+		// Background receipt can store either duplicate DM's Welcome before sync.
+		try await assertHistory(convoBo.messages(), requiredIDs: [boMessageID])
+		try await assertHistory(convoAlix.messages(), requiredIDs: [alixMessageID])
 
 		_ = try await fixtures.boClient.conversations.syncAllConversations()
 		_ = try await fixtures.alixClient.conversations.syncAllConversations()
 
-		let convoBoMessageCountAfterSync = try await convoBo.messages().count
-		let convoAlixMessageCountAfterSync = try await convoAlix.messages()
-			.count
-
-		XCTAssertEqual(convoBoMessageCountAfterSync, 4) // memberAdd, Bo hey, Alix hey
-		XCTAssertEqual(convoAlixMessageCountAfterSync, 4) // memberAdd, Bo hey, Alix hey
+		let boMessagesAfterSync = try await convoBo.messages()
+		let alixMessagesAfterSync = try await convoAlix.messages()
+		XCTAssertEqual(boMessagesAfterSync.count, 4)
+		XCTAssertEqual(alixMessagesAfterSync.count, 4)
+		try assertHistory(boMessagesAfterSync, requiredIDs: Set(expectedApplications.keys))
+		try assertHistory(alixMessagesAfterSync, requiredIDs: Set(expectedApplications.keys))
 
 		let sameConvoBo = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
@@ -545,17 +606,19 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(firstAlixDmID, alixConvoID)
 		XCTAssertEqual(firstBoDmID, alixConvoID)
 
-		try await sameConvoBo.send(content: "Bo hey2")
-		try await sameConvoAlix.send(content: "Alix hey2")
+		let boMessageID2 = try await sameConvoBo.send(content: "Bo hey2")
+		let alixMessageID2 = try await sameConvoAlix.send(content: "Alix hey2")
+		expectedApplications[boMessageID2] = (fixtures.alixClient.inboxID, "Bo hey2", sameConvoBo.id)
+		expectedApplications[alixMessageID2] = (fixtures.boClient.inboxID, "Alix hey2", sameConvoAlix.id)
 		try await sameConvoAlix.sync()
 		try await sameConvoBo.sync()
 
-		let sameConvoBoMessageCount = try await sameConvoBo.messages().count
-		let sameConvoAlixMessageCount = try await sameConvoAlix.messages().count
-
-		XCTAssertEqual(sameConvoBoMessageCount, 6) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
-		XCTAssertEqual(sameConvoAlixMessageCount, 6) // memberAdd, Bo hey, Alix hey, Bo hey2, Alix hey2
-		try fixtures.cleanUpDatabases()
+		let sameConvoBoMessages = try await sameConvoBo.messages()
+		let sameConvoAlixMessages = try await sameConvoAlix.messages()
+		XCTAssertEqual(sameConvoBoMessages.count, 6)
+		XCTAssertEqual(sameConvoAlixMessages.count, 6)
+		try assertHistory(sameConvoBoMessages, requiredIDs: Set(expectedApplications.keys))
+		try assertHistory(sameConvoAlixMessages, requiredIDs: Set(expectedApplications.keys))
 	}
 
 	func testLastReadTimes() async throws {

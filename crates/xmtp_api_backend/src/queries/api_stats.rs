@@ -40,10 +40,6 @@ impl<C: XmtpBackendClient> XmtpBackendClient for TrackedStatsClient<C> {
         self.stats.query_newest.count_request();
         self.inner.query_newest(request).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        self.stats.get.count_request();
-        self.inner.get(request).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -68,6 +64,16 @@ impl<C: XmtpMlsStreams> XmtpMlsStreams for TrackedStatsClient<C> {
     type Error = C::Error;
     type GroupMessageStream = C::GroupMessageStream;
     type WelcomeMessageStream = C::WelcomeMessageStream;
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: xmtp_proto::types::IncomingBatchLimits,
+    ) -> Result<xmtp_proto::types::IncomingSubscription<Self::Error>, Self::Error> {
+        self.stats.subscribe_static.count_request();
+        self.inner
+            .subscribe_envelopes_with_cursors(cursors, limits)
+            .await
+    }
     async fn subscribe_group_messages(
         &self,
         groups: &[&GroupId],

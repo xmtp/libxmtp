@@ -56,10 +56,6 @@ public class ApiStats {
 		Int64(apiStats.queryNewest)
 	}
 
-	public var get: Int64 {
-		Int64(apiStats.get)
-	}
-
 	public var subscribe: Int64 {
 		Int64(apiStats.subscribe)
 	}

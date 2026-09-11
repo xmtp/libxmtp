@@ -1,17 +1,22 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.cash.turbine.test
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -36,6 +41,7 @@ import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import org.xmtp.proto.mls.message.contents.TranscriptMessages
+import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
@@ -542,74 +548,51 @@ class GroupTest : BaseInstrumentedTest() {
     }
 
     @Test
-    fun testCanStreamAndUpdateNameWithoutForkingGroup() {
-        val firstMsgCheck = 3
-        val secondMsgCheck = 5
-        var messageCallbacks = 0
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                boClient.conversations.streamAllMessages().collect { _ ->
-                    messageCallbacks++
+    fun testCanStreamAndUpdateNameWithoutForkingGroup() =
+        runBlocking {
+            val messages = StreamTestMessages()
+            val expected = mutableListOf<Pair<String, String>>()
+            val job =
+                launch(Dispatchers.IO) {
+                    boClient.conversations.streamAllMessages().collect { messages.add(it) }
                 }
-            }
-        Thread.sleep(1000)
+            try {
+                val alixGroup = alixClient.conversations.newGroup(listOf(boClient.inboxId))
+                expected.add(alixGroup.send("hello1") to "hello1")
+                messages.awaitApplications(expected)
+                alixGroup.updateName("hello")
+                boClient.conversations.sync()
+                val boGroups = boClient.conversations.listGroups()
+                assertEquals(1, boGroups.size)
+                val boGroup = boGroups.single()
+                boGroup.sync()
+                assertEquals(3, boGroup.messages().size)
+                assertEquals("hello", boGroup.name())
 
-        val alixGroup = runBlocking { alixClient.conversations.newGroup(listOf(boClient.inboxId)) }
-
-        runBlocking {
-            alixGroup.send("hello1")
-            alixGroup.updateName("hello")
-            boClient.conversations.sync()
-        }
-
-        val boGroups = runBlocking { boClient.conversations.listGroups() }
-        assertEquals(boGroups.size, 1)
-        val boGroup = boGroups[0]
-        runBlocking {
-            boGroup.sync()
-        }
-
-        val boMessages1 = runBlocking { boGroup.messages() }
-        assertEquals(boMessages1.size, firstMsgCheck)
-
-        runBlocking {
-            boGroup.send("hello2")
-            boGroup.send("hello3")
-            alixGroup.sync()
-        }
-        // messages() reads local storage, so sync on each attempt. A fixed
-        // sleep races a loaded emulator, where the last message lands after
-        // the delay.
-        runBlocking {
-            withTimeout(30_000) {
-                while (alixGroup.messages().size < secondMsgCheck) {
-                    delay(100)
-                    alixGroup.sync()
+                expected.add(boGroup.send("hello2") to "hello2")
+                messages.awaitApplications(expected)
+                expected.add(boGroup.send("hello3") to "hello3")
+                messages.awaitApplications(expected)
+                alixGroup.sync()
+                withTimeout(30_000) {
+                    while (alixGroup.messages().size < 5) {
+                        delay(100)
+                        alixGroup.sync()
+                    }
                 }
+                assertEquals(5, alixGroup.messages().size)
+
+                expected.add(alixGroup.send("hello4") to "hello4")
+                messages.awaitApplications(expected)
+                boGroup.sync()
+                val history = boGroup.messageHistorySnapshot(10U).messages
+                assertEquals(6, history.size)
+                assertEquals(2, history.count { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
-        val alixMessages = runBlocking { alixGroup.messages() }
-        assertEquals(alixMessages.size, secondMsgCheck)
-        runBlocking {
-            alixGroup.send("hello4")
-            boGroup.sync()
-        }
-
-        val boMessages2 = runBlocking { boGroup.messages() }
-        assertEquals(boMessages2.size, 6)
-
-        runBlocking {
-            withTimeout(30_000) {
-                while (messageCallbacks < secondMsgCheck) {
-                    delay(100)
-                }
-            }
-        }
-
-        assertEquals(secondMsgCheck, messageCallbacks)
-        job.cancel()
-    }
 
     @Test
     fun testsCanListGroupsFiltered() {
@@ -777,80 +760,137 @@ class GroupTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanStreamGroupMessages() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             Client.register(codec = GroupUpdatedCodec())
             val membershipChange = TranscriptMessages.GroupUpdated.newBuilder().build()
 
             val group = boClient.conversations.newGroup(listOf(alixClient.inboxId))
             alixClient.conversations.sync()
             val alixGroup = alixClient.conversations.listGroups().first()
-            group.streamMessages().test {
-                alixGroup.send("hi")
-                assertEquals("hi", awaitItem().body)
-                alixGroup.send(
-                    content = membershipChange,
-                    options = SendOptions(contentType = ContentTypeGroupUpdated),
-                )
-                alixGroup.send("hi again")
-                assertEquals("hi again", awaitItem().body)
+            val retained = group.messageHistorySnapshot(10U).messages
+            assertEquals(1, retained.size)
+            assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+            val messages = StreamTestMessages()
+            val job = launch(Dispatchers.IO) { group.streamMessages().collect { messages.add(it) } }
+            try {
+                messages.awaitHistory(retained)
+                val firstId = alixGroup.send("hi")
+                messages.awaitApplications(listOf(firstId to "hi"))
+                val invalidMembershipId =
+                    alixGroup.send(
+                        content = membershipChange,
+                        options = SendOptions(contentType = ContentTypeGroupUpdated),
+                    )
+                val secondId = alixGroup.send("hi again")
+                messages.awaitApplications(listOf(firstId to "hi", secondId to "hi again"))
+                val history = group.messages().asReversed()
+                assertEquals(3, history.size)
+                assertEquals(false, messages.snapshot().any { it.id == invalidMembershipId })
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
     @Test
-    fun testCanStreamAllGroupMessages() {
-        val group = runBlocking { caroClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        val conversation =
-            runBlocking { caroClient.conversations.newConversation(alixClient.inboxId) }
-
-        runBlocking { alixClient.conversations.sync() }
-
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
+    fun testCanStreamAllGroupMessages() =
+        runBlocking {
+            val group = caroClient.conversations.newGroup(listOf(alixClient.inboxId))
+            val conversation = caroClient.conversations.newConversation(alixClient.inboxId)
+            alixClient.conversations.sync()
+            val messages = StreamTestMessages()
+            val expected = mutableListOf<Pair<String, String>>()
+            val job =
+                launch(Dispatchers.IO) {
                     alixClient.conversations
                         .streamAllMessages(type = ConversationFilterType.GROUPS)
-                        .collect { message ->
-                            allMessages.add(message)
-                        }
-                } catch (e: Exception) {
+                        .collect { messages.add(it) }
                 }
+            try {
+                val retained =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.GROUPS).messages
+                assertEquals(1, retained.size)
+                assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+                messages.awaitHistory(retained)
+                val excludedId = conversation.send(text = "conversation message")
+                repeat(2) {
+                    val body = "First group message $it"
+                    expected.add(group.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+
+                val caroGroup = caroClient.conversations.newGroup(listOf(alixClient.inboxId))
+                repeat(2) {
+                    val body = "Second group message $it"
+                    expected.add(caroGroup.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+                val excludedDm = requireNotNull(alixClient.conversations.findDmByInboxId(caroClient.inboxId))
+                excludedDm.sync()
+                assertEquals(true, excludedDm.messages().any { it.id == excludedId })
+                delay(1000)
+                val history =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.GROUPS).messages
+                assertEquals(6, history.size)
+                assertEquals(
+                    setOf(group.id, caroGroup.id),
+                    history
+                        .filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+                        .map { it.conversationId }
+                        .toSet(),
+                )
+                assertEquals(
+                    false,
+                    messages.snapshot().any {
+                        it.id == excludedId ||
+                            it.conversationId == conversation.id
+                    },
+                )
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
-        Thread.sleep(2500)
-        runBlocking { conversation.send(text = "conversation message") }
-        for (i in 0 until 2) {
-            runBlocking {
-                group.send(text = "Message $i")
-            }
-            Thread.sleep(100)
         }
-        assertEquals(2, allMessages.size)
-
-        val caroGroup =
-            runBlocking { caroClient.conversations.newGroup(listOf(alixClient.inboxId)) }
-        Thread.sleep(2500)
-
-        for (i in 0 until 2) {
-            runBlocking { caroGroup.send(text = "Message $i") }
-            Thread.sleep(100)
-        }
-
-        assertEquals(4, allMessages.size)
-
-        job.cancel()
-    }
 
     @Test
     fun testCanStreamGroups() =
-        kotlinx.coroutines.test.runTest {
-            boClient.conversations.stream(type = ConversationFilterType.GROUPS).test {
+        runBlocking {
+            val notificationTimeoutMs = 3_000L
+            val lifecycleTimeoutMs = 30_000L
+            val ready = CompletableDeferred<Unit>()
+            val closed = CompletableDeferred<Unit>()
+            val conversations = Channel<String>(Channel.UNLIMITED)
+            val job =
+                launch(Dispatchers.IO) {
+                    boClient.conversations
+                        .streamWithReadiness(
+                            type = ConversationFilterType.GROUPS,
+                            onClose = { closed.complete(Unit) },
+                            onReady = { ready.complete(Unit) },
+                        ).collect { conversations.send(it.id) }
+                }
+            try {
+                withTimeout(lifecycleTimeoutMs) { ready.await() }
                 val group =
                     alixClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group.id, awaitItem().id)
+                assertEquals(group.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
                 val group2 =
                     caroClient.conversations.newGroup(listOf(boClient.inboxId))
-                assertEquals(group2.id, awaitItem().id)
+                assertEquals(group2.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
+                assertTrue("Unexpected conversation", conversations.tryReceive().isFailure)
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        withTimeout(lifecycleTimeoutMs) {
+                            job.cancelAndJoin()
+                            if (ready.isCompleted) {
+                                closed.await()
+                            }
+                        }
+                    } finally {
+                        conversations.cancel()
+                    }
+                }
             }
         }
 
@@ -1104,8 +1144,11 @@ class GroupTest : BaseInstrumentedTest() {
         runBlocking {
             syncSummary = alixClient.conversations.syncAllConversations()
         }
-        // Next syncAllGroups will not include the inactive group
-        assertEquals(syncSummary?.numSynced, 0UL)
+        // All enrolled groups are eligible. Only the active group and device-sync group reach their targets.
+        assertEquals(3UL, syncSummary?.numEligible)
+        assertEquals(2UL, syncSummary?.numSynced)
+        assertEquals(false, runBlocking { alixGroup2.isActive() })
+        assertEquals(true, runBlocking { alixGroup.isActive() })
     }
 
     @Test

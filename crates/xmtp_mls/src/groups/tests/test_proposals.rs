@@ -6,6 +6,7 @@
 //! 3. That proposals_enabled correctly detects group context extension
 
 use crate::{
+    context::XmtpSharedContext,
     groups::{
         EnableProposalsOptions,
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
@@ -15,6 +16,35 @@ use crate::{
 };
 use rstest::rstest;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
+
+fn assert_insufficient_permissions(error: crate::groups::GroupError) {
+    use crate::groups::{
+        GroupError, mls_sync::GroupMessageProcessingError, validated_commit::CommitValidationError,
+    };
+    let GroupError::Sync(summary) = error else {
+        panic!("expected a rejected intent summary, got {error:?}");
+    };
+    assert!(matches!(
+        summary.other.as_deref(),
+        Some(GroupError::ReceiveError(
+            GroupMessageProcessingError::CommitValidation(
+                CommitValidationError::InsufficientPermissions
+            )
+        ))
+    ));
+    let [(cursor, cause)] = summary.process.errored.as_slice() else {
+        panic!("expected one permission rejection, got {summary:?}");
+    };
+    assert!(cursor.0 > 0);
+    assert!(matches!(
+        cause,
+        GroupMessageProcessingError::CommitValidation(
+            CommitValidationError::InsufficientPermissions
+        )
+    ));
+    assert!(summary.publish_errors.is_empty());
+    assert!(summary.post_commit_errors.is_empty());
+}
 
 // =============================================================================
 // Proposal Support Detection Tests
@@ -1141,10 +1171,13 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
         false,
     ))?;
 
-    // Bo publishes the proposal
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    // Bo's published proposal is rejected by the same validation policy.
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs - the proposal should be rejected during validation
     // We sync and check that Alix doesn't have the proposal in their pending proposals
@@ -1937,9 +1970,12 @@ async fn test_remove_proposal_validation_in_admin_group() {
                 .try_into()?,
             false,
         ))?;
-    bo_group
-        .sync_until_intent_resolved(remove_caro_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(remove_caro_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (Bo is not admin)
     let _ = alix_group.sync().await;
@@ -1963,9 +1999,12 @@ async fn test_remove_proposal_validation_in_admin_group() {
                 .try_into()?,
             false,
         ))?;
-    bo_group
-        .sync_until_intent_resolved(remove_alix_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(remove_alix_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (cannot remove super admin)
     let _ = alix_group.sync().await;
@@ -2134,9 +2173,12 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (Bo is not admin, can't change metadata)
     let _ = alix_group.sync().await;
@@ -2170,9 +2212,12 @@ async fn test_non_admin_gce_metadata_proposal_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (cannot remove mutable metadata extension)
     let _ = alix_group.sync().await;
@@ -2251,9 +2296,12 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (Bo is not super admin, can't add admins)
     let _ = alix_group.sync().await;
@@ -2290,9 +2338,12 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (only super admins can modify super admin list)
     let _ = alix_group.sync().await;
@@ -2338,9 +2389,12 @@ async fn test_non_admin_gce_admin_list_proposal_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (Bo is not super admin, can't remove admins)
     let _ = alix_group.sync().await;
@@ -2412,9 +2466,12 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
         intent_bytes,
         false,
     ))?;
-    bo_group
-        .sync_until_intent_resolved(propose_intent.id)
-        .await?;
+    assert_insufficient_permissions(
+        bo_group
+            .sync_until_intent_resolved(propose_intent.id)
+            .await
+            .unwrap_err(),
+    );
 
     // Alix syncs — proposal rejected (only super admins can change permissions)
     let _ = alix_group.sync().await;
@@ -3263,6 +3320,9 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
         bo_group.paused_for_version()?.is_none(),
         "Bo should not be paused before alix calls enable_proposals"
     );
+    let before = bo_group.epoch_authenticator().await?;
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic)?.processed;
 
     // Alix migrates. The two-step bootstrap publishes:
     //   1. A legacy GCE commit bumping MIN_SUPPORTED_PROTOCOL_VERSION
@@ -3278,10 +3338,17 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
         })
         .await?;
 
-    // Bo syncs. He processes commit (1), sees min_version > his own,
-    // lands in `paused_for_version`, and stops processing — commit (2)
-    // is never applied locally.
-    bo_group.sync().await?;
+    // The version bump stays pending. Neither bootstrap commit may apply.
+    super::assert_version_sync_blocked(
+        bo_group.sync().await.unwrap_err(),
+        &xmtp_proto::types::Topic::new_group_message(bo_group.group_id),
+        processed,
+    );
+    assert_eq!(bo_group.epoch_authenticator().await?, before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic)?.processed,
+        processed
+    );
 
     let paused = bo_group.paused_for_version()?;
     assert_eq!(
@@ -3388,31 +3455,8 @@ async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
 //   - Pre-flip groups stay on the legacy GCE path:
 //     `test_update_group_name_uses_legacy_path_when_proposals_disabled`.
 
-/// Verify the receiver-side validator denies an inline AppDataUpdate
-/// proposal when the actor doesn't have permission for the targeted
-/// component. Installs a *deny*-policy registry so the per-element check
-/// rejects the update, then asserts the commit never applies.
-///
-/// This pins the invariant that
-/// [`validate_app_data_update_proposals_in_commit`] actually fires for
-/// inline proposals — without it, the new path would silently bypass
-/// permission checks because `extract_metadata_changes` only inspects
-/// the legacy GMM extension.
-///
-/// The assertion shape is intentionally three-part. Own-commit validation
-/// failures are non-retryable and `process_message` absorbs them by
-/// flipping the intent's DB row to `IntentState::Error`. The typed
-/// `CommitValidationError::InsufficientPermissions` is no longer dropped:
-/// it's captured into the summary's `process.errored` (see the
-/// `ProcessedMessageOutcome` path in mls_sync.rs) so the cause survives.
-/// What the public API returns is `GroupError::Sync(summary)` from
-/// `sync_until_intent_resolved_inner`, matching the pattern established by
-/// other permission-denial tests such as the `SyncFailedToWait` assertions
-/// in `tests/mod.rs`. We pin `Sync(_)`, that the summary carries the real
-/// `CommitValidation` cause, and the group-name-unchanged invariant: a
-/// validator-stopped-firing regression would either succeed (name changes)
-/// or produce a different `GroupError` variant — both detected; a
-/// cause-swallowing regression would drop the `CommitValidation` error.
+/// An inline update must obey the registry policy and leave the group unchanged.
+/// The failed intent must return its exact permission cause in the sync summary.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_inline_app_data_update_denied_by_registry_policy() {
     use crate::groups::{
@@ -3966,21 +4010,8 @@ async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
     );
 }
 
-/// XIP §3 welcome-time pause path: when a new member is welcomed into a
-/// fully-migrated group whose AppData dict carries a
-/// `MIN_SUPPORTED_PROTOCOL_VERSION` higher than the joiner's pkg_version,
-/// the joiner MUST land in `paused_for_version` directly from
-/// `sync_welcomes`.
-///
-/// Sibling of `test_enable_proposals_pauses_old_client_via_legacy_gmm_bump`
-/// (sync-time pause via the legacy GMM bump, the pre-bootstrap
-/// rollout-safety step). This one pins the WELCOME-time pause via the
-/// AppData dict on a fully-migrated group — the post-bootstrap
-/// steady-state path. Without `oruw`'s capability-aware welcome read,
-/// the legacy GMM extension is gone on migrated groups so
-/// `extract_legacy_group_mutable_metadata` returned `MissingExtension`,
-/// `.ok()` swallowed it, and the welcomed group admitted the member
-/// unpaused — fork hazard for clients below the dict's floor version.
+/// A Welcome with a higher AppData version floor remains pending without
+/// installing the group. An upgraded client can process the same saved input.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_on_migrated_group_pauses_below_min_version() {
     use crate::builder::ClientBuilder;
@@ -4034,28 +4065,67 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
         "alix must be migrated post-enable_proposals (precondition for this test)"
     );
 
-    // Carol joins POST-migration at the default (older) pkg_version.
-    // Her welcome carries the migrated GroupContext — no legacy GMM,
-    // floor only in the AppData dict. This is the path `oruw` fixes:
-    // the welcome-time read MUST find the floor in the dict and pause
-    // the welcomed group at welcome-application time.
-    tester!(carol);
+    // Carol's Welcome carries the version floor only in the AppData dict.
+    tester!(carol, disable_workers);
     alix_group
         .add_members(&[carol.context.identity.inbox_id()])
         .await?;
 
-    let carol_groups = carol.sync_welcomes().await?;
-    let carol_group = carol_groups
-        .iter()
-        .find(|g| g.group_id == alix_group.group_id)
-        .expect("carol should receive a welcome for alix_group");
+    let error = carol.sync_welcomes().await.unwrap_err();
+    let crate::groups::GroupError::StreamBarrier(error) = error else {
+        panic!("expected an unsupported Welcome barrier, got {error:?}");
+    };
+    let topic = xmtp_proto::types::Topic::new_welcome_message(carol.context.installation_id());
+    let status = super::assert_blocked_obligation(
+        &error,
+        &topic,
+        xmtp_proto::types::Cursor(0),
+        "welcome_blocked",
+    );
+    let target = status.target?;
+    assert_eq!(status.unresolved_welcomes, vec![target]);
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: carol.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let pending = carol.context.db().pending_envelope(&db_topic, target)??;
+    assert!(pending.blocked);
+    assert!(
+        carol
+            .context
+            .db()
+            .find_group(&alix_group.group_id)?
+            .is_none()
+    );
+    assert!(carol.context.db().read_last_rejection(&db_topic)?.is_none());
 
-    let paused = carol_group.paused_for_version()?;
+    let carol = ClientBuilder::from_client(carol.client)
+        .version(alix_version)
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert_eq!(carol.version_info().pkg_version(), alix_pkg_version);
     assert_eq!(
-        paused.as_deref(),
-        Some(alix_pkg_version.as_str()),
-        "carol must be paused at alix's pkg_version directly from sync_welcomes; \
-         the floor lives only in the AppData dict at this point"
+        carol
+            .context
+            .db()
+            .pending_envelope(&db_topic, target)??
+            .envelope,
+        pending.envelope,
+    );
+    carol.sync_welcomes().await?;
+    let carol_group = carol.group(&alix_group.group_id)?;
+    assert!(carol_group.paused_for_version()?.is_none());
+    assert_eq!(
+        carol_group.epoch_authenticator().await?,
+        alix_group.epoch_authenticator().await?
+    );
+    assert!(
+        carol
+            .context
+            .db()
+            .pending_envelope(&db_topic, target)?
+            .is_none()
     );
 }
 
@@ -4131,6 +4201,10 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         );
     }
 
+    let before = bo_group.epoch_authenticator().await?;
+    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let processed = bo.context.db().topic_progress(&db_topic)?.processed;
+
     // Alix raises the floor to her own version, which is above bo's.
     // Send-side clamp is satisfied (alix's pkg_version == requested
     // floor). The bump flows as an
@@ -4141,7 +4215,44 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         .update_group_min_version(&alix_pkg_version)
         .await?;
 
-    bo_group.sync().await?;
+    let envelopes = alix
+        .context
+        .api()
+        .query_group_messages(alix_group.group_id)
+        .await?;
+    let added: Vec<_> = envelopes
+        .iter()
+        .filter(|message| message.cursor > processed)
+        .collect();
+    let [proposal, commit] = added.as_slice() else {
+        panic!("expected the version proposal and its commit, got {added:?}");
+    };
+    assert_eq!(
+        proposal.message.content_type(),
+        openmls::prelude::ContentType::Proposal
+    );
+    assert!(commit.is_commit());
+    let predecessor = proposal.cursor;
+    let blocked_cursor = commit.cursor;
+
+    super::assert_version_sync_blocked(
+        bo_group.sync().await.unwrap_err(),
+        &xmtp_proto::types::Topic::new_group_message(bo_group.group_id),
+        predecessor,
+    );
+    assert_eq!(bo_group.epoch_authenticator().await?, before);
+    assert_eq!(
+        bo.context.db().topic_progress(&db_topic)?.processed,
+        predecessor
+    );
+    let pending = bo.context.db().first_pending_envelope(&db_topic)??;
+    assert_eq!(pending.sequence_id as u64, blocked_cursor.0);
+    assert!(pending.blocked);
+    assert_eq!(
+        pending.error_code.as_deref(),
+        Some("unsupported_protocol_version")
+    );
+    assert!(bo.context.db().read_last_rejection(&db_topic)?.is_none());
     let paused = bo_group.paused_for_version()?;
     assert_eq!(
         paused.as_deref(),

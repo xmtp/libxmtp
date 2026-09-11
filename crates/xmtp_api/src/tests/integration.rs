@@ -11,7 +11,17 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
         .publish_identity_update(history.history[0].clone())
         .await?;
     assert!(registration.0 > 0);
-    let registered = api.get_envelope(registration.0).await?;
+    let registered = api
+        .newest(
+            vec![Topic::new_identity_update(hex::decode(&history.inbox_id)?)],
+            true,
+        )
+        .await?
+        .pop()?;
+    assert_eq!(
+        registered.meta.as_ref()?.cursor.as_ref()?.sequence_id,
+        registration.0
+    );
     assert_eq!(
         registered.envelope,
         Some(identity_envelope(history.history[0].clone()))
@@ -36,10 +46,17 @@ async fn backend_round_trip_covers_five_kinds_paging_and_absent_key() {
     );
     assert_eq!(found[&absent], None);
     assert_eq!(
-        api.get_envelope(key_meta.cursor.unwrap().sequence_id)
+        api.newest(vec![Topic::new_key_package(key_id)], true)
             .await?
+            .pop()?
             .envelope,
         Some(key.envelope)
+    );
+    assert_eq!(
+        api.newest_topic_cursors(vec![Topic::new_key_package(key_id)])
+            .await?[&Topic::new_key_package(key_id)]
+            .0,
+        key_meta.cursor?.sequence_id
     );
 
     let welcome = inline_welcome_envelope(&key.installation_id);

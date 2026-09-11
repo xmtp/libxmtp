@@ -711,9 +711,10 @@ mod tests {
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn mismatched_encryption_key() {
         use crate::database::PlatformStorageError;
+        use xmtp_common::{ErrorCode, RetryableError};
         let mut enc_key = [1u8; 32];
 
         let db_path = tmp_path();
@@ -748,6 +749,8 @@ mod tests {
             "Expected SqlCipherKeyIncorrect error, got {}",
             err
         );
+        assert_eq!(err.error_code(), "StorageError::Platform");
+        assert!(!err.is_retryable());
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
@@ -843,9 +846,10 @@ mod tests {
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
-    #[tokio::test]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn single_connection_mismatched_key_fails() {
         use crate::database::PlatformStorageError;
+        use xmtp_common::{ErrorCode, RetryableError};
 
         let db_path = tmp_path();
         {
@@ -875,6 +879,8 @@ mod tests {
             ),
             "expected SqlCipherKeyIncorrect, got {err}"
         );
+        assert_eq!(err.error_code(), "StorageError::Platform");
+        assert!(!err.is_retryable());
         EncryptedMessageStore::<()>::remove_db_files(db_path)
     }
 
@@ -934,6 +940,7 @@ mod tests {
                             entity_id: rand_vec::<24>(),
                             entity_kind: EntityKind::Welcome,
                             sequence_id: 1,
+                            received_sequence_id: None,
                         }
                         .store_or_ignore(&inner.db())?;
                         Ok::<_, StorageError>(Continue(()))

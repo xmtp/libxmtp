@@ -30,9 +30,6 @@ impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
     ) -> Result<QueryNewestResponse, Self::Error> {
         self.inner.query_newest(request).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        self.inner.get(request).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -57,6 +54,15 @@ where
     type Error = C::Error;
     type GroupMessageStream = xmtp_proto::api_client::BoxedGroupS<C::Error>;
     type WelcomeMessageStream = xmtp_proto::api_client::BoxedWelcomeS<C::Error>;
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: xmtp_proto::types::IncomingBatchLimits,
+    ) -> Result<xmtp_proto::types::IncomingSubscription<Self::Error>, Self::Error> {
+        self.inner
+            .subscribe_envelopes_with_cursors(cursors, limits)
+            .await
+    }
     async fn subscribe_group_messages(
         &self,
         groups: &[&GroupId],

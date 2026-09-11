@@ -32,17 +32,15 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
 use super::{load_component_registry, stage_app_data_propose_and_commit};
-use crate::{
-    context::XmtpSharedContext,
-    groups::{
-        AdminListActionType, GroupError,
-        intents::{
-            AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
-            UpdateAdminListIntentData, UpdatePermissionIntentData,
-        },
-        mls_sync::{PublishIntentData, generate_commit_with_rollback},
+use crate::groups::{
+    AdminListActionType, GroupError,
+    intents::{
+        AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
+        UpdateAdminListIntentData, UpdatePermissionIntentData,
     },
+    mls_sync::{PublishIntentData, generate_prepared_commit},
 };
+use xmtp_db::XmtpMlsStorageProvider;
 
 /// Stage the `AppDataUpdate` commit for an `UpdateAdminList` intent on
 /// a migrated group. Maps the intent action onto a one-element
@@ -51,14 +49,12 @@ use crate::{
 /// `PublishIntentData`. The wire format always carries a delta, even
 /// for single mutations.
 pub(crate) fn apply_update_admin_list_app_data_intent(
-    context: &impl XmtpSharedContext,
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateAdminListIntentData,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
-    let storage = context.mls_storage();
-
     let inbox_id = InboxId::from_hex(&intent_data.inbox_id)
         .map_err(|e| GroupError::ComponentSource(e.into()))?;
     let (component_id, mutation) = match intent_data.action_type {
@@ -86,7 +82,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     }
     .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
@@ -125,14 +121,12 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
 /// hardcoded super-admin-only by the dispatch layer's permission
 /// check.
 pub(crate) fn apply_update_permission_app_data_intent(
-    context: &impl XmtpSharedContext,
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdatePermissionIntentData,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
-    let storage = context.mls_storage();
-
     let base = match intent_data.policy_option {
         PermissionPolicyOption::Allow => MetadataBasePolicy::Allow,
         PermissionPolicyOption::Deny => MetadataBasePolicy::Deny,
@@ -199,7 +193,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
@@ -260,18 +254,16 @@ pub(crate) fn apply_update_permission_app_data_intent(
 ///   collection writes to last-writer-wins (which would corrupt the
 ///   collections' replay semantics).
 pub(crate) fn apply_app_data_update_intent(
-    context: &impl XmtpSharedContext,
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: AppDataUpdateIntentData,
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
-    let storage = context.mls_storage();
-
     let component_id = ComponentId::new(intent_data.component_id);
     let payload = intent_data.payload;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_commit_with_rollback(
+    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {

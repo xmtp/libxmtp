@@ -349,7 +349,7 @@ pub(crate) async fn create_client_inner(
   );
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_client(api_client)
+    .api_client_with_streams(api_client)
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .store(store);
@@ -438,6 +438,11 @@ pub async fn create_client(
 
 #[wasm_bindgen]
 impl Client {
+  /// Stop workers and close the database before an OPFS file change.
+  pub async fn close(&self) -> Result<(), JsError> {
+    self.inner_client.close().await.map_err(ErrorWrapper::js)
+  }
+
   #[wasm_bindgen(getter, js_name = accountIdentifier)]
   pub fn account_identifier(&self) -> Identifier {
     self.account_identifier.clone()

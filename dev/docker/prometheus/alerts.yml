@@ -58,7 +58,7 @@ groups:
           summary: "Publish p99 exceeds one second."
       - alert: QueryLatencyHigh
         expr: >-
-          histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method=~"Query|QueryNewest|Get",grpc_code="OK"}[5m]))) > 0.5
+          histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method=~"Query|QueryNewest",grpc_code="OK"}[5m]))) > 0.5
         for: 10m
         labels:
           severity: warn

@@ -772,23 +772,64 @@ class GroupTests: XCTestCase {
 		let group = try await fixtures.boClient.conversations.newGroup(with: [
 			fixtures.alixClient.inboxID,
 		])
-		let membershipChange = GroupUpdated()
-		let expectation1 = XCTestExpectation(description: "got a message")
-		expectation1.expectedFulfillmentCount = 1
-
-		Task(priority: .userInitiated) {
-			for try await _ in group.streamMessages() {
-				expectation1.fulfill()
+		let afterFiltered = "after filtered membership content"
+		let receivedLastMessage = XCTestExpectation(description: "received the message after filtered content")
+		let stream = group.streamMessages()
+		let streamTask = Task(priority: .userInitiated) {
+			var ids: [String] = []
+			var applicationIDs: [String] = []
+			var texts: [String] = []
+			for try await message in stream {
+				ids.append(message.id)
+				if message.kind == .application {
+					let text: String = try message.content()
+					applicationIDs.append(message.id)
+					texts.append(text)
+					if text == afterFiltered {
+						receivedLastMessage.fulfill()
+						break
+					}
+				} else {
+					XCTAssertEqual(message.kind, .membershipChange)
+					let _: GroupUpdated = try message.content()
+				}
 			}
+			return (ids: ids, applicationIDs: applicationIDs, texts: texts)
 		}
 
-		_ = try await group.send(content: "hi")
-		_ = try await group.send(
-			content: membershipChange,
-			options: SendOptions(contentType: ContentTypeGroupUpdated)
-		)
+		do {
+			let firstID = try await group.send(content: "hi")
+			let forgedID = try await group.send(
+				content: GroupUpdated(),
+				options: SendOptions(contentType: ContentTypeGroupUpdated)
+			)
+			let lastID = try await group.send(content: afterFiltered)
 
-		await fulfillment(of: [expectation1], timeout: 3)
+			await fulfillment(of: [receivedLastMessage], timeout: 3)
+			group.endStream()
+			streamTask.cancel()
+			let received = try await streamTask.value
+			XCTAssertEqual(received.applicationIDs, [firstID, lastID])
+			XCTAssertEqual(received.texts, ["hi", afterFiltered])
+			XCTAssertFalse(received.ids.contains(forgedID))
+			XCTAssertEqual(Set(received.ids).count, received.ids.count)
+
+			let snapshot = try group.messageHistorySnapshot()
+			let applications = snapshot.messages.filter { $0.kind == .application }
+			XCTAssertEqual(applications.count, 2)
+			XCTAssertEqual(Set(applications.map(\.id)), Set([firstID, lastID]))
+			XCTAssertFalse(snapshot.messages.contains { $0.id == forgedID })
+			let expected = [firstID: "hi", lastID: afterFiltered]
+			for message in applications {
+				let text: String = try message.content()
+				XCTAssertEqual(text, try XCTUnwrap(expected[message.id]))
+			}
+		} catch {
+			group.endStream()
+			streamTask.cancel()
+			_ = await streamTask.result
+			throw error
+		}
 		try fixtures.cleanUpDatabases()
 	}
 
@@ -1222,14 +1263,20 @@ class GroupTests: XCTestCase {
 		}
 
 		// first syncAllGroups after removal still sync groups in order to process the removal
-		var numGroupsSynced = try await fixtures.boClient.conversations
+		let numGroupsSynced = try await fixtures.boClient.conversations
 			.syncAllConversations().numEligible
 		XCTAssertEqual(numGroupsSynced, 101)
 
-		// next syncAllGroups will not sync any groups, since there are no new messages
-		numGroupsSynced = try await fixtures.boClient.conversations
-			.syncAllConversations().numSynced
-		XCTAssertEqual(numGroupsSynced, 0)
+		let boGroups = try await fixtures.boClient.conversations.listGroups()
+		XCTAssertEqual(boGroups.count, 100)
+		for group in boGroups {
+			XCTAssertFalse(try group.isActive())
+		}
+
+		// All stored groups are eligible. Only the device-sync group remains active.
+		let finalSync = try await fixtures.boClient.conversations.syncAllConversations()
+		XCTAssertEqual(finalSync.numEligible, 101)
+		XCTAssertEqual(finalSync.numSynced, 1)
 		try fixtures.cleanUpDatabases()
 	}
 

@@ -160,24 +160,16 @@ fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
 // returning the commit and post_commit_action
 #[xmtp_common::mls_span]
-pub(crate) async fn apply_update_group_membership_intent(
-    context: &impl XmtpSharedContext,
+pub(crate) fn apply_update_group_membership_intent(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
+    mut changes_with_kps: MembershipDiffWithKeyPackages,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions = openmls_group.extensions().clone();
     let old_group_membership = extract_group_membership(&extensions)?;
     let mut new_group_membership = intent_data.apply_to_group_membership(&old_group_membership);
-
-    let group_id = GroupId::try_from(openmls_group.group_id())?;
-    let mut changes_with_kps = calculate_membership_changes_with_keypackages(
-        context,
-        &group_id,
-        &new_group_membership,
-        &old_group_membership,
-    )
-    .await?;
 
     strip_unverified_new_adds(
         &mut new_group_membership,
@@ -290,7 +282,7 @@ pub(crate) async fn apply_update_group_membership_intent(
             None
         };
         let publish_intent_data = compute_publish_data_for_proposal_based_update(
-            context,
+            storage,
             openmls_group,
             changes_with_kps.new_installations,
             changes_with_kps.new_key_packages,
@@ -298,29 +290,27 @@ pub(crate) async fn apply_update_group_membership_intent(
             new_extensions,
             app_data_payload,
             signer,
-        )
-        .await?;
+        )?;
         let _ = downgrade_to_legacy; // marker so future logic can branch on it; currently unused
         Ok(Some(publish_intent_data))
     } else {
         // Direct commit path (no proposals)
         let publish_intent_data = compute_publish_data_for_group_membership_update(
-            context,
+            storage,
             openmls_group,
             changes_with_kps.new_installations,
             changes_with_kps.new_key_packages,
             leaf_nodes_to_remove,
             new_extensions,
             signer,
-        )
-        .await?;
+        )?;
         Ok(Some(publish_intent_data))
     }
 }
 
 #[tracing::instrument(level = "trace", skip_all)]
-async fn compute_publish_data_for_group_membership_update(
-    context: &impl XmtpSharedContext,
+fn compute_publish_data_for_group_membership_update(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     installations_to_add: Vec<Installation>,
     key_packages_to_add: Vec<KeyPackage>,
@@ -328,9 +318,9 @@ async fn compute_publish_data_for_group_membership_update(
     new_extensions: Extensions<GroupContext>,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
-    // Use savepoint pattern to create commit without persisting state
+    // Keep prepared keys and ratchets in the caller's state transaction.
     let ((commit, maybe_welcome_message, _), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+        generate_prepared_commit(storage, openmls_group, |group, provider| {
             group.update_group_membership(
                 provider,
                 &signer,
@@ -374,8 +364,8 @@ async fn compute_publish_data_for_group_membership_update(
 ///   updates the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` extension.
 #[allow(clippy::too_many_arguments)]
 #[tracing::instrument(level = "trace", skip_all)]
-async fn compute_publish_data_for_proposal_based_update(
-    context: &impl XmtpSharedContext,
+fn compute_publish_data_for_proposal_based_update(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     installations_to_add: Vec<Installation>,
     key_packages_to_add: Vec<KeyPackage>,
@@ -398,7 +388,7 @@ async fn compute_publish_data_for_proposal_based_update(
     let new_extensions_for_filter = new_extensions.clone();
 
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
-        generate_commit_with_rollback(context.mls_storage(), openmls_group, |group, provider| {
+        generate_prepared_commit(storage, openmls_group, |group, provider| {
             let mut proposal_payloads: Vec<Vec<u8>> = Vec::new();
 
             // 1. Create Add proposals
@@ -515,10 +505,11 @@ async fn compute_publish_data_for_proposal_based_update(
 }
 
 #[xmtp_common::mls_span]
-pub(crate) async fn apply_readd_installations_intent(
-    context: &impl XmtpSharedContext,
+pub(crate) fn apply_readd_installations_intent(
+    storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: ReaddInstallationsIntentData,
+    changes_with_kps: MembershipDiffWithKeyPackages,
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let readded_installations: HashSet<Vec<u8>> =
@@ -538,17 +529,25 @@ pub(crate) async fn apply_readd_installations_intent(
         }
     }
 
-    let mut installations_to_welcome = Vec::new();
-    let mut key_packages_to_welcome = Vec::new();
-    let mut failed_installations = Vec::new();
-    get_keypackages_for_installation_ids(
-        context,
-        installations_to_readd,
-        &mut installations_to_welcome,
-        &mut key_packages_to_welcome,
-        &mut failed_installations,
-    )
-    .await?;
+    if installations_to_readd.is_empty() {
+        return Ok(None);
+    }
+    let installations_to_welcome = changes_with_kps
+        .new_installations
+        .into_iter()
+        .filter(|installation| installations_to_readd.contains(&installation.installation_key))
+        .collect();
+    let key_packages_to_welcome = changes_with_kps
+        .new_key_packages
+        .into_iter()
+        .filter(|key_package| {
+            installations_to_readd.contains(key_package.leaf_node().signature_key().as_slice())
+        })
+        .collect();
+    let failed_installations = changes_with_kps
+        .failed_installations
+        .into_iter()
+        .filter(|installation| installations_to_readd.contains(installation));
 
     // Update the group membership extension to reflect any failed installations
     let extensions = openmls_group.extensions().clone();
@@ -559,23 +558,24 @@ pub(crate) async fn apply_readd_installations_intent(
         .into_iter()
         .chain(failed_installations)
         .collect();
+    let mut failed_installations: Vec<_> = failed_installations.into_iter().collect();
+    failed_installations.sort_unstable();
     let new_group_membership = GroupMembership {
         members: old_group_membership.members.clone(),
-        failed_installations: failed_installations.into_iter().collect(),
+        failed_installations,
     };
     let mut new_extensions = extensions.clone();
     new_extensions.add_or_replace(build_group_membership_extension(&new_group_membership))?;
 
     let publish_intent_data = compute_publish_data_for_group_membership_update(
-        context,
+        storage,
         openmls_group,
         installations_to_welcome,
         key_packages_to_welcome,
         leaf_indices_to_remove,
         new_extensions,
         signer,
-    )
-    .await?;
+    )?;
 
     Ok(Some(publish_intent_data))
 }
@@ -583,7 +583,7 @@ pub(crate) async fn apply_readd_installations_intent(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, RwLock};
+    use std::sync::RwLock;
 
     use crate::{
         groups::{
@@ -598,7 +598,6 @@ mod tests {
     use rstest::*;
     use xmtp_cryptography::XmtpInstallationCredential;
     use xmtp_cryptography::configuration::CIPHERSUITE;
-    use xmtp_db::mock::MockDbQuery;
 
     fn generate_config(
         creator_inbox: &str,
@@ -626,9 +625,9 @@ mod tests {
     }
 
     #[rstest]
-    #[xmtp_common::test]
-    #[allow(clippy::readonly_write_lock, clippy::await_holding_lock)]
-    async fn applies_group_membership_intent(mut context: NewMockContext) {
+    #[xmtp_common::test(unwrap_try = true)]
+    #[allow(clippy::readonly_write_lock)]
+    async fn applies_group_membership_intent(context: NewMockContext) {
         let mut credentials = HashMap::new();
         let installation_key = XmtpInstallationCredential::new();
         let key_pair = openmls_basic_credential::SignatureKeyPair::from(installation_key.clone());
@@ -650,31 +649,20 @@ mod tests {
         let id = client.create_group(config, CIPHERSUITE).unwrap();
         let installation = XmtpInstallationCredential::new();
 
-        let db_calls = || {
-            let mut mock_db = MockDbQuery::new();
-            mock_db
-                .expect_get_latest_sequence_id()
-                .returning(|_ids| Ok(HashMap::new()));
-            mock_db
-        };
-        context.store.expect_db().returning(db_calls);
-
         let mut groups = client.groups.write().unwrap();
         let g = groups.get_mut(&id).unwrap();
 
-        // once context is in an arc, can no longer set expectations
-        let context = Arc::new(context);
         let intent = apply_update_group_membership_intent(
-            context.as_ref(),
+            &context.mls_storage,
             g,
             UpdateGroupMembershipIntentData {
                 membership_updates: HashMap::new(),
                 removed_members: Vec::new(),
                 failed_installations: Vec::new(),
             },
+            MembershipDiffWithKeyPackages::new(Vec::new(), Vec::new(), HashSet::new(), Vec::new()),
             installation,
         )
-        .await
         .unwrap();
         assert!(intent.is_none());
     }

@@ -4,8 +4,6 @@ mod query;
 pub use query::Query;
 mod query_newest;
 pub use query_newest::QueryNewest;
-mod get;
-pub use get::Get;
 mod get_inbox_ids;
 pub use get_inbox_ids::GetInboxIds;
 mod verify_smart_contract_wallet_signatures;
@@ -32,10 +30,6 @@ mod tests {
             (
                 QueryNewest(Default::default()).grpc_endpoint(),
                 "/xmtp.backend.v1.QueryService/QueryNewest",
-            ),
-            (
-                Get(Default::default()).grpc_endpoint(),
-                "/xmtp.backend.v1.QueryService/Get",
             ),
             (
                 GetInboxIds(Default::default()).grpc_endpoint(),

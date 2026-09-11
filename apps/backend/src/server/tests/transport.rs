@@ -189,7 +189,7 @@ async fn deprecated_legacy_path_returns_unimplemented() {
     let response = grpc_web_post(
         &server,
         "/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages",
-        encode_frame(api::GetRequest { sequence_id: 1 }),
+        encode_frame(api::QueryNewestRequest::default()),
         [],
     )
     .await?;
@@ -204,9 +204,11 @@ async fn grpc_web_unary_matches_native_grpc_and_accepts_headers() {
     let server = TestServer::new(|_| {}).await?;
     let envelope = inline_welcome_envelope([7; 32]);
     let meta = server.publish(vec![envelope.clone()]).await?.remove(0);
-    let sequence_id = meta.cursor.as_ref().unwrap().sequence_id;
-
-    let mut request = Request::new(api::GetRequest { sequence_id });
+    let newest = api::QueryNewestRequest {
+        topics: vec![meta.topic.clone().unwrap()],
+        include_full_envelope: true,
+    };
+    let mut request = Request::new(newest.clone());
     request
         .metadata_mut()
         .insert("authorization", "Bearer test".parse()?);
@@ -216,12 +218,12 @@ async fn grpc_web_unary_matches_native_grpc_and_accepts_headers() {
     request
         .metadata_mut()
         .insert("x-libxmtp-version", "transport-test".parse()?);
-    let native = server.query().get(request).await?.into_inner();
+    let native = server.query().query_newest(request).await?.into_inner();
 
     let response = grpc_web_post(
         &server,
-        "/xmtp.backend.v1.QueryService/Get",
-        encode_frame(api::GetRequest { sequence_id }),
+        "/xmtp.backend.v1.QueryService/QueryNewest",
+        encode_frame(newest),
         [
             ("authorization", "Bearer test"),
             ("x-app-version", "transport-test"),
@@ -233,9 +235,9 @@ async fn grpc_web_unary_matches_native_grpc_and_accepts_headers() {
     assert_eq!(response.grpc_status(), Some(Code::Ok as i32));
     let frames = response.data_frames()?;
     assert_eq!(frames.len(), 1);
-    let web = api::ServerEnvelope::decode(frames[0].as_slice())?;
+    let web = api::QueryNewestResponse::decode(frames[0].as_slice())?;
     assert_eq!(web, native);
-    assert_eq!(web.envelope, Some(envelope));
+    assert_eq!(web.results[0].envelope, Some(envelope));
     server.stop().await?;
 }
 
@@ -246,7 +248,7 @@ async fn cors_preflight_allows_client_headers_and_exposes_status_details() {
     let response = client
         .request(
             reqwest::Method::OPTIONS,
-            format!("{}/xmtp.backend.v1.QueryService/Get", server.url),
+            format!("{}/xmtp.backend.v1.QueryService/QueryNewest", server.url),
         )
         .header("origin", "https://app.example")
         .header("access-control-request-method", "POST")
@@ -282,7 +284,7 @@ async fn cors_preflight_allows_client_headers_and_exposes_status_details() {
     let actual = grpc_web_post(
         &server,
         "/xmtp.mls.api.v1.MlsApi/SubscribeGroupMessages",
-        encode_frame(api::GetRequest { sequence_id: 1 }),
+        encode_frame(api::QueryNewestRequest::default()),
         [
             ("origin", "https://app.example"),
             ("authorization", "Bearer test"),
@@ -373,11 +375,14 @@ async fn oversized_publish_response_reports_transport_error_after_commit() {
     assert_eq!(retry.len(), 1);
     let fetched = server
         .query()
-        .get(api::GetRequest {
-            sequence_id: retry[0].cursor.as_ref().unwrap().sequence_id,
+        .query_newest(api::QueryNewestRequest {
+            topics: vec![retry[0].topic.clone().unwrap()],
+            include_full_envelope: true,
         })
         .await?
-        .into_inner();
+        .into_inner()
+        .results
+        .pop()?;
     assert_eq!(fetched.meta, Some(retry[0].clone()));
     assert_eq!(fetched.envelope, Some(envelopes[0].clone()));
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM envelopes")

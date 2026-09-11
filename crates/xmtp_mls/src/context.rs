@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::GroupCommitLock;
 use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
@@ -43,9 +44,11 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) store: Db,
     pub(crate) mls_storage: S,
     pub(crate) mutexes: MutexRegistry,
+    #[cfg(test)]
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
@@ -53,6 +56,8 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// Unstable: SDK-registered notifications for group-state changes. Empty
     /// unless the host opted in at build time.
     pub(crate) change_callbacks: UnstableChangeCallbacks,
+    pub(crate) incoming_runtime: Arc<crate::subscriptions::incoming::IncomingRuntime>,
+    pub(crate) identity_resolutions: Arc<crate::identity_updates::IdentityResolutionRegistry>,
     pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
@@ -69,9 +74,9 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
 where
-    Db: XmtpDb,
-    ApiClient: XmtpApi,
-    S: XmtpMlsStorageProvider,
+    Db: XmtpDb + 'static,
+    ApiClient: XmtpApi + 'static,
+    S: XmtpMlsStorageProvider + 'static,
 {
     /// get a reference to the monolithic Database object where
     /// higher-level queries are defined
@@ -118,14 +123,18 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             store: self.store,
             mls_storage: mls_store,
             mutexes: self.mutexes,
+            #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock,
             version_info: self.version_info,
             local_events: self.local_events,
+            delivery_owner: self.delivery_owner,
             worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
+            incoming_runtime: self.incoming_runtime,
+            identity_resolutions: self.identity_resolutions,
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
@@ -165,6 +174,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
         self.identity.sign_with_public_context(text)
     }
 
+    #[cfg(test)]
     pub fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
     }
@@ -196,8 +206,11 @@ where
     type Db: XmtpDb;
     type ApiClient: XmtpApi;
     type MlsStorage: XmtpMlsStorageProvider;
-    type ContextReference: MaybeSend + MaybeSync + Clone + Sized;
+    /// Owned, cloneable handle for background work; it cannot borrow short-lived resources.
+    type ContextReference: XmtpSharedContext<Db = Self::Db, ApiClient = Self::ApiClient, MlsStorage = Self::MlsStorage>
+        + 'static;
 
+    /// Return the handle to clone when work can outlive this context borrow.
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
@@ -246,11 +259,29 @@ where
     fn version_info(&self) -> &VersionInfo;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
+    /// This context's default-consumer token; the database is the ownership authority.
+    fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
+
+    /// Release this context's message consumer before disconnecting its database.
+    fn close_message_delivery(&self) -> Result<(), xmtp_db::StorageError> {
+        use xmtp_db::delivery::QueryDelivery;
+        let mut registered = self.delivery_owner().lock();
+        if let Some(owner) = *registered {
+            self.db().release_delivery_owner(owner)?;
+            *registered = None;
+        }
+        Ok(())
+    }
     fn task_channels(&self) -> &TaskWorkerChannels;
     fn disappearing_channels(&self) -> &DisappearingChannels;
     /// Unstable: the host's registered group-change callbacks.
     fn change_callbacks(&self) -> &UnstableChangeCallbacks;
+    /// Shared incoming runtime. Its limits and transport are internal client policy.
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime;
+    /// Coalesces exact identity lookups without treating a newer snapshot as the requested one.
+    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
+    #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock>;
     fn mutexes(&self) -> &MutexRegistry;
     fn cancellation_token(&self) -> &CancellationToken;
@@ -261,7 +292,7 @@ where
     }
 
     /// Returns `true` only after `Client::close` has fully torn the client
-    /// down (workers drained + DB disconnected). Distinct from [`is_closed`]
+    /// down (workers drained + DB disconnected). Distinct from [`Self::is_closed`]
     /// which fires the moment shutdown begins — this guards `close`'s
     /// idempotency check so a mid-shutdown failure stays retryable.
     fn shutdown_complete(&self) -> bool;
@@ -271,14 +302,14 @@ where
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
 where
-    XApiClient: XmtpApi,
-    XDb: XmtpDb,
-    XMls: XmtpMlsStorageProvider,
+    XApiClient: XmtpApi + 'static,
+    XDb: XmtpDb + 'static,
+    XMls: XmtpMlsStorageProvider + 'static,
 {
     type Db = XDb;
     type ApiClient = XApiClient;
     type MlsStorage = XMls;
-    type ContextReference = Arc<XmtpMlsLocalContext<Self::ApiClient, Self::Db, Self::MlsStorage>>;
+    type ContextReference = Self;
 
     fn context_ref(&self) -> &Self::ContextReference {
         self
@@ -330,6 +361,11 @@ where
         &self.local_events
     }
 
+    fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        &self.delivery_owner
+    }
+
+    #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         &self.mls_commit_lock
     }
@@ -344,6 +380,14 @@ where
 
     fn change_callbacks(&self) -> &UnstableChangeCallbacks {
         &self.change_callbacks
+    }
+
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        &self.incoming_runtime
+    }
+
+    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
+        &self.identity_resolutions
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
@@ -431,6 +475,11 @@ where
         <T as XmtpSharedContext>::local_events(self)
     }
 
+    fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
+        <T as XmtpSharedContext>::delivery_owner(self)
+    }
+
+    #[cfg(test)]
     fn mls_commit_lock(&self) -> &Arc<GroupCommitLock> {
         <T as XmtpSharedContext>::mls_commit_lock(self)
     }
@@ -445,6 +494,14 @@ where
 
     fn change_callbacks(&self) -> &UnstableChangeCallbacks {
         <T as XmtpSharedContext>::change_callbacks(self)
+    }
+
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        <T as XmtpSharedContext>::incoming_runtime(self)
+    }
+
+    fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
+        <T as XmtpSharedContext>::identity_resolution_registry(self)
     }
 
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {

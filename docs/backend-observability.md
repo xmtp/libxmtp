@@ -101,16 +101,16 @@ Error-only families can be absent until their first event.
 These are the backend operation names from its source. Shared validation can
 also produce spans from shared crates. Two database helpers use `db.history`.
 
-- `db.acquire`, `db.advance`, `db.apply_projection`, `db.boundary`, `db.clock_ns`, `db.commit_publish`, `db.connect`, `db.dedicated_read`, `db.find_duplicates`, `db.forward`, `db.gaps`, `db.get`, `db.heads`, `db.history`, `db.inbox_ids`, `db.newest_envelopes`, `db.newest_metadata`, `db.payloads`, `db.query`, `db.release`, `db.snapshot`, `db.snapshot_connection`.
+- `db.acquire`, `db.advance`, `db.apply_projection`, `db.boundary`, `db.clock_ns`, `db.commit_publish`, `db.connect`, `db.dedicated_read`, `db.find_duplicates`, `db.forward`, `db.gaps`, `db.heads`, `db.history`, `db.inbox_ids`, `db.newest_envelopes`, `db.newest_metadata`, `db.payloads`, `db.query`, `db.release`, `db.snapshot`, `db.snapshot_connection`.
 - `publish.locks`, `publish.parse_publish`, `publish.validate_publish`.
 - `tailer.bootstrap`, `tailer.poll`.
 - `stream.fetch`, `stream.update`.
 - `scw.verify`.
-- `rpc.get`, `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
+- `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
 
 Transport spans have the tracing name `grpc_request`. Their exported name is
 `<service>/<method>` from the fixed route table. This includes Query, QueryNewest,
-Get, Publish, Subscribe, SubscribeStatic, GetInboxIds,
+Publish, Subscribe, SubscribeStatic, GetInboxIds,
 VerifySmartContractWalletSignatures, and health Check, Watch, and List.
 Unknown routes export `unknown/unknown`. Transport spans cover response lifetime.
 
@@ -220,7 +220,7 @@ ratio includes more status codes than the HighErrorRate alert.
 | DatabaseUnavailable | `rate(xmtp_db_errors_total{kind="connection"}[5m]) > 0` | 2m | page |
 | StorageInvariant | `increase(xmtp_db_errors_total{kind="invariant"}[10m]) > 0` | No hold | page |
 | PublishLatencyHigh | `histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method="Publish",grpc_code="OK"}[5m]))) > 1` | 10m | warn |
-| QueryLatencyHigh | `histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method=~"Query\|QueryNewest\|Get",grpc_code="OK"}[5m]))) > 0.5` | 10m | warn |
+| QueryLatencyHigh | `histogram_quantile(0.99, sum by (le) (rate(grpc_server_handling_seconds_bucket{grpc_method=~"Query\|QueryNewest",grpc_code="OK"}[5m]))) > 0.5` | 10m | warn |
 | LockWaitHigh | `histogram_quantile(0.99, sum by (le) (rate(xmtp_operation_duration_seconds_bucket{operation="publish.locks"}[5m]))) > 0.5` | 10m | warn |
 | LeakedTransactions | `increase(xmtp_db_released_open_transactions_total[10m]) > 0` | No hold | warn |
 | TailerRestarting | `increase(xmtp_tailer_restarts_total[10m]) > 2` | No hold | page |

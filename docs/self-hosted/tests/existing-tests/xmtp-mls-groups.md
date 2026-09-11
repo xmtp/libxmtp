@@ -79,15 +79,15 @@
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_create_group_with_default_app_data | — | `SHARED-GROUP-REQ-008` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_increment_patch_version | synchronous custom test | `GTEST-REQ-057` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_can_set_min_supported_protocol_version_for_commit | — | `GTEST-REQ-058` |
-| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_client_on_old_version_pauses_after_joining_min_version_group | — | `GTEST-REQ-059` |
+| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_client_on_old_version_blocks_welcome_until_upgrade | XMTP async; no install below version floor; retained database; upgrade and fresh decryption | `GTEST-REQ-059` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_only_super_admins_can_set_min_supported_protocol_version | — | `GTEST-REQ-060` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_send_message_while_paused_after_welcome_returns_expected_error | — | `GTEST-REQ-061` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_send_message_after_min_version_update_gets_expected_error | — | `GTEST-REQ-061` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_can_make_inbox_with_a_bad_key_package_an_admin | native; tokio multi_thread | `GTEST-REQ-012` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked | native; tokio multi_thread | `GTEST-REQ-062` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::can_stream_out_of_order_without_forking | multi_thread | `GTEST-REQ-063` |
-| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::own_message_without_intent_skips_and_increments_cursor | multi_thread | `GTEST-REQ-064` |
-| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_generate_commit_with_rollback | — | `GTEST-REQ-065` |
+| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::own_message_without_intent_skips_and_increments_cursor | — | `GTEST-REQ-064` |
+| crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::prepared_commit_keeps_keys_without_advancing_epoch | — | `GTEST-REQ-065` |
 | crates/xmtp_mls/src/groups/tests/mod.rs | groups::tests::test_membership_state | — | `GTEST-REQ-066` |
 | crates/xmtp_mls/src/groups/tests/test_change_callbacks.rs | groups::tests::test_change_callbacks::test_app_data_callback_fires_for_remote_change | — | `GTEST-REQ-067` |
 | crates/xmtp_mls/src/groups/tests/test_change_callbacks.rs | groups::tests::test_change_callbacks::test_app_data_callback_fires_for_local_change | — | `GTEST-REQ-067` |
@@ -273,7 +273,7 @@
 | crates/xmtp_mls/src/groups/tests/test_welcome_pointers.rs | groups::tests::test_welcome_pointers::test_welcome_pointer_proto_round_trip | plain test | `GTEST-REQ-208` |
 | crates/xmtp_mls/src/groups/tests/test_welcome_pointers.rs | groups::tests::test_welcome_pointers::test_welcome_pointer_resolution_for_no_destination | rstest; 20 s timeout | `GTEST-REQ-209` |
 | crates/xmtp_mls/src/groups/tests/test_welcome_pointers.rs | groups::tests::test_welcome_pointers::test_welcome_pointer_resolution_to_another_welcome_pointer | — | `GTEST-REQ-210` |
-| crates/xmtp_mls/src/groups/tests/test_welcome_pointers.rs | groups::tests::test_welcome_pointers::test_welcome_pointer_task_retry_resolution | rstest; 40 s timeout | `GTEST-REQ-211` |
+| crates/xmtp_mls/src/groups/tests/test_welcome_pointers.rs | groups::tests::test_welcome_pointers::test_welcome_pointer_pending_retry_resolution | XMTP async rstest; 40 s timeout; durable pending row; fixed original deadline; delayed pointee and joined stream result | `GTEST-REQ-211` |
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_welcome_cursor | — | `GTEST-REQ-212` |
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_inviting_members_results_in_consistent_state | — | `GTEST-REQ-213` |
 | crates/xmtp_mls/src/groups/tests/test_welcomes.rs | groups::tests::test_welcomes::test_spoofed_inbox_id | adversarial internal construction | `GTEST-REQ-214` |
@@ -283,3 +283,19 @@
 | File | Qualified test | Form / gates / cases | Requirements |
 | --- | --- | --- | --- |
 | `crates/xmtp_mls/src/groups/tests/test_prepare_message_for_later_publish.rs` | `groups::tests::test_prepare_message_for_later_publish::test_prepared_message_requires_explicit_idempotent_publish` | XMTP async; local count/ID/status before and after bulk publish; explicit publish and repeated publish | `GTEST-REQ-136` |
+
+## Phase 4 process isolation
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/groups/tests/test_state_processes.rs` | `groups::tests::test_state_processes::independent_processes_apply_ordered_commits_to_one_database` | Native XMTP async; real child processes; shared persistent database; peer state and decryption | `MLS-REQ-136` |
+| `crates/xmtp_mls/src/groups/tests/test_state_processes.rs` | `groups::tests::test_state_processes::process_death_before_state_commit_preserves_replay_and_convergence` | Native XMTP async; precommit pause; forced child termination; replay and peer convergence | `MLS-REQ-137` |
+| `crates/xmtp_mls/src/groups/tests/test_state_processes.rs` | `groups::tests::test_state_processes::state_process_child` | Native XMTP child entry point; no-op without the exact parent invocation; supports the two process contracts | `MLS-REQ-136`, `MLS-REQ-137` |
+
+## Phase 4 state-write boundaries
+
+| File | Qualified test | Form / gates / cases | Requirements |
+| --- | --- | --- | --- |
+| `crates/xmtp_mls/src/groups/tests/test_state_writes.rs` | `groups::tests::test_state_writes::archive_stub_keeps_a_group_joined_by_another_writer` | XMTP async; backend; existing joined group; archive stub insertion; authenticator and fresh messaging | `MLS-REQ-154` |
+| `crates/xmtp_mls/src/groups/tests/test_state_writes.rs` | `groups::tests::test_state_writes::failed_intent_insert_rolls_back_optimistic_message` | XMTP async; backend; intent failure trigger; optimistic-row rollback; same-key retry and peer decryption | `MLS-REQ-155` |
+| `crates/xmtp_mls/src/groups/tests/test_state_writes.rs` | `groups::tests::test_state_writes::welcome_admission_queues_rotation_atomically_before_decode` | XMTP async; raw Welcome input; task failure trigger; receipt/deadline/task rollback; duplicate admission | `MLS-REQ-156` |

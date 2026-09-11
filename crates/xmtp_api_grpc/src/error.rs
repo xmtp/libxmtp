@@ -123,9 +123,9 @@ impl xmtp_common::retry::RetryableError for GrpcError {
                 | Code::FailedPrecondition
                 | Code::PermissionDenied
                 | Code::Unauthenticated
-                | Code::Cancelled
                 | Code::DataLoss
                 | Code::Ok => false,
+                Code::Cancelled => is_transport_cancellation(status),
                 Code::Unavailable
                 | Code::ResourceExhausted
                 | Code::DeadlineExceeded
@@ -144,6 +144,22 @@ impl xmtp_common::retry::RetryableError for GrpcError {
             | Self::Unreachable => false,
         }
     }
+}
+
+/// A closed Hyper connection can cancel a request that was not sent.
+/// Keep explicit RPC cancellation permanent when this transport cause is absent.
+fn is_transport_cancellation(status: &tonic::Status) -> bool {
+    let mut source = std::error::Error::source(status);
+    while let Some(error) = source {
+        if error
+            .downcast_ref::<hyper::Error>()
+            .is_some_and(hyper::Error::is_canceled)
+        {
+            return true;
+        }
+        source = error.source();
+    }
+    false
 }
 
 #[cfg(test)]
@@ -175,6 +191,77 @@ mod tests {
         for message in ["", "UNAVAILABLE", "INVALID_ARGUMENT", "request too large"] {
             let error = GrpcError::Status(Status::new(code, message));
             assert_eq!(error.is_retryable(), retryable, "{code:?}: {message}");
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn explicit_rpc_cancellation_is_not_retryable() {
+        use xmtp_proto::api::{ApiClientError, NetworkError, grpc_status};
+
+        for message in ["", "operation was canceled", "connection closed"] {
+            let error = NetworkError::new(ApiClientError::client(GrpcError::Status(
+                Status::cancelled(message),
+            )));
+            assert_eq!(grpc_status(&error)?.code(), Code::Cancelled);
+            assert!(!error.is_retryable());
+        }
+        let mut status = Status::cancelled("operation was canceled");
+        status.set_source(std::sync::Arc::new(std::io::Error::other(
+            "connection closed",
+        )));
+        assert!(!GrpcError::Status(status).is_retryable());
+    }
+
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cancelled_hyper_request_is_retryable_through_tonic_and_client_wrappers() {
+        use http_body_util::Empty;
+        use hyper_util::rt::TokioIo;
+        use prost::bytes::Bytes;
+        use xmtp_common::time::{Duration, timeout};
+        use xmtp_proto::api::{ApiClientError, NetworkError, grpc_status};
+
+        type Body = Empty<Bytes>;
+        for wrapped in [false, true] {
+            let (io, _peer) = tokio::io::duplex(64);
+            let (mut sender, connection) =
+                hyper::client::conn::http1::handshake::<_, Body>(TokioIo::new(io)).await?;
+            drop(connection);
+            let cancelled = sender
+                .send_request(http::Request::new(Body::new()))
+                .await
+                .expect_err("the dropped connection cannot send the request");
+            assert!(cancelled.is_canceled());
+
+            let status = if wrapped {
+                let mut cancelled = Some(cancelled);
+                let connector = tower::service_fn(move |_| {
+                    std::future::ready(Err::<TokioIo<tokio::io::DuplexStream>, _>(
+                        cancelled.take().expect("one connection attempt"),
+                    ))
+                });
+                let endpoint = tonic::transport::Endpoint::from_static("http://unused.invalid");
+                let transport = timeout(
+                    Duration::from_secs(5),
+                    endpoint.connect_with_connector(connector),
+                )
+                .await?
+                .expect_err("the connector returns the cancelled request");
+                // Connection-open failures map to Unavailable. Attach only their typed cause.
+                let mut status = Status::cancelled("retained transport cause");
+                status.set_source(std::sync::Arc::new(transport));
+                status
+            } else {
+                Status::from_error(Box::new(cancelled))
+            };
+            assert_eq!(status.code(), Code::Cancelled);
+            let error = GrpcError::Status(status);
+            assert!(error.is_retryable());
+            let error = ApiClientError::client(error);
+            assert!(error.is_retryable());
+            let error = NetworkError::new(error);
+            assert_eq!(grpc_status(&error)?.code(), Code::Cancelled);
+            assert!(error.is_retryable());
         }
     }
 }

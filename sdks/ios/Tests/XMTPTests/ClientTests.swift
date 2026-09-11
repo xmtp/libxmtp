@@ -911,38 +911,45 @@ class ClientTests: XCTestCase {
 		)
 
 		alix.debugInformation.clearAllStatistics()
-		// Start streaming messages
-		let streamTask = Task {
-			for try await _ in await alix.conversations.streamAllMessages() {
-				// Just consume the stream
+		let receivedMessage = expectation(description: "The stream receives the published message")
+		let streamTask = Task<String?, Error> {
+			for try await message in await alix.conversations.streamAllMessages() {
+				if message.kind == .application {
+					XCTAssertEqual(try message.body, "hi")
+					receivedMessage.fulfill()
+					return message.id
+				}
 			}
+			return nil as String?
 		}
 
-		// Create a group and send a message
-		let group = try await alix.conversations.newGroup(with: [])
-		_ = try await group.send(content: "hi")
-		try await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+		do {
+			let group = try await alix.conversations.newGroup(with: [])
+			let messageID = try await group.send(content: "hi")
+			await fulfillment(of: [receivedMessage], timeout: 10)
+			streamTask.cancel()
+			let receivedID = try await streamTask.value
+			XCTAssertEqual(receivedID, messageID)
 
-		let aggregateStats2 = alix.debugInformation.aggregateStatistics
-		print("Aggregate Stats Create:\n\(aggregateStats2)")
+			let aggregateStats2 = alix.debugInformation.aggregateStatistics
+			print("Aggregate Stats Create:\n\(aggregateStats2)")
 
-		let apiStats2 = alix.debugInformation.apiStatistics
-		// Publish and query totals are a backend implementation detail: a commit
-		// log publish and each query topic kind add calls, and a background sync
-		// can land during the wait above. Assert the direction, not a constant.
-		XCTAssertGreaterThan(apiStats2.publish, 0)
-		XCTAssertGreaterThan(apiStats2.query, 0)
-		XCTAssertEqual(0, apiStats2.queryNewest)
-		XCTAssertEqual(0, apiStats2.get)
-		XCTAssertEqual(1, apiStats2.subscribe)
-		XCTAssertEqual(0, apiStats2.subscribeStatic)
+			let apiStats2 = alix.debugInformation.apiStatistics
+			// Target capture uses QueryNewest. New groups can replace the subscription.
+			XCTAssertGreaterThan(apiStats2.publish, 0)
+			XCTAssertGreaterThan(apiStats2.query, 0)
+			XCTAssertGreaterThan(apiStats2.queryNewest, 0)
+			XCTAssertGreaterThan(apiStats2.subscribe, 0)
+			XCTAssertEqual(0, apiStats2.subscribeStatic)
 
-		let identityStats2 = alix.debugInformation.identityStatistics
-		XCTAssertEqual(0, identityStats2.getInboxIds)
-		XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignatures)
-
-		// Cancel the streaming task
-		streamTask.cancel()
+			let identityStats2 = alix.debugInformation.identityStatistics
+			XCTAssertEqual(0, identityStats2.getInboxIds)
+			XCTAssertEqual(0, identityStats2.verifySmartContractWalletSignatures)
+		} catch {
+			streamTask.cancel()
+			_ = await streamTask.result
+			throw error
+		}
 		try alix.deleteLocalDatabase()
 	}
 

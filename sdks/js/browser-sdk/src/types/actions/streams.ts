@@ -7,11 +7,6 @@ import type { SafeConversation } from "@/utils/conversions";
 
 export type StreamAction =
   | {
-      action: "stream.message";
-      streamId: string;
-      result: DecodedMessage | undefined;
-    }
-  | {
       action: "stream.conversation";
       streamId: string;
       result: SafeConversation | undefined;

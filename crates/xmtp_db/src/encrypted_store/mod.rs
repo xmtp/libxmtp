@@ -15,12 +15,14 @@ pub mod consent_record;
 pub mod conversation_list;
 pub mod database;
 pub mod db_connection;
+pub mod delivery;
 pub mod group;
 pub mod group_intent;
 pub mod group_message;
 pub mod identity;
 pub mod identity_cache;
 pub mod identity_update;
+pub mod incoming_envelope;
 pub mod key_package_history;
 pub mod key_store_entry;
 pub mod local_commit_log;
@@ -35,6 +37,7 @@ pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
 pub mod store;
+pub mod stream_storage;
 pub mod tasks;
 pub mod user_preferences;
 
@@ -197,7 +200,7 @@ impl ConnectionError {
 
     #[cfg(target_arch = "wasm32")]
     pub fn db_needs_connection(&self) -> bool {
-        false
+        matches!(self, Self::Platform(PlatformStorageError::Disconnected))
     }
 }
 
@@ -289,6 +292,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
 
     type DbQuery: crate::DbQuery + MaybeSend + MaybeSync;
 
+    /// Reject incompatible formats before migration; never infer F from old processed progress.
     fn init(&self) -> Result<(), StorageError> {
         self.conn().raw_query(|conn| {
             self.validate(conn).map_err(|e| {
@@ -312,6 +316,14 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     .map_err(diesel::result::Error::QueryBuilderError)?;
                 if applied.iter().any(|version| version.to_string() != baseline) {
                     return Ok(Err(StorageError::PreTransitionDatabase));
+                }
+                if !applied.is_empty() {
+                    let current_format = sql_query(
+                        "SELECT name FROM pragma_table_info('refresh_state') WHERE name = 'received_sequence_id'",
+                    ).get_result::<MigrationTable>(conn).optional()?;
+                    if current_format.is_none() {
+                        return Ok(Err(StorageError::OldStreamDatabase));
+                    }
                 }
             }
             conn.run_pending_migrations(MIGRATIONS)
@@ -362,6 +374,22 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
 
 #[macro_export]
 macro_rules! impl_fetch {
+    ($model:ty, $table:ident, $key:ty, select) => {
+        impl<C: $crate::ConnectionExt> $crate::Fetch<$model> for C {
+            type Key = $key;
+            fn fetch(&self, key: &Self::Key) -> Result<Option<$model>, $crate::StorageError> {
+                use $crate::diesel::{OptionalExtension, QueryDsl, RunQueryDsl, SelectableHelper};
+                self.raw_query(|conn| {
+                    $crate::encrypted_store::schema::$table::table
+                        .find(key.clone())
+                        .select(<$model>::as_select())
+                        .first(conn)
+                        .optional()
+                })
+                .map_err(Into::into)
+            }
+        }
+    };
     ($model:ty, $table:ident) => {
         impl<C> $crate::Fetch<$model> for C
         where

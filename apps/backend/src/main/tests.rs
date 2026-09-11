@@ -170,16 +170,21 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
             .connect()
             .await?;
         let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
-        let _ = client
-            .get(xmtp_backend::api::GetRequest { sequence_id: 1 })
-            .await;
-        scrape(&metrics, "operation=\"db.get\"").await;
+        let request = xmtp_backend::api::QueryNewestRequest {
+            topics: vec![xmtp_backend::api::Topic {
+                topic: xmtp_proto::types::Topic::new_group_message(
+                    xmtp_proto::types::GroupId::ZERO,
+                )
+                .cloned_vec(),
+            }],
+            include_full_envelope: false,
+        };
+        client.query_newest(request.clone()).await?;
+        scrape(&metrics, "operation=\"db.newest_metadata\"").await;
         if level == "unreachable" {
             scrape(&metrics, "xmtp_telemetry_export_failures_total 1").await;
             // A failed batch must not stop the request path.
-            let _ = client
-                .get(xmtp_backend::api::GetRequest { sequence_id: 1 })
-                .await;
+            client.query_newest(request).await?;
             scrape(&metrics, "xmtp_backend_ready 1").await;
         }
         process.terminate().await;
@@ -195,7 +200,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
                     .iter()
                     .flat_map(|resource| &resource.scope_spans)
                     .flat_map(|scope| &scope.spans)
-                    .any(|span| span.name == "db.get"),
+                    .any(|span| span.name == "db.newest_metadata"),
                 "INFO database spans must export at stdout level {level}"
             );
         }

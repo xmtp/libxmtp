@@ -1,132 +1,33 @@
-use super::{MessagesApiSubscription, State, StreamGroupMessages};
-use crate::{
-    context::XmtpSharedContext,
-    groups::MlsGroup,
-    subscriptions::{
-        Result, StreamAllMessages,
-        stream_conversations::{StreamConversations, WelcomesApiSubscription},
-    },
+//! Test diagnostics from the shared receiver status.
+
+use crate::subscriptions::{
+    Result,
+    incoming::{IncomingConnection, IncomingProcessing, IncomingRegistration},
+    stream_all::StreamAllMessages,
 };
-use futures::Stream;
-use pin_project::pin_project;
+use futures::{Stream, StreamExt};
 use std::{
     ops::Range,
     pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
+    task::{Context, Poll},
 };
-use tokio::sync::{
-    Mutex, Notify,
-    mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
-};
-use tokio_stream::StreamExt;
-use xmtp_common::{MaybeSend, MaybeSync, time::now_ns};
+use tokio::sync::Notify;
+use xmtp_common::{StreamHandle, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
-use xmtp_proto::prelude::XmtpMlsStreams;
-
-#[pin_project]
-pub struct StreamStatsWrapper<'a, Context: Clone + XmtpSharedContext, Conversations, Messages> {
-    #[pin]
-    inner: StreamAllMessages<'a, Context, Conversations, Messages>,
-    #[pin]
-    old_state: StreamState,
-    stats: StatsInner,
-}
 
 pub trait StreamWithStats: Stream<Item = Result<StoredGroupMessage>> {
     fn stats(&self) -> Arc<StreamStats>;
-    #[cfg(any(feature = "test-utils", test))]
     fn spin(self) -> Arc<Notify>;
 }
 
-impl<Context: Clone + XmtpSharedContext, Conversations, Messages> StreamWithStats
-    for StreamStatsWrapper<'static, Context, Conversations, Messages>
-where
-    Self: Stream<Item = Result<StoredGroupMessage>>,
-    Conversations: Unpin + MaybeSend + 'static,
-    Messages: Unpin + MaybeSend + 'static,
-    Context: MaybeSend + MaybeSync,
-{
-    fn stats(&self) -> Arc<StreamStats> {
-        self.stats.stats()
-    }
-
-    #[cfg(any(feature = "test-utils", test))]
-    fn spin(mut self) -> Arc<Notify> {
-        let notify = Arc::new(Notify::new());
-        xmtp_common::spawn(None, {
-            let notify = notify.clone();
-            async move {
-                while self.next().await.is_some() {
-                    notify.notify_one();
-                }
-            }
-        });
-        notify
-    }
-}
-
-struct StatsInner {
-    reconnect_start: Option<u64>,
-    stats_tx: UnboundedSender<StreamStat>,
-    enabled: AtomicBool,
-    stats: Arc<StreamStats>,
-    state: StreamState,
-}
-
-impl StatsInner {
-    fn start_reconnect(&mut self) {
-        self.reconnect_start = Some(now_ns() as u64);
-    }
-    fn finish_reconnect(&mut self, num_groups: usize) {
-        if let Some(start) = self.reconnect_start.take() {
-            let _ = self.stats_tx.send(StreamStat::Reconnection {
-                duration: start..(now_ns() as u64),
-                num_groups: num_groups as u64,
-            });
-        }
-    }
-
-    fn set_state(&mut self, state: StreamState) {
-        self.state = state;
-        let _ = self
-            .stats_tx
-            .send(StreamStat::ChangeState { state: self.state });
-    }
-
-    fn stats(&self) -> Arc<StreamStats> {
-        self.enabled.store(true, Ordering::SeqCst);
-        self.stats.clone()
-    }
-
-    fn new() -> Self {
-        let (stats_tx, stats_rx) = unbounded_channel();
-        Self {
-            stats_tx,
-            reconnect_start: None,
-            stats: Arc::new(StreamStats {
-                rx: Mutex::new(stats_rx),
-            }),
-            enabled: AtomicBool::new(false),
-            state: StreamState::Unknown,
-        }
-    }
-}
-
 pub struct StreamStats {
-    pub rx: Mutex<UnboundedReceiver<StreamStat>>,
+    pending: parking_lot::Mutex<Vec<StreamStat>>,
 }
 
 impl StreamStats {
     pub async fn new_stats(&self) -> Vec<StreamStat> {
-        let mut stats = vec![];
-        let mut stats_rx = self.rx.lock().await;
-        while let Ok(stat) = stats_rx.try_recv() {
-            stats.push(stat);
-        }
-        stats
+        std::mem::take(&mut *self.pending.lock())
     }
 }
 
@@ -138,19 +39,8 @@ pub enum StreamState {
     Adding,
 }
 
-impl<'a, Out> From<&State<'a, Out>> for StreamState {
-    fn from(state: &State<'a, Out>) -> Self {
-        match state {
-            State::Adding { .. } => Self::Adding,
-            State::Processing { .. } => Self::Processing,
-            State::Waiting => Self::Waiting,
-        }
-    }
-}
-
 #[derive(Debug)]
 pub enum StreamStat {
-    // the duration is a range of two timestamps in nanos
     Reconnection {
         duration: Range<u64>,
         num_groups: u64,
@@ -160,126 +50,162 @@ pub enum StreamStat {
     },
 }
 
-type ConversationStream<'a, Context> = StreamConversations<
-    'static,
-    Context,
-    WelcomesApiSubscription<'static, <Context as XmtpSharedContext>::ApiClient>,
->;
+pub struct StreamStatsWrapper {
+    inner: StreamAllMessages,
+    stats: Arc<StreamStats>,
+    watch: Box<dyn StreamHandle<StreamOutput = ()>>,
+}
 
-type GroupMessageStream<'a, Context> = StreamGroupMessages<
-    'static,
-    Context,
-    MessagesApiSubscription<'static, <Context as XmtpSharedContext>::ApiClient>,
->;
-
-type AllMessagesStream<'a, Context> = StreamAllMessages<
-    'a,
-    Context,
-    ConversationStream<'a, Context>,
-    GroupMessageStream<'a, Context>,
->;
-
-type StatsWrapper<'a, Context> = StreamStatsWrapper<
-    'a,
-    Context,
-    ConversationStream<'a, Context>,
-    GroupMessageStream<'a, Context>,
->;
-
-impl<'a, Context> StatsWrapper<'a, Context>
-where
-    Context: Clone + XmtpSharedContext + MaybeSend + MaybeSync + 'static,
-    Context::ApiClient: XmtpMlsStreams + MaybeSend + MaybeSync + 'static,
-{
-    pub fn new(inner: AllMessagesStream<'a, Context>) -> Self {
+impl StreamStatsWrapper {
+    pub fn new(inner: StreamAllMessages) -> Self {
+        let stats = Arc::new(StreamStats {
+            pending: parking_lot::Mutex::new(Vec::new()),
+        });
+        let control = inner.control.clone();
+        let events = stats.clone();
+        let watch = xmtp_common::spawn(None, async move {
+            let mut previous = StreamState::Unknown;
+            let mut reconnect = None;
+            loop {
+                let status = control.catch_up_snapshot();
+                let state = if status.connection == IncomingConnection::Closed {
+                    break;
+                } else if status
+                    .topics
+                    .iter()
+                    .any(|topic| topic.registration == IncomingRegistration::Pending)
+                    || matches!(
+                        status.connection,
+                        IncomingConnection::Connecting | IncomingConnection::Reconnecting
+                    )
+                {
+                    StreamState::Adding
+                } else if status.processing == IncomingProcessing::Pending {
+                    StreamState::Processing
+                } else {
+                    StreamState::Waiting
+                };
+                if state != previous {
+                    let mut pending = events.pending.lock();
+                    if state == StreamState::Adding {
+                        reconnect = Some(now_ns() as u64);
+                    }
+                    if previous == StreamState::Adding
+                        && let Some(start) = reconnect.take()
+                    {
+                        pending.push(StreamStat::Reconnection {
+                            duration: start..now_ns() as u64,
+                            num_groups: status.topics.len() as u64,
+                        });
+                    }
+                    pending.push(StreamStat::ChangeState { state });
+                    previous = state;
+                }
+                control.changed().await;
+            }
+        });
         Self {
             inner,
-            old_state: StreamState::Unknown,
-            stats: StatsInner::new(),
+            stats,
+            watch: Box::new(watch),
         }
     }
 }
 
-impl<'a, Context, Conversations> Stream
-    for StreamStatsWrapper<
-        'a,
-        Context,
-        Conversations,
-        StreamGroupMessages<'a, Context, MessagesApiSubscription<'a, Context::ApiClient>>,
-    >
-where
-    Context: XmtpSharedContext + 'a,
-    Context::ApiClient: XmtpMlsStreams + 'a,
-    Conversations: Stream<Item = Result<MlsGroup<Context>>>,
-{
+impl Stream for StreamStatsWrapper {
     type Item = Result<StoredGroupMessage>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.inner).poll_next(cx)
+    }
+}
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        let mut this = self.as_mut().project();
-
-        let inner_poll = this.inner.as_mut().poll_next(cx);
-        let inner_state: StreamState = (&this.inner.messages.state).into();
-
-        if *this.old_state != inner_state {
-            if *this.old_state != StreamState::Adding && inner_state == StreamState::Adding {
-                this.stats.start_reconnect();
+impl StreamWithStats for StreamStatsWrapper {
+    fn stats(&self) -> Arc<StreamStats> {
+        self.stats.clone()
+    }
+    fn spin(mut self) -> Arc<Notify> {
+        let notify = Arc::new(Notify::new());
+        let wake = notify.clone();
+        xmtp_common::spawn(None, async move {
+            while self.next().await.is_some() {
+                wake.notify_one();
             }
-            if *this.old_state == StreamState::Adding && inner_state != StreamState::Adding {
-                this.stats
-                    .finish_reconnect(this.inner.messages.groups.len());
-            }
+        });
+        notify
+    }
+}
 
-            this.stats.set_state(inner_state);
-        }
-
-        *this.old_state = inner_state;
-
-        inner_poll
+impl Drop for StreamStatsWrapper {
+    fn drop(&mut self) {
+        self.watch.end();
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
-    use tokio_stream::StreamExt;
-
-    use crate::{
-        subscriptions::stream_messages::stream_stats::{StreamStat, StreamWithStats},
-        tester,
-    };
+    use super::*;
+    use crate::tester;
+    use xmtp_common::wait_for_some;
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_stream_stats() {
-        tester!(alix);
-        tester!(bo);
-
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
         let mut stream = alix
             .stream_all_messages_owned_with_stats(None, None)
             .await?;
-        let stream_stats = stream.stats();
-        xmtp_common::spawn(None, async move { while stream.next().await.is_some() {} });
-        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+        let stats = stream.stats();
+        let observed = parking_lot::Mutex::new(Vec::new());
+        let mut drain =
+            xmtp_common::spawn(None, async move { while stream.next().await.is_some() {} });
 
         bo.test_talk_in_dm_with(&alix).await?;
         for _ in 0..10 {
             bo.test_talk_in_new_group_with(&alix).await?;
         }
 
-        xmtp_common::time::sleep(Duration::from_millis(100)).await;
-        let stats = stream_stats.new_stats().await;
+        let completed = wait_for_some(|| async {
+            let next = stats.new_stats().await;
+            let mut observed = observed.lock();
+            observed.extend(next);
+            let adding = observed.iter().any(|event| {
+                matches!(
+                    event,
+                    StreamStat::ChangeState {
+                        state: StreamState::Adding
+                    }
+                )
+            });
+            let waiting = observed.iter().any(|event| {
+                matches!(
+                    event,
+                    StreamStat::ChangeState {
+                        state: StreamState::Waiting
+                    }
+                )
+            });
+            let registered = observed.iter().any(|event| {
+                matches!(
+                    event,
+                    StreamStat::Reconnection { duration, num_groups }
+                        if duration.start <= duration.end && *num_groups >= 11
+                )
+            });
+            (adding && waiting && registered).then_some(())
+        })
+        .await;
+        match drain.end_and_wait().await {
+            Ok(())
+            | Err(
+                xmtp_common::StreamHandleError::Cancelled
+                | xmtp_common::StreamHandleError::StreamClosed,
+            ) => {}
+            Err(error) => panic!("stream drain did not stop cleanly: {error:?}"),
+        }
         assert!(
-            stats
-                .iter()
-                .any(|s| matches!(s, StreamStat::Reconnection { .. }))
-        );
-        assert!(
-            stats
-                .iter()
-                .any(|s| matches!(s, StreamStat::ChangeState { .. }))
+            completed.is_some(),
+            "subscription growth did not report its states: {:?}",
+            observed.lock()
         );
     }
 }

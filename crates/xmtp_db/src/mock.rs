@@ -467,7 +467,7 @@ mock! {
             timestamp: u64,
             cursor: Cursor,
             message_expire_at_ns: Option<i64>
-        ) -> Result<usize, crate::ConnectionError>;
+        ) -> Result<usize, crate::StorageError>;
 
         #[mockall::concretize]
         fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
@@ -531,6 +531,7 @@ mock! {
     }
 
     impl QueryKeyPackageHistory for DbQuery {
+        fn record_key_package_publication(&self, history_id: i32, sequence: Cursor) -> Result<(), StorageError>;
         fn store_key_package_history_entry(
             &self,
             key_package_hash_ref: Vec<u8>,
@@ -547,15 +548,11 @@ mock! {
             id: i32,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
 
-        fn mark_key_package_before_id_to_be_deleted(&self, id: i32) -> Result<(), StorageError>;
-
         fn get_expired_key_packages(
             &self,
         ) -> Result<Vec<crate::key_package_history::StoredKeyPackageHistoryEntry>, StorageError>;
 
         fn min_key_package_delete_at_ns(&self) -> Result<Option<i64>, StorageError>;
-
-        fn delete_key_package_history_up_to_id(&self, id: i32) -> Result<(), StorageError>;
 
         fn delete_key_package_entry_with_id(&self, id: i32) -> Result<(), StorageError>;
     }

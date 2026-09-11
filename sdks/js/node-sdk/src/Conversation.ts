@@ -3,6 +3,7 @@ import {
   type Actions,
   type Attachment,
   type ConsentState,
+  type DeliveryCursor,
   type EncodedContent,
   type Intent,
   type ListMessagesOptions,
@@ -19,14 +20,14 @@ import {
 } from "@xmtp/node-bindings";
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
+import { MessageStream } from "@/MessageStream";
 import { nsToDate } from "@/utils/date";
 import { MissingContentTypeError } from "@/utils/errors";
-import {
-  createStream,
-  type StreamCallback,
-  type StreamOptions,
-} from "@/utils/streams";
+import type { StreamOptions } from "@/utils/streams";
 
 /**
  * Represents a conversation
@@ -139,32 +140,39 @@ export class Conversation<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for new messages in this conversation
+   * Reads retained messages after the default acknowledgement position.
+   * Set `from` to replay after a cursor without changing default progress.
+   * Set `onValue` for callback mode, or request items with the iterator.
+   * Core owns network recovery. Legacy retry options and `disableSync` do not apply.
    *
-   * @param options - Optional stream options
+   * @param options - Optional delivery callbacks and replay cursor
    * @returns Stream instance for new messages
    */
-  async stream(options?: StreamOptions<Message, DecodedMessage<ContentTypes>>) {
-    const stream = async (
-      callback: StreamCallback<Message>,
-      onFail: () => void,
-    ) => {
-      if (!options?.disableSync) {
-        await this.sync();
-      }
-      return this.#conversation.stream(callback, onFail);
-    };
-    const convertMessage = (value: Message) => {
+  async stream(
+    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+      from?: DeliveryCursor;
+    },
+  ) {
+    const reader = await this.#conversation.messageReader(options?.from);
+    const convertMessage = (value: Message, cursor: DeliveryCursor) => {
       const enrichedMessage = this.#client.conversations.getMessageById(
         value.id,
       );
-      if (enrichedMessage === undefined) {
-        console.warn(`Streamed message with ID "${value.id}" not found`);
+      if (enrichedMessage !== undefined) {
+        assertMessageDecodedForDelivery(enrichedMessage);
+        enrichedMessage.deliveryCursor = cursor;
       }
       return enrichedMessage;
     };
+    return new MessageStream(reader, convertMessage, options);
+  }
 
-    return createStream(stream, convertMessage, options);
+  messageHistorySnapshot(limit: number) {
+    return this.#conversation.messageHistorySnapshot(limit);
+  }
+
+  beginningDeliveryCursor() {
+    return this.#conversation.beginningDeliveryCursor();
   }
 
   /**

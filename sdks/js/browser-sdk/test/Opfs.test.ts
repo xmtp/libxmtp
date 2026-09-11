@@ -55,7 +55,7 @@ describe.skip("Opfs", () => {
       const client = await createRegisteredClient(signer, {
         dbPath,
       });
-      client.close();
+      await client.close();
       const opfs = await Opfs.create();
       const files = await opfs.listFiles();
       const fileCount = await opfs.fileCount();
@@ -72,7 +72,7 @@ describe.skip("Opfs", () => {
       const client = await createRegisteredClient(signer, {
         dbPath,
       });
-      client.close();
+      await client.close();
       const opfs = await Opfs.create();
       const exists = await opfs.fileExists(dbPath);
       opfs.close();
@@ -103,7 +103,8 @@ describe.skip("Opfs", () => {
       expect(files).toContain(newDbPath);
       await opfs.deleteFile(dbPath);
       const exportedData2 = await opfs.exportDb(newDbPath);
-      expect(exportedData2).toEqual(exportedData);
+      expect(exportedData2.length).toEqual(exportedData.length);
+      expect(exportedData2).not.toEqual(exportedData);
       opfs.close();
     });
 
@@ -124,7 +125,7 @@ describe.skip("Opfs", () => {
       const client = await createRegisteredClient(signer, {
         dbPath,
       });
-      client.close();
+      await client.close();
       const opfs = await Opfs.create();
       const files = await opfs.listFiles();
       expect(files).toHaveLength(2);

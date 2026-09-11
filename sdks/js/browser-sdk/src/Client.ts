@@ -82,6 +82,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #isReady = false;
   #libxmtpVersion?: string;
   #options?: ClientOptions;
+  #closePromise?: Promise<void>;
   #preferences: Preferences;
   #signer?: Signer;
   #worker: WorkerBridge<ClientWorkerAction>;
@@ -155,8 +156,31 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Shutdown the client
    */
   close() {
-    this.#worker.close();
+    if (this.#closePromise) return this.#closePromise;
+    if (this.#worker.isClosed) {
+      this.#isReady = false;
+      this.#closePromise = Promise.resolve();
+      return this.#closePromise;
+    }
+    if (!this.#isReady) {
+      this.#worker.close();
+      this.#closePromise = Promise.resolve();
+      return this.#closePromise;
+    }
     this.#isReady = false;
+    try {
+      this.#closePromise = this.#worker.closeAfter(
+        this.#worker.action("client.close"),
+      );
+    } catch (error) {
+      this.#worker.close();
+      this.#closePromise = Promise.reject(
+        error instanceof Error
+          ? error
+          : new Error("Failed to close the client", { cause: error }),
+      );
+    }
+    return this.#closePromise;
   }
 
   /**
@@ -182,7 +206,11 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       }
       return client;
     } catch (error) {
-      client.close();
+      try {
+        await client.close();
+      } catch {
+        // Keep the creation error if cleanup also fails.
+      }
       throw error;
     }
   }
@@ -211,7 +239,11 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       await client.init(identifier);
       return client;
     } catch (error) {
-      client.close();
+      try {
+        await client.close();
+      } catch {
+        // Keep the initialization error if cleanup also fails.
+      }
       throw error;
     }
   }

@@ -4,6 +4,7 @@ use diesel::{
     connection::{LoadConnection, SimpleConnection},
     deserialize::FromSqlRow,
     prelude::*,
+    result::{DatabaseErrorKind, Error as DieselError},
     sql_query,
 };
 use std::{
@@ -12,6 +13,7 @@ use std::{
     io::{BufReader, Read, Write},
     path::{Path, PathBuf},
 };
+use xmtp_configuration::BUSY_TIMEOUT;
 
 use super::PlatformStorageError;
 use crate::{
@@ -25,6 +27,7 @@ use crate::{EncryptionKey, StorageOption};
 pub type Salt = [u8; 16];
 const PLAINTEXT_HEADER_SIZE: usize = 32;
 const SALT_FILE_NAME: &str = "sqlcipher_salt";
+const VALIDATION_QUERY: &str = "SELECT count(*) FROM sqlite_master;";
 
 // For PRAGMA query log statements
 #[derive(QueryableByName, Debug)]
@@ -274,17 +277,15 @@ impl super::ValidatedConnection for EncryptedConnection {
     fn validate(&self, conn: &mut SqliteConnection) -> Result<(), PlatformStorageError> {
         let sqlcipher_version = EncryptedConnection::check_for_sqlcipher(&self.options, conn)?;
 
-        // test the key according to
+        conn.batch_execute(&self.pragmas().to_string())?;
+        // Validation uses a separate connection before pool setup. A closing WAL
+        // connection can still hold a lock, so set the timeout before this read.
+        conn.batch_execute(&format!("PRAGMA busy_timeout = {BUSY_TIMEOUT};"))?;
+
+        // Test the key by reading the schema, after applying the encryption settings.
         // https://www.zetetic.net/sqlcipher/sqlcipher-api/#testing-the-key
-        conn.batch_execute(&format!(
-            "{}
-            SELECT count(*) FROM sqlite_master;",
-            self.pragmas()
-        ))
-        .map_err(|e| {
-            tracing::error!("SQLCipher PRAGMA batch_execute failed: {:?}", e);
-            PlatformStorageError::SqlCipherKeyIncorrect
-        })?;
+        conn.batch_execute(VALIDATION_QUERY)
+            .map_err(validation_error)?;
 
         let CipherProviderVersion {
             cipher_provider_version,
@@ -304,6 +305,26 @@ impl super::ValidatedConnection for EncryptedConnection {
         }
         tracing::debug!("SQLCipher Database validated.");
         Ok(())
+    }
+}
+
+/// Keep unreadable encrypted databases non-retryable without hiding other errors.
+fn validation_error(error: DieselError) -> PlatformStorageError {
+    tracing::error!("SQLCipher schema validation failed: {error:?}");
+    // The pinned Diesel SQLite backend drops the numeric error code. SQLCipher
+    // also uses SQLITE_ERROR ("SQL logic error") for failed page authentication.
+    // Match these unreadable-database signals only for the fixed schema query,
+    // not arbitrary SQL or pragma setup. Locks and I/O errors keep their cause.
+    match error {
+        DieselError::DatabaseError(DatabaseErrorKind::Unknown, ref info)
+            if matches!(
+                info.message(),
+                "file is not a database" | "database disk image is malformed" | "SQL logic error"
+            ) || info.message().starts_with("malformed database schema (") =>
+        {
+            PlatformStorageError::SqlCipherKeyIncorrect
+        }
+        error => PlatformStorageError::DieselResult(error),
     }
 }
 
@@ -335,14 +356,115 @@ fn pragma_plaintext_header() -> impl Display {
 
 #[cfg(test)]
 mod tests {
-    use crate::{EncryptedMessageStore, NativeDb, XmtpTestDb};
+    use crate::{EncryptedMessageStore, NativeDb, ValidatedConnection, XmtpTestDb};
+    use diesel::connection::InstrumentationEvent;
     use diesel_migrations::MigrationHarness;
-    use std::fs::File;
-    use xmtp_common::tmp_path;
+    use std::{fs::File, sync::mpsc};
+    use xmtp_common::{ErrorCode, RetryableError, time::Duration, tmp_path};
 
     use super::*;
     const SQLITE3_PLAINTEXT_HEADER: &str = "SQLite format 3\0";
+    const VALIDATION_KEY: [u8; 32] = [7; 32];
+    const LOCK_PROBE_TIMEOUT: Duration = Duration::from_millis(100);
+    const VALIDATION_START_TIMEOUT: Duration = Duration::from_secs(10);
     use StorageOption::*;
+
+    /// Keep a real encrypted WAL database locked until the caller drops the connection.
+    fn locked_encrypted_database() -> (String, EncryptedConnection, SqliteConnection) {
+        let path = tmp_path();
+        let customizer =
+            EncryptedConnection::new(VALIDATION_KEY.into(), &Persistent(path.clone())).unwrap();
+        let mut conn = SqliteConnection::establish(&path).unwrap();
+        customizer.validate(&mut conn).unwrap();
+        conn.batch_execute(
+            "CREATE TABLE validation_fixture (value INTEGER NOT NULL);
+             INSERT INTO validation_fixture VALUES (1);
+             PRAGMA journal_mode = WAL;
+             PRAGMA locking_mode = EXCLUSIVE;
+             BEGIN EXCLUSIVE;",
+        )
+        .unwrap();
+        (path, customizer, conn)
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn same_key_reopen_waits_for_transient_lock() {
+        let (path, customizer, locked) = locked_encrypted_database();
+        let mut reopened = SqliteConnection::establish(&path)?;
+        let (started_tx, started_rx) = mpsc::channel();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        reopened.set_instrumentation(move |event: InstrumentationEvent<'_>| {
+            if let InstrumentationEvent::StartQuery { query, .. } = event
+                && query.to_string() == VALIDATION_QUERY
+            {
+                started_tx.send(()).unwrap();
+            }
+        });
+        let validation = std::thread::spawn(move || {
+            let result = customizer.validate(&mut reopened);
+            finished_tx.send(()).unwrap();
+            result.map(|()| reopened)
+        });
+
+        // Wait until the schema read starts before checking that it waits for the lock.
+        let started = started_rx.recv_timeout(VALIDATION_START_TIMEOUT);
+        let waiting = finished_rx.recv_timeout(LOCK_PROBE_TIMEOUT);
+        drop(locked);
+        let result = validation.join().unwrap();
+        started?;
+        assert!(matches!(waiting, Err(mpsc::RecvTimeoutError::Timeout)));
+        let mut reopened = result?;
+        let timeout = {
+            let mut rows = reopened.load(sql_query("PRAGMA busy_timeout"))?;
+            let row = rows.next().unwrap()?;
+            <i32 as FromSqlRow<diesel::sql_types::Integer, _>>::build_from_row(&row)?
+        };
+        assert_eq!(timeout, BUSY_TIMEOUT);
+        let value = diesel::select(diesel::dsl::sql::<diesel::sql_types::Integer>(
+            "(SELECT value FROM validation_fixture)",
+        ))
+        .get_result::<i32>(&mut reopened)?;
+        assert_eq!(value, 1);
+        drop(reopened);
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn expired_reopen_lock_keeps_database_error() {
+        let (path, _customizer, locked) = locked_encrypted_database();
+        let error = NativeDb::builder()
+            .persistent(path.clone())
+            .key(VALIDATION_KEY)
+            .build()
+            .unwrap_err();
+        drop(locked);
+        assert!(error.is_retryable());
+        assert!(matches!(
+            error,
+            crate::StorageError::Platform(PlatformStorageError::DieselResult(
+                DieselError::DatabaseError(DatabaseErrorKind::Unknown, ref info)
+            )) if info.message() == "database is locked"
+        ));
+        EncryptedMessageStore::<()>::remove_db_files(path);
+    }
+
+    #[rstest::rstest]
+    #[case("file is not a database")]
+    #[case("database disk image is malformed")]
+    #[case("malformed database schema (identity) - invalid rootpage")]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn schema_corruption_stays_non_retryable(#[case] message: &str) {
+        let error = validation_error(DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new(message.to_string()),
+        ));
+        assert!(matches!(error, PlatformStorageError::SqlCipherKeyIncorrect));
+        assert_eq!(
+            error.error_code(),
+            "PlatformStorageError::SqlCipherKeyIncorrect"
+        );
+        assert!(!error.is_retryable());
+    }
 
     #[tokio::test]
     async fn test_sqlcipher_version() {
@@ -485,5 +607,38 @@ mod tests {
         assert_eq!(conn.applied_migrations()?.len(), 1);
         drop(conn);
         std::fs::remove_file(path)?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejects_old_self_hosted_format_without_changing_data() {
+        use crate::encrypted_store::EmbeddedMigrationsExt;
+        use crate::{ConnectionExt, StorageError, TestDb, XmtpDb, XmtpTestDb};
+        use diesel::sql_types::Text;
+
+        let database = TestDb::create_database(None).await;
+        let connection = database.conn();
+        connection.raw_query(|conn| {
+            conn.batch_execute(
+                "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, PRIMARY KEY(entity_id, entity_kind)); INSERT INTO refresh_state VALUES (x'01', 2, 42);",
+            )?;
+            diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
+                .bind::<Text, _>(crate::MIGRATIONS.final_migration()).execute(conn)?;
+            Ok(())
+        })?;
+        let result = EncryptedMessageStore::new(database);
+        assert!(matches!(result, Err(StorageError::OldStreamDatabase)));
+        let value = connection.raw_query(|conn| {
+            crate::schema::refresh_state::table
+                .select(crate::schema::refresh_state::sequence_id)
+                .first::<i64>(conn)
+        })?;
+        assert_eq!(value, 42);
+        assert!(
+            connection
+                .raw_query(
+                    |conn| diesel::sql_query("SELECT * FROM incoming_envelopes").execute(conn)
+                )
+                .is_err()
+        );
     }
 }

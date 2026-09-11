@@ -470,7 +470,7 @@ where
 
         // Get last cursor for IDs
         let ids = vec![group.id];
-        let entities = vec![EntityKind::ApplicationMessage, EntityKind::CommitMessage];
+        let entities = vec![EntityKind::ApplicationMessage];
         bench!(self, get_last_cursor_for_ids(&ids, &entities))?;
 
         // Update cursor (this is idempotent with same/lower values)

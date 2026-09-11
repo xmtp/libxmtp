@@ -631,8 +631,10 @@ describe("Group", () => {
     expect(groups.length).toBe(1);
     expect(groups[0].id).toBe(group.id);
 
+    const history = await groups[0].messageHistorySnapshot(1);
     const streamedMessages: unknown[] = [];
     const stream = await groups[0].stream({
+      from: history.cursor,
       onValue: (message) => {
         streamedMessages.push(message.content);
       },
@@ -641,26 +643,10 @@ describe("Group", () => {
     await group.sendText("gm");
     await group.sendText("gm2");
 
-    // End the stream once both messages have arrived. A fixed delay races a
-    // loaded machine, where the second message lands after the timer fires.
-    void vi
-      .waitFor(() => {
-        expect(streamedMessages.length).toBe(2);
-      }, WAIT)
-      .then(() => stream.end());
-
-    let count = 0;
-    for await (const message of stream) {
-      count++;
-      expect(message).toBeDefined();
-      if (count === 1) {
-        expect(message.content).toBe("gm");
-      }
-      if (count === 2) {
-        expect(message.content).toBe("gm2");
-      }
-    }
-
+    await vi.waitFor(() => {
+      expect(streamedMessages).toEqual(["gm", "gm2"]);
+    }, WAIT);
+    await stream.end();
     expect(streamedMessages).toEqual(["gm", "gm2"]);
   });
 
@@ -974,16 +960,15 @@ describe("Group", () => {
     // messages and welcomes must be synced
     await client2.conversations.syncAll();
 
-    // client1's worker processes the removal request; poll until the removal
-    // commit reaches client2
+    // The removal worker publishes before either client must process the commit.
+    // Wait for both clients to apply it.
     await vi.waitFor(async () => {
       await client1.conversations.syncAll();
       await group2.sync();
       expect(await group2.isActive()).toBe(false);
+      expect(await group.members()).toHaveLength(1);
+      expect(await group2.members()).toHaveLength(1);
     }, WAIT);
     expect(await group2.isPendingRemoval()).toBe(true);
-
-    expect(await group.members()).toHaveLength(1);
-    expect(await group2.members()).toHaveLength(1);
   });
 });

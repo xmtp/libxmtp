@@ -9,7 +9,7 @@ use tonic::Request;
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn query_uses_primary_while_get_newest_and_lookup_use_read_pool() {
+async fn query_uses_primary_while_newest_and_lookup_use_read_pool() {
     let primary = TestServer::new(|_| {}).await?;
     let selected = TestServer::new(|_| {}).await?;
     let primary_meta = primary
@@ -36,16 +36,6 @@ async fn query_uses_primary_while_get_newest_and_lookup_use_read_pool() {
     assert_eq!(query.envelopes.len(), 1);
     assert_eq!(query.envelopes[0].meta, Some(primary_meta.clone()));
 
-    let get = QueryService::get(
-        &backend,
-        Request::new(api::GetRequest {
-            sequence_id: selected_meta.cursor.as_ref().unwrap().sequence_id,
-        }),
-    )
-    .await?
-    .into_inner();
-    assert_eq!(get.meta, Some(selected_meta.clone()));
-
     let newest = QueryService::query_newest(
         &backend,
         Request::new(api::QueryNewestRequest {
@@ -57,7 +47,10 @@ async fn query_uses_primary_while_get_newest_and_lookup_use_read_pool() {
     .into_inner();
     assert_eq!(newest.results.len(), 1);
     assert_eq!(newest.results[0].meta, Some(selected_meta.clone()));
-    assert_eq!(newest.results[0].envelope, get.envelope);
+    assert_eq!(
+        newest.results[0].envelope,
+        Some(inline_welcome_envelope([32; 32]))
+    );
 
     sqlx::query("INSERT INTO identifier_association VALUES ('abcd', 2, $1, 1, NULL)")
         .bind(vec![9_u8; 32])

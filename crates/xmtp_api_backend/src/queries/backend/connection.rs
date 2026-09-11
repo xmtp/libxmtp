@@ -56,37 +56,42 @@ impl BidiBinding for BackendBinding {
             Some(Response::Started(started)) => Inbound::Emit(Event::Started {
                 keepalive_interval_ms: started.keepalive_interval_ms,
             }),
-            Some(Response::Applied(applied)) => Inbound::Emit(Event::Applied {
-                id: applied.id,
-                targets: applied
+            Some(Response::Applied(applied)) => {
+                let targets: Option<Vec<_>> = applied
                     .added_targets
                     .into_iter()
-                    .filter_map(|target| {
+                    .map(|target| {
                         Some((
                             topic_from_wire(target.topic.as_ref()?)?,
                             target.through_sequence_id,
                         ))
                     })
-                    .collect(),
-            }),
+                    .collect();
+                match targets {
+                    Some(targets) => Inbound::Emit(Event::Applied {
+                        id: applied.id,
+                        targets,
+                    }),
+                    None => Inbound::Invalid("Applied topic"),
+                }
+            }
             Some(Response::Messages(messages)) => {
                 let mut group = Vec::new();
                 let mut welcome = Vec::new();
                 for envelope in messages.envelopes {
                     match envelope_topic(&envelope).map(|topic| topic.kind()) {
-                        Some(TopicKind::GroupMessagesV1) => group.push(envelope),
+                        Some(TopicKind::GroupMessagesV1 | TopicKind::IdentityUpdatesV1) => {
+                            group.push(envelope)
+                        }
                         Some(TopicKind::WelcomeMessagesV1) => welcome.push(envelope),
-                        _ => tracing::warn!("subscription envelope has no supported topic"),
+                        _ => return Inbound::Invalid("envelope topic"),
                     }
                 }
                 Inbound::Messages { group, welcome }
             }
             Some(Response::Ping(ping)) => Inbound::Ping(ping.nonce),
             Some(Response::Pong(pong)) => Inbound::Pong(pong.nonce),
-            None => {
-                tracing::warn!("subscription response has no known frame");
-                Inbound::Skip
-            }
+            None => Inbound::Invalid("response"),
         }
     }
 }
@@ -133,6 +138,13 @@ impl TransportBinding for BackendBinding {
 
     fn welcome_cursor(envelope: &ServerEnvelope) -> Option<u64> {
         Self::group_cursor(envelope)
+    }
+
+    fn group_envelope(envelope: &ServerEnvelope) -> &ServerEnvelope {
+        envelope
+    }
+    fn welcome_envelope(envelope: &ServerEnvelope) -> &ServerEnvelope {
+        envelope
     }
 
     fn advance(position: &mut u64, delivered: u64) {
@@ -304,20 +316,20 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn skips_unknown_frames_and_survives() {
+    async fn unknown_frames_close_with_a_protocol_error() {
         let (api, mut server) = mock_pair();
         let mut conn = BidiConnection::open(&api, Mutate::default()).await?;
         server.next_request().await; // initial mutate
 
         // Prost maps an unknown response kind to an absent oneof.
         server.send_raw(SubscribeResponse { response: None });
-        server.send(started(20_000));
-        assert_eq!(
-            conn.next().await,
-            Some(BidiEvent::Started {
-                keepalive_interval_ms: 20_000,
-            })
-        );
+        assert!(conn.next().await.is_none());
+        assert!(matches!(
+            conn.failure().as_deref(),
+            Some(crate::queries::bidi::ConnectionFailure::Protocol(
+                "response"
+            ))
+        ));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

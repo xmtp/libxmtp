@@ -18,6 +18,7 @@ import {
   type ContentTypeId,
   type DecodedMessageContent,
   type DeliveryStatus,
+  type DeliveryCursor,
   type EncodedContent,
   type EnrichedReply,
   type GroupMessageKind,
@@ -26,6 +27,14 @@ import {
 } from "@xmtp/node-bindings";
 import type { CodecRegistry } from "@/CodecRegistry";
 import { nsToDate } from "@/utils/date";
+
+const decodeFailures = new WeakMap<DecodedMessage, { error: unknown }>();
+
+/** Reject failed registered codecs at delivery without changing legacy reads. */
+export const assertMessageDecodedForDelivery = (message: DecodedMessage) => {
+  const failure = decodeFailures.get(message);
+  if (failure) throw failure.error;
+};
 
 const getContentFromDecodedMessageContent = <T = unknown>(
   content: DecodedMessageContent,
@@ -163,6 +172,8 @@ const getContentTypeFromDecodedMessageContent = (
  * @property {bigint} sentAtNs - Timestamp when the message was sent (in nanoseconds)
  */
 export class DecodedMessage<ContentTypes = unknown> {
+  /** Database-local position of this delivery. Absent for ordinary history reads. */
+  deliveryCursor?: DeliveryCursor;
   content: ContentTypes | undefined;
   contentType: ContentTypeId;
   conversationId: string;
@@ -193,9 +204,20 @@ export class DecodedMessage<ContentTypes = unknown> {
     this.kind = message.kind;
     this.deliveryStatus = message.deliveryStatus;
 
+    const decodeChild = <ChildContentTypes>(child: XmtpDecodedMessage) => {
+      const decoded = new DecodedMessage<ChildContentTypes>(
+        codecRegistry,
+        child,
+      );
+      const failure = decodeFailures.get(decoded);
+      if (failure && !decodeFailures.has(this))
+        decodeFailures.set(this, failure);
+      return decoded;
+    };
+
     this.numReplies = message.numReplies;
-    this.reactions = message.reactions.map(
-      (reaction) => new DecodedMessage<Reaction>(codecRegistry, reaction),
+    this.reactions = message.reactions.map((reaction) =>
+      decodeChild<Reaction>(reaction),
     );
 
     this.content =
@@ -216,6 +238,8 @@ export class DecodedMessage<ContentTypes = unknown> {
             try {
               replyContent = codec.decode(replyContent as EncodedContent);
             } catch (error) {
+              if (!decodeFailures.has(this))
+                decodeFailures.set(this, { error });
               if (error instanceof Error) {
                 console.warn(`Error decoding custom content: ${error.message}`);
               } else {
@@ -229,7 +253,7 @@ export class DecodedMessage<ContentTypes = unknown> {
           content: replyContent,
           contentType: getContentTypeFromDecodedMessageContent(reply.content),
           inReplyTo: reply.inReplyTo
-            ? new DecodedMessage<ContentTypes>(codecRegistry, reply.inReplyTo)
+            ? decodeChild<ContentTypes>(reply.inReplyTo)
             : null,
         } as ContentTypes;
         break;
@@ -242,6 +266,8 @@ export class DecodedMessage<ContentTypes = unknown> {
             try {
               this.content = codec.decode(customContent);
             } catch (error) {
+              if (!decodeFailures.has(this))
+                decodeFailures.set(this, { error });
               if (error instanceof Error) {
                 console.warn(`Error decoding custom content: ${error.message}`);
               } else {

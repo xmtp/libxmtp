@@ -79,7 +79,7 @@ An empty chain map supports identities that do not need chain RPC verification.
 
 The optional replica URL must name one physical PostgreSQL replica, not a load
 balancer that selects independently lagging replicas. Publish and Query use the
-primary. Newest, Get, identifier lookup, and subscriptions use the selected read
+primary. Newest, identifier lookup, and subscriptions use the selected read
 database. Those reads can lag behind a successful publish.
 
 The tailer keeps one dedicated connection to the selected read database. This is

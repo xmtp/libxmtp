@@ -8,6 +8,8 @@ const makeCloser = () => ({
   endAndWait: vi.fn().mockResolvedValue(undefined),
   isClosed: vi.fn().mockReturnValue(false),
   waitForReady: vi.fn().mockResolvedValue(undefined),
+  catchUpSnapshot: vi.fn(() => null),
+  catchUpChanged: vi.fn(async () => null),
 });
 
 type MockCloser = ReturnType<typeof makeCloser>;
@@ -41,6 +43,66 @@ describe("createStream lifecycle", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
+
+  it.each(["none", "sync", "async"] as const)(
+    "reports rejected onValue promises with %s mutation without ending or retrying",
+    async (mode) => {
+      const { streamFunction, last } = makeHarness();
+      const error = new Error("Callback failed");
+      const onError = vi.fn<(error: Error) => void>();
+      const onEnd = vi.fn();
+      const onFail = vi.fn();
+      const onRetry = vi.fn();
+      const onValue = vi
+        .fn<(value: number) => Promise<void>>()
+        .mockRejectedValueOnce(error)
+        .mockResolvedValue(undefined);
+      const mutator = (value: number) =>
+        mode === "async" ? Promise.resolve(value * 2) : value * 2;
+      const stream = await createStream<number>(
+        streamFunction,
+        mode === "none" ? undefined : mutator,
+        { onEnd, onError, onFail, onRetry, onValue },
+      );
+      const firstValue = mode === "none" ? 1 : 2;
+
+      try {
+        last().callback(null, 1);
+        if (mode === "async") {
+          expect(onValue).not.toHaveBeenCalled();
+        } else {
+          expect(onValue).toHaveBeenCalledExactlyOnceWith(firstValue);
+        }
+        expect(onError).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+        expect(onError.mock.calls[0][0]).toBe(error);
+        expect(stream.isDone).toBe(false);
+        await expect(stream.next()).resolves.toEqual({
+          done: false,
+          value: firstValue,
+        });
+
+        last().callback(null, 2);
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(stream.next()).resolves.toEqual({
+          done: false,
+          value: firstValue * 2,
+        });
+        expect(onValue.mock.calls).toEqual([[firstValue], [firstValue * 2]]);
+        expect(onError).toHaveBeenCalledOnce();
+        expect(onEnd).not.toHaveBeenCalled();
+        expect(onFail).not.toHaveBeenCalled();
+        expect(onRetry).not.toHaveBeenCalled();
+        expect(last().closer.end).not.toHaveBeenCalled();
+        expect(streamFunction).toHaveBeenCalledOnce();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally {
+        await stream.end();
+      }
+    },
+  );
 
   it("ends the native stream when the consumer ends the stream", async () => {
     const { instances, streamFunction } = makeHarness();
@@ -424,12 +486,7 @@ describe("createStream", () => {
       setTimeout(() => {
         onFail();
       }, 0);
-      return Promise.resolve({
-        end: vi.fn(),
-        endAndWait: vi.fn().mockResolvedValue(undefined),
-        isClosed: vi.fn().mockReturnValue(false),
-        waitForReady: vi.fn().mockResolvedValue(undefined),
-      });
+      return Promise.resolve(makeCloser());
     });
 
     const stream = await createStream(mockStreamFunction, undefined, {

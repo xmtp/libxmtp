@@ -159,7 +159,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
                             .filter(dsl::state.eq(DeviceSyncProcessingState::Pending)),
                     )),
                 )
-                .select(group_messages_dsl::group_messages::all_columns())
+                .select(StoredGroupMessage::as_select())
                 .load::<StoredGroupMessage>(conn)
         })?;
         Ok(result)
@@ -174,7 +174,7 @@ impl<C: ConnectionExt> QueryDeviceSyncMessages for DbConnection<C> {
             group_messages_dsl::group_messages
                 .inner_join(groups_dsl::groups.on(group_messages_dsl::group_id.eq(groups_dsl::id)))
                 .filter(groups_dsl::conversation_type.eq(ConversationType::Sync))
-                .select(group_messages_dsl::group_messages::all_columns())
+                .select(StoredGroupMessage::as_select())
                 .order_by(group_messages_dsl::sent_at_ns.desc())
                 .limit(limit)
                 .offset(offset)

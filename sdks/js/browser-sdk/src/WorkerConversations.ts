@@ -7,9 +7,9 @@ import {
   type CreateDmOptions,
   type CreateGroupOptions,
   type DecodedMessage,
+  type DeliveryCursor,
   type Identifier,
   type ListConversationsOptions,
-  type Message,
 } from "@xmtp/wasm-bindings";
 import { type HmacKeys } from "@/utils/conversions";
 import type { StreamCallback } from "@/utils/streams";
@@ -28,6 +28,38 @@ export class WorkerConversations {
 
   async sync() {
     return this.#conversations.sync();
+  }
+
+  messageReader(
+    groupIds?: string[],
+    conversationType?: ConversationType,
+    consentStates?: ConsentState[],
+    from?: DeliveryCursor,
+  ) {
+    return this.#conversations.messageReader(
+      groupIds,
+      conversationType,
+      consentStates,
+      from,
+    );
+  }
+
+  messageHistorySnapshot(
+    limit: number,
+    groupIds?: string[],
+    conversationType?: ConversationType,
+    consentStates?: ConsentState[],
+  ) {
+    return this.#conversations.messageHistorySnapshot(
+      limit,
+      groupIds,
+      conversationType,
+      consentStates,
+    );
+  }
+
+  beginningDeliveryCursor() {
+    return this.#conversations.beginningDeliveryCursor();
   }
 
   async syncAll(consentStates?: ConsentState[]) {
@@ -152,28 +184,6 @@ export class WorkerConversations {
 
   streamDms(callback: StreamCallback<Conversation>, onFail: () => void) {
     return this.stream(callback, onFail, ConversationType.Dm);
-  }
-
-  streamAllMessages(
-    callback: StreamCallback<Message>,
-    onFail: () => void,
-    conversationType?: ConversationType,
-    consentStates?: ConsentState[],
-  ) {
-    const on_message = (message: Message) => {
-      callback(null, message);
-    };
-    const on_error = (error: Error | null) => {
-      callback(error, undefined);
-    };
-    const on_close = () => {
-      onFail();
-    };
-    return this.#conversations.streamAllMessages(
-      { on_message, on_error, on_close },
-      conversationType,
-      consentStates,
-    );
   }
 
   streamDeletedMessages(callback: StreamCallback<DecodedMessage>) {

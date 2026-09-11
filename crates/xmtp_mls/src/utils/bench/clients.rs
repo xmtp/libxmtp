@@ -29,7 +29,7 @@ pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
     let client = client
         .temp_store()
         .await
-        .api_client(api_client)
+        .api_client_with_streams(api_client)
         .with_remote_verifier()
         .unwrap()
         .default_mls_store()
@@ -80,7 +80,7 @@ pub async fn create_client_from_identity(identity: &super::Identity) -> BenchCli
     client
         .temp_store()
         .await
-        .api_client(api_client)
+        .api_client_with_streams(api_client)
         .with_remote_verifier()
         .unwrap()
         .default_mls_store()

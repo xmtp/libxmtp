@@ -128,7 +128,8 @@ async fn test_device_sync_mutable_metadata_is_overwritten() {
         b_commit_log_signer.as_ref().map(|s| s.as_slice())
     );
 
-    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    bo.sync_welcomes().await?;
+    let b = bo.group(&a.group_id)?;
     let b_metadata = b.mutable_metadata()?;
     let b_commit_log_signer = b_metadata.commit_log_signer();
     assert_eq!(

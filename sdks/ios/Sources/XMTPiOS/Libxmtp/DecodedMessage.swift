@@ -85,6 +85,8 @@ public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
 	public let childMessages: [DecodedMessage]?
+	/// Cursor for this stream handoff. Reading it does not acknowledge delivery.
+	public let deliveryCursor: FfiDeliveryCursor?
 
 	public var id: String {
 		ffiMessage.id.toHex
@@ -178,30 +180,33 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
-	public static func create(ffiMessage: FfiMessage)
+	public static func create(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		-> DecodedMessage?
 	{
 		do {
-			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.content
-			)
-			if encodedContent.type == ContentTypeGroupUpdated,
-			   ffiMessage.kind != .membershipChange
-			{
-				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change"
-				)
-			}
-			// Decode the content once during creation
-			let decodedContent: Any = try encodedContent.decoded()
-			return DecodedMessage(
-				ffiMessage: ffiMessage, decodedContent: decodedContent,
-				childMessages: nil
-			)
+			return try decodeForDelivery(ffiMessage: ffiMessage, deliveryCursor: deliveryCursor)
 		} catch {
 			print("Error creating Message: \(error)")
 			return nil
 		}
+	}
+
+	/// Return nil only for content that forges a reserved membership change.
+	/// Parse and codec errors must not consume a delivery.
+	static func decodeForDelivery(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
+		throws -> DecodedMessage?
+	{
+		let encodedContent = try EncodedContent(serializedBytes: ffiMessage.content)
+		if encodedContent.type == ContentTypeGroupUpdated,
+		   ffiMessage.kind != .membershipChange
+		{
+			return nil
+		}
+		let decodedContent: Any = try encodedContent.decoded()
+		return DecodedMessage(
+			ffiMessage: ffiMessage, decodedContent: decodedContent,
+			childMessages: nil, deliveryCursor: deliveryCursor
+		)
 	}
 
 	public static func create(ffiMessage: FfiMessageWithReactions)
@@ -229,13 +234,13 @@ public struct DecodedMessage: Identifiable {
 				let decodedContent: Any = try encodedContent.decoded()
 				return DecodedMessage(
 					ffiMessage: reaction, decodedContent: decodedContent,
-					childMessages: nil
+					childMessages: nil, deliveryCursor: nil
 				)
 			}
 
 			return DecodedMessage(
 				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
-				childMessages: childMessages
+				childMessages: childMessages, deliveryCursor: nil
 			)
 		} catch {
 			print("Error creating Message: \(error)")

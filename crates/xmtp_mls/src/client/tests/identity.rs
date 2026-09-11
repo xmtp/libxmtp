@@ -34,9 +34,9 @@ async fn test_mls_error() {
     ));
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_register_installation() {
-    tester!(client);
+    tester!(client, disable_workers);
     tester!(client_2);
     // Make sure the installation is actually on the network
     let association_state = client_2
@@ -46,6 +46,23 @@ async fn test_register_installation() {
         .unwrap();
 
     assert_eq!(association_state.installation_ids().len(), 1);
+
+    let topic = xmtp_proto::types::Topic::new_key_package(client.installation_public_key());
+    let heads = client
+        .context
+        .api()
+        .newest_topic_cursors(vec![topic.clone()])
+        .await?;
+    let history = client
+        .context
+        .db()
+        .find_key_package_history_entries_before_id(i32::MAX)?;
+    assert_eq!(history.len(), 1);
+    assert_eq!(
+        history[0].published_sequence_id,
+        Some(heads[&topic].0 as i64)
+    );
+    assert_eq!(history[0].delete_at_ns, None);
 }
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]

@@ -12,6 +12,19 @@ export { Client } from "./Client";
 export { Conversation } from "./Conversation";
 export { Conversations } from "./Conversations";
 export { DecodedMessage } from "./DecodedMessage";
+export {
+  MessageStream,
+  type MessageAcknowledgement,
+  type MessageDelivery,
+  type MessageReaderSource,
+} from "./MessageStream";
+export type {
+  DeliveryCursor,
+  MessageCatchUp,
+  MessageCatchUpGeneration,
+  MessageHistorySnapshot,
+  MessageTopicStatus,
+} from "@xmtp/node-bindings";
 export { DebugInformation } from "./DebugInformation";
 export { Dm } from "./Dm";
 export { Group } from "./Group";

@@ -1,21 +1,29 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import app.cash.turbine.test
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.xmtp.android.library.Conversations.ConversationFilterType
+import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.ContentTypeReaction
+import org.xmtp.android.library.codecs.GroupUpdatedCodec
 import org.xmtp.android.library.codecs.Reaction
 import org.xmtp.android.library.codecs.ReactionAction
 import org.xmtp.android.library.codecs.ReactionCodec
@@ -29,6 +37,8 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
+import org.xmtp.proto.mls.message.contents.TranscriptMessages.GroupUpdated
+import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
@@ -62,6 +72,7 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanSuccessfullyThreadDms() {
+        Client.register(codec = GroupUpdatedCodec())
         val convoBo =
             runBlocking {
                 fixtures.boClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
@@ -71,17 +82,80 @@ class DmTest : BaseInstrumentedTest() {
                 fixtures.alixClient.conversations.findOrCreateDm(fixtures.boClient.inboxId)
             }
 
+        data class ExpectedDm(
+            val creator: String,
+            val peer: String,
+        )
+
+        data class ExpectedApplication(
+            val sender: String,
+            val body: String,
+            val group: String,
+        )
+
+        val expectedDms =
+            linkedMapOf(
+                convoBo.id to ExpectedDm(fixtures.boClient.inboxId, fixtures.alixClient.inboxId),
+            )
+        expectedDms.putIfAbsent(
+            convoAlix.id,
+            ExpectedDm(fixtures.alixClient.inboxId, fixtures.boClient.inboxId),
+        )
+        val expectedApplications = mutableMapOf<String, ExpectedApplication>()
+
+        fun assertHistory(
+            messages: List<DecodedMessage>,
+            requiredMembershipGroups: Set<String>,
+        ) {
+            assertEquals("Message IDs are unique", messages.size, messages.map { it.id }.toSet().size)
+            val applications = messages.filter { it.kind == FfiConversationMessageKind.APPLICATION }
+            assertEquals(expectedApplications.keys, applications.map { it.id }.toSet())
+            val membership = messages.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+            val membershipGroups = membership.map { it.conversationId }.toSet()
+            assertEquals("One membership event per physical DM", membership.size, membershipGroups.size)
+            assertTrue("Required DM membership is present", membershipGroups.containsAll(requiredMembershipGroups))
+
+            for (message in messages) {
+                if (message.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE) {
+                    val expected =
+                        requireNotNull(expectedDms[message.conversationId]) {
+                            "Unexpected membership group ${message.conversationId}"
+                        }
+                    val expectedUpdate =
+                        GroupUpdated
+                            .newBuilder()
+                            .setInitiatedByInboxId(expected.creator)
+                            .addAddedInboxes(GroupUpdated.Inbox.newBuilder().setInboxId(expected.peer))
+                            .build()
+                    assertEquals(ContentTypeGroupUpdated, message.encodedContent.type)
+                    assertEquals(expected.creator, message.senderInboxId)
+                    assertEquals(expectedUpdate, requireNotNull(message.content<GroupUpdated>()))
+                } else {
+                    assertEquals(FfiConversationMessageKind.APPLICATION, message.kind)
+                    val expected = requireNotNull(expectedApplications[message.id])
+                    assertEquals(expected.body, message.content<String>())
+                    assertEquals(expected.sender, message.senderInboxId)
+                    assertEquals(expected.group, message.conversationId)
+                }
+            }
+        }
+
         runBlocking {
-            assertEquals(1, convoBo.messages().size) // memberAdd
-            assertEquals(1, convoAlix.messages().size) // memberAdd
+            // Background receipt can install the other DM before explicit sync.
+            assertHistory(convoBo.messages(), setOf(convoBo.id))
+            assertHistory(convoAlix.messages(), setOf(convoAlix.id))
         }
 
         runBlocking { fixtures.boClient.conversations.syncAllConversations() }
         runBlocking { fixtures.alixClient.conversations.syncAllConversations() }
 
         runBlocking {
-            assertEquals(2, convoBo.messages().size) // memberAdd
-            assertEquals(2, convoAlix.messages().size) // memberAdd
+            val boMessages = convoBo.messages()
+            val alixMessages = convoAlix.messages()
+            assertEquals(expectedDms.size, boMessages.size)
+            assertEquals(expectedDms.size, alixMessages.size)
+            assertHistory(boMessages, expectedDms.keys)
+            assertHistory(alixMessages, expectedDms.keys)
         }
 
         val sameConvoBo =
@@ -122,21 +196,24 @@ class DmTest : BaseInstrumentedTest() {
         }
 
         runBlocking {
-            sameConvoBo.send("Bo hey2")
-            sameConvoAlix.send("Alix hey2")
+            val boMessageId = sameConvoBo.send("Bo hey2")
+            val alixMessageId = sameConvoAlix.send("Alix hey2")
+            expectedApplications[boMessageId] =
+                ExpectedApplication(fixtures.alixClient.inboxId, "Bo hey2", sameConvoBo.id)
+            expectedApplications[alixMessageId] =
+                ExpectedApplication(fixtures.boClient.inboxId, "Alix hey2", sameConvoAlix.id)
+            assertEquals(2, expectedApplications.size)
             sameConvoAlix.sync()
             sameConvoBo.sync()
         }
 
         runBlocking {
-            assertEquals(
-                4,
-                sameConvoBo.messages().size,
-            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
-            assertEquals(
-                4,
-                sameConvoAlix.messages().size,
-            ) // memberAdd Bo hey Alix hey Bo hey2 Alix hey2
+            val boMessages = sameConvoBo.messages()
+            val alixMessages = sameConvoAlix.messages()
+            assertEquals(expectedDms.size + 2, boMessages.size)
+            assertEquals(expectedDms.size + 2, alixMessages.size)
+            assertHistory(boMessages, expectedDms.keys)
+            assertHistory(alixMessages, expectedDms.keys)
         }
     }
 
@@ -444,79 +521,126 @@ class DmTest : BaseInstrumentedTest() {
 
     @Test
     fun testCanStreamDmMessages() =
-        kotlinx.coroutines.test.runTest {
+        runBlocking {
             val group =
                 fixtures.boClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
             fixtures.alixClient.conversations.sync()
             val alixDm =
-                fixtures.alixClient.conversations.findDmByIdentity(
-                    PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
+                requireNotNull(
+                    fixtures.alixClient.conversations.findDmByIdentity(
+                        PublicIdentity(IdentityKind.ETHEREUM, fixtures.bo.walletAddress),
+                    ),
                 )
             group.sync()
+            val retained = group.messageHistorySnapshot(10U).messages
+            assertEquals(1, retained.size)
+            assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
 
-            group.streamMessages().test {
-                alixDm?.send("hi")
-                assertEquals("hi", awaitItem().body)
-                alixDm?.send("hi again")
-                assertEquals("hi again", awaitItem().body)
+            val messages = StreamTestMessages()
+            val job = launch(Dispatchers.IO) { group.streamMessages().collect { messages.add(it) } }
+            try {
+                messages.awaitHistory(retained)
+                val firstId = alixDm.send("hi")
+                messages.awaitApplications(listOf(firstId to "hi"))
+                val secondId = alixDm.send("hi again")
+                messages.awaitApplications(listOf(firstId to "hi", secondId to "hi again"))
+                messages.awaitHistory(group.messageHistorySnapshot(10U).messages)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 
     @Test
-    fun testCanStreamAllMessages() {
-        val boDm = runBlocking { boClient.conversations.findOrCreateDm(alixClient.inboxId) }
-        runBlocking { alixClient.conversations.sync() }
-
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    fixtures.alixClient.conversations
-                        .streamAllMessages(
-                            type = ConversationFilterType.DMS,
-                        ).collect { message -> allMessages.add(message) }
-                } catch (e: Exception) {
+    fun testCanStreamAllMessages() =
+        runBlocking {
+            val boDm = boClient.conversations.findOrCreateDm(alixClient.inboxId)
+            alixClient.conversations.sync()
+            val messages = StreamTestMessages()
+            val expected = mutableListOf<Pair<String, String>>()
+            val job =
+                launch(Dispatchers.IO) {
+                    alixClient.conversations
+                        .streamAllMessages(type = ConversationFilterType.DMS)
+                        .collect { messages.add(it) }
                 }
+            try {
+                val retained =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.DMS).messages
+                assertEquals(1, retained.size)
+                assertEquals(FfiConversationMessageKind.MEMBERSHIP_CHANGE, retained.single().kind)
+                messages.awaitHistory(retained)
+                repeat(2) {
+                    val body = "Bo Message $it"
+                    expected.add(boDm.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+
+                val caroDm = caroClient.conversations.findOrCreateDm(alixClient.inboxId)
+                repeat(2) {
+                    val body = "Caro Message $it"
+                    expected.add(caroDm.send(body) to body)
+                    messages.awaitApplications(expected)
+                }
+
+                val history =
+                    alixClient.conversations.messageHistorySnapshot(10U, type = ConversationFilterType.DMS).messages
+                assertEquals(6, history.size)
+                assertEquals(
+                    setOf(boDm.id, caroDm.id),
+                    history
+                        .filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+                        .map { it.conversationId }
+                        .toSet(),
+                )
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
-        Thread.sleep(2500)
-
-        for (i in 0 until 2) {
-            runBlocking { boDm.send(text = "Message $i") }
-            Thread.sleep(100)
         }
-        assertEquals(2, allMessages.size)
-
-        val caroDm =
-            runBlocking {
-                fixtures.caroClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
-            }
-        Thread.sleep(2500)
-
-        for (i in 0 until 2) {
-            runBlocking { caroDm.send(text = "Message $i") }
-            Thread.sleep(100)
-        }
-
-        assertEquals(4, allMessages.size)
-
-        job.cancel()
-    }
 
     @Test
     fun testCanStreamConversations() =
-        kotlinx.coroutines.test.runTest {
-            fixtures.boClient.conversations.stream(type = ConversationFilterType.DMS).test {
+        runBlocking {
+            val notificationTimeoutMs = 3_000L
+            val lifecycleTimeoutMs = 30_000L
+            val ready = CompletableDeferred<Unit>()
+            val closed = CompletableDeferred<Unit>()
+            val conversations = Channel<String>(Channel.UNLIMITED)
+            val job =
+                launch(Dispatchers.IO) {
+                    fixtures.boClient.conversations
+                        .streamWithReadiness(
+                            type = ConversationFilterType.DMS,
+                            onClose = { closed.complete(Unit) },
+                            onReady = { ready.complete(Unit) },
+                        ).collect { conversations.send(it.id) }
+                }
+            try {
+                withTimeout(lifecycleTimeoutMs) { ready.await() }
                 val dm =
                     fixtures.alixClient.conversations.findOrCreateDm(
                         fixtures.boClient.inboxId,
                     )
-                assertEquals(dm.id, awaitItem().id)
+                assertEquals(dm.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
                 val dm2 =
                     fixtures.caroClient.conversations.findOrCreateDm(
                         fixtures.boClient.inboxId,
                     )
-                assertEquals(dm2.id, awaitItem().id)
+                assertEquals(dm2.id, withTimeout(notificationTimeoutMs) { conversations.receive() })
+                assertTrue("Unexpected conversation", conversations.tryReceive().isFailure)
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        withTimeout(lifecycleTimeoutMs) {
+                            job.cancelAndJoin()
+                            if (ready.isCompleted) {
+                                closed.await()
+                            }
+                        }
+                    } finally {
+                        conversations.cancel()
+                    }
+                }
             }
         }
 

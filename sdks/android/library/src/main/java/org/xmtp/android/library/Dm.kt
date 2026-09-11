@@ -1,11 +1,8 @@
 package org.xmtp.android.library
 
-import android.util.Log
 import com.google.protobuf.kotlin.toByteString
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.EncodedContent
@@ -25,10 +22,8 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
-import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiListMessagesOptions
 import uniffi.xmtpv3.FfiMessage
-import uniffi.xmtpv3.FfiMessageCallback
 import uniffi.xmtpv3.FfiMessageDisappearingSettings
 import uniffi.xmtpv3.FfiSortBy
 import java.util.Date
@@ -515,46 +510,20 @@ class Dm(
 
     suspend fun members(): List<Member> = withContext(Dispatchers.IO) { libXMTPGroup.listMembers().map { Member(it) } }
 
+    /** Supply a cursor to replay independently of default delivery progress. */
+    suspend fun messageReader(from: DeliveryCursor? = null): MessageReader =
+        MessageReader(libXMTPGroup.messageReader(from))
+
+    suspend fun messageHistorySnapshot(limit: UInt): MessageHistorySnapshot =
+        withContext(Dispatchers.IO) { libXMTPGroup.messageHistorySnapshot(limit).toMessageHistorySnapshot() }
+
+    suspend fun beginningDeliveryCursor(): DeliveryCursor =
+        withContext(Dispatchers.IO) { libXMTPGroup.beginningDeliveryCursor() }
+
+    /** Acknowledges after the direct Flow collector returns. App-added buffering changes this boundary. */
     fun streamMessages(onClose: (() -> Unit)? = null): Flow<DecodedMessage> =
-        callbackFlow {
-            val messageCallback =
-                object : FfiMessageCallback {
-                    override fun onMessage(message: FfiMessage) {
-                        try {
-                            val decodedMessage = DecodedMessage.create(message)
-                            if (decodedMessage != null) {
-                                trySend(decodedMessage)
-                            } else {
-                                Log.w(
-                                    "XMTP Dm stream",
-                                    "Failed to decode message: id=${message.id.toHex()}, " +
-                                        "conversationId=${message.conversationId.toHex()}, " +
-                                        "senderInboxId=${message.senderInboxId}",
-                                )
-                            }
-                        } catch (e: Exception) {
-                            Log.e(
-                                "XMTP Dm stream",
-                                "Error decoding message: id=${message.id.toHex()}, " +
-                                    "conversationId=${message.conversationId.toHex()}, " +
-                                    "senderInboxId=${message.senderInboxId}",
-                                e,
-                            )
-                        }
-                    }
-
-                    override fun onError(error: FfiException) {
-                        Log.e("XMTP Dm stream", "Stream error: $error")
-                    }
-
-                    override fun onClose() {
-                        onClose?.invoke()
-                        close()
-                    }
-                }
-
-            val stream = libXMTPGroup.stream(messageCallback)
-            awaitClose { stream.end() }
+        messageDeliveryFlow(onClose) { messageCallback ->
+            libXMTPGroup.stream(messageCallback)
         }
 
     suspend fun clearDisappearingMessageSettings() =

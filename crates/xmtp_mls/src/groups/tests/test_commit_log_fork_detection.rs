@@ -761,10 +761,9 @@ async fn test_fork_detection_not_triggered_by_removal_and_readd()
 /// the group always advances the epoch and therefore changes the epoch
 /// authenticator. The only legitimate exception — a commit that removes us —
 /// is handled separately (`CommitType::RemovedFromGroup`). If the
-/// authenticator does not advance for an active member, the group state the
-/// commit was merged onto was corrupt/torn (e.g. a cross-process race on a
-/// shared MLS DB: the iOS main app and the Notification Service Extension
-/// share one SQLite DB, but `GroupCommitLock` is in-process only).
+/// authenticator does not advance for an active member, the group state is
+/// inconsistent. Production state writes serialize across processes. This
+/// test writes inconsistent state directly to check the additional merge guard.
 ///
 /// This test constructs such a torn state deterministically:
 /// 1. Pass 1: process a received commit in a rolled-back transaction and
@@ -865,7 +864,8 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
 
     // Bo fetches the raw commit envelope from the network.
     let messages = bo
-        .mls_store()
+        .context
+        .api()
         .query_group_messages(bo_group.group_id)
         .await?;
     let commit_envelope = messages

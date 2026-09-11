@@ -1,10 +1,8 @@
 use futures::{Stream, StreamExt};
-use process_welcome::ProcessWelcomeFuture;
 use prost::Message;
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::{broadcast, oneshot};
 use tokio_stream::wrappers::BroadcastStream;
-use xmtp_api_backend::envelope::decode_welcome_message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 use xmtp_proto::types::GroupId;
 
@@ -12,9 +10,8 @@ use tracing::instrument;
 use xmtp_db::prelude::*;
 use xmtp_proto::api_client::XmtpMlsStreams;
 
-use process_welcome::ProcessWelcomeResult;
 use stream_all::StreamAllMessages;
-use stream_conversations::{StreamConversations, WelcomeOrGroup};
+use stream_conversations::StreamConversations;
 
 // Live backend tests require native full-duplex HTTP/2.
 #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -24,21 +21,21 @@ mod bidi_tests;
 mod bidi_fuzz_tests;
 // One-shot bounded catch-up over the bidi wire (native-only, like the
 // connection it rides).
+pub mod barrier;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod catch_up;
-pub mod process_message;
-pub mod process_welcome;
+pub mod incoming;
+pub mod local_delivery;
+pub mod message_reader;
+pub(crate) mod policy;
 mod stream_all;
 mod stream_conversations;
+pub mod stream_failure;
 pub mod stream_messages;
-// XIP-83 client-level router over the process-level bidi transport
-// (native-only, like the transport itself).
-#[cfg(not(target_arch = "wasm32"))]
-pub mod stream_router;
 // Live integration tests for the router (v3 wire; same gating rationale as
 // `bidi_tests` above).
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod stream_router_tests;
+mod delivery_integration_tests;
 // Native callback adapters over the shared backend transport.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod router_callbacks;
@@ -86,6 +83,8 @@ impl RetryableError for LocalEventError {
 pub enum LocalEvents {
     // a new group was created
     NewGroup(GroupId),
+    /// A committed local message can be read. This is a hint, not a delivery event.
+    MessagesStored,
     PreferencesChanged(Vec<PreferenceUpdate>),
     // a message was deleted (contains the decoded message that was deleted)
     MsgsDeleted(Vec<StoredGroupMessage>),
@@ -117,15 +116,6 @@ impl std::fmt::Debug for SyncWorkerEvent {
 }
 
 impl LocalEvents {
-    fn group_filter(self) -> Option<GroupId> {
-        use LocalEvents::*;
-        // this is just to protect against any future variants
-        match self {
-            NewGroup(c) => Some(c),
-            _ => None,
-        }
-    }
-
     fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
         match self {
             Self::PreferencesChanged(updates) => {
@@ -200,11 +190,14 @@ impl StreamMessages for broadcast::Receiver<LocalEvents> {
 
 #[derive(thiserror::Error, Debug, ErrorCode)]
 pub enum SubscribeError {
-    /// Subscribing through the bidi stream router failed. Boxed: RouterError
-    /// itself wraps SubscribeError, so the cycle needs indirection.
+    /// Local message delivery failed. May be retryable for a storage failure.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    LocalDelivery(#[from] local_delivery::LocalDeliveryError),
+    /// The shared native transport failed. May be retryable.
     #[cfg(not(target_arch = "wasm32"))]
     #[error(transparent)]
-    Router(#[from] Box<stream_router::RouterError>),
+    Transport(#[from] xmtp_api_backend::TransportError),
     /// Group error.
     ///
     /// Group operation failed during subscription. May be retryable.
@@ -236,16 +229,6 @@ pub enum SubscribeError {
     /// Protobuf decoding failed. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
-    /// Message stream error.
-    ///
-    /// Message stream failed. Retryable.
-    #[error(transparent)]
-    MessageStream(#[from] stream_messages::MessageStreamError),
-    /// Conversation stream error.
-    ///
-    /// Conversation stream failed. Retryable.
-    #[error(transparent)]
-    ConversationStream(#[from] stream_conversations::ConversationStreamError),
     /// API client error.
     ///
     /// Network request failed. Retryable.
@@ -294,13 +277,6 @@ impl From<GroupError> for SubscribeError {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl From<stream_router::RouterError> for SubscribeError {
-    fn from(value: stream_router::RouterError) -> Self {
-        SubscribeError::Router(Box::new(value))
-    }
-}
-
 impl From<GroupMessageProcessingError> for SubscribeError {
     fn from(value: GroupMessageProcessingError) -> Self {
         SubscribeError::ReceiveGroup(Box::new(value))
@@ -311,22 +287,15 @@ impl RetryableError for SubscribeError {
     fn is_retryable(&self) -> bool {
         use SubscribeError::*;
         match self {
-            // Re-subscribing recovers from an open failure; a shut-down
-            // router/transport (client teardown) and caller bugs do not.
             #[cfg(not(target_arch = "wasm32"))]
-            Router(e) => match e.as_ref() {
-                stream_router::RouterError::Closed => false,
-                stream_router::RouterError::Transport(t) => retryable!(t),
-                stream_router::RouterError::Subscribe(inner) => retryable!(inner),
-            },
+            Transport(error) => error.is_retryable(),
+            LocalDelivery(e) => retryable!(e),
             Group(e) => retryable!(e),
             GroupMessageNotFound => true,
             ReceiveGroup(e) => retryable!(e),
             Storage(e) => retryable!(e),
             Decode(_) => false,
             NotFound(e) => retryable!(e),
-            MessageStream(e) => retryable!(e),
-            ConversationStream(e) => retryable!(e),
             ApiClient(e) => retryable!(e),
             BoxError(e) => retryable!(e),
             Db(c) => retryable!(c),
@@ -346,23 +315,15 @@ impl crate::worker::NeedsDbReconnect for SubscribeError {
         match self {
             Group(e) => e.needs_db_reconnect(),
             Storage(e) => e.db_needs_connection(),
+            LocalDelivery(local_delivery::LocalDeliveryError::Storage(e)) => {
+                e.db_needs_connection()
+            }
+            LocalDelivery(_) => false,
             Db(c) => c.db_needs_connection(),
             #[cfg(not(target_arch = "wasm32"))]
-            Router(e) => {
-                matches!(e.as_ref(), stream_router::RouterError::Subscribe(inner) if inner.needs_db_reconnect())
-            }
-            GroupMessageNotFound
-            | ReceiveGroup(_)
-            | Decode(_)
-            | NotFound(_)
-            | MessageStream(_)
-            | ConversationStream(_)
-            | ApiClient(_)
-            | BoxError(_)
-            | Conversion(_)
-            | Envelope(_)
-            | Enriched(_)
-            | StreamStale => false,
+            Transport(_) => false,
+            GroupMessageNotFound | ReceiveGroup(_) | Decode(_) | NotFound(_) | ApiClient(_)
+            | BoxError(_) | Conversion(_) | Envelope(_) | Enriched(_) | StreamStale => false,
         }
     }
 }
@@ -371,49 +332,36 @@ impl<Context> Client<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    /// Async proxy for processing a streamed welcome message.
-    /// Shouldn't be used unless for out-of-process utilities like Push Notifications.
-    /// Pulls a new provider/database connection.
+    /// Use push metadata as a target. Fetch its complete prefix before processing.
     pub async fn process_streamed_welcome_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<MlsGroup<Context>>> {
-        let conn = self.context.db();
-        let mut known_welcomes = HashSet::from_iter(conn.group_cursors()?);
-        let welcome = decode_welcome_message(ServerEnvelope::decode(envelope_bytes.as_slice())?)?;
-        let welcomes = vec![welcome];
-
-        let mut out = Vec::with_capacity(welcomes.len());
-        for welcome in welcomes {
-            let welcome_id = welcome.cursor;
-            let future = ProcessWelcomeFuture::new(
-                known_welcomes.clone(),
-                self.context.clone(),
-                WelcomeOrGroup::Welcome(welcome),
-                None,
-                false,
-                None,
-            )?;
-
-            match future.process().await? {
-                ProcessWelcomeResult::New { group, .. } => {
-                    known_welcomes.insert(welcome_id);
-                    out.push(group)
-                }
-                ProcessWelcomeResult::NewStored { group, .. } => {
-                    known_welcomes.insert(welcome_id);
-                    out.push(group)
-                }
-                ProcessWelcomeResult::IgnoreId { .. } | ProcessWelcomeResult::Ignore => {
-                    known_welcomes.insert(welcome_id);
-                    return Err(
-                        stream_conversations::ConversationStreamError::InvalidConversationType
-                            .into(),
-                    );
-                }
-            }
+        let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+        let meta = wire
+            .meta
+            .as_ref()
+            .ok_or(xmtp_api::ApiError::InvalidResponse("welcome metadata"))?;
+        let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
+            meta,
+            xmtp_proto::types::TopicKind::WelcomeMessagesV1,
+        )?;
+        if topic != xmtp_proto::types::Topic::new_welcome_message(self.context.installation_id()) {
+            return Err(xmtp_api::ApiError::InvalidResponse("welcome installation").into());
         }
-        Ok(out)
+        barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
+            .await
+            .map_err(GroupError::from)?;
+        let Some(group) = self.context.db().find_group_by_sequence_id(cursor)? else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![MlsGroup::new(
+            self.context.clone(),
+            group.id,
+            group.dm_id,
+            group.conversation_type,
+            group.created_at_ns,
+        )])
     }
 
     #[xmtp_common::span(prefix = "stream")]

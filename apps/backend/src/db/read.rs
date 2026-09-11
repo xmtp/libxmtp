@@ -104,22 +104,6 @@ impl Store {
         .await?)
     }
 
-    /// Look up one envelope by its globally allocated sequence ID.
-    ///
-    /// The read pool determines visibility. `None` has no special cause: the
-    /// ID may be absent, aborted, expired, or not yet replicated.
-    #[xmtp_common::db_span]
-    pub(crate) async fn get(&self, id: i64) -> Result<Option<StoredEnvelope>, Error> {
-        Ok(sqlx::query_as!(
-            StoredEnvelope,
-            "SELECT sequence_id, topic, server_ns, expiry_ns, message_hash,
-                is_commit_or_proposal, payload FROM envelopes WHERE sequence_id = $1",
-            id
-        )
-        .fetch_optional(&self.read)
-        .await?)
-    }
-
     /// Resolve normalized identifier keys to their latest active inbox IDs.
     ///
     /// The query preserves input order and returns one optional value per input.
