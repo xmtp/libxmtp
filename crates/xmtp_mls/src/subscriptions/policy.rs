@@ -41,6 +41,8 @@ pub(crate) struct StreamPolicy {
     pub(crate) identity_reference_wait: Duration,
     /// One budget for target capture, receipt, processing, and required send follow-up work.
     pub(crate) barrier_timeout: Duration,
+    /// Interval between full rescans of blocked Welcome rows.
+    pub(crate) blocked_welcome_rescan_interval: Duration,
     /// First delay before retrying a source that failed with a permanent error.
     pub(crate) permanent_retry_initial: Duration,
     /// Longest delay between retries of a repeatedly failing source.
@@ -76,6 +78,7 @@ impl Default for StreamPolicy {
             default_consumer_lease_duration: DEFAULT_CONSUMER_LEASE_DURATION,
             identity_reference_wait: IDENTITY_REFERENCE_WAIT,
             barrier_timeout: STREAM_BARRIER_TIMEOUT,
+            blocked_welcome_rescan_interval: STREAM_BLOCKED_WELCOME_RESCAN_INTERVAL,
             permanent_retry_initial: STREAM_PERMANENT_RETRY_INITIAL,
             permanent_retry_max: STREAM_PERMANENT_RETRY_MAX,
         }
@@ -154,6 +157,10 @@ mod tests {
                 ),
                 ("identity_reference_wait", self.identity_reference_wait),
                 ("barrier_timeout", self.barrier_timeout),
+                (
+                    "blocked_welcome_rescan_interval",
+                    self.blocked_welcome_rescan_interval,
+                ),
                 ("permanent_retry_initial", self.permanent_retry_initial),
                 ("permanent_retry_max", self.permanent_retry_max),
             ] {
