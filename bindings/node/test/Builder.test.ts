@@ -104,7 +104,7 @@ describe('Backend authentication', () => {
         generateInboxId(identifier),
         identifier
       )
-    ).rejects.toThrow('Auth callback failed')
+    ).rejects.toThrow('auth callback failed')
   })
 
   it('rejects a publish from a read-only client', async () => {

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**32 error types** across **10 crates** with **347 total error codes**.
+**34 error types** across **10 crates** with **363 total error codes**.
 
 ## mobile
 
@@ -571,6 +571,38 @@ Errors that can occur when working with GroupMutablePermissions.
 | `GroupMetadataError::MissingDmMember` | Missing DM member. A DM member field is not set. Not retryable. |
 
 ## xmtp_proto
+
+### ApiClientError <sub>enum</sub>
+
+<small>`crates/xmtp_proto/src/traits/error.rs`</small>
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ApiClientError::ClientWithEndpoint` | The client encountered an error. |
+| `ApiClientError::Client` | The transport failed. Retryability follows the source. |
+| `ApiClientError::Http` | The HTTP request is invalid. Not retryable. |
+| `ApiClientError::Body` | The request body is invalid. Not retryable. |
+| `ApiClientError::DecodeError` | The response cannot be decoded. Not retryable. |
+| `ApiClientError::Conversion` | A protocol conversion failed. Not retryable. |
+| `ApiClientError::ProtoError` | A protocol operation failed. Not retryable. |
+| `ApiClientError::InvalidUri` | The URI is invalid. Not retryable. |
+| `ApiClientError::Expired` | The request expired. Retryable. |
+| `ApiClientError::Other` | A client operation failed. Retryability follows the source. |
+| `ApiClientError::OtherUnretryable` | A client operation failed. Not retryable. |
+| `ApiClientError::WritesDisabled` | Writes are disabled. Not retryable. |
+
+### AuthError <sub>enum</sub>
+
+<small>`crates/xmtp_proto/src/traits/error.rs`</small>
+
+Authentication failures with no credential or callback error text.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `AuthError::CredentialRejected` | The backend rejected the credential. Retryable if a callback can run. |
+| `AuthError::CallbackFailed` | The callback failed. Retryable if a callback can run. |
+| `AuthError::Exhausted` | Authentication is locked until the cool-down ends. Not retryable. |
+| `AuthError::MissingCredential` | No credential was set on the handle. Not retryable. |
 
 ### ConversionError <sub>enum</sub>
 

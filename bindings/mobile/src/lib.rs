@@ -353,3 +353,23 @@ mod lib_tests {
         let _ = fdlimit::raise_fd_limit();
     }
 }
+
+#[cfg(test)]
+mod auth_error_tests {
+    #[xmtp_common::test(unwrap_try = true)]
+    fn auth_codes_reach_mobile_errors() {
+        use xmtp_common::ErrorCode;
+        use xmtp_proto::api::{ApiClientError, AuthError};
+        for auth in [
+            AuthError::CredentialRejected { retryable: true },
+            AuthError::CallbackFailed { retryable: false },
+            AuthError::Exhausted,
+            AuthError::MissingCredential,
+        ] {
+            let api = xmtp_api::dyn_err(ApiClientError::from(auth));
+            let message = format!("[{}] {}", auth.error_code(), auth);
+            let error = super::FfiError::from(api);
+            assert_eq!(error.to_string(), message);
+        }
+    }
+}

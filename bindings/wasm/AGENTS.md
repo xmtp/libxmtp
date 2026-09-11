@@ -30,3 +30,6 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - Exporting: `#[wasm_bindgen]`, `#[wasm_bindgen(js_name = camelCase)]`, `#[wasm_bindgen(constructor)]`, and `#[wasm_bindgen_numbered_enum]` from `bindings_wasm_macros` (`crates/wasm_macros`). `async fn` becomes a Promise.
 - Builders: `#[xmtp_macro::wasm_builder]` (`src/client/backend.rs:7`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
 - Regeneration: `just wasm build` (`nix build .#wasm-bindings`) runs `wasm-pack build --target web --out-dir ./dist` (`package.json`, `nix/package/wasm.nix:99`). `dist/` is a build product. Never hand-edit it.
+
+Auth callback bridges return only `auth callback failed` on failure. Never retain
+or log callback error text or credential values. The middleware owns retryability.

@@ -2,11 +2,61 @@ use std::fmt::Display;
 
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
-use xmtp_common::{BoxDynError, RetryableError, retryable};
+use xmtp_common::{BoxDynError, ErrorCode, RetryableError, retryable};
 
-#[derive(Debug, Error)]
+/// Authentication failures with no credential or callback error text.
+#[derive(Clone, Copy, Debug, Error, ErrorCode)]
+pub enum AuthError {
+    /// The backend rejected the credential. Retryable if a callback can run.
+    #[error("credential rejected")]
+    CredentialRejected { retryable: bool },
+    /// The callback failed. Retryable if a callback can run.
+    #[error("auth callback failed")]
+    CallbackFailed { retryable: bool },
+    /// Authentication is locked until the cool-down ends. Not retryable.
+    #[error("auth attempts exhausted")]
+    Exhausted,
+    /// No credential was set on the handle. Not retryable.
+    #[error("auth credential missing")]
+    MissingCredential,
+}
+
+impl RetryableError for AuthError {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::CredentialRejected { retryable } | Self::CallbackFailed { retryable } => {
+                *retryable
+            }
+            Self::Exhausted | Self::MissingCredential => false,
+        }
+    }
+}
+
+impl AuthError {
+    /// True while the lockout cool-down runs. The error is not retryable now,
+    /// but it clears when the cool-down ends, so a long-lived transport must
+    /// wait instead of shutting down. Every other variant needs the caller or
+    /// the application to act, so none of them clears on its own.
+    pub fn is_locked_out(&self) -> bool {
+        matches!(self, Self::Exhausted)
+    }
+}
+
+impl ApiClientError {
+    /// True while an authentication cool-down runs. `#[error(transparent)]`
+    /// forwards Display but not `source()`, so the inner `AuthError` cannot be
+    /// reached by walking the chain. Match the variant instead.
+    pub fn is_locked_out(&self) -> bool {
+        matches!(self, Self::Auth(auth) if auth.is_locked_out())
+    }
+}
+
+#[derive(Debug, Error, ErrorCode)]
 #[non_exhaustive]
 pub enum ApiClientError {
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Auth(#[from] AuthError),
     /// The client encountered an error.
     #[error("api client at endpoint \"{}\" has error {}", endpoint, source)]
     ClientWithEndpoint {
@@ -14,26 +64,37 @@ pub enum ApiClientError {
         /// The client error.
         source: NetworkError,
     },
+    /// The transport failed. Retryability follows the source.
     #[error("client errored {}", source)]
     Client { source: NetworkError },
+    /// The HTTP request is invalid. Not retryable.
     #[error(transparent)]
     Http(#[from] http::Error),
+    /// The request body is invalid. Not retryable.
     #[error(transparent)]
     Body(#[from] BodyError),
+    /// The response cannot be decoded. Not retryable.
     #[error(transparent)]
     DecodeError(#[from] prost::DecodeError),
+    /// A protocol conversion failed. Not retryable.
     #[error(transparent)]
     Conversion(#[from] crate::ConversionError),
+    /// A protocol operation failed. Not retryable.
     #[error(transparent)]
     ProtoError(#[from] ProtoError),
+    /// The URI is invalid. Not retryable.
     #[error(transparent)]
     InvalidUri(#[from] http::uri::InvalidUri),
+    /// The request expired. Retryable.
     #[error(transparent)]
     Expired(#[from] xmtp_common::time::Expired),
+    /// A client operation failed. Retryability follows the source.
     #[error("{0}")]
     Other(Box<dyn RetryableError>),
+    /// A client operation failed. Not retryable.
     #[error("{0}")]
     OtherUnretryable(BoxDynError),
+    /// Writes are disabled. Not retryable.
     #[error("Writes are disabled on this client.")]
     WritesDisabled,
 }
@@ -120,6 +181,7 @@ impl RetryableError for ApiClientError {
         match self {
             Client { source } => retryable!(*source),
             ClientWithEndpoint { source, .. } => retryable!(source),
+            Auth(e) => retryable!(e),
             Body(e) => retryable!(e),
             Http(_) => false,
             DecodeError(_) => false,

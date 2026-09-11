@@ -36,21 +36,13 @@ extern "C" {
 #[xmtp_common::async_trait]
 impl xmtp_api_backend::AuthCallback for AuthCallback {
   async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
-    let cred: JsValue = self.on_auth_required().await.map_err(|e| {
-      let result = serde_wasm_bindgen::from_value::<serde_json::Value>(e);
-      if let Ok(value) = result {
-        let is_empty = value.is_null()
-          || (value.is_object() && value.as_object().unwrap().is_empty())
-          || (value.is_array() && value.as_array().unwrap().is_empty());
-        if !is_empty {
-          return format!("Auth callback failed: {value}");
-        }
-      }
-      "Auth callback failed with unknown error".to_string()
-    })?;
-    let cred: Credential = serde_wasm_bindgen::from_value(cred)
-      .map_err(|e| format!("Failed to parse credential from auth callback: {e}"))?;
-    Ok(cred.try_into()?)
+    let cred = self
+      .on_auth_required()
+      .await
+      .map_err(|_| "auth callback failed")?;
+    let cred: Credential =
+      serde_wasm_bindgen::from_value(cred).map_err(|_| "auth callback failed")?;
+    cred.try_into().map_err(|_| "auth callback failed".into())
   }
 }
 

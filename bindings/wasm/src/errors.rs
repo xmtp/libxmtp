@@ -64,3 +64,29 @@ pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {
   value.serialize(&Serializer::new().serialize_large_number_types_as_bigints(true))
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod auth_error_tests {
+  #[xmtp_common::test(unwrap_try = true)]
+  fn auth_codes_reach_js_errors() {
+    use xmtp_common::ErrorCode;
+    use xmtp_proto::api::{ApiClientError, AuthError};
+    for auth in [
+      AuthError::CredentialRejected { retryable: true },
+      AuthError::CallbackFailed { retryable: false },
+      AuthError::Exhausted,
+      AuthError::MissingCredential,
+    ] {
+      let api = xmtp_api::dyn_err(ApiClientError::from(auth));
+      let error: wasm_bindgen::JsValue = super::ErrorWrapper::js(api).into();
+      assert_eq!(
+        js_sys::Reflect::get(&error, &"code".into())?.as_string()?,
+        auth.error_code()
+      );
+      assert_eq!(
+        js_sys::Reflect::get(&error, &"message".into())?.as_string()?,
+        format!("[{}] {}", auth.error_code(), auth)
+      );
+    }
+  }
+}

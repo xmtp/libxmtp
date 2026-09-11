@@ -90,6 +90,6 @@ test("auth callback throws error", async () => {
 
       handle,
     ),
-  ).rejects.toThrow("Auth callback failed");
+  ).rejects.toThrow("auth callback failed");
   expect(called).toBe(true);
 });

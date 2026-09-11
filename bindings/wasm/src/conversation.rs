@@ -1087,6 +1087,8 @@ mod tests {
       authority_id: String::from("test"),
       reference_id: None,
       sequence_id: 0,
+      envelope_hash: None,
+      expiry_ns: None,
       expire_at_ns: None,
       should_push: true,
       idempotency_key: 1738354508964432000i64.to_string(),

@@ -22,3 +22,6 @@ canonical bytes and cannot be split. All request limits come from
 `has_more` is false. Key-package results include `None` for missing keys.
 Inbox results keep input order and duplicates. Match gRPC codes and structured
 publish details; do not inspect error message text.
+
+Keep auth errors typed. `dyn_err` maps `ApiClientError::Auth` to `ApiError::Auth`
+before it erases transport errors, so bindings keep the public auth code.
