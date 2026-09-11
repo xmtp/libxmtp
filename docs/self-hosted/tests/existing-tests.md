@@ -40,7 +40,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 451 | 123 |
 | [Android SDK and example](existing-tests/android.md) | 226 | 112 |
 | [iOS SDK](existing-tests/ios.md) | 216 | 127 |
-| **Total** | **3,264** | **1,080 referenced IDs** |
+| **Total** | **3,264** | **1,079 referenced IDs** |
 
 ## Review records
 
