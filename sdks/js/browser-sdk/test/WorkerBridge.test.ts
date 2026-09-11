@@ -83,7 +83,7 @@ describe("WorkerBridge close", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const read = bridge.action("read");
-      const rejected = expect(read).rejects.toThrow("closed");
+      const rejected = expect(read).rejects.toThrow("worker stopped");
       bridge.handleError({ message: "worker stopped" } as ErrorEvent);
       await rejected;
       expect(bridge.isClosed).toBe(true);

@@ -39,6 +39,7 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 
 - Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
 - Supplying `onValue` selects callback mode and starts consumption. Successful callback return acknowledges delivery. Do not also iterate that stream.
+- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, `onRestart`, or `disableSync` options. These options still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
 - `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.
