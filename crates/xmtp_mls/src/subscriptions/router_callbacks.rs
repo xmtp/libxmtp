@@ -270,8 +270,6 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let origin = StreamOrigin::new(StreamKind::All, &client.context);
         let subscribe = async move {
-            let _coordinator =
-                super::incoming::IncomingCoordinator::enable_bidi_transport(&client.context);
             super::stream_all::StreamAllMessages::new_owned(
                 client.context.clone(),
                 conversation_type,
@@ -291,8 +289,6 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let origin = StreamOrigin::new(StreamKind::Conversations, &client.context);
         let subscribe = async move {
-            let _coordinator =
-                super::incoming::IncomingCoordinator::enable_bidi_transport(&client.context);
             super::stream_conversations::StreamConversations::new_owned(
                 client.context.clone(),
                 conversation_type,
@@ -319,7 +315,6 @@ where
 {
     let origin = StreamOrigin::new(StreamKind::Messages, &context);
     let subscribe = async move {
-        let _coordinator = super::incoming::IncomingCoordinator::enable_bidi_transport(&context);
         super::stream_messages::StreamGroupMessages::new_owned(context, vec![group_id]).await
     };
     pump_stream(origin, subscribe, callback, on_close)

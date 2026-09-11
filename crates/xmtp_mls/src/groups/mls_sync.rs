@@ -719,7 +719,8 @@ where
         for attempt in 0..MAX_GROUP_SYNC_RETRIES {
             let remaining = self
                 .context
-                .stream_settings()
+                .incoming_runtime()
+                .policy()
                 .barrier_timeout
                 .saturating_sub(time_spent.elapsed());
             if remaining.is_zero() {
@@ -821,7 +822,8 @@ where
             if attempt + 1 < MAX_GROUP_SYNC_RETRIES {
                 let remaining = self
                     .context
-                    .stream_settings()
+                    .incoming_runtime()
+                    .policy()
                     .barrier_timeout
                     .saturating_sub(time_spent.elapsed());
                 xmtp_common::time::sleep(wait_for.min(remaining)).await;
@@ -2539,7 +2541,7 @@ where
         )
         .await?;
         let upper = db.current_delivery_cursor()?;
-        let settings = self.context.stream_settings();
+        let settings = self.context.incoming_runtime().policy();
         let mut summary = ProcessSummary::default();
         loop {
             let rows = db.replay_delivery_messages_bounded(

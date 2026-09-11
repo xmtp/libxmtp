@@ -249,7 +249,7 @@ where
     pub(crate) fn process_pending_welcomes_once(
         &self,
     ) -> Result<Vec<WelcomeHeadOutcome<Context>>, GroupError> {
-        let settings = self.context.stream_settings();
+        let settings = self.context.incoming_runtime().policy();
         self.context
             .db()
             .ready_welcomes_bounded(
@@ -283,7 +283,7 @@ where
         &self,
         after: Cursor,
     ) -> Result<Vec<WelcomeHeadOutcome<Context>>, GroupError> {
-        let settings = self.context.stream_settings();
+        let settings = self.context.incoming_runtime().policy();
         self.context
             .db()
             .blocked_welcomes_bounded(
@@ -440,7 +440,11 @@ where
         blocked: bool,
         deadline: Option<i64>,
     ) -> Result<(), GroupError> {
-        let delay = self.context.stream_settings().active_database_poll_interval;
+        let delay = self
+            .context
+            .incoming_runtime()
+            .policy()
+            .active_database_poll_interval;
         self.context.db().set_incoming_retry(
             &self.topic(),
             Cursor(pending.sequence_id as u64),
@@ -589,7 +593,7 @@ where
         use crate::subscriptions::incoming::{IncomingCoordinator, IncomingScope};
         use xmtp_common::time::Instant;
 
-        let deadline = Instant::now() + self.context.stream_settings().barrier_timeout;
+        let deadline = Instant::now() + self.context.incoming_runtime().policy().barrier_timeout;
         let mut selected = HashSet::new();
         let groups: Vec<_> = groups
             .into_iter()
@@ -600,7 +604,11 @@ where
         // Receipt can proceed while an independent outgoing request is pending.
         let _receipt = IncomingCoordinator::for_context(&self.context)
             .acquire(IncomingScope::Topics(topics.clone()));
-        let concurrency = self.context.stream_settings().max_dependency_requests;
+        let concurrency = self
+            .context
+            .incoming_runtime()
+            .policy()
+            .max_dependency_requests;
         let mut summary = super::summary::SyncSummary::default();
         let publish =
             run_group_sync_work(&groups, GroupSyncWork::Publish, concurrency, deadline).await;
@@ -702,7 +710,7 @@ where
         use crate::subscriptions::incoming::{IncomingCoordinator, IncomingScope};
         use xmtp_common::time::Instant;
 
-        let deadline = Instant::now() + self.context.stream_settings().barrier_timeout;
+        let deadline = Instant::now() + self.context.incoming_runtime().policy().barrier_timeout;
         // Fix the caller's initial group set before any asynchronous work.
         let groups: Vec<_> = self
             .context
@@ -729,7 +737,11 @@ where
         topics.push(Topic::new_welcome_message(self.context.installation_id()));
         let _receipt =
             IncomingCoordinator::for_context(&self.context).acquire(IncomingScope::Topics(topics));
-        let concurrency = self.context.stream_settings().max_dependency_requests;
+        let concurrency = self
+            .context
+            .incoming_runtime()
+            .policy()
+            .max_dependency_requests;
         let mut summary = super::summary::SyncSummary::default();
         if let Err(error) = self.unstick_paused_groups().await {
             add_group_sync_error(&mut summary, error);
@@ -930,7 +942,8 @@ pub(crate) async fn pending_welcome_for_test(
             .receive_topics_once(
                 &[Topic::new_welcome_message(context.installation_id())],
                 context
-                    .stream_settings()
+                    .incoming_runtime()
+                    .policy()
                     .incoming_limits(NetworkEntityKind::Welcome),
             )
             .await?;

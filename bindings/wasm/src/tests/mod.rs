@@ -36,7 +36,6 @@ pub async fn create_test_client(path: Option<String>) -> Client {
     None,
     None,
     None,
-    None,
   )
   .await
   .unwrap();
@@ -79,7 +78,6 @@ pub async fn create_auth_test_client(
     None,
     auth_callback,
     auth_handle,
-    None,
     None,
     None,
   )

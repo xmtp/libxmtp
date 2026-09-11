@@ -137,7 +137,8 @@ async fn welcome_admission_queues_rotation_atomically_before_decode() {
     let store = MlsStore::new(bo.context.clone());
     let limits = bo
         .context
-        .stream_settings()
+        .incoming_runtime()
+        .policy()
         .incoming_limits(NetworkEntityKind::Welcome);
     assert!(store.admit_incoming_batch(&batch, limits).is_err());
     assert_eq!(db.topic_progress(&key)?.received, Cursor(0));

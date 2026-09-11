@@ -4,13 +4,13 @@ use xmtp_db::StorageError;
 
 pub use xmtp_db::delivery::DeliveryFilter as LocalDeliveryFilter;
 
-use crate::subscriptions::settings::StreamSettings;
+use crate::subscriptions::policy::StreamPolicy;
 
 const LEASE_RENEWAL_DIVISOR: u32 = 3;
 
 /// Bounds local reads and maintains exclusive default-consumer ownership.
 #[derive(Debug, Clone, Copy)]
-pub struct LocalDeliveryConfig {
+pub(crate) struct LocalDeliveryConfig {
     /// Maximum candidates fetched in one local read.
     pub batch_size: u32,
     /// Maximum candidate bytes, checked before message blobs are loaded.
@@ -25,12 +25,12 @@ pub struct LocalDeliveryConfig {
 
 impl Default for LocalDeliveryConfig {
     fn default() -> Self {
-        Self::from(&StreamSettings::default())
+        Self::from(&StreamPolicy::default())
     }
 }
 
-impl From<&StreamSettings> for LocalDeliveryConfig {
-    fn from(settings: &StreamSettings) -> Self {
+impl From<&StreamPolicy> for LocalDeliveryConfig {
+    fn from(settings: &StreamPolicy) -> Self {
         Self {
             batch_size: settings.max_local_read_rows,
             max_bytes: settings.max_local_read_bytes,

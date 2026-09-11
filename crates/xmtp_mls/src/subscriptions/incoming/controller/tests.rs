@@ -70,6 +70,262 @@ fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn stale_dependency_results_cannot_change_new_heads_or_requirements() {
+    use crate::identity_updates::IdentityDependencyError;
+
+    tester!(alix, disable_workers);
+    for topic in [
+        Topic::new_group_message(GroupId::generate()),
+        Topic::new_identity_update(hex::decode(alix.inbox_id())?),
+        Topic::new_welcome_message(alix.context.installation_id()),
+    ] {
+        let mut controller = controller(alix.context.clone());
+        let key = topic_key(&topic)?;
+        let after = controller.context.db().topic_progress(&key)?.received;
+        let old = Cursor(after.0 + 10);
+        let current = Cursor(after.0 + 20);
+        controller.admit_received_batch(OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after,
+            envelopes: [old, current]
+                .into_iter()
+                .map(|cursor| wire::ServerEnvelope {
+                    meta: Some(meta(&topic, cursor.0)),
+                    envelope: Some(wire::ClientEnvelope::default()),
+                })
+                .collect(),
+        })?;
+        controller.topics.entry(topic.clone()).or_default();
+        controller
+            .context
+            .db()
+            .complete_pending_envelope(&key, old)?;
+        let requirement = IdentityRequirement {
+            inbox_id: alix.inbox_id().to_string(),
+            sequence_id: 1,
+        };
+        let next_requirement = IdentityRequirement {
+            sequence_id: 2,
+            ..requirement.clone()
+        };
+        let parent = |cursor| match topic.kind() {
+            TopicKind::GroupMessagesV1 => DependencyParent::GroupHead(topic.clone(), cursor),
+            TopicKind::IdentityUpdatesV1 => DependencyParent::IdentityHead(topic.clone(), cursor),
+            _ => DependencyParent::Welcome(cursor),
+        };
+        for result in [
+            Ok(()),
+            Err(IdentityDependencyError::MissingReference(
+                requirement.clone(),
+            )),
+            Err(IdentityDependencyError::InvalidSequence(0)),
+        ] {
+            // A Welcome can change its requirement without changing its cursor.
+            let old_parent = if topic.kind() == TopicKind::WelcomeMessagesV1 {
+                parent(current)
+            } else {
+                parent(old)
+            };
+            controller
+                .dependency_registry
+                .attach(old_parent, DependencyKey::Identity(requirement.clone()));
+            controller.dependency_registry.attach(
+                parent(current),
+                DependencyKey::Identity(next_requirement.clone()),
+            );
+            controller.dependency_finished(DependencyResult::Identity(requirement.clone(), result));
+            let pending = controller
+                .context
+                .db()
+                .pending_envelope(&key, current)?
+                .unwrap();
+            assert!(!pending.blocked);
+            assert_eq!(pending.retry_at_ns, 0);
+            assert!(pending.error_code.is_none());
+            assert!(controller.dependency_registry.contains(&parent(current)));
+            let state = controller.topics.get(&topic).unwrap();
+            assert!(state.error.is_none());
+            assert!(state.processing.missing_reference.is_none());
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn passive_prefixes_do_not_limit_shared_identity_requests() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let limit = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .max_dependency_requests;
+    for index in 0..limit {
+        controller.dependency_registry.attach(
+            DependencyParent::Welcome(Cursor(index as u64 + 10)),
+            DependencyKey::GroupPrefix(GroupId::generate(), Cursor(1)),
+        );
+    }
+    let requirement = IdentityRequirement {
+        inbox_id: alix.inbox_id().to_string(),
+        sequence_id: 0,
+    };
+    let group =
+        DependencyParent::GroupHead(Topic::new_group_message(GroupId::generate()), Cursor(1));
+    let welcome = DependencyParent::Welcome(Cursor(limit as u64 + 10));
+    for parent in [group.clone(), welcome.clone()] {
+        controller
+            .dependency_registry
+            .attach(parent, DependencyKey::Identity(requirement.clone()));
+    }
+    controller.start_dependencies();
+    assert_eq!(controller.dependencies.len(), 1);
+    assert_eq!(controller.dependency_registry.prefixes().count(), limit);
+    let result = controller.dependencies.next().await.unwrap();
+    assert!(matches!(
+        result,
+        DependencyResult::Identity(
+            _,
+            Err(crate::identity_updates::IdentityDependencyError::InvalidSequence(0))
+        )
+    ));
+    assert_eq!(
+        controller
+            .dependency_registry
+            .finish(&DependencyKey::Identity(requirement)),
+        HashSet::from([group, welcome])
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_setup_selects_the_platform_transport_without_starting_it() {
+    use xmtp_proto::api::HasStats;
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+    tester!(seed, disable_workers);
+    let api = Arc::new(crate::utils::DefaultTestClientCreator::create().build()?);
+    #[cfg(not(target_arch = "wasm32"))]
+    let _wires_before = crate::subscriptions::router_callbacks::shared_transport_count();
+    // Registration uses an explicit barrier. Rebuild the registered identity
+    // with a new API client to observe construction before its first interest.
+    let alix = crate::builder::ClientBuilder::from_client(seed.client.clone())
+        .api_client_with_streams(api)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await?;
+    let stats = alix.context.api().api_client.mls_stats();
+    let coordinator = IncomingCoordinator::for_context(&alix.context);
+    let empty = coordinator.acquire(IncomingScope::Topics(vec![]));
+    xmtp_common::wait_for_eq(
+        || async { empty.snapshot().processing },
+        IncomingProcessing::Complete,
+    )
+    .await?;
+    assert_eq!(stats.subscribe.get_count(), 0);
+    assert_eq!(stats.subscribe_static.get_count(), 0);
+    xmtp_common::if_native! { @
+        assert_eq!(crate::subscriptions::router_callbacks::shared_transport_count(), _wires_before);
+    }
+
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let first = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
+    let second =
+        IncomingCoordinator::for_context(&alix.context).acquire(IncomingScope::Topics(vec![topic]));
+    for lease in [&first, &second] {
+        xmtp_common::wait_for_eq(
+            || async {
+                lease
+                    .snapshot()
+                    .topics
+                    .first()
+                    .map(|topic| topic.registration)
+            },
+            Some(IncomingRegistration::Active),
+        )
+        .await?;
+    }
+    xmtp_common::if_native! { @
+        assert_eq!(stats.subscribe.get_count(), 1);
+        assert_eq!(stats.subscribe_static.get_count(), 0);
+        assert_eq!(crate::subscriptions::router_callbacks::shared_transport_count(), _wires_before + 1);
+    }
+    xmtp_common::if_wasm! { @
+        assert_eq!(stats.subscribe.get_count(), 0);
+        assert_eq!(stats.subscribe_static.get_count(), 1);
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn releasing_readers_allows_recreation_and_releases_the_context() {
+    tester!(alix, disable_workers);
+    let weak_context = Arc::downgrade(&alix.context);
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    for _ in 0..2 {
+        let coordinator = IncomingCoordinator::for_context(&alix.context);
+        let lease = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
+        xmtp_common::wait_for_eq(
+            || async {
+                lease
+                    .snapshot()
+                    .topics
+                    .first()
+                    .map(|topic| topic.registration)
+            },
+            Some(IncomingRegistration::Active),
+        )
+        .await?;
+        drop(lease);
+        drop(coordinator);
+        xmtp_common::wait_for_eq(
+            || async { alix.context.incoming_runtime().coordinator.lock().is_none() },
+            true,
+        )
+        .await?;
+    }
+    alix.close().await?;
+    drop(alix);
+    xmtp_common::wait_for_eq(|| async { weak_context.strong_count() }, 0).await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn replacing_the_api_with_query_only_setup_receives_and_processes_messages() {
+    use crate::groups::send_message_opts::SendMessageOpts;
+    use xmtp_proto::api::HasStats;
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = bo.create_group(None, None)?;
+    group.add_members(&[alix.inbox_id()]).await?;
+    alix.sync_welcomes().await?;
+    let message_id = group
+        .send_message(b"query-only receipt", SendMessageOpts::default())
+        .await?;
+    let api = Arc::new(crate::utils::DefaultTestClientCreator::create().build()?);
+    let stats = api.mls_stats();
+    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .api_client(api)
+        .with_disable_workers(true)
+        .with_allow_offline(Some(true))
+        .build()
+        .await?;
+    stats.clear();
+    let lease = IncomingCoordinator::for_context(&client.context)
+        .acquire(IncomingScope::Groups(vec![group.group_id]));
+    xmtp_common::wait_for_eq(
+        || async { lease.snapshot().processing },
+        IncomingProcessing::Complete,
+    )
+    .await?;
+    let message = client.context.db().get_group_message(&message_id)?.unwrap();
+    assert_eq!(message.decrypted_message_bytes, b"query-only receipt");
+    assert!(stats.query_newest.get_count() > 0);
+    assert!(stats.query.get_count() > 0);
+    assert_eq!(stats.subscribe.get_count(), 0);
+    assert_eq!(stats.subscribe_static.get_count(), 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn reopening_after_the_last_release_keeps_the_controller_alive() {
     let context = context();
     let (commands, receiver) = mpsc::unbounded_channel();
@@ -77,10 +333,9 @@ fn reopening_after_the_last_release_keeps_the_controller_alive() {
     let coordinator = Arc::new(IncomingCoordinator {
         commands,
         generations: AtomicU64::new(0),
-        transport_mode: Mutex::new(TransportMode::Unary),
         state: state.clone(),
     });
-    *context.incoming_coordinator().lock() = Some(coordinator.clone());
+    *context.incoming_runtime().coordinator.lock() = Some(coordinator.clone());
     let mut controller = Controller::new(context, receiver, state);
 
     // The returned handle can exist before its first acquire command.
@@ -103,49 +358,15 @@ fn reopening_after_the_last_release_keeps_the_controller_alive() {
     controller.command(release);
     drop(coordinator);
     assert!(controller.stop_if_idle());
-    assert!(controller.context.incoming_coordinator().lock().is_none());
+    assert!(
+        controller
+            .context
+            .incoming_runtime()
+            .coordinator
+            .lock()
+            .is_none()
+    );
     assert!(controller.commands.is_closed());
-}
-
-/// Transport setup stays alive until the first reader acquires its lease.
-#[xmtp_common::test(unwrap_try = true)]
-fn a_selected_transport_handle_keeps_its_factory_until_the_first_lease() {
-    let context = Arc::new(context());
-    let (commands, receiver) = mpsc::unbounded_channel();
-    let state = Arc::new(SharedState::default());
-    let coordinator = Arc::new(IncomingCoordinator {
-        commands,
-        generations: AtomicU64::new(0),
-        transport_mode: Mutex::new(TransportMode::Unary),
-        state: state.clone(),
-    });
-    *context.incoming_coordinator().lock() = Some(coordinator.clone());
-    let mut controller = Controller::new(context.clone(), receiver, state);
-    let selected = IncomingCoordinator::enable_stream_transport(&context);
-    drop(coordinator);
-
-    let factory = controller.commands.try_recv()?;
-    assert!(matches!(&factory, Command::SetFactory(_)));
-    controller.command(factory);
-    assert!(controller.commands.is_empty());
-    assert!(controller.scopes.is_empty());
-    assert!(!controller.stop_if_idle());
-
-    let reader = IncomingCoordinator::for_context(&context);
-    assert!(Arc::ptr_eq(&reader, &selected));
-    let lease = reader.acquire(IncomingScope::Topics(vec![]));
-    drop(reader);
-    drop(selected);
-    let acquire = controller.commands.try_recv()?;
-    controller.command(acquire);
-    assert!(!controller.stop_if_idle());
-    assert!(controller.factory.is_some());
-
-    drop(lease);
-    let release = controller.commands.try_recv()?;
-    controller.command(release);
-    assert!(controller.stop_if_idle());
-    assert!(context.incoming_coordinator().lock().is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -178,7 +399,7 @@ async fn a_second_scope_captures_a_fresh_target_on_the_shared_registration() {
     controller.targets_finished(result);
     assert_eq!(controller.scopes[&1].targets[&topic], Cursor(40));
     assert_eq!(controller.scopes[&2].targets[&topic], Cursor(90));
-    assert!(controller.subscription.is_none());
+    assert!(controller.transport.subscription().is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -186,7 +407,12 @@ async fn a_barrier_keeps_its_fixed_target_across_registration_and_target_replies
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_group_message(GroupId::generate());
-    let deadline = Instant::now() + controller.context.stream_settings().barrier_timeout;
+    let deadline = Instant::now()
+        + controller
+            .context
+            .incoming_runtime()
+            .policy()
+            .barrier_timeout;
     add_barrier_scope(&mut controller, 1, &topic, Cursor(40), deadline);
     controller.reconcile()?;
     assert!(controller.scopes[&1].topics.contains(&topic));
@@ -230,15 +456,14 @@ async fn a_new_barrier_after_an_empty_query_starts_deadline_fallback() {
         controller.context.db().topic_progress(&key)?.received,
         Cursor(0)
     );
-    assert!(controller.last_read.contains_key(&topic));
+    assert!(controller.receipt(&topic).last_read.is_some());
 
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         |_| {},
     ));
-    controller.connection = IncomingConnection::Connected;
     controller.registered([(topic.clone(), Cursor(0))].into());
-    let settings = controller.context.stream_settings().clone();
+    let settings = controller.context.incoming_runtime().policy().clone();
     let deadline = Instant::now() + settings.receiver_fallback_interval / 2;
     add_barrier_scope(&mut controller, 2, &topic, Cursor(1), deadline);
     controller.reconcile()?;
@@ -247,9 +472,9 @@ async fn a_new_barrier_after_an_empty_query_starts_deadline_fallback() {
         controller.read.is_some(),
         "the deadline cannot wait for the receiver interval"
     );
-    let started = controller.last_read[&topic];
+    let started = controller.receipt(&topic).last_read.unwrap();
     controller.start_read();
-    assert_eq!(controller.last_read[&topic], started);
+    assert_eq!(controller.receipt(&topic).last_read.unwrap(), started);
     let result = controller.read.take().unwrap().await;
     controller.read_finished(result);
     assert!(!controller.read_due(
@@ -289,16 +514,16 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
     let key = topic_key(&topic)?;
     let interval = controller
         .context
-        .stream_settings()
+        .incoming_runtime()
+        .policy()
         .receiver_fallback_interval;
     let deadline = Instant::now() + interval * 3;
     add_barrier_scope(&mut controller, 1, &topic, Cursor(20), deadline);
     controller.reconcile()?;
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         |_| {},
     ));
-    controller.connection = IncomingConnection::Connected;
     controller.registered([(topic.clone(), Cursor(20))].into());
     let started = controller.scopes[&1].receipt_wait_started;
     assert!(!controller.read_due(&topic, &key, started)?);
@@ -387,7 +612,7 @@ impl SubscriptionFactory for SuspendedFactory {
 async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
-    controller.factory = Some(Arc::new(SuspendedFactory));
+    controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let topic = Topic::new_group_message(GroupId::generate());
     let key = topic_key(&topic)?;
     add_scope(&mut controller, 1, &topic);
@@ -429,7 +654,7 @@ async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
 async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
-    controller.factory = Some(Arc::new(SuspendedFactory));
+    controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let group_id = GroupId::generate();
     let topic = Topic::new_group_message(group_id);
     let key = topic_key(&topic)?;
@@ -444,7 +669,7 @@ async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
         Cursor(40),
         Instant::now() + Duration::from_secs(1),
     );
-    controller.welcome_prefixes.extend([
+    for (cursor, (group, anchor)) in [
         (Cursor(30), (group_id, Cursor(10))),
         (Cursor(35), (group_id, Cursor(15))),
         (Cursor(50), (group_id, Cursor(20))),
@@ -452,7 +677,12 @@ async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
             Cursor(60),
             (GroupId::try_from(later.identifier())?, Cursor(20)),
         ),
-    ]);
+    ] {
+        controller.dependency_registry.attach(
+            DependencyParent::Welcome(cursor),
+            DependencyKey::GroupPrefix(group, anchor),
+        );
+    }
     controller.reconcile()?;
     let now = Instant::now();
     assert!(controller.read_due(&topic, &key, now)?);
@@ -500,12 +730,12 @@ async fn suspended_welcome_barrier_receives_only_its_required_group_prefixes() {
 async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
     tester!(alix, disable_workers);
     let mut controller = controller(alix.context.clone());
-    controller.factory = Some(Arc::new(SuspendedFactory));
+    controller.transport.factory = Some(Arc::new(SuspendedFactory));
     let group_id = GroupId::generate();
     let topic = Topic::new_group_message(group_id);
     let key = topic_key(&topic)?;
     let welcome = Topic::new_welcome_message(alix.context.installation_id());
-    let settings = controller.context.stream_settings().clone();
+    let settings = controller.context.incoming_runtime().policy().clone();
     let now = Instant::now();
     add_barrier_scope(
         &mut controller,
@@ -514,15 +744,15 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
         Cursor(40),
         now + settings.receiver_fallback_interval * 3,
     );
-    controller
-        .welcome_prefixes
-        .insert(Cursor(30), (group_id, Cursor(10)));
+    controller.dependency_registry.attach(
+        DependencyParent::Welcome(Cursor(30)),
+        DependencyKey::GroupPrefix(group_id, Cursor(10)),
+    );
     controller.reconcile()?;
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         |_| {},
     ));
-    controller.connection = IncomingConnection::Connected;
     controller.registered([(topic.clone(), Cursor(100)), (welcome.clone(), Cursor(90))].into());
     let started = controller.scopes[&1].receipt_wait_started;
     assert!(!controller.read_due(&topic, &key, started)?);
@@ -541,7 +771,12 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
         controller.read_due(&topic, &key, urgent)?,
         "a required prefix cannot wait beyond its Welcome barrier deadline"
     );
-    controller.last_read.insert(topic.clone(), urgent);
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .last_read = Some(urgent);
     assert!(!controller.read_due(
         &topic,
         &key,
@@ -554,51 +789,6 @@ async fn welcome_prefix_fallback_keeps_the_parent_barrier_deadline() {
     )?);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_common::test(unwrap_try = true)]
-async fn concurrent_stream_setup_keeps_bidi_as_the_last_factory() {
-    use crate::subscriptions::router_callbacks::{resume_bidi_streams, suspend_bidi_streams};
-    tester!(alix, disable_workers);
-    let (commands, mut receiver) = mpsc::unbounded_channel();
-    let coordinator = Arc::new(IncomingCoordinator {
-        commands,
-        generations: AtomicU64::new(0),
-        transport_mode: Mutex::new(TransportMode::Unary),
-        state: Arc::new(SharedState::default()),
-    });
-    *alix.context.incoming_coordinator().lock() = Some(coordinator.clone());
-    suspend_bidi_streams().await?;
-    let runtime = tokio::runtime::Handle::current();
-    let gate = std::sync::Barrier::new(2);
-    std::thread::scope(|threads| {
-        threads.spawn(|| {
-            let _entered = runtime.enter();
-            gate.wait();
-            let _handle = IncomingCoordinator::enable_stream_transport(&alix.context);
-        });
-        threads.spawn(|| {
-            let _entered = runtime.enter();
-            gate.wait();
-            let _handle = IncomingCoordinator::enable_bidi_transport(&alix.context);
-        });
-    });
-    let mut last_factory = None;
-    while let Ok(Command::SetFactory(factory)) = receiver.try_recv() {
-        last_factory = Some(factory);
-    }
-    assert!(
-        last_factory.unwrap().is_suspended(),
-        "bidi must be the final selected factory"
-    );
-    assert!(*coordinator.transport_mode.lock() == TransportMode::Bidi);
-    let _handle = IncomingCoordinator::enable_stream_transport(&alix.context);
-    assert!(
-        receiver.try_recv().is_err(),
-        "later generic setup must not downgrade bidi"
-    );
-    resume_bidi_streams().await?;
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     use crate::identity_updates::IdentityDependencyError;
@@ -607,7 +797,12 @@ async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
     let mut controller = controller(alix.context.clone());
     let topic = Topic::new_welcome_message(controller.context.installation_id());
     let key = topic_key(&topic)?;
-    let deadline = Instant::now() + controller.context.stream_settings().barrier_timeout;
+    let deadline = Instant::now()
+        + controller
+            .context
+            .incoming_runtime()
+            .policy()
+            .barrier_timeout;
     add_barrier_scope(&mut controller, 1, &topic, Cursor(30), deadline);
     controller.reconcile()?;
     controller.registered([(topic.clone(), Cursor(30))].into());
@@ -628,9 +823,10 @@ async fn a_welcome_failure_keeps_independent_pending_parents_runnable() {
         inbox_id: controller.context.inbox_id().to_string(),
         sequence_id: 0,
     };
-    controller
-        .welcome_identity
-        .insert(Cursor(10), requirement.clone());
+    controller.dependency_registry.attach(
+        DependencyParent::Welcome(Cursor(10)),
+        DependencyKey::Identity(requirement.clone()),
+    );
     controller.dependency_finished(DependencyResult::Identity(
         requirement,
         Err(IdentityDependencyError::InvalidSequence(0)),
@@ -694,15 +890,23 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     );
     controller.start_read();
     assert!(controller.read.is_none());
-    assert!(controller.receive_blocked.contains(&topic));
+    assert!(controller.receipt(&topic).blocked);
 
-    controller.receive_blocked.clear();
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .blocked = false;
     controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
         "cursor order",
     )));
     controller.start_read();
     assert!(controller.read.is_none());
-    assert_eq!(controller.connection, IncomingConnection::Failed);
+    assert_eq!(
+        controller.transport.connection(),
+        IncomingConnection::Failed
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -720,7 +924,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
 
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         move |cursors| observed.lock().push(cursors),
     ));
@@ -759,9 +963,9 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
         )
         .into(),
     );
-    assert!(controller.subscription.is_none());
-    assert!(controller.active.is_empty());
-    assert!(!controller.receive_blocked.contains(&topic));
+    assert!(controller.transport.subscription().is_none());
+    assert!(controller.transport.registered.is_empty());
+    assert!(!controller.receipt(&topic).blocked);
     controller.refresh_statuses();
     assert_eq!(
         controller.state.statuses.lock()[&1].processing,
@@ -778,7 +982,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
         topic.clone(),
         crate::mls_store::MlsStoreError::Storage(missing.into()).into(),
     );
-    assert!(!controller.receive_blocked.contains(&topic));
+    assert!(!controller.receipt(&topic).blocked);
     controller.refresh_statuses();
     let snapshot = controller.state.statuses.lock()[&1].clone();
     assert_eq!(snapshot.processing, IncomingProcessing::Pending);
@@ -787,11 +991,16 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     assert_eq!(snapshot.topics[0].processed, Cursor(0));
     controller.start_open();
     assert!(
-        controller.opening.is_none(),
+        !controller.transport.is_opening(),
         "topic reconciliation preserves backoff"
     );
     controller.read_queue.push_back(topic.clone());
-    controller.last_read.remove(&topic);
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .last_read = None;
     controller.start_read();
     assert!(
         controller.read.is_some(),
@@ -804,7 +1013,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     use xmtp_db::{TransactionOutcome, XmtpMlsStorageProvider};
 
     tester!(alix, disable_workers);
-    let mut settings = alix.context.stream_settings().clone();
+    let mut settings = alix.context.incoming_runtime().policy().clone();
     settings.max_fetched_rows = 8;
     settings.max_fetched_bytes = 4096;
     settings.max_admission_rows = 1;
@@ -812,7 +1021,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     settings.group_pending.rows = 2;
     settings.welcome_pending.bytes = 1;
     let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_settings(settings)
+        .stream_policy(settings)
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build()
@@ -823,12 +1032,12 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     let mut controller = controller(client.context.clone());
     add_scope(&mut controller, 1, &topic);
     add_scope(&mut controller, 2, &welcome);
-    controller.subscribed = [topic.clone(), welcome.clone()].into();
+    controller.transport.requested = [topic.clone(), welcome.clone()].into();
     assert_eq!(controller.fetched_limits().max_rows, 8);
     assert_eq!(controller.fetched_limits().max_bytes, 4096);
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         move |cursors| observed.lock().push(cursors),
     ));
@@ -851,10 +1060,10 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     assert_eq!(acknowledged.lock().len(), 2);
     assert_eq!(acknowledged.lock()[0][&topic], Cursor(10));
     assert_eq!(acknowledged.lock()[1][&topic], Cursor(20));
-    assert!(controller.paused.contains(&topic));
-    assert!(!controller.paused.contains(&welcome));
-    assert!(!controller.source_failed);
-    assert!(controller.subscription.is_none());
+    assert!(controller.receipt(&topic).paused);
+    assert!(!controller.receipt(&welcome).paused);
+    assert!(!controller.transport.is_failed());
+    assert!(controller.transport.subscription().is_none());
 
     crate::state_tx::state_write(client.context.mls_storage(), |tx| {
         let storage = tx.storage();
@@ -866,9 +1075,9 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
         Ok::<_, xmtp_db::StorageError>(TransactionOutcome::Continue(()))
     })?;
     controller.reconcile()?;
-    assert!(!controller.paused.contains(&topic));
+    assert!(!controller.receipt(&topic).paused);
     let observed = acknowledged.clone();
-    controller.subscription = Some(IncomingSubscription::new(
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
         Box::pin(futures::stream::pending()),
         move |cursors| observed.lock().push(cursors),
     ));
@@ -887,7 +1096,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
             .len(),
         1
     );
-    assert!(!controller.receive_blocked.contains(&topic));
+    assert!(!controller.receipt(&topic).blocked);
 
     // Run the production loop with one retained head and a legal eight-row batch.
     // The fake transport exposes each new registration and never replays on its own.
@@ -896,14 +1105,14 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
 
     tester!(receiver, disable_workers);
     let group = receiver.create_group(None, None)?;
-    let mut settings = receiver.context.stream_settings().clone();
+    let mut settings = receiver.context.incoming_runtime().policy().clone();
     settings.max_fetched_rows = 8;
     settings.max_admission_rows = 8;
     settings.max_pending_rows_per_topic = 8;
     settings.active_database_poll_interval = Duration::from_millis(10);
     settings.receiver_fallback_interval = Duration::from_millis(100);
     let client = crate::builder::ClientBuilder::from_client(receiver.client.clone())
-        .stream_settings(settings)
+        .stream_policy(settings)
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build()
@@ -927,7 +1136,8 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     };
     let limits = client
         .context
-        .stream_settings()
+        .incoming_runtime()
+        .policy()
         .incoming_limits(NetworkEntityKind::Group);
     MlsStore::new(client.context.clone()).admit_incoming_batch(
         &OrderedEnvelopeBatch {
@@ -955,7 +1165,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     let acknowledged = Arc::new(Mutex::new(Vec::new()));
     let observed = acknowledged.clone();
     let acknowledged_topic = topic.clone();
-    running.factory = Some(Arc::new(
+    running.transport.factory = Some(Arc::new(
         move |cursors: TopicCursor, limits: IncomingBatchLimits| -> SubscriptionFuture {
             assert_eq!(limits.max_rows, 8);
             let (send, receive) = mpsc::unbounded_channel();
@@ -1077,11 +1287,11 @@ async fn byte_chunks_validate_the_complete_input_before_receipt() {
         meta: Some(meta(&topic, sequence)),
         envelope: Some(wire::ClientEnvelope::default()),
     };
-    let mut settings = alix.context.stream_settings().clone();
+    let mut settings = alix.context.incoming_runtime().policy().clone();
     settings.max_admission_rows = 8;
     settings.max_admission_bytes = envelope(10).encoded_len() as u64;
     let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
-        .stream_settings(settings)
+        .stream_policy(settings)
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
         .build()
@@ -1118,7 +1328,6 @@ async fn replacement_cancels_old_obligations_and_retains_notifications() {
     let coordinator = Arc::new(IncomingCoordinator {
         commands,
         generations: AtomicU64::new(0),
-        transport_mode: Mutex::new(TransportMode::Unary),
         state: Arc::new(SharedState::default()),
     });
     let lease = coordinator.acquire(IncomingScope::Topics(vec![]));
@@ -1161,6 +1370,9 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     // Independent traffic leaves a sparse sequence for the malformed head.
     tester!(caro, disable_workers);
     assert_ne!(caro.inbox_id(), bo.inbox_id());
+    caro.create_group(None, None)?
+        .send_message(b"sequence gap", SendMessageOpts::default())
+        .await?;
     alix_group
         .send_message(b"after the rejected head", SendMessageOpts::default())
         .await?;
@@ -1180,8 +1392,18 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
             .unwrap()
             .sequence_id,
     );
-    assert!(target.0 > before.received.0 + 1);
+    assert!(target.0 > before.received.0 + 2);
     let mut reused = envelopes[0].envelope.clone().unwrap();
+    let mut tampered = envelopes[0].clone();
+    tampered.meta.as_mut().unwrap().cursor = Some(wire::Cursor {
+        sequence_id: before.received.0 + 2,
+    });
+    let Some(wire::client_envelope::Payload::GroupMessage(message)) =
+        tampered.envelope.as_mut().unwrap().payload.as_mut()
+    else {
+        panic!("group payload");
+    };
+    *message.data.last_mut().unwrap() ^= 1;
     let mut invalid = envelopes[0].clone();
     invalid.meta.as_mut().unwrap().cursor = Some(wire::Cursor {
         sequence_id: before.received.0 + 1,
@@ -1200,7 +1422,7 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
         OrderedEnvelopeBatch {
             topic: topic.clone(),
             after: before.received,
-            envelopes: std::iter::once(invalid).chain(envelopes).collect(),
+            envelopes: [invalid, tampered].into_iter().chain(envelopes).collect(),
         },
     ))));
     assert!(controller.process_ready());
@@ -1208,6 +1430,33 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
         bo.context.db().topic_progress(&key)?.processed,
         Cursor(before.received.0 + 1)
     );
+    let authenticator = bo_group.epoch_authenticator().await?;
+    let GroupHeadOutcome::Progress {
+        cursor,
+        result: Err(error),
+    } = bo_group.process_pending_group_head(None)?
+    else {
+        panic!("tampered ciphertext must be rejected before its valid generation is consumed");
+    };
+    assert_eq!(cursor, Cursor(before.received.0 + 2));
+    let inner = match &error {
+        GroupMessageProcessingError::OpenMlsProcessMessage(error)
+        | GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+            ProcessMessageWithAppDataError::OpenMls(error),
+        ) => error,
+        other => panic!("expected an OpenMLS decryption error, got {other:?}"),
+    };
+    assert!(matches!(
+        inner,
+        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(_))
+    ));
+    assert!(!matches!(
+        inner,
+        ProcessMessageError::ValidationError(ValidationError::UnableToDecrypt(
+            MessageDecryptionError::SecretTreeError(SecretTreeError::SecretReuseError)
+        ))
+    ));
+    assert_eq!(bo_group.epoch_authenticator().await?, authenticator);
     assert!(controller.process_ready());
     controller.refresh_statuses();
     assert_eq!(
@@ -1218,6 +1467,14 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     assert_eq!(
         bo_group.find_messages(&MsgQueryArgs::default())?.len(),
         message_count + 1
+    );
+    assert_eq!(
+        bo_group
+            .find_messages(&MsgQueryArgs::default())?
+            .iter()
+            .filter(|message| message.decrypted_message_bytes == b"after the rejected head")
+            .count(),
+        1
     );
 
     // Publish real ciphertext after its generation was consumed. Keep its TLS shape.

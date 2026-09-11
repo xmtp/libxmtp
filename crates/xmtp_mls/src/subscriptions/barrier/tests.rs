@@ -76,7 +76,7 @@ fn admit_pending<C: XmtpSharedContext>(
             sequence_id: sequence,
             envelope: envelope.encode_to_vec(),
         }],
-        context.stream_settings().incoming_limits(kind),
+        context.incoming_runtime().policy().incoming_limits(kind),
     )?;
     if defer {
         context.db().set_incoming_retry(

@@ -340,7 +340,6 @@ pub(crate) async fn create_client_inner(
   app_version: Option<String>,
   nonce: u64,
   change_callbacks: Option<change_callbacks::UnstableChangeCallbacks>,
-  stream_settings: Option<crate::stream_settings::StreamSettings>,
 ) -> Result<Client, JsError> {
   let identity_strategy = IdentityStrategy::new(
     inbox_id,
@@ -350,7 +349,7 @@ pub(crate) async fn create_client_inner(
   );
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_client(api_client)
+    .api_client_with_streams(api_client)
     .with_remote_verifier()?
     .with_allow_offline(allow_offline)
     .store(store);
@@ -361,10 +360,6 @@ pub(crate) async fn create_client_inner(
 
   if let Some(worker_config) = worker_config {
     builder = builder.worker_config(worker_config.into());
-  }
-
-  if let Some(settings) = stream_settings {
-    builder = builder.stream_settings(settings.try_into()?);
   }
 
   if let Some(change_callbacks) = change_callbacks {
@@ -405,9 +400,6 @@ pub async fn create_client(
   #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
     change_callbacks::UnstableChangeCallbacks,
   >,
-  #[wasm_bindgen(js_name = streamSettings)] stream_settings: Option<
-    crate::stream_settings::StreamSettings,
-  >,
 ) -> Result<Client, JsError> {
   init_logging(log_options.unwrap_or_default())?;
   tracing::info!(host, "Creating client in rust");
@@ -440,7 +432,6 @@ pub async fn create_client(
     app_version,
     nonce.unwrap_or(1),
     change_callbacks,
-    stream_settings,
   )
   .await
 }

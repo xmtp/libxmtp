@@ -5,6 +5,90 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 
+#[rstest::rstest]
+#[case::name_first(true)]
+#[case::description_first(false)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
+    #[case] name_first: bool,
+) -> Result<(), GroupError> {
+    use crate::groups::send_message_opts::SendMessageOpts;
+    use xmtp_db::group_message::MsgQueryArgs;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    tester!(caro, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    bo.sync_welcomes().await?;
+    caro.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let caro_group = caro.group(&group.group_id)?;
+    bo_group.receive().await?;
+    caro_group.receive().await?;
+    let name = QueueIntent::metadata_update()
+        .data(Vec::<u8>::from(
+            UpdateMetadataIntentData::new_update_group_name("competing name".into()),
+        ))
+        .queue(&group)?;
+    let description = QueueIntent::metadata_update()
+        .data(Vec::<u8>::from(
+            UpdateMetadataIntentData::new_update_group_description("competing description".into()),
+        ))
+        .queue(&bo_group)?;
+
+    // Hold both durable attempts before either can reach backend order.
+    let (_, first) = prepare_kind(&group, IntentKind::MetadataUpdate).await?;
+    let (_, second) = prepare_kind(&bo_group, IntentKind::MetadataUpdate).await?;
+    assert_eq!(first.base, second.base);
+    assert_eq!(group.epoch().await?, first.base.epoch);
+    assert_eq!(bo_group.epoch().await?, first.base.epoch);
+    assert_ne!(first.envelopes, second.envelopes);
+    if name_first {
+        group.publish_intents().await?;
+        bo_group.publish_intents().await?;
+    } else {
+        bo_group.publish_intents().await?;
+        group.publish_intents().await?;
+    }
+    group.sync_until_intent_resolved(name.id).await?;
+    bo_group.sync_until_intent_resolved(description.id).await?;
+    for peer in [&group, &bo_group, &caro_group] {
+        peer.receive().await?;
+        assert_eq!(peer.group_name()?, "competing name");
+        assert_eq!(peer.group_description()?, "competing description");
+        assert_eq!(peer.epoch().await?, first.base.epoch + 2);
+        assert_eq!(
+            peer.epoch_authenticator().await?,
+            group.epoch_authenticator().await?
+        );
+    }
+    for (sender, body) in [
+        (&group, b"from alix".as_slice()),
+        (&bo_group, b"from bo"),
+        (&caro_group, b"from caro"),
+    ] {
+        sender
+            .send_message(body, SendMessageOpts::default())
+            .await?;
+    }
+    for peer in [&group, &bo_group, &caro_group] {
+        peer.receive().await?;
+        let messages = peer.find_messages(&MsgQueryArgs::default())?;
+        for body in [b"from alix".as_slice(), b"from bo", b"from caro"] {
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|message| message.decrypted_message_bytes == body)
+                    .count(),
+                1
+            );
+        }
+    }
+    Ok(())
+}
+
 async fn prepare_message<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
 ) -> Result<(StoredGroupIntent, PreparedAttempt), GroupError> {
@@ -175,7 +259,8 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     assert!(
         wait_for_some(|| async {
             alix.context
-                .incoming_coordinator()
+                .incoming_runtime()
+                .coordinator
                 .lock()
                 .is_none()
                 .then_some(())

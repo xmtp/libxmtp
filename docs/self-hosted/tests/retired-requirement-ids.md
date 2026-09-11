@@ -625,3 +625,6 @@ rejoin sequence in `MLS-REQ-165`. The shared requirement remains live.
 | `MLS-REQ-106` | `StreamDedup` replay windows. | The router and its in-memory deduplication tests were removed. Local delivery acknowledgements now own reader progress. |
 | `MLS-REQ-115` | Panicked welcome task propagation through the old router. | The router and its injected-task test were removed. No surviving test claims this exact panic path. |
 | `P3-API-005` | Terminal rejection of a backend hash that differs from client recomputation. | Backend outer hashes are authoritative. `API-REQ-085` covers preservation without recomputation. |
+| `MLS-REQ-147` | Concurrent promotion from generic to bidi transport. | Transport is now selected once during construction. `MLS-REQ-167` covers lazy startup and the selected platform path. |
+| `MLS-REQ-164` | Keep a selected factory command alive before the first lease. | The factory command and promotion API are removed. `MLS-REQ-168` covers retirement, recreation, and context release. |
+| `BIND-REQ-101` | Public stream-setting conversion and validation. | Public stream settings are removed. `MLS-REQ-166` covers the bounds of internal named limits and timers. |

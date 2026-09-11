@@ -56,9 +56,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// Unstable: SDK-registered notifications for group-state changes. Empty
     /// unless the host opted in at build time.
     pub(crate) change_callbacks: UnstableChangeCallbacks,
-    pub(crate) stream_settings: crate::subscriptions::settings::StreamSettings,
-    pub(crate) incoming_coordinator:
-        Arc<Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>>>,
+    pub(crate) incoming_runtime: Arc<crate::subscriptions::incoming::IncomingRuntime>,
     pub(crate) identity_resolutions: Arc<crate::identity_updates::IdentityResolutionRegistry>,
     pub(crate) worker_config: WorkerConfig,
     // pub(crate) workers: Arc<WorkerRunner>,
@@ -135,8 +133,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
-            incoming_coordinator: self.incoming_coordinator,
+            incoming_runtime: self.incoming_runtime,
             identity_resolutions: self.identity_resolutions,
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
@@ -279,12 +276,8 @@ where
     fn disappearing_channels(&self) -> &DisappearingChannels;
     /// Unstable: the host's registered group-change callbacks.
     fn change_callbacks(&self) -> &UnstableChangeCallbacks;
-    /// Validated receipt, processing, delivery, and timing limits for this client.
-    fn stream_settings(&self) -> &crate::subscriptions::settings::StreamSettings;
-    /// Shared controller slot; locking it also orders final release with a new reader.
-    fn incoming_coordinator(
-        &self,
-    ) -> &Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>>;
+    /// Shared incoming runtime. Its limits and transport are internal client policy.
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime;
     /// Coalesces exact identity lookups without treating a newer snapshot as the requested one.
     fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry;
     fn sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>>;
@@ -389,14 +382,8 @@ where
         &self.change_callbacks
     }
 
-    fn stream_settings(&self) -> &crate::subscriptions::settings::StreamSettings {
-        &self.stream_settings
-    }
-
-    fn incoming_coordinator(
-        &self,
-    ) -> &Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>> {
-        &self.incoming_coordinator
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        &self.incoming_runtime
     }
 
     fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
@@ -509,14 +496,8 @@ where
         <T as XmtpSharedContext>::change_callbacks(self)
     }
 
-    fn stream_settings(&self) -> &crate::subscriptions::settings::StreamSettings {
-        <T as XmtpSharedContext>::stream_settings(self)
-    }
-
-    fn incoming_coordinator(
-        &self,
-    ) -> &Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>> {
-        <T as XmtpSharedContext>::incoming_coordinator(self)
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        <T as XmtpSharedContext>::incoming_runtime(self)
     }
 
     fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {

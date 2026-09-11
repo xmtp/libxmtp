@@ -33,6 +33,32 @@ pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     }
 }
 
+/// Shared client runtime. Transport capability and limits are fixed at construction.
+/// The controller slot orders its final release with the next reader acquisition.
+#[derive(Default)]
+pub struct IncomingRuntime {
+    policy: super::policy::StreamPolicy,
+    pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
+    pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
+}
+
+impl IncomingRuntime {
+    pub(crate) fn new(
+        policy: super::policy::StreamPolicy,
+        factory: Option<Arc<dyn SubscriptionFactory>>,
+    ) -> Self {
+        Self {
+            policy,
+            factory,
+            coordinator: Mutex::new(None),
+        }
+    }
+
+    pub(crate) fn policy(&self) -> &super::policy::StreamPolicy {
+        &self.policy
+    }
+}
+
 impl<F> SubscriptionFactory for F
 where
     F: Fn(TopicCursor, IncomingBatchLimits) -> SubscriptionFuture + MaybeSend + MaybeSync,
@@ -42,17 +68,25 @@ where
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-struct BidiSubscriptionFactory {
-    transport: xmtp_api_backend::BidiTransport<xmtp_api_backend::BackendBinding>,
+xmtp_common::if_native! {
+pub(crate) struct BidiSubscriptionFactory<A> {
+    pub(crate) api: A,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl SubscriptionFactory for BidiSubscriptionFactory {
+impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>
+where
+    A: xmtp_proto::api_client::XmtpMlsBidiStreams
+        + super::router_callbacks::ApiClientIdentity
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    A::SubscribeStream: 'static,
+{
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture {
-        let transport = self.transport.clone();
+        let api = self.api.clone();
         Box::pin(async move {
-            transport
+            super::router_callbacks::shared_transport(api)
                 .lease_ordered(
                     cursors
                         .into_iter()
@@ -75,14 +109,6 @@ impl SubscriptionFactory for BidiSubscriptionFactory {
         super::router_callbacks::bidi_streams_suspended()
     }
 }
-
-#[derive(Default, PartialEq, Eq)]
-enum TransportMode {
-    #[default]
-    Unary,
-    ApiStream,
-    #[cfg(not(target_arch = "wasm32"))]
-    Bidi,
 }
 
 /// When a fixed-target operation may query beyond durable receipt.
@@ -122,8 +148,6 @@ pub enum IncomingScope {
 pub struct IncomingCoordinator {
     commands: mpsc::UnboundedSender<Command>,
     generations: AtomicU64,
-    /// Orders mode selection with factory commands so delayed setup cannot downgrade bidi.
-    transport_mode: Mutex<TransportMode>,
     state: Arc<SharedState>,
 }
 
@@ -160,14 +184,13 @@ enum Command {
         scope: IncomingScope,
     },
     Release(u64),
-    SetFactory(Arc<dyn SubscriptionFactory>),
     Wake,
 }
 
 impl IncomingCoordinator {
     /// Reuse the context's live controller, or start one with an owned context handle.
     pub fn for_context<C: XmtpSharedContext>(context: &C) -> Arc<Self> {
-        let mut slot = context.incoming_coordinator().lock();
+        let mut slot = context.incoming_runtime().coordinator.lock();
         if let Some(coordinator) = slot
             .as_ref()
             .filter(|coordinator| !coordinator.commands.is_closed())
@@ -179,7 +202,6 @@ impl IncomingCoordinator {
         let coordinator = Arc::new(Self {
             commands,
             generations: AtomicU64::new(0),
-            transport_mode: Mutex::new(TransportMode::Unary),
             state: state.clone(),
         });
         let context = context.context_ref().clone();
@@ -202,66 +224,6 @@ impl IncomingCoordinator {
             changes: tokio::sync::Mutex::new(self.state.changed.subscribe()),
             closed: std::sync::atomic::AtomicBool::new(false),
         }
-    }
-
-    fn set_subscription_factory(&self, factory: Arc<dyn SubscriptionFactory>) {
-        let _ = self.commands.send(Command::SetFactory(factory));
-    }
-
-    /// Enable the API stream transport unless bidi is already selected. Never downgrade bidi.
-    /// Keep the returned handle until the first reader acquires its network lease.
-    #[must_use = "keep this handle until the first network lease is acquired"]
-    pub fn enable_stream_transport<C: XmtpSharedContext>(context: &C) -> Arc<Self>
-    where
-        C::ApiClient: xmtp_proto::api_client::XmtpMlsStreams,
-    {
-        use xmtp_proto::api_client::XmtpMlsStreams;
-        let coordinator = Self::for_context(context);
-        let mut mode = coordinator.transport_mode.lock();
-        if *mode == TransportMode::Unary {
-            *mode = TransportMode::ApiStream;
-            let context = context.context_ref().clone();
-            coordinator.set_subscription_factory(Arc::new(
-                move |cursors: TopicCursor, limits| -> SubscriptionFuture {
-                    let context = context.clone();
-                    Box::pin(async move {
-                        context
-                            .api()
-                            .api_client
-                            .subscribe_envelopes_with_cursors(&cursors, limits)
-                            .await
-                            .map(|subscription| subscription.map_error(NetworkError::new))
-                            .map_err(NetworkError::new)
-                    })
-                },
-            ));
-        }
-        drop(mode);
-        coordinator
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    /// Use the shared native bidi wire for every scope in this context.
-    /// Keep the returned handle until the first reader acquires its network lease.
-    #[must_use = "keep this handle until the first network lease is acquired"]
-    pub fn enable_bidi_transport<C: XmtpSharedContext>(context: &C) -> Arc<Self>
-    where
-        C::ApiClient: xmtp_proto::api_client::XmtpMlsBidiStreams
-            + super::router_callbacks::ApiClientIdentity
-            + Clone
-            + 'static,
-        <C::ApiClient as xmtp_proto::api_client::XmtpMlsBidiStreams>::SubscribeStream: 'static,
-    {
-        let coordinator = Self::for_context(context);
-        let mut mode = coordinator.transport_mode.lock();
-        if *mode != TransportMode::Bidi {
-            *mode = TransportMode::Bidi;
-            let transport =
-                super::router_callbacks::shared_transport(context.api().api_client.clone());
-            coordinator.set_subscription_factory(Arc::new(BidiSubscriptionFactory { transport }));
-        }
-        drop(mode);
-        coordinator
     }
 
     /// Request a fresh database check. This hint is not proof of processing.

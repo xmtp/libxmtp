@@ -449,9 +449,7 @@ public final class Client {
 				allowOffline: buildOffline,
 				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
 				workerConfig: nil,
-				runtimeOptions: FfiClientRuntimeOptions(
-					changeCallbacks: options.unstableChangeCallbacks?.toFfi()
-				)
+				changeCallbacks: options.unstableChangeCallbacks?.toFfi()
 			)
 
 			return (ffiClient, Client.inMemoryDbPath)
@@ -512,9 +510,7 @@ public final class Client {
 			allowOffline: buildOffline,
 			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
 			workerConfig: nil,
-			runtimeOptions: FfiClientRuntimeOptions(
-				changeCallbacks: options.unstableChangeCallbacks?.toFfi()
-			)
+			changeCallbacks: options.unstableChangeCallbacks?.toFfi()
 		)
 
 		return (ffiClient, dbURL)
@@ -709,7 +705,7 @@ public final class Client {
 			workerConfig: nil,
 			// Identity-probe client: never processes messages, so nothing to
 			// notify about.
-			runtimeOptions: nil
+			changeCallbacks: nil
 		)
 	}
 

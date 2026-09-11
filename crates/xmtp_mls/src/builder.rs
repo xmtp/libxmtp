@@ -35,10 +35,6 @@ type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
-    /// Client stream limits are invalid. Not retryable.
-    #[error(transparent)]
-    #[error_code(inherit)]
-    InvalidStreamSettings(#[from] crate::subscriptions::settings::InvalidStreamSettings),
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
@@ -106,7 +102,9 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     /// Unstable: group-change callbacks the host registered at construction.
     pub(crate) change_callbacks: UnstableChangeCallbacks,
-    pub(crate) stream_settings: crate::subscriptions::settings::StreamSettings,
+    pub(crate) stream_policy: crate::subscriptions::policy::StreamPolicy,
+    pub(crate) incoming_factory:
+        Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
     pub(crate) disable_commit_log_worker: bool,
@@ -155,12 +153,13 @@ impl Client<()> {
 }
 
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
-    /// Set bounded receipt, dependency, and delivery behavior for this client.
-    pub fn stream_settings(
+    /// Override internal limits for controlled tests.
+    #[cfg(test)]
+    pub(crate) fn stream_policy(
         mut self,
-        settings: crate::subscriptions::settings::StreamSettings,
+        settings: crate::subscriptions::policy::StreamPolicy,
     ) -> Self {
-        self.stream_settings = settings;
+        self.stream_policy = settings;
         self
     }
 
@@ -175,7 +174,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
             change_callbacks: UnstableChangeCallbacks::default(),
-            stream_settings: crate::subscriptions::settings::StreamSettings::default(),
+            stream_policy: crate::subscriptions::policy::StreamPolicy::default(),
+            incoming_factory: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -206,7 +206,8 @@ where
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             change_callbacks: client.context.change_callbacks.clone(),
-            stream_settings: client.context.stream_settings.clone(),
+            stream_policy: client.context.incoming_runtime.policy().clone(),
+            incoming_factory: client.context.incoming_runtime.factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -288,7 +289,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode,
             fork_recovery_opts,
             change_callbacks,
-            stream_settings,
+            stream_policy,
+            incoming_factory,
             version_info,
             allow_offline,
             disable_commit_log_worker,
@@ -297,8 +299,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             worker_config,
             ..
         } = self;
-
-        stream_settings.validate()?;
 
         let api_client = api_client
             .take()
@@ -396,7 +396,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
             change_callbacks,
-            stream_settings,
+            incoming_runtime: Arc::new(crate::subscriptions::incoming::IncomingRuntime::new(
+                stream_policy,
+                incoming_factory,
+            )),
             worker_config,
 
             worker_metrics: workers.metrics().clone(),
@@ -406,7 +409,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             delivery_owner: Default::default(),
-            incoming_coordinator: Default::default(),
             identity_resolutions: Default::default(),
         });
 
@@ -535,7 +537,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -563,7 +566,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -591,7 +595,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -634,6 +639,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
+    /// Attach a query-only API client. Receipt uses ordered Query pages.
+    /// Standard streaming clients use `api_client_with_streams` at construction.
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
         ClientBuilder {
             api_client: Some(api_client),
@@ -644,13 +651,58 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: None,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+        }
+    }
+
+    xmtp_common::if_native! {
+        /// Attach a native API client with a lazy shared Bidi receiver.
+        /// No transport task or connection starts until the first receiving interest.
+        pub fn api_client_with_streams<A>(self, api_client: A) -> ClientBuilder<A, S, Db>
+        where
+            A: xmtp_proto::api_client::XmtpMlsBidiStreams
+                + crate::subscriptions::router_callbacks::ApiClientIdentity
+                + Clone
+                + Send
+                + Sync
+                + 'static,
+            A::SubscribeStream: 'static,
+        {
+            let factory = crate::subscriptions::incoming::BidiSubscriptionFactory {
+                api: api_client.clone(),
+            };
+            let mut builder = self.api_client(api_client);
+            builder.incoming_factory = Some(Arc::new(factory));
+            builder
+        }
+    }
+
+    xmtp_common::if_wasm! {
+        /// Attach a browser API client with a lazy static-stream receiver.
+        /// The factory owns the API client, not the client context.
+        pub fn api_client_with_streams<A>(self, api_client: A) -> ClientBuilder<A, S, Db>
+        where
+            A: xmtp_proto::api_client::XmtpMlsStreams + Clone + 'static,
+        {
+            let api = api_client.clone();
+            let mut builder = self.api_client(api_client);
+            builder.incoming_factory = Some(Arc::new(move |cursors: xmtp_proto::types::TopicCursor, limits| -> crate::subscriptions::incoming::SubscriptionFuture {
+                let api = api.clone();
+                Box::pin(async move {
+                    api.subscribe_envelopes_with_cursors(&cursors, limits)
+                        .await
+                        .map(|subscription| subscription.map_error(xmtp_proto::api::NetworkError::new))
+                        .map_err(xmtp_proto::api::NetworkError::new)
+                })
+            }));
+            builder
         }
     }
 
@@ -725,7 +777,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -749,7 +802,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
@@ -782,7 +836,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
-            stream_settings: self.stream_settings,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,

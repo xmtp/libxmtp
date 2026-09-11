@@ -202,7 +202,8 @@ async fn wait_until_idle(client: &FullXmtpClient) {
         wait_for_some(|| async {
             client
                 .context
-                .incoming_coordinator()
+                .incoming_runtime()
+                .coordinator
                 .lock()
                 .is_none()
                 .then_some(())
@@ -381,7 +382,10 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     bo.mls_store()
         .receive_topics_once(
             &[Topic::new_group_message(group_id)],
-            bo.context.stream_settings().incoming_limits(topic.kind),
+            bo.context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(topic.kind),
         )
         .await?;
     let admitted = snapshot(&shared).await?;

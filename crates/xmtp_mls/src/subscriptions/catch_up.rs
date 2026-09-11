@@ -58,7 +58,7 @@ impl<C: XmtpSharedContext + 'static> Client<C> {
         &self,
         timeout: Option<Duration>,
     ) -> Result<CatchUpSummary, CatchUpError> {
-        let timeout = timeout.unwrap_or(self.context.stream_settings().barrier_timeout);
+        let timeout = timeout.unwrap_or(self.context.incoming_runtime().policy().barrier_timeout);
         let started = Instant::now();
         let query = || GroupQueryArgs {
             include_sync_groups: true,
@@ -97,7 +97,7 @@ impl<C: XmtpSharedContext + 'static> Client<C> {
             .filter(|group| enrolled.contains(&group.id))
             .collect();
         let upper = db.current_delivery_cursor().map_err(GroupError::from)?;
-        let settings = self.context.stream_settings();
+        let settings = self.context.incoming_runtime().policy();
         let mut summary = CatchUpSummary {
             conversations: groups
                 .iter()

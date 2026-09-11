@@ -2,7 +2,6 @@
 
 use super::{
     Result, SubscribeError,
-    incoming::IncomingCoordinator,
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
@@ -12,6 +11,123 @@ use std::time::Duration;
 use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 const WAIT: Duration = Duration::from_secs(20);
+
+#[cfg(not(target_arch = "wasm32"))]
+mod tcp_proxy;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
+    use super::incoming::{IncomingConnection, IncomingRegistration};
+    use crate::utils::DefaultTestClientCreator;
+    use xmtp_db::prelude::*;
+    use xmtp_proto::api_client::{
+        ApiBuilder, NetConnectConfig, XmtpMlsBidiStreams, XmtpTestClient,
+    };
+
+    let api = DefaultTestClientCreator::create().build()?;
+    let address = api
+        .host()
+        .strip_prefix("http://")
+        .expect("local HTTP test backend")
+        .trim_end_matches('/');
+    let proxy =
+        tcp_proxy::TcpProxy::start(tokio::net::lookup_host(address).await?.collect()).await?;
+    let mut builder = xmtp_api_grpc::GrpcClient::builder();
+    builder.set_host(format!("http://{}", proxy.address).parse()?);
+    let api = std::sync::Arc::new(xmtp_api_backend::TrackedStatsClient::new(
+        xmtp_api_backend::BackendClient::new(builder.build()?),
+    ));
+    tester!(alix, disable_workers);
+    tester!(bo, api_client: api, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.invite(&bo).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let mut reader = MessageReader::new(
+        bo.context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        None,
+    )?;
+    group.send_msg(b"before outage").await;
+    let before = next_application(&mut reader).await?;
+    assert_eq!(before.decrypted_message_bytes, b"before outage");
+    let control = reader.control();
+    xmtp_common::wait_for_eq(
+        || async {
+            control
+                .catch_up_snapshot()
+                .topics
+                .iter()
+                .any(|topic| topic.registration == IncomingRegistration::Active)
+        },
+        true,
+    )
+    .await?;
+    let generation = control.catch_up_snapshot().connection_generation;
+    let refused = proxy.pause().await;
+    xmtp_common::time::timeout(WAIT, proxy.wait_for_refusal_after(refused)).await?;
+    assert_ne!(
+        control.catch_up_snapshot().connection,
+        IncomingConnection::Connected
+    );
+    group
+        .update_group_name("committed during outage".into())
+        .await?;
+    group.send_msg(b"during outage").await;
+    assert_ne!(bo_group.group_name()?, "committed during outage");
+    proxy.resume().await;
+
+    // No explicit receiver sync can hide a failed reader recovery.
+    let missed = next_application(&mut reader).await?;
+    assert_eq!(missed.decrypted_message_bytes, b"during outage");
+    assert_ne!(missed.id, before.id);
+    assert_eq!(bo_group.group_name()?, "committed during outage");
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        group.epoch_authenticator().await?
+    );
+    xmtp_common::wait_for_eq(
+        || async {
+            let snapshot = control.catch_up_snapshot();
+            snapshot.connection == IncomingConnection::Connected
+                && snapshot.connection_generation > generation
+        },
+        true,
+    )
+    .await?;
+    group.send_msg(b"after outage").await;
+    assert_eq!(
+        next_application(&mut reader).await?.decrypted_message_bytes,
+        b"after outage"
+    );
+    bo_group.send_msg(b"reply after outage").await;
+    assert_eq!(
+        next_application(&mut reader).await?.decrypted_message_bytes,
+        b"reply after outage"
+    );
+    group.receive().await?;
+    let expected = [
+        b"before outage".as_slice(),
+        b"during outage",
+        b"after outage",
+        b"reply after outage",
+    ];
+    for peer in [&group, &bo_group] {
+        let messages = peer
+            .context
+            .db()
+            .get_group_messages(&peer.group_id, &Default::default())?;
+        let actual: Vec<_> = messages
+            .iter()
+            .filter(|message| message.kind == GroupMessageKind::Application)
+            .map(|message| message.decrypted_message_bytes.as_slice())
+            .collect();
+        assert_eq!(actual, expected);
+    }
+    reader.close();
+}
 
 async fn next_application<C: XmtpSharedContext + 'static>(
     reader: &mut MessageReader<C>,
@@ -40,7 +156,6 @@ async fn durable_reader_delivers_live_messages() {
     let group = alix.create_group(None, None)?;
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
-    let _coordinator = IncomingCoordinator::enable_bidi_transport(&bo.context);
     let mut reader = MessageReader::new(
         bo.context.clone(),
         DeliveryScope::Groups(vec![group.group_id]),
@@ -83,7 +198,6 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
     bo.sync_welcomes().await.unwrap();
     let bo_group = bo.group(&group.group_id).unwrap();
     let open_reader = || {
-        let _coordinator = IncomingCoordinator::enable_bidi_transport(&bo.context);
         MessageReader::new(
             bo.context.clone(),
             DeliveryScope::Groups(vec![group.group_id]),
@@ -112,7 +226,7 @@ async fn streamed_message_recovers_pending_rejoin_welcome(#[case] open_while_ina
         assert!(!bo_group.is_active().unwrap());
         // Start without the previous sync controller's in-memory retirement state.
         wait_for_eq(
-            || async { bo.context.incoming_coordinator().lock().is_none() },
+            || async { bo.context.incoming_runtime().coordinator.lock().is_none() },
             true,
         )
         .await

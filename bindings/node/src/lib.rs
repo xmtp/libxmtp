@@ -20,7 +20,6 @@ mod messages;
 mod permissions;
 mod signatures;
 pub mod stats;
-mod stream_settings;
 mod streams;
 xmtp_common::if_test! {
   pub mod test_utils;

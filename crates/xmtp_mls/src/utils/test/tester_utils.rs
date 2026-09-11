@@ -216,7 +216,7 @@ where
             .unwrap_or_else(|| Arc::new(api_client));
 
         let mut client = client
-            .api_client(api_client)
+            .api_client_with_streams(api_client)
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))

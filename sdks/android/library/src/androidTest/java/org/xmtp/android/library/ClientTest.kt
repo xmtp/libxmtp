@@ -27,12 +27,10 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import org.xmtp.android.library.messages.walletAddress
 import uniffi.xmtpv3.DbOptions
-import uniffi.xmtpv3.FfiClientRuntimeOptions
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiException
 import uniffi.xmtpv3.FfiLogLevel
 import uniffi.xmtpv3.FfiLogRotation
-import uniffi.xmtpv3.FfiStreamSettings
 import uniffi.xmtpv3.FfiWorkerConfig
 import uniffi.xmtpv3.FfiWorkerKind
 import uniffi.xmtpv3.generateInboxId
@@ -1044,11 +1042,7 @@ class ClientTest : BaseInstrumentedTest() {
                             workerJittersNs = emptyList(),
                             disabledWorkers = FfiWorkerKind.entries.toList(),
                         ),
-                    runtimeOptions =
-                        FfiClientRuntimeOptions(
-                            changeCallbacks = null,
-                            streamSettings = FfiStreamSettings(maxLocalReadRows = 8u),
-                        ),
+                    changeCallbacks = null,
                 )
             val alix =
                 Client(

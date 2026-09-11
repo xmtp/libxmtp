@@ -5,7 +5,6 @@ pub mod stream_stats;
 
 use super::{
     Result,
-    incoming::IncomingCoordinator,
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
@@ -41,7 +40,6 @@ impl StreamGroupMessages {
     where
         C::ApiClient: XmtpMlsStreams,
     {
-        let _coordinator = IncomingCoordinator::enable_stream_transport(&context);
         let reader = MessageReader::new(
             context,
             DeliveryScope::Groups(groups),

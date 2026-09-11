@@ -122,9 +122,6 @@ pub async fn create_client_with_backend(
   #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
     super::change_callbacks::UnstableChangeCallbacks,
   >,
-  #[wasm_bindgen(js_name = streamSettings)] stream_settings: Option<
-    crate::stream_settings::StreamSettings,
-  >,
 ) -> Result<super::Client, JsError> {
   super::init_logging(log_options.unwrap_or_default())?;
 
@@ -143,7 +140,6 @@ pub async fn create_client_with_backend(
     Some(backend.app_version()),
     nonce.unwrap_or(1),
     change_callbacks,
-    stream_settings,
   )
   .await
 }

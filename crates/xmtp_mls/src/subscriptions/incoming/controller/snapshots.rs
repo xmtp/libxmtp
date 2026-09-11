@@ -11,7 +11,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             if snapshot.scope_generation != scope.generation {
                 continue;
             }
-            snapshot.error = self.storage_error.clone().or_else(|| self.error.clone());
+            snapshot.error = self
+                .storage_error
+                .clone()
+                .or_else(|| self.transport.error.clone());
             let mut topics = Vec::new();
             for topic in &scope.topics {
                 let target = scope.targets.get(topic).copied();
@@ -53,8 +56,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         .clone()
                         .unwrap_or_else(|| "processing_blocked".into())
                 });
-                let removed = self.retired.contains(topic);
-                let registered = self.active.contains(topic);
+                let removed = self.is_retired(topic);
+                let registered = self.transport.registered.contains(topic);
                 let complete = crate::subscriptions::barrier::durable_complete(
                     key.kind,
                     target,
@@ -62,17 +65,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     pending.len(),
                 );
                 let error = self
-                    .topic_errors
+                    .topics
                     .get(topic)
-                    .cloned()
+                    .and_then(|state| state.error.clone())
                     .or_else(|| self.storage_error.clone())
-                    .or_else(|| self.error.clone());
+                    .or_else(|| self.transport.error.clone());
                 let runnable_welcome = key.kind == NetworkEntityKind::Welcome
                     && pending.iter().any(|row| !row.blocked);
                 let welcome_receipt_pending = key.kind == NetworkEntityKind::Welcome
                     && target.is_none_or(|target| progress.received < target)
-                    && !self.receive_blocked.contains(topic)
-                    && !self.source_failed;
+                    && !self.receipt(topic).blocked
+                    && !self.transport.is_failed();
                 let processing = if removed {
                     IncomingProcessing::Cancelled
                 } else if complete && registered {
@@ -111,8 +114,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             topics.sort_by_key(|status| status.topic.cloned_vec());
             snapshot.scope_generation = scope.generation;
-            snapshot.connection_generation = self.connection_generation;
-            snapshot.connection = self.connection;
+            snapshot.connection_generation = self.transport.generation;
+            snapshot.connection = self.transport.connection();
             snapshot.discovery_pending = matches!(
                 scope.scope,
                 ScopeKind::AllGroups | ScopeKind::DeviceSyncGroups

@@ -8,10 +8,7 @@ use xmtp_mls::{
   MlsContext,
   context::XmtpSharedContext,
   subscriptions::{
-    incoming::{
-      IncomingConnection, IncomingCoordinator, IncomingProcessing, IncomingRegistration,
-      IncomingStatus,
-    },
+    incoming::{IncomingConnection, IncomingProcessing, IncomingRegistration, IncomingStatus},
     local_delivery::{
       DeliveryAcknowledgement, DeliveryCursor as RustDeliveryCursor, DeliveryScope, LocalDelivery,
       LocalDeliveryError, LocalDeliveryFilter, LocalDeliveryItem,
@@ -302,7 +299,6 @@ impl MessageReader {
     filter: LocalDeliveryFilter,
     from: Option<DeliveryCursor>,
   ) -> Result<Self, JsError> {
-    let _coordinator = IncomingCoordinator::enable_stream_transport(&context);
     let reader = RustMessageReader::new(
       context,
       scope,
@@ -396,7 +392,6 @@ pub(crate) fn callback_stream(
   filter: LocalDeliveryFilter,
   callback: StreamCallback,
 ) -> Result<StreamCloser, JsError> {
-  let _coordinator = IncomingCoordinator::enable_stream_transport(&context);
   let mut reader =
     RustMessageReader::new(context, scope, filter, None).map_err(ErrorWrapper::js)?;
   let control = reader.control();

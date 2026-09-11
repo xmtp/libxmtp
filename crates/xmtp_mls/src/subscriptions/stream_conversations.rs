@@ -105,7 +105,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             consent_states: Some(ALL_CONSENT_STATES.to_vec()),
             ..Default::default()
         })?);
-        let coordinator = IncomingCoordinator::enable_stream_transport(&context);
+        let coordinator = IncomingCoordinator::for_context(&context);
         let lease = coordinator.acquire(IncomingScope::Topics(vec![Topic::new_welcome_message(
             context.installation_id(),
         )]));
@@ -157,7 +157,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                     tokio::select! {
                         _ = context.cancellation_token().cancelled() => return None,
                         _ = lease.changed() => {},
-                        _ = sleep(context.stream_settings().active_database_poll_interval) => {},
+                        _ = sleep(context.incoming_runtime().policy().active_database_poll_interval) => {},
                         event = events.recv() => match event {
                             Ok(LocalEvents::NewGroup(_)) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {},
                             Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,

@@ -8,7 +8,6 @@ pub mod logger;
 pub mod message;
 pub mod mls;
 pub mod stream_failure;
-pub mod stream_settings;
 pub mod worker;
 pub mod worker_config;
 

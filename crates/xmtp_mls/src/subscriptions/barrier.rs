@@ -238,7 +238,7 @@ pub async fn receive_through_current<C: XmtpSharedContext>(
     context: &C,
     topics: Vec<Topic>,
 ) -> Result<BarrierSnapshot, GroupError> {
-    let deadline = Instant::now() + context.stream_settings().barrier_timeout;
+    let deadline = Instant::now() + context.incoming_runtime().policy().barrier_timeout;
     Ok(receive_through_current_until(context, topics, deadline).await?)
 }
 
@@ -339,7 +339,7 @@ async fn capture_targets<C: XmtpSharedContext>(
             .await;
             (topics, result)
         })
-        .buffer_unordered(context.stream_settings().max_dependency_requests)
+        .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
         .collect::<Vec<_>>()
         .await;
     let mut targets = TopicCursor::new();
@@ -372,7 +372,8 @@ pub async fn wait_through<C: XmtpSharedContext>(
     targets: TopicCursor,
     timeout: Option<Duration>,
 ) -> Result<BarrierSnapshot, BarrierError> {
-    let deadline = Instant::now() + timeout.unwrap_or(context.stream_settings().barrier_timeout);
+    let deadline =
+        Instant::now() + timeout.unwrap_or(context.incoming_runtime().policy().barrier_timeout);
     wait_for_targets(
         context,
         targets,
@@ -520,7 +521,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
         tokio::select! {
             _ = context.cancellation_token().cancelled() => {},
             _ = lease.changed() => {},
-            _ = sleep(context.stream_settings().active_database_poll_interval.min(deadline.saturating_duration_since(Instant::now()))) => {},
+            _ = sleep(context.incoming_runtime().policy().active_database_poll_interval.min(deadline.saturating_duration_since(Instant::now()))) => {},
         }
     }
 }

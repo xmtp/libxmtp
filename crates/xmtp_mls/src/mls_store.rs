@@ -176,13 +176,15 @@ where
             .rows
             .min(limits.topic.rows)
             .min(limits.kind.rows)
-            .min(u64::from(self.context.stream_settings().max_fetched_rows));
+            .min(u64::from(
+                self.context.incoming_runtime().policy().max_fetched_rows,
+            ));
         let bytes = limits
             .batch
             .bytes
             .min(limits.topic.bytes)
             .min(limits.kind.bytes)
-            .min(self.context.stream_settings().max_fetched_bytes);
+            .min(self.context.incoming_runtime().policy().max_fetched_bytes);
         let page = self
             .context
             .api()

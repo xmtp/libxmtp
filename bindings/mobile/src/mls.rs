@@ -5,7 +5,6 @@ use crate::logger::init_logger;
 use crate::message::{
     FfiActions, FfiDecodedMessage, FfiDeliveryStatus, FfiIntent, FfiReactionPayload,
 };
-use crate::stream_settings::FfiStreamSettings;
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
 use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, FfiGroupUpdated, FfiReply, FfiWalletSendCalls, GenericError};
@@ -362,19 +361,6 @@ impl DbOptions {
     }
 }
 
-/// Optional callbacks and stream limits for client creation.
-/// Keep future runtime options in this record. Another separate argument exceeds
-/// the argument-buffer space in the pinned JNA ARM64 implementation.
-#[derive(uniffi::Record, Clone, Default)]
-pub struct FfiClientRuntimeOptions {
-    /// Callbacks for group-state changes. `None` registers no callbacks.
-    #[uniffi(default = None)]
-    pub change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
-    /// Stream limit overrides. `None` uses core defaults.
-    #[uniffi(default = None)]
-    pub stream_settings: Option<FfiStreamSettings>,
-}
-
 /// It returns a new client of the specified `inbox_id`.
 /// Note that the `inbox_id` must be either brand new or already associated with the `account_identifier`.
 /// i.e. `inbox_id` cannot be associated with another account address.
@@ -395,17 +381,15 @@ pub struct FfiClientRuntimeOptions {
 /// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// `runtime_options.change_callbacks` is unstable: notifications for group-state changes,
+/// `change_callbacks` is unstable: notifications for group-state changes,
 /// registered here because the changes they report arrive from the stream and
 /// sync paths, where no SDK call is on the stack to carry them. `None` (the
 /// SDK-side default) registers nothing. See
 /// [`change_callbacks::FfiUnstableChangeCallbacks`].
-/// Raw FFI callers pass callbacks and stream settings in `runtime_options`.
-/// This changes the raw FFI signature, not the public SDK creation options.
 #[allow(clippy::too_many_arguments)]
 #[uniffi::export(
     async_runtime = "tokio",
-    default(runtime_options = None)
+    default(change_callbacks = None)
 )]
 #[tracing::instrument(level = "debug", skip_all)]
 pub async fn create_client(
@@ -419,12 +403,8 @@ pub async fn create_client(
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
     worker_config: Option<FfiWorkerConfig>,
-    runtime_options: Option<FfiClientRuntimeOptions>,
+    change_callbacks: Option<change_callbacks::FfiUnstableChangeCallbacks>,
 ) -> Result<Arc<FfiXmtpClient>, FfiError> {
-    let FfiClientRuntimeOptions {
-        change_callbacks,
-        stream_settings,
-    } = runtime_options.unwrap_or_default();
     let ident = account_identifier.clone();
     init_logger();
     // See `connect_to_backend` — ensure the rustls provider is installed before an HTTP
@@ -494,7 +474,7 @@ pub async fn create_client(
     let api_client = api.api_client.clone();
 
     let mut builder = xmtp_mls::Client::builder(identity_strategy)
-        .api_client(api_client)
+        .api_client_with_streams(api_client)
         .with_remote_verifier()?
         .with_allow_offline(allow_offline)
         .store(store);
@@ -513,14 +493,6 @@ pub async fn create_client(
 
     if let Some(change_callbacks) = change_callbacks {
         builder = builder.unstable_change_callbacks(change_callbacks.into());
-    }
-
-    if let Some(stream_settings) = stream_settings {
-        builder = builder.stream_settings(
-            stream_settings
-                .try_into()
-                .map_err(xmtp_mls::builder::ClientBuilderError::from)?,
-        );
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;

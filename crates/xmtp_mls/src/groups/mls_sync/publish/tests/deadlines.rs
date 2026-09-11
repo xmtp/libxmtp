@@ -109,14 +109,14 @@ async fn client_with_stalled_api(
         entered: Arc::new(AtomicBool::new(false)),
         cancelled: Arc::new(AtomicBool::new(false)),
     };
-    let mut settings = tester.context.stream_settings().clone();
+    let mut settings = tester.context.incoming_runtime().policy().clone();
     settings.barrier_timeout = BUDGET;
     // Reuse registered tester state to inject one non-completing async RPC.
     crate::builder::ClientBuilder::from_client(tester.client.clone())
         .api_client(api)
         .with_disable_workers(true)
         .with_allow_offline(Some(true))
-        .stream_settings(settings)
+        .stream_policy(settings)
         .build()
         .await
         .unwrap()

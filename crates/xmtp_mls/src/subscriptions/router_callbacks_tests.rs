@@ -204,10 +204,10 @@ async fn callback_stream_surfaces_new_conversations() {
 /// stream still receives exactly its own client's traffic.
 #[xmtp_common::test(unwrap_try = true)]
 async fn sibling_clients_share_the_process_transport() {
+    let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
     tester!(caro, api_client: bo.context.api().api_client.clone());
-    let before = shared_transport_count();
 
     let bo_group = alix.create_group(None, None)?;
     bo_group.invite(&bo).await?;
@@ -246,7 +246,9 @@ async fn sibling_clients_share_the_process_transport() {
     );
     bo_handle.wait_for_ready().await;
     caro_handle.wait_for_ready().await;
-    assert_eq!(shared_transport_count(), before + 1);
+    // Registration and callbacks use the same selected transport. Alix has
+    // one API client; Bo and Caro share the other API client.
+    assert_eq!(shared_transport_count(), before + 2);
     assert_retained_messages(&mut bo_rx, &bo_retained).await;
     assert_retained_messages(&mut caro_rx, &caro_retained).await;
 
@@ -574,9 +576,9 @@ async fn transport_registry_reuses_only_the_same_api_client() {
 /// Separate API clients at one host keep separate authentication and transport state.
 #[xmtp_common::test(unwrap_try = true)]
 async fn separate_api_clients_at_one_host_use_separate_wires() {
+    let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
-    let before = shared_transport_count();
     let mut alix_handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(alix.client.clone()),
         None,

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**36 error types** across **10 crates** with **372 total error codes**.
+**35 error types** across **10 crates** with **371 total error codes**.
 
 ## mobile
 
@@ -568,14 +568,6 @@ Errors that can occur when working with GroupMutablePermissions.
 | `IdentityError::MissingPostQuantumPublicKey` | Missing PQ public key. Post-quantum public key not found. Not retryable. |
 | `IdentityError::Bincode` | Bincode serialization error. Binary serialization failed. Not retryable. |
 | `IdentityError::UninitializedField` | Uninitialized field. Builder field not initialized. Not retryable. |
-
-### InvalidStreamSettings <sub>struct</sub>
-
-<small>`crates/xmtp_mls/src/subscriptions/settings.rs`</small>
-
-A client limit is zero, out of range, or inconsistent. Not retryable.
-
-**Error code:** `InvalidStreamSettings`
 
 ### LocalDeliveryError <sub>enum</sub>
 

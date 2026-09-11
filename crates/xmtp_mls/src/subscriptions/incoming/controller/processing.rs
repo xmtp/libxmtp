@@ -10,12 +10,6 @@ use crate::{
 use prost::Message;
 use xmtp_db::{identity_update::StoredIdentityUpdate, incoming_envelope::IncomingRetry};
 
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-pub(super) enum DependencyKey {
-    Identity(IdentityRequirement),
-    Welcome(Cursor),
-}
-
 pub(super) enum DependencyResult<C> {
     Identity(IdentityRequirement, Result<(), IdentityDependencyError>),
     Welcome(
@@ -29,14 +23,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let mut progress = false;
         let topics: Vec<_> = self.read_queue.iter().cloned().collect();
         for topic in topics {
-            if self.retired.contains(&topic) {
+            if self.is_retired(&topic) {
                 continue;
             }
             match topic.kind() {
                 TopicKind::GroupMessagesV1 => {
-                    if self.waiting_identity.contains_key(&topic) {
-                        continue;
-                    }
                     let group_id = match topic.identifier().try_into() {
                         Ok(group) => group,
                         Err(_) => continue,
@@ -50,33 +41,48 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                             continue;
                         }
                     };
-                    let retry_blocked = match self
+                    let head = match self
                         .context
                         .db()
                         .first_pending_envelope(&StreamTopic::group(group_id))
                     {
-                        Ok(Some(head)) => self.retry_blocked_head(
-                            &topic,
-                            Cursor(head.sequence_id as u64),
-                            head.blocked,
-                        ),
-                        Ok(_) => false,
+                        Ok(Some(head)) => head,
+                        Ok(None) => continue,
                         Err(error) => {
                             self.topic_error(topic, error.into());
                             continue;
                         }
                     };
-                    match group.process_pending_group_head_with_retry(
-                        self.missing_references.get(&topic),
-                        retry_blocked,
-                    ) {
+                    let cursor = Cursor(head.sequence_id as u64);
+                    if self
+                        .dependency_registry
+                        .contains(&DependencyParent::GroupHead(topic.clone(), cursor))
+                    {
+                        continue;
+                    }
+                    let retry_blocked = self.retry_blocked_head(&topic, cursor, head.blocked);
+                    let missing = self
+                        .topics
+                        .get(&topic)
+                        .and_then(|state| state.processing.missing_reference.as_ref())
+                        .filter(|(head, _)| *head == cursor)
+                        .map(|(_, requirement)| requirement);
+                    match group.process_pending_group_head_with_retry(missing, retry_blocked) {
                         Ok(GroupHeadOutcome::Progress { cursor, result }) => {
                             tracing::trace!(%group_id, sequence_id = cursor.0, accepted = result.is_ok(), "group head completed");
-                            self.missing_references.remove(&topic);
-                            self.topic_errors.remove(&topic);
+                            self.topics
+                                .entry(topic.clone())
+                                .or_default()
+                                .processing
+                                .missing_reference = None;
+                            self.topics.entry(topic.clone()).or_default().error = None;
                             progress = true;
                             if result.as_ref().is_ok_and(|outcome| !outcome.group_active) {
-                                self.retired.insert(topic.clone());
+                                self.topics
+                                    .entry(topic.clone())
+                                    .or_default()
+                                    .processing
+                                    .retired = true;
                             }
                             if let Ok(outcome) = result
                                 && let Some(change) = outcome.app_data_change
@@ -89,11 +95,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                             requirement,
                         }) => {
                             tracing::trace!(%group_id, sequence_id = cursor.0, "group head needs an identity proof");
-                            self.waiting_identity.insert(topic, requirement.clone());
-                            self.queue_identity(requirement);
+                            self.dependency_registry.attach(
+                                DependencyParent::GroupHead(topic, cursor),
+                                DependencyKey::Identity(requirement),
+                            );
                         }
                         Ok(GroupHeadOutcome::Inactive) => {
-                            self.retired.insert(topic);
+                            self.topics.entry(topic).or_default().processing.retired = true;
                         }
                         Ok(GroupHeadOutcome::Waiting {
                             cursor,
@@ -145,34 +153,29 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
         }
         let due: Vec<_> = self
-            .welcome_prefixes
-            .iter()
-            .filter_map(|(cursor, (group, anchor))| {
+            .dependency_registry
+            .prefixes()
+            .filter_map(|(cursor, group, anchor)| {
                 self.context
                     .db()
-                    .topic_progress(&StreamTopic::group(*group))
+                    .topic_progress(&StreamTopic::group(group))
                     .ok()
-                    .filter(|progress| progress.processed >= *anchor)
-                    .map(|_| *cursor)
+                    .filter(|progress| progress.processed >= anchor)
+                    .map(|_| cursor)
             })
             .collect();
         for cursor in due {
-            self.welcome_prefixes.remove(&cursor);
+            self.dependency_registry
+                .detach(&DependencyParent::Welcome(cursor));
+            if !self.parent_is_pending(&DependencyParent::Welcome(cursor)) {
+                continue;
+            }
             match WelcomeService::new(self.context.clone()).retry_pending_welcome(cursor, None) {
                 Ok(outcome) => progress |= self.welcome_outcome(outcome),
                 Err(error) => self.topic_error(self.welcome_topic(), error.into()),
             }
         }
-        // Requests that exceeded the dependency limit remain queued, not active.
-        let queued: Vec<_> = self
-            .waiting_identity
-            .values()
-            .chain(self.welcome_identity.values())
-            .cloned()
-            .collect();
-        for requirement in queued {
-            self.queue_identity(requirement);
-        }
+        self.start_dependencies();
         progress
     }
 
@@ -188,24 +191,29 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     accepted = result.is_ok(),
                     "Welcome completed"
                 );
-                self.welcome_identity.remove(&cursor);
-                self.welcome_prefixes.remove(&cursor);
-                self.topic_errors.remove(&self.welcome_topic());
+                self.dependency_registry
+                    .detach(&DependencyParent::Welcome(cursor));
+                self.topics.entry(self.welcome_topic()).or_default().error = None;
                 true
             }
             WelcomeHeadOutcome::Need {
                 cursor,
                 requirement: WelcomeRequirement::Identity(requirement),
             } => {
-                self.welcome_identity.insert(cursor, requirement.clone());
-                self.queue_identity(requirement);
+                self.dependency_registry.attach(
+                    DependencyParent::Welcome(cursor),
+                    DependencyKey::Identity(requirement),
+                );
                 false
             }
             WelcomeHeadOutcome::Need {
                 cursor,
                 requirement: WelcomeRequirement::GroupPrefix { group_id, anchor },
             } => {
-                self.welcome_prefixes.insert(cursor, (group_id, anchor));
+                self.dependency_registry.attach(
+                    DependencyParent::Welcome(cursor),
+                    DependencyKey::GroupPrefix(group_id, anchor),
+                );
                 self.extra_topics.insert(Topic::new_group_message(group_id));
                 false
             }
@@ -213,20 +221,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 cursor,
                 requirement: WelcomeRequirement::Pointee,
             } => {
-                let key = DependencyKey::Welcome(cursor);
-                if self.dependencies.len() < self.context.stream_settings().max_dependency_requests
-                    && self.dependency_keys.insert(key)
-                {
-                    let context = self.context.clone();
-                    self.dependencies.push(Box::pin(async move {
-                        DependencyResult::Welcome(
-                            cursor,
-                            WelcomeService::new(context)
-                                .resolve_pending_welcome(cursor)
-                                .await,
-                        )
-                    }));
-                }
+                self.dependency_registry.attach(
+                    DependencyParent::Welcome(cursor),
+                    DependencyKey::Welcome(cursor),
+                );
                 false
             }
             WelcomeHeadOutcome::Waiting {
@@ -234,6 +232,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 code,
                 blocked,
             } => {
+                self.dependency_registry
+                    .detach(&DependencyParent::Welcome(cursor));
                 tracing::trace!(
                     sequence_id = cursor.0,
                     code,
@@ -242,22 +242,41 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 );
                 false
             }
-            WelcomeHeadOutcome::Idle { .. } => false,
+            WelcomeHeadOutcome::Idle { cursor } => {
+                self.dependency_registry
+                    .detach(&DependencyParent::Welcome(cursor));
+                false
+            }
         }
     }
 
-    fn queue_identity(&mut self, requirement: IdentityRequirement) {
-        let key = DependencyKey::Identity(requirement.clone());
-        if self.dependencies.len() >= self.context.stream_settings().max_dependency_requests
-            || !self.dependency_keys.insert(key)
-        {
-            return;
+    pub(super) fn start_dependencies(&mut self) {
+        let available = self
+            .context
+            .incoming_runtime()
+            .policy()
+            .max_dependency_requests
+            .saturating_sub(self.dependencies.len());
+        for key in self.dependency_registry.start_queued(available) {
+            let context = self.context.clone();
+            self.dependencies.push(Box::pin(async move {
+                match key {
+                    DependencyKey::Identity(requirement) => {
+                        let result = resolve_identity_requirement(&context, &requirement).await;
+                        DependencyResult::Identity(requirement, result)
+                    }
+                    DependencyKey::Welcome(cursor) => DependencyResult::Welcome(
+                        cursor,
+                        WelcomeService::new(context)
+                            .resolve_pending_welcome(cursor)
+                            .await,
+                    ),
+                    DependencyKey::GroupPrefix(..) => {
+                        unreachable!("prefix watches do not start requests")
+                    }
+                }
+            }));
         }
-        let context = self.context.clone();
-        self.dependencies.push(Box::pin(async move {
-            let result = resolve_identity_requirement(&context, &requirement).await;
-            DependencyResult::Identity(requirement, result)
-        }));
     }
 
     fn prepare_identity_head(&mut self, topic: &Topic) -> Result<(), IncomingError> {
@@ -289,58 +308,60 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             inbox_id: entry.update.inbox_id,
             sequence_id: pending.sequence_id as u64,
         };
-        self.identity_heads
-            .insert(requirement.clone(), topic.clone());
-        self.queue_identity(requirement);
+        self.dependency_registry.attach(
+            DependencyParent::IdentityHead(topic.clone(), Cursor(pending.sequence_id as u64)),
+            DependencyKey::Identity(requirement),
+        );
         Ok(())
     }
 
     pub(super) fn dependency_finished(&mut self, result: DependencyResult<C>) {
         match result {
             DependencyResult::Welcome(cursor, result) => {
-                self.dependency_keys.remove(&DependencyKey::Welcome(cursor));
+                let parents = self
+                    .dependency_registry
+                    .finish(&DependencyKey::Welcome(cursor));
+                if !parents.contains(&DependencyParent::Welcome(cursor)) {
+                    return;
+                }
                 match result {
                     Ok(outcome) => {
-                        self.welcome_outcome(outcome);
+                        // Resolution can complete its own parent in the transaction.
+                        if matches!(outcome, WelcomeHeadOutcome::Progress { .. })
+                            || self.parent_is_pending(&DependencyParent::Welcome(cursor))
+                        {
+                            self.welcome_outcome(outcome);
+                        }
                     }
-                    Err(error) => self.topic_error(self.welcome_topic(), error.into()),
+                    Err(error) if self.parent_is_pending(&DependencyParent::Welcome(cursor)) => {
+                        self.topic_error(self.welcome_topic(), error.into());
+                    }
+                    Err(_) => {}
                 }
             }
             DependencyResult::Identity(requirement, result) => {
-                self.dependency_keys
-                    .remove(&DependencyKey::Identity(requirement.clone()));
-                let groups: Vec<_> = self
-                    .waiting_identity
-                    .iter()
-                    .filter_map(|(topic, waiting)| {
-                        (waiting == &requirement).then_some(topic.clone())
-                    })
-                    .collect();
-                let welcomes: Vec<_> = self
-                    .welcome_identity
-                    .iter()
-                    .filter_map(|(cursor, waiting)| (waiting == &requirement).then_some(*cursor))
-                    .collect();
-                for topic in &groups {
-                    self.waiting_identity.remove(topic);
-                }
-                for cursor in &welcomes {
-                    self.welcome_identity.remove(cursor);
-                }
-                match result {
-                    Ok(()) => {
-                        if let Some(topic) = self.identity_heads.remove(&requirement)
-                            && let Ok(key) = topic_key(&topic)
-                            && let Err(error) = self
-                                .context
-                                .db()
-                                .complete_pending_envelope(&key, Cursor(requirement.sequence_id))
-                        {
-                            self.topic_error(topic, error.into());
+                let parents = self
+                    .dependency_registry
+                    .finish(&DependencyKey::Identity(requirement.clone()));
+                let missing = matches!(result, Err(IdentityDependencyError::MissingReference(_)));
+                let error = result
+                    .err()
+                    .map(|error| Arc::new(IncomingError::Identity(error)));
+                for parent in parents {
+                    if !self.parent_is_pending(&parent) {
+                        continue;
+                    }
+                    match parent {
+                        DependencyParent::GroupHead(topic, cursor) if missing => {
+                            self.topics
+                                .entry(topic)
+                                .or_default()
+                                .processing
+                                .missing_reference = Some((cursor, requirement.clone()));
                         }
-                        for cursor in welcomes {
+                        DependencyParent::Welcome(cursor) if error.is_none() || missing => {
                             match WelcomeService::new(self.context.clone())
-                                .retry_pending_welcome(cursor, None)
+                                .retry_pending_welcome(cursor, missing.then_some(&requirement))
                             {
                                 Ok(outcome) => {
                                     self.welcome_outcome(outcome);
@@ -348,55 +369,60 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                                 Err(error) => self.topic_error(self.welcome_topic(), error.into()),
                             }
                         }
-                    }
-                    Err(IdentityDependencyError::MissingReference(_)) => {
-                        for topic in groups {
-                            self.missing_references.insert(topic, requirement.clone());
-                        }
-                        for cursor in welcomes {
-                            match WelcomeService::new(self.context.clone())
-                                .retry_pending_welcome(cursor, Some(&requirement))
+                        DependencyParent::IdentityHead(topic, cursor) if error.is_none() => {
+                            if let Ok(key) = topic_key(&topic)
+                                && let Err(error) =
+                                    self.context.db().complete_pending_envelope(&key, cursor)
                             {
-                                Ok(outcome) => {
-                                    self.welcome_outcome(outcome);
-                                }
-                                Err(error) => self.topic_error(self.welcome_topic(), error.into()),
+                                self.topic_error(topic, error.into());
                             }
                         }
-                        if let Some(topic) = self.identity_heads.remove(&requirement) {
-                            self.defer_head(&topic, "identity_invalid", true);
-                            self.topic_errors.insert(
-                                topic,
-                                Arc::new(IncomingError::Identity(
-                                    IdentityDependencyError::MissingReference(requirement),
-                                )),
-                            );
-                        }
-                    }
-                    Err(error) => {
-                        let blocked = !error.is_retryable();
-                        let error = Arc::new(IncomingError::Identity(error));
-                        for topic in groups {
-                            self.defer_head(&topic, "identity_dependency", blocked);
-                            self.topic_errors.insert(topic, error.clone());
-                        }
-                        for cursor in welcomes {
-                            self.defer_cursor(
-                                &self.welcome_topic(),
-                                cursor,
-                                "identity_dependency",
-                                blocked,
-                            );
-                            self.topic_errors
-                                .insert(self.welcome_topic(), error.clone());
-                        }
-                        if let Some(topic) = self.identity_heads.remove(&requirement) {
-                            self.defer_head(&topic, "identity_invalid", blocked);
-                            self.topic_errors.insert(topic, error);
+                        parent => {
+                            if let Some(error) = &error {
+                                let (topic, cursor, code) = match parent {
+                                    DependencyParent::GroupHead(topic, cursor) => {
+                                        (topic, cursor, "identity_dependency")
+                                    }
+                                    DependencyParent::IdentityHead(topic, cursor) => {
+                                        (topic, cursor, "identity_invalid")
+                                    }
+                                    DependencyParent::Welcome(cursor) => {
+                                        (self.welcome_topic(), cursor, "identity_dependency")
+                                    }
+                                };
+                                self.defer_cursor(&topic, cursor, code, !error.is_retryable());
+                                self.topics.entry(topic).or_default().error = Some(error.clone());
+                            }
                         }
                     }
                 }
             }
+        }
+    }
+
+    fn parent_is_pending(&self, parent: &DependencyParent) -> bool {
+        match parent {
+            DependencyParent::GroupHead(topic, cursor)
+            | DependencyParent::IdentityHead(topic, cursor) => topic_key(topic)
+                .ok()
+                .and_then(|key| {
+                    self.context
+                        .db()
+                        .first_pending_envelope(&key)
+                        .ok()
+                        .flatten()
+                })
+                .is_some_and(|head| head.sequence_id as u64 == cursor.0),
+            DependencyParent::Welcome(cursor) => topic_key(&self.welcome_topic())
+                .ok()
+                .and_then(|key| {
+                    self.context
+                        .db()
+                        .pending_envelope(&key, *cursor)
+                        .ok()
+                        .flatten()
+                })
+                .is_some(),
         }
     }
 
@@ -409,7 +435,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn retry_blocked_head(&mut self, topic: &Topic, cursor: Cursor, blocked: bool) -> bool {
-        let previous = self.retried_blocked_heads.insert(topic.clone(), cursor);
+        let previous = self
+            .topics
+            .entry(topic.clone())
+            .or_default()
+            .processing
+            .retried_head
+            .replace(cursor);
         blocked && previous != Some(cursor)
     }
 
@@ -417,7 +449,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if let Ok(key) = topic_key(topic) {
             let retry_at_ns = xmtp_common::time::now_ns().saturating_add(
                 self.context
-                    .stream_settings()
+                    .incoming_runtime()
+                    .policy()
                     .receiver_fallback_interval
                     .as_nanos() as i64,
             );

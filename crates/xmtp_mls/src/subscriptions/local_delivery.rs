@@ -4,7 +4,8 @@ mod acknowledgement;
 mod types;
 
 pub use acknowledgement::DeliveryAcknowledgement;
-pub use types::{LocalDeliveryConfig, LocalDeliveryError, LocalDeliveryFilter};
+pub(crate) use types::LocalDeliveryConfig;
+pub use types::{LocalDeliveryError, LocalDeliveryFilter};
 pub use xmtp_db::delivery::{DeliveryCursor, DeliveryScope, DeliverySnapshot};
 
 use acknowledgement::{AcknowledgementState, DeliverySession, PendingAcknowledgement};
@@ -112,7 +113,7 @@ where
     Context: XmtpSharedContext + 'static,
 {
     /// Open a default owner, or independent replay when `from` is supplied.
-    pub fn new(
+    pub(crate) fn new(
         context: Context,
         scope: DeliveryScope,
         filter: LocalDeliveryFilter,
@@ -414,7 +415,7 @@ where
         filter: &LocalDeliveryFilter,
         limit: u32,
     ) -> Result<DeliverySnapshot> {
-        let settings = context.stream_settings();
+        let settings = context.incoming_runtime().policy();
         Ok(context.db().delivery_history_snapshot_filtered(
             scope,
             filter,

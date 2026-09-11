@@ -7,7 +7,6 @@ mod tests;
 use super::message_reader::MessageReaderControl;
 use super::{
     Result,
-    incoming::IncomingCoordinator,
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
@@ -49,7 +48,6 @@ impl StreamAllMessages {
     where
         C::ApiClient: XmtpMlsStreams,
     {
-        let _coordinator = IncomingCoordinator::enable_stream_transport(&context);
         let reader = MessageReader::new(
             context,
             DeliveryScope::All,

@@ -27,11 +27,11 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | Area | Test entries | Distinct requirement IDs |
 | --- | ---: | ---: |
 | [`xmtp_mls` group integration tests](existing-tests/xmtp-mls-groups.md) | 280 | 192 |
-| [`xmtp_mls` group implementation and messages](existing-tests/xmtp-mls-inline-groups.md) | 230 | 73 |
-| [`xmtp_mls` client, identity, subscriptions, and workers](existing-tests/xmtp-mls-client-workers.md) | 220 | 129 |
+| [`xmtp_mls` group implementation and messages](existing-tests/xmtp-mls-inline-groups.md) | 231 | 74 |
+| [`xmtp_mls` client, identity, subscriptions, and workers](existing-tests/xmtp-mls-client-workers.md) | 225 | 134 |
 | [`xmtp_mls_common`](existing-tests/xmtp-mls-common.md) | 271 | 29 |
 | [Database, identity, cryptography, and archive crates](existing-tests/core-crates.md) | 268 | 128 |
-| [Mobile, Node, and WebAssembly bindings](existing-tests/bindings.md) | 379 | 112 |
+| [Mobile, Node, and WebAssembly bindings](existing-tests/bindings.md) | 374 | 111 |
 | [API crates](existing-tests/api.md) | 166 | 72 |
 | [Other Rust crates and applications](existing-tests/rust-apps-support.md) | 253 | 69 |
 | [JavaScript Agent SDK](existing-tests/agent-sdk.md) | 117 | 29 |
@@ -40,7 +40,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 402 | 91 |
 | [Android SDK and example](existing-tests/android.md) | 210 | 101 |
 | [iOS SDK](existing-tests/ios.md) | 205 | 117 |
-| **Total** | **3,183** | **1,018 referenced IDs** |
+| **Total** | **3,184** | **1,023 referenced IDs** |
 
 ## Review records
 

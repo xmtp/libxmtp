@@ -164,8 +164,7 @@ async fn test_spoofed_inbox_id() {
         cancellation_token: alix.context.cancellation_token.clone(),
         shutdown_complete: alix.context.shutdown_complete.clone(),
         delivery_owner: alix.context.delivery_owner.clone(),
-        stream_settings: alix.context.stream_settings.clone(),
-        incoming_coordinator: alix.context.incoming_coordinator.clone(),
+        incoming_runtime: alix.context.incoming_runtime.clone(),
         identity_resolutions: alix.context.identity_resolutions.clone(),
     });
     let group = MlsGroup::create_and_insert(

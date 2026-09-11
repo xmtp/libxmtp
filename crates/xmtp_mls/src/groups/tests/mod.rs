@@ -3499,7 +3499,10 @@ async fn process_messages_abort_on_retryable_error() {
             after: before.received,
             envelopes,
         },
-        bo.context.stream_settings().incoming_limits(topic.kind),
+        bo.context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(topic.kind),
     )?;
     let db = bo.context.store().db();
     let received = db.topic_progress(&topic)?.received;
@@ -3562,7 +3565,11 @@ async fn skip_already_processed_messages() {
     bo_group.receive().await?;
     let topic = StreamTopic::group(bo_group.group_id);
     let wire_topic = Topic::new_group_message(bo_group.group_id);
-    let limits = bo.context.stream_settings().incoming_limits(topic.kind);
+    let limits = bo
+        .context
+        .incoming_runtime()
+        .policy()
+        .incoming_limits(topic.kind);
     let initial_count = bo_group.find_messages(&MsgQueryArgs::default())?.len();
     for expected_count in 1..=2 {
         alix_group

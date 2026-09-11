@@ -15,7 +15,6 @@ xmtp_common::if_wasm! {
     pub mod inbox_state;
     pub mod messages;
     pub mod message_delivery;
-    pub mod stream_settings;
     pub mod opfs;
     pub mod permissions;
     pub mod signatures;

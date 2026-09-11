@@ -17,11 +17,15 @@ use xmtp_db::{
 };
 use xmtp_proto::types::{Cursor, IncomingEvent, OrderedEnvelopeBatch, TopicKind};
 
+mod dependencies;
 mod processing;
 mod snapshots;
+mod transport;
+use transport::{Transport, TransportEvent, TransportState};
 #[cfg(test)]
 mod tests;
-use processing::{DependencyKey, DependencyResult};
+use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
+use processing::DependencyResult;
 
 struct Scope {
     generation: u64,
@@ -81,40 +85,43 @@ type ReadFuture =
     BoxDynFuture<'static, (Topic, Result<ReceivedPage, crate::mls_store::MlsStoreError>)>;
 type TargetsFuture = BoxDynFuture<'static, (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>)>;
 
+/// Receipt can continue while processing waits for a dependency.
+#[derive(Default)]
+struct TopicSchedule {
+    receipt: ReceiptSchedule,
+    processing: ProcessingSchedule,
+    error: Option<Arc<IncomingError>>,
+}
+
+#[derive(Clone, Copy, Default)]
+struct ReceiptSchedule {
+    paused: bool,
+    blocked: bool,
+    last_read: Option<Instant>,
+}
+
+#[derive(Default)]
+struct ProcessingSchedule {
+    retired: bool,
+    retried_head: Option<Cursor>,
+    missing_reference: Option<(Cursor, IdentityRequirement)>,
+}
+
 pub(super) struct Controller<C: XmtpSharedContext> {
     context: C,
     commands: mpsc::UnboundedReceiver<Command>,
     state: Arc<SharedState>,
     scopes: HashMap<u64, Scope>,
-    factory: Option<Arc<dyn SubscriptionFactory>>,
-    subscription: Option<IncomingSubscription<NetworkError>>,
-    opening: Option<OpenFuture>,
+    transport: Transport,
     read: Option<ReadFuture>,
     targets: Option<TargetsFuture>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
-    dependency_keys: HashSet<DependencyKey>,
-    missing_references: HashMap<Topic, IdentityRequirement>,
-    waiting_identity: HashMap<Topic, IdentityRequirement>,
-    welcome_identity: HashMap<Cursor, IdentityRequirement>,
-    identity_heads: HashMap<IdentityRequirement, Topic>,
-    welcome_prefixes: HashMap<Cursor, (xmtp_proto::types::GroupId, Cursor)>,
+    dependency_registry: DependencyRegistry,
     welcome_blocked_scan: Option<Cursor>,
     extra_topics: HashSet<Topic>,
-    subscribed: HashSet<Topic>,
-    active: HashSet<Topic>,
-    paused: HashSet<Topic>,
-    receive_blocked: HashSet<Topic>,
-    retried_blocked_heads: HashMap<Topic, Cursor>,
-    retired: HashSet<Topic>,
-    topic_errors: HashMap<Topic, Arc<IncomingError>>,
-    last_read: HashMap<Topic, Instant>,
-    connection: IncomingConnection,
-    connection_generation: u64,
-    error: Option<Arc<IncomingError>>,
+    topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
-    open_at: Instant,
-    source_failed: bool,
     callbacks: HashMap<
         xmtp_proto::types::GroupId,
         mpsc::Sender<crate::groups::change_callbacks::AppDataChange>,
@@ -127,40 +134,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         commands: mpsc::UnboundedReceiver<Command>,
         state: Arc<SharedState>,
     ) -> Self {
+        let factory = context.incoming_runtime().factory.clone();
         Self {
             context,
             commands,
             state,
             scopes: HashMap::new(),
-            factory: None,
-            subscription: None,
-            opening: None,
+            transport: Transport::new(factory),
             read: None,
             targets: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
-            dependency_keys: HashSet::new(),
-            missing_references: HashMap::new(),
-            waiting_identity: HashMap::new(),
-            welcome_identity: HashMap::new(),
-            identity_heads: HashMap::new(),
-            welcome_prefixes: HashMap::new(),
+            dependency_registry: DependencyRegistry::default(),
             welcome_blocked_scan: Some(Cursor(0)),
             extra_topics: HashSet::new(),
-            subscribed: HashSet::new(),
-            active: HashSet::new(),
-            paused: HashSet::new(),
-            receive_blocked: HashSet::new(),
-            retried_blocked_heads: HashMap::new(),
-            retired: HashSet::new(),
-            topic_errors: HashMap::new(),
-            last_read: HashMap::new(),
-            connection: IncomingConnection::Connecting,
-            connection_generation: 0,
-            error: None,
+            topics: HashMap::new(),
             storage_error: None,
-            open_at: Instant::now(),
-            source_failed: false,
             callbacks: HashMap::new(),
         }
     }
@@ -180,7 +169,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let interval = if progress {
                 Duration::ZERO
             } else {
-                self.context.stream_settings().active_database_poll_interval
+                self.context
+                    .incoming_runtime()
+                    .policy()
+                    .active_database_poll_interval
             };
             tokio::select! {
                 _ = cancellation.cancelled() => break,
@@ -188,12 +180,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Some(command) => self.command(command),
                     None => break,
                 },
-                result = async { self.opening.as_mut().expect("open exists").await }, if self.opening.is_some() => {
-                    self.opening = None;
-                    self.opened(result);
-                },
-                event = async { self.subscription.as_mut().expect("subscription exists").events.next().await }, if self.subscription.is_some() => {
-                    self.incoming(event);
+                event = self.transport.next() => match event {
+                    TransportEvent::Opened(result) => self.opened(result),
+                    TransportEvent::Incoming(event) => self.incoming(event),
                 },
                 result = async { self.read.as_mut().expect("read exists").await }, if self.read.is_some() => {
                     self.read = None;
@@ -221,7 +210,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
         // Acquisition clones the coordinator under this same registry lock.
         // A caller between lookup and acquire must keep this controller alive.
-        let mut registered = self.context.incoming_coordinator().lock();
+        let mut registered = self.context.incoming_runtime().coordinator.lock();
         match registered.as_ref() {
             Some(coordinator) if Arc::ptr_eq(&coordinator.state, &self.state) => {
                 if Arc::strong_count(coordinator) != 1 {
@@ -252,24 +241,21 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             Command::Release(id) => {
                 self.scopes.remove(&id);
             }
-            Command::SetFactory(factory) => {
-                self.factory = Some(factory);
-                self.subscription = None;
-                self.opening = None;
-                self.subscribed.clear();
-                self.active.clear();
-                self.source_failed = false;
-                self.open_at = Instant::now();
-            }
             Command::Wake => {
-                self.last_read.clear();
-                self.open_at = Instant::now();
+                self.clear_read_times();
+                self.transport.wake();
             }
         }
     }
 
     fn reconcile(&mut self) -> Result<(), IncomingError> {
-        for topic in self.retired.iter().cloned().collect::<Vec<_>>() {
+        let retired: Vec<_> = self
+            .topics
+            .iter()
+            .filter(|(_, state)| state.processing.retired)
+            .map(|(topic, _)| topic.clone())
+            .collect();
+        for topic in retired {
             let group_id = topic
                 .identifier()
                 .try_into()
@@ -278,11 +264,27 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .group(&group_id)?
                 .is_active()?
             {
-                self.retired.remove(&topic);
-                self.waiting_identity.remove(&topic);
-                self.missing_references.remove(&topic);
-                self.topic_errors.remove(&topic);
-                self.last_read.remove(&topic);
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .processing
+                    .retired = false;
+                self.dependency_registry
+                    .retain_parents(|parent| match parent {
+                        DependencyParent::GroupHead(current, _) => current != &topic,
+                        _ => true,
+                    });
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .processing
+                    .missing_reference = None;
+                self.topics.entry(topic.clone()).or_default().error = None;
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .receipt
+                    .last_read = None;
             }
         }
         let discoveries = if self
@@ -331,7 +333,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                             Err(error) => return Err(error.into()),
                         };
                         if !group.is_active()? {
-                            self.retired.insert(topic);
+                            self.topics.entry(topic).or_default().processing.retired = true;
                         }
                     }
                 }
@@ -360,29 +362,32 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .retain(|topic, _| scope.topics.contains(topic));
         }
         self.extra_topics = self
-            .welcome_prefixes
-            .values()
-            .map(|(group, _)| Topic::new_group_message(*group))
+            .dependency_registry
+            .prefixes()
+            .map(|(_, group, _)| Topic::new_group_message(group))
             .collect();
         if self.scopes.values().any(|scope| {
             matches!(scope.scope, ScopeKind::Groups(_))
-                && scope
-                    .topics
-                    .iter()
-                    .any(|topic| self.retired.contains(topic))
+                && scope.topics.iter().any(|topic| self.is_retired(topic))
         }) {
             // This is a processing dependency, not a new fixed target or delivery scope.
             self.extra_topics
                 .insert(Topic::new_welcome_message(self.context.installation_id()));
         }
         let interested = self.interested();
-        self.waiting_identity
-            .retain(|topic, _| interested.contains(topic));
-        self.missing_references
-            .retain(|topic, _| interested.contains(topic));
-        self.topic_errors
-            .retain(|topic, _| interested.contains(topic));
-        self.last_read.retain(|topic, _| interested.contains(topic));
+        self.dependency_registry
+            .retain_parents(|parent| match parent {
+                DependencyParent::GroupHead(topic, _)
+                | DependencyParent::IdentityHead(topic, _) => interested.contains(topic),
+                DependencyParent::Welcome(_) => true,
+            });
+        for (topic, state) in &mut self.topics {
+            if !interested.contains(topic) {
+                state.processing.missing_reference = None;
+                state.error = None;
+                state.receipt.last_read = None;
+            }
+        }
         self.callbacks
             .retain(|group, _| interested.contains(&Topic::new_group_message(*group)));
         self.read_queue.retain(|topic| interested.contains(topic));
@@ -400,27 +405,34 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             NetworkEntityKind::Identity,
         ] {
             let usage = self.context.db().pending_topic_usage(kind)?;
-            let limits = self.context.stream_settings().incoming_limits(kind);
+            let limits = self
+                .context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(kind);
             let kind_rows: u64 = usage.iter().map(|usage| usage.rows.max(0) as u64).sum();
             let kind_bytes: u64 = usage.iter().map(|usage| usage.bytes.max(0) as u64).sum();
-            self.paused.retain(|topic| {
+            for (topic, state) in &mut self.topics {
+                if !state.receipt.paused {
+                    continue;
+                }
                 let Ok(stream_topic) = topic_key(topic) else {
-                    return true;
+                    continue;
                 };
                 if stream_topic.kind != kind {
-                    return true;
+                    continue;
                 }
                 let own = usage
                     .iter()
                     .find(|usage| usage.entity_id == stream_topic.entity_id);
                 // Leave room for the next bounded batch before reception resumes.
-                kind_rows > limits.kind.rows / 2
+                state.receipt.paused = kind_rows > limits.kind.rows / 2
                     || kind_bytes > limits.kind.bytes / 2
                     || own.is_some_and(|usage| {
                         usage.rows.max(0) as u64 > limits.topic.rows / 2
                             || usage.bytes.max(0) as u64 > limits.topic.bytes / 2
-                    })
-            });
+                    });
+            }
         }
         Ok(())
     }
@@ -430,13 +442,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .values()
             .flat_map(|scope| scope.topics.iter())
             .chain(self.extra_topics.iter())
-            .filter(|topic| !self.retired.contains(*topic) && topic_key(topic).is_ok())
+            .filter(|topic| !self.is_retired(topic) && topic_key(topic).is_ok())
             .cloned()
             .collect()
     }
 
     fn fetched_limits(&self) -> IncomingBatchLimits {
-        let settings = self.context.stream_settings();
+        let settings = self.context.incoming_runtime().policy();
         IncomingBatchLimits {
             max_rows: settings.max_fetched_rows as usize,
             max_bytes: settings.max_fetched_bytes.min(usize::MAX as u64) as usize,
@@ -447,39 +459,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let topics: HashSet<_> = self
             .interested()
             .into_iter()
-            .filter(|topic| !self.paused.contains(topic) && !self.receive_blocked.contains(topic))
+            .filter(|topic| !self.receipt(topic).paused && !self.receipt(topic).blocked)
             .collect();
-        if topics != self.subscribed {
-            self.subscription = None;
-            self.opening = None;
-            self.active.clear();
-            self.subscribed = topics.clone();
-            // A changed topic set must not bypass a failed receiver's retry delay.
-        }
-        if topics.is_empty()
-            || self.source_failed
-            || self.opening.is_some()
-            || self.subscription.is_some()
-            || (self.factory.is_none() && self.active == topics)
-            || Instant::now() < self.open_at
-        {
+        self.transport.request(topics);
+        if !self.transport.can_open() {
             return;
         }
+        let topics = self.transport.requested.clone();
         let topics: Vec<_> = topics.into_iter().collect();
         let cursors = match MlsStore::new(self.context.clone()).received_cursors(&topics) {
             Ok(cursors) => cursors,
             Err(error) => {
-                self.error = Some(Arc::new(error.into()));
+                self.transport.error = Some(Arc::new(error.into()));
                 return;
             }
         };
-        self.connection_generation += 1;
-        self.connection = if self.connection_generation == 1 {
-            IncomingConnection::Connecting
-        } else {
-            IncomingConnection::Reconnecting
-        };
-        self.opening = Some(if let Some(factory) = &self.factory {
+        let future: OpenFuture = if let Some(factory) = &self.transport.factory {
             let future = factory.open(cursors, self.fetched_limits());
             Box::pin(async move { future.await.map(Opened::Stream) })
         } else {
@@ -492,27 +487,27 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .map(Opened::Unary)
                     .map_err(NetworkError::new)
             })
-        });
+        };
+        self.transport.start(future);
     }
 
     fn opened(&mut self, result: Result<Opened, NetworkError>) {
         match result {
             Ok(Opened::Stream(subscription)) => {
-                self.subscription = Some(subscription);
-                self.connection = IncomingConnection::Connected;
-                self.error = None;
+                self.transport.state = TransportState::Streaming(subscription);
+                self.transport.error = None;
             }
             Ok(Opened::Unary(targets)) => {
                 self.registered(targets);
-                self.connection = IncomingConnection::Connected;
-                self.error = None;
+                self.transport.state = TransportState::Unary;
+                self.transport.error = None;
             }
             Err(error) => self.source_error(error),
         }
     }
 
     fn registered(&mut self, targets: TopicCursor) {
-        self.active.extend(targets.keys().cloned());
+        self.transport.registered.extend(targets.keys().cloned());
         for scope in self.scopes.values_mut() {
             for (topic, target) in &targets {
                 if scope.topics.contains(topic) {
@@ -526,9 +521,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     // without replacing the connection or reusing an older scope's target.
     fn start_targets(&mut self) {
         if self.targets.is_some()
-            || self.source_failed
+            || self.transport.is_failed()
             || self.live_suspended()
-            || Instant::now() < self.open_at
+            || self.transport.backing_off()
         {
             return;
         }
@@ -538,7 +533,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let missing: Vec<_> = scope
                 .topics
                 .iter()
-                .filter(|topic| self.active.contains(*topic) && !scope.targets.contains_key(*topic))
+                .filter(|topic| {
+                    self.transport.registered.contains(*topic)
+                        && !scope.targets.contains_key(*topic)
+                })
                 .cloned()
                 .collect();
             if !missing.is_empty() {
@@ -591,19 +589,20 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 let topic = batch.topic.clone();
                 match self.admit_received_batch(batch) {
                     Ok(()) => {
-                        self.topic_errors.remove(&topic);
+                        self.topics.entry(topic.clone()).or_default().error = None;
                     }
                     Err(error) => self.receive_error(topic, error),
                 }
             }
             Some(Err(error)) => self.source_error(error),
             None | Some(Ok(IncomingEvent::Disconnected)) => {
-                self.subscription = None;
-                self.active.clear();
-                self.connection = IncomingConnection::Reconnecting;
-                self.open_at =
-                    Instant::now() + self.context.stream_settings().receiver_fallback_interval;
-                self.last_read.clear();
+                self.transport.disconnect(
+                    self.context
+                        .incoming_runtime()
+                        .policy()
+                        .receiver_fallback_interval,
+                );
+                self.clear_read_times();
             }
         }
     }
@@ -611,7 +610,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     /// Commit bounded prefixes. Uncommitted suffixes replay from durable receipt.
     fn admit_received_batch(&mut self, batch: OrderedEnvelopeBatch) -> Result<(), IncomingError> {
         let key = topic_key(&batch.topic)?;
-        let limits = self.context.stream_settings().incoming_limits(key.kind);
+        let limits = self
+            .context
+            .incoming_runtime()
+            .policy()
+            .incoming_limits(key.kind);
         let max_rows = limits
             .batch
             .rows
@@ -677,7 +680,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     ))
                 })?;
             let admitted = store.admit_incoming_batch(&chunk, limits)?;
-            if let Some(subscription) = &self.subscription {
+            if let Some(subscription) = self.transport.subscription() {
                 subscription
                     .acknowledge_received([(batch.topic.clone(), admitted.received)].into());
             }
@@ -686,21 +689,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn source_error(&mut self, error: NetworkError) {
-        self.source_failed = !error.is_retryable();
-        self.connection = if self.source_failed {
-            IncomingConnection::Failed
-        } else {
-            IncomingConnection::Reconnecting
-        };
-        self.error = Some(Arc::new(error.into()));
-        self.subscription = None;
-        self.active.clear();
-        self.open_at = Instant::now() + self.context.stream_settings().receiver_fallback_interval;
-        self.last_read.clear();
+        self.transport.fail(
+            error,
+            self.context
+                .incoming_runtime()
+                .policy()
+                .receiver_fallback_interval,
+        );
+        self.clear_read_times();
     }
 
     fn start_read(&mut self) {
-        if self.read.is_some() || self.source_failed {
+        if self.read.is_some() || self.transport.is_failed() {
             return;
         }
         let now = Instant::now();
@@ -709,9 +709,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 break;
             };
             self.read_queue.push_back(topic.clone());
-            if self.paused.contains(&topic)
-                || self.receive_blocked.contains(&topic)
-                || self.retired.contains(&topic)
+            if self.receipt(&topic).paused
+                || self.receipt(&topic).blocked
+                || self.is_retired(&topic)
             {
                 continue;
             }
@@ -730,9 +730,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     continue;
                 }
             }
-            self.last_read.insert(topic.clone(), now);
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .last_read = Some(now);
             let context = self.context.clone();
-            let limits = context.stream_settings().incoming_limits(key.kind);
+            let limits = context
+                .incoming_runtime()
+                .policy()
+                .incoming_limits(key.kind);
             self.read = Some(Box::pin(async move {
                 let result = MlsStore::new(context)
                     .receive_topics_once(std::slice::from_ref(&topic), limits)
@@ -750,11 +757,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         key: &StreamTopic,
         now: Instant,
     ) -> Result<bool, IncomingError> {
-        let settings = self.context.stream_settings();
-        let last = self.last_read.get(topic);
-        let covered = self.subscription.is_some()
-            && self.connection == IncomingConnection::Connected
-            && self.active.contains(topic);
+        let settings = self.context.incoming_runtime().policy();
+        let last = self.receipt(topic).last_read;
+        let covered =
+            self.transport.subscription().is_some() && self.transport.registered.contains(topic);
         let mut barrier = false;
         let mut unfinished = false;
         let mut ready = false;
@@ -801,14 +807,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 || now >= wait_until
             {
                 ready = true;
-                first_read |= last.is_none_or(|last| *last < scope.receipt_wait_started);
+                first_read |= last.is_none_or(|last| last < scope.receipt_wait_started);
             }
         }
         if unfinished {
             return Ok(ready
                 && (first_read
                     || last.is_none_or(|last| {
-                        now.duration_since(*last) >= settings.active_database_poll_interval
+                        now.duration_since(last) >= settings.active_database_poll_interval
                     })));
         }
         // Completed barriers need processing only. Other scopes can still receive new traffic.
@@ -823,25 +829,21 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if covered || suspended {
             return Ok(false);
         }
-        Ok(
-            last.is_none_or(|last| {
-                now.duration_since(*last) >= settings.receiver_fallback_interval
-            }),
-        )
+        Ok(last.is_none_or(|last| now.duration_since(last) >= settings.receiver_fallback_interval))
     }
 
     /// A Welcome barrier also owns the group prefix required by its pending parents.
     fn barrier_receipt_target(&self, topic: &Topic, targets: &TopicCursor) -> Option<Cursor> {
         let welcome = Topic::new_welcome_message(self.context.installation_id());
         let prefix = targets.get(&welcome).and_then(|target| {
-            self.welcome_prefixes
-                .iter()
-                .filter(|(parent, (group, _))| {
-                    **parent <= *target
+            self.dependency_registry
+                .prefixes()
+                .filter(|(parent, group, _)| {
+                    *parent <= *target
                         && topic.kind() == TopicKind::GroupMessagesV1
                         && topic.identifier() == group.as_slice()
                 })
-                .map(|(_, (_, anchor))| *anchor)
+                .map(|(_, _, anchor)| anchor)
                 .max()
         });
         targets.get(topic).copied().into_iter().chain(prefix).max()
@@ -849,7 +851,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     /// Bounded sync remains explicit network work; suspended live scopes do not poll.
     fn live_suspended(&self) -> bool {
-        self.factory
+        self.transport
+            .factory
             .as_ref()
             .is_some_and(|factory| factory.is_suspended())
     }
@@ -861,9 +864,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         match result {
             Ok(page) => {
                 if page.has_more {
-                    self.last_read.remove(&topic);
+                    self.topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .receipt
+                        .last_read = None;
                 }
-                if let Some(subscription) = &self.subscription {
+                if let Some(subscription) = self.transport.subscription() {
                     subscription.acknowledge_received(
                         page.admissions
                             .into_iter()
@@ -871,7 +878,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                             .collect(),
                     );
                 }
-                self.topic_errors.remove(&topic);
+                self.topics.entry(topic.clone()).or_default().error = None;
             }
             Err(error) => self.receive_error(topic, error.into()),
         }
@@ -881,28 +888,54 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     fn receive_error(&mut self, topic: Topic, error: IncomingError) {
         // The transport can advance its read cursor before storage commits. Drop
         // that registration even when reconciliation immediately clears a pause.
-        self.subscription = None;
-        self.opening = None;
-        self.active.clear();
-        if !self.source_failed {
-            self.connection = IncomingConnection::Reconnecting;
-        }
+        self.transport.disconnect(
+            self.context
+                .incoming_runtime()
+                .policy()
+                .receiver_fallback_interval,
+        );
         let now = Instant::now();
-        self.open_at = now + self.context.stream_settings().receiver_fallback_interval;
-        self.last_read.insert(topic.clone(), now);
+        self.topics
+            .entry(topic.clone())
+            .or_default()
+            .receipt
+            .last_read = Some(now);
         if capacity(&error) {
-            self.paused.insert(topic.clone());
+            self.topics.entry(topic.clone()).or_default().receipt.paused = true;
         } else if !error.is_retryable() {
-            self.receive_blocked.insert(topic.clone());
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .blocked = true;
         }
         self.topic_error(topic, error);
     }
 
+    fn receipt(&self, topic: &Topic) -> ReceiptSchedule {
+        self.topics
+            .get(topic)
+            .map(|state| state.receipt)
+            .unwrap_or_default()
+    }
+
+    fn is_retired(&self, topic: &Topic) -> bool {
+        self.topics
+            .get(topic)
+            .is_some_and(|state| state.processing.retired)
+    }
+
+    fn clear_read_times(&mut self) {
+        for state in self.topics.values_mut() {
+            state.receipt.last_read = None;
+        }
+    }
+
     fn topic_error(&mut self, topic: Topic, error: IncomingError) {
         if capacity(&error) {
-            self.paused.insert(topic.clone());
+            self.topics.entry(topic.clone()).or_default().receipt.paused = true;
         }
-        self.topic_errors.insert(topic, Arc::new(error));
+        self.topics.entry(topic).or_default().error = Some(Arc::new(error));
     }
 }
 

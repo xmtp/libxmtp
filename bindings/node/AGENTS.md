@@ -42,4 +42,3 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `close` releases the default owner. A dropped or rejected item stays unacknowledged.
 - An explicit `DeliveryCursor` starts replay. Replay does not change default delivery progress.
 - `messageHistorySnapshot` returns history and its cursor from one database snapshot. `beginningDeliveryCursor` starts replay from the first retained item.
-- Optional `streamSettings` on client creation uses core defaults and core validation. Timer fields use milliseconds.

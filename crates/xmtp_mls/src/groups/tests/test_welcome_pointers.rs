@@ -27,7 +27,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 #[xmtp_common::test(unwrap_try = true)]
 
 async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
-    test_welcome_pointer_round_trip(
+    Box::pin(test_welcome_pointer_round_trip(
         || true,
         async |welcomes| {
             let [
@@ -41,7 +41,7 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
             };
             Ok(())
         },
-    )
+    ))
     .await;
 }
 
@@ -50,7 +50,7 @@ async fn test_welcome_pointer_round_trip_with_welcome_pointers() {
 #[xmtp_common::test(unwrap_try = true)]
 
 async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
-    test_welcome_pointer_round_trip(
+    Box::pin(test_welcome_pointer_round_trip(
         || false,
         async |welcomes| {
             let [
@@ -64,7 +64,7 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
             };
             Ok(())
         },
-    )
+    ))
     .await;
 }
 
@@ -86,7 +86,7 @@ async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
         .for_each(|b| *b = true);
     let mut gen_count = random_vec.len();
     let mut assert_count = random_vec.len();
-    test_welcome_pointer_round_trip(
+    Box::pin(test_welcome_pointer_round_trip(
         || {
             gen_count += 1;
             if gen_count >= random_vec.len() {
@@ -124,7 +124,7 @@ async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
                 Ok(())
             }
         },
-    )
+    ))
     .await;
 }
 

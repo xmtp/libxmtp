@@ -341,7 +341,8 @@ mod tests {
                 )],
                 alix2
                     .context
-                    .stream_settings()
+                    .incoming_runtime()
+                    .policy()
                     .incoming_limits(xmtp_db::incoming_envelope::NetworkEntityKind::Group),
             )
             .await?;

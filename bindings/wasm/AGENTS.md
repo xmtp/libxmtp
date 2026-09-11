@@ -41,4 +41,3 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `close` releases the default owner. Do not call `free` while an asynchronous reader method holds a borrow.
 - An explicit `DeliveryCursor` starts replay without changing default delivery progress.
 - `messageHistorySnapshot` returns history and its cursor from one database snapshot. `beginningDeliveryCursor` starts replay from the first retained item.
-- Optional `streamSettings` on client creation uses core defaults and core validation. Timer fields use milliseconds.

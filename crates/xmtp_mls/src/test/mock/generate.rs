@@ -45,8 +45,7 @@ pub fn context() -> NewMockContext {
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         delivery_owner: Default::default(),
-        stream_settings: Default::default(),
-        incoming_coordinator: Default::default(),
+        incoming_runtime: Default::default(),
         identity_resolutions: Default::default(),
     }
 }

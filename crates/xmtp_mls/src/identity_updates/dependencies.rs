@@ -154,7 +154,7 @@ pub(crate) async fn resolve_identity_requirement(
     if resolution.is_none() {
         let permits = context
             .identity_resolution_registry()
-            .permits(context.stream_settings().max_dependency_requests);
+            .permits(context.incoming_runtime().policy().max_dependency_requests);
         let _permit = permits
             .acquire()
             .await
@@ -163,7 +163,7 @@ pub(crate) async fn resolve_identity_requirement(
             resolve_identity_requirement_with_wait(
                 context,
                 requirement,
-                context.stream_settings().identity_reference_wait,
+                context.incoming_runtime().policy().identity_reference_wait,
             )
             .await
             .map_err(Arc::new),
@@ -252,7 +252,7 @@ pub(crate) async fn resolve_identity_requirements(
         let result = resolve_identity_requirement(context, &requirement).await;
         (requirement, result)
     }))
-    .buffer_unordered(context.stream_settings().max_dependency_requests)
+    .buffer_unordered(context.incoming_runtime().policy().max_dependency_requests)
     .collect()
     .await
 }

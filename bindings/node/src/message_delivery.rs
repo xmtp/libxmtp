@@ -10,10 +10,7 @@ use xmtp_mls::{
   MlsContext,
   context::XmtpSharedContext,
   subscriptions::{
-    incoming::{
-      IncomingConnection, IncomingCoordinator, IncomingProcessing, IncomingRegistration,
-      IncomingStatus,
-    },
+    incoming::{IncomingConnection, IncomingProcessing, IncomingRegistration, IncomingStatus},
     local_delivery::{
       DeliveryAcknowledgement, DeliveryCursor as RustDeliveryCursor, DeliveryScope, LocalDelivery,
       LocalDeliveryError, LocalDeliveryFilter, LocalDeliveryItem,
@@ -303,7 +300,6 @@ impl MessageReader {
     filter: LocalDeliveryFilter,
     from: Option<DeliveryCursor>,
   ) -> Result<Self> {
-    let _coordinator = IncomingCoordinator::enable_bidi_transport(&context);
     let reader = RustMessageReader::new(
       context,
       scope,
@@ -422,7 +418,6 @@ pub(crate) fn callback_stream(
     })?;
   // The synchronous export runs on the JavaScript thread, outside Tokio.
   within_runtime_if_available(|| {
-    let _coordinator = IncomingCoordinator::enable_bidi_transport(&context);
     let mut reader =
       RustMessageReader::new(context, scope, selected_filter, None).map_err(ErrorWrapper::from)?;
     let control = reader.control();

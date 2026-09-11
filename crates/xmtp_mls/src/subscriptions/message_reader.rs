@@ -42,7 +42,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
         filter: LocalDeliveryFilter,
         from: Option<DeliveryCursor>,
     ) -> Result<Self, LocalDeliveryError> {
-        let config = LocalDeliveryConfig::from(context.stream_settings());
+        let config = LocalDeliveryConfig::from(context.incoming_runtime().policy());
         let coordinator = IncomingCoordinator::for_context(&context);
         let lease = Arc::new(coordinator.acquire(incoming_scope(&scope)));
         let delivery = LocalDelivery::new(context, scope, filter, from, config)?;

@@ -14,7 +14,6 @@ use xmtp_mls::{
     context::XmtpSharedContext,
     subscriptions::{
         SubscribeError,
-        incoming::IncomingCoordinator,
         local_delivery::{
             DeliveryAcknowledgement, DeliveryCursor, DeliveryScope, LocalDelivery,
             LocalDeliveryError, LocalDeliveryFilter, LocalDeliveryItem,
@@ -196,7 +195,6 @@ impl FfiMessageReader {
         from: Option<FfiDeliveryCursor>,
     ) -> Result<Arc<Self>, FfiError> {
         let from = from.map(TryInto::try_into).transpose()?;
-        let _coordinator = IncomingCoordinator::enable_bidi_transport(&context);
         let reader = MessageReader::new(context, scope, filter, from)?;
         let control = reader.control();
         Ok(Arc::new(Self {
@@ -274,7 +272,6 @@ pub(super) fn stream_messages(
     filter: LocalDeliveryFilter,
     callback: Arc<dyn FfiMessageCallback>,
 ) -> FfiStreamCloser {
-    let _coordinator = IncomingCoordinator::enable_bidi_transport(&context);
     let reader = MessageReader::new(context, scope, filter, None);
     let control = reader.as_ref().ok().map(MessageReader::control);
     let (ready, ready_rx) = oneshot::channel();

@@ -231,7 +231,6 @@ async fn create_client_inner(
   app_version: Option<String>,
   nonce: u64,
   change_callbacks: Option<&UnstableChangeCallbacks>,
-  stream_settings: Option<crate::stream_settings::StreamSettings>,
 ) -> Result<Client> {
   // Install the rustls crypto provider explicitly rather than relying solely on the
   // `#[ctor::ctor(unsafe)]` in `xmtp_cryptography`, whose constructor link section does not run on
@@ -244,7 +243,7 @@ async fn create_client_inner(
   let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
-    .api_client(api_client)
+    .api_client_with_streams(api_client)
     .with_remote_verifier()
     .map_err(ErrorWrapper::from)?
     .with_allow_offline(allow_offline)
@@ -256,10 +255,6 @@ async fn create_client_inner(
 
   if let Some(worker_config) = worker_config {
     builder = builder.worker_config(worker_config.into());
-  }
-
-  if let Some(settings) = stream_settings {
-    builder = builder.stream_settings(settings.try_into()?);
   }
 
   if let Some(change_callbacks) = change_callbacks {
@@ -305,7 +300,6 @@ pub async fn create_client(
   auth_handle: Option<&AuthHandle>,
   client_mode: Option<ClientMode>,
   change_callbacks: Option<&UnstableChangeCallbacks>,
-  stream_settings: Option<crate::stream_settings::StreamSettings>,
 ) -> Result<Client> {
   let client_mode = client_mode.unwrap_or_default();
   init_logging(log_options.unwrap_or_default())?;
@@ -337,7 +331,6 @@ pub async fn create_client(
     app_version,
     nonce,
     change_callbacks,
-    stream_settings,
   )
   .await
 }
@@ -360,7 +353,6 @@ pub async fn create_client_with_backend(
   allow_offline: Option<bool>,
   nonce: Option<BigInt>,
   change_callbacks: Option<&UnstableChangeCallbacks>,
-  stream_settings: Option<crate::stream_settings::StreamSettings>,
 ) -> Result<Client> {
   init_logging(log_options.unwrap_or_default())?;
 
@@ -380,7 +372,6 @@ pub async fn create_client_with_backend(
     Some(backend.app_version()),
     nonce,
     change_callbacks,
-    stream_settings,
   )
   .await
 }

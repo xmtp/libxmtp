@@ -120,7 +120,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             Err(error) => {
                 let blocked = !error.is_retryable();
                 let code = error.processing_code();
-                let delay = self.context.stream_settings().active_database_poll_interval;
+                let delay = self
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .active_database_poll_interval;
                 let retry_at_ns = now_ns().saturating_add(delay.as_nanos() as i64);
                 self.context.db().set_incoming_retry(
                     &topic,

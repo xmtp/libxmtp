@@ -8,8 +8,6 @@
 | --- | --- | --- | --- |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | XMTP unit; no backend; 0-, 15-, and 17-byte database IDs | `BIND-REQ-102` |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `catch_up_translation_keeps_previous_generation_and_typed_blocked_cause` | XMTP unit; no backend; current and previous status; one blocked topic | `BIND-REQ-103` |
-| `bindings/mobile/src/stream_settings.rs` | `tests::partial_stream_settings_keep_core_defaults` | XMTP unit; no backend; three supplied fields and retained core defaults | `BIND-REQ-101` |
-| `bindings/mobile/src/stream_settings.rs` | `tests::stream_settings_use_core_range_and_relationship_validation` | XMTP unit; no backend; five invalid range or relationship cases | `BIND-REQ-101` |
 | `bindings/mobile/src/stream_failure/tests.rs` | `flat_group_error_keeps_missing_target_and_typed_cursors` | XMTP unit; no backend; absent target, exact topic, and full-width cursors | `BIND-REQ-104` |
 | `bindings/mobile/src/stream_failure/tests.rs` | `flat_client_error_keeps_published_failure_and_zero_target` | XMTP unit; no backend; ClientError wrapper, intent 42, and zero target | `BIND-REQ-105` |
 | `bindings/mobile/src/stream_failure/tests.rs` | `flat_catch_up_error_keeps_all_barriers_and_partial_counts` | XMTP unit; no backend; two barriers and full-width incomplete summary | `BIND-REQ-106` |
@@ -175,9 +173,6 @@
 
 | File | Qualified test name | Form, gates, and cases | Requirements |
 | --- | --- | --- | --- |
-| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > rejects an invalid row limit before unsigned conversion: %s` | Vitest it.each; six numeric boundary cases; unreachable backend | `BIND-REQ-101` |
-| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > rejects an invalid byte budget: %s` | Vitest it.each; negative, zero, and overflowing bigint; unreachable backend | `BIND-REQ-101` |
-| `bindings/node/test/StreamSettings.test.ts` | `stream settings validation > uses core timer relationships` | Vitest it; lease equal to database poll interval; unreachable backend | `BIND-REQ-101` |
 | `bindings/node/test/MessageDelivery.test.ts` | `message reader constructors > awaits the all-groups constructor and reads retained rows with tokens` | Vitest async; generated Node binding and backend; two groups; exact atomic-history messages and cursors; owner checks, acknowledgements, and close | `BIND-REQ-109` |
 | `bindings/node/test/MessageDelivery.test.ts` | `message reader constructors > awaits the single-group constructor and replays only that group` | Vitest async; generated Node binding and backend; two selected messages after snapshot plus an excluded group; ordered replay positions and close | `BIND-REQ-110` |
 | `bindings/node/test/Builder.test.ts` | `BackendBuilder :: should build with custom app version` | Vitest async | `BIND-REQ-002`, `BIND-REQ-006` |

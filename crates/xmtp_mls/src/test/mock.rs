@@ -91,8 +91,7 @@ impl Clone for NewMockContext {
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
             delivery_owner: self.delivery_owner.clone(),
-            stream_settings: self.stream_settings.clone(),
-            incoming_coordinator: self.incoming_coordinator.clone(),
+            incoming_runtime: self.incoming_runtime.clone(),
             identity_resolutions: self.identity_resolutions.clone(),
         }
     }
@@ -190,14 +189,8 @@ impl XmtpSharedContext for NewMockContext {
         &self.delivery_owner
     }
 
-    fn stream_settings(&self) -> &crate::subscriptions::settings::StreamSettings {
-        &self.stream_settings
-    }
-
-    fn incoming_coordinator(
-        &self,
-    ) -> &parking_lot::Mutex<Option<Arc<crate::subscriptions::incoming::IncomingCoordinator>>> {
-        &self.incoming_coordinator
+    fn incoming_runtime(&self) -> &crate::subscriptions::incoming::IncomingRuntime {
+        &self.incoming_runtime
     }
 
     fn identity_resolution_registry(&self) -> &crate::identity_updates::IdentityResolutionRegistry {
