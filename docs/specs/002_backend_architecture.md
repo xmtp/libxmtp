@@ -136,6 +136,33 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 - ARC-092: Preserve existing validation behavior, including group-message trailing bytes and the absence of an added ciphersuite allow-list. Spec 003 records what checks do and do not run.
 - ARC-093: Fold identity history for each publish without an association-state cache. Historical signature conversion can call chain RPC; only the state fold itself is pure CPU work. Keep the separate SCW signature-verdict cache defined in spec 003.
 
+### Optional JWT authentication
+
+Authentication is disabled when the configuration has no auth section. When
+enabled, every request except health requires a bearer JWT. Admission uses the
+request path, regardless of HTTP method or content type. CORS preflight is
+answered before admission. Every authenticated path requires the configured
+scopes, including unknown paths. Missing scopes return PERMISSION_DENIED. Missing or invalid tokens return UNAUTHENTICATED. Accepted
+claims are available in request extensions. Streams are checked only at open.
+
+Configure exactly one signing-key source: inline PEM SubjectPublicKeyInfo keys
+or a JWKS URL. Only RS256, RS384, RS512, ES256, ES384, and EdDSA are supported.
+Inline keys must match their declared algorithm. Each key has separate claim
+validation. Tokens require exp. Configured audiences and issuers require aud
+and iss, respectively. A key ID selects one key; without an ID, exactly one key
+must match the algorithm. Requests never fetch keys or try multiple signatures.
+
+JWKS uses HTTPS, except that HTTP is allowed on loopback hosts. Redirects are
+not followed. Fetches have a ten-second timeout and a 256-KiB streamed body cap.
+Keep at most 64 usable keys. Startup tries three times with a fixed one-second
+retry delay and fails before binding if no usable set is loaded. Refresh swaps
+the set only on success. The last successful set remains valid until its
+monotonic stale deadline. That deadline triggers normal bounded shutdown and an
+error exit, including when a fetch is in progress. Diagnostics never disclose
+URLs, response bodies, tokens, or claims. Skipped JWK warnings contain only a
+key ID truncated to 32 bytes. Request rejection logs contain only the generated
+request ID and a fixed reason label.
+
 ### Metrics, logs, and traces
 
 - ARC-094: Use the shared logging pipeline for stdout and optional OTLP gRPC export. The log level defaults to INFO; a command-line override takes precedence. Stdout uses text by default or one JSON object per line when configured. The stdout level must not suppress INFO operation spans, span duration metrics, or trace export. The request-logger switch controls only completion events. Metrics and request spans remain active.
@@ -188,6 +215,9 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `xmtp_tailer_ready` | gauge | Whether stream recovery is ready. |
 | `xmtp_boundary_advances_total` | counter | Allocation boundary advance results. |
 | `xmtp_backend_ready` | gauge | Whether the backend reports Serving. |
+| `xmtp_auth_rejections_total` | counter | Authentication rejections by reason. |
+| `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. |
+| `xmtp_auth_keys` | gauge | Loaded JWT verification keys. |
 | `xmtp_backend_info` | gauge | Backend build version. |
 
 ## 8. Configuration

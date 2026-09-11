@@ -23,6 +23,21 @@ pub struct MetricSpec {
 /// Single source of truth for backend-owned metric names, types, and descriptions.
 pub const CATALOGUE: &[MetricSpec] = &[
     MetricSpec {
+        name: "xmtp_auth_rejections_total",
+        kind: MetricType::Counter,
+        help: "Authentication rejections by reason.",
+    },
+    MetricSpec {
+        name: "xmtp_auth_jwks_refresh_total",
+        kind: MetricType::Counter,
+        help: "JWKS refresh attempts by result.",
+    },
+    MetricSpec {
+        name: "xmtp_auth_keys",
+        kind: MetricType::Gauge,
+        help: "Loaded JWT verification keys.",
+    },
+    MetricSpec {
         name: "xmtp_operation_duration_seconds",
         kind: MetricType::Histogram,
         help: "Operation span duration by operation and status.",
@@ -568,3 +583,15 @@ pub(crate) fn tailer_gaps_observed(gaps: usize) {
 
 #[cfg(test)]
 mod tests;
+
+/// Record only fixed authentication reason labels.
+pub(crate) fn auth_rejection(reason: crate::auth::verify::Rejection) {
+    counter!("xmtp_auth_rejections_total", "reason" => reason.label()).increment(1);
+}
+pub(crate) fn auth_jwks_refresh(success: bool) {
+    counter!("xmtp_auth_jwks_refresh_total", "result" => if success { "ok" } else { "error" })
+        .increment(1);
+}
+pub(crate) fn auth_keys(count: usize) {
+    gauge!("xmtp_auth_keys").set(count as f64);
+}

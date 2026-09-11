@@ -3,6 +3,7 @@ ignore = [
   { id = "RUSTSEC-2024-0436", reason = "required by uniffi" },
   { id = "RUSTSEC-2025-0141", reason = "migrate from bincode" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 unmaintained; transitive via alloy-sol-macro, no upstream fix yet" },
+  { id = "RUSTSEC-2023-0071", reason = "Marvin timing attack in rsa 0.9, reached through jsonwebtoken's rust_crypto backend for RS256/384/512. The backend only verifies signatures with public keys; it never holds or operates on an RSA private key, and the attack recovers a private key through timing of decryption or signing. No fixed rsa release exists." },
   { id = "RUSTSEC-2026-0258", reason = "h2 empty DATA frames DoS. The production stack (hyper 1.x) is patched to h2 0.4.16; the only residual is h2 0.3.x, pulled solely by the test-only toxiproxy_rust via reqwest 0.11, which has no 0.3.x fix. Not reachable in shipped code." },
 ]
 

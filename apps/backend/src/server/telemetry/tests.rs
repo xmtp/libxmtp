@@ -1012,3 +1012,54 @@ async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry(
         ) > 0.0
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn auth_rejections_record_unauthenticated_for_native_and_grpc_web() {
+    use crate::{
+        api,
+        test_support::{TestServer, auth::TestKey, grpc_web, metrics},
+    };
+    let Some(metrics) = metrics::isolated(
+        "server::telemetry::tests::auth_rejections_record_unauthenticated_for_native_and_grpc_web",
+    ) else {
+        return;
+    };
+    let server =
+        TestServer::new(|config| config.auth = Some(TestKey::es256().auth_config())).await?;
+    let error = server
+        .query()
+        .get(api::GetRequest { sequence_id: 1 })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::Unauthenticated);
+    let result: crate::test_support::TestResult<grpc_web::WebStream<api::ServerEnvelope>> =
+        grpc_web::open(
+            &xmtp_common::http::client()?,
+            &server.url,
+            "/xmtp.backend.v1.QueryService/Get",
+            api::GetRequest { sequence_id: 1 },
+        )
+        .await;
+    let error = result.err().expect("missing auth must fail");
+    assert_eq!(
+        error.downcast_ref::<tonic::Status>().unwrap().code(),
+        tonic::Code::Unauthenticated
+    );
+    assert_eq!(
+        metrics::value(
+            &metrics,
+            "grpc_server_handled_total",
+            &[("grpc_code", "Unauthenticated")]
+        ),
+        2.0
+    );
+    assert_eq!(
+        metrics::value(
+            &metrics,
+            "xmtp_auth_rejections_total",
+            &[("reason", "missing")]
+        ),
+        2.0
+    );
+    server.stop().await?;
+}

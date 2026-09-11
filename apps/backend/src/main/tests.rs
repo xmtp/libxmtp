@@ -241,3 +241,25 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         occupied.local_addr()?
     )));
 }
+
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    let grpc = address();
+    let metrics = address();
+    let jwks = address();
+    let config = format!(
+        "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\njwks_url = 'http://{jwks}/private-url-sentinel'\n"
+    );
+    let mut process = Process::start(&config, None);
+    assert!(!process.child.wait()?.success());
+    let output = process.output();
+    assert!(
+        output.contains("FetchError") && output.contains("127.0.0.1"),
+        "{output}"
+    );
+    assert!(!output.contains("private-url-sentinel"));
+    assert!(!output.contains("backend ready to serve"));
+    let _listener = TcpListener::bind(grpc)?;
+}
