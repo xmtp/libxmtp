@@ -50,3 +50,6 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `create_client` accepts optional `change_callbacks`, which defaults to `None`. Stream limits and default timers are internal policy, not client options.
 - `FfiError` keeps its flat callback type. Processing failures append the shared `XMTP_STREAM_FAILURE_V1` detail suffix. `get_stream_failure_details` decodes it to typed records. Do not parse the normal error message for barrier state.
 - Barrier details keep missing targets separate from zero, all unfinished topics, received and processed cursors, unresolved Welcome IDs, cause codes, published intent IDs, and partial catch-up counts.
+
+Auth callback bridges return only `auth callback failed` on failure. Never retain
+or log callback error text or credential values. The middleware owns retryability.
