@@ -917,6 +917,7 @@ connected to the crate module trees.
 | `API-REQ-095` | Static incoming registration rejection | A missing requested target or a message before Started emits one non-retryable error and then ends. | Controlled static frames with one requested Welcome topic. | Started with no targets; message before Started. |
 | `API-REQ-096` | Multi-topic ordered frame delivery | One validated frame fits one receive-queue slot. Every topic retains its start cursor and complete envelope. | Native scripted backend and a depth-one ordered lease. | 100 topics in one frame; exact envelope equality and no duplicate topics. |
 | `API-REQ-097` | Client Update rate control | Updates wait for the per-wire token budget without losing queued IDs or blocking wire acknowledgements. | Native scripted backend and a short token budget. | Exhausted budget; acknowledgement before refill; later update keeps its ID. |
+| `API-REQ-098` | Cancelled add with a pending removal | Cancelling an unsent add retains the pending removal boundary. A replacement lease sends exactly one add after the remove acknowledgement and receives its registered suffix without a protocol error. | Native scripted connection; an anchor keeps the wire open. | Queued floors 10 and 0; both holders drop; replacement at 0 before remove Applied; exact registration target and envelope at 8. |
 
 ## Rust app and support-crate requirements
 

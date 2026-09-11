@@ -177,3 +177,83 @@ async fn raw_bad_order_blocks_the_complete_frame() {
     ));
     assert!(lease.next_incoming().await.is_none());
 }
+
+#[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+async fn cancelled_add_waits_for_pending_remove_before_replacement() {
+    let anchor = group_topic(b"anchor");
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (sender, _anchor_events) = mpsc::channel(8);
+    ledger.register(&[(anchor.clone(), 0)], sender);
+    let (initial_id, initial) = ledger.prepare_adds(vec![(anchor.clone(), 0)]).remove(0);
+    let (api, mut server) = mock_pair();
+    let wire = BidiConnection::open(&api, initial).await?;
+    let mut task = ledger_task(ledger, Outbox::default());
+    let (commands, receiver) = mpsc::unbounded_channel();
+    task.lease_cmds = commands.downgrade();
+    task.cmds = receiver;
+    task.conn = Some(wire);
+    assert_eq!(server.next_mutate().await.id, initial_id);
+    task.wire_event(Event::Applied {
+        id: initial_id,
+        targets: vec![(anchor, 0)],
+    });
+
+    // The older reader queues a remove while the original add is still unsent.
+    let mut original = Vec::new();
+    for floor in [10, 0] {
+        let (reply, response) = oneshot::channel();
+        task.lease(vec![(topic.clone(), floor)], 8, Some(limits()), reply)
+            .await;
+        original.push(response.await??);
+    }
+    for lease in original {
+        task.deref(lease.id);
+    }
+    task.flush_outbox();
+    let removal = server.next_mutate().await;
+    assert!(removal.adds.is_empty());
+    assert_eq!(removal.removes.len(), 1);
+    assert_eq!(removal.removes[0].topic, topic.cloned_vec());
+
+    // A new holder arrives before that removal is acknowledged.
+    let (reply, response) = oneshot::channel();
+    task.lease(vec![(topic.clone(), 0)], 8, Some(limits()), reply)
+        .await;
+    let mut replacement = response.await??;
+    task.wire_event(Event::Applied {
+        id: removal.id,
+        targets: vec![],
+    });
+    task.flush_outbox();
+    let addition = server.next_mutate().await;
+    assert!(addition.removes.is_empty());
+    assert_eq!(addition.adds.len(), 1);
+    assert_eq!(addition.adds[0].topic.as_ref()?.topic, topic.cloned_vec());
+    assert_eq!(addition.adds[0].cursor.as_ref()?.sequence_id, 0);
+    task.wire_event(Event::Applied {
+        id: addition.id,
+        targets: vec![(topic.clone(), 8)],
+    });
+    let IncomingEvent::Registered { starts, targets } = incoming(&mut replacement).await? else {
+        panic!("replacement registration");
+    };
+    assert_eq!(starts, [(topic.clone(), Cursor(0))].into());
+    assert_eq!(targets, [(topic.clone(), Cursor(8))].into());
+    task.wire_event(Event::GroupMessages {
+        messages: vec![raw_group(8)],
+    });
+    let IncomingEvent::OrderedBatch(batch) = incoming(&mut replacement).await? else {
+        panic!("replacement batch");
+    };
+    assert_eq!(batch.topic, topic);
+    assert_eq!(batch.after, Cursor(0));
+    assert_eq!(batch.envelopes, vec![raw_group(8)]);
+    assert!(replacement.incoming_failure.lock().is_none());
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(50), server.from_client.recv())
+            .await
+            .is_err(),
+        "the replacement must send exactly one add after the pending remove"
+    );
+}

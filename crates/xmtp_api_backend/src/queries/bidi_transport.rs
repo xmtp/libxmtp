@@ -1431,7 +1431,18 @@ where
             if let Some(update) = self.ledger.pending_updates.remove(&id) {
                 for (topic, _) in update.adds {
                     self.ledger.dirty_topics.insert(topic.clone());
-                    self.ledger.registrations.remove(&topic);
+                    // Keep a pending removal until Applied. A replacement must
+                    // not add this topic before that old boundary is consumed.
+                    if !self
+                        .ledger
+                        .registrations
+                        .get(&topic)
+                        .is_some_and(|registration| {
+                            matches!(registration.state, RegistrationState::Removing)
+                        })
+                    {
+                        self.ledger.registrations.remove(&topic);
+                    }
                 }
             }
         }
