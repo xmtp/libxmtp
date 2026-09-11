@@ -348,8 +348,13 @@ where
                 });
             }
         };
+        // Only a Welcome still waiting on its pointee expires here. A deadline
+        // written while this build could not read the wrapper must not delete a
+        // Welcome that a later build can now process: support is the recovery
+        // this retention window exists to allow.
         if let Some(deadline) = pending.retry_expires_at_ns
             && deadline <= xmtp_common::time::now_ns()
+            && pending.error_code.as_deref() != Some("unsupported_welcome")
         {
             self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
             return Ok(WelcomeHeadOutcome::Progress {
@@ -1067,6 +1072,60 @@ mod tests {
         assert!(db.pending_envelope(&service.topic(), cursor)?.is_none());
         assert_eq!(db.topic_progress(&service.topic())?.processed, cursor);
         assert!(!db.has_pending_welcomes()?);
+    }
+
+    /// Gaining support is the recovery this retention window exists to allow.
+    /// A deadline written while the wrapper was unreadable must never delete a
+    /// Welcome that the client can now process, even past the deadline.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_expired_unsupported_welcome_still_installs_once_it_is_supported() {
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::schema::incoming_envelopes;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.invite(&bo).await?;
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await?
+            .pop()?;
+        let cursor = welcome.cursor;
+        pending_welcome_for_test(&bo.context, &welcome).await?;
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+
+        // The row carries an elapsed unsupported deadline, exactly as a build
+        // that could not read the wrapper would have written it, but its bytes
+        // are readable by this build — the post-upgrade state.
+        db.raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                cursor.0 as i64,
+            )))
+            .set((
+                incoming_envelopes::blocked.eq(true),
+                incoming_envelopes::error_code.eq(Some("unsupported_welcome")),
+                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+            ))
+            .execute(conn)
+        })?;
+
+        service.retry_blocked_welcomes_after(Cursor(0))?;
+
+        // The row must survive: an elapsed unsupported deadline must not delete
+        // a Welcome this build can now read. It rejoins ordinary processing,
+        // which may still need an async dependency before it installs.
+        let row = db
+            .pending_envelope(&service.topic(), cursor)?
+            .expect("a supported Welcome must not be deleted by a stale deadline");
+        assert!(!row.blocked, "it must rejoin ordinary processing");
+        assert_ne!(row.error_code.as_deref(), Some("unsupported_welcome"));
+        assert!(db.topic_progress(&service.topic())?.processed < cursor);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

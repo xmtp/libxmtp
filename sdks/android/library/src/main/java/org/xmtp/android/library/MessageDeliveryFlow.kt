@@ -1,5 +1,7 @@
 package org.xmtp.android.library
 
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -13,6 +15,21 @@ import uniffi.xmtpv3.FfiStreamCloser
 import java.util.concurrent.atomic.AtomicReference
 
 private const val MESSAGE_DELIVERY_QUEUE_CAPACITY = 1
+
+/**
+ * Null skips the item so delivery continues. A decode failure is reported and then
+ * acknowledged by the caller, because a rejected item is served again and would stop
+ * delivery for good. Cancellation stays terminal.
+ */
+internal fun <T> decodeOrSkip(delivery: QueuedMessageDelivery<T>): T? =
+    try {
+        delivery.decode()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.e("XMTP message delivery", "Skipping an undecodable message", error)
+        null
+    }
 
 internal class QueuedMessageDelivery<T>(
     val decode: () -> T?,
@@ -77,7 +94,7 @@ internal fun <T> acknowledgedMessageFlow(
                 var acknowledged = false
                 try {
                     failure.get()?.let { throw it }
-                    val message = delivery.decode()
+                    val message = decodeOrSkip(delivery)
                     currentCoroutineContext().ensureActive()
                     if (!delivery.checkOwner()) continue
                     if (message != null) emit(message)

@@ -74,10 +74,10 @@ describe("MessageStream decode failures", () => {
     expect((onError.mock.calls[0]![0] as Error).message).toBe("codec exploded");
   });
 
-  it("skips a filtered message quietly, without reporting an error", async () => {
-    const skipped = makeItem("1");
+  it("does not skip a message whose lookup failed", async () => {
+    const missing = makeItem("1");
     const good = makeItem("2");
-    const { reader } = makeReader([skipped, good]);
+    const { reader } = makeReader([missing, good]);
     const onError = vi.fn();
 
     const stream = new MessageStream<Item, Item>(
@@ -86,12 +86,11 @@ describe("MessageStream decode failures", () => {
       { onError },
     );
 
-    const first = await stream.next();
-    expect(first.value?.id).toBe("2");
-    expect(skipped.acknowledge).toHaveBeenCalledTimes(1);
-    expect(skipped.reject).not.toHaveBeenCalled();
-    // Exclusion by the converter is intentional filtering, not a failure.
-    expect(onError).not.toHaveBeenCalled();
-    expect(stream.isDone).toBe(false);
+    // undefined means the converter could not produce a value, which includes
+    // a failed lookup. Acknowledging would advance the durable cursor past a
+    // message nothing has read, so the stream stops and leaves it replayable.
+    await expect(stream.next()).rejects.toThrow(/could not be decoded/);
+    expect(missing.acknowledge).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledTimes(1);
   });
 });

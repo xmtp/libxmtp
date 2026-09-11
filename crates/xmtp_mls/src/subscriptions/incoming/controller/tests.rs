@@ -913,6 +913,33 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     assert!(controller.read.is_none());
 }
 
+/// An unrelated shorter disconnect must not erase a permanent-failure backoff.
+/// Otherwise a per-topic read failure resets the receiver to reopening against
+/// a broken backend roughly once a second.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_shorter_disconnect_cannot_shorten_a_permanent_backoff() {
+    let mut controller = controller(context());
+    let permanent = || NetworkError::new(xmtp_api::ApiError::InvalidResponse("cursor order"));
+
+    for _ in 0..5 {
+        controller.source_error(permanent());
+    }
+    let scheduled = controller.transport.retry_at()?;
+
+    // The per-topic path disconnects with the short fallback interval.
+    controller.transport.disconnect(Duration::from_millis(1));
+    assert_eq!(
+        controller.transport.retry_at(),
+        Some(scheduled),
+        "a shorter delay must not shorten a longer pending retry"
+    );
+    assert!(controller.transport.backing_off());
+
+    // A longer delay still applies.
+    controller.transport.disconnect(Duration::from_secs(3600));
+    assert!(controller.transport.retry_at()? > scheduled);
+}
+
 /// A permanent receipt error on one topic must not stop that topic forever.
 /// The retry is delayed, then due, and a later success clears the streak.
 #[xmtp_common::test(unwrap_try = true)]

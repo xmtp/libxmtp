@@ -132,10 +132,11 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           continue;
         }
         if (value === undefined) {
-          // Intentional filtering, not a failure: the converter excludes this
-          // item. Acknowledge it so the reader moves past it, and stay quiet.
-          await this.#acknowledgePending();
-          continue;
+          // The converter could not produce a value. That includes a failed
+          // lookup, so it is not safe to acknowledge: skipping here would
+          // advance the durable cursor past a message nothing has read.
+          // Report it and stop, leaving the item replayable.
+          throw new Error("The retained message could not be decoded");
         }
         // Do not await between the final ownership check and the app handoff.
         this.#cursor = item.cursor;
