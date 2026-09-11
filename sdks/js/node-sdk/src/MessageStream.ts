@@ -30,6 +30,15 @@ export type MessageReaderSource<T> = {
   catchUpChanged(): Promise<MessageCatchUp>;
 };
 
+/**
+ * A stale acknowledgement is reported with this stable code, so it can be told
+ * apart from a persistence failure that must not be swallowed.
+ */
+const SELECTION_CHANGED_CODE = "LocalDeliveryError::SelectionChanged";
+
+const isStaleSelection = (error: unknown) =>
+  error instanceof Error && error.message.includes(SELECTION_CHANGED_CODE);
+
 /** One pending item. Construction selects callback mode or next-request acknowledgement. */
 export class MessageStream<T, V> implements AsyncIterable<V> {
   #reader: MessageReaderSource<T>;
@@ -121,13 +130,15 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           if (this.#hasEnded()) break;
           try {
             await this.#acknowledgePending();
-          } catch {
-            // The selection no longer covers this item: the scope or filter
+          } catch (failure) {
+            // Only a stale selection is benign here: the scope or filter
             // changed, the message was deleted, or consent moved. Checking
             // ownership first would not help — that is a separate lock, so
-            // the acknowledgement can still lose the race. This item is being
-            // discarded either way, so a failure here only means it is no
-            // longer ours. The cursor is untouched and it stays replayable.
+            // the acknowledgement can still lose the race. The item is being
+            // discarded either way, the cursor is untouched, and it stays
+            // replayable. Any other failure means the skip was not persisted,
+            // so it takes the normal error path rather than passing silently.
+            if (!isStaleSelection(failure)) throw failure;
             this.#pending = undefined;
           }
           continue;
