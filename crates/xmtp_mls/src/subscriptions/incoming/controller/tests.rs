@@ -913,6 +913,34 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     assert!(controller.read.is_none());
 }
 
+/// A capacity pause supersedes a permanent-error backoff. They are different
+/// conditions, and leaving both set gates the topic after storage drains.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_capacity_pause_clears_a_permanent_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            xmtp_api::ApiError::InvalidResponse("cursor order"),
+        )),
+    );
+    assert!(controller.receipt(&topic).blocked());
+
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Storage(
+            xmtp_db::StorageError::Stream(xmtp_db::stream_storage::StreamStorageError::Capacity {
+                scope: xmtp_db::stream_storage::BudgetScope::Kind,
+            }),
+        )),
+    );
+    assert!(controller.receipt(&topic).paused);
+    assert!(!controller.receipt(&topic).blocked());
+    assert!(!controller.receipt(&topic).failing());
+}
+
 /// An unrelated shorter disconnect must not erase a permanent-failure backoff.
 /// Otherwise a per-topic read failure resets the receiver to reopening against
 /// a broken backend roughly once a second.

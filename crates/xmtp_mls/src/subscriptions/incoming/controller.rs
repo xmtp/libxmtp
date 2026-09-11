@@ -928,7 +928,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .receipt
             .last_read = Some(now);
         if capacity(&error) {
-            self.topics.entry(topic.clone()).or_default().receipt.paused = true;
+            // Capacity is a storage condition, not a bad response. It
+            // supersedes any permanent-error backoff, which would otherwise
+            // keep gating the topic after reconciliation unpauses it.
+            let receipt = &mut self.topics.entry(topic.clone()).or_default().receipt;
+            receipt.paused = true;
+            receipt.blocked_until = None;
+            receipt.blocked_failures = 0;
         } else if !error.is_retryable() {
             let policy = self.context.incoming_runtime().policy();
             let backoff = RetryBackoff {
