@@ -77,7 +77,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 // than hiding the stall, even though it does keep retrying.
                 let welcome_receipt_pending = key.kind == NetworkEntityKind::Welcome
                     && target.is_none_or(|target| progress.received < target)
-                    && !self.receipt(topic).blocked
+                    && !self.receipt(topic).failing()
                     && self.transport.permanent_failures == 0;
                 let processing = if removed {
                     IncomingProcessing::Cancelled

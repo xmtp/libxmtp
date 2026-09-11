@@ -890,14 +890,9 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     );
     controller.start_read();
     assert!(controller.read.is_none());
-    assert!(controller.receipt(&topic).blocked);
+    assert!(controller.receipt(&topic).blocked());
 
-    controller
-        .topics
-        .entry(topic.clone())
-        .or_default()
-        .receipt
-        .blocked = false;
+    controller.clear_receipt_failure(&topic);
     // A permanent source error is reported to the host, but it must not stop
     // the unary read path: bounded Query is how the client recovers. The read
     // is now gated only by per-topic receipt state, never by stream health.
@@ -909,14 +904,57 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
         IncomingConnection::Failed
     );
     assert_eq!(controller.transport.permanent_failures, 1);
+    {
+        let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
+        receipt.blocked_failures = 1;
+        receipt.blocked_until = Some(Instant::now() + Duration::from_secs(60));
+    }
+    controller.start_read();
+    assert!(controller.read.is_none());
+}
+
+/// A permanent receipt error on one topic must not stop that topic forever.
+/// The retry is delayed, then due, and a later success clears the streak.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_permanent_receipt_error_retries_that_topic_with_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let permanent = || {
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            xmtp_api::ApiError::InvalidResponse("cursor order"),
+        ))
+    };
+    assert!(!permanent().is_retryable());
+
+    controller.receive_error(topic.clone(), permanent());
+    assert!(controller.receipt(&topic).blocked());
+    assert_eq!(controller.receipt(&topic).blocked_failures, 1);
+    let first = controller.receipt(&topic).blocked_until;
+
+    // An unrelated topic is untouched by another topic's failure.
+    assert!(!controller.receipt(&other).blocked());
+    assert_eq!(controller.receipt(&other).blocked_failures, 0);
+
+    controller.receive_error(topic.clone(), permanent());
+    assert_eq!(controller.receipt(&topic).blocked_failures, 2);
+    assert!(
+        controller.receipt(&topic).blocked_until > first,
+        "the delay must grow with consecutive permanent failures"
+    );
+
+    // Once the delay elapses the topic is eligible again, and a success
+    // clears the streak entirely.
     controller
         .topics
         .entry(topic.clone())
         .or_default()
         .receipt
-        .blocked = true;
-    controller.start_read();
-    assert!(controller.read.is_none());
+        .blocked_until = Some(Instant::now());
+    assert!(!controller.receipt(&topic).blocked());
+    assert!(controller.receipt(&topic).failing());
+    controller.clear_receipt_failure(&topic);
+    assert!(!controller.receipt(&topic).failing());
 }
 
 /// A permanently failing source retries on a growing delay and recovers
@@ -1012,7 +1050,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     );
     assert!(controller.transport.subscription().is_none());
     assert!(controller.transport.registered.is_empty());
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
     controller.refresh_statuses();
     assert_eq!(
         controller.state.statuses.lock()[&1].processing,
@@ -1029,7 +1067,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
         topic.clone(),
         crate::mls_store::MlsStoreError::Storage(missing.into()).into(),
     );
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
     controller.refresh_statuses();
     let snapshot = controller.state.statuses.lock()[&1].clone();
     assert_eq!(snapshot.processing, IncomingProcessing::Pending);
@@ -1143,7 +1181,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
             .len(),
         1
     );
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
 
     // Run the production loop with one retained head and a legal eight-row batch.
     // The fake transport exposes each new registration and never replays on its own.
