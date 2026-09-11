@@ -19,7 +19,6 @@ test-utils = [
   "dep:tokio-rustls",
   "dep:tonic-prost",
   "dep:jsonschema",
-  "dep:reqwest",
   "dep:rustls",
   "xmtp_common/test-utils",
   "xmtp_id/test-utils",
@@ -30,9 +29,12 @@ test-utils = [
 
 [dependencies]
 alloy-primitives.workspace = true
+arc-swap.workspace = true
 async-trait.workspace = true
+base64.workspace = true
 bytes.workspace = true
 clap.workspace = true
+ed25519-dalek = { workspace = true, features = ["pkcs8", "pem"] }
 futures.workspace = true
 h2 = { version = "0.4", optional = true }
 hex.workspace = true
@@ -40,17 +42,25 @@ http.workspace = true
 http-body.workspace = true
 http-body-util = { workspace = true, optional = true }
 jsonschema = { version = "0.55", default-features = false, optional = true }
+jsonwebtoken = { version = "10", default-features = false, features = [
+  "rust_crypto",
+  "use_pem",
+] }
 metrics.workspace = true
 metrics-exporter-prometheus.workspace = true
 opentelemetry.workspace = true
+p256 = { workspace = true, features = ["pem"] }
+p384 = { version = "0.13", features = ["pem"] }
 parking_lot.workspace = true
 pin-project.workspace = true
 prost.workspace = true
 prost-types.workspace = true
 rcgen = { version = "0.14.10", default-features = false, features = [
   "ring",
+  "pem",
 ], optional = true }
-reqwest = { workspace = true, optional = true }
+reqwest.workspace = true
+rsa = { version = "0.9", features = ["pem"] }
 rustls = { workspace = true, optional = true }
 schemars.workspace = true
 serde.workspace = true
@@ -86,8 +96,10 @@ h2 = "0.4"
 http.workspace = true
 http-body-util.workspace = true
 jsonschema = { version = "0.55", default-features = false }
-rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
-reqwest.workspace = true
+rcgen = { version = "0.14.10", default-features = false, features = [
+  "ring",
+  "pem",
+] }
 rustls.workspace = true
 tokio.workspace = true
 tokio-rustls = { version = "0.26", default-features = false, features = [

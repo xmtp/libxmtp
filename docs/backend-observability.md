@@ -92,9 +92,25 @@ ratio. Collector loss can reduce that population further.
 | `xmtp_tailer_ready` | gauge | Whether stream recovery is ready. | none | explicit | backend tailer | Recovery incomplete | Current recovery readiness |
 | `xmtp_boundary_advances_total` | counter | Allocation boundary advance results. | result | explicit | backend boundary worker | Allocation boundary starvation | ok/lock_timeout/error advance results |
 | `xmtp_backend_ready` | gauge | Whether the backend reports Serving. | none | explicit | backend health | Backend not serving | Same state change as gRPC Serving |
+| `xmtp_auth_rejections_total` | counter | Authentication rejections by reason. | reason | fixed | auth admission | Missing or invalid caller credentials | One increment per rejected request |
+| `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. | result | fixed | JWKS refresh | Key source unavailable | Success swaps keys; failure keeps the last set |
+| `xmtp_auth_keys` | gauge | Loaded JWT verification keys. | none | none | key load and refresh | Empty or unexpected key set | Number of usable keys |
 | `xmtp_backend_info` | gauge | Backend build version. | version | explicit | backend startup | Wrong build deployed | Build version with value one |
 
 Error-only families can be absent until their first event.
+
+Auth rejection reasons are `missing`, `malformed`, `unsupported_alg`, `untrusted`,
+`expired`, `not_yet_valid`, `audience`, `issuer`, and `scope`. JWKS refresh results
+are `ok` and `error`. These labels never contain token data or key IDs. Each
+rejected request also records its gRPC status. Auth rejection logs use DEBUG and
+contain only the request ID and reason. A JWKS fetch failure logs the host only.
+
+With no `[auth]` section, authentication is disabled. With auth enabled, health
+and CORS preflight remain public. Each other request needs a bearer JWT. Streams
+are checked when they open. Inline keys are parsed at startup. JWKS startup uses
+three attempts, one second apart. Refresh failures keep the last successful key
+set until the monotonic stale deadline. At that deadline the backend reports
+NotServing, runs its normal bounded drain, and exits with an error.
 
 ## Span names
 

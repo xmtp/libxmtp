@@ -62,6 +62,12 @@ Use module-local `tests.rs` or `tests/`, including for real RPC and storage test
 Short synchronous backend locks use `parking_lot::Mutex`, which has no poisoning
 state. Keep guards short and never hold one across an await point.
 
+JWT auth is optional. `src/auth` owns key loading and verification; startup and
+refresh run through `server::initialize` and `server::serve`. Auth tests use
+`test_support::auth`, also exported with `test-utils`. Generate EC and Ed25519
+keys per test. Reuse the process-local RSA fixture. Use the scripted JWKS fixture
+for network failures. Run `just backend test --lib auth::` for these tests.
+
 Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
 with `--log-level`. `server.request_logger` defaults to true and logs completion,
 including stream termination. Never log payloads, topic values, or auth headers.
