@@ -890,22 +890,196 @@ fn permanent_source_and_topic_errors_stop_automatic_receipt() {
     );
     controller.start_read();
     assert!(controller.read.is_none());
-    assert!(controller.receipt(&topic).blocked);
+    assert!(controller.receipt(&topic).blocked());
 
+    controller.clear_receipt_failure(&topic);
+    // A permanent source error is reported to the host, but it must not stop
+    // the unary read path: bounded Query is how the client recovers. The read
+    // is now gated only by per-topic receipt state, never by stream health.
+    controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
+        "cursor order",
+    )));
+    assert_eq!(
+        controller.transport.connection(),
+        IncomingConnection::Failed
+    );
+    assert_eq!(controller.transport.permanent_failures, 1);
+    {
+        let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
+        receipt.blocked_failures = 1;
+        receipt.blocked_until = Some(Instant::now() + Duration::from_secs(60));
+    }
+    controller.start_read();
+    assert!(controller.read.is_none());
+}
+
+/// A scope acquired after a permanent stream failure must still receive work.
+/// `source_error` clears the registration set, so a target request cannot be
+/// what starts recovery: unary Query has to run without one.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_scope_acquired_after_a_permanent_failure_still_reads() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
+        "cursor order",
+    )));
+    assert_eq!(controller.transport.permanent_failures, 1);
+    assert!(
+        controller.transport.registered.is_empty(),
+        "a failed source drops its registrations"
+    );
+
+    // The scope arrives after the failure, so it never had a registration and
+    // never gets a fixed target. Neither may gate the bounded read.
+    add_scope(&mut controller, 1, &topic);
+    controller.read_queue.push_back(topic.clone());
+    assert!(!controller.scopes[&1].targets.contains_key(&topic));
+
+    // read_due is the gate the recovery depends on. A missing target skips the
+    // scope loop but must not return early: an uncovered topic still falls
+    // through to the bounded Query interval.
+    let key = topic_key(&topic)?;
+    assert!(
+        controller.read_due(&topic, &key, Instant::now())?,
+        "an unregistered topic with no target must fall back to Query"
+    );
+}
+
+/// A capacity pause supersedes a permanent-error backoff. They are different
+/// conditions, and leaving both set gates the topic after storage drains.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_capacity_pause_clears_a_permanent_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            xmtp_api::ApiError::InvalidResponse("cursor order"),
+        )),
+    );
+    assert!(controller.receipt(&topic).blocked());
+
+    controller.receive_error(
+        topic.clone(),
+        IncomingError::Store(crate::mls_store::MlsStoreError::Storage(
+            xmtp_db::StorageError::Stream(xmtp_db::stream_storage::StreamStorageError::Capacity {
+                scope: xmtp_db::stream_storage::BudgetScope::Kind,
+            }),
+        )),
+    );
+    assert!(controller.receipt(&topic).paused);
+    assert!(!controller.receipt(&topic).blocked());
+    assert!(!controller.receipt(&topic).failing());
+}
+
+/// An unrelated shorter disconnect must not erase a permanent-failure backoff.
+/// Otherwise a per-topic read failure resets the receiver to reopening against
+/// a broken backend roughly once a second.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_shorter_disconnect_cannot_shorten_a_permanent_backoff() {
+    let mut controller = controller(context());
+    let permanent = || NetworkError::new(xmtp_api::ApiError::InvalidResponse("cursor order"));
+
+    for _ in 0..5 {
+        controller.source_error(permanent());
+    }
+    let scheduled = controller.transport.retry_at()?;
+
+    // The per-topic path disconnects with the short fallback interval.
+    controller.transport.disconnect(Duration::from_millis(1));
+    assert_eq!(
+        controller.transport.retry_at(),
+        Some(scheduled),
+        "a shorter delay must not shorten a longer pending retry"
+    );
+    assert!(controller.transport.backing_off());
+
+    // A longer delay still applies.
+    controller.transport.disconnect(Duration::from_secs(3600));
+    assert!(controller.transport.retry_at()? > scheduled);
+}
+
+/// A permanent receipt error on one topic must not stop that topic forever.
+/// The retry is delayed, then due, and a later success clears the streak.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_permanent_receipt_error_retries_that_topic_with_backoff() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    let permanent = || {
+        IncomingError::Store(crate::mls_store::MlsStoreError::Api(
+            xmtp_api::ApiError::InvalidResponse("cursor order"),
+        ))
+    };
+    assert!(!permanent().is_retryable());
+
+    controller.receive_error(topic.clone(), permanent());
+    assert!(controller.receipt(&topic).blocked());
+    assert_eq!(controller.receipt(&topic).blocked_failures, 1);
+    let first = controller.receipt(&topic).blocked_until;
+
+    // An unrelated topic is untouched by another topic's failure.
+    assert!(!controller.receipt(&other).blocked());
+    assert_eq!(controller.receipt(&other).blocked_failures, 0);
+
+    controller.receive_error(topic.clone(), permanent());
+    assert_eq!(controller.receipt(&topic).blocked_failures, 2);
+    assert!(
+        controller.receipt(&topic).blocked_until > first,
+        "the delay must grow with consecutive permanent failures"
+    );
+
+    // Once the delay elapses the topic is eligible again, and a success
+    // clears the streak entirely.
     controller
         .topics
         .entry(topic.clone())
         .or_default()
         .receipt
-        .blocked = false;
-    controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
-        "cursor order",
-    )));
-    controller.start_read();
-    assert!(controller.read.is_none());
+        .blocked_until = Some(Instant::now());
+    assert!(!controller.receipt(&topic).blocked());
+    assert!(controller.receipt(&topic).failing());
+    controller.clear_receipt_failure(&topic);
+    assert!(!controller.receipt(&topic).failing());
+}
+
+/// A permanently failing source retries on a growing delay and recovers
+/// without recreating the client.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_permanent_source_error_retries_with_backoff_and_recovers() {
+    let mut controller = controller(context());
+    let permanent = || NetworkError::new(xmtp_api::ApiError::InvalidResponse("cursor order"));
+    assert!(!permanent().is_retryable());
+
+    controller.source_error(permanent());
+    assert_eq!(controller.transport.permanent_failures, 1);
+    assert!(controller.transport.backing_off());
+    let first = controller.transport.retry_at();
+
+    controller.source_error(permanent());
+    assert_eq!(controller.transport.permanent_failures, 2);
+    assert!(
+        controller.transport.retry_at() > first,
+        "the delay must grow with consecutive permanent failures"
+    );
+
+    // A wake advances a scheduled retry; no failure is terminal.
+    controller.transport.wake();
+    assert!(!controller.transport.backing_off());
+
+    controller
+        .transport
+        .request(HashSet::from([Topic::new_group_message(
+            GroupId::generate(),
+        )]));
+    assert!(controller.transport.can_open());
+
+    controller.opened(Ok(Opened::Unary(TopicCursor::new())));
+    assert_eq!(controller.transport.permanent_failures, 0);
     assert_eq!(
         controller.transport.connection(),
-        IncomingConnection::Failed
+        IncomingConnection::Connected
     );
 }
 
@@ -965,7 +1139,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     );
     assert!(controller.transport.subscription().is_none());
     assert!(controller.transport.registered.is_empty());
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
     controller.refresh_statuses();
     assert_eq!(
         controller.state.statuses.lock()[&1].processing,
@@ -982,7 +1156,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
         topic.clone(),
         crate::mls_store::MlsStoreError::Storage(missing.into()).into(),
     );
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
     controller.refresh_statuses();
     let snapshot = controller.state.statuses.lock()[&1].clone();
     assert_eq!(snapshot.processing, IncomingProcessing::Pending);
@@ -1062,7 +1236,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     assert_eq!(acknowledged.lock()[1][&topic], Cursor(20));
     assert!(controller.receipt(&topic).paused);
     assert!(!controller.receipt(&welcome).paused);
-    assert!(!controller.transport.is_failed());
+    assert_eq!(controller.transport.permanent_failures, 0);
     assert!(controller.transport.subscription().is_none());
 
     crate::state_tx::state_write(client.context.mls_storage(), |tx| {
@@ -1096,7 +1270,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
             .len(),
         1
     );
-    assert!(!controller.receipt(&topic).blocked);
+    assert!(!controller.receipt(&topic).blocked());
 
     // Run the production loop with one retained head and a legal eight-row batch.
     // The fake transport exposes each new registration and never replays on its own.

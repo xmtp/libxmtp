@@ -1,5 +1,23 @@
 use super::*;
 
+/// Doubling delay for a source that keeps returning permanent errors.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct RetryBackoff {
+    pub(super) initial: Duration,
+    pub(super) max: Duration,
+}
+
+impl RetryBackoff {
+    /// `failures` counts consecutive permanent errors and starts at one.
+    pub(super) fn delay(&self, failures: u32) -> Duration {
+        let shift = failures.saturating_sub(1).min(u32::BITS - 1);
+        self.initial
+            .checked_mul(1u32 << shift)
+            .unwrap_or(self.max)
+            .min(self.max)
+    }
+}
+
 /// One receiver lifecycle. Requested topics are not proof of registration.
 pub(super) struct Transport {
     pub(super) factory: Option<Arc<dyn SubscriptionFactory>>,
@@ -8,6 +26,8 @@ pub(super) struct Transport {
     pub(super) registered: HashSet<Topic>,
     pub(super) generation: u64,
     pub(super) error: Option<Arc<IncomingError>>,
+    /// Consecutive permanent failures. Only the retry delay grows with it.
+    pub(super) permanent_failures: u32,
 }
 
 pub(super) enum TransportState {
@@ -15,7 +35,6 @@ pub(super) enum TransportState {
     Opening(OpenFuture),
     Streaming(IncomingSubscription<NetworkError>),
     Unary,
-    Failed,
 }
 
 pub(super) enum TransportEvent {
@@ -32,20 +51,18 @@ impl Transport {
             registered: HashSet::new(),
             generation: 0,
             error: None,
+            permanent_failures: 0,
         }
     }
 
-    /// Cancel an obsolete receiver without resetting backoff or terminal failure.
+    /// Cancel an obsolete receiver without resetting a pending retry delay.
     pub(super) fn request(&mut self, topics: HashSet<Topic>) {
         if self.requested == topics {
             return;
         }
         self.requested = topics;
         self.registered.clear();
-        if !matches!(
-            self.state,
-            TransportState::Waiting(_) | TransportState::Failed
-        ) {
+        if !matches!(self.state, TransportState::Waiting(_)) {
             self.state = TransportState::Waiting(Instant::now());
         }
     }
@@ -86,15 +103,20 @@ impl Transport {
         }
     }
 
-    pub(super) fn is_failed(&self) -> bool {
-        matches!(self.state, TransportState::Failed)
-    }
-
     pub(super) fn backing_off(&self) -> bool {
         matches!(self.state, TransportState::Waiting(at) if Instant::now() < at)
     }
 
-    /// A wake can advance a retry. It cannot revive a terminal failure.
+    #[cfg(test)]
+    pub(super) fn retry_at(&self) -> Option<Instant> {
+        match self.state {
+            TransportState::Waiting(at) => Some(at),
+            _ => None,
+        }
+    }
+
+    /// A wake advances a pending retry, including one scheduled after a
+    /// permanent error. No failure is terminal.
     pub(super) fn wake(&mut self) {
         if let TransportState::Waiting(at) = &mut self.state {
             *at = Instant::now();
@@ -102,29 +124,60 @@ impl Transport {
     }
 
     /// Drop all uncommitted wire progress. The next open starts from durable receipt.
+    ///
+    /// A shorter delay never shortens a longer pending one. An unrelated
+    /// per-topic failure must not erase a permanent-failure backoff and send
+    /// the client back to reopening against a broken backend every second.
     pub(super) fn disconnect(&mut self, delay: Duration) {
         self.registered.clear();
-        if !self.is_failed() {
-            self.state = TransportState::Waiting(Instant::now() + delay);
-        }
+        let at = Instant::now() + delay;
+        self.state = match self.state {
+            TransportState::Waiting(pending) if pending > at => TransportState::Waiting(pending),
+            _ => TransportState::Waiting(at),
+        };
     }
 
-    pub(super) fn fail(&mut self, error: NetworkError, delay: Duration) {
+    /// A permanent classification describes one response, not the source. The
+    /// receiver keeps retrying on a growing delay so a server that repairs
+    /// itself is picked up without recreating the client. Skipping an envelope
+    /// is never the recovery: only the delay changes.
+    pub(super) fn fail(&mut self, error: NetworkError, delay: Duration, backoff: RetryBackoff) {
+        let retryable = error.is_retryable();
+        let delay = if retryable {
+            self.permanent_failures = 0;
+            delay
+        } else {
+            self.permanent_failures = self.permanent_failures.saturating_add(1);
+            backoff.delay(self.permanent_failures)
+        };
         tracing::warn!(
             error = %error,
-            retryable = error.is_retryable(),
+            retryable,
+            permanent_failures = self.permanent_failures,
+            retry_in_ms = delay.as_millis() as u64,
             "incoming receiver failed"
         );
         self.disconnect(delay);
-        if !error.is_retryable() {
-            self.state = TransportState::Failed;
-        }
         self.error = Some(Arc::new(error.into()));
+    }
+
+    /// Clear the permanent-failure streak after the source proves it works.
+    pub(super) fn opened(&mut self) {
+        self.permanent_failures = 0;
     }
 
     pub(super) fn connection(&self) -> IncomingConnection {
         match self.state {
-            TransportState::Failed => IncomingConnection::Failed,
+            // Report a repeatedly failing source as failed so hosts can surface
+            // it, while the receiver keeps retrying underneath.
+            _ if self.permanent_failures > 0
+                && !matches!(
+                    self.state,
+                    TransportState::Streaming(_) | TransportState::Unary
+                ) =>
+            {
+                IncomingConnection::Failed
+            }
             TransportState::Streaming(_) | TransportState::Unary => IncomingConnection::Connected,
             TransportState::Opening(_) if self.generation == 1 => IncomingConnection::Connecting,
             TransportState::Waiting(_) if self.generation == 0 => IncomingConnection::Connecting,

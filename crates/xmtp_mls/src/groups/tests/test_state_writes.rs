@@ -160,3 +160,177 @@ async fn welcome_admission_queues_rotation_atomically_before_decode() {
     assert_eq!(store.admit_incoming_batch(&batch, limits)?.inserted, 0);
     db.raw_query(|conn| diesel::sql_query("DROP TRIGGER fail_welcome_rotation").execute(conn))?;
 }
+
+/// A removal must abandon this installation's unaccepted outgoing work in the
+/// same transaction. A `Published` state change that outlives the removal can
+/// never be confirmed — a re-add installs fresh state past its own echo — and
+/// the publish loop prefers such an intent over every later one, so leaving it
+/// behind stops the conversation from ever publishing again.
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
+    use xmtp_db::group_intent::{IntentKind, IntentState};
+    use xmtp_db::prelude::{QueryGroupIntent, QueryPreparedEnvelope};
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+
+    // Bo queues a real state change but never publishes it, then is removed.
+    // The queued intent is exactly the work that must not outlive membership.
+    crate::groups::intents::QueueIntent::key_update().queue(&bo_group)?;
+    let queued = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(!queued.is_empty(), "the test needs an unaccepted intent");
+
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    // Receive the removal without publishing: a removed member's queued work
+    // cannot reach the network anyway.
+    bo_group.sync().await.ok();
+    assert!(!bo_group.is_active()?);
+
+    // Nothing unaccepted survives the removal, and no prepared bytes remain to
+    // be reused against a new membership generation.
+    let remaining = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::ToPublish, IntentState::Published]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(
+        remaining.is_empty(),
+        "removal must abandon unaccepted intents, found {remaining:?}"
+    );
+
+    // Clearing the preparation is the safety-critical half: a stale staged
+    // commit or payload hash could otherwise be matched or reused against the
+    // membership generation installed by a later re-add.
+    let abandoned = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::Error]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(
+        !abandoned.is_empty(),
+        "the intent must be terminally failed"
+    );
+    for intent in &abandoned {
+        assert!(
+            intent.staged_commit.is_none(),
+            "staged commit must be cleared"
+        );
+        assert!(
+            intent.payload_hash.is_none(),
+            "payload hash must be cleared"
+        );
+        assert!(
+            intent.published_in_epoch.is_none(),
+            "published epoch must be cleared"
+        );
+        assert!(
+            bo.context.db().prepared_envelopes(intent.id)?.is_none(),
+            "prepared bytes must be cleared"
+        );
+    }
+
+    // The re-added installation can publish again.
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    assert!(bo_group.is_active()?);
+    bo_group
+        .send_message(b"after readd", SendMessageOpts::default())
+        .await?;
+}
+
+/// A snapshot-built client must still be able to store and deliver messages.
+/// The delivery-sequence allocator shares `refresh_state` with network
+/// progress, so a reset that clears the whole table leaves the client unable
+/// to allocate a delivery number and silently disables every test built on it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_snapshot_tester_can_still_allocate_delivery_sequences() {
+    use std::sync::Arc;
+    use xmtp_db::delivery::QueryDelivery;
+
+    tester!(alix);
+    let snapshot = Arc::new(alix.db_snapshot());
+    tester!(alix2, snapshot: snapshot);
+
+    let group = alix2.create_group(None, None)?;
+    group
+        .send_message(b"after snapshot", SendMessageOpts::default())
+        .await?;
+
+    let messages = group.find_messages(&Default::default())?;
+    assert!(
+        !messages.is_empty(),
+        "a snapshot client must store messages"
+    );
+    // Storing a deliverable message allocates from the shared allocator row,
+    // so a usable cursor proves the row survived the reset.
+    let cursor = alix2.context.db().current_delivery_cursor()?;
+    assert!(cursor.delivery_sequence > 0);
+}
+
+/// An echo whose own intent kind a newer build wrote must HOLD the head, not
+/// skip it. The envelope may be a commit every other member applied; advancing
+/// past it would leave this installation behind the group with no way back.
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_unreadable_own_intent_kind_holds_the_head() {
+    use xmtp_db::group_intent::IntentKind;
+    use xmtp_db::incoming_envelope::{QueryIncomingEnvelope, StreamTopic};
+    use xmtp_db::prelude::QueryGroupIntent;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+
+    // Bo publishes, so an echo for Bo's own payload hash is on the topic.
+    bo_group
+        .send_message(b"from bo", SendMessageOpts::default())
+        .await?;
+    let hash = bo
+        .context
+        .db()
+        .find_group_intents(bo_group.group_id, None, Some(IntentKind::all().collect()))?
+        .into_iter()
+        .find_map(|intent| intent.payload_hash)
+        .expect("the send must have stored a payload hash");
+
+    // Rewrite the kind to one this build cannot decode: the state a newer
+    // build leaves behind before a downgrade.
+    let future_kind = IntentKind::all().count() as i32 + 1;
+    bo.context.db().raw_query(|conn| {
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::group_intents::dsl;
+        diesel::update(dsl::group_intents.filter(dsl::payload_hash.eq(&hash)))
+            .set(dsl::kind.eq(future_kind))
+            .execute(conn)
+    })?;
+
+    // The probe reports it without erroring, which is what lets the caller
+    // hold the head instead of failing the query and retrying forever.
+    assert!(bo.context.db().own_intent_kind_is_unreadable(&hash)?);
+
+    // The head is held: P does not advance past the envelope, so a commit
+    // everyone else applied is never skipped.
+    let topic = StreamTopic::group(bo_group.group_id);
+    let before = bo.context.db().topic_progress(&topic)?.processed;
+    let _ = bo_group.sync().await;
+    let after = bo.context.db().topic_progress(&topic)?.processed;
+    assert_eq!(
+        before, after,
+        "an unreadable own intent kind must not advance the processed cursor"
+    );
+}
