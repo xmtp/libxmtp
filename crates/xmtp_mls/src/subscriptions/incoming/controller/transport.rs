@@ -124,9 +124,17 @@ impl Transport {
     }
 
     /// Drop all uncommitted wire progress. The next open starts from durable receipt.
+    ///
+    /// A shorter delay never shortens a longer pending one. An unrelated
+    /// per-topic failure must not erase a permanent-failure backoff and send
+    /// the client back to reopening against a broken backend every second.
     pub(super) fn disconnect(&mut self, delay: Duration) {
         self.registered.clear();
-        self.state = TransportState::Waiting(Instant::now() + delay);
+        let at = Instant::now() + delay;
+        self.state = match self.state {
+            TransportState::Waiting(pending) if pending > at => TransportState::Waiting(pending),
+            _ => TransportState::Waiting(at),
+        };
     }
 
     /// A permanent classification describes one response, not the source. The

@@ -285,6 +285,10 @@ pub trait QueryGroupIntent {
     /// Abandon every unpublished and unconfirmed intent for a group that this
     /// installation is no longer a member of. Returns the number abandoned.
     ///
+    /// These become [`IntentState::Error`], not `Superseded`: the write did not
+    /// lose a compare-and-swap race, so reporting it as one would tell the
+    /// caller to re-derive from a value that did not change and queue again.
+    ///
     /// `Committed` intents are deliberately excluded: their post-commit work
     /// already landed on the network and may still owe Welcomes to members this
     /// installation added, which must still be published.
@@ -558,6 +562,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
     }
 
     /// Removal is terminal for work that has not been accepted by the group.
+    /// The state is `Error`, not `Superseded`: nothing raced this write.
     /// A `ToPublish` intent can never be published now, and a `Published` one
     /// can never be confirmed: its own echo is unreachable behind the inactive
     /// boundary, and a later re-add installs fresh state past it. Leaving those
@@ -580,7 +585,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                         .or(dsl::state.eq(IntentState::Published)),
                 )
                 .set((
-                    dsl::state.eq(IntentState::Superseded),
+                    dsl::state.eq(IntentState::Error),
                     dsl::prepared_envelopes.eq(None::<Vec<u8>>),
                     dsl::staged_commit.eq(None::<Vec<u8>>),
                     dsl::payload_hash.eq(None::<Vec<u8>>),

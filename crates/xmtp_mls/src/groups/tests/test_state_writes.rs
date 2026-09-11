@@ -169,7 +169,7 @@ async fn welcome_admission_queues_rotation_atomically_before_decode() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
     use xmtp_db::group_intent::{IntentKind, IntentState};
-    use xmtp_db::prelude::QueryGroupIntent;
+    use xmtp_db::prelude::{QueryGroupIntent, QueryPreparedEnvelope};
 
     tester!(alix);
     tester!(bo);
@@ -207,6 +207,37 @@ async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
         remaining.is_empty(),
         "removal must abandon unaccepted intents, found {remaining:?}"
     );
+
+    // Clearing the preparation is the safety-critical half: a stale staged
+    // commit or payload hash could otherwise be matched or reused against the
+    // membership generation installed by a later re-add.
+    let abandoned = bo.context.db().find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::Error]),
+        Some(IntentKind::all().collect()),
+    )?;
+    assert!(
+        !abandoned.is_empty(),
+        "the intent must be terminally failed"
+    );
+    for intent in &abandoned {
+        assert!(
+            intent.staged_commit.is_none(),
+            "staged commit must be cleared"
+        );
+        assert!(
+            intent.payload_hash.is_none(),
+            "payload hash must be cleared"
+        );
+        assert!(
+            intent.published_in_epoch.is_none(),
+            "published epoch must be cleared"
+        );
+        assert!(
+            bo.context.db().prepared_envelopes(intent.id)?.is_none(),
+            "prepared bytes must be cleared"
+        );
+    }
 
     // The re-added installation can publish again.
     alix_group.add_members(&[bo.inbox_id()]).await?;
