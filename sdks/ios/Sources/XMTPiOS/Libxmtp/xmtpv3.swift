@@ -7992,79 +7992,6 @@ public func FfiConverterTypeFfiCatchUpSummary_lower(_ value: FfiCatchUpSummary) 
   return FfiConverterTypeFfiCatchUpSummary.lower(value)
 }
 
-/// Optional callbacks and stream limits for client creation.
-/// Keep future runtime options in this record. Another separate argument exceeds
-/// the argument-buffer space in the pinned JNA ARM64 implementation.
-public struct FfiClientRuntimeOptions {
-  /**
-   * Callbacks for group-state changes. `None` registers no callbacks.
-   */
-  public var changeCallbacks: FfiUnstableChangeCallbacks?
-  /**
-   * Stream limit overrides. `None` uses core defaults.
-   */
-  public var streamSettings: FfiStreamSettings?
-
-  // Default memberwise initializers are never public by default, so we
-  // declare one manually.
-  public init(
-    /**
-     * Callbacks for group-state changes. `None` registers no callbacks.
-     */
-    changeCallbacks: FfiUnstableChangeCallbacks? = nil,
-    /**
-     * Stream limit overrides. `None` uses core defaults.
-     */
-    streamSettings: FfiStreamSettings? = nil
-  ) {
-    self.changeCallbacks = changeCallbacks
-    self.streamSettings = streamSettings
-  }
-
-}
-
-#if compiler(>=6)
-  extension FfiClientRuntimeOptions: Sendable {}
-#endif
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiClientRuntimeOptions: FfiConverterRustBuffer {
-  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
-    -> FfiClientRuntimeOptions
-  {
-    return
-      try FfiClientRuntimeOptions(
-        changeCallbacks: FfiConverterOptionTypeFfiUnstableChangeCallbacks.read(from: &buf),
-        streamSettings: FfiConverterOptionTypeFfiStreamSettings.read(from: &buf)
-      )
-  }
-
-  public static func write(_ value: FfiClientRuntimeOptions, into buf: inout [UInt8]) {
-    FfiConverterOptionTypeFfiUnstableChangeCallbacks.write(value.changeCallbacks, into: &buf)
-    FfiConverterOptionTypeFfiStreamSettings.write(value.streamSettings, into: &buf)
-  }
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiClientRuntimeOptions_lift(_ buf: RustBuffer) throws
-  -> FfiClientRuntimeOptions
-{
-  return try FfiConverterTypeFfiClientRuntimeOptions.lift(buf)
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiClientRuntimeOptions_lower(_ value: FfiClientRuntimeOptions)
-  -> RustBuffer
-{
-  return FfiConverterTypeFfiClientRuntimeOptions.lower(value)
-}
-
 public struct FfiConsent: Equatable, Hashable {
   public var entityType: FfiConsentEntityType
   public var state: FfiConsentState
@@ -12103,271 +12030,6 @@ public func FfiConverterTypeFfiStreamFailureDetails_lower(_ value: FfiStreamFail
   -> RustBuffer
 {
   return FfiConverterTypeFfiStreamFailureDetails.lower(value)
-}
-
-/// Optional stream limits. Omitted fields use core defaults. Timer values are milliseconds.
-public struct FfiStreamSettings: Equatable, Hashable {
-  /**
-   * Maximum rows in one durable admission batch.
-   */
-  public var maxAdmissionRows: UInt32?
-  /**
-   * Maximum encoded bytes in one durable admission batch.
-   */
-  public var maxAdmissionBytes: UInt64?
-  /**
-   * Maximum rows loaded in one incoming processing batch.
-   */
-  public var maxFetchedRows: UInt32?
-  /**
-   * Maximum encoded bytes loaded in one incoming processing batch.
-   */
-  public var maxFetchedBytes: UInt64?
-  /**
-   * Maximum unresolved group rows across topics.
-   */
-  public var groupPendingRows: UInt64?
-  /**
-   * Maximum encoded bytes in unresolved group rows.
-   */
-  public var groupPendingBytes: UInt64?
-  /**
-   * Maximum unresolved Welcome rows across topics.
-   */
-  public var welcomePendingRows: UInt64?
-  /**
-   * Maximum encoded bytes in unresolved Welcome rows.
-   */
-  public var welcomePendingBytes: UInt64?
-  /**
-   * Maximum unresolved identity rows across topics.
-   */
-  public var identityPendingRows: UInt64?
-  /**
-   * Maximum encoded bytes in unresolved identity rows.
-   */
-  public var identityPendingBytes: UInt64?
-  /**
-   * Maximum unresolved rows for one topic.
-   */
-  public var maxPendingRowsPerTopic: UInt64?
-  /**
-   * Maximum encoded bytes in unresolved rows for one topic.
-   */
-  public var maxPendingBytesPerTopic: UInt64?
-  /**
-   * Maximum concurrent dependency requests.
-   */
-  public var maxDependencyRequests: UInt32?
-  /**
-   * Maximum candidate rows in one local delivery read.
-   */
-  public var maxLocalReadRows: UInt32?
-  /**
-   * Maximum message bytes in one local delivery read.
-   */
-  public var maxLocalReadBytes: UInt64?
-  /**
-   * Time between receiver fallback checks, in milliseconds.
-   */
-  public var receiverFallbackIntervalMs: UInt64?
-  /**
-   * Time between active local database checks, in milliseconds.
-   */
-  public var activeDatabasePollIntervalMs: UInt64?
-  /**
-   * Default consumer ownership lease, in milliseconds. Must exceed the poll interval.
-   */
-  public var defaultConsumerLeaseDurationMs: UInt64?
-  /**
-   * Identity dependency deadline, in milliseconds. Must exceed the backend statement timeout.
-   */
-  public var identityReferenceWaitMs: UInt64?
-  /**
-   * Fixed processing-barrier deadline, in milliseconds.
-   */
-  public var barrierTimeoutMs: UInt64?
-
-  // Default memberwise initializers are never public by default, so we
-  // declare one manually.
-  public init(
-    /**
-     * Maximum rows in one durable admission batch.
-     */
-    maxAdmissionRows: UInt32? = nil,
-    /**
-     * Maximum encoded bytes in one durable admission batch.
-     */
-    maxAdmissionBytes: UInt64? = nil,
-    /**
-     * Maximum rows loaded in one incoming processing batch.
-     */
-    maxFetchedRows: UInt32? = nil,
-    /**
-     * Maximum encoded bytes loaded in one incoming processing batch.
-     */
-    maxFetchedBytes: UInt64? = nil,
-    /**
-     * Maximum unresolved group rows across topics.
-     */
-    groupPendingRows: UInt64? = nil,
-    /**
-     * Maximum encoded bytes in unresolved group rows.
-     */
-    groupPendingBytes: UInt64? = nil,
-    /**
-     * Maximum unresolved Welcome rows across topics.
-     */
-    welcomePendingRows: UInt64? = nil,
-    /**
-     * Maximum encoded bytes in unresolved Welcome rows.
-     */
-    welcomePendingBytes: UInt64? = nil,
-    /**
-     * Maximum unresolved identity rows across topics.
-     */
-    identityPendingRows: UInt64? = nil,
-    /**
-     * Maximum encoded bytes in unresolved identity rows.
-     */
-    identityPendingBytes: UInt64? = nil,
-    /**
-     * Maximum unresolved rows for one topic.
-     */
-    maxPendingRowsPerTopic: UInt64? = nil,
-    /**
-     * Maximum encoded bytes in unresolved rows for one topic.
-     */
-    maxPendingBytesPerTopic: UInt64? = nil,
-    /**
-     * Maximum concurrent dependency requests.
-     */
-    maxDependencyRequests: UInt32? = nil,
-    /**
-     * Maximum candidate rows in one local delivery read.
-     */
-    maxLocalReadRows: UInt32? = nil,
-    /**
-     * Maximum message bytes in one local delivery read.
-     */
-    maxLocalReadBytes: UInt64? = nil,
-    /**
-     * Time between receiver fallback checks, in milliseconds.
-     */
-    receiverFallbackIntervalMs: UInt64? = nil,
-    /**
-     * Time between active local database checks, in milliseconds.
-     */
-    activeDatabasePollIntervalMs: UInt64? = nil,
-    /**
-     * Default consumer ownership lease, in milliseconds. Must exceed the poll interval.
-     */
-    defaultConsumerLeaseDurationMs: UInt64? = nil,
-    /**
-     * Identity dependency deadline, in milliseconds. Must exceed the backend statement timeout.
-     */
-    identityReferenceWaitMs: UInt64? = nil,
-    /**
-     * Fixed processing-barrier deadline, in milliseconds.
-     */
-    barrierTimeoutMs: UInt64? = nil
-  ) {
-    self.maxAdmissionRows = maxAdmissionRows
-    self.maxAdmissionBytes = maxAdmissionBytes
-    self.maxFetchedRows = maxFetchedRows
-    self.maxFetchedBytes = maxFetchedBytes
-    self.groupPendingRows = groupPendingRows
-    self.groupPendingBytes = groupPendingBytes
-    self.welcomePendingRows = welcomePendingRows
-    self.welcomePendingBytes = welcomePendingBytes
-    self.identityPendingRows = identityPendingRows
-    self.identityPendingBytes = identityPendingBytes
-    self.maxPendingRowsPerTopic = maxPendingRowsPerTopic
-    self.maxPendingBytesPerTopic = maxPendingBytesPerTopic
-    self.maxDependencyRequests = maxDependencyRequests
-    self.maxLocalReadRows = maxLocalReadRows
-    self.maxLocalReadBytes = maxLocalReadBytes
-    self.receiverFallbackIntervalMs = receiverFallbackIntervalMs
-    self.activeDatabasePollIntervalMs = activeDatabasePollIntervalMs
-    self.defaultConsumerLeaseDurationMs = defaultConsumerLeaseDurationMs
-    self.identityReferenceWaitMs = identityReferenceWaitMs
-    self.barrierTimeoutMs = barrierTimeoutMs
-  }
-
-}
-
-#if compiler(>=6)
-  extension FfiStreamSettings: Sendable {}
-#endif
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiStreamSettings: FfiConverterRustBuffer {
-  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
-    -> FfiStreamSettings
-  {
-    return
-      try FfiStreamSettings(
-        maxAdmissionRows: FfiConverterOptionUInt32.read(from: &buf),
-        maxAdmissionBytes: FfiConverterOptionUInt64.read(from: &buf),
-        maxFetchedRows: FfiConverterOptionUInt32.read(from: &buf),
-        maxFetchedBytes: FfiConverterOptionUInt64.read(from: &buf),
-        groupPendingRows: FfiConverterOptionUInt64.read(from: &buf),
-        groupPendingBytes: FfiConverterOptionUInt64.read(from: &buf),
-        welcomePendingRows: FfiConverterOptionUInt64.read(from: &buf),
-        welcomePendingBytes: FfiConverterOptionUInt64.read(from: &buf),
-        identityPendingRows: FfiConverterOptionUInt64.read(from: &buf),
-        identityPendingBytes: FfiConverterOptionUInt64.read(from: &buf),
-        maxPendingRowsPerTopic: FfiConverterOptionUInt64.read(from: &buf),
-        maxPendingBytesPerTopic: FfiConverterOptionUInt64.read(from: &buf),
-        maxDependencyRequests: FfiConverterOptionUInt32.read(from: &buf),
-        maxLocalReadRows: FfiConverterOptionUInt32.read(from: &buf),
-        maxLocalReadBytes: FfiConverterOptionUInt64.read(from: &buf),
-        receiverFallbackIntervalMs: FfiConverterOptionUInt64.read(from: &buf),
-        activeDatabasePollIntervalMs: FfiConverterOptionUInt64.read(from: &buf),
-        defaultConsumerLeaseDurationMs: FfiConverterOptionUInt64.read(from: &buf),
-        identityReferenceWaitMs: FfiConverterOptionUInt64.read(from: &buf),
-        barrierTimeoutMs: FfiConverterOptionUInt64.read(from: &buf)
-      )
-  }
-
-  public static func write(_ value: FfiStreamSettings, into buf: inout [UInt8]) {
-    FfiConverterOptionUInt32.write(value.maxAdmissionRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.maxAdmissionBytes, into: &buf)
-    FfiConverterOptionUInt32.write(value.maxFetchedRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.maxFetchedBytes, into: &buf)
-    FfiConverterOptionUInt64.write(value.groupPendingRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.groupPendingBytes, into: &buf)
-    FfiConverterOptionUInt64.write(value.welcomePendingRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.welcomePendingBytes, into: &buf)
-    FfiConverterOptionUInt64.write(value.identityPendingRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.identityPendingBytes, into: &buf)
-    FfiConverterOptionUInt64.write(value.maxPendingRowsPerTopic, into: &buf)
-    FfiConverterOptionUInt64.write(value.maxPendingBytesPerTopic, into: &buf)
-    FfiConverterOptionUInt32.write(value.maxDependencyRequests, into: &buf)
-    FfiConverterOptionUInt32.write(value.maxLocalReadRows, into: &buf)
-    FfiConverterOptionUInt64.write(value.maxLocalReadBytes, into: &buf)
-    FfiConverterOptionUInt64.write(value.receiverFallbackIntervalMs, into: &buf)
-    FfiConverterOptionUInt64.write(value.activeDatabasePollIntervalMs, into: &buf)
-    FfiConverterOptionUInt64.write(value.defaultConsumerLeaseDurationMs, into: &buf)
-    FfiConverterOptionUInt64.write(value.identityReferenceWaitMs, into: &buf)
-    FfiConverterOptionUInt64.write(value.barrierTimeoutMs, into: &buf)
-  }
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiStreamSettings_lift(_ buf: RustBuffer) throws -> FfiStreamSettings {
-  return try FfiConverterTypeFfiStreamSettings.lift(buf)
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiStreamSettings_lower(_ value: FfiStreamSettings) -> RustBuffer {
-  return FfiConverterTypeFfiStreamSettings.lower(value)
 }
 
 public struct FfiTextContent: Equatable, Hashable {
@@ -17188,30 +16850,6 @@ private struct FfiConverterOptionTypeFfiCatchUpSummary: FfiConverterRustBuffer {
 #if swift(>=5.8)
   @_documentation(visibility: private)
 #endif
-private struct FfiConverterOptionTypeFfiClientRuntimeOptions: FfiConverterRustBuffer {
-  typealias SwiftType = FfiClientRuntimeOptions?
-
-  public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-    guard let value = value else {
-      writeInt(&buf, Int8(0))
-      return
-    }
-    writeInt(&buf, Int8(1))
-    FfiConverterTypeFfiClientRuntimeOptions.write(value, into: &buf)
-  }
-
-  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-    switch try readInt(&buf) as Int8 {
-    case 0: return nil
-    case 1: return try FfiConverterTypeFfiClientRuntimeOptions.read(from: &buf)
-    default: throw UniffiInternalError.unexpectedOptionalTag
-    }
-  }
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
 private struct FfiConverterOptionTypeFfiContentTypeId: FfiConverterRustBuffer {
   typealias SwiftType = FfiContentTypeId?
 
@@ -17540,30 +17178,6 @@ private struct FfiConverterOptionTypeFfiStreamFailureDetails: FfiConverterRustBu
     switch try readInt(&buf) as Int8 {
     case 0: return nil
     case 1: return try FfiConverterTypeFfiStreamFailureDetails.read(from: &buf)
-    default: throw UniffiInternalError.unexpectedOptionalTag
-    }
-  }
-}
-
-#if swift(>=5.8)
-  @_documentation(visibility: private)
-#endif
-private struct FfiConverterOptionTypeFfiStreamSettings: FfiConverterRustBuffer {
-  typealias SwiftType = FfiStreamSettings?
-
-  public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
-    guard let value = value else {
-      writeInt(&buf, Int8(0))
-      return
-    }
-    writeInt(&buf, Int8(1))
-    FfiConverterTypeFfiStreamSettings.write(value, into: &buf)
-  }
-
-  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
-    switch try readInt(&buf) as Int8 {
-    case 0: return nil
-    case 1: return try FfiConverterTypeFfiStreamSettings.read(from: &buf)
     default: throw UniffiInternalError.unexpectedOptionalTag
     }
   }
@@ -19666,18 +19280,16 @@ public func connectToBackend(
 /// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
 /// ```
 ///
-/// `runtime_options.change_callbacks` is unstable: notifications for group-state changes,
+/// `change_callbacks` is unstable: notifications for group-state changes,
 /// registered here because the changes they report arrive from the stream and
 /// sync paths, where no SDK call is on the stack to carry them. `None` (the
 /// SDK-side default) registers nothing. See
 /// [`change_callbacks::FfiUnstableChangeCallbacks`].
-/// Raw FFI callers pass callbacks and stream settings in `runtime_options`.
-/// This changes the raw FFI signature, not the public SDK creation options.
 public func createClient(
   api: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier,
   nonce: UInt64, legacySignedPrivateKeyProto: Data?, deviceSyncMode: FfiDeviceSyncMode?,
   allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?, workerConfig: FfiWorkerConfig?,
-  runtimeOptions: FfiClientRuntimeOptions? = nil
+  changeCallbacks: FfiUnstableChangeCallbacks? = nil
 ) async throws -> FfiXmtpClient {
   return
     try await uniffiRustCallAsync(
@@ -19691,7 +19303,7 @@ public func createClient(
           FfiConverterOptionBool.lower(allowOffline),
           FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts),
           FfiConverterOptionTypeFfiWorkerConfig.lower(workerConfig),
-          FfiConverterOptionTypeFfiClientRuntimeOptions.lower(runtimeOptions)
+          FfiConverterOptionTypeFfiUnstableChangeCallbacks.lower(changeCallbacks)
         )
       },
       pollFunc: ffi_xmtpv3_rust_future_poll_u64,
@@ -20158,7 +19770,7 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_func_connect_to_backend() != 61897 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_create_client() != 20654 {
+  if uniffi_xmtpv3_checksum_func_create_client() != 59600 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_func_decode_actions() != 30649 {

@@ -18,11 +18,22 @@ use xmtp_db::prelude::*;
 #[derive(Default)]
 struct RecordingCallback {
     changes: Mutex<Vec<AppDataChange>>,
+    changed: tokio::sync::Notify,
 }
 
 impl RecordingCallback {
     fn recorded(&self) -> Vec<AppDataChange> {
         self.changes.lock().expect("lock poisoned").clone()
+    }
+
+    async fn wait_for_changes(&self, count: usize) {
+        xmtp_common::time::timeout(Duration::from_secs(30), async {
+            while self.recorded().len() < count {
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .expect("app-data notifications did not arrive");
     }
 }
 
@@ -30,6 +41,7 @@ impl RecordingCallback {
 impl AppDataChangeCallback for RecordingCallback {
     async fn on_app_data_changed(&self, change: AppDataChange) {
         self.changes.lock().expect("lock poisoned").push(change);
+        self.changed.notify_one();
     }
 }
 
@@ -58,6 +70,7 @@ async fn test_app_data_callback_fires_for_remote_change() {
     let bo_group = bo.group(&group.group_id)?;
     bo_group.sync().await?;
 
+    recorder.wait_for_changes(1).await;
     let recorded = recorder.recorded();
     assert_eq!(
         recorded.len(),
@@ -82,6 +95,7 @@ async fn test_app_data_callback_fires_for_local_change() {
     let group = alix.create_group(None, None)?;
     group.update_app_data("from alix".to_string(), None).await?;
 
+    recorder.wait_for_changes(1).await;
     let recorded = recorder.recorded();
     assert_eq!(
         recorded.len(),
@@ -249,6 +263,7 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
     alix_group.sync().await?;
     alix_group.sync().await?;
 
+    recorder.wait_for_changes(3).await;
     let values: Vec<_> = recorder
         .recorded()
         .into_iter()
@@ -324,6 +339,7 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
         Some(IntentState::Superseded),
         "an abandoned guarded intent must be Superseded, not Processed"
     );
+    recorder.wait_for_changes(2).await;
     let values: Vec<_> = recorder
         .recorded()
         .into_iter()
@@ -411,6 +427,7 @@ const WEDGE: &str = "wedge";
 struct WedgingCallback {
     entered: Mutex<Vec<String>>,
     returned: Mutex<Vec<String>>,
+    changed: tokio::sync::Notify,
 }
 
 impl WedgingCallback {
@@ -420,6 +437,16 @@ impl WedgingCallback {
 
     fn returned(&self) -> Vec<String> {
         self.returned.lock().expect("lock poisoned").clone()
+    }
+
+    async fn wait_for_counts(&self, entered: usize, returned: usize) {
+        xmtp_common::time::timeout(Duration::from_secs(30), async {
+            while self.entered().len() < entered || self.returned().len() < returned {
+                self.changed.notified().await;
+            }
+        })
+        .await
+        .expect("callback dispatch did not reach the expected state");
     }
 
     /// Drop whatever arrived while the group was being set up, so the
@@ -438,10 +465,12 @@ impl AppDataChangeCallback for WedgingCallback {
             .lock()
             .expect("lock poisoned")
             .push(value.clone());
+        self.changed.notify_one();
         if value == WEDGE {
             futures::future::pending::<()>().await;
         }
         self.returned.lock().expect("lock poisoned").push(value);
+        self.changed.notify_one();
     }
 }
 
@@ -477,6 +506,7 @@ async fn test_wedged_callback_does_not_stall_sync_forever() {
         .await
         .expect("sync never returned: the wedged callback was not abandoned")?;
 
+    callback.wait_for_counts(1, 0).await;
     assert_eq!(
         callback.entered(),
         [WEDGE.to_string()],
@@ -496,6 +526,7 @@ async fn test_wedged_callback_does_not_stall_sync_forever() {
         .update_app_data("after".to_string(), None)
         .await?;
     bo_group.sync().await?;
+    callback.wait_for_counts(2, 1).await;
     assert_eq!(
         callback.returned(),
         ["after".to_string()],
