@@ -343,7 +343,7 @@ async fn a_healthy_receiver_gets_one_fixed_barrier_wait() {
     ))));
     assert!(!controller.read_due(&topic, &key, started + interval / 2)?);
     assert!(controller.read_due(&topic, &key, started + interval)?);
-    controller.scopes.get_mut(&1).unwrap().scope = IncomingScope::Topics(vec![topic.clone()]);
+    controller.scopes.get_mut(&1).unwrap().scope = ScopeKind::Topics(vec![topic.clone()]);
     assert!(!controller.read_due(&topic, &key, started + interval / 2)?);
     assert!(controller.read_due(&topic, &key, started + interval)?);
     controller.command(Command::Acquire {

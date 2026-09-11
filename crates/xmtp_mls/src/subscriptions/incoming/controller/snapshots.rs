@@ -55,15 +55,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 });
                 let removed = self.retired.contains(topic);
                 let registered = self.active.contains(topic);
-                let complete = target.is_some_and(|target| {
-                    progress.received >= target
-                        && match key.kind {
-                            NetworkEntityKind::Welcome => pending.is_empty(),
-                            NetworkEntityKind::Group | NetworkEntityKind::Identity => {
-                                progress.processed >= target
-                            }
-                        }
-                });
+                let complete = crate::subscriptions::barrier::durable_complete(
+                    key.kind,
+                    target,
+                    progress,
+                    pending.len(),
+                );
                 let error = self
                     .topic_errors
                     .get(topic)
@@ -118,7 +115,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             snapshot.connection = self.connection;
             snapshot.discovery_pending = matches!(
                 scope.scope,
-                IncomingScope::AllGroups | IncomingScope::DeviceSyncGroups
+                ScopeKind::AllGroups | ScopeKind::DeviceSyncGroups
             ) && topics.iter().any(|topic| {
                 topic.registration == IncomingRegistration::Pending
                     || (topic.topic.kind() == TopicKind::WelcomeMessagesV1

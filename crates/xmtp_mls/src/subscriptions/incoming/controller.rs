@@ -25,17 +25,41 @@ use processing::{DependencyKey, DependencyResult};
 
 struct Scope {
     generation: u64,
-    scope: IncomingScope,
+    scope: ScopeKind,
     topics: HashSet<Topic>,
     targets: TopicCursor,
     receipt_wait_started: Instant,
 }
 
+enum ScopeKind {
+    Topics(Vec<Topic>),
+    Groups(Vec<GroupId>),
+    Barrier {
+        deadline: Instant,
+        receive_policy: IncomingReceivePolicy,
+    },
+    AllGroups,
+    DeviceSyncGroups,
+}
+
 impl Scope {
     fn new(generation: u64, scope: IncomingScope) -> Self {
-        let targets = match &scope {
-            IncomingScope::Barrier { targets, .. } => targets.clone(),
-            _ => TopicCursor::new(),
+        let (scope, targets) = match scope {
+            IncomingScope::Barrier {
+                targets,
+                deadline,
+                receive_policy,
+            } => (
+                ScopeKind::Barrier {
+                    deadline,
+                    receive_policy,
+                },
+                targets,
+            ),
+            IncomingScope::Topics(topics) => (ScopeKind::Topics(topics), TopicCursor::new()),
+            IncomingScope::Groups(groups) => (ScopeKind::Groups(groups), TopicCursor::new()),
+            IncomingScope::AllGroups => (ScopeKind::AllGroups, TopicCursor::new()),
+            IncomingScope::DeviceSyncGroups => (ScopeKind::DeviceSyncGroups, TopicCursor::new()),
         };
         Self {
             generation,
@@ -264,7 +288,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let discoveries = if self
             .scopes
             .values()
-            .any(|scope| matches!(scope.scope, IncomingScope::AllGroups))
+            .any(|scope| matches!(scope.scope, ScopeKind::AllGroups))
         {
             self.context
                 .db()
@@ -283,7 +307,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let sync_groups = if self
             .scopes
             .values()
-            .any(|scope| matches!(scope.scope, IncomingScope::DeviceSyncGroups))
+            .any(|scope| matches!(scope.scope, ScopeKind::DeviceSyncGroups))
         {
             self.context
                 .db()
@@ -296,7 +320,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             HashSet::new()
         };
         for scope in self.scopes.values_mut() {
-            if let IncomingScope::Groups(groups) = &scope.scope {
+            if let ScopeKind::Groups(groups) = &scope.scope {
                 for group_id in groups {
                     let topic = Topic::new_group_message(group_id);
                     if !scope.topics.contains(&topic) {
@@ -313,19 +337,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
             }
             scope.topics = match &scope.scope {
-                IncomingScope::Topics(topics) => topics.iter().cloned().collect(),
-                IncomingScope::Groups(groups) => {
-                    groups.iter().map(Topic::new_group_message).collect()
-                }
-                IncomingScope::Barrier { targets, .. } => targets.keys().cloned().collect(),
-                IncomingScope::AllGroups => discoveries
+                ScopeKind::Topics(topics) => topics.iter().cloned().collect(),
+                ScopeKind::Groups(groups) => groups.iter().map(Topic::new_group_message).collect(),
+                ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
+                ScopeKind::AllGroups => discoveries
                     .iter()
                     .cloned()
                     .chain(std::iter::once(Topic::new_welcome_message(
                         self.context.installation_id(),
                     )))
                     .collect(),
-                IncomingScope::DeviceSyncGroups => sync_groups
+                ScopeKind::DeviceSyncGroups => sync_groups
                     .iter()
                     .cloned()
                     .chain(std::iter::once(Topic::new_welcome_message(
@@ -343,7 +365,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .map(|(group, _)| Topic::new_group_message(*group))
             .collect();
         if self.scopes.values().any(|scope| {
-            matches!(scope.scope, IncomingScope::Groups(_))
+            matches!(scope.scope, ScopeKind::Groups(_))
                 && scope
                     .topics
                     .iter()
@@ -741,12 +763,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let suspended = self.live_suspended();
         for scope in self.scopes.values() {
             let (target, deadline, receive_policy) = match &scope.scope {
-                IncomingScope::Barrier {
-                    targets,
+                ScopeKind::Barrier {
                     deadline,
                     receive_policy,
                 } => (
-                    self.barrier_receipt_target(topic, targets),
+                    self.barrier_receipt_target(topic, &scope.targets),
                     Some(*deadline),
                     *receive_policy,
                 ),
@@ -794,8 +815,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if barrier
             && !self.extra_topics.contains(topic)
             && !self.scopes.values().any(|scope| {
-                !matches!(scope.scope, IncomingScope::Barrier { .. })
-                    && scope.topics.contains(topic)
+                !matches!(scope.scope, ScopeKind::Barrier { .. }) && scope.topics.contains(topic)
             })
         {
             return Ok(false);

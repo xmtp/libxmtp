@@ -13,7 +13,7 @@ use xmtp_db::{
     StorageError,
     consent_record::ConsentState,
     group::GroupQueryArgs,
-    incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic},
+    incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic, TopicProgress},
     prelude::*,
 };
 use xmtp_proto::types::{Cursor, GroupId, Topic, TopicCursor, TopicKind};
@@ -125,6 +125,25 @@ impl crate::worker::NeedsDbReconnect for BarrierError {
     }
 }
 
+/// Test durable completion without assuming transport coverage or an active group.
+/// Welcome progress requires every pending parent through the fixed target to finish.
+pub(crate) fn durable_complete(
+    kind: NetworkEntityKind,
+    target: Option<Cursor>,
+    progress: TopicProgress,
+    pending_count: usize,
+) -> bool {
+    target.is_some_and(|target| {
+        progress.received >= target
+            && match kind {
+                NetworkEntityKind::Welcome => pending_count == 0,
+                NetworkEntityKind::Group | NetworkEntityKind::Identity => {
+                    progress.processed >= target
+                }
+            }
+    })
+}
+
 fn read_topic<C: XmtpSharedContext>(context: &C, topic: &Topic, target: Cursor) -> BarrierTopic {
     let mut status = BarrierTopic {
         topic: topic.clone(),
@@ -193,14 +212,9 @@ fn read_topic<C: XmtpSharedContext>(context: &C, topic: &Topic, target: Cursor) 
     if kind == NetworkEntityKind::Welcome {
         status.unresolved_welcomes = pending.iter().map(|row| row.sequence_id).collect();
     }
-    let processed = if kind == NetworkEntityKind::Welcome {
-        pending.is_empty()
-    } else {
-        progress.processed >= target
-    };
     status.cause = if progress.received < target {
         Some(BarrierCause::ReceiptPending)
-    } else if processed {
+    } else if durable_complete(kind, Some(target), progress, pending.len()) {
         None
     } else if !pending.is_empty()
         && (kind != NetworkEntityKind::Welcome && pending[0].blocked
