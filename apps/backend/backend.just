@@ -86,9 +86,11 @@ logs *services:
       && docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
 
 # Stop this worktree's stack and give up its port slot.
-[script("bash")]
+#
+# Teardown must succeed before the claim is dropped: releasing a slot whose
+# containers are still running would let another worktree claim those ports.
 release:
-    {{ root }}/dev/docker/down --volumes || true
+    {{ root }}/dev/docker/down --volumes
     {{ root }}/dev/worktree-env --release
 
 # Verify client traces, backend metrics, and the local dashboard.
