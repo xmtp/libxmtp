@@ -50,6 +50,16 @@ pub enum IncomingError {
 impl RetryableError for IncomingError {
     fn is_retryable(&self) -> bool {
         match self {
+            // The controller repairs this refusal with an ordered read from F.
+            // Raw storage callers must still treat the omitted prefix as invalid.
+            Self::Storage(xmtp_db::StorageError::Stream(
+                xmtp_db::stream_storage::StreamStorageError::MissingPrefix { .. },
+            ))
+            | Self::Store(crate::mls_store::MlsStoreError::Storage(
+                xmtp_db::StorageError::Stream(
+                    xmtp_db::stream_storage::StreamStorageError::MissingPrefix { .. },
+                ),
+            )) => true,
             Self::Storage(error) => error.is_retryable(),
             Self::Store(error) => error.is_retryable(),
             Self::Transport(error) => error.is_retryable(),

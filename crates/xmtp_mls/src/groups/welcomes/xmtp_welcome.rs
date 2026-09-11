@@ -393,14 +393,8 @@ where
                 current.is_active() && existing.membership_state != GroupMembershipState::Restored;
             // A remove-and-re-add commit can retire this installation at the join anchor.
             // Removal can advance its public epoch without installing that epoch's secrets.
-            // Only a newer Welcome for that inactive MLS group can replace state there.
-            if processed == anchor
-                && !current.is_active()
-                && current.epoch() <= incoming_epoch
-                && existing
-                    .sequence_id
-                    .is_some_and(|previous| previous >= 0 && welcome.cursor.0 > previous as u64)
-            {
+            // Welcome publication order does not establish MLS epoch order.
+            if processed == anchor && !current.is_active() && current.epoch() <= incoming_epoch {
                 anchor_mode = JoinAnchorMode::InactiveReadd;
             }
             if processed > anchor
@@ -417,18 +411,11 @@ where
             }
         }
 
-        // Check if this is a re-add scenario:
-        // - Self-removal (PendingRemove): user left voluntarily, then gets re-added
-        // - Removal by others: user was removed by another member (membership state stays Allowed
-        //   but MLS group is inactive)
-        // We verify it's a NEW welcome by checking that:
-        // 1. The existing group has a valid sequence_id (Some)
-        // 2. The new welcome's sequence_id is GREATER than the existing one
-        // This prevents incorrectly treating backup/restore or groups without sequence_ids as re-adds
-        let is_readd_after_leaving = existing_group.as_ref().is_some_and(|g| {
-            g.membership_state == GroupMembershipState::PendingRemove
-                && matches!(g.sequence_id, Some(seq) if (welcome.cursor.0 as i64) > seq)
-        });
+        // The checks above allow PendingRemove only for a valid inactive rejoin.
+        // It is not Restored, and an active MLS group returns before this point.
+        let is_readd_after_leaving = existing_group
+            .as_ref()
+            .is_some_and(|g| g.membership_state == GroupMembershipState::PendingRemove);
 
         let mls_group = OpenMlsGroup::from_welcome_logged(
             &provider,

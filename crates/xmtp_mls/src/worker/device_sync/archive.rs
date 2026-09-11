@@ -297,7 +297,7 @@ mod tests {
         tester!(bo, disable_workers);
 
         let alix_bo_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-        alix_bo_dm
+        let archived_message_id = alix_bo_dm
             .send_message(b"old group", Default::default())
             .await?;
 
@@ -329,6 +329,39 @@ mod tests {
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
 
+        // Imported history has no joined MLS state for this installation.
+        // Receipt may retain the old prefix, but processing must wait for a Welcome.
+        let restored = alix2.group(&alix_bo_dm.group_id)?;
+        let restored_topic = xmtp_db::incoming_envelope::StreamTopic::group(alix_bo_dm.group_id);
+        let before_join = alix2.db().topic_progress(&restored_topic)?;
+        crate::mls_store::MlsStore::new(alix2.context.clone())
+            .receive_topics_once(
+                &[xmtp_proto::types::Topic::new_group_message(
+                    alix_bo_dm.group_id,
+                )],
+                alix2
+                    .context
+                    .stream_settings()
+                    .incoming_limits(xmtp_db::incoming_envelope::NetworkEntityKind::Group),
+            )
+            .await?;
+        let received_before_join = alix2.db().topic_progress(&restored_topic)?;
+        assert!(received_before_join.received > before_join.processed);
+        assert!(matches!(
+            restored.process_pending_group_head(None)?,
+            crate::groups::mls_sync::GroupHeadOutcome::Inactive
+        ));
+        assert_eq!(
+            alix2.db().topic_progress(&restored_topic)?.processed,
+            before_join.processed
+        );
+        assert!(
+            !alix2
+                .db()
+                .pending_states_through(&restored_topic, received_before_join.received)?
+                .is_empty()
+        );
+
         let alix2_bo_dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
         let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
@@ -346,13 +379,30 @@ mod tests {
             .last_message_ns?;
         assert_eq!(timestamp, timestamp2);
 
-        alix2_bo_dm
+        let live_message_id = alix2_bo_dm
             .send_message(b"hi bo", Default::default())
             .await?;
 
         bo.sync_all_welcomes_and_groups(None).await?;
         let bo_alix2_dm = bo.group(&alix2_bo_dm.group_id)?;
         assert_eq!(bo_alix2_dm.test_last_message_bytes().await??, b"hi bo");
+
+        // Ordinary sync must add the new installation to the original DM too.
+        alix2.sync_all_welcomes_and_groups(None).await?;
+        let rejoined_original = alix2.group(&alix_bo_dm.group_id)?;
+        assert!(rejoined_original.is_active()?);
+        let stitched = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(stitched.len(), 4);
+        let application_ids: Vec<_> = stitched
+            .iter()
+            .filter(|message| message.kind == xmtp_db::group_message::GroupMessageKind::Application)
+            .map(|message| message.id.clone())
+            .collect();
+        assert_eq!(application_ids, vec![archived_message_id, live_message_id]);
+        assert_eq!(alix2.find_groups(Default::default())?.len(), 1);
+        let bo_original = bo.group(&alix_bo_dm.group_id)?;
+        rejoined_original.test_can_talk_with(&bo_original).await?;
+        bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
     #[rstest::rstest]

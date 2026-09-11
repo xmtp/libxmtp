@@ -1425,7 +1425,7 @@ async fn test_self_removal_simple() {
     );
 }
 
-#[xmtp_common::test(flavor = "current_thread")]
+#[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn test_membership_state_after_readd() {
     tester!(amal);
     tester!(bola);
@@ -1476,6 +1476,19 @@ async fn test_membership_state_after_readd() {
 
     // Amal syncs to send the add
     amal_group.sync().await.unwrap();
+
+    // Model an older Welcome published after the replacement Welcome.
+    // This fixture changes its stored ID; it does not delay network publication.
+    let delayed_welcome_sequence = i64::MAX;
+    let mut stored_group = bola.context.db().find_group(&amal_group.group_id)?.unwrap();
+    stored_group.sequence_id = Some(delayed_welcome_sequence);
+    assert_eq!(
+        bola.context
+            .db()
+            .insert_or_replace_group(stored_group)?
+            .sequence_id,
+        Some(delayed_welcome_sequence)
+    );
 
     // Bola syncs to receive the welcome message for being re-added
     bola.sync_welcomes().await.unwrap();

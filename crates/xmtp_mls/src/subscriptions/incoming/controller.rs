@@ -432,7 +432,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.opening = None;
             self.active.clear();
             self.subscribed = topics.clone();
-            self.open_at = Instant::now();
+            // A changed topic set must not bypass a failed receiver's retry delay.
         }
         if topics.is_empty()
             || self.source_failed
@@ -846,7 +846,19 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
+    /// Reopen from durable receipt after any failed admission. Keep pending work and scope targets.
     fn receive_error(&mut self, topic: Topic, error: IncomingError) {
+        // The transport can advance its read cursor before storage commits. Drop
+        // that registration even when reconciliation immediately clears a pause.
+        self.subscription = None;
+        self.opening = None;
+        self.active.clear();
+        if !self.source_failed {
+            self.connection = IncomingConnection::Reconnecting;
+        }
+        let now = Instant::now();
+        self.open_at = now + self.context.stream_settings().receiver_fallback_interval;
+        self.last_read.insert(topic.clone(), now);
         if capacity(&error) {
             self.paused.insert(topic.clone());
         } else if !error.is_retryable() {

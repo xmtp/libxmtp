@@ -98,7 +98,7 @@ fn unsupported_welcome_wire(wire: &xmtp_proto::backend_v1::ServerEnvelope) -> bo
 pub struct GroupSyncSummary {
     /// Distinct selected groups, including groups found through the fixed Welcome target.
     pub num_eligible: usize,
-    /// Selected groups that remain active after required post-commit work completes.
+    /// Selected groups that remain active after required outgoing work completes.
     pub num_synced: usize,
 }
 
@@ -607,17 +607,23 @@ where
         for error in publish.into_iter().filter_map(Result::err) {
             summary.add_publish_err(error);
         }
-        if let Err(error) = crate::subscriptions::barrier::receive_through_current_until(
+        let received = crate::subscriptions::barrier::receive_through_current_until(
             &self.context,
             topics,
             deadline,
         )
-        .await
-        {
+        .await;
+        let unfinished = unfinished_sync_topics(received.as_ref().err());
+        if let Err(error) = received {
             add_group_sync_error(&mut summary, error.into());
         }
-        let post_commit =
-            run_group_sync_work(&groups, GroupSyncWork::PostCommit, concurrency, deadline).await;
+        let post_commit = run_group_sync_work(
+            &groups,
+            GroupSyncWork::PostCommit(&unfinished),
+            concurrency,
+            deadline,
+        )
+        .await;
         finish_group_sync(summary, num_eligible, post_commit)
     }
 
@@ -740,6 +746,7 @@ where
             deadline,
         )
         .await;
+        let unfinished = unfinished_sync_topics(received.result.as_ref().err());
         if let Err(error) = received.result {
             add_group_sync_error(&mut summary, error.into());
         }
@@ -761,16 +768,34 @@ where
         }
         let num_eligible = enrolled_ids.len();
         let groups: Vec<_> = enrolled.into_values().collect();
-        let post_commit =
-            run_group_sync_work(&groups, GroupSyncWork::PostCommit, concurrency, deadline).await;
+        let post_commit = run_group_sync_work(
+            &groups,
+            GroupSyncWork::PostCommit(&unfinished),
+            concurrency,
+            deadline,
+        )
+        .await;
         finish_group_sync(summary, num_eligible, post_commit)
     }
 }
 
 #[derive(Clone, Copy)]
-enum GroupSyncWork {
+enum GroupSyncWork<'a> {
     Publish,
-    PostCommit,
+    PostCommit(&'a HashSet<Topic>),
+}
+
+fn unfinished_sync_topics(
+    error: Option<&crate::subscriptions::barrier::BarrierError>,
+) -> HashSet<Topic> {
+    use crate::subscriptions::barrier::BarrierError;
+    let Some(BarrierError::Incomplete { unfinished, .. }) = error else {
+        return HashSet::new();
+    };
+    unfinished
+        .iter()
+        .map(|status| status.topic.clone())
+        .collect()
 }
 
 fn group_sync_topics<Context: XmtpSharedContext>(groups: &[MlsGroup<Context>]) -> Vec<Topic> {
@@ -783,7 +808,7 @@ fn group_sync_topics<Context: XmtpSharedContext>(groups: &[MlsGroup<Context>]) -
 /// Every group gets an outcome, including work still queued when the deadline expires.
 async fn run_group_sync_work<Context: XmtpSharedContext>(
     groups: &[MlsGroup<Context>],
-    work: GroupSyncWork,
+    work: GroupSyncWork<'_>,
     concurrency: usize,
     deadline: xmtp_common::time::Instant,
 ) -> Vec<Result<bool, GroupError>> {
@@ -805,8 +830,15 @@ async fn run_group_sync_work<Context: XmtpSharedContext>(
                         }
                         Ok(active)
                     }
-                    GroupSyncWork::PostCommit => {
+                    GroupSyncWork::PostCommit(unfinished) => {
                         group.post_commit().await?;
+                        if group.is_active()?
+                            && !unfinished.contains(&Topic::new_group_message(group.group_id))
+                        {
+                            // Maintenance adds outgoing work, not a replacement fixed target.
+                            // The outer timeout keeps this work within the same deadline.
+                            group.maybe_update_installations(None).await?;
+                        }
                         group.is_active()
                     }
                 }

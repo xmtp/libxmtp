@@ -46,6 +46,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         retry_blocked: bool,
     ) -> Result<GroupHeadOutcome, GroupMessageProcessingError> {
         let topic = StreamTopic::group(self.group_id);
+        if group_is_restored(&self.context.db(), &self.group_id)? {
+            return Ok(GroupHeadOutcome::Inactive);
+        }
         let Some(pending) = self.context.db().first_pending_envelope(&topic)? else {
             return Ok(GroupHeadOutcome::Idle);
         };
@@ -150,8 +153,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut events = DeferredEvents::new();
         let result = state_write(self.context.mls_storage(), |tx| {
             check_current_head(&tx.storage().db(), &topic, pending)?;
+            if group_is_restored(&tx.storage().db(), &self.group_id)? {
+                return Err(GroupMessageProcessingError::GroupInactive);
+            }
             let attempt = tx.savepoint(|tx| {
                 tx.with_group(self.group_id, |group, storage| {
+                    if !group.is_active() {
+                        return Err(GroupMessageProcessingError::GroupInactive);
+                    }
                     if envelope.group_id != self.group_id {
                         return Err(GroupMessageProcessingError::InvalidPayload);
                     }
@@ -256,6 +265,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let error = GroupMessageProcessingError::Envelope(error);
         state_write(self.context.mls_storage(), |tx| {
             check_current_head(&tx.storage().db(), &topic, pending)?;
+            if group_is_restored(&tx.storage().db(), &self.group_id)? {
+                return Err(GroupMessageProcessingError::GroupInactive);
+            }
             tx.with_group(self.group_id, |group, storage| {
                 if !group.is_active() {
                     return Err(GroupMessageProcessingError::GroupInactive);
@@ -270,6 +282,16 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         })?;
         Err(error)
     }
+}
+
+/// Archive placeholders have no joined state, even when their local MLS group is active.
+fn group_is_restored(
+    db: &impl DbQuery,
+    group_id: &GroupId,
+) -> Result<bool, GroupMessageProcessingError> {
+    Ok(db
+        .find_group(group_id)?
+        .is_some_and(|group| group.membership_state == GroupMembershipState::Restored))
 }
 
 fn check_current_head(
