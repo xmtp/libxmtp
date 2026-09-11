@@ -163,7 +163,8 @@
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::queued_leases_coalesce_during_dial_and_deliver_once` | Native XMTP async; scripted backend peer | `P3-STR-001` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/catch_up.rs` | `queries::bidi_transport::tests::catch_up::unknown_applied_warns_without_disturbing_delivery` | Native XMTP async; scripted backend peer | `P3-STR-001` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::coalescing_keeps_limits_boundaries_and_ack_ids` | Native XMTP async; scripted backend peer | `P3-STR-001` |
-| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::coalescing_commits_ack_ids_only_after_wire_acceptance` | Native XMTP async; scripted backend peer | `P3-STR-001` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::coalescing_commits_ack_ids_only_after_wire_acceptance` | Native XMTP async; scripted backend peer; token returned on rejected insertion | `P3-STR-001` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/coalescing.rs` | `queries::bidi_transport::tests::coalescing::update_budget_keeps_queued_ids_and_services_wire_events` | Native XMTP async; exhausted token budget; wire acknowledgement before refill | `API-REQ-097` |
 
 ## Phase 4 ordered receipt coverage
 
@@ -176,7 +177,8 @@ These rows record source assertions. They do not report a runtime pass.
 | `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::one_envelope_above_the_byte_limit_fails_without_skipping_it` | XMTP async; mock backend; typed capacity error at one row | `API-REQ-087` |
 | `crates/xmtp_api/src/tests/incoming.rs` | `tests::incoming::newest_targets_keep_absent_topics_at_zero` | XMTP async; mock backend; metadata-only targets 90 and 0 | `API-REQ-088` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_reconnect_replays_uncommitted_delivery_and_uses_received_floor` | native XMTP async; scripted backend; replay from 2, then acknowledge and resume from 20 | `API-REQ-089` |
-| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_capacity_error_survives_a_full_delivery_channel` | native XMTP async; scripted backend; depth-one full queue | `API-REQ-090` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_capacity_error_survives_a_full_delivery_channel` | native XMTP async; scripted backend; full queue is retryable; row and byte violations are permanent | `API-REQ-090` |
+| `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_multi_topic_frame_fits_one_queue_slot` | native XMTP async; 100-topic frame through a one-slot queue | `API-REQ-096` |
 | `crates/xmtp_api_backend/src/queries/bidi_transport/tests/incoming.rs` | `queries::bidi_transport::tests::incoming::raw_bad_order_blocks_the_complete_frame` | native XMTP async; scripted backend; decreasing cursors 8 then 7 | `API-REQ-091` |
 | `crates/xmtp_api_backend/src/envelope.rs` | `envelope::tests::ordered_batches_keep_sparse_positions_and_authoritative_bytes` | XMTP sync; two topics; starts 2 and 0; sparse positions 8, 11, and 20; raw ServerEnvelope retained | `API-REQ-092` |
 | `crates/xmtp_api_backend/src/envelope.rs` | `envelope::tests::failed_frame_does_not_advance_any_topic` | XMTP sync; zero cursor, decreasing cursor, and one-byte capacity cases; complete cursor map unchanged | `API-REQ-093` |

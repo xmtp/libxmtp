@@ -32,7 +32,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [`xmtp_mls_common`](existing-tests/xmtp-mls-common.md) | 271 | 29 |
 | [Database, identity, cryptography, and archive crates](existing-tests/core-crates.md) | 268 | 128 |
 | [Mobile, Node, and WebAssembly bindings](existing-tests/bindings.md) | 374 | 111 |
-| [API crates](existing-tests/api.md) | 166 | 72 |
+| [API crates](existing-tests/api.md) | 168 | 74 |
 | [Other Rust crates and applications](existing-tests/rust-apps-support.md) | 253 | 69 |
 | [JavaScript Agent SDK](existing-tests/agent-sdk.md) | 117 | 29 |
 | [Release tools](existing-tests/release-tools.md) | 179 | 28 |
@@ -40,7 +40,7 @@ The requirement count for an area is the number of distinct IDs that its tests u
 | [Browser and Node JavaScript SDKs](existing-tests/javascript-sdks.md) | 402 | 91 |
 | [Android SDK and example](existing-tests/android.md) | 210 | 101 |
 | [iOS SDK](existing-tests/ios.md) | 205 | 117 |
-| **Total** | **3,184** | **1,023 referenced IDs** |
+| **Total** | **3,186** | **1,025 referenced IDs** |
 
 ## Review records
 

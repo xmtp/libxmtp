@@ -1075,8 +1075,8 @@ class ClientTest : BaseInstrumentedTest() {
             val syncStats = alix.debugInformation.apiStatistics
             assertEquals("Empty Welcome sync does not publish", 0L, syncStats.publish)
             assertTrue("Welcome sync captures a newest target", syncStats.queryNewest > 0L)
-            assertEquals("Unary Welcome sync does not open Subscribe", 0L, syncStats.subscribe)
-            assertEquals("Unary Welcome sync does not open SubscribeStatic", 0L, syncStats.subscribeStatic)
+            assertTrue("Native Welcome sync opens Subscribe", syncStats.subscribe > 0L)
+            assertEquals("Native Welcome sync does not open SubscribeStatic", 0L, syncStats.subscribeStatic)
 
             val job =
                 launch(Dispatchers.IO) {

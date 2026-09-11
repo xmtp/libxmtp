@@ -484,7 +484,37 @@ class DmTests: XCTestCase {
 	}
 
 	func testCanSuccessfullyThreadDms() async throws {
-		let fixtures = try await fixtures()
+		func independentClient() async throws -> Client {
+			let account = try PrivateKey.generate()
+			let api = localApi()
+			let dbPath = randomTempFile()
+			let ffi = try await createClient(
+				api: Client.connectToApiBackend(api: api),
+				db: DbOptions(db: dbPath, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
+				inboxId: generateInboxId(accountIdentifier: account.identity.ffiPrivate, nonce: 0),
+				accountIdentifier: account.identity.ffiPrivate,
+				nonce: 0, legacySignedPrivateKeyProto: nil, deviceSyncMode: .disabled,
+				allowOffline: false, forkRecoveryOpts: nil,
+				workerConfig: FfiWorkerConfig(
+					defaultIntervalNs: nil, workerIntervalsNs: [], workerJittersNs: [],
+					disabledWorkers: [.deviceSync, .disappearingMessages, .keyPackageCleaner, .commitLog, .taskRunner]
+				),
+				changeCallbacks: nil
+			)
+			let signatureRequest = try XCTUnwrap(ffi.signatureRequest())
+			let signature = try await account.sign(signatureRequest.signatureText())
+			try await signatureRequest.addEcdsaSignature(signatureBytes: signature.rawData)
+			try await ffi.registerIdentity(signatureRequest: signatureRequest, visibilityConfirmationOptions: nil)
+			let client = try Client(
+				ffiClient: ffi, dbPath: dbPath, installationID: ffi.installationId().toHex,
+				inboxID: ffi.inboxId(), environment: api.env, publicIdentity: account.identity
+			)
+			addTeardownBlock { try client.deleteLocalDatabase() }
+			return client
+		}
+
+		// Neither client receives Welcomes before both physical DMs exist.
+		let fixtures = try await (boClient: independentClient(), alixClient: independentClient())
 		Client.register(codec: GroupUpdatedCodec())
 
 		let convoBo = try await fixtures.boClient.conversations.findOrCreateDm(
@@ -492,6 +522,7 @@ class DmTests: XCTestCase {
 		)
 		let convoAlix = try await fixtures.alixClient.conversations
 			.findOrCreateDm(with: fixtures.boClient.inboxID)
+		XCTAssertNotEqual(convoBo.id, convoAlix.id)
 
 		let boMessageID = try await convoBo.send(content: "Bo hey")
 		try await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds delay
@@ -588,7 +619,6 @@ class DmTests: XCTestCase {
 		XCTAssertEqual(sameConvoAlixMessages.count, 6)
 		try assertHistory(sameConvoBoMessages, requiredIDs: Set(expectedApplications.keys))
 		try assertHistory(sameConvoAlixMessages, requiredIDs: Set(expectedApplications.keys))
-		try fixtures.cleanUpDatabases()
 	}
 
 	func testLastReadTimes() async throws {

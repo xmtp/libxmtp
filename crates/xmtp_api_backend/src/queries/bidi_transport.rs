@@ -26,6 +26,7 @@ use std::collections::{HashMap, HashSet};
 
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
+use xmtp_common::rate_limit::Bucket;
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
 use xmtp_proto::{
     backend_v1::ServerEnvelope,
@@ -41,6 +42,13 @@ use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
 pub const DEFAULT_LEASE_DEPTH: usize = 64;
 /// Retry a queued update when the connection is quiet and capacity may be free.
 const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+
+fn update_budget() -> Bucket {
+    Bucket::new(
+        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_FRAMES_PER_SECOND,
+        xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_BURST,
+    )
+}
 
 /// Maximum adds per backend update. The wire also has a separate topic cap.
 pub(crate) const MAX_MUTATE_TOPICS: usize = xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_ADDS;
@@ -191,15 +199,21 @@ pub enum TransportError {
     Protocol(&'static str),
     #[error("incoming subscription delivery exceeds its receive limit")]
     Capacity,
+    /// The receive queue is full. Reopen from durable receipt positions.
+    #[error("incoming subscription delivery queue is full")]
+    Backpressure,
     #[error(transparent)]
     Wire(#[from] std::sync::Arc<super::bidi::ConnectionFailure>),
 }
 
 type IncomingFailure = std::sync::Arc<parking_lot::Mutex<Option<TransportError>>>;
+/// One bounded wire frame remains one queue item even when it covers many topics.
+type IncomingFrame = Result<Vec<IncomingEvent>, TransportError>;
 
 impl xmtp_common::RetryableError for TransportError {
     fn is_retryable(&self) -> bool {
         match self {
+            Self::Backpressure => true,
             Self::Open(e) => e.is_retryable(),
             Self::Wire(e) => e.is_retryable(),
             Self::Closed
@@ -256,7 +270,8 @@ where
     id: LeaseId,
     topics: Vec<Topic>,
     events: mpsc::Receiver<LeaseEvent<B>>,
-    incoming: Option<mpsc::Receiver<Result<IncomingEvent, TransportError>>>,
+    incoming: Option<mpsc::Receiver<IncomingFrame>>,
+    incoming_pending: std::vec::IntoIter<IncomingEvent>,
     incoming_failure: IncomingFailure,
     cmds: mpsc::UnboundedSender<Cmd<B>>,
 }
@@ -277,11 +292,16 @@ where
 
     /// Read raw ordered events, including a terminal receive-capacity error.
     pub async fn next_incoming(&mut self) -> Option<Result<IncomingEvent, TransportError>> {
-        self.incoming
-            .as_mut()?
-            .recv()
-            .await
-            .or_else(|| self.incoming_failure.lock().take().map(Err))
+        loop {
+            if let Some(event) = self.incoming_pending.next() {
+                return Some(Ok(event));
+            }
+            match self.incoming.as_mut()?.recv().await {
+                Some(Ok(events)) => self.incoming_pending = events.into_iter(),
+                Some(Err(error)) => return Some(Err(error)),
+                None => return self.incoming_failure.lock().take().map(Err),
+            }
+        }
     }
 
     /// Call this only after the supplied positions commit to local storage.
@@ -545,10 +565,7 @@ where
     unmet: usize,
     notified: bool,
     events: mpsc::Sender<LeaseEvent<B>>,
-    incoming: Option<(
-        mpsc::Sender<Result<IncomingEvent, TransportError>>,
-        IncomingBatchLimits,
-    )>,
+    incoming: Option<(mpsc::Sender<IncomingFrame>, IncomingBatchLimits)>,
     incoming_failure: IncomingFailure,
 }
 
@@ -645,10 +662,10 @@ where
         if !starts.is_empty() {
             // A full channel is detected before the next payload copy.
             if sender
-                .try_send(Ok(IncomingEvent::Registered { starts, targets }))
+                .try_send(Ok(vec![IncomingEvent::Registered { starts, targets }]))
                 .is_err()
             {
-                *lease.incoming_failure.lock() = Some(TransportError::Capacity);
+                *lease.incoming_failure.lock() = Some(TransportError::Backpressure);
                 self.failed_incoming.insert(id);
             }
         }
@@ -726,14 +743,22 @@ where
                     .ok_or("byte count")?;
                 selected.entry(topic).or_default().push(envelope);
             }
-            if rows > limits.max_rows
-                || bytes > limits.max_bytes
-                || sender.capacity() < selected.len()
-            {
+            if rows > limits.max_rows || bytes > limits.max_bytes {
                 *lease.incoming_failure.lock() = Some(TransportError::Capacity);
                 dropped.push(*id);
                 continue;
             }
+            if selected.is_empty() {
+                continue;
+            }
+            // Reserve one slot for the complete validated frame before copying.
+            // One frame can contain more topics than the queue has slots.
+            let Ok(permit) = sender.try_reserve() else {
+                *lease.incoming_failure.lock() = Some(TransportError::Backpressure);
+                dropped.push(*id);
+                continue;
+            };
+            let mut batches = Vec::with_capacity(selected.len());
             for (topic, envelopes) in selected {
                 let delivered = lease.delivered.get_mut(&topic).ok_or("lease topic")?;
                 let after = Cursor((*delivered).into());
@@ -747,16 +772,10 @@ where
                     after,
                     envelopes: envelopes.into_iter().cloned().collect(),
                 };
-                if sender
-                    .try_send(Ok(IncomingEvent::OrderedBatch(batch)))
-                    .is_err()
-                {
-                    *lease.incoming_failure.lock() = Some(TransportError::Capacity);
-                    dropped.push(*id);
-                    break;
-                }
+                batches.push(IncomingEvent::OrderedBatch(batch));
                 B::advance(delivered, last.into());
             }
+            permit.send(Ok(batches));
         }
         Ok(dropped)
     }
@@ -1154,6 +1173,7 @@ async fn run_ledger<B: TransportBinding>(
         wire_opens: 0,
         resume_notify: Vec::new(),
         outbox: Outbox::default(),
+        update_budget: update_budget(),
         deferred: std::collections::VecDeque::new(),
     }
     .run()
@@ -1183,6 +1203,7 @@ where
     wire_opens: u64,
     resume_notify: Vec<oneshot::Sender<()>>,
     outbox: Outbox<B::Mutate>,
+    update_budget: Bucket,
     deferred: std::collections::VecDeque<Cmd<B>>,
 }
 
@@ -1244,11 +1265,12 @@ where
         if let Some(cmd) = self.deferred.pop_front() {
             return Step::Cmd(Some(cmd));
         }
+        let retry_after = self.update_budget.wait().max(OUTBOX_RETRY_INTERVAL);
         match self.conn.as_mut() {
             Some(wire) => tokio::select! {
                 cmd = self.cmds.recv() => Step::Cmd(cmd),
                 event = wire.next() => Step::Wire(event),
-                _ = xmtp_common::time::sleep(OUTBOX_RETRY_INTERVAL), if !self.outbox.is_empty() => Step::Retry,
+                _ = xmtp_common::time::sleep(retry_after), if !self.outbox.is_empty() => Step::Retry,
             },
             None if !self.ledger.leases.is_empty() && !self.suspended => tokio::select! {
                 cmd = self.cmds.recv() => Step::Cmd(cmd),
@@ -1268,6 +1290,9 @@ where
     }
 
     fn open_wire_span(&mut self) {
+        self.update_budget = update_budget();
+        // The opener already sent the first Update on this connection.
+        self.update_budget.take();
         self.wire_opened_at = Some(tokio::time::Instant::now());
         self.wire_span = Some(tracing::info_span!(
             parent: None,
@@ -1368,6 +1393,7 @@ where
             topics,
             events,
             incoming,
+            incoming_pending: Vec::new().into_iter(),
             incoming_failure,
             cmds,
         }));
@@ -1550,7 +1576,7 @@ where
                 let (sender, _) = lease.incoming.as_ref()?;
                 let event = failure
                     .as_ref()
-                    .map_or(Ok(IncomingEvent::Disconnected), |error| {
+                    .map_or(Ok(vec![IncomingEvent::Disconnected]), |error| {
                         Err(TransportError::Wire(error.clone()))
                     });
                 let full = match sender.try_send(event) {
@@ -1558,7 +1584,7 @@ where
                     Err(error) => {
                         *lease.incoming_failure.lock() = Some(match error.into_inner() {
                             Err(error) => error,
-                            Ok(_) => TransportError::Capacity,
+                            Ok(_) => TransportError::Backpressure,
                         });
                         true
                     }
@@ -1810,10 +1836,14 @@ where
             return;
         };
         while let Some((id, _)) = self.outbox.updates.front() {
+            if !self.update_budget.take() {
+                return;
+            }
             let id = *id;
             if let Some((count, merged)) = self.coalesced_prefix() {
                 let update = B::build_mutate(merged.adds.clone(), merged.removes.clone(), id);
                 if wire.try_mutate(update).is_err() {
+                    self.update_budget.refund();
                     return;
                 }
                 for (old_id, _) in self.outbox.updates.drain(..count) {
@@ -1828,6 +1858,7 @@ where
             match wire.try_mutate(update) {
                 Ok(()) => {}
                 Err(TryMutateError::Full(update)) | Err(TryMutateError::Closed(update)) => {
+                    self.update_budget.refund();
                     self.outbox.updates.push_front((id, update));
                     return;
                 }
