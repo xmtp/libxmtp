@@ -59,8 +59,15 @@ fn main() {
             continue;
         }
 
-        // Sort types by name within each crate
-        error_types.sort_by(|a, b| a.name.cmp(&b.name));
+        // Sort types by name within each crate. Two types can share a name (a
+        // native and a wasm variant of the same error), so break the tie on the
+        // source file: directory iteration order differs between platforms, and
+        // a partial sort would make the generated output host-dependent.
+        error_types.sort_by(|a, b| {
+            a.name
+                .cmp(&b.name)
+                .then_with(|| a.source_file.cmp(&b.source_file))
+        });
 
         total_types += error_types.len();
         total_variants += error_types
