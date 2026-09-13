@@ -7,9 +7,15 @@ use super::{
         PermissionsPolicy, PolicySet, extract_group_permissions,
     },
 };
+
+#[cfg(test)]
+mod identity_tests;
 use crate::{
     context::XmtpSharedContext,
-    identity_updates::{IdentityUpdates, InstallationDiff, InstallationDiffError},
+    identity_updates::{
+        IdentityDependencyError, IdentityRequirement, InstallationDiff, InstallationDiffError,
+        get_installation_diff_local, require_association_state,
+    },
 };
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
@@ -26,8 +32,8 @@ use serde::Serialize;
 use std::collections::HashSet;
 use thiserror::Error;
 use xmtp_common::{retry::RetryableError, retryable};
-use xmtp_db::StorageError;
 use xmtp_db::local_commit_log::CommitType;
+use xmtp_db::{DbQuery, StorageError};
 #[cfg(doc)]
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
@@ -38,7 +44,6 @@ use xmtp_mls_common::{
         find_mutable_metadata_extension,
     },
 };
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
     mls::message_contents::{
@@ -49,6 +54,22 @@ use xmtp_proto::xmtp::{
 
 #[derive(Debug, Error)]
 pub enum CommitValidationError {
+    /// Committed local state could not be read. Repair or restore before retry.
+    #[error("Committed group state is invalid: {0}")]
+    InstalledState(Box<CommitValidationError>),
+    /// Resolve this proof outside the state transaction, then reload MLS state.
+    #[error(transparent)]
+    IdentityDependency(#[from] IdentityDependencyError),
+    /// Identity updates must precede the group envelope. Not retryable.
+    #[error(
+        "Identity sequence {identity_sequence} does not precede group sequence {envelope_sequence}"
+    )]
+    IdentitySequenceNotBeforeEnvelope {
+        /// Identity update sequence `N` named by the proposed membership.
+        identity_sequence: u64,
+        /// Authenticated group envelope sequence `S`; valid references have `N < S`.
+        envelope_sequence: u64,
+    },
     #[error("Actor could not be found")]
     ActorCouldNotBeFound,
     // Subject of the proposal has an invalid credential
@@ -134,11 +155,75 @@ pub enum CommitValidationError {
     Conversion(#[from] xmtp_proto::ConversionError),
 }
 
+impl crate::worker::NeedsDbReconnect for CommitValidationError {
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::InstalledState(error) => error.needs_db_reconnect(),
+            Self::IdentityDependency(error) => error.needs_db_reconnect(),
+            Self::StorageError(error) => error.db_needs_connection(),
+            _ => false,
+        }
+    }
+}
+
 impl RetryableError for CommitValidationError {
     fn is_retryable(&self) -> bool {
         match self {
+            CommitValidationError::IdentityDependency(error) => retryable!(error),
             CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
             _ => false,
+        }
+    }
+}
+
+impl CommitValidationError {
+    /// Mark a local state failure so malformed wire input cannot hide corruption.
+    pub(crate) fn installed_state(error: impl Into<Self>) -> Self {
+        Self::InstalledState(Box::new(error.into()))
+    }
+
+    /// Only authenticated, deterministic invalid input can advance the prefix.
+    /// Missing state, failed proofs, unsupported versions, and storage failures
+    /// leave the head pending even when their error is not retryable.
+    pub(crate) fn is_safe_rejection(&self) -> bool {
+        match self {
+            Self::IdentityDependency(IdentityDependencyError::MissingReference(_)
+                | IdentityDependencyError::InvalidSequence(_))
+            | Self::IdentitySequenceNotBeforeEnvelope { .. }
+            | Self::ActorCouldNotBeFound
+            | Self::InboxValidationFailed(_)
+            | Self::InsufficientPermissions
+            | Self::InvalidVersionFormat(_)
+            | Self::ActorNotMember
+            | Self::SubjectDoesNotExist
+            | Self::MultipleActors
+            | Self::UnexpectedInstallationAdded(_)
+            | Self::SequenceIdDecreased
+            | Self::UnexpectedInstallationsRemoved(_)
+            | Self::MlsCredential(_)
+            | Self::ProtoDecode(_)
+            | Self::NoPSKSupport
+            | Self::TooManyCharacters { .. }
+            | Self::ProposerNotFound
+            | Self::ProposalsNotEnabled
+            | Self::MinVersionDowngrade { .. }
+            | Self::MinVersionRemoveOnExistingFloor { .. }
+            | Self::MissingGroupMembership
+            | Self::MissingMutableMetadata
+            | Self::GroupMetadata(_)
+            | Self::GroupMutableMetadata(_)
+            | Self::GroupMutablePermissions(_)
+            | Self::ComponentSource(_)
+            | Self::Conversion(_) => true,
+            Self::Bootstrap(error) => !matches!(error,
+                super::app_data::bootstrap_validator::BootstrapValidationError::ProtocolVersionTooLow(_)
+                | super::app_data::bootstrap_validator::BootstrapValidationError::Synthesis(_)),
+            Self::InstalledState(_)
+            | Self::IdentityDependency(_)
+            | Self::InstallationDiff(_)
+            | Self::StorageError(_)
+            | Self::ProtocolVersionTooLow(_)
+            | Self::UnsupportedProposalType(_) => false,
         }
     }
 }
@@ -363,11 +448,45 @@ fn reject_psk_proposals(staged_commit: &StagedCommit) -> Result<(), CommitValida
 }
 
 impl ValidatedCommit {
+    /// Test helper for commits that have not received an envelope sequence.
+    #[cfg(test)]
     pub async fn from_staged_commit(
         context: &impl XmtpSharedContext,
         staged_commit: &StagedCommit,
         committer_leaf_index: LeafNodeIndex,
         openmls_group: &OpenMlsGroup,
+    ) -> Result<Self, CommitValidationError> {
+        loop {
+            match Self::from_staged_commit_local(
+                context,
+                &context.db(),
+                staged_commit,
+                committer_leaf_index,
+                openmls_group,
+                u64::MAX,
+            ) {
+                Err(CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
+                    requirement,
+                ))) => {
+                    crate::identity_updates::resolve_identity_requirement(context, &requirement)
+                        .await?;
+                }
+                result => return result,
+            }
+        }
+    }
+
+    /// Validate with the caller's write connection and exact cached proofs.
+    /// This method cannot fetch identities or call an async signature verifier.
+    /// Every referenced identity sequence `N` must precede envelope sequence `S`.
+    /// On `Need`, roll back, resolve outside the writer, then reload MLS state.
+    pub(crate) fn from_staged_commit_local(
+        context: &impl XmtpSharedContext,
+        conn: &impl DbQuery,
+        staged_commit: &StagedCommit,
+        committer_leaf_index: LeafNodeIndex,
+        openmls_group: &OpenMlsGroup,
+        envelope_sequence: u64,
     ) -> Result<Self, CommitValidationError> {
         let extensions = openmls_group.extensions();
         // Capability-aware reads. On post-bootstrap groups, the
@@ -398,46 +517,8 @@ impl ValidatedCommit {
         {
             return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
         }
-        let immutable_metadata: GroupMetadata = if is_migrated {
-            // ComponentSourceError → GroupMutableMetadataError →
-            // CommitValidationError::GroupMutableMetadata is the
-            // existing conversion chain. There is no
-            // ComponentSourceError → GroupMetadataError From impl
-            // (GroupMetadataError predates the AppData layer), so
-            // wrap structurally and let the GroupMutableMetadata
-            // error variant carry the diagnostic — receivers see
-            // the same shape they'd get from a malformed dict on
-            // the read side.
-            let seed =
-                super::app_data::component_source::read_group_metadata_from_dict(openmls_group)
-                    .map_err(
-                        xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from,
-                    )?
-                    .ok_or(xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension)?;
-            use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
-            let proto = GroupMetadataProto {
-                conversation_type: seed.conversation_type,
-                creator_inbox_id: seed.creator_inbox_id,
-                creator_account_address: String::new(),
-                dm_members: seed.dm_members,
-                oneshot_message: seed.oneshot,
-            };
-            GroupMetadata::try_from(proto)?
-        } else {
-            extensions.try_into()?
-        };
-        let mutable_metadata: GroupMutableMetadata = if is_migrated {
-            let mut metadata =
-                GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
-            super::app_data::component_source::merge_app_data_into_mutable_metadata(
-                &mut metadata,
-                openmls_group,
-            )
-            .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
-            metadata
-        } else {
-            extensions.try_into()?
-        };
+        let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
+            .map_err(CommitValidationError::installed_state)?;
 
         // Bootstrap detection MUST run before the steady-state
         // extractors below — bootstrap commits strip MUTABLE_METADATA,
@@ -448,6 +529,11 @@ impl ValidatedCommit {
         // validation could ever run. The pre-flip extensions still
         // carry the legacy set, so the metadata reads above are safe.
         if super::app_data::bootstrap_validator::is_bootstrap_commit(staged_commit, extensions) {
+            validate_identity_sequence_order(
+                &extract_group_membership(extensions)
+                    .map_err(CommitValidationError::installed_state)?,
+                envelope_sequence,
+            )?;
             return Self::validate_bootstrap_and_build(
                 staged_commit,
                 committer_leaf_index,
@@ -458,7 +544,6 @@ impl ValidatedCommit {
             );
         }
 
-        let conn = context.db();
         // On migrated groups the legacy `GROUP_PERMISSIONS_EXTENSION_ID`
         // is gone — membership policy lives in the AppData
         // dictionary's COMPONENT_REGISTRY entry under
@@ -472,9 +557,11 @@ impl ValidatedCommit {
         // registry so post-bootstrap commits enforce the same policy
         // a pre-bootstrap GCE-extension lookup would.
         let group_permissions: GroupMutablePermissions = if is_migrated {
-            super::app_data::policy::membership_policy_set_from_registry(openmls_group)?
+            super::app_data::policy::membership_policy_set_from_registry(openmls_group)
+                .map_err(CommitValidationError::installed_state)?
         } else {
-            extensions.try_into()?
+            GroupMutablePermissions::try_from(extensions)
+                .map_err(CommitValidationError::installed_state)?
         };
         let current_group_members = get_current_group_members(openmls_group);
 
@@ -514,7 +601,7 @@ impl ValidatedCommit {
         // even when nothing else changed.
         let (metadata_validation_info, migrated_registry) = if is_migrated {
             let registry = super::app_data::load_component_registry(openmls_group)
-                .map_err(GroupMutableMetadataError::from)?;
+                .map_err(CommitValidationError::installed_state)?;
             let min_version_bytes =
                 super::app_data::component_source::read_post_commit_component_bytes(
                     xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
@@ -650,15 +737,15 @@ impl ValidatedCommit {
         // group membership and the new group membership.
         // Also gets back the added and removed inbox ids from the expected diff
         let expected_diff = ExpectedDiff::from_staged_commit_with_proposers(
-            context,
+            conn,
             staged_commit,
             openmls_group,
+            envelope_sequence,
             proposals_enabled,
             &gce_proposer,
             &added_inbox_proposers,
             &removed_inbox_proposers,
-        )
-        .await?;
+        )?;
 
         let ExpectedDiff {
             old_group_membership,
@@ -699,21 +786,34 @@ impl ValidatedCommit {
         // 2. Anyone referenced in an update proposal
         // Satisfies Rule 4
         for participant in credentials_to_verify {
-            // `0` is the placeholder written at group creation, not a real
-            // sequence id. Keep the `old == 0` guard. Without it, a commit can
-            // choose the 0. Each receiver then resolves the credential at its
-            // own identity tip. Two receivers can disagree and fork the group.
             let inbox_id = &participant.inbox_id;
-            let to_sequence_id = match new_group_membership.get(inbox_id) {
+            let sequence_id = match new_group_membership.get(inbox_id) {
                 None => return Err(CommitValidationError::SubjectDoesNotExist),
-                Some(0) if old_group_membership.get(inbox_id) == Some(&0) => None,
-                Some(sequence_id) => Some(*sequence_id as i64),
+                Some(0) if old_group_membership.get(inbox_id) == Some(&0) => {
+                    // An unchanged creation placeholder uses the authenticated
+                    // committed leaf. A later identity tip cannot change this
+                    // decision. New keys still require an exact nonzero proof.
+                    let known_leaf = openmls_group.members().any(|member| {
+                        member.signature_key == participant.installation_id
+                            && inbox_id_from_credential(&member.credential)
+                                .is_ok_and(|known_inbox| known_inbox == *inbox_id)
+                    });
+                    if !known_leaf {
+                        return Err(CommitValidationError::InboxValidationFailed(
+                            inbox_id.clone(),
+                        ));
+                    }
+                    continue;
+                }
+                Some(sequence_id) => *sequence_id,
             };
-
-            let inbox_state = IdentityUpdates::new(&context)
-                .get_association_state(&conn, &participant.inbox_id, to_sequence_id)
-                .await
-                .map_err(InstallationDiffError::from)?;
+            let inbox_state = require_association_state(
+                conn,
+                &IdentityRequirement {
+                    inbox_id: inbox_id.clone(),
+                    sequence_id,
+                },
+            )?;
 
             if inbox_state
                 .get(&MemberIdentifier::installation(participant.installation_id))
@@ -747,7 +847,8 @@ impl ValidatedCommit {
         let policy_set = if is_migrated {
             group_permissions.clone()
         } else {
-            extract_group_permissions(openmls_group)?
+            extract_group_permissions(openmls_group)
+                .map_err(CommitValidationError::installed_state)?
         };
         if !policy_set.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
@@ -1014,68 +1115,82 @@ fn get_latest_group_membership(
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
+/// Membership changes derived from the exact old and proposed identity proofs.
 struct ExpectedDiff {
     /// The membership before this commit. The commit cannot change it.
     old_group_membership: GroupMembership,
+    /// Proposed inbox sequences. They cannot rewrite the old proof requirements.
     new_group_membership: GroupMembership,
+    /// Installation changes authorized by those exact identity snapshots.
     expected_installation_diff: InstallationDiff,
     added_inboxes: Vec<Inbox>,
     removed_inboxes: Vec<Inbox>,
 }
 
+/// Read committed metadata once through the active extension representation.
+fn read_committed_metadata(
+    group: &OpenMlsGroup,
+) -> Result<(GroupMetadata, GroupMutableMetadata), CommitValidationError> {
+    let extensions = group.extensions();
+    if !super::app_data::is_migrated_extensions(extensions) {
+        return Ok((extensions.try_into()?, extensions.try_into()?));
+    }
+    let seed = super::app_data::component_source::read_group_metadata_from_dict(group)?
+        .ok_or(GroupMetadataError::MissingExtension)?;
+    let immutable =
+        GroupMetadata::try_from(xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
+            conversation_type: seed.conversation_type,
+            creator_inbox_id: seed.creator_inbox_id,
+            creator_account_address: String::new(),
+            dm_members: seed.dm_members,
+            oneshot_message: seed.oneshot,
+        })?;
+    let mut mutable = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
+    super::app_data::component_source::merge_app_data_into_mutable_metadata(&mut mutable, group)?;
+    Ok((immutable, mutable))
+}
+
+/// Require each identity sequence `N` to precede group envelope sequence `S`.
+/// `N >= S` is invalid on every receiver, independent of cache or replica state.
+fn validate_identity_sequence_order(
+    membership: &GroupMembership,
+    envelope_sequence: u64,
+) -> Result<(), CommitValidationError> {
+    for identity_sequence in membership.members.values() {
+        if *identity_sequence >= envelope_sequence {
+            return Err(CommitValidationError::IdentitySequenceNotBeforeEnvelope {
+                identity_sequence: *identity_sequence,
+                envelope_sequence,
+            });
+        }
+    }
+    Ok(())
+}
+
 impl ExpectedDiff {
-    pub(super) async fn from_staged_commit_with_proposers(
-        context: &impl XmtpSharedContext,
+    /// Derive installation changes from cached proofs on the caller's connection.
+    /// Missing exact proofs return `Need`; this method does not fetch identities.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn from_staged_commit_with_proposers(
+        conn: &impl DbQuery,
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
+        envelope_sequence: u64,
         proposals_enabled: bool,
         gce_proposer: &Option<CommitParticipant>,
         added_inbox_proposers: &HashMap<String, CommitParticipant>,
         removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<Self, CommitValidationError> {
-        // Get the immutable and mutable metadata. Capability-aware
-        // — same dual-source pattern as `from_staged_commit`.
         let extensions = openmls_group.extensions();
-        let is_migrated = super::app_data::is_migrated_extensions(extensions);
-        let immutable_metadata: GroupMetadata = if is_migrated {
-            let seed =
-                super::app_data::component_source::read_group_metadata_from_dict(openmls_group)
-                    .map_err(
-                        xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from,
-                    )?
-                    .ok_or(xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension)?;
-            use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
-            let proto = GroupMetadataProto {
-                conversation_type: seed.conversation_type,
-                creator_inbox_id: seed.creator_inbox_id,
-                creator_account_address: String::new(),
-                dm_members: seed.dm_members,
-                oneshot_message: seed.oneshot,
-            };
-            GroupMetadata::try_from(proto)?
-        } else {
-            extensions.try_into()?
-        };
-        let mutable_metadata: GroupMutableMetadata = if is_migrated {
-            let mut metadata =
-                GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
-            super::app_data::component_source::merge_app_data_into_mutable_metadata(
-                &mut metadata,
-                openmls_group,
-            )
-            .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
-            metadata
-        } else {
-            extensions.try_into()?
-        };
+        let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
+            .map_err(CommitValidationError::installed_state)?;
 
         reject_psk_proposals(staged_commit)?;
 
-        let group_id = GroupId::try_from(openmls_group.group_id())?;
         let expected_diff = Self::extract_expected_diff_with_proposers(
-            context,
-            &group_id,
+            conn,
             staged_commit,
+            envelope_sequence,
             extensions,
             &immutable_metadata,
             &mutable_metadata,
@@ -1083,8 +1198,7 @@ impl ExpectedDiff {
             gce_proposer,
             added_inbox_proposers,
             removed_inbox_proposers,
-        )
-        .await?;
+        )?;
 
         Ok(expected_diff)
     }
@@ -1092,10 +1206,10 @@ impl ExpectedDiff {
     /// Generates an expected diff with proposer attribution for each inbox change.
     /// This is used when validating commits with proposals from multiple members.
     #[allow(clippy::too_many_arguments)]
-    async fn extract_expected_diff_with_proposers(
-        context: &impl XmtpSharedContext,
-        group_id: &GroupId, // used for logging
+    fn extract_expected_diff_with_proposers(
+        conn: &impl DbQuery,
         staged_commit: &StagedCommit,
+        envelope_sequence: u64,
         existing_group_extensions: &Extensions<GroupContext>,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
@@ -1104,9 +1218,10 @@ impl ExpectedDiff {
         added_inbox_proposers: &HashMap<String, CommitParticipant>,
         removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<ExpectedDiff, CommitValidationError> {
-        let conn = context.db();
-        let old_group_membership = extract_group_membership(existing_group_extensions)?;
+        let old_group_membership = extract_group_membership(existing_group_extensions)
+            .map_err(CommitValidationError::installed_state)?;
         let new_group_membership = get_latest_group_membership(staged_commit)?;
+        validate_identity_sequence_order(&new_group_membership, envelope_sequence)?;
         let membership_diff = old_group_membership.diff(&new_group_membership);
 
         validate_membership_diff(
@@ -1168,16 +1283,12 @@ impl ExpectedDiff {
             })
             .collect::<Result<Vec<Inbox>, CommitValidationError>>()?;
 
-        let identity_updates = IdentityUpdates::new(&context);
-        let expected_installation_diff = identity_updates
-            .get_installation_diff(
-                &conn,
-                group_id,
-                &old_group_membership,
-                &new_group_membership,
-                &membership_diff,
-            )
-            .await?;
+        let expected_installation_diff = get_installation_diff_local(
+            conn,
+            &old_group_membership,
+            &new_group_membership,
+            &membership_diff,
+        )?;
 
         Ok(ExpectedDiff {
             old_group_membership,
@@ -1618,7 +1729,8 @@ fn validate_app_data_update_proposals_in_commit(
     let registry = match preloaded_registry {
         Some(r) => r,
         None => {
-            owned_registry = load_component_registry(openmls_group)?;
+            owned_registry = load_component_registry(openmls_group)
+                .map_err(CommitValidationError::installed_state)?;
             &owned_registry
         }
     };

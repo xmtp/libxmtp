@@ -25,8 +25,8 @@ extern "C" {
   pub type StreamCallback;
 
   /// Js Fn to call on an item
-  #[wasm_bindgen(structural, method)]
-  pub fn on_message(this: &StreamCallback, item: Message);
+  #[wasm_bindgen(structural, method, catch)]
+  pub fn on_message(this: &StreamCallback, item: Message) -> Result<(), JsValue>;
 
   #[wasm_bindgen(structural, method)]
   pub fn on_consent_update(this: &StreamCallback, item: JsValue);
@@ -46,6 +46,12 @@ extern "C" {
 
   #[wasm_bindgen(structural, method)]
   pub fn on_close(this: &StreamCallback);
+
+  #[wasm_bindgen(structural, method, catch, js_name = on_close)]
+  pub fn on_close_caught(this: &StreamCallback) -> Result<(), JsValue>;
+
+  #[wasm_bindgen(structural, method, catch, js_name = on_error)]
+  pub fn on_error_caught(this: &StreamCallback, error: JsError) -> Result<(), JsValue>;
 }
 
 #[wasm_bindgen]
@@ -53,6 +59,7 @@ extern "C" {
 pub struct StreamCloser {
   handle: Rc<RefCell<Option<StreamHandle>>>,
   abort: Rc<Box<dyn AbortHandle>>,
+  message_control: Option<xmtp_mls::subscriptions::message_reader::MessageReaderControl>,
 }
 
 impl StreamCloser {
@@ -63,6 +70,27 @@ impl StreamCloser {
     Self {
       handle: Rc::new(RefCell::new(Some(Box::new(handle)))),
       abort: Rc::new(abort),
+      message_control: None,
+    }
+  }
+
+  pub fn new_message(
+    handle: impl XmtpStreamHandle<StreamOutput = Result<(), XmtpSubscribeError>> + 'static,
+    control: xmtp_mls::subscriptions::message_reader::MessageReaderControl,
+  ) -> Self {
+    let mut closer = Self::new(handle);
+    closer.message_control = Some(control);
+    closer
+  }
+}
+
+impl Drop for StreamCloser {
+  fn drop(&mut self) {
+    if Rc::strong_count(&self.handle) == 1
+      && let Some(control) = &self.message_control
+    {
+      control.close();
+      self.abort.end();
     }
   }
 }
@@ -72,6 +100,9 @@ impl StreamCloser {
   /// Signal the stream to end
   /// Does not wait for the stream to end.
   pub fn end(&self) {
+    if let Some(control) = &self.message_control {
+      control.close();
+    }
     self.abort.end();
   }
 
@@ -80,6 +111,9 @@ impl StreamCloser {
   /// End the stream and asynchronously wait for it to shutdown
   #[wasm_bindgen(js_name = "endAndWait")]
   pub async fn end_and_wait(&self) -> Result<(), JsError> {
+    if let Some(control) = &self.message_control {
+      control.close();
+    }
     use StreamHandleError::*;
     if self.abort.is_finished() {
       return Ok(());
@@ -117,6 +151,21 @@ impl StreamCloser {
   #[wasm_bindgen(js_name = "isClosed")]
   pub fn is_closed(&self) -> bool {
     self.abort.is_finished()
+  }
+
+  #[wasm_bindgen(js_name = catchUpSnapshot)]
+  pub fn catch_up_snapshot(&self) -> Option<crate::message_delivery::MessageCatchUp> {
+    self
+      .message_control
+      .as_ref()
+      .map(|control| control.catch_up_snapshot().into())
+  }
+
+  #[wasm_bindgen(js_name = catchUpChanged)]
+  pub async fn catch_up_changed(&self) -> Option<crate::message_delivery::MessageCatchUp> {
+    let control = self.message_control.as_ref()?;
+    control.changed().await;
+    Some(control.catch_up_snapshot().into())
   }
 }
 

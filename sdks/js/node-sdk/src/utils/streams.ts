@@ -6,6 +6,11 @@ import { StreamFailedError, StreamInvalidRetryAttemptsError } from "./errors";
 export const DEFAULT_RETRY_DELAY = 60_000; // milliseconds
 export const DEFAULT_RETRY_ATTEMPTS = 10;
 
+/**
+ * Notification streams created by createStream use the retry settings and hooks.
+ * Durable message streams use onValue, onError, and onEnd. Core handles their
+ * network recovery; notification retry settings and hooks do not apply.
+ */
 export type StreamOptions<T = unknown, V = T> = {
   /**
    * Called when the stream ends
@@ -16,38 +21,41 @@ export type StreamOptions<T = unknown, V = T> = {
    */
   onError?: (error: Error) => void;
   /**
-   * Called when the stream fails
+   * Called when a notification stream fails
    */
   onFail?: () => void;
   /**
-   * Called when the stream is restarted
+   * Called when a notification stream is restarted
    */
   onRestart?: () => void;
   /**
-   * Called when the stream is retried
+   * Called when a notification stream is retried
    */
   onRetry?: (attempts: number, maxAttempts: number) => void;
   /**
-   * Called when a value is emitted from the stream
+   * Called when a value is emitted from the stream.
+   * For message streams, this selects callback mode. Do not also iterate that stream.
+   * Message delivery is acknowledged after this callback returns successfully.
    */
-  onValue?: (value: V) => void;
+  onValue?: (value: V) => void | Promise<void>;
   /**
-   * The number of times to retry the stream
+   * The number of times to retry a notification stream
    * (default: 10)
    */
   retryAttempts?: number;
   /**
-   * The delay between retries (in milliseconds)
+   * The delay between notification stream retries (in milliseconds)
    * (default: 60000)
    */
   retryDelay?: number;
   /**
-   * Whether to retry the stream if it fails
+   * Whether to retry a notification stream if it fails
    * (default: true)
    */
   retryOnFail?: boolean;
   /**
-   * Whether to disable network sync before starting the stream
+   * Whether to skip pre-sync for notification streams.
+   * Durable message readers start receipt without a separate pre-sync.
    * (default: false)
    */
   disableSync?: boolean;
@@ -158,6 +166,12 @@ export const createStream = async <T = unknown, V = T>(
     }
   };
 
+  const handleAsyncError = (error: unknown) => {
+    if (!isStopped()) {
+      onError?.(error as Error);
+    }
+  };
+
   const streamCallback: StreamCallback<T> = (error, value) => {
     // an ended stream must not invoke any callbacks
     if (isStopped()) {
@@ -180,25 +194,25 @@ export const createStream = async <T = unknown, V = T>(
                 // the stream may have ended while the value was mutating
                 if (!isStopped() && mutatedValue !== undefined) {
                   asyncStream.push(mutatedValue);
-                  onValue?.(mutatedValue);
+                  return onValue?.(mutatedValue);
                 }
               })
-              .catch((error: unknown) => {
-                if (!isStopped()) {
-                  onError?.(error as Error);
-                }
-              });
+              .catch(handleAsyncError);
           } else {
             // a synchronous mutator may have ended the stream; gate delivery
             // on the stopped flag to match the async branch above
             if (!isStopped() && mutatedValue !== undefined) {
               asyncStream.push(mutatedValue);
-              onValue?.(mutatedValue);
+              void Promise.resolve(onValue?.(mutatedValue)).catch(
+                handleAsyncError,
+              );
             }
           }
         } else {
           asyncStream.push(value as unknown as V);
-          onValue?.(value as unknown as V);
+          void Promise.resolve(onValue?.(value as unknown as V)).catch(
+            handleAsyncError,
+          );
         }
       } catch (error) {
         onError?.(error as Error);

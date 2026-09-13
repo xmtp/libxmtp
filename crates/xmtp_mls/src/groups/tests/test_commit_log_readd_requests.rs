@@ -165,8 +165,10 @@ async fn test_request_readd_dm() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_readd_installation_succeeds() {
+    use xmtp_db::{prelude::QueryRefreshState, refresh_state::EntityKind};
+
     tester!(alix);
     tester!(bo);
     tester!(caro);
@@ -175,6 +177,11 @@ async fn test_readd_installation_succeeds() {
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await
         .unwrap();
+
+    // Complete the version update before recording the pre-removal authenticator.
+    a_group
+        .update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+        .await?;
 
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     caro.sync_all_welcomes_and_groups(None).await.unwrap();
@@ -198,6 +205,35 @@ async fn test_readd_installation_succeeds() {
     let c_group_authenticator = c_group.epoch_authenticator().await.unwrap();
     assert_eq!(c_group_authenticator, new_authenticator);
 
+    // Process the removal at the same anchor carried by the replacement Welcome.
+    b_group.sync_with_conn().await?;
+    assert!(!b_group.is_active()?);
+    assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
+    let anchor = alix
+        .context
+        .db()
+        .latest_cursor_for_id(a_group.group_id, &[EntityKind::ApplicationMessage])?;
+    assert_eq!(
+        bo.context
+            .db()
+            .latest_cursor_for_id(a_group.group_id, &[EntityKind::ApplicationMessage],)?,
+        anchor
+    );
+    assert_eq!(b_group.epoch_authenticator().await?, prev_authenticator);
+
+    // Model an older Welcome published after the replacement Welcome.
+    // This fixture changes its stored ID; it does not delay network publication.
+    let delayed_welcome_sequence = i64::MAX;
+    let mut stored_group = bo.context.db().find_group(&a_group.group_id)?.unwrap();
+    stored_group.sequence_id = Some(delayed_welcome_sequence);
+    assert_eq!(
+        bo.context
+            .db()
+            .insert_or_replace_group(stored_group)?
+            .sequence_id,
+        Some(delayed_welcome_sequence)
+    );
+
     // Verify welcome was received and applied on B
     tracing::warn!("Syncing welcomes");
     bo.sync_welcomes().await.unwrap();
@@ -205,6 +241,16 @@ async fn test_readd_installation_succeeds() {
         b_group.epoch_authenticator().await.unwrap(),
         new_authenticator
     );
+    assert!(b_group.is_active()?);
+    assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
+    assert_eq!(
+        bo.context
+            .db()
+            .latest_cursor_for_id(a_group.group_id, &[EntityKind::ApplicationMessage])?,
+        anchor
+    );
+    a_group.test_can_talk_with(&b_group).await?;
+    b_group.test_can_talk_with(&a_group).await?;
 }
 
 #[xmtp_common::test]

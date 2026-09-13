@@ -27,15 +27,9 @@ describe("LibXMTP errors", () => {
       throw new Error("Expected a Group conversation");
     }
 
-    try {
-      await group2.addMembers([client3.inboxId]);
-      expect.fail("Expected an error to be thrown");
-    } catch (error) {
-      assert(error instanceof Error);
-      expect(
-        error.message.startsWith("[GroupError::Sync] synced 1 messages"),
-      ).toBe(true);
-    }
+    await expect(group2.addMembers([client3.inboxId])).rejects.toThrow(
+      /^\[GroupError::Sync\][\s\S]*commit validation: Insufficient permissions/,
+    );
   });
 
   it("should throw when adding a non-existent inbox ID", async () => {

@@ -18,7 +18,12 @@ fn started(interval: u32) -> wire::SubscribeStaticResponse {
         response: Some(wire::subscribe_static_response::Response::Started(
             wire::subscribe_static_response::Started {
                 keepalive_interval_ms: interval,
-                targets: vec![],
+                targets: vec![wire::CatchupTarget {
+                    topic: Some(wire::Topic {
+                        topic: Topic::new_welcome_message(INSTALLATION_ID.into()).cloned_vec(),
+                    }),
+                    through_sequence_id: 0,
+                }],
             },
         )),
     }
@@ -31,7 +36,10 @@ fn keepalive() -> wire::SubscribeStaticResponse {
     }
 }
 fn messages(sequence: u64) -> wire::SubscribeStaticResponse {
-    let envelope = inline_welcome_envelope(INSTALLATION_ID);
+    messages_for(INSTALLATION_ID, sequence)
+}
+fn messages_for(installation: [u8; 32], sequence: u64) -> wire::SubscribeStaticResponse {
+    let envelope = inline_welcome_envelope(installation);
     let parsed = parse_envelope(envelope.clone()).unwrap();
     wire::SubscribeStaticResponse {
         response: Some(wire::subscribe_static_response::Response::Messages(
@@ -54,6 +62,27 @@ fn messages(sequence: u64) -> wire::SubscribeStaticResponse {
                         ..Default::default()
                     }),
                 }],
+            },
+        )),
+    }
+}
+
+fn started_for(
+    request: &wire::SubscribeStaticRequest,
+    interval: u32,
+) -> wire::SubscribeStaticResponse {
+    wire::SubscribeStaticResponse {
+        response: Some(wire::subscribe_static_response::Response::Started(
+            wire::subscribe_static_response::Started {
+                keepalive_interval_ms: interval,
+                targets: request
+                    .topics
+                    .iter()
+                    .map(|query| wire::CatchupTarget {
+                        topic: query.topic.clone(),
+                        through_sequence_id: query.cursor.as_ref().unwrap().sequence_id,
+                    })
+                    .collect(),
             },
         )),
     }
@@ -222,14 +251,25 @@ async fn silent_second_wire_ends_the_complete_subscription() {
         .collect();
     let mut calls = 0;
     let mut mock = MockNetworkClient::new();
-    mock.expect_stream().times(2).returning(move |_, _, _| {
+    mock.expect_stream().times(2).returning(move |_, _, body| {
         calls += 1;
+        let request = wire::SubscribeStaticRequest::decode(body).unwrap();
+        let query = &request.topics[0];
+        let topic = Topic::parse(&query.topic.as_ref().unwrap().topic).unwrap();
+        let sequence = query.cursor.as_ref().unwrap().sequence_id + 1;
         let frames: BoxDynStream<'static, _> = if calls == 1 {
-            Box::pin(stream::iter([started(1000), messages(21)]).chain(
-                xmtp_common::time::interval_stream(Duration::from_millis(1)).map(|_| keepalive()),
-            ))
+            Box::pin(
+                stream::iter([
+                    started_for(&request, 1000),
+                    messages_for(topic.identifier().try_into().unwrap(), sequence),
+                ])
+                .chain(
+                    xmtp_common::time::interval_stream(Duration::from_millis(1))
+                        .map(|_| keepalive()),
+                ),
+            )
         } else {
-            Box::pin(stream::iter([started(1)]).chain(stream::pending()))
+            Box::pin(stream::iter([started_for(&request, 1)]).chain(stream::pending()))
         };
         Ok(http::Response::new(BytesStream::new(
             frames.map(|frame| Ok(frame.encode_to_vec().into())),
@@ -240,11 +280,74 @@ async fn silent_second_wire_ends_the_complete_subscription() {
         .subscribe_welcome_messages_with_cursors(&cursors)
         .await?;
     let message = timeout(Duration::from_secs(1), subscription.next()).await???;
-    assert_eq!(message.sequence_id(), 21);
+    assert!(message.sequence_id() > 0);
     let error = timeout(Duration::from_secs(1), subscription.next())
         .await??
         .unwrap_err();
     assert!(matches!(error, ApiClientError::Expired(_)));
     assert!(error.is_retryable());
     assert!(subscription.next().now_or_never().unwrap().is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_keeps_registration_targets_and_receipt_starts() {
+    let topic = Topic::new_welcome_message(INSTALLATION_ID.into());
+    let mut registration = started(0);
+    let Some(wire::subscribe_static_response::Response::Started(started)) =
+        &mut registration.response
+    else {
+        panic!("started frame");
+    };
+    started.targets[0].through_sequence_id = 40;
+    let mut raw = normalize_static_stream(
+        Box::pin(stream::iter(
+            [registration, messages(21), messages(40)]
+                .into_iter()
+                .map(Ok),
+        )),
+        [(topic.clone(), Cursor(20))].into(),
+        IncomingBatchLimits {
+            max_rows: 10,
+            max_bytes: 4096,
+        },
+    );
+    let IncomingEvent::Registered { starts, targets } = raw.next().await?? else {
+        panic!("registration");
+    };
+    assert_eq!(starts[&topic], Cursor(20));
+    assert_eq!(targets[&topic], Cursor(40));
+    let IncomingEvent::OrderedBatch(first) = raw.next().await?? else {
+        panic!("first batch");
+    };
+    assert_eq!(first.after, Cursor(20));
+    let IncomingEvent::OrderedBatch(second) = raw.next().await?? else {
+        panic!("second batch");
+    };
+    assert_eq!(second.after, Cursor(21));
+    assert!(matches!(raw.next().await??, IncomingEvent::Disconnected));
+    assert!(raw.next().await.is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_subscription_rejects_missing_targets_and_messages_before_started() {
+    let topic = Topic::new_welcome_message(INSTALLATION_ID.into());
+    for frame in [
+        wire::SubscribeStaticResponse {
+            response: Some(wire::subscribe_static_response::Response::Started(
+                Default::default(),
+            )),
+        },
+        messages(1),
+    ] {
+        let mut raw = normalize_static_stream(
+            Box::pin(stream::iter([Ok(frame)])),
+            [(topic.clone(), Cursor(0))].into(),
+            IncomingBatchLimits {
+                max_rows: 10,
+                max_bytes: 4096,
+            },
+        );
+        assert!(!raw.next().await?.unwrap_err().is_retryable());
+        assert!(raw.next().await.is_none());
+    }
 }

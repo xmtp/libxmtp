@@ -36,7 +36,7 @@ where
   }
 }
 
-impl<T: ErrorCode> ErrorWrapper<T> {
+impl<T: ErrorCode + 'static> ErrorWrapper<T> {
   /// Converts any error implementing `ErrorCode` into a `JsError` with
   /// the `[ErrorCode] message` format and a `.code` property.
   pub(crate) fn js(e: T) -> JsError {
@@ -44,18 +44,25 @@ impl<T: ErrorCode> ErrorWrapper<T> {
   }
 }
 
-impl<T: ErrorCode> From<ErrorWrapper<T>> for JsError {
+impl<T: ErrorCode + 'static> From<ErrorWrapper<T>> for JsError {
   fn from(e: ErrorWrapper<T>) -> JsError {
-    let code = e.0.error_code();
-    let js_error = JsError::new(&format!("[{}] {}", code, e.0));
-    let js_value: JsValue = js_error.clone().into();
-    let _ = js_sys::Reflect::set(
-      &js_value,
-      &JsValue::from_str("code"),
-      &JsValue::from_str(code),
-    );
-    js_error
+    error_to_js(&e.0)
   }
+}
+
+/// Retains structured stream failures in the message across worker transfers.
+pub(crate) fn error_to_js<T: ErrorCode + 'static>(error: &T) -> JsError {
+  let code = error.error_code();
+  let details =
+    xmtp_mls::subscriptions::stream_failure::encode_stream_failure(error).unwrap_or_default();
+  let js_error = JsError::new(&format!("[{}] {}{}", code, error, details));
+  let js_value: JsValue = js_error.clone().into();
+  let _ = js_sys::Reflect::set(
+    &js_value,
+    &JsValue::from_str("code"),
+    &JsValue::from_str(code),
+  );
+  js_error
 }
 
 /// Converts a Rust value into a [`JsValue`].

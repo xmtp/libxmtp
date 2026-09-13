@@ -37,6 +37,7 @@ pub use stream_handles::*;
 pub mod fmt;
 pub mod hex;
 pub mod http;
+pub mod rate_limit;
 pub mod snippet;
 pub mod time;
 pub mod types;

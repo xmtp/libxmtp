@@ -1,42 +1,31 @@
-use crate::{ErrorWrapper, conversation::Conversation, messages::Message, streams::StreamCloser};
+use crate::{conversation::Conversation, messages::Message, streams::StreamCloser};
 use napi::{
-  bindgen_prelude::Result,
-  threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
+  bindgen_prelude::{Error, FnArgs, Function, Result},
+  threadsafe_function::ThreadsafeFunction,
 };
 use napi_derive::napi;
-use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
+use xmtp_mls::subscriptions::local_delivery::{DeliveryScope, LocalDeliveryFilter};
 
 #[napi]
 impl Conversation {
   #[napi]
   #[xmtp_common::err_span]
-  pub async fn stream(
+  #[allow(
+    clippy::type_complexity,
+    reason = "NAPI needs the full callback type for TypeScript generation"
+  )]
+  pub fn stream(
     &self,
-    callback: ThreadsafeFunction<Message, ()>,
+    callback: Function<'_, FnArgs<(Option<Error>, Option<Message>)>, ()>,
     on_close: ThreadsafeFunction<(), ()>,
   ) -> Result<StreamCloser> {
     let group = self.create_mls_group();
-    let on_message =
-      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
-        let status = callback.call(
-          message
-            .map(Message::from)
-            .map_err(ErrorWrapper::from)
-            .map_err(napi::Error::from),
-          ThreadsafeFunctionCallMode::Blocking,
-        );
-        tracing::info!("Stream status: {:?}", status);
-      };
-    let on_close = move || {
-      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-    };
-
-    let handle = stream_conversation_messages_with_callback_dispatch(
+    crate::message_delivery::callback_stream(
       group.context.clone(),
-      group.group_id,
-      on_message,
+      DeliveryScope::Groups(vec![group.group_id]),
+      LocalDeliveryFilter::default(),
+      callback,
       on_close,
-    );
-    Ok(StreamCloser::new(handle))
+    )
   }
 }

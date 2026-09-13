@@ -19,9 +19,9 @@ enum ComponentType {
   COMPONENT_TYPE_TLS_MAP_BYTES_BYTES = 3;
   // A TlsMap<InboxId, bytes> supporting key-level insert/update/delete via deltas
   COMPONENT_TYPE_TLS_MAP_INBOX_ID_BYTES = 4;
-  // A TlsSet<bytes> supporting insert/remove/remove-by-hash via deltas
+  // A `TlsSet<bytes>` supporting insert/remove/remove-by-hash via deltas
   COMPONENT_TYPE_TLS_SET_BYTES = 5;
-  // A TlsSet<InboxId> supporting insert/remove/remove-by-hash via deltas
+  // A `TlsSet<InboxId>` supporting insert/remove/remove-by-hash via deltas
   COMPONENT_TYPE_TLS_SET_INBOX_ID = 6;
 }
 

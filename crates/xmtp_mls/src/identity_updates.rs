@@ -6,7 +6,7 @@ use crate::{
     identity::{IdentityError, IdentityExt},
     subscriptions::SyncWorkerEvent,
 };
-use futures::{StreamExt, future::try_join_all, stream::FuturesUnordered};
+use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use xmtp_common::{Event, Retry, RetryableError, retry_async, retryable};
@@ -19,8 +19,8 @@ use xmtp_id::associations::verify_updates;
 use xmtp_id::{
     AsIdRef, InboxIdRef,
     associations::{
-        AssociationError, AssociationState, AssociationStateDiff, Identifier, IdentityAction,
-        InstallationKeyContext, MemberIdentifier, apply_update,
+        AssociationError, AssociationState, Identifier, IdentityAction, InstallationKeyContext,
+        MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
         get_state,
         unverified::{
@@ -38,6 +38,12 @@ use xmtp_proto::{
 
 use xmtp_api::{ApiClientWrapper, GetIdentityUpdatesV2Filter};
 use xmtp_id::InboxUpdate;
+
+mod dependencies;
+pub use dependencies::{IdentityDependencyError, IdentityRequirement, IdentityResolutionRegistry};
+pub(crate) use dependencies::{
+    require_association_state, resolve_identity_requirement, resolve_identity_requirements,
+};
 
 #[derive(Debug, Error)]
 pub enum IdentityUpdateError {
@@ -100,6 +106,8 @@ pub struct InstallationDiff {
 #[derive(Debug, Error)]
 pub enum InstallationDiffError {
     #[error(transparent)]
+    IdentityDependency(#[from] IdentityDependencyError),
+    #[error(transparent)]
     Client(#[from] ClientError),
     #[error(transparent)]
     Db(#[from] xmtp_db::ConnectionError),
@@ -110,6 +118,7 @@ pub enum InstallationDiffError {
 impl RetryableError for InstallationDiffError {
     fn is_retryable(&self) -> bool {
         match self {
+            InstallationDiffError::IdentityDependency(error) => retryable!(error),
             InstallationDiffError::Client(client_error) => retryable!(client_error),
             InstallationDiffError::Storage(e) => retryable!(e),
             InstallationDiffError::Db(e) => retryable!(e),
@@ -248,8 +257,8 @@ where
         conn: &impl DbQuery,
         identifiers: &[(impl AsIdRef, Option<i64>)],
     ) -> Result<Vec<AssociationState>, ClientError> {
-        batch_get_association_state_with_verifier(conn, identifiers, &self.context.scw_verifier())
-            .await
+        let verifier = self.context.scw_verifier();
+        batch_get_association_state_with_verifier(conn, identifiers, &verifier).await
     }
 
     /// Get the latest association state available on the network for the given `inbox_id`
@@ -269,86 +278,11 @@ where
     pub async fn get_association_state(
         &self,
         conn: &impl xmtp_db::DbQuery,
-        inbox_id: InboxIdRef<'a>,
+        inbox_id: InboxIdRef<'_>,
         to_sequence_id: Option<i64>,
     ) -> Result<AssociationState, ClientError> {
-        get_association_state_with_verifier(
-            conn,
-            inbox_id,
-            to_sequence_id,
-            &self.context.scw_verifier(),
-        )
-        .await
-    }
-
-    /// Calculate the changes between the `starting_sequence_id` and `ending_sequence_id` for the
-    /// provided `inbox_id`
-    pub(crate) async fn get_association_state_diff(
-        &self,
-        conn: &impl DbQuery,
-        inbox_id: InboxIdRef<'a>,
-        starting_sequence_id: Option<i64>,
-        ending_sequence_id: Option<i64>,
-    ) -> Result<AssociationStateDiff, ClientError> {
-        tracing::debug!(
-            "Computing diff for {:?} from {:?} to {:?}",
-            inbox_id,
-            starting_sequence_id,
-            ending_sequence_id
-        );
-        // If no starting sequence ID, get all updates from the beginning of the inbox's history up to the ending sequence ID
-        if starting_sequence_id.is_none() {
-            return Ok(self
-                .get_association_state(conn, inbox_id, ending_sequence_id)
-                .await?
-                .as_diff());
-        }
-
-        // Get the initial state to compare against
-        let initial_state = self
-            .get_association_state(conn, inbox_id, starting_sequence_id)
-            .await?;
-
-        // Get any identity updates that need to be applied
-        let incremental_updates =
-            conn.get_identity_updates(inbox_id, starting_sequence_id, ending_sequence_id)?;
-
-        let last_sequence_id = incremental_updates.last().map(|update| update.sequence_id);
-        if ending_sequence_id.is_some()
-            && last_sequence_id.is_some()
-            && last_sequence_id != ending_sequence_id
-        {
-            tracing::error!(
-                "Did not find the expected last sequence id. Expected: {:?}, Found: {:?}",
-                ending_sequence_id,
-                last_sequence_id
-            );
-            return Err(AssociationError::MissingIdentityUpdate.into());
-        }
-
-        let unverified_incremental_updates: Vec<UnverifiedIdentityUpdate> = incremental_updates
-            .into_iter()
-            .map(|update| update.to_unverified())
-            .collect::<Result<Vec<UnverifiedIdentityUpdate>, AssociationError>>()?;
-
-        let incremental_updates =
-            verify_updates(unverified_incremental_updates, &self.context.scw_verifier()).await?;
-        let mut final_state = initial_state.clone();
-        // Apply each update sequentially, aborting in the case of error
-        for update in incremental_updates {
-            final_state = apply_update(final_state, update)?;
-        }
-
-        tracing::debug!("Final state at {:?}: {:?}", last_sequence_id, final_state);
-        if let Some(last_sequence_id) = last_sequence_id {
-            conn.write_to_cache(
-                inbox_id.to_string(),
-                last_sequence_id,
-                final_state.clone().into(),
-            )?;
-        }
-
-        Ok(initial_state.diff(&final_state))
+        let verifier = self.context.scw_verifier();
+        get_association_state_with_verifier(conn, inbox_id, to_sequence_id, &verifier).await
     }
 
     /// Generate a `CreateInbox` signature request for the given wallet address.
@@ -541,76 +475,24 @@ where
         new_group_membership: &GroupMembership,
         membership_diff: &MembershipDiff<'_>,
     ) -> Result<InstallationDiff, InstallationDiffError> {
-        let added_and_updated_members = membership_diff
-            .added_inboxes
-            .iter()
-            .chain(membership_diff.updated_inboxes.iter());
-
-        let filters = added_and_updated_members
-            .clone()
-            .map(|i| {
-                (
-                    i.as_str(),
-                    new_group_membership.get(i).map(|i| *i as i64).unwrap_or(0),
-                )
-            })
-            .collect::<Vec<(&str, i64)>>();
-
-        load_identity_updates(
-            self.context.api(),
-            conn,
-            &crate::groups::filter_inbox_ids_needing_updates(conn, filters.as_slice())?,
-        )
-        .await?;
-
-        let mut added_installations: HashSet<Vec<u8>> = HashSet::new();
-        let mut removed_installations: HashSet<Vec<u8>> = HashSet::new();
-
-        let mut futs = FuturesUnordered::new();
-        for inbox_id in added_and_updated_members {
-            futs.push(async move {
-                let starting_sequence_id = match old_group_membership.get(inbox_id) {
-                    Some(0) => None,
-                    Some(i) => Some(*i as i64),
-                    None => None,
-                };
-                // This loop reads added and updated inboxes only. They never
-                // hold the creation placeholder. An attacker chooses any `0`
-                // here. Do not copy the `Some(0) => None` line above. Pass the
-                // `0` through. Every receiver then rejects the commit.
-                // `get_installation_diff_rejects_added_inbox_at_sequence_zero`
-                // guards this.
-                let state_diff = self
-                    .get_association_state_diff(
-                        conn,
-                        inbox_id.as_str(),
-                        starting_sequence_id,
-                        new_group_membership.get(inbox_id).map(|i| *i as i64),
-                    )
-                    .await?;
-
-                Ok::<_, InstallationDiffError>(state_diff)
-            });
-        }
-        while let Some(result) = futs.next().await {
-            let diff = result?;
-            added_installations.extend(diff.new_installations());
-            removed_installations.extend(diff.removed_installations());
-        }
-
-        for inbox_id in membership_diff.removed_inboxes.iter() {
-            let state_diff = self
-                .get_association_state(
-                    conn,
-                    inbox_id,
-                    old_group_membership.get(inbox_id).map(|i| *i as i64),
-                )
-                .await?
-                .as_diff();
-
-            // In the case of a removed member, get all the "new installations" from the diff and add them to the list of removed installations
-            removed_installations.extend(state_diff.new_installations());
-        }
+        let diff = loop {
+            match get_installation_diff_local(
+                conn,
+                old_group_membership,
+                new_group_membership,
+                membership_diff,
+            ) {
+                Ok(diff) => break diff,
+                Err(IdentityDependencyError::Need(requirement)) => {
+                    resolve_identity_requirement(&self.context, &requirement).await?;
+                }
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let InstallationDiff {
+            added_installations,
+            removed_installations,
+        } = diff;
 
         if !added_installations.is_empty() || !removed_installations.is_empty() {
             let added_installations: Vec<_> =
@@ -633,6 +515,59 @@ where
             removed_installations,
         })
     }
+}
+
+/// Compare exact verified snapshots without network or signature-verifier calls.
+/// A creation placeholder has an empty identity baseline. It never selects the
+/// receiver's latest identity state. New membership references must be nonzero.
+pub(crate) fn get_installation_diff_local(
+    conn: &impl DbQuery,
+    old_membership: &GroupMembership,
+    new_membership: &GroupMembership,
+    membership_diff: &MembershipDiff<'_>,
+) -> Result<InstallationDiff, IdentityDependencyError> {
+    let mut added_installations = HashSet::new();
+    let mut removed_installations = HashSet::new();
+    for inbox_id in membership_diff
+        .added_inboxes
+        .iter()
+        .chain(&membership_diff.updated_inboxes)
+    {
+        let final_state = require_association_state(
+            conn,
+            &IdentityRequirement {
+                inbox_id: (*inbox_id).clone(),
+                sequence_id: new_membership.get(inbox_id).copied().unwrap_or(0),
+            },
+        )?;
+        let diff = match old_membership.get(inbox_id) {
+            None | Some(0) => final_state.as_diff(),
+            Some(sequence_id) => require_association_state(
+                conn,
+                &IdentityRequirement {
+                    inbox_id: (*inbox_id).clone(),
+                    sequence_id: *sequence_id,
+                },
+            )?
+            .diff(&final_state),
+        };
+        added_installations.extend(diff.new_installations());
+        removed_installations.extend(diff.removed_installations());
+    }
+    for inbox_id in &membership_diff.removed_inboxes {
+        let state = require_association_state(
+            conn,
+            &IdentityRequirement {
+                inbox_id: (*inbox_id).clone(),
+                sequence_id: old_membership.get(inbox_id).copied().unwrap_or(0),
+            },
+        )?;
+        removed_installations.extend(state.installation_ids());
+    }
+    Ok(InstallationDiff {
+        added_installations,
+        removed_installations,
+    })
 }
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,

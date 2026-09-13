@@ -197,15 +197,6 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         })
         .collect()
     }
-    #[xmtp_common::rpc_span]
-    pub async fn get_envelope(&self, sequence_id: u64) -> Result<wire::ServerEnvelope> {
-        self.retry_call(
-            || self.api_client.get(wire::GetRequest { sequence_id }),
-            false,
-        )
-        .await
-        .map_err(dyn_err)
-    }
 }
 
 impl<C: XmtpMlsStreams> ApiClientWrapper<C> {

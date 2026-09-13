@@ -33,9 +33,6 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
     ) -> Result<QueryNewestResponse, Self::Error> {
         backend::QueryNewest(request).query(&self.client).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        backend::Get(request).query(&self.client).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,

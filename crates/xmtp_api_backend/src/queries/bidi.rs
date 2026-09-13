@@ -8,14 +8,16 @@
 //! When the response stream ends, the actor releases both halves. Later sends
 //! fail through the closed command channel. The lease ledger owns reconnect.
 
+use parking_lot::Mutex;
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use futures::StreamExt;
 use futures::stream::BoxStream;
 use tokio::sync::{mpsc, oneshot};
-use xmtp_common::{AbortHandle, MaybeSend, MaybeSync, StreamHandle};
+use xmtp_common::{AbortHandle, MaybeSend, MaybeSync, RetryableError, StreamHandle};
 use xmtp_proto::types::Topic;
 
 /// Wire-outbound depth. The actor is the sole writer; a transport that stops
@@ -115,7 +117,28 @@ pub enum Inbound<G, W> {
     Messages { group: Vec<G>, welcome: Vec<W> },
     /// Nothing to do — unknown version or an informational/undecodable frame.
     Skip,
+    /// The frame cannot establish an ordered delivery prefix.
+    Invalid(&'static str),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum ConnectionFailure {
+    #[error("subscription stream failed: {0}")]
+    Wire(#[source] xmtp_proto::api::NetworkError),
+    #[error("invalid subscription frame: {0}")]
+    Protocol(&'static str),
+}
+
+impl RetryableError for ConnectionFailure {
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Wire(error) => error.is_retryable(),
+            Self::Protocol(_) => false,
+        }
+    }
+}
+
+type FailureSlot = Arc<Mutex<Option<Arc<ConnectionFailure>>>>;
 
 /// Events surfaced to the consumer, in wire order. `Ping`/`Pong` never appear —
 /// liveness lives entirely inside the actor. Generic over the backend's group
@@ -138,6 +161,12 @@ pub enum BidiError {
     Closed,
     #[error("liveness probe timed out; treat the link as dead, drop it, and re-open")]
     ProbeTimedOut,
+}
+
+impl RetryableError for BidiError {
+    fn is_retryable(&self) -> bool {
+        true
+    }
 }
 
 /// Outcome of a [`Connection::try_mutate`] that could not be accepted; both
@@ -192,6 +221,7 @@ pub struct Connection<B: BidiBinding> {
     /// 30s-derived default, which the probe docs already sanction as safe.
     keepalive_ms: u32,
     actor: Box<dyn AbortHandle>,
+    failure: FailureSlot,
 }
 
 impl<B: BidiBinding> Connection<B> {
@@ -205,11 +235,12 @@ impl<B: BidiBinding> Connection<B> {
         T: FnOnce(BoxStream<'static, B::Request>) -> Fut,
         Fut: Future<Output = Result<S, E>>,
         S: futures::Stream<Item = Result<B::Response, E>> + Send + 'static,
-        E: std::fmt::Display + Send + 'static,
+        E: RetryableError + Send + 'static,
     {
         let (wire_out, mut wire_out_rx) = mpsc::channel(WIRE_BUFFER);
         let (commands_tx, commands_rx) = mpsc::channel(COMMAND_BUFFER);
         let (event_tx, events) = mpsc::channel(EVENT_BUFFER);
+        let failure = FailureSlot::default();
 
         // The first request frame carries the initial update. Seed it into
         // the fresh, empty wire channel before the transport or the actor can
@@ -231,7 +262,13 @@ impl<B: BidiBinding> Connection<B> {
             None,
             // Box::pin makes the inbound stream `Unpin` for the select loop without
             // requiring the transport's stream type to be `Unpin` itself.
-            run_actor::<B, _, _>(Box::pin(inbound), wire_out, commands_rx, event_tx),
+            run_actor::<B, _, _>(
+                Box::pin(inbound),
+                wire_out,
+                commands_rx,
+                event_tx,
+                failure.clone(),
+            ),
         );
 
         Ok(Self {
@@ -241,6 +278,7 @@ impl<B: BidiBinding> Connection<B> {
             finished: AtomicBool::new(false),
             keepalive_ms: 0,
             actor: actor.abort_handle(),
+            failure,
         })
     }
 
@@ -379,6 +417,10 @@ impl<B: BidiBinding> Connection<B> {
         }
         event
     }
+
+    pub fn failure(&self) -> Option<Arc<ConnectionFailure>> {
+        self.failure.lock().clone()
+    }
 }
 
 impl<B: BidiBinding> Drop for Connection<B> {
@@ -474,10 +516,11 @@ async fn run_actor<B, S, E>(
     wire_out: mpsc::Sender<B::Request>,
     mut commands: mpsc::Receiver<Command<B>>,
     events: mpsc::Sender<Event<B::GroupMessage, B::WelcomeMessage>>,
+    failure: FailureSlot,
 ) where
     B: BidiBinding,
     S: futures::Stream<Item = Result<B::Response, E>> + Unpin,
-    E: std::fmt::Display,
+    E: RetryableError + 'static,
 {
     // Outstanding client probes awaiting their `Pong`, keyed by nonce.
     let mut probes: HashMap<u64, oneshot::Sender<()>> = HashMap::new();
@@ -574,10 +617,15 @@ async fn run_actor<B, S, E>(
                     Ok(r) => r,
                     Err(e) => {
                         tracing::warn!("bidi subscription stream errored: {e}");
+                        *failure.lock() = Some(Arc::new(ConnectionFailure::Wire(xmtp_proto::api::NetworkError::new(e))));
                         break;
                     }
                 };
                 match B::handle(response) {
+                    Inbound::Invalid(reason) => {
+                        *failure.lock() = Some(Arc::new(ConnectionFailure::Protocol(reason)));
+                        break;
+                    }
                     // Liveness is internal: auto-pong / probe-correlate here, never
                     // surface it to the consumer.
                     Inbound::Ping(nonce) => {
@@ -686,6 +734,7 @@ async fn emit_instruction<G, W>(
         }
         // Ping/Pong are the caller's job; Skip is a no-op.
         Inbound::Ping(_) | Inbound::Pong(_) | Inbound::Skip => false,
+        Inbound::Invalid(_) => true,
     }
 }
 
@@ -920,7 +969,13 @@ mod tests {
         let inbound = futures::stream::poll_fn(move |cx| inbound_rx.poll_recv(cx));
         xmtp_common::spawn(
             None,
-            run_actor::<WatchdogBinding, _, _>(Box::pin(inbound), wire_out, commands_rx, events_tx),
+            run_actor::<WatchdogBinding, _, _>(
+                Box::pin(inbound),
+                wire_out,
+                commands_rx,
+                events_tx,
+                FailureSlot::default(),
+            ),
         );
         ActorHarness {
             inbound: inbound_tx,

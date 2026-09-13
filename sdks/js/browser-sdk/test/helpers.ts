@@ -3,6 +3,7 @@ import type {
   EncodedContent,
 } from "@xmtp/content-type-primitives";
 import { type ContentTypeId, type Identifier } from "@xmtp/wasm-bindings";
+import { afterEach } from "vitest";
 import { Client } from "@/Client";
 import type {
   ContentOptions,
@@ -18,6 +19,21 @@ type TestClientOptions = Partial<NetworkOptions> &
   ContentOptions &
   StorageOptions &
   OtherOptions;
+
+const clients = new Set<{ close(): Promise<void> }>();
+
+afterEach(async () => {
+  // Client workers retain HTTP streams until the client closes.
+  const results = await Promise.allSettled(
+    [...clients].map((client) => client.close()),
+  );
+  clients.clear();
+  for (const result of results) {
+    if (result.status === "rejected") {
+      throw result.reason;
+    }
+  }
+});
 
 export const sleep = (ms: number) =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,10 +72,12 @@ export const buildClient = async <ContentCodecs extends ContentCodec[] = []>(
     ...options,
     env: options?.env ?? ("local" as const),
   };
-  return Client.build<ContentCodecs>(identifier, {
+  const client = await Client.build<ContentCodecs>(identifier, {
     ...opts,
     dbPath: opts.dbPath ?? `./test-${identifier.identifier}.db3`,
   });
+  clients.add(client);
+  return client;
 };
 
 export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
@@ -74,11 +92,13 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
     env: options?.env ?? ("local" as const),
   };
   const identifier = await signer.getIdentifier();
-  return Client.create<ContentCodecs>(signer, {
+  const client = await Client.create<ContentCodecs>(signer, {
     ...opts,
     disableAutoRegister: true,
     dbPath: opts.dbPath ?? `./test-${identifier.identifier}.db3`,
   });
+  clients.add(client);
+  return client;
 };
 
 export const createRegisteredClient = async <
@@ -95,10 +115,12 @@ export const createRegisteredClient = async <
     env: options?.env ?? ("local" as const),
   };
   const identifier = await signer.getIdentifier();
-  return Client.create<ContentCodecs>(signer, {
+  const client = await Client.create<ContentCodecs>(signer, {
     ...opts,
     dbPath: opts.dbPath ?? `./test-${identifier.identifier}.db3`,
   });
+  clients.add(client);
+  return client;
 };
 
 export const ContentTypeTest: ContentTypeId = {

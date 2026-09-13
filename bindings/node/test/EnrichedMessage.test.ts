@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createRegisteredClient, createUser } from '@test/helpers'
+import { createRegisteredClient, createUser, sleep } from '@test/helpers'
 import {
   Actions,
   ActionStyle,
@@ -31,7 +31,19 @@ describe.concurrent('EnrichedMessage', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client2.conversations().sync()
+    // A fixed replica-visible Welcome target can be zero before this group is visible.
+    const deadline = Date.now() + 15_000
+    let groupIds: string[]
+    do {
+      await client2.conversations().sync()
+      groupIds = client2
+        .conversations()
+        .list()
+        .map((entry) => entry.conversation.id())
+      if (groupIds.includes(conversation.id())) break
+      await sleep(100)
+    } while (Date.now() < deadline)
+    expect(groupIds).toContain(conversation.id())
     const conversation2 = client2
       .conversations()
       .getConversationById(conversation.id())

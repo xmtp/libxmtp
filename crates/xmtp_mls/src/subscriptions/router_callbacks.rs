@@ -24,7 +24,6 @@ use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_common::Event;
 use xmtp_macro::log_event;
 
-use super::stream_router::{DEFAULT_STREAM_DEPTH, RouterError, RouterStream, StreamRouter};
 use super::{Result, StreamKind, SubscribeError};
 use crate::Client;
 use crate::context::XmtpSharedContext;
@@ -54,6 +53,11 @@ static SHARED_WIRES: LazyLock<Mutex<SharedWires>> = LazyLock::new(|| {
         suspend_requested: false,
     })
 });
+
+/// Prevent automatic unary receipt from bypassing native stream suspension.
+pub(crate) fn bidi_streams_suspended() -> bool {
+    SHARED_WIRES.lock().suspend_requested
+}
 
 #[cfg(test)]
 pub(crate) fn shared_transport_count() -> usize {
@@ -169,23 +173,11 @@ fn settle_lifecycle(
     }
     match first_error {
         None => Ok(()),
-        Some(e) => Err(SubscribeError::from(
-            super::stream_router::RouterError::Transport(e),
-        )),
+        Some(e) => Err(SubscribeError::Transport(e)),
     }
 }
 
 /// Close telemetry and callback also run when the stream task is aborted.
-///
-/// KNOWN DEFECT (Phase 5.1): this fires `on_close` on every exit of
-/// `pump_stream`, which includes a transport backpressure drop. `RouterStream`
-/// ends when the wire dies and also when a consumer falls behind and the
-/// transport drops its lease (see `stream_router::RouterStream::next`). P3-STR-015
-/// wants `on_close` only on a non-retryable failure or an explicit close, so a
-/// slow host callback that fills the lease depth reports a closed stream even
-/// though the wire is healthy and re-subscribing would recover. A correct fix
-/// needs a drop reason at the lease boundary, which changes the transport and
-/// router contract together.
 struct StreamClosedGuard<F: FnOnce()> {
     kind: StreamKind,
     installation: InstallationId,
@@ -217,8 +209,8 @@ impl StreamOrigin {
     }
 }
 
-/// Register a router stream, signal readiness, and deliver callbacks until close.
-pub(crate) fn pump_stream<T, S>(
+/// Deliver local stream items. The next poll acknowledges the preceding callback return.
+pub(crate) fn pump_stream<T, S, St>(
     origin: StreamOrigin,
     subscribe: S,
     mut callback: impl FnMut(Result<T>) + MaybeSend + 'static,
@@ -226,8 +218,10 @@ pub(crate) fn pump_stream<T, S>(
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
     T: MaybeSend + 'static,
-    S: Future<Output = std::result::Result<RouterStream<T>, RouterError>> + MaybeSend + 'static,
+    St: futures::Stream<Item = Result<T>> + MaybeSend + Unpin + 'static,
+    S: Future<Output = Result<St>> + MaybeSend + 'static,
 {
+    use futures::StreamExt;
     let (tx, rx) = oneshot::channel();
     let task = async move {
         let StreamOrigin {
@@ -243,10 +237,7 @@ where
         };
         let mut stream = tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            result = subscribe => result.map_err(|error| {
-                tracing::warn!("bidi {kind:?} stream failed to subscribe: {error}");
-                SubscribeError::from(error)
-            })?,
+            result = subscribe => result?,
         };
         let _ = tx.send(());
         loop {
@@ -263,29 +254,15 @@ where
     xmtp_common::spawn(Some(rx), xmtp_common::bind_task_hub(task))
 }
 
-impl<Context> Client<Context>
+impl<C> Client<C>
 where
-    Context: XmtpSharedContext + 'static,
-    Context::ApiClient:
+    C: XmtpSharedContext + 'static,
+    C::ApiClient:
         XmtpMlsBidiStreams + XmtpMlsStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
-    <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
-    Context::MlsStorage: 'static,
-    Context::Db: 'static,
+    <C::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
 {
-    /// This client's router over the process-shared bidi wire, created on
-    /// first use.
-    pub(crate) async fn stream_router(&self) -> &StreamRouter<Context> {
-        self.stream_router
-            .get_or_init(|| async {
-                let api = self.context.api().api_client.clone();
-                StreamRouter::new(self.context.clone(), shared_transport(api))
-            })
-            .await
-    }
-
-    /// Deliver backend stream items through the callback.
     pub fn stream_all_messages_with_callback_dispatch(
-        client: Arc<Client<Context>>,
+        client: Arc<Client<C>>,
         conversation_type: Option<ConversationType>,
         consent_states: Option<Vec<ConsentState>>,
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
@@ -293,59 +270,52 @@ where
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let origin = StreamOrigin::new(StreamKind::All, &client.context);
         let subscribe = async move {
-            let router = client.stream_router().await;
-            router
-                .stream_all_messages(conversation_type, consent_states, DEFAULT_STREAM_DEPTH)
-                .await
+            super::stream_all::StreamAllMessages::new_owned(
+                client.context.clone(),
+                conversation_type,
+                consent_states,
+            )
+            .await
         };
         pump_stream(origin, subscribe, callback, on_close)
     }
 
-    /// Deliver backend stream items through the callback.
     pub fn stream_conversations_with_callback_dispatch(
-        client: Arc<Client<Context>>,
+        client: Arc<Client<C>>,
         conversation_type: Option<ConversationType>,
         include_duplicate_dms: bool,
-        callback: impl FnMut(Result<MlsGroup<Context>>) + MaybeSend + 'static,
+        callback: impl FnMut(Result<MlsGroup<C>>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let origin = StreamOrigin::new(StreamKind::Conversations, &client.context);
         let subscribe = async move {
-            let router = client.stream_router().await;
-            router
-                .stream_conversations(
-                    conversation_type,
-                    include_duplicate_dms,
-                    None,
-                    DEFAULT_STREAM_DEPTH,
-                )
-                .await
+            super::stream_conversations::StreamConversations::new_owned(
+                client.context.clone(),
+                conversation_type,
+                include_duplicate_dms,
+                None,
+            )
+            .await
         };
         pump_stream(origin, subscribe, callback, on_close)
     }
 }
 
-/// Deliver backend stream items through the callback.
-pub fn stream_conversation_messages_with_callback_dispatch<Context>(
-    context: Context,
+pub fn stream_conversation_messages_with_callback_dispatch<C>(
+    context: C,
     group_id: GroupId,
     callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
     on_close: impl FnOnce() + MaybeSend + 'static,
 ) -> impl StreamHandle<StreamOutput = Result<()>>
 where
-    Context: XmtpSharedContext + 'static,
-    Context::ApiClient:
+    C: XmtpSharedContext + 'static,
+    C::ApiClient:
         XmtpMlsBidiStreams + XmtpMlsStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
-    <Context::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
-    Context::Db: 'static,
+    <C::ApiClient as XmtpMlsBidiStreams>::SubscribeStream: 'static,
 {
     let origin = StreamOrigin::new(StreamKind::Messages, &context);
     let subscribe = async move {
-        let api = context.api().api_client.clone();
-        let router = StreamRouter::new(context.clone(), shared_transport(api));
-        router
-            .stream_messages(vec![group_id], DEFAULT_STREAM_DEPTH)
-            .await
+        super::stream_messages::StreamGroupMessages::new_owned(context, vec![group_id]).await
     };
     pump_stream(origin, subscribe, callback, on_close)
 }

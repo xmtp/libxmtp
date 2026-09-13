@@ -60,7 +60,7 @@ The JSON schema at that URL validates the file in editors that support Taplo.
 
 Configure at most one physical read replica. Do not point `replica_url` at a load balancer that selects independently lagging replicas.
 
-Publish and Query use the primary. Newest, Get, identifier lookup, and subscriptions use the selected read database,
+Publish and Query use the primary. Newest, identifier lookup, and subscriptions use the selected read database,
 so those reads can lag behind a successful publish.
 
 The tailer holds one dedicated connection to the read database, beyond the

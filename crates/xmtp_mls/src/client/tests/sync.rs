@@ -151,7 +151,7 @@ async fn test_sync_all_groups_and_welcomes() {
 
     // Initial sync (None): Bob should fetch both groups
     let bob_received_groups = bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    assert_eq!(bob_received_groups.num_synced, 0);
+    assert_eq!(bob_received_groups.num_synced, 2);
 
     xmtp_common::time::sleep(Duration::from_millis(100)).await;
 

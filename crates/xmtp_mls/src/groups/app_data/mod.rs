@@ -308,9 +308,8 @@ pub(crate) fn process_message_with_app_data<Provider: OpenMlsProvider>(
 /// proposal in the same network round trip before processing the
 /// commit that references it.
 ///
-/// The caller is expected to wrap this inside `generate_commit_with_rollback`
-/// so the staged commit can be extracted and persisted alongside the
-/// intent.
+/// Call this inside `generate_prepared_commit` and an outer state transaction.
+/// Store the exact attempt and staged commit in that transaction.
 pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,

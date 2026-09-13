@@ -30,6 +30,21 @@ impl RetryableError for SyncSummary {
     }
 }
 
+impl crate::worker::NeedsDbReconnect for SyncSummary {
+    fn needs_db_reconnect(&self) -> bool {
+        self.publish_errors
+            .iter()
+            .chain(self.post_commit_errors.iter())
+            .chain(self.other.as_deref())
+            .any(crate::worker::NeedsDbReconnect::needs_db_reconnect)
+            || self
+                .process
+                .errored
+                .iter()
+                .any(|(_, error)| error.needs_db_reconnect())
+    }
+}
+
 impl SyncSummary {
     /// synced a single message successfully
     pub fn single(msg: MessageIdentifier) -> Self {

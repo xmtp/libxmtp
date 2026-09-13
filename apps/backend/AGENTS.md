@@ -30,6 +30,9 @@ row limits are both 50, so SDK tests exercise paging.
 
 The shared stack is in `dev/docker/compose.yml`. Database ports are 55432
 (primary) and 55433 (replica). `db-down` stops the entire shared stack.
+For a separate local stack, set `XMTP_BACKEND_DB_PORT` and
+`XMTP_BACKEND_REPLICA_PORT` before startup. Set `DATABASE_URL` to its primary
+port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.
 
 Set `XMTP_DATABASE_URL` and `XMTP_REPLICA_URL` for startup with the local config. Test and SQL recipes default to
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`; `DATABASE_URL` overrides it.

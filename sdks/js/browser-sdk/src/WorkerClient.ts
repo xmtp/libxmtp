@@ -47,6 +47,10 @@ export class WorkerClient {
     return this.#client.libxmtpVersion;
   }
 
+  async close() {
+    await this.#client.close();
+  }
+
   get appVersion() {
     return this.#client.appVersion;
   }

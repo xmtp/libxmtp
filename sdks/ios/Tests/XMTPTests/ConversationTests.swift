@@ -5,6 +5,24 @@ import XMTPTestHelpers
 
 @available(iOS 16, *)
 class ConversationTests: XCTestCase {
+	private struct StreamTestMessage: Equatable, Sendable {
+		let id: String
+		let conversationId: String
+		let senderInboxId: String
+		let body: String
+		let isApplication: Bool
+
+		static func record(_ message: DecodedMessage) throws -> Self {
+			try Self(
+				id: message.id,
+				conversationId: message.conversationId,
+				senderInboxId: message.senderInboxId,
+				body: message.body,
+				isApplication: message.kind == .application
+			)
+		}
+	}
+
 	func testCanFindConversationByTopic() async throws {
 		let fixtures = try await fixtures()
 
@@ -267,12 +285,11 @@ class ConversationTests: XCTestCase {
 	}
 
 	func testStreamsAndMessages() async throws {
-		let transcript = TestTranscript()
 		let expectation = XCTestExpectation(
-			description: "caro received 90 streamed messages"
+			description: "Caro received 90 streamed application messages"
 		)
 		expectation.expectedFulfillmentCount = 90
-		expectation.assertForOverFulfill = false
+		expectation.assertForOverFulfill = true
 
 		let fixtures = try await fixtures()
 
@@ -309,107 +326,120 @@ class ConversationTests: XCTestCase {
 		)
 		let alixGroup2 = try XCTUnwrap(alixGroup2Result)
 
-		// Start listening for messages
 		let caroTask = Task {
-			print("Caro is listening...")
-			var received = 0
-			do {
-				for try await message in await fixtures.caroClient.conversations
-					.streamAllMessages()
-				{
-					let body = try message.body
-					await transcript.add(body)
-					print("Caro received: \(body)")
-					received += 1
+			var messages: [StreamTestMessage] = []
+			var cursors: [DeliveryCursor] = []
+			var applications = 0
+			for try await message in await fixtures.caroClient.conversations.streamAllMessages() {
+				try messages.append(StreamTestMessage.record(message))
+				try cursors.append(XCTUnwrap(message.deliveryCursor))
+				if message.kind == .application {
+					applications += 1
 					expectation.fulfill()
-
-					if received >= 90 {
+					if applications == 90 {
 						break
 					}
 				}
-			} catch {
-				print("Error while streaming messages: \(error)")
 			}
+			return (messages, cursors)
 		}
 
-		try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second delay
-
-		// Simulate message sending in parallel
-		await withThrowingTaskGroup(of: Void.self) { taskGroup in
-			taskGroup.addTask {
-				print("Alix is sending messages...")
-				for i in 0 ..< 20 {
-					let message = "Alix Message \(i)"
-					_ = try await alixGroup.send(content: message)
-					_ = try await alixGroup2.send(content: message)
-					print("Alix sent: \(message)")
-					// 50ms yield between sends so a single sender's MLS
-					// ratchet doesn't outrun OpenMLS's 5-generation
-					// out-of-order tolerance under concurrent load (#3512).
-					try await Task.sleep(nanoseconds: 50_000_000)
+		do {
+			try await Task.sleep(nanoseconds: 1_000_000_000)
+			let expected = try await withThrowingTaskGroup(of: [StreamTestMessage].self) { taskGroup in
+				for (senderID, groups, sender, count) in [
+					(fixtures.alixClient.inboxID, [alixGroup, alixGroup2], "Alix", 20),
+					(fixtures.boClient.inboxID, [boGroup, boGroup2], "Bo", 10),
+					(fixtures.caroClient.inboxID, [caroGroup, caroGroup2], "Caro", 10),
+				] {
+					taskGroup.addTask {
+						var sent: [StreamTestMessage] = []
+						for index in 0 ..< count {
+							let body = "\(sender) Message \(index)"
+							for group in groups {
+								let id = try await group.send(content: body)
+								sent.append(StreamTestMessage(
+									id: id, conversationId: group.id, senderInboxId: senderID,
+									body: body, isApplication: true
+								))
+							}
+							// Keep each sender within the MLS out-of-order limit (#3512).
+							try await Task.sleep(nanoseconds: 50_000_000)
+						}
+						return sent
+					}
 				}
-			}
-
-			taskGroup.addTask {
-				print("Bo is sending messages...")
-				for i in 0 ..< 10 {
-					let message = "Bo Message \(i)"
-					_ = try await boGroup.send(content: message)
-					_ = try await boGroup2.send(content: message)
-					print("Bo sent: \(message)")
-					try await Task.sleep(nanoseconds: 50_000_000) // #3512
-				}
-			}
-
-			taskGroup.addTask {
-				print("Davon is sending spam groups...")
-				for i in 0 ..< 10 {
-					let spamMessage = "Davon Spam Message \(i)"
-					let group = try await fixtures.davonClient.conversations
-						.newGroup(
+				taskGroup.addTask {
+					var sent: [StreamTestMessage] = []
+					for index in 0 ..< 10 {
+						let body = "Davon Spam Message \(index)"
+						let group = try await fixtures.davonClient.conversations.newGroup(
 							with: [fixtures.caroClient.inboxID]
 						)
-					_ = try await group.send(content: spamMessage)
-					print("Davon spam: \(spamMessage)")
-					try await Task.sleep(nanoseconds: 50_000_000) // #3512
+						let id = try await group.send(content: body)
+						sent.append(StreamTestMessage(
+							id: id, conversationId: group.id, senderInboxId: fixtures.davonClient.inboxID,
+							body: body, isApplication: true
+						))
+						try await Task.sleep(nanoseconds: 50_000_000)
+					}
+					return sent
+				}
+				var sent: [StreamTestMessage] = []
+				for try await batch in taskGroup {
+					sent.append(contentsOf: batch)
+				}
+				return sent
+			}
+
+			await fulfillment(of: [expectation], timeout: 30)
+			caroTask.cancel()
+			let (transcript, cursors) = try await caroTask.value
+			let applications = transcript.filter(\.isApplication)
+			XCTAssertEqual(applications.count, 90)
+			XCTAssertEqual(Set(applications.map(\.id)).count, 90)
+			XCTAssertEqual(applications.sorted { $0.id < $1.id }, expected.sorted { $0.id < $1.id })
+
+			// Delivery cursors preserve local order. Each sender also keeps its send order.
+			for (previous, next) in zip(cursors, cursors.dropFirst()) {
+				XCTAssertEqual(previous.databaseId, next.databaseId)
+				XCTAssertLessThan(previous.deliverySequence, next.deliverySequence)
+			}
+			for groupID in Set(expected.map(\.conversationId)) {
+				for senderID in Set(expected.map(\.senderInboxId)) {
+					let sent = expected.filter { $0.conversationId == groupID && $0.senderInboxId == senderID }
+					let received = applications.filter { $0.conversationId == groupID && $0.senderInboxId == senderID }
+					XCTAssertEqual(received, sent)
 				}
 			}
 
-			taskGroup.addTask {
-				print("Caro is sending messages...")
-				for i in 0 ..< 10 {
-					let message = "Caro Message \(i)"
-					_ = try await caroGroup.send(content: message)
-					_ = try await caroGroup2.send(content: message)
-					print("Caro sent: \(message)")
-					try await Task.sleep(nanoseconds: 50_000_000) // #3512
-				}
+			var retainedSetup: [StreamTestMessage] = []
+			let caroGroups = try await fixtures.caroClient.conversations.listGroups()
+			XCTAssertEqual(caroGroups.count, 12)
+			for group in caroGroups {
+				let history = try await group.messages()
+				let setup = history.filter { $0.kind == .membershipChange }
+				XCTAssertEqual(setup.count, 1)
+				try retainedSetup.append(contentsOf: setup.map(StreamTestMessage.record))
+				let retainedApplications = try history.filter { $0.kind == .application }.map(StreamTestMessage.record)
+				let sent = expected.filter { $0.conversationId == group.id }
+				XCTAssertEqual(retainedApplications.sorted { $0.id < $1.id }, sent.sorted { $0.id < $1.id })
 			}
+			let streamedSetup = transcript.filter { !$0.isApplication }
+			XCTAssertEqual(streamedSetup.sorted { $0.id < $1.id }, retainedSetup.sorted { $0.id < $1.id })
+
+			for group in [boGroup, alixGroup, caroGroup] {
+				try await group.sync()
+				let messages = try await group.messages()
+				XCTAssertEqual(messages.count, 41)
+				let applicationIDs = messages.filter { $0.kind == .application }.map(\.id)
+				XCTAssertEqual(Set(applicationIDs), Set(expected.filter { $0.conversationId == group.id }.map(\.id)))
+			}
+		} catch {
+			caroTask.cancel()
+			_ = await caroTask.result
+			throw error
 		}
-
-		// Wait for all 90 messages to arrive (event-driven, with a generous
-		// ceiling so a real streaming regression fails fast instead of
-		// masquerading as a flake).
-		await fulfillment(of: [expectation], timeout: 30)
-
-		caroTask.cancel()
-
-		let finalCount = await transcript.messages.count
-		XCTAssertEqual(finalCount, 90)
-		let caroMessagesCount = try await caroGroup.messages().count
-		XCTAssertEqual(caroMessagesCount, 41)
-
-		try await boGroup.sync()
-		try await alixGroup.sync()
-		try await caroGroup.sync()
-
-		let boMessagesCount = try await boGroup.messages().count
-		let alixMessagesCount = try await alixGroup.messages().count
-		let caroMessagesCountAfterSync = try await caroGroup.messages().count
-
-		XCTAssertEqual(boMessagesCount, 41)
-		XCTAssertEqual(alixMessagesCount, 41)
-		XCTAssertEqual(caroMessagesCountAfterSync, 41)
 		try fixtures.cleanUpDatabases()
 	}
 

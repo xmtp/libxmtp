@@ -826,18 +826,12 @@ impl Conversation {
 
   #[wasm_bindgen(js_name = stream)]
   pub fn stream(&self, callback: StreamCallback) -> Result<StreamCloser, JsError> {
-    let on_close_cb = callback.clone();
-    let stream_closer = MlsGroup::stream_with_callback(
+    crate::message_delivery::callback_stream(
       self.inner_group.context.clone(),
-      self.group_id,
-      move |message| match message {
-        Ok(item) => callback.on_message(item.into()),
-        Err(e) => callback.on_error(JsError::from(e)),
-      },
-      move || on_close_cb.on_close(),
-    );
-
-    Ok(StreamCloser::new(stream_closer))
+      xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![self.group_id]),
+      xmtp_mls::subscriptions::local_delivery::LocalDeliveryFilter::default(),
+      callback,
+    )
   }
 
   #[wasm_bindgen(js_name = createdAtNs)]
@@ -1087,6 +1081,8 @@ mod tests {
       authority_id: String::from("test"),
       reference_id: None,
       sequence_id: 0,
+      envelope_hash: None,
+      expiry_ns: None,
       expire_at_ns: None,
       should_push: true,
       idempotency_key: 1738354508964432000i64.to_string(),

@@ -12,7 +12,6 @@ mockall::mock! {
 async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, ApiClientError>;
 async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ApiClientError>;
 async fn query_newest(&self, request: QueryNewestRequest) -> Result<QueryNewestResponse, ApiClientError>;
-async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, ApiClientError>;
 async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, ApiClientError>;
 async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, ApiClientError>;
 }
@@ -21,6 +20,8 @@ impl XmtpMlsStreams for BackendClient {
 type Error = ApiClientError;
 type GroupMessageStream = BoxedGroupS<ApiClientError>;
 type WelcomeMessageStream = BoxedWelcomeS<ApiClientError>;
+#[mockall::concretize]
+async fn subscribe_envelopes_with_cursors(&self, input: &TopicCursor, limits: xmtp_proto::types::IncomingBatchLimits) -> Result<xmtp_proto::types::IncomingSubscription<ApiClientError>, ApiClientError>;
 #[mockall::concretize]
 async fn subscribe_group_messages(&self, input: &[&GroupId]) -> Result<BoxedGroupS<ApiClientError>, ApiClientError>;
 #[mockall::concretize]

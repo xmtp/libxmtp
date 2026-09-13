@@ -1,9 +1,10 @@
-//! Live callback tests against the self-hosted backend.
+//! Callback tests for retained history and live backend messages.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use xmtp_common::StreamHandle;
+use xmtp_db::group_message::{GroupMessageKind, StoredGroupMessage};
 
 use crate::Client;
 use crate::context::XmtpSharedContext;
@@ -15,6 +16,22 @@ use crate::tester;
 use crate::utils::MlsGroupExt;
 
 const WAIT: Duration = Duration::from_secs(20);
+
+async fn assert_retained_messages(
+    receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
+        crate::subscriptions::Result<StoredGroupMessage>,
+    >,
+    expected: &[StoredGroupMessage],
+) {
+    for expected in expected {
+        let delivered = tokio::time::timeout(WAIT, receiver.recv())
+            .await
+            .expect("timed out waiting for retained history")
+            .expect("callback channel closed during retained history")
+            .expect("retained message delivery failed");
+        assert_eq!(&delivered, expected);
+    }
+}
 
 /// The reflex headline: a conversation joined AFTER subscribing reaches the
 /// live stream without a re-subscribe — its welcome arrives over the leased
@@ -43,11 +60,25 @@ async fn welcomed_group_joins_the_live_stream() {
     group.invite(&bo).await?;
     group.send_msg(b"through the reflex").await;
 
+    let membership = tokio::time::timeout(WAIT, rx.recv())
+        .await
+        .expect("timed out waiting for retained membership")
+        .expect("callback channel closed")?;
+    assert_eq!(membership.group_id, group.group_id);
+    assert_eq!(membership.kind, GroupMessageKind::MembershipChange);
+    let stored = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?
+        .into_iter()
+        .find(|message| message.id == membership.id)?;
+    assert_eq!(membership, stored);
+
     let delivered = tokio::time::timeout(WAIT, rx.recv())
         .await
         .expect("timed out waiting for the reflex-subscribed delivery")
         .expect("callback channel closed")?;
     assert_eq!(delivered.decrypted_message_bytes, b"through the reflex");
+    assert!(membership.sequence_id < delivered.sequence_id);
 }
 
 /// A group this client creates itself streams its messages — no welcome
@@ -118,6 +149,7 @@ async fn callback_stream_delivers_live_messages() {
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
     bo_group.sync().await?;
+    let retained = bo_group.find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_dispatch(
@@ -130,6 +162,7 @@ async fn callback_stream_delivers_live_messages() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     group.send_msg(b"over the bidi pump").await;
     let delivered = tokio::time::timeout(WAIT, rx.recv())
@@ -171,19 +204,25 @@ async fn callback_stream_surfaces_new_conversations() {
 /// stream still receives exactly its own client's traffic.
 #[xmtp_common::test(unwrap_try = true)]
 async fn sibling_clients_share_the_process_transport() {
+    let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
     tester!(caro, api_client: bo.context.api().api_client.clone());
-    let before = shared_transport_count();
 
     let bo_group = alix.create_group(None, None)?;
     bo_group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&bo_group.group_id)?.sync().await?;
+    let bo_retained = bo
+        .group(&bo_group.group_id)?
+        .find_messages(&Default::default())?;
     let caro_group = alix.create_group(None, None)?;
     caro_group.invite(&caro).await?;
     caro.sync_welcomes().await?;
     caro.group(&caro_group.group_id)?.sync().await?;
+    let caro_retained = caro
+        .group(&caro_group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (bo_tx, mut bo_rx) = tokio::sync::mpsc::unbounded_channel();
     let mut bo_handle = Client::stream_all_messages_with_callback_dispatch(
@@ -207,7 +246,11 @@ async fn sibling_clients_share_the_process_transport() {
     );
     bo_handle.wait_for_ready().await;
     caro_handle.wait_for_ready().await;
-    assert_eq!(shared_transport_count(), before + 1);
+    // Registration and callbacks use the same selected transport. Alix has
+    // one API client; Bo and Caro share the other API client.
+    assert_eq!(shared_transport_count(), before + 2);
+    assert_retained_messages(&mut bo_rx, &bo_retained).await;
+    assert_retained_messages(&mut caro_rx, &caro_retained).await;
 
     bo_group.send_msg(b"for bo").await;
     caro_group.send_msg(b"for caro").await;
@@ -238,6 +281,9 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
     bo.sync_welcomes().await?;
     bo.group(&streamed.group_id)?.sync().await?;
     bo.group(&other.group_id)?.sync().await?;
+    let retained = bo
+        .group(&streamed.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = stream_conversation_messages_with_callback_dispatch(
@@ -249,6 +295,7 @@ async fn single_conversation_callback_is_scoped_to_its_group() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     // The sibling group's message must not leak into this stream; sent first
     // so a leak would arrive ahead of the expected message.
@@ -275,6 +322,9 @@ async fn suspend_resume_replays_what_was_missed() {
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?.sync().await?;
+    let retained = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_dispatch(
@@ -287,6 +337,7 @@ async fn suspend_resume_replays_what_was_missed() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
     suspend_bidi_streams().await?;
     group.send_msg(b"sent while backgrounded").await;
@@ -329,6 +380,9 @@ async fn suspend_before_the_first_stream_parks_the_wire() {
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?.sync().await?;
+    let retained = bo
+        .group(&group.group_id)?
+        .find_messages(&Default::default())?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut handle = Client::stream_all_messages_with_callback_dispatch(
@@ -341,8 +395,9 @@ async fn suspend_before_the_first_stream_parks_the_wire() {
         || {},
     );
     handle.wait_for_ready().await;
+    assert_retained_messages(&mut rx, &retained).await;
 
-    // The wire is parked: nothing may deliver, no matter how long we wait.
+    // The wire is parked. No new network message may arrive before resume.
     group.send_msg(b"sent before resume").await;
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(
@@ -498,11 +553,9 @@ impl xmtp_proto::api_client::XmtpMlsBidiStreams for FixedHostApi {
     }
 }
 
-/// Transports key by dialed URL: a second client to the same host shares
-/// the wire, a different host — the same backend behind a proxy, say — gets
-/// its own. (nextest's process-per-test model keeps the count clean.)
-#[xmtp_common::test]
-async fn transports_key_by_destination() {
+/// Repeated use of one API client shares its transport. Another API client does not.
+#[xmtp_common::test(unwrap_try = true)]
+async fn transport_registry_reuses_only_the_same_api_client() {
     let before = shared_transport_count();
     let api = Arc::new(FixedHostApi("test://backend-a"));
     let _a = shared_transport(api.clone());
@@ -510,22 +563,22 @@ async fn transports_key_by_destination() {
     assert_eq!(
         shared_transport_count(),
         before + 1,
-        "the same host shares one transport"
+        "the same API client shares one transport"
     );
     let _b = shared_transport(Arc::new(FixedHostApi("test://backend-b")));
     assert_eq!(
         shared_transport_count(),
         before + 2,
-        "a different host gets its own"
+        "another API client gets its own transport"
     );
 }
 
 /// Separate API clients at one host keep separate authentication and transport state.
 #[xmtp_common::test(unwrap_try = true)]
 async fn separate_api_clients_at_one_host_use_separate_wires() {
+    let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
-    let before = shared_transport_count();
     let mut alix_handle = Client::stream_all_messages_with_callback_dispatch(
         Arc::new(alix.client.clone()),
         None,

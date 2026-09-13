@@ -4,27 +4,25 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
-import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.libxmtp.ConversationDebugInfo
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.libxmtp.DisappearingMessageSettings
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 import uniffi.xmtpv3.FfiConversationMessageKind
 import java.security.SecureRandom
-import kotlin.time.Duration.Companion.seconds
 
 @RunWith(AndroidJUnit4::class)
 class ConversationsTest : BaseInstrumentedTest() {
@@ -245,46 +243,69 @@ class ConversationsTest : BaseInstrumentedTest() {
     }
 
     @Test
-    fun testCanStreamAllMessagesFilterConsent() {
-        val group = runBlocking { boClient.conversations.newGroup(listOf(caroClient.inboxId)) }
-        val conversation = runBlocking { boClient.conversations.findOrCreateDm(caroClient.inboxId) }
-        val blockedGroup =
-            runBlocking {
-                boClient.conversations.newGroup(listOf(alixClient.inboxId))
-            }
-        val blockedConversation =
-            runBlocking {
-                boClient.conversations.findOrCreateDm(alixClient.inboxId)
-            }
+    fun testCanStreamAllMessagesFilterConsent() =
         runBlocking {
+            val group = boClient.conversations.newGroup(listOf(caroClient.inboxId))
+            val conversation = boClient.conversations.findOrCreateDm(caroClient.inboxId)
+            val blockedGroup = boClient.conversations.newGroup(listOf(alixClient.inboxId))
+            val blockedConversation = boClient.conversations.findOrCreateDm(alixClient.inboxId)
+            // Sending sets consent to ALLOWED. Deny these conversations after the retained sends.
+            val blockedIds = setOf(blockedGroup.send("blocked group"), blockedConversation.send("blocked dm"))
             blockedGroup.updateConsentState(ConsentState.DENIED)
             blockedConversation.updateConsentState(ConsentState.DENIED)
             boClient.conversations.sync()
-        }
+            alixClient.conversations.syncAllConversations()
+            val peerBlockedGroup = requireNotNull(alixClient.conversations.findGroup(blockedGroup.id))
+            val peerBlockedDm = requireNotNull(alixClient.conversations.findDmByInboxId(boClient.inboxId))
 
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
+            val messages = StreamTestMessages()
+            val job =
+                launch(Dispatchers.IO) {
                     boClient.conversations
-                        .streamAllMessages(
-                            consentStates = listOf(ConsentState.ALLOWED),
-                        ).collect { message -> allMessages.add(message) }
-                } catch (e: Exception) {
+                        .streamAllMessages(consentStates = listOf(ConsentState.ALLOWED))
+                        .collect { messages.add(it) }
                 }
+            try {
+                val retained =
+                    boClient.conversations
+                        .messageHistorySnapshot(
+                            10U,
+                            consentStates = listOf(ConsentState.ALLOWED),
+                        ).messages
+                assertEquals(2, retained.size)
+                assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                messages.awaitHistory(retained)
+
+                val expected = mutableListOf(group.send("group hi") to "group hi")
+                messages.awaitApplications(expected)
+                expected.add(conversation.send("dm hi") to "dm hi")
+                messages.awaitApplications(expected)
+                val blockedLiveIds =
+                    setOf(peerBlockedGroup.send("blocked live group"), peerBlockedDm.send("blocked live dm"))
+                blockedGroup.sync()
+                blockedConversation.sync()
+                val storedBlockedIds =
+                    (blockedGroup.messages() + blockedConversation.messages()).map { it.id }.toSet()
+                assertTrue(storedBlockedIds.containsAll(blockedIds + blockedLiveIds))
+
+                // Keep a full exclusion window after allowed delivery completes.
+                delay(1000)
+                val history =
+                    boClient.conversations
+                        .messageHistorySnapshot(
+                            10U,
+                            consentStates = listOf(ConsentState.ALLOWED),
+                        ).messages
+                assertEquals(4, history.size)
+                assertEquals(setOf(group.id, conversation.id), history.map { it.conversationId }.toSet())
+                assertTrue(messages.snapshot().none { it.id in blockedIds || it.id in blockedLiveIds })
+                assertEquals(ConsentState.DENIED, blockedGroup.consentState())
+                assertEquals(ConsentState.DENIED, blockedConversation.consentState())
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
-        Thread.sleep(1000)
-        runBlocking {
-            group.send("hi")
-            conversation.send("hi")
-            blockedGroup.send("hi")
-            blockedConversation.send("hi")
         }
-        Thread.sleep(1000)
-        assertEquals(2, allMessages.size)
-        job.cancel()
-    }
 
     @Test
     fun testCanStreamGroupsAndConversations() {
@@ -465,7 +486,19 @@ class ConversationsTest : BaseInstrumentedTest() {
     @Test
     fun testStreamsAndMessages() =
         runBlocking {
-            val messages = mutableListOf<DecodedMessage>()
+            val messages = StreamTestMessages()
+            val expectedApplications = mutableListOf<Triple<String, String, String>>()
+            val expectedGroups = mutableSetOf<String>()
+
+            suspend fun sendExpected(
+                group: Group,
+                body: String,
+            ) {
+                val id = group.send(body)
+                synchronized(expectedApplications) {
+                    expectedApplications.add(Triple(id, group.id, body))
+                }
+            }
             val davonClient = createClient(createWallet())
             val alixGroup =
                 alixClient.conversations.newGroup(listOf(caroClient.inboxId, boClient.inboxId))
@@ -480,108 +513,117 @@ class ConversationsTest : BaseInstrumentedTest() {
             val caroGroup = caroClient.conversations.findGroup(alixGroup.id)!!
             val boGroup2 = boClient.conversations.findGroup(caroGroup2.id)!!
             val alixGroup2 = alixClient.conversations.findGroup(caroGroup2.id)!!
+            expectedGroups.addAll(listOf(alixGroup.id, caroGroup2.id))
 
             val caroJob =
                 launch(Dispatchers.IO) {
-                    println("Caro is listening...")
-                    try {
-                        withTimeout(60.seconds) {
-                            // Ensure test doesn't hang indefinitely
-                            caroClient
-                                .conversations
-                                .streamAllMessages()
-                                .take(100) // Stop after receiving 100 messages
-                                .collect { message ->
-                                    synchronized(messages) { messages.add(message) }
-                                    println("Caro received: ${message.body}")
-                                }
+                    caroClient.conversations.streamAllMessages().collect { messages.add(it) }
+                }
+
+            try {
+                val retained = caroClient.conversations.messageHistorySnapshot(200U).messages
+                assertEquals(2, retained.size)
+                assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+                messages.awaitHistory(retained)
+
+                // Simulate message sending in multiple threads
+                val alixJob =
+                    launch(Dispatchers.IO) {
+                        println("Alix is sending messages...")
+                        repeat(20) {
+                            val message = "Alix Message $it"
+                            sendExpected(alixGroup, message)
+                            sendExpected(alixGroup2, message)
+                            println("Alix sent: $message")
+                            // 50ms yield between sends so a single sender's MLS
+                            // ratchet doesn't outrun OpenMLS's 5-generation
+                            // out-of-order tolerance under concurrent load (#3512).
+                            delay(50)
                         }
-                    } catch (e: TimeoutCancellationException) {
-                        println("Timeout reached for caroJob")
+                    }
+
+                val boMessageJob =
+                    launch(Dispatchers.IO) {
+                        println("Bo is sending messages..")
+                        repeat(10) {
+                            val message = "Bo Message $it"
+                            sendExpected(boGroup, message)
+                            sendExpected(boGroup2, message)
+                            println("Bo sent: $message")
+                            delay(50) // #3512
+                        }
+                    }
+
+                val davonSpamJob =
+                    launch(Dispatchers.IO) {
+                        println("Davon is sending spam groups..")
+                        repeat(10) {
+                            val spamMessage = "Davon Spam Message $it"
+                            val group = davonClient.conversations.newGroup(listOf(caroClient.inboxId))
+                            synchronized(expectedGroups) { expectedGroups.add(group.id) }
+                            sendExpected(group, spamMessage)
+                            println("Davon spam: $spamMessage")
+                            delay(50) // #3512
+                        }
+                    }
+
+                val caroMessagingJob =
+                    launch(Dispatchers.IO) {
+                        println("Caro is sending messages...")
+                        repeat(10) {
+                            val message = "Caro Message $it"
+                            sendExpected(caroGroup, message)
+                            sendExpected(caroGroup2, message)
+                            println("Caro sent: $message")
+                            delay(50) // #3512
+                        }
+                    }
+
+                joinAll(alixJob, caroMessagingJob, boMessageJob, davonSpamJob)
+
+                withTimeout(60_000) {
+                    while (messages.snapshot().count { it.kind == FfiConversationMessageKind.APPLICATION } < 90) {
+                        delay(10)
                     }
                 }
 
-            delay(1000)
-
-            // Simulate message sending in multiple threads
-            val alixJob =
-                launch(Dispatchers.IO) {
-                    println("Alix is sending messages...")
-                    repeat(20) {
-                        val message = "Alix Message $it"
-                        alixGroup.send(message)
-                        alixGroup2.send(message)
-                        println("Alix sent: $message")
-                        // 50ms yield between sends so a single sender's MLS
-                        // ratchet doesn't outrun OpenMLS's 5-generation
-                        // out-of-order tolerance under concurrent load (#3512).
-                        delay(50)
+                val applications = messages.snapshot().filter { it.kind == FfiConversationMessageKind.APPLICATION }
+                assertEquals(90, expectedApplications.size)
+                assertEquals(
+                    expectedApplications.associate { it.first to (it.second to it.third) },
+                    applications.associate { it.id to (it.conversationId to it.body) },
+                )
+                // Each sender keeps its order within each group. Different senders can interleave.
+                expectedApplications
+                    .groupBy { it.second to it.third.substringBefore(" Message") }
+                    .forEach { (source, sent) ->
+                        assertEquals(
+                            sent.map { it.first },
+                            applications
+                                .filter {
+                                    it.conversationId == source.first &&
+                                        it.body.substringBefore(" Message") == source.second
+                                }.map { it.id },
+                        )
                     }
-                }
+                val history = caroClient.conversations.messageHistorySnapshot(200U).messages
+                assertEquals(102, history.size)
+                val memberships = history.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }
+                assertEquals(12, memberships.size)
+                assertEquals(expectedGroups, memberships.map { it.conversationId }.toSet())
+                messages.awaitHistory(history)
+                assertEquals(41, caroGroup.messages().size)
 
-            val boMessageJob =
-                launch(Dispatchers.IO) {
-                    println("Bo is sending messages..")
-                    repeat(10) {
-                        val message = "Bo Message $it"
-                        boGroup.send(message)
-                        boGroup2.send(message)
-                        println("Bo sent: $message")
-                        delay(50) // #3512
-                    }
-                }
+                boGroup.sync()
+                alixGroup.sync()
+                caroGroup.sync()
 
-            val davonSpamJob =
-                launch(Dispatchers.IO) {
-                    println("Davon is sending spam groups..")
-                    repeat(10) {
-                        val spamMessage = "Davon Spam Message $it"
-                        val group = davonClient.conversations.newGroup(listOf(caroClient.inboxId))
-                        group.send(spamMessage)
-                        println("Davon spam: $spamMessage")
-                        delay(50) // #3512
-                    }
-                }
-
-            val caroMessagingJob =
-                launch(Dispatchers.IO) {
-                    println("Caro is sending messages...")
-                    repeat(10) {
-                        val message = "Caro Message $it"
-                        caroGroup.send(message)
-                        caroGroup2.send(message)
-                        println("Caro sent: $message")
-                        delay(50) // #3512
-                    }
-                }
-
-            joinAll(alixJob, caroMessagingJob, boMessageJob, davonSpamJob)
-
-            // Wait a bit to ensure all messages are processed
-            delay(2000)
-
-            caroJob.cancelAndJoin()
-
-            // Print content type for all messages
-            messages.forEachIndexed { index, message ->
+                assertEquals(41, boGroup.messages().size)
+                assertEquals(41, alixGroup.messages().size)
+                assertEquals(41, caroGroup.messages().size)
+            } finally {
+                withContext(NonCancellable) { caroJob.cancelAndJoin() }
             }
-
-            // Filter out GroupUpdated messages
-            val userMessages =
-                messages.filter { message ->
-                    message.encodedContent.type != ContentTypeGroupUpdated
-                }
-
-            assertEquals(90, messages.size)
-            assertEquals(41, caroGroup.messages().size)
-
-            boGroup.sync()
-            alixGroup.sync()
-            caroGroup.sync()
-
-            assertEquals(41, boGroup.messages().size)
-            assertEquals(41, alixGroup.messages().size)
-            assertEquals(41, caroGroup.messages().size)
         }
 
     @Test

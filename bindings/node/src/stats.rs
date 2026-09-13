@@ -6,7 +6,6 @@ pub struct ApiStats {
   pub publish: BigInt,
   pub query: BigInt,
   pub query_newest: BigInt,
-  pub get: BigInt,
   pub subscribe: BigInt,
   pub subscribe_static: BigInt,
 }
@@ -17,7 +16,6 @@ impl From<xmtp_proto::api_client::ApiStats> for ApiStats {
       publish: BigInt::from(stats.publish.get_count() as u64),
       query: BigInt::from(stats.query.get_count() as u64),
       query_newest: BigInt::from(stats.query_newest.get_count() as u64),
-      get: BigInt::from(stats.get.get_count() as u64),
       subscribe: BigInt::from(stats.subscribe.get_count() as u64),
       subscribe_static: BigInt::from(stats.subscribe_static.get_count() as u64),
     }

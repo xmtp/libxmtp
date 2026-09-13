@@ -1,7 +1,9 @@
 //! Decode backend envelopes once for queries and streams.
+use prost::Message;
+use std::collections::HashMap;
 use xmtp_proto::{
     ConversionError, backend_v1 as wire,
-    types::{self, Topic, TopicKind},
+    types::{self, IncomingBatchLimits, OrderedEnvelopeBatch, Topic, TopicCursor, TopicKind},
 };
 
 /// A backend envelope cannot be decoded. These errors are not retryable.
@@ -13,6 +15,9 @@ pub enum EnvelopeError {
     /// A payload cannot be parsed. Not retryable.
     #[error(transparent)]
     Validation(#[from] xmtp_mls_validation::ValidationError),
+    /// The complete delivery cannot fit the receive buffer. No cursor advances.
+    #[error("incoming delivery exceeds its row or byte limit")]
+    Capacity,
 }
 impl xmtp_common::RetryableError for EnvelopeError {
     fn is_retryable(&self) -> bool {
@@ -31,6 +36,73 @@ fn invalid(item: &'static str) -> ConversionError {
         expected: "valid backend envelope",
         got: "missing or invalid field".into(),
     }
+}
+
+/// Validate a complete ordered read without parsing or changing MLS bytes.
+/// Preserve each topic's input cursor as `after`; sequence gaps are valid.
+/// Advance only these in-memory cursors on success, never durable receipt `F`.
+pub fn ordered_batches(
+    cursors: &mut TopicCursor,
+    envelopes: Vec<wire::ServerEnvelope>,
+    limits: IncomingBatchLimits,
+) -> Result<Vec<OrderedEnvelopeBatch>, EnvelopeError> {
+    let bytes = envelopes.iter().try_fold(0usize, |bytes, envelope| {
+        bytes.checked_add(envelope.encoded_len())
+    });
+    if envelopes.len() > limits.max_rows || bytes.is_none_or(|bytes| bytes > limits.max_bytes) {
+        return Err(EnvelopeError::Capacity);
+    }
+    let mut next = cursors.clone();
+    let mut batches: Vec<OrderedEnvelopeBatch> = Vec::new();
+    let mut indices = HashMap::new();
+    for envelope in envelopes {
+        let meta = envelope.meta.as_ref().ok_or_else(|| invalid("metadata"))?;
+        let topic = Topic::parse(&meta.topic.as_ref().ok_or_else(|| invalid("topic"))?.topic)?;
+        let (_, sequence, _) = metadata(meta, topic.kind())?;
+        let cursor = next
+            .get_mut(&topic)
+            .ok_or_else(|| invalid("unrequested topic"))?;
+        if sequence <= *cursor {
+            return Err(invalid("ordered cursor").into());
+        }
+        let index = *indices.entry(topic.clone()).or_insert_with(|| {
+            let index = batches.len();
+            batches.push(OrderedEnvelopeBatch {
+                topic,
+                after: *cursor,
+                envelopes: Vec::new(),
+            });
+            index
+        });
+        batches[index].envelopes.push(envelope);
+        *cursor = sequence;
+    }
+    *cursors = next;
+    Ok(batches)
+}
+
+/// Check every fixed target against the exact registered topic set.
+/// Require one target per topic. A target may be below the requested start.
+pub fn registration_targets(
+    starts: &TopicCursor,
+    targets: Vec<wire::CatchupTarget>,
+) -> Result<TopicCursor, EnvelopeError> {
+    if targets.len() != starts.len() {
+        return Err(invalid("registration target count").into());
+    }
+    let mut output = TopicCursor::new();
+    for target in targets {
+        let topic = Topic::parse(&target.topic.ok_or_else(|| invalid("target topic"))?.topic)?;
+        if !starts.contains_key(&topic)
+            || target.through_sequence_id > i64::MAX as u64
+            || output
+                .insert(topic, types::Cursor(target.through_sequence_id))
+                .is_some()
+        {
+            return Err(invalid("registration target").into());
+        }
+    }
+    Ok(output)
 }
 
 /// Check the topic, cursor, hash, and server timestamp.
@@ -215,4 +287,96 @@ pub fn decode_identity_update(
         return Err(invalid("inbox id").into());
     }
     Ok(types::IdentityUpdateLog { meta, update })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn envelope(topic: &Topic, sequence: u64) -> wire::ServerEnvelope {
+        wire::ServerEnvelope {
+            meta: Some(wire::EnvelopeMeta {
+                topic: Some(wire::Topic {
+                    topic: topic.cloned_vec(),
+                }),
+                cursor: Some(wire::Cursor {
+                    sequence_id: sequence,
+                }),
+                message_hash: Some(wire::MessageHash {
+                    hash: Some(wire::message_hash::Hash::Sha256(vec![7; 32])),
+                }),
+                ..Default::default()
+            }),
+            // Receipt deliberately does not parse a malformed MLS payload.
+            envelope: Some(wire::ClientEnvelope {
+                payload: Some(wire::client_envelope::Payload::GroupMessage(
+                    wire::GroupMessage {
+                        data: vec![255],
+                        ..Default::default()
+                    },
+                )),
+            }),
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn ordered_batches_keep_sparse_positions_and_authoritative_bytes() {
+        let a = Topic::new_group_message([1; 16]);
+        let b = Topic::new_group_message([2; 16]);
+        let mut cursors = [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
+        let original = envelope(&a, 8);
+        let batches = ordered_batches(
+            &mut cursors,
+            vec![original.clone(), envelope(&b, 11), envelope(&a, 20)],
+            IncomingBatchLimits {
+                max_rows: 3,
+                max_bytes: 4096,
+            },
+        )?;
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].after, types::Cursor(2));
+        assert_eq!(batches[0].envelopes[0], original);
+        assert_eq!(batches[1].after, types::Cursor(0));
+        assert_eq!(cursors[&a], types::Cursor(20));
+        assert_eq!(cursors[&b], types::Cursor(11));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn failed_frame_does_not_advance_any_topic() {
+        let a = Topic::new_group_message([1; 16]);
+        let b = Topic::new_group_message([2; 16]);
+        let starts: TopicCursor =
+            [(a.clone(), types::Cursor(2)), (b.clone(), types::Cursor(0))].into();
+        for envelopes in [
+            vec![envelope(&a, 8), envelope(&b, 0)],
+            vec![envelope(&a, 8), envelope(&a, 7)],
+        ] {
+            let mut cursors = starts.clone();
+            assert!(
+                ordered_batches(
+                    &mut cursors,
+                    envelopes,
+                    IncomingBatchLimits {
+                        max_rows: 2,
+                        max_bytes: 4096
+                    }
+                )
+                .is_err()
+            );
+            assert_eq!(cursors, starts);
+        }
+        let mut cursors = starts.clone();
+        assert!(matches!(
+            ordered_batches(
+                &mut cursors,
+                vec![envelope(&a, 8)],
+                IncomingBatchLimits {
+                    max_rows: 1,
+                    max_bytes: 1
+                }
+            ),
+            Err(EnvelopeError::Capacity)
+        ));
+        assert_eq!(cursors, starts);
+    }
 }

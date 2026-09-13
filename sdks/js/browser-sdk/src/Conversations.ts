@@ -3,15 +3,21 @@ import {
   type ConsentState,
   type CreateDmOptions,
   type CreateGroupOptions,
+  type DeliveryCursor,
   type Identifier,
   type ListConversationsOptions,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/wasm-bindings";
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
-import { DecodedMessage } from "@/DecodedMessage";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
+import { MessageStream } from "@/MessageStream";
+import { createMessageReader } from "@/utils/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
 import type { SafeConversation } from "@/utils/conversions";
 import {
@@ -468,7 +474,10 @@ export class Conversations<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for all new messages
+   * Reads retained messages after each group's default acknowledgement position.
+   * Set `from` to replay after a cursor without changing default progress.
+   * Set `onValue` for callback mode, or request items with the iterator.
+   * Core owns network recovery. Legacy retry options and `disableSync` do not apply.
    *
    * @param options - Optional stream options
    * @param options.conversationType - Optional conversation type to filter messages
@@ -482,41 +491,49 @@ export class Conversations<ContentTypes = unknown> {
     > & {
       conversationType?: ConversationType;
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
-    const stream = async (
-      callback: StreamCallback<XmtpDecodedMessage>,
-      onFail: () => void,
+    const reader = await createMessageReader(this.#worker, {
+      groupIds: options?.groupIds,
+      conversationType: options?.conversationType,
+      consentStates: options?.consentStates,
+      from: options?.from,
+    });
+    const convertMessage = (
+      value: XmtpDecodedMessage | undefined,
+      cursor: DeliveryCursor,
     ) => {
-      const streamId = uuid();
-      if (!options?.disableSync) {
-        // sync the conversation
-        await this.sync();
-      }
-      // start the stream
-      await this.#worker.action("conversations.streamAllMessages", {
-        streamId,
-        conversationType: options?.conversationType,
-        consentStates: options?.consentStates,
-      });
-      // handle stream messages
-      return this.#worker.handleStreamMessage<
-        XmtpDecodedMessage,
-        DecodedMessage<ContentTypes>
-      >(streamId, callback, {
-        ...options,
-        onFail,
-      });
+      if (value === undefined) return undefined;
+      const decoded = new DecodedMessage<ContentTypes>(
+        this.#codecRegistry,
+        value,
+      );
+      assertMessageDecodedForDelivery(decoded);
+      decoded.deliveryCursor = cursor;
+      return decoded;
     };
-    const convertMessage = (value: XmtpDecodedMessage) => {
-      return new DecodedMessage<ContentTypes>(this.#codecRegistry, value);
-    };
+    return new MessageStream(reader, convertMessage, options);
+  }
 
-    return createStream(stream, convertMessage, options);
+  messageHistorySnapshot(
+    limit: number,
+    options?: {
+      groupIds?: string[];
+      conversationType?: ConversationType;
+      consentStates?: ConsentState[];
+    },
+  ) {
+    return this.#worker.action("messageReader.history", { limit, ...options });
+  }
+
+  beginningDeliveryCursor() {
+    return this.#worker.action("messageReader.beginningCursor", {});
   }
 
   /**
-   * Creates a stream for all new group messages
+   * Reads retained group messages with default progress or an explicit replay cursor.
    *
    * @param options - Optional stream options
    * @param options.consentStates - Optional consent states to filter messages
@@ -528,6 +545,8 @@ export class Conversations<ContentTypes = unknown> {
       DecodedMessage<ContentTypes>
     > & {
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
     return this.streamAllMessages({
@@ -537,7 +556,7 @@ export class Conversations<ContentTypes = unknown> {
   }
 
   /**
-   * Creates a stream for all new DM messages
+   * Reads retained DM messages with default progress or an explicit replay cursor.
    *
    * @param options - Optional stream options
    * @param options.consentStates - Optional consent states to filter messages
@@ -549,6 +568,8 @@ export class Conversations<ContentTypes = unknown> {
       DecodedMessage<ContentTypes>
     > & {
       consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
     },
   ) {
     return this.streamAllMessages({

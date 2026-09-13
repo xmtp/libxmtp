@@ -13,7 +13,9 @@ import {
   ConsentEntityType,
   ConsentState,
   fetchInboxStatesByInboxIds,
+  GroupMessageKind,
   IdentifierKind,
+  Message,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
@@ -428,23 +430,42 @@ describe('Streams', () => {
     await client2.conversations().sync()
     const group2 = client2.conversations().getConversationById(group.id())
 
-    let messages = new Array()
+    const messages: Message[] = []
+    const errors: Error[] = []
     await client2.conversations().syncAll()
-    let stream = await client2.conversations().streamAllMessages(
-      (msg) => {
-        messages.push(msg)
+    const history = await group2.listMessages()
+    expect(history.map((message) => message.kind)).toEqual([
+      GroupMessageKind.MembershipChange,
+    ])
+    const stream = client2.conversations().streamAllMessages(
+      (error, message) => {
+        if (error) errors.push(error)
+        if (message) messages.push(message)
       },
       () => {
         console.log('closed')
       }
     )
     await stream.waitForReady()
-    group.sendText('Test1')
-    group.sendText('Test2')
-    group.sendText('Test3')
-    group.sendText('Test4')
-    await sleep(1000)
+    const texts = ['Test1', 'Test2', 'Test3', 'Test4']
+    const messageIds: string[] = []
+    for (const text of texts) {
+      messageIds.push(await group.sendText(text))
+    }
+    const expectedIds = [...history.map((message) => message.id), ...messageIds]
+    await expect
+      .poll(() => messages.map((message) => message.id), { timeout: 15_000 })
+      .toEqual(expectedIds)
     await stream.endAndWait()
-    expect(messages.length).toBe(4)
+    expect(errors).toEqual([])
+    expect(messages.map((message) => message.id)).toEqual(expectedIds)
+    expect(messages.slice(1).map((message) => message.kind)).toEqual(
+      texts.map(() => GroupMessageKind.Application)
+    )
+    expect(
+      messages
+        .slice(1)
+        .map((message) => new TextDecoder().decode(message.content.content))
+    ).toEqual(texts)
   })
 })

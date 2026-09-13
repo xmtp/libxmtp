@@ -55,3 +55,6 @@ pub const BACKEND_DEFAULT_MAX_PING_BURST: u32 = 100;
 
 /// Default interval between stream keepalive frames, in milliseconds.
 pub const BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS: u64 = 30_000;
+
+/// Default database statement timeout. Client identity waits exceed this value.
+pub const BACKEND_DEFAULT_STATEMENT_TIMEOUT_MS: u64 = 5_000;

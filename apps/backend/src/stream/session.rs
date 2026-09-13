@@ -1,6 +1,6 @@
 use super::{
     ENVELOPE_OVERHEAD, FETCH_TOPICS, OUTBOUND_FRAMES, StreamHub, fetch,
-    keepalive::{Bucket, Challenge},
+    keepalive::Challenge,
     output::{Frame, Reservation, SessionOutput, WireResponse},
     registry::{LiveBatch, Mailbox},
 };
@@ -25,6 +25,7 @@ use std::{
 use tokio::sync::mpsc;
 use tonic::{Status, Streaming};
 use tracing::{Instrument, instrument::WithSubscriber};
+use xmtp_common::rate_limit::Bucket;
 use xmtp_common::time::{Duration, Instant, sleep};
 use xmtp_proto::types::Topic;
 

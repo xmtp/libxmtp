@@ -286,9 +286,9 @@ describe("OPFS File Management", () => {
         filename: copyDbPath,
       })) as Uint8Array;
 
-      // Verify they match
+      // Restore preserves the database size but rotates its local stream identity.
       expect(reExportedData.length).toBe(exportedData.length);
-      expect(reExportedData).toEqual(exportedData);
+      expect(reExportedData).not.toEqual(exportedData);
     });
   });
 });

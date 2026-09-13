@@ -2,15 +2,11 @@ use super::MlsGroup;
 use crate::{
     context::XmtpSharedContext,
     subscriptions::{
-        Result, SubscribeError,
-        process_message::{ProcessFutureFactory, ProcessMessageFuture},
-        stream_messages::StreamGroupMessages,
-        watchdog::spawn_watchdog_stream,
+        Result, stream_messages::StreamGroupMessages, watchdog::spawn_watchdog_stream,
     },
 };
-use futures::{Stream, StreamExt, TryStreamExt, stream as future_stream};
+use futures::Stream;
 use prost::Message;
-use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 use xmtp_common::MaybeSend;
@@ -21,27 +17,35 @@ use xmtp_proto::types::GroupId;
 
 impl<Context> MlsGroup<Context>
 where
-    Context: XmtpSharedContext,
+    Context: XmtpSharedContext + 'static,
 {
-    /// External proxy for `process_stream_entry`
-    /// Useful for streaming outside of an InboxApp, like for Push Notifications.
+    /// Use a push envelope only as a target for ordered receipt and processing.
     pub async fn process_streamed_group_message(
         &self,
         envelope_bytes: Vec<u8>,
     ) -> Result<Vec<StoredGroupMessage>> {
-        let message = decode_group_message(ServerEnvelope::decode(envelope_bytes.as_slice())?)?;
-        let messages = vec![message];
-
-        future_stream::iter(messages)
-            .then(|msg| async move {
-                ProcessMessageFuture::new(self.context.clone())
-                    .create(msg)
-                    .await?
-                    .message
-                    .ok_or(SubscribeError::GroupMessageNotFound)
-            })
-            .try_collect()
+        use xmtp_db::prelude::*;
+        let wire = ServerEnvelope::decode(envelope_bytes.as_slice())?;
+        let meta = wire
+            .meta
+            .as_ref()
+            .ok_or(xmtp_api::ApiError::InvalidResponse("group metadata"))?;
+        let (topic, cursor, _) = xmtp_api_backend::envelope::metadata(
+            meta,
+            xmtp_proto::types::TopicKind::GroupMessagesV1,
+        )?;
+        if topic != xmtp_proto::types::Topic::new_group_message(self.group_id) {
+            return Err(xmtp_api::ApiError::InvalidResponse("group topic").into());
+        }
+        crate::subscriptions::barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
             .await
+            .map_err(super::GroupError::from)?;
+        Ok(self
+            .context
+            .db()
+            .get_group_message_by_cursor(self.group_id, cursor)?
+            .into_iter()
+            .collect())
     }
 
     #[tracing::instrument(err, skip_all, fields(operation = "stream.stream_group_messages"))]
@@ -90,9 +94,7 @@ where
     }
 }
 
-// TODO: there's a better way than #[cfg]
-/// Stream messages from groups in `group_id_to_info`, passing
-/// messages along to a callback.
+/// Deliver stored messages for these groups and share ordered network receipt.
 pub(crate) fn stream_messages_with_callback<Context>(
     context: Context,
     active_conversations: impl Iterator<Item = GroupId> + MaybeSend + 'static,
@@ -106,8 +108,7 @@ where
 {
     let cancel = context.cancellation_token().clone();
     let groups: Vec<GroupId> = active_conversations.collect();
-    // Each `new_owned` reads the last cursor per group, so a re-subscribe resumes where the
-    // dropped stream left off.
+    // Reopening reads saved D. A dropped, unacknowledged item remains available.
     spawn_watchdog_stream(
         cancel,
         "stream_messages",
@@ -148,9 +149,14 @@ pub(crate) mod tests {
         // Get bola's version of the same group
         let bola_groups = bola.sync_welcomes().await.unwrap();
         let bola_group = bola_groups.first().unwrap();
+        bola_group.receive().await.unwrap();
+        let retained = bola_group.find_messages(&Default::default()).unwrap();
 
         let stream = bola_group.stream().await.unwrap();
         futures::pin_mut!(stream);
+        for expected in retained {
+            assert_eq!(stream.next().await.unwrap().unwrap(), expected);
+        }
 
         amal_group
             .send_message("hello".as_bytes(), SendMessageOpts::default())

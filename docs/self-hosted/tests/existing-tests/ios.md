@@ -110,7 +110,7 @@
 | sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testCanStreamAllDmMessages | iOS 16+; 2 DMs and events | `SHARED-GROUP-REQ-030` |
 | sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testDmConsent | iOS 16+; allowed, denied, allowed | `SHARED-GROUP-REQ-021` |
 | sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testDmDisappearingMessages | iOS 16+; 5 s retention; nil and re-enable; waits | `SHARED-GROUP-REQ-025` |
-| sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testCanSuccessfullyThreadDms | iOS 16+; independent duplicate DMs | `SHARED-GROUP-REQ-002` |
+| sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testCanSuccessfullyThreadDms | iOS 16+; workers disabled during independent creation; distinct physical IDs; exact merged messages | `SHARED-GROUP-REQ-002` |
 | sdks/ios/Tests/XMTPTests/DmTests.swift | XMTPTests.DmTests.testLastReadTimes | iOS 16+; one receipt | `SHARED-CONTENT-REQ-012` |
 | sdks/ios/Tests/XMTPTests/EnrichedMessagesTests.swift | XMTPTests.EnrichedMessagesTests.testFindMessagesV2ComparedToFindMessages | iOS 16+; raw, enriched, legacy reaction | `IOS-REQ-086` |
 | sdks/ios/Tests/XMTPTests/EnrichedMessagesTests.swift | XMTPTests.EnrichedMessagesTests.testBasicMessageRetrievalInBothConversationTypes | iOS 16+; loop group and DM, 3 texts each | `IOS-REQ-087` |

@@ -2,8 +2,88 @@
 
 use super::*;
 
+pub(super) fn streamed_application_messages(
+    callback: &RustStreamCallback,
+) -> Vec<(Vec<u8>, Vec<u8>)> {
+    callback
+        .messages
+        .lock()
+        .iter()
+        .filter(|message| message.kind == FfiConversationMessageKind::Application)
+        .map(|message| (message.id.clone(), message.content.clone()))
+        .collect()
+}
+
+pub(super) async fn wait_for_application_messages(
+    callback: &RustStreamCallback,
+    expected: &[(Vec<u8>, Vec<u8>)],
+) {
+    wait_for_eq(
+        || async { streamed_application_messages(callback) },
+        expected.to_vec(),
+    )
+    .await
+    .expect("stream did not deliver the exact application messages");
+}
+
+pub(super) fn assert_streamed_history(callback: &RustStreamCallback, history: &[FfiMessage]) {
+    let messages = callback.messages.lock();
+    assert_eq!(
+        messages
+            .iter()
+            .map(|message| &message.id)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        messages.len(),
+        "stream delivered a duplicate message ID"
+    );
+    let rows = |messages: &[FfiMessage]| {
+        messages
+            .iter()
+            .map(|message| {
+                (
+                    message.id.clone(),
+                    message.conversation_id.clone(),
+                    message.kind.clone(),
+                    message.content.clone(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(rows(&messages), rows(history));
+}
+
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_can_stream_group_messages_for_updates() {
+    async fn wait_for_names(callback: &RustStreamCallback, group_id: &[u8], names: &[&str]) {
+        wait_for_eq(
+            || async {
+                callback
+                    .messages
+                    .lock()
+                    .iter()
+                    .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+                    .flat_map(|message| {
+                        decode_group_updated(message.content.clone())
+                            .unwrap()
+                            .metadata_field_changes
+                            .into_iter()
+                            .filter(|change| change.field_name == "group_name")
+                            .map(move |change| {
+                                (message.conversation_id.clone(), change.new_value.unwrap())
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            },
+            names
+                .iter()
+                .map(|name| (group_id.to_vec(), (*name).to_string()))
+                .collect(),
+        )
+        .await
+        .expect("stream did not deliver the exact group name updates");
+    }
+
     let alix = Tester::new().await;
     let bo = Tester::new().await;
 
@@ -29,7 +109,7 @@ async fn test_can_stream_group_messages_for_updates() {
         .update_group_name("Old Name".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(&message_callbacks, &alix_group.id(), &["Old Name"]).await;
 
     let bo_groups = bo
         .conversations()
@@ -47,14 +127,20 @@ async fn test_can_stream_group_messages_for_updates() {
         .update_group_name("Old Name2".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(
+        &message_callbacks,
+        &alix_group.id(),
+        &["Old Name", "Old Name2"],
+    )
+    .await;
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 1);
 
-    alix_group
+    let first_id = alix_group
         .send(b"Hello there".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(first_id, b"Hello there".to_vec())];
+    wait_for_application_messages(&message_callbacks, &expected).await;
     assert_eq!(alix.client.inner_client.context.db().intents_published(), 3);
 
     let dm = bo
@@ -65,31 +151,46 @@ async fn test_can_stream_group_messages_for_updates() {
         )
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
-    dm.send(b"Hello again".to_vec(), FfiSendMessageOpts::default())
+    let second_id = dm
+        .send(b"Hello again".to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 3);
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((second_id, b"Hello again".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
-    // Uncomment the following lines to add more group name updates
     bo_group
         .conversation
         .update_group_name("Old Name3".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    wait_for_names(
+        &message_callbacks,
+        &alix_group.id(),
+        &["Old Name", "Old Name2", "Old Name3"],
+    )
+    .await;
     assert_eq!(bo.client.inner_client.context.db().intents_published(), 4);
 
-    wait_for_eq(|| async { message_callbacks.message_count() }, 6)
+    // Two group creations, three name changes, and two application messages.
+    wait_for_eq(|| async { message_callbacks.message_count() }, 7)
         .await
         .unwrap();
 
     stream_messages.end_and_wait().await.unwrap();
+    let history = bo
+        .conversations()
+        .message_history_snapshot(None, None, None, 10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 7);
+    assert_streamed_history(&message_callbacks, &history);
     assert!(stream_messages.is_closed());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_conversation_streaming() {
     let amal = new_test_client().await;
     let bola = new_test_client().await;
@@ -123,9 +224,10 @@ async fn test_conversation_streaming() {
 
     stream.end_and_wait().await.unwrap();
     assert!(stream.is_closed());
+    assert_eq!(bola.api_statistics().subscribe_static, 0);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_all_messages() {
     let alix = new_test_client().await;
     let bo = new_test_client().await;
@@ -148,11 +250,12 @@ async fn test_stream_all_messages() {
         .await;
     stream.wait_for_ready().await;
 
-    alix_group
+    let first_id = alix_group
         .send("first".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(first_id, b"first".to_vec())];
+    wait_for_application_messages(&stream_callback, &expected).await;
 
     let bo_group = bo
         .conversations()
@@ -164,28 +267,49 @@ async fn test_stream_all_messages() {
         .unwrap();
     let _ = caro.inner_client.sync_welcomes().await.unwrap();
 
-    bo_group
+    let second_id = bo_group
         .send("second".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    alix_group
+    expected.push((second_id, b"second".to_vec()));
+    wait_for_application_messages(&stream_callback, &expected).await;
+    let third_id = alix_group
         .send("third".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
-    bo_group
+    expected.push((third_id, b"third".to_vec()));
+    wait_for_application_messages(&stream_callback, &expected).await;
+    let fourth_id = bo_group
         .send("fourth".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
+    expected.push((fourth_id, b"fourth".to_vec()));
+    wait_for_application_messages(&stream_callback, &expected).await;
 
-    assert_eq!(stream_callback.message_count(), 4);
     stream.end_and_wait().await.unwrap();
+    let history = caro
+        .conversations()
+        .message_history_snapshot(None, None, None, 10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 6);
+    let mut membership_groups = history
+        .iter()
+        .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+        .map(|message| message.conversation_id.clone())
+        .collect::<Vec<_>>();
+    membership_groups.sort();
+    let mut expected_groups = vec![alix_group.id(), bo_group.id()];
+    expected_groups.sort();
+    assert_eq!(membership_groups, expected_groups);
+    assert_streamed_history(&stream_callback, &history);
     assert!(stream.is_closed());
+    assert_eq!(caro.api_statistics().subscribe_static, 0);
 }
 
-#[tokio::test(flavor = "multi_thread")]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_message_streaming() {
     let amal = new_test_client().await;
     let bola = new_test_client().await;
@@ -221,13 +345,67 @@ async fn test_message_streaming() {
 
     assert_eq!(stream_callback.message_count(), 2);
     stream_closer.end_and_wait().await.unwrap();
+    assert_eq!(bola.api_statistics().subscribe_static, 0);
+}
+
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
+async fn test_dm_message_streaming_uses_bidi() {
+    const HISTORY_LIMIT: u32 = 10;
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+    let alix_dm = alix
+        .conversations()
+        .find_or_create_dm_by_identity(bo.account_identifier.clone(), FfiCreateDMOptions::default())
+        .await?;
+    bo.inner_client.sync_welcomes().await?;
+    let bo_dm = bo.conversation(alix_dm.id())?;
+    let history = bo_dm.message_history_snapshot(HISTORY_LIMIT)?.messages;
+    assert!(history.len() < HISTORY_LIMIT as usize);
+    let mut expected_ids = history
+        .iter()
+        .map(|entry| entry.message.id.clone())
+        .collect::<Vec<_>>();
+    let callback = Arc::new(RustStreamCallback::default());
+    let stream = bo_dm.stream(callback.clone()).await;
+    stream.wait_for_ready().await;
+
+    let sent_id = alix_dm
+        .send(b"bidi dm".to_vec(), FfiSendMessageOpts::default())
+        .await?;
+    expected_ids.push(sent_id);
+    wait_for_eq(
+        || async {
+            callback
+                .messages
+                .lock()
+                .iter()
+                .map(|message| message.id.clone())
+                .collect::<Vec<_>>()
+        },
+        expected_ids,
+    )
+    .await?;
+    assert_eq!(callback.messages.lock().last()?.content, b"bidi dm");
+
+    stream.end_and_wait().await?;
+    assert_eq!(bo.api_statistics().subscribe_static, 0);
 }
 
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_message_streaming_when_removed_then_added() {
+    fn application_messages(callback: &RustStreamCallback) -> Vec<Vec<u8>> {
+        callback
+            .messages
+            .lock()
+            .iter()
+            .filter(|message| message.kind == FfiConversationMessageKind::Application)
+            .map(|message| message.content.clone())
+            .collect()
+    }
+
     async fn wait_for_message(callback: &RustStreamCallback, content: &[u8]) {
         wait_for_eq(
-            || async { callback.message_contents().iter().any(|m| m == content) },
+            || async { application_messages(callback).iter().any(|m| m == content) },
             true,
         )
         .await
@@ -244,9 +422,10 @@ async fn test_message_streaming_when_removed_then_added() {
         )
         .await?;
 
-    // Drain the initial membership transcript before starting the streams.
+    // Join Bola before testing removal. New streams can also read retained membership rows.
     amal.conversations().sync_all_conversations(None).await?;
     bola.conversations().sync_all_conversations(None).await?;
+    let bola_group = bola.conversation(amal_group.id())?;
 
     let bola_stream_callback = Arc::new(RustStreamCallback::default());
     let bola_stream_closer = bola
@@ -268,14 +447,10 @@ async fn test_message_streaming_when_removed_then_added() {
         wait_for_message(&bola_stream_callback, content).await;
         wait_for_message(&amal_stream_callback, content).await;
     }
-    assert_eq!(bola_stream_callback.message_count(), 2);
-    assert_eq!(amal_stream_callback.message_count(), 2);
-
     amal_group
         .remove_members(vec![bola.inbox_id().clone()])
         .await?;
-    wait_for_eq(|| async { bola_stream_callback.message_count() }, 3).await?;
-    wait_for_eq(|| async { amal_stream_callback.message_count() }, 3).await?;
+    wait_for_eq(|| async { bola_group.is_active().unwrap() }, false).await?;
 
     amal_group
         .send(b"hello3".to_vec(), FfiSendMessageOpts::default())
@@ -292,21 +467,20 @@ async fn test_message_streaming_when_removed_then_added() {
     wait_for_message(&bola_stream_callback, b"hello4").await;
     wait_for_message(&amal_stream_callback, b"hello4").await;
 
-    // Checking the full sequence after recovery also proves that hello3 was
-    // excluded. A delay while Bola is removed cannot establish that outcome.
-    let bola_messages: Vec<_> = bola_stream_callback
-        .messages
-        .lock()
-        .iter()
-        .filter(|m| m.kind == FfiConversationMessageKind::Application)
-        .map(|m| m.content.clone())
-        .collect();
+    // The full application sequence after rejoin proves that hello3 stayed excluded.
     assert_eq!(
-        bola_messages,
+        application_messages(&bola_stream_callback),
         vec![b"hello1".to_vec(), b"hello2".to_vec(), b"hello4".to_vec()]
     );
-    assert_eq!(bola_stream_callback.message_count(), 4);
-    wait_for_eq(|| async { amal_stream_callback.message_count() }, 6).await?;
+    assert_eq!(
+        application_messages(&amal_stream_callback),
+        vec![
+            b"hello1".to_vec(),
+            b"hello2".to_vec(),
+            b"hello3".to_vec(),
+            b"hello4".to_vec()
+        ]
+    );
     assert!(!bola_stream_closer.is_closed());
     assert!(!amal_stream_closer.is_closed());
 
@@ -623,12 +797,12 @@ async fn test_can_stream_and_update_name_without_forking_group() {
         .update_group_name("hello".to_string())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
-    alix_group
+    let first_id = alix_group
         .send("hello1".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(first_id, b"hello1".to_vec())];
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
     let bo_groups = bo
         .conversations()
@@ -645,18 +819,20 @@ async fn test_can_stream_and_update_name_without_forking_group() {
         .unwrap();
     assert_eq!(bo_messages1.len(), first_msg_check + 1);
 
-    bo_group
+    let second_id = bo_group
         .conversation
         .send("hello2".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
-    bo_group
+    expected.push((second_id, b"hello2".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
+    let third_id = bo_group
         .conversation
         .send("hello3".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((third_id, b"hello3".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
     alix_group.sync().await.unwrap();
 
@@ -666,11 +842,12 @@ async fn test_can_stream_and_update_name_without_forking_group() {
         .unwrap();
     assert_eq!(alix_messages.len(), second_msg_check);
 
-    alix_group
+    let fourth_id = alix_group
         .send("hello4".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((fourth_id, b"hello4".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
     bo_group.conversation.sync().await.unwrap();
 
     let bo_messages2 = bo_group
@@ -679,13 +856,20 @@ async fn test_can_stream_and_update_name_without_forking_group() {
         .await
         .unwrap();
     assert_eq!(bo_messages2.len(), second_msg_check + 1);
-    assert_eq!(message_callbacks.message_count(), second_msg_check as u32);
+    assert_eq!(
+        bo_messages2
+            .iter()
+            .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+            .count(),
+        2
+    );
 
     stream_messages.end_and_wait().await.unwrap();
+    assert_streamed_history(&message_callbacks, &bo_messages2);
     assert!(stream_messages.is_closed());
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn test_stream_all_messages_with_optimistic_group_creation() {
     let alix = new_test_client().await;
     let bo = new_test_client().await;
@@ -712,14 +896,15 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    alix_group
+    let first_id = alix_group
         .send(
             "first message".as_bytes().to_vec(),
             FfiSendMessageOpts::default(),
         )
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(first_id, b"first message".to_vec())];
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
     // Create ANOTHER optimistic group (stress test for vector clock logic)
     let alix_group_2 = alix
@@ -734,29 +919,47 @@ async fn test_stream_all_messages_with_optimistic_group_creation() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     // Send messages in the second group
-    alix_group_2
+    let second_id = alix_group_2
         .send(
             "second group message".as_bytes().to_vec(),
             FfiSendMessageOpts::default(),
         )
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((second_id, b"second group message".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
-    alix_group
+    let third_id = alix_group
         .send(
             "third message".as_bytes().to_vec(),
             FfiSendMessageOpts::default(),
         )
         .await
         .unwrap();
-    message_callbacks.wait_for_delivery(None).await.unwrap();
+    expected.push((third_id, b"third message".to_vec()));
+    wait_for_application_messages(&message_callbacks, &expected).await;
 
     // Verify stream received all 3 application messages without "killing" itself
     // stream must continue to work after optimistic group creation
-    assert_eq!(message_callbacks.message_count(), 3);
-
     stream_messages.end_and_wait().await.unwrap();
+    let history = bo
+        .conversations()
+        .message_history_snapshot(None, None, None, 10)?
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_eq!(history.len(), 5);
+    let mut membership_groups = history
+        .iter()
+        .filter(|message| message.kind == FfiConversationMessageKind::MembershipChange)
+        .map(|message| message.conversation_id.clone())
+        .collect::<Vec<_>>();
+    membership_groups.sort();
+    let mut expected_groups = vec![alix_group.id(), alix_group_2.id()];
+    expected_groups.sort();
+    assert_eq!(membership_groups, expected_groups);
+    assert_streamed_history(&message_callbacks, &history);
     assert!(stream_messages.is_closed());
 }
 

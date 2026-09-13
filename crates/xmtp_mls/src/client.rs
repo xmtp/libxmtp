@@ -257,17 +257,6 @@ pub struct Client<Context> {
     pub installation_id: InstallationId,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
-    /// This client's router over the process-shared bidi wire (XIP-83
-    /// streaming path), created on first use. Shared across clones so one
-    /// client never runs two routers.
-    ///
-    /// Lifecycle rides the client's: `close()` ends the streams (their pumps
-    /// watch the cancellation token), after which the router task parks —
-    /// pending on an idle channel, holding no wire state — and exits when
-    /// the last client clone drops this cell.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub(crate) stream_router:
-        Arc<tokio::sync::OnceCell<crate::subscriptions::stream_router::StreamRouter<Context>>>,
 }
 
 impl<Context> Drop for Client<Context> {
@@ -289,8 +278,6 @@ impl<Context: Clone> Clone for Client<Context> {
             installation_id: self.installation_id,
             local_events: self.local_events.clone(),
             workers: self.workers.clone(),
-            #[cfg(not(target_arch = "wasm32"))]
-            stream_router: self.stream_router.clone(),
         }
     }
 }
@@ -381,6 +368,7 @@ where
             return Ok(());
         }
         self.context.cancellation_token().cancel();
+        self.context.close_message_delivery()?;
         self.workers.shutdown().await;
         self.context
             .db()
@@ -1019,8 +1007,8 @@ where
             .collect())
     }
 
-    /// Upload a Key Package to the network and publish the signed identity update
-    /// from the provided SignatureRequest
+    /// Upload the key package before the identity update exposes this installation.
+    /// Record its receipt for key retirement and retain the registration cursor.
     #[xmtp_common::mls_span]
     pub async fn register_identity(
         &self,
@@ -1051,7 +1039,13 @@ where
             .await?;
 
         // Step 3: Upload key package first (prevents race condition)
-        self.context.api().upload_key_package(kp_bytes).await?;
+        let key_package_meta = self.context.api().upload_key_package(kp_bytes).await?;
+        let key_package_cursor = key_package_meta
+            .cursor
+            .filter(|cursor| cursor.sequence_id > 0)
+            .ok_or(xmtp_api::ApiError::InvalidResponse(
+                "key package publish cursor",
+            ))?;
 
         // Step 4: Publish identity update (makes installation visible)
         let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
@@ -1072,21 +1066,19 @@ where
             })
         )?;
 
-        // Clean up old key packages
-        self.context
-            .mls_storage()
-            .transaction(|conn| {
-                conn.key_store()
-                    .db()
-                    .mark_key_package_before_id_to_be_deleted(history_id)?;
-                Ok::<_, StorageError>(Continue(()))
-            })
-            .map(TransactionOutcome::into_continued)?;
-
-        self.context
-            .mls_storage()
-            .db()
-            .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+        // Backend publication order can differ from local generation order.
+        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            storage.db().record_key_package_publication(
+                history_id,
+                xmtp_proto::types::Cursor(key_package_cursor.sequence_id),
+            )?;
+            storage
+                .db()
+                .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+            Ok::<_, StorageError>(Continue(()))
+        })
+        .map(TransactionOutcome::into_continued)?;
 
         // Mark identity as ready
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
@@ -1096,8 +1088,8 @@ where
         Ok(())
     }
 
-    /// Wait for the registration publish to become visible in the serving database.
-    /// Only NOT_FOUND is polled. The timeout also bounds an in-flight request.
+    /// Wait until the serving database exposes the registration identity-topic head.
+    /// A missing or older head is polled. The timeout also bounds each request.
     pub async fn wait_for_registration_visible(
         &self,
         options: VisibilityConfirmationOptions,
@@ -1114,18 +1106,26 @@ where
             .ok_or(ClientError::RegistrationNotVisible)?;
         timeout(Duration::from_millis(options.timeout_ms), async {
             let mut delay = REGISTRATION_INITIAL_BACKOFF;
+            let inbox = hex::decode(self.inbox_id())
+                .map_err(|_| xmtp_api::ApiError::InvalidRequest("registration inbox id"))?;
+            let topic = xmtp_proto::types::Topic::new_identity_update(inbox);
+            xmtp_proto::types::Topic::parse(&topic)?;
             loop {
-                match self.context.api().get_envelope(sequence_id).await {
-                    Ok(_) => return Ok(()),
-                    Err(error)
-                        if xmtp_proto::api::grpc_status(&error)
-                            .is_some_and(|status| status.code() == tonic::Code::NotFound) =>
-                    {
-                        sleep(delay).await;
-                        delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
-                    }
-                    Err(error) => return Err(error.into()),
+                let heads = self
+                    .context
+                    .api()
+                    .newest_topic_cursors(vec![topic.clone()])
+                    .await?;
+                let head = heads
+                    .get(&topic)
+                    .ok_or(xmtp_api::ApiError::InvalidResponse(
+                        "registration identity head",
+                    ))?;
+                if head.0 >= sequence_id {
+                    return Ok(());
                 }
+                sleep(delay).await;
+                delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
             }
         })
         .await

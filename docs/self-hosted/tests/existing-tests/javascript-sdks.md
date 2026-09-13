@@ -66,12 +66,12 @@
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stream new conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream group conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream dm conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
-| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stream all messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
-| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
+| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stream all messages | Active; group and DM traffic; sync the first message locally before the second send; exact message IDs, senders, count, and local order. | `SHARED-GROUP-REQ-030` |
+| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | Active; exclude DM traffic; sync the first group message locally before the second send; exact message IDs, senders, count, and local order. | `SHARED-GROUP-REQ-030` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should only stream dm messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | Vitest; collection and direct group/DM methods; three key records; exact conversation IDs; all prior field assertions retained. | `SHARED-GROUP-REQ-041` |
 | sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should sync groups across installations | it; active; One source-body scenario. | `JSDK-REQ-067` |
-| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | it; active; One source-body scenario. | `SHARED-GROUP-REQ-002` |
+| sdks/js/browser-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | Active; device sync disabled for setup; two distinct physical DM IDs; both clients select the latest DM and retain the other as its duplicate. | `SHARED-GROUP-REQ-002` |
 | sdks/js/browser-sdk/test/DebugInformation.test.ts | DebugInformation > should return network API statistics | it; active; One source-body scenario. | `JSDK-REQ-126` |
 | sdks/js/browser-sdk/test/DeviceSync.test.ts | DeviceSync > should sync consent across installations | it; active; Two installations; repeated toggle and poll for Denied, then Allowed. | `JSDK-REQ-123` |
 | sdks/js/browser-sdk/test/Dm.test.ts | Dm > should create a dm | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-001` |
@@ -286,12 +286,12 @@
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stream new conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream group conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream dm conversations | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-028` |
-| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stream all messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
-| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
+| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stream all messages | Active; group and DM traffic; sync the first message locally before the second send; exact message IDs, senders, count, and local order. | `SHARED-GROUP-REQ-030` |
+| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream group conversation messages | Active; exclude DM traffic; sync the first group message locally before the second send; exact message IDs, senders, count, and local order. | `SHARED-GROUP-REQ-030` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should only stream dm messages | it; active; One asynchronous iteration scenario. | `SHARED-GROUP-REQ-030` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should get hmac keys | Vitest; collection and direct group/DM methods; three key records; exact conversation IDs; all prior field assertions retained. | `SHARED-GROUP-REQ-041` |
 | sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should sync groups across installations | it; active; One source-body scenario. | `JSDK-REQ-067` |
-| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | it; active; One source-body scenario. | `SHARED-GROUP-REQ-002` |
+| sdks/js/node-sdk/test/Conversations.test.ts | Conversations > should stitch DM groups together | Active; device sync disabled for setup; two distinct physical DM IDs; both clients select the latest DM and retain the other as its duplicate. | `SHARED-GROUP-REQ-002` |
 | sdks/js/node-sdk/test/DebugInformation.test.ts | DebugInformation > should return network API statistics | it; active; One source-body scenario. | `JSDK-REQ-126` |
 | sdks/js/node-sdk/test/DeviceSync.test.ts | DeviceSync > should sync consent across installations | it; active; Two installations; repeated toggle and poll for Denied, then Allowed. | `JSDK-REQ-123` |
 | sdks/js/node-sdk/test/Dm.test.ts | Dm > should create a dm | it; active; One creation scenario with the input form named by the test. | `SHARED-GROUP-REQ-001` |

@@ -13,6 +13,7 @@ import {
   Conversation,
   ConversationType,
   DecodedMessage,
+  GroupMessageKind,
   GroupPermissionsOptions,
   IdentifierKind,
   Message,
@@ -28,6 +29,37 @@ import {
 // wait windows of the test, whatever the library defaults are.
 process.env.XMTP_GRPC_KEEPALIVE_INTERVAL_SECS = '10'
 process.env.XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS = '10'
+
+const expectStreamedMessages = (
+  messages: Message[],
+  applicationMessages: [string, string][],
+  membershipGroupIds: string[]
+) => {
+  expect(messages).toHaveLength(
+    applicationMessages.length + membershipGroupIds.length
+  )
+  expect(new Set(messages.map((message) => message.id)).size).toBe(
+    messages.length
+  )
+  expect(
+    messages
+      .filter((message) => message.kind === GroupMessageKind.Application)
+      .map((message) => [
+        message.id,
+        new TextDecoder().decode(message.content.content),
+      ])
+      .sort()
+  ).toEqual([...applicationMessages].sort())
+  const membership = messages.filter(
+    (message) => message.kind === GroupMessageKind.MembershipChange
+  )
+  expect(membership.map((message) => message.convoId).sort()).toEqual(
+    [...membershipGroupIds].sort()
+  )
+  for (const message of membership) {
+    expect(message.content.type).toEqual(contentTypeGroupUpdated())
+  }
+}
 
 describe('Conversations', () => {
   it('should not have initial conversations', async () => {
@@ -666,19 +698,19 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    await client1.conversations().createGroupByIdentity([
+    const group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createGroupByIdentity([
+    const group2 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createDmByIdentity({
+    const dm = await client1.conversations().createDmByIdentity({
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -686,9 +718,11 @@ describe('Conversations', () => {
     await sleep(2000)
 
     const messages: Message[] = []
+    const errors: Error[] = []
     const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
-        messages.push(message!)
+        if (err) errors.push(err)
+        if (message) messages.push(message)
       },
       () => {
         console.log('closed')
@@ -700,7 +734,8 @@ describe('Conversations', () => {
     const messages2: Message[] = []
     const stream2 = await client2.conversations().streamAllMessages(
       (err, message) => {
-        messages2.push(message!)
+        if (err) errors.push(err)
+        if (message) messages2.push(message)
       },
       () => {
         console.log('closed')
@@ -712,7 +747,8 @@ describe('Conversations', () => {
     const messages3: Message[] = []
     const stream3 = await client3.conversations().streamAllMessages(
       (err, message) => {
-        messages3.push(message!)
+        if (err) errors.push(err)
+        if (message) messages3.push(message)
       },
       () => {
         console.log('closed')
@@ -724,7 +760,8 @@ describe('Conversations', () => {
     const messages4: Message[] = []
     const stream4 = await client4.conversations().streamAllMessages(
       (err, message) => {
-        messages4.push(message!)
+        if (err) errors.push(err)
+        if (message) messages4.push(message)
       },
       () => {
         console.log('closed')
@@ -749,20 +786,35 @@ describe('Conversations', () => {
     const message2 = await groupsList3[0].conversation.sendText('gm2!')
     const message3 = await groupsList4[0].conversation.sendText('gm3!')
 
-    await sleep(2000)
-
-    stream.end()
-    stream2.end()
-    stream3.end()
-    stream4.end()
-    expect(messages.length).toBe(3)
-    expect(messages.map((m) => m.id)).toEqual([message1, message2, message3])
-    expect(messages2.length).toBe(1)
-    expect(messages2.map((m) => m.id)).toEqual([message1])
-    expect(messages3.length).toBe(1)
-    expect(messages3.map((m) => m.id)).toEqual([message2])
-    expect(messages4.length).toBe(1)
-    expect(messages4.map((m) => m.id)).toEqual([message3])
+    await expect
+      .poll(
+        () => [
+          messages.length,
+          messages2.length,
+          messages3.length,
+          messages4.length,
+        ],
+        {
+          timeout: 15_000,
+        }
+      )
+      .toEqual([6, 2, 2, 2])
+    await Promise.all(
+      [stream, stream2, stream3, stream4].map((value) => value.endAndWait())
+    )
+    expect(errors).toEqual([])
+    expectStreamedMessages(
+      messages,
+      [
+        [message1, 'gm!'],
+        [message2, 'gm2!'],
+        [message3, 'gm3!'],
+      ],
+      [group1.id(), group2.id(), dm.id()]
+    )
+    expectStreamedMessages(messages2, [[message1, 'gm!']], [group1.id()])
+    expectStreamedMessages(messages3, [[message2, 'gm2!']], [group2.id()])
+    expectStreamedMessages(messages4, [[message3, 'gm3!']], [dm.id()])
   })
 
   it('should only stream group chat messages', async () => {
@@ -774,13 +826,13 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    await client1.conversations().createGroupByIdentity([
+    const group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createGroupByIdentity([
+    const group2 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -794,9 +846,11 @@ describe('Conversations', () => {
     await sleep(2000)
 
     let messages: Message[] = []
+    const errors: Error[] = []
     const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
-        messages.push(message!)
+        if (err) errors.push(err)
+        if (message) messages.push(message)
       },
       () => {
         console.log('closed')
@@ -820,11 +874,17 @@ describe('Conversations', () => {
     const message1 = await groupsList2[0].conversation.sendText('gm!')
     const message2 = await groupsList3[0].conversation.sendText('gm2!')
 
-    await sleep(1000)
-
-    stream.end()
-    expect(messages.length).toBe(2)
-    expect(messages.map((m) => m.id)).toEqual([message1, message2])
+    await expect.poll(() => messages.length, { timeout: 15_000 }).toBe(4)
+    await stream.endAndWait()
+    expect(errors).toEqual([])
+    expectStreamedMessages(
+      messages,
+      [
+        [message1, 'gm!'],
+        [message2, 'gm2!'],
+      ],
+      [group1.id(), group2.id()]
+    )
   })
 
   it('should only stream dm messages', async () => {
@@ -848,7 +908,7 @@ describe('Conversations', () => {
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    await client1.conversations().createDmByIdentity({
+    const dm = await client1.conversations().createDmByIdentity({
       identifier: user4.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -856,9 +916,11 @@ describe('Conversations', () => {
     await sleep(2000)
 
     let messages: Message[] = []
+    const errors: Error[] = []
     const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
-        messages.push(message!)
+        if (err) errors.push(err)
+        if (message) messages.push(message)
       },
       () => {
         console.log('closed')
@@ -882,11 +944,10 @@ describe('Conversations', () => {
     await groupsList3[0].conversation.sendText('gm2!')
     const message3 = await groupsList4[0].conversation.sendText('gm3!')
 
-    await sleep(1000)
-
-    stream.end()
-    expect(messages.length).toBe(1)
-    expect(messages.map((m) => m.id)).toEqual([message3])
+    await expect.poll(() => messages.length, { timeout: 15_000 }).toBe(2)
+    await stream.endAndWait()
+    expect(errors).toEqual([])
+    expectStreamedMessages(messages, [[message3, 'gm3!']], [dm.id()])
   })
 
   it('stream should process dm messages from new installations without sync', async () => {
@@ -895,15 +956,17 @@ describe('Conversations', () => {
     const agent_client = await createRegisteredClient(agent)
     const user_client_a = await createRegisteredClient(user)
 
-    await user_client_a.conversations().createDmByIdentity({
+    const dm = await user_client_a.conversations().createDmByIdentity({
       identifier: agent.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
 
     let messages: Message[] = []
+    const errors: Error[] = []
     const stream = await agent_client.conversations().streamAllMessages(
       (err, message) => {
-        messages.push(message!)
+        if (err) errors.push(err)
+        if (message) messages.push(message)
       },
       () => {
         console.log('closed')
@@ -915,33 +978,63 @@ describe('Conversations', () => {
     // await client_a_groups.sync()
     const client_a_conversations = client_a_groups.list()
     expect(client_a_conversations.length).toBe(1)
-    await client_a_conversations[0].conversation.sendText('gm!')
+    const firstMessage =
+      await client_a_conversations[0].conversation.sendText('gm!')
 
     // confirm the agent received the message
-    await sleep(1000)
-    expect(messages.length).toBe(1)
+    await expect.poll(() => messages.length, { timeout: 15_000 }).toBe(2)
+    expectStreamedMessages(messages, [[firstMessage, 'gm!']], [dm.id()])
 
     // User introduce Client B
     user.uuid = v4()
     const user_client_b = await createRegisteredClient(user)
 
     // Client B Creates a DM with the Agent
-    await user_client_b.conversations().createDmByIdentity({
+    const secondDm = await user_client_b.conversations().createDmByIdentity({
       identifier: agent.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
 
     const client_b_groups = user_client_b.conversations()
     await client_b_groups.sync()
-    const client_b_conversations = client_a_groups.list()
+    const client_b_conversations = client_b_groups.list()
     expect(client_b_conversations.length).toBe(1)
-    await client_b_conversations[0].conversation.sendText('b')
+    const secondMessage =
+      await client_b_conversations[0].conversation.sendText('b')
 
     // confirm the agent received the second message
-    await sleep(1000)
-    expect(messages.length).toBe(2)
-
-    stream.end()
+    await expect
+      .poll(
+        () =>
+          messages
+            .filter((message) => message.kind === GroupMessageKind.Application)
+            .map((message) => message.id),
+        { timeout: 15_000 }
+      )
+      .toEqual([firstMessage, secondMessage])
+    await stream.endAndWait()
+    expect(errors).toEqual([])
+    const history = agent_client
+      .conversations()
+      .messageHistorySnapshot(100)
+      .messages.map((entry) => entry.message)
+    expect(messages.map((message) => message.id)).toEqual(
+      history.map((message) => message.id)
+    )
+    const membership = history.filter(
+      (message) => message.kind === GroupMessageKind.MembershipChange
+    )
+    expect(
+      [...new Set(membership.map((message) => message.convoId))].sort()
+    ).toEqual([...new Set([dm.id(), secondDm.id()])].sort())
+    expectStreamedMessages(
+      messages,
+      [
+        [firstMessage, 'gm!'],
+        [secondMessage, 'b'],
+      ],
+      membership.map((message) => message.convoId)
+    )
   })
 
   it('should get hmac keys', async () => {
@@ -1020,11 +1113,20 @@ describe('Conversations', () => {
     const group1 = await client1
       .conversations()
       .createGroup([client2.inboxId(), client3.inboxId()])
-    await group1.sendText('gm1')
+    // Install the first Welcome before removal. An absent group can instead
+    // join from the later Welcome when both are pending.
+    for (const client of [client2, client2_2, client3]) {
+      await client.conversations().sync()
+      const joined = client.conversations().getConversationById(group1.id())
+      const initialMessages = await joined.listMessages()
+      expect(initialMessages).toHaveLength(1)
+      expect(initialMessages[0].content.type).toEqual(contentTypeGroupUpdated())
+    }
+    const firstMessage = await group1.sendText('gm1')
     await group1.removeMembers([client2.inboxId()])
-    await group1.sendText('gm2')
+    const excludedMessage = await group1.sendText('gm2')
     await group1.addMembers([client2.inboxId()])
-    await group1.sendText('gm3')
+    const lastMessage = await group1.sendText('gm3')
 
     const messages1 = await group1.listMessages()
     expect(messages1.length).toBe(6)
@@ -1033,10 +1135,24 @@ describe('Conversations', () => {
     const group2 = client2.conversations().getConversationById(group1.id())
     await group2.sync()
     const messages2 = await group2.listMessages()
-    expect(messages2.length).toBe(3)
-    expect(messages2[0].content.type).toEqual(contentTypeGroupUpdated())
-    expect(messages2[1].content.type).toEqual(contentTypeGroupUpdated())
-    expect(messages2[2].content.type).toEqual(contentTypeText())
+    expectStreamedMessages(
+      messages2,
+      [
+        [firstMessage, 'gm1'],
+        [lastMessage, 'gm3'],
+      ],
+      [group1.id(), group1.id(), group1.id()]
+    )
+    expect(messages2.map((message) => message.id)).not.toContain(
+      excludedMessage
+    )
+    expect(messages2.map((message) => message.content.type)).toEqual([
+      contentTypeGroupUpdated(),
+      contentTypeText(),
+      contentTypeGroupUpdated(),
+      contentTypeGroupUpdated(),
+      contentTypeText(),
+    ])
 
     await client3.conversations().sync()
     const group3 = client3.conversations().getConversationById(group1.id())
@@ -1054,10 +1170,24 @@ describe('Conversations', () => {
     const group4 = client2_2.conversations().getConversationById(group1.id())
     await group4.sync()
     const messages4 = await group4.listMessages()
-    expect(messages4.length).toBe(3)
-    expect(messages4[0].content.type).toEqual(contentTypeGroupUpdated())
-    expect(messages4[1].content.type).toEqual(contentTypeGroupUpdated())
-    expect(messages4[2].content.type).toEqual(contentTypeText())
+    expectStreamedMessages(
+      messages4,
+      [
+        [firstMessage, 'gm1'],
+        [lastMessage, 'gm3'],
+      ],
+      [group1.id(), group1.id(), group1.id()]
+    )
+    expect(messages4.map((message) => message.id)).not.toContain(
+      excludedMessage
+    )
+    expect(messages4.map((message) => message.content.type)).toEqual([
+      contentTypeGroupUpdated(),
+      contentTypeText(),
+      contentTypeGroupUpdated(),
+      contentTypeGroupUpdated(),
+      contentTypeText(),
+    ])
   })
 
   it('should stream deleted messages', async () => {

@@ -248,7 +248,6 @@ impl RpcLabels {
             "/xmtp.backend.v1.QueryService/QueryNewest" => {
                 ("xmtp.backend.v1.QueryService", "QueryNewest")
             }
-            "/xmtp.backend.v1.QueryService/Get" => ("xmtp.backend.v1.QueryService", "Get"),
             "/xmtp.backend.v1.PublishService/Publish" => {
                 ("xmtp.backend.v1.PublishService", "Publish")
             }

@@ -381,19 +381,12 @@ pub(crate) mod tests {
     // Generate a random task data for testing to ensure that the hashes are unique
     fn gen_task_data() -> TaskProto {
         TaskProto {
-            task: Some(
-                xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(
-                    xmtp_proto::xmtp::mls::message_contents::WelcomePointer {
-                        version: Some(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer {
-                            destination: xmtp_common::rand_vec::<32>(),
-                            aead_type: xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Chacha20Poly1305.into(),
-                            encryption_key: xmtp_common::rand_vec::<32>(),
-                            data_nonce: xmtp_common::rand_vec::<12>(),
-                            welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
-                        })),
-                    },
-                ),
-            ),
+            task: Some(xmtp_proto::xmtp::mls::database::task::Task::PullInDeadline(
+                xmtp_proto::xmtp::mls::database::PullInDeadline {
+                    target_data_hash: xmtp_common::rand_vec::<32>(),
+                    not_later_than_ns: 1000,
+                },
+            )),
         }
     }
 

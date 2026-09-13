@@ -100,7 +100,7 @@ async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
     assert!(matches!(
         server
             .query()
-            .get(api::GetRequest { sequence_id: 1 })
+            .query_newest(api::QueryNewestRequest::default())
             .await
             .unwrap_err()
             .code(),

@@ -13,11 +13,22 @@ use xmtp_proto::{
     api::grpc_status,
     api_client::XmtpBackendClient,
     backend_v1 as wire,
-    types::{CanonicalEnvelope, Cursor, Topic, TopicCursor},
+    types::{
+        CanonicalEnvelope, Cursor, IncomingBatchLimits, OrderedEnvelopeBatch, Topic, TopicCursor,
+    },
 };
 
 pub const MAX_PUBLISH_CHUNKS_IN_FLIGHT: usize = 4;
 pub const MAX_READ_CHUNKS_IN_FLIGHT: usize = 4;
+
+/// One bounded ordered query result. Receipt is not committed by the query.
+#[derive(Debug)]
+pub struct OrderedQueryPage {
+    /// Per-topic batches with their original read positions.
+    pub batches: Vec<OrderedEnvelopeBatch>,
+    /// More data or an unread topic chunk remains. Resume from committed receipt.
+    pub has_more: bool,
+}
 
 #[derive(Clone, Debug)]
 struct PublishEnvelope {
@@ -218,10 +229,6 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                         return Err(ApiError::InvalidResponse("publish metadata count"));
                     }
                     for (meta, envelope) in response.envelope_metas.iter().zip(expected) {
-                        let hash = xmtp_api_backend::envelope::message_hash(meta)?;
-                        if hash != envelope.canonical.hash {
-                            return Err(ApiError::HashMismatch);
-                        }
                         let (topic, _, _) =
                             xmtp_api_backend::envelope::metadata(meta, envelope.topic.kind())?;
                         if topic != envelope.topic {
@@ -239,6 +246,137 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             }
         }
         Ok(metas)
+    }
+
+    /// Read one bounded ordered page without decoding MLS payloads.
+    /// Commit each batch before requesting more from the new received prefix `F`.
+    pub async fn query_ordered_page(
+        &self,
+        cursors: TopicCursor,
+        limit: u32,
+        limits: IncomingBatchLimits,
+    ) -> Result<OrderedQueryPage> {
+        if limit == 0
+            || limit as usize > BACKEND_DEFAULT_MAX_QUERY_LIMIT
+            || limits.max_rows == 0
+            || limits.max_bytes == 0
+        {
+            return Err(ApiError::InvalidRequest("query limit"));
+        }
+        let topics: Vec<_> = cursors.into_iter().collect();
+        let mut pending: VecDeque<_> = topics
+            .chunks(BACKEND_DEFAULT_MAX_QUERY_TOPICS)
+            .map(|topics| (topics.to_vec(), limit))
+            .collect();
+        let mut page = OrderedQueryPage {
+            batches: Vec::new(),
+            has_more: false,
+        };
+        let mut remaining = limits;
+        while let Some((topics, requested_limit)) = pending.pop_front() {
+            if remaining.max_rows == 0 || remaining.max_bytes == 0 {
+                page.has_more = true;
+                break;
+            }
+            let requested_limit =
+                requested_limit.min(remaining.max_rows.min(u32::MAX as usize) as u32);
+            let request = wire::QueryRequest {
+                queries: topics
+                    .iter()
+                    .map(|(topic, cursor)| wire::TopicQuery {
+                        topic: Some(wire::Topic {
+                            topic: topic.cloned_vec(),
+                        }),
+                        cursor: Some((*cursor).into()),
+                    })
+                    .collect(),
+                limit: requested_limit,
+            };
+            let response = match self
+                .retry_call(
+                    || self.api_client.query(request.clone()),
+                    requested_limit > 1 || topics.len() > 1,
+                )
+                .await
+            {
+                Ok(response) => response,
+                Err(error) if size_error(&error) && requested_limit > 1 => {
+                    pending.push_front((topics, (requested_limit / 2).max(1)));
+                    continue;
+                }
+                Err(error) if size_error(&error) && topics.len() > 1 => {
+                    let (left, right) = topics.split_at(topics.len() / 2);
+                    pending.push_front((right.to_vec(), requested_limit));
+                    pending.push_front((left.to_vec(), requested_limit));
+                    continue;
+                }
+                Err(error) => return Err(dyn_err(error)),
+            };
+            let has_more = response
+                .continuation
+                .ok_or(ApiError::InvalidResponse("query continuation"))?
+                .has_more;
+            if has_more && response.envelopes.is_empty() {
+                return Err(ApiError::InvalidResponse("query has more without progress"));
+            }
+            if response.envelopes.len() > requested_limit as usize {
+                return Err(ApiError::InvalidResponse("query response limit"));
+            }
+            let mut positions = topics.iter().cloned().collect();
+            let batches = match xmtp_api_backend::envelope::ordered_batches(
+                &mut positions,
+                response.envelopes,
+                remaining,
+            ) {
+                Ok(batches) => batches,
+                Err(xmtp_api_backend::envelope::EnvelopeError::Capacity) if requested_limit > 1 => {
+                    pending.push_front((topics, (requested_limit / 2).max(1)));
+                    continue;
+                }
+                Err(xmtp_api_backend::envelope::EnvelopeError::Capacity)
+                    if !page.batches.is_empty() =>
+                {
+                    page.has_more = true;
+                    break;
+                }
+                Err(error) => return Err(error.into()),
+            };
+            for batch in &batches {
+                remaining.max_rows -= batch.envelopes.len();
+                remaining.max_bytes -= batch
+                    .envelopes
+                    .iter()
+                    .map(Message::encoded_len)
+                    .sum::<usize>();
+            }
+            page.has_more |= has_more;
+            page.batches.extend(batches);
+        }
+        Ok(page)
+    }
+
+    /// Capture fixed newest targets. Absent topics have target zero.
+    /// Keep these targets unchanged while waiting for processing to reach them.
+    pub async fn newest_topic_cursors(&self, topics: Vec<Topic>) -> Result<TopicCursor> {
+        let mut cursors: TopicCursor = topics
+            .iter()
+            .cloned()
+            .map(|topic| (topic, Cursor(0)))
+            .collect();
+        for result in self.newest(topics, false).await? {
+            let topic = Topic::parse(
+                &result
+                    .topic
+                    .ok_or(ApiError::InvalidResponse("newest topic"))?
+                    .topic,
+            )?;
+            let meta = result
+                .meta
+                .ok_or(ApiError::InvalidResponse("newest metadata"))?;
+            let (_, cursor, _) = xmtp_api_backend::envelope::metadata(&meta, topic.kind())?;
+            cursors.insert(topic, cursor);
+        }
+        Ok(cursors)
     }
 
     /// Read every page. Each topic advances only to its own returned cursor.

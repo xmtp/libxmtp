@@ -16,3 +16,4 @@ just js test-browser-sdk-ci
 ```
 
 The browser tests use Playwright and gRPC-Web on the backend listener.
+Test creation helpers close their clients after each test. Do not share those clients across tests.

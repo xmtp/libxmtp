@@ -137,9 +137,9 @@ impl Conversation {
   }
 }
 
-/// Options for [`Conversation::updateAppData`]. An object (rather than
+/// Options for [`Conversation::update_app_data`]. An object (rather than
 /// a bare string parameter) so future knobs can be added without
-/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// breaking callers — same pattern as [`super::unstable::EnableProposalsOptions`].
 /// New fields must be `Option` so the generated TS type stays non-breaking.
 #[napi(object)]
 #[derive(Clone, Default)]

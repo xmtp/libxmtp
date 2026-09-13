@@ -268,7 +268,13 @@ async fn coalescing_commits_ack_ids_only_after_wire_acceptance() {
     task.outbox
         .updates
         .extend([(first_id, first), (second_id, second)]);
+    task.update_budget = Bucket::new(1, 1);
     task.flush_outbox();
+    assert_eq!(
+        task.update_budget.wait(),
+        Duration::ZERO,
+        "a rejected update refunds its token"
+    );
     assert_eq!(
         task.outbox
             .updates
@@ -284,6 +290,10 @@ async fn coalescing_commits_ack_ids_only_after_wire_acceptance() {
         server.next_mutate().await;
     }
     task.flush_outbox();
+    assert!(
+        task.update_budget.wait() > Duration::ZERO,
+        "the accepted update consumes one token"
+    );
     assert!(task.outbox.is_empty());
     let merged = server.next_mutate().await;
     assert_eq!(merged.id, first_id);
@@ -300,4 +310,54 @@ async fn coalescing_commits_ack_ids_only_after_wire_acceptance() {
     );
     assert_eq!(task.ledger.pending_updates[&first_id].adds.len(), 2);
     assert!(!task.ledger.pending_updates.contains_key(&second_id));
+}
+
+#[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+async fn update_budget_keeps_queued_ids_and_services_wire_events() {
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (_, initial) = ledger
+        .prepare_adds(vec![(group_topic(b"anchor"), 0)])
+        .remove(0);
+    let (api, mut server) = mock_pair();
+    let wire = BidiConnection::open(&api, initial).await?;
+    let mut task = ledger_task(ledger, Outbox::default());
+    let (_commands, receiver) = mpsc::unbounded_channel();
+    task.cmds = receiver;
+    task.conn = Some(wire);
+    task.open_wire_span();
+    // Use a short burst to exercise the same scheduling path without 100 frames.
+    task.update_budget = Bucket::new(1, 2);
+    assert!(task.update_budget.take());
+    for _ in 0..2 {
+        task.outbox
+            .updates
+            .extend(task.ledger.prepare_removes(vec![group_topic(b"a")]));
+    }
+    let initial = server.next_mutate().await;
+    server.ack(initial.id, vec![(group_topic(b"anchor"), 0)]);
+    assert!(matches!(
+        task.next_step().await,
+        Step::Wire(Some(Event::Started { .. }))
+    ));
+    assert!(matches!(
+        task.next_step().await,
+        Step::Wire(Some(Event::Applied { .. }))
+    ));
+    task.flush_outbox();
+    let sent = server.next_mutate().await;
+    assert_eq!(sent.id, initial.id + 1);
+    let queued_id = task.outbox.updates.front().unwrap().0;
+    assert_eq!(queued_id, sent.id + 1);
+    task.flush_outbox();
+    assert_eq!(task.outbox.updates.len(), 1);
+    assert!(task.ledger.pending_updates.contains_key(&queued_id));
+    server.ack_empty(sent.id);
+    assert!(matches!(
+        task.next_step().await,
+        Step::Wire(Some(Event::Applied { .. }))
+    ));
+    xmtp_common::time::sleep(task.update_budget.wait()).await;
+    task.flush_outbox();
+    assert_eq!(server.next_mutate().await.id, queued_id);
+    assert!(task.outbox.is_empty());
 }

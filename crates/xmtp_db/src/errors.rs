@@ -17,6 +17,15 @@ pub enum StorageError {
         "This database predates the backend transition. Delete the database file and create a new client."
     )]
     PreTransitionDatabase,
+    /// The database uses the previous self-hosted stream format.
+    #[error(
+        "This database uses an older self-hosted format. Keep a backup and create a new client database."
+    )]
+    OldStreamDatabase,
+    /// Durable stream storage rejected an operation or reached a capacity limit.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Stream(#[from] crate::stream_storage::StreamStorageError),
     /// Diesel connection error.
     ///
     /// Failed to connect to SQLite. Retryable.
@@ -102,10 +111,14 @@ impl From<std::convert::Infallible> for StorageError {
 }
 
 impl StorageError {
-    // release conn is a noop in wasm
     #[cfg(target_arch = "wasm32")]
     pub fn db_needs_connection(&self) -> bool {
-        false
+        use crate::PlatformStorageError::Disconnected;
+        matches!(
+            self,
+            Self::Platform(Disconnected)
+                | Self::Connection(crate::ConnectionError::Platform(Disconnected))
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -127,6 +140,9 @@ impl StorageError {
 #[derive(Error, Debug, ErrorCode)]
 // Monolithic enum for all things lost
 pub enum NotFound {
+    /// The local key package history row no longer exists.
+    #[error("Key package history row {0} not found")]
+    KeyPackageHistory(i32),
     /// Group with welcome ID not found.
     ///
     /// No group matches the welcome ID. Retryable.
@@ -262,7 +278,9 @@ impl RetryableError for StorageError {
             Self::Platform(p) => retryable!(p),
             Self::Connection(e) => retryable!(e),
             Self::GroupIntent(e) => retryable!(e),
+            Self::Stream(e) => retryable!(e),
             Self::PreTransitionDatabase
+            | Self::OldStreamDatabase
             | Self::MigrationError(_)
             | Self::Conversion(_)
             | Self::NotFound(_)

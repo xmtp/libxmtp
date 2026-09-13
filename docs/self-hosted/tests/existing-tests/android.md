@@ -217,7 +217,7 @@
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test6_CanStreamAllMessages` | Android IO collector; two groups, two DMs, and four sends. | `ANDROID-REQ-101` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test7_CanStreamConversations` | Android IO collector; four conversations. | `ANDROID-REQ-101` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/SmartContractWalletTest.kt | `SmartContractWalletTest.test8_AddAndRemovingAccounts` | AndroidJUnit4; SCW and EOA identities and recovery-removal rejection. | `ANDROID-REQ-102` |
-| sdks/android/library/src/androidTest/java/org/xmtp/android/library/StreamLifecycleTest.kt | `StreamLifecycleTest.testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent` | AndroidJUnit4; old `fixtures()` helper; no BaseInstrumentedTest cleanup. | `SHARED-GROUP-REQ-039` |
+| sdks/android/library/src/androidTest/java/org/xmtp/android/library/StreamLifecycleTest.kt | `StreamLifecycleTest.testCatchUpToLiveColdCatchesPendingGroupAndIsIdempotent` | AndroidJUnit4; two clients with device sync disabled; explicit database cleanup; cold Welcome and message precondition. | `SHARED-GROUP-REQ-039` |
 | sdks/android/library/src/androidTest/java/org/xmtp/android/library/StreamLifecycleTest.kt | `StreamLifecycleTest.testManageStreamLifecycleDefaultsOn` | AndroidJUnit4; unit-style instrumentation assertion. | `SHARED-IDENTITY-REQ-020` |
 
 ## Phase 3 coverage

@@ -7,7 +7,16 @@ use diesel::{insert_into, prelude::*};
 use xmtp_common::time::now_ns;
 
 #[derive(
-    Identifiable, Insertable, Queryable, AsChangeset, Debug, Clone, PartialEq, Eq, Default,
+    Identifiable,
+    Insertable,
+    Queryable,
+    Selectable,
+    AsChangeset,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Default,
 )]
 #[diesel(table_name = user_preferences)]
 #[diesel(primary_key(id))]
@@ -52,7 +61,12 @@ impl HmacKey {
 
 impl StoredUserPreferences {
     pub fn load(conn: impl ConnectionExt) -> Result<Self, StorageError> {
-        let pref = conn.raw_query(|conn| dsl::user_preferences.first(conn).optional())?;
+        let pref = conn.raw_query(|conn| {
+            dsl::user_preferences
+                .select(Self::as_select())
+                .first(conn)
+                .optional()
+        })?;
         Ok(pref.unwrap_or_default())
     }
 
@@ -120,7 +134,11 @@ mod tests {
             // check that there is only one preference stored
             let query = dsl::user_preferences.order(dsl::id.desc());
             let result = conn
-                .raw_query(|conn| query.load::<StoredUserPreferences>(conn))
+                .raw_query(|conn| {
+                    query
+                        .select(StoredUserPreferences::as_select())
+                        .load::<StoredUserPreferences>(conn)
+                })
                 .unwrap();
             assert_eq!(result.len(), 1);
         })

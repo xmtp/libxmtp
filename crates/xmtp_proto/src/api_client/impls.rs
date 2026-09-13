@@ -15,9 +15,6 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
     ) -> Result<QueryNewestResponse, Self::Error> {
         (**self).query_newest(request).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        (**self).get(request).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -39,6 +36,15 @@ impl<T: XmtpMlsStreams + ?Sized> XmtpMlsStreams for Box<T> {
     type Error = T::Error;
     type GroupMessageStream = T::GroupMessageStream;
     type WelcomeMessageStream = T::WelcomeMessageStream;
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: IncomingBatchLimits,
+    ) -> Result<IncomingSubscription<Self::Error>, Self::Error> {
+        (**self)
+            .subscribe_envelopes_with_cursors(cursors, limits)
+            .await
+    }
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
@@ -84,9 +90,6 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
     ) -> Result<QueryNewestResponse, Self::Error> {
         (**self).query_newest(request).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        (**self).get(request).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -108,6 +111,15 @@ impl<T: XmtpMlsStreams + ?Sized> XmtpMlsStreams for Arc<T> {
     type Error = T::Error;
     type GroupMessageStream = T::GroupMessageStream;
     type WelcomeMessageStream = T::WelcomeMessageStream;
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: IncomingBatchLimits,
+    ) -> Result<IncomingSubscription<Self::Error>, Self::Error> {
+        (**self)
+            .subscribe_envelopes_with_cursors(cursors, limits)
+            .await
+    }
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],
@@ -153,9 +165,6 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
     ) -> Result<QueryNewestResponse, Self::Error> {
         (**self).query_newest(request).await
     }
-    async fn get(&self, request: GetRequest) -> Result<ServerEnvelope, Self::Error> {
-        (**self).get(request).await
-    }
     async fn get_inbox_ids(
         &self,
         request: GetInboxIdsRequest,
@@ -177,6 +186,15 @@ impl<T: XmtpMlsStreams + ?Sized> XmtpMlsStreams for &T {
     type Error = T::Error;
     type GroupMessageStream = T::GroupMessageStream;
     type WelcomeMessageStream = T::WelcomeMessageStream;
+    async fn subscribe_envelopes_with_cursors(
+        &self,
+        cursors: &TopicCursor,
+        limits: IncomingBatchLimits,
+    ) -> Result<IncomingSubscription<Self::Error>, Self::Error> {
+        (**self)
+            .subscribe_envelopes_with_cursors(cursors, limits)
+            .await
+    }
     async fn subscribe_group_messages(
         &self,
         group_ids: &[&GroupId],

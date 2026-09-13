@@ -872,18 +872,16 @@ where
             .map(|readd_status| readd_status.installation_id.clone())
             .collect::<HashSet<_>>();
 
-        let (unverified, verified) = mls_group
-            .load_mls_group_with_lock_async(async |openmls_group| {
-                let mut verified = HashSet::new();
-                for member in openmls_group.members() {
-                    if unverified.contains(&member.signature_key) {
-                        unverified.remove(&member.signature_key);
-                        verified.insert(member.signature_key);
-                    }
+        let (unverified, verified) = mls_group.with_group_snapshot(|openmls_group| {
+            let mut verified = HashSet::new();
+            for member in openmls_group.members() {
+                if unverified.contains(&member.signature_key) {
+                    unverified.remove(&member.signature_key);
+                    verified.insert(member.signature_key);
                 }
-                Ok::<_, GroupError>((unverified, verified))
-            })
-            .await?;
+            }
+            Ok::<_, GroupError>((unverified, verified))
+        })?;
         tracing::debug!(
             group_id = %mls_group.group_id,
             "{} readd requests were for non-members, while {} were for members",

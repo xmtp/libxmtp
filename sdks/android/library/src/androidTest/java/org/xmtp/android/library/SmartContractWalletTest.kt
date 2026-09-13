@@ -1,12 +1,18 @@
 package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.FixMethodOrder
 import org.junit.Test
@@ -15,6 +21,7 @@ import org.junit.runners.MethodSorters
 import org.xmtp.android.library.libxmtp.DecodedMessage
 import org.xmtp.android.library.messages.PrivateKey
 import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiException
 import java.io.File
 
@@ -232,65 +239,90 @@ class SmartContractWalletTest : BaseInstrumentedTest() {
     }
 
     @Test
-    fun test6_CanStreamAllMessages() {
-        val group1 =
-            runBlocking {
-                davonSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, eriSCWClient.inboxId))
-            }
-        val group2 =
-            runBlocking {
-                boEOAClient.conversations.newGroup(listOf(davonSCWClient.inboxId, eriSCWClient.inboxId))
-            }
-        val dm1 = runBlocking { davonSCWClient.conversations.findOrCreateDm(eriSCWClient.inboxId) }
-        val dm2 = runBlocking { boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId) }
-        runBlocking { davonSCWClient.conversations.sync() }
-
-        val allMessages = mutableListOf<DecodedMessage>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                davonSCWClient.conversations.streamAllMessages().collect { message ->
-                    allMessages.add(message)
-                }
-            }
-        Thread.sleep(2000)
+    fun test6_CanStreamAllMessages() =
         runBlocking {
-            group1.send("hi")
-            group2.send("hi")
-            dm1.send("hi")
-            dm2.send("hi")
+            val group1 =
+                davonSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, eriSCWClient.inboxId))
+            val group2 =
+                boEOAClient.conversations.newGroup(listOf(davonSCWClient.inboxId, eriSCWClient.inboxId))
+            val dm1 = davonSCWClient.conversations.findOrCreateDm(eriSCWClient.inboxId)
+            val dm2 = boEOAClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
+            davonSCWClient.conversations.sync()
+
+            val retained = davonSCWClient.conversations.messageHistorySnapshot(10U).messages
+            assertEquals(4, retained.size)
+            assertEquals(setOf(group1.id, group2.id, dm1.id, dm2.id), retained.map { it.conversationId }.toSet())
+            assertTrue(retained.all { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE })
+            val messages = StreamTestMessages()
+            val job =
+                launch(Dispatchers.IO) {
+                    davonSCWClient.conversations.streamAllMessages().collect { messages.add(it) }
+                }
+            try {
+                messages.awaitHistory(retained)
+                val expected = mutableListOf(group1.send("hi") to "hi")
+                messages.awaitApplications(expected)
+                expected.add(group2.send("hi") to "hi")
+                messages.awaitApplications(expected)
+                expected.add(dm1.send("hi") to "hi")
+                messages.awaitApplications(expected)
+                expected.add(dm2.send("hi") to "hi")
+                messages.awaitApplications(expected)
+
+                val history = davonSCWClient.conversations.messageHistorySnapshot(10U).messages
+                assertEquals(retained.size + expected.size, history.size)
+                assertEquals(
+                    retained.map { it.id },
+                    history.filter { it.kind == FfiConversationMessageKind.MEMBERSHIP_CHANGE }.map { it.id },
+                )
+                messages.awaitHistory(history)
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
+            }
         }
-        Thread.sleep(2000)
-        assertEquals(4, allMessages.size)
-        job.cancel()
-    }
 
     @Test
-    fun test7_CanStreamConversations() {
-        val allMessages = mutableListOf<String>()
-
-        val job =
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    davonSCWClient.conversations.stream().collect { message ->
-                        allMessages.add(message.topic)
-                    }
-                } catch (e: Exception) {
-                }
-            }
-        Thread.sleep(1000)
-
+    fun test7_CanStreamConversations() =
         runBlocking {
-            eriSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, davonSCWClient.inboxId))
-            boEOAClient.conversations.newGroup(listOf(eriSCWClient.inboxId, davonSCWClient.inboxId))
-            davonSCWClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
-            fixtures.caroClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
-        }
+            val conversations = mutableListOf<Pair<String, String>>()
+            val ready = CompletableDeferred<Unit>()
 
-        Thread.sleep(1000)
-        assertEquals(4, allMessages.size)
-        job.cancel()
-    }
+            fun snapshot(): List<Pair<String, String>> = synchronized(conversations) { conversations.toList() }
+
+            val job =
+                launch(Dispatchers.IO) {
+                    davonSCWClient.conversations
+                        .streamWithReadiness(onReady = { ready.complete(Unit) })
+                        .collect { conversation ->
+                            synchronized(conversations) { conversations.add(conversation.id to conversation.topic) }
+                        }
+                }
+            try {
+                withTimeout(30_000) { ready.await() }
+                val group1 =
+                    eriSCWClient.conversations.newGroup(listOf(boEOAClient.inboxId, davonSCWClient.inboxId))
+                val group2 =
+                    boEOAClient.conversations.newGroup(listOf(eriSCWClient.inboxId, davonSCWClient.inboxId))
+                val dm1 = davonSCWClient.conversations.findOrCreateDm(fixtures.alixClient.inboxId)
+                val dm2 = fixtures.caroClient.conversations.findOrCreateDm(davonSCWClient.inboxId)
+                val expected =
+                    listOf(
+                        group1.id to group1.topic,
+                        group2.id to group2.topic,
+                        dm1.id to dm1.topic,
+                        dm2.id to dm2.topic,
+                    )
+
+                withTimeout(30_000) {
+                    while (snapshot().size < expected.size) {
+                        delay(10)
+                    }
+                }
+                assertEquals(expected.sortedBy { it.first }, snapshot().sortedBy { it.first })
+            } finally {
+                withContext(NonCancellable) { job.cancelAndJoin() }
+            }
+        }
 
     @Test
     fun test8_AddAndRemovingAccounts() {

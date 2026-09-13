@@ -167,6 +167,21 @@ mod tests {
 
         let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
         dm.sync().await?;
+        // Let startup cleanup finish before preparing this test's unmigrated state.
+        xmtp_common::wait_for_eq(
+            || async {
+                StoredUserPreferences::load(alix.db())
+                    .unwrap()
+                    .dm_group_updates_migrated
+            },
+            true,
+        )
+        .await?;
+        alix.db().raw_query(|conn| {
+            xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
+                .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(false))
+                .execute(conn)
+        })?;
         let old_updates = dm.find_messages_v2(&MsgQueryArgs {
             content_types: Some(vec![ContentType::GroupUpdated]),
             ..Default::default()
@@ -203,7 +218,7 @@ mod tests {
             }
         }
 
-        perform(alix.db()).await;
+        perform_inner(alix.db()).await?;
 
         let msgs = dm.find_messages_v2(&MsgQueryArgs {
             content_types: Some(vec![ContentType::GroupUpdated]),
@@ -224,7 +239,7 @@ mod tests {
         // We don't want the perform to run more than once.
         let msg = gen_update_msg(dm.group_id, payload1.clone());
         msg.store(&alix.db())?;
-        perform(alix.db()).await;
+        perform_inner(alix.db()).await?;
 
         // The duplicate should remain because perform will only clean up once.
         let msgs = dm.find_messages_v2(&MsgQueryArgs {

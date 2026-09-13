@@ -1,8 +1,13 @@
 /// a boxed version of [`Client`]
 pub type BoxClient = Box<dyn BoxClientT>;
 
-/// a type-erased version of [`Client`] in an [`Arc`](std::sync::Arc)
-pub type ArcClient = Arc<dyn BoxClientT>;
+/// An owned transport shared through an [`Arc`].
+///
+/// The named type keeps the trait object's lifetime out of generic async
+/// return types. This lets those futures retain their native `Send` bound.
+/// Clones share the same transport allocation and connection state.
+#[derive(Clone)]
+pub struct ArcClient(Arc<dyn BoxClientT>);
 
 use bytes::Bytes;
 use http::{request, uri::PathAndQuery};
@@ -25,6 +30,65 @@ impl<C> BoxedClient<C> {
 pub trait BoxClientT: Client + IsConnectedCheck {}
 
 impl<T> BoxClientT for T where T: ?Sized + IsConnectedCheck + Client {}
+
+impl std::ops::Deref for ArcClient {
+    type Target = Arc<dyn BoxClientT>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Arc<dyn BoxClientT>> for ArcClient {
+    fn from(client: Arc<dyn BoxClientT>) -> Self {
+        Self(client)
+    }
+}
+
+#[xmtp_common::async_trait]
+impl Client for ArcClient {
+    fn host(&self) -> &str {
+        self.0.as_ref().host()
+    }
+
+    async fn request(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<Bytes>, ApiClientError> {
+        self.0.as_ref().request(request, path, body).await
+    }
+
+    async fn stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: Bytes,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        self.0.as_ref().stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        self.0.as_ref().bidi_stream(request, path, body).await
+    }
+
+    fn fake_stream(&self) -> http::Response<BytesStream> {
+        self.0.as_ref().fake_stream()
+    }
+}
+
+#[xmtp_common::async_trait]
+impl IsConnectedCheck for ArcClient {
+    async fn is_connected(&self) -> bool {
+        self.0.as_ref().is_connected().await
+    }
+}
 
 #[xmtp_common::async_trait]
 impl<C> Client for BoxedClient<C>
@@ -65,6 +129,7 @@ where
 
 pub trait ToBoxedClient {
     fn boxed(self) -> BoxClient;
+    /// Store this transport once and return a cloneable shared owner.
     fn arced(self) -> ArcClient;
 }
 
@@ -76,7 +141,7 @@ where
         Box::new(BoxedClient::new(self))
     }
     fn arced(self) -> ArcClient {
-        Arc::new(BoxedClient::new(self))
+        ArcClient(Arc::new(BoxedClient::new(self)))
     }
 }
 

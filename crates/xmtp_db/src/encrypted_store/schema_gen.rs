@@ -31,6 +31,7 @@ diesel::table! {
         published_in_epoch -> Nullable<BigInt>,
         should_push -> Bool,
         sequence_id -> Nullable<BigInt>,
+        prepared_envelopes -> Nullable<Binary>,
     }
 }
 
@@ -56,6 +57,14 @@ diesel::table! {
         expire_at_ns -> Nullable<BigInt>,
         should_push -> Bool,
         idempotency_key -> Text,
+        delivery_sequence -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
+    group_welcome_discovery (group_id) {
+        group_id -> Binary,
+        first_welcome_sequence_id -> BigInt,
     }
 }
 
@@ -112,12 +121,26 @@ diesel::table! {
 }
 
 diesel::table! {
+    incoming_envelopes (entity_id, entity_kind, sequence_id) {
+        entity_id -> Binary,
+        entity_kind -> Integer,
+        sequence_id -> BigInt,
+        envelope -> Binary,
+        retry_at_ns -> BigInt,
+        blocked -> Bool,
+        error_code -> Nullable<Text>,
+        retry_expires_at_ns -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     key_package_history (id) {
         id -> Integer,
         key_package_hash_ref -> Binary,
         created_at_ns -> BigInt,
         delete_at_ns -> Nullable<BigInt>,
         post_quantum_public_key -> Nullable<Binary>,
+        published_sequence_id -> Nullable<BigInt>,
     }
 }
 
@@ -193,6 +216,9 @@ diesel::table! {
         entity_id -> Binary,
         entity_kind -> Integer,
         sequence_id -> BigInt,
+        received_sequence_id -> Nullable<BigInt>,
+        last_rejection_sequence_id -> Nullable<BigInt>,
+        last_rejection_code -> Nullable<Text>,
     }
 }
 
@@ -232,11 +258,15 @@ diesel::table! {
         hmac_key -> Nullable<Binary>,
         hmac_key_cycled_at_ns -> Nullable<BigInt>,
         dm_group_updates_migrated -> Bool,
+        stream_database_id -> Binary,
+        delivery_owner -> Nullable<Binary>,
+        delivery_owner_until_ns -> Nullable<BigInt>,
     }
 }
 
 diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
+diesel::joinable!(group_welcome_discovery -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -244,10 +274,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     consent_records,
     group_intents,
     group_messages,
+    group_welcome_discovery,
     groups,
     identity,
     identity_cache,
     identity_updates,
+    incoming_envelopes,
     key_package_history,
     local_commit_log,
     message_deletions,

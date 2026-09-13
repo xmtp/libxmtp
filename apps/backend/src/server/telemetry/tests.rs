@@ -397,7 +397,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "unary",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc",
             None,
             Some("5"),
@@ -405,7 +405,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "unary",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc",
             Some("7"),
             None,
@@ -413,7 +413,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "unary",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc",
             Some("7"),
             Some("0"),
@@ -421,7 +421,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "unary",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc-web+proto",
             None,
             Some("3"),
@@ -429,7 +429,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "unary",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc-web-text+proto",
             None,
             Some("3"),
@@ -453,7 +453,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
             "bidi_stream",
         ),
         (
-            "/xmtp.backend.v1.QueryService/Get",
+            "/xmtp.backend.v1.QueryService/QueryNewest",
             "application/grpc",
             None,
             None,
@@ -878,12 +878,6 @@ async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry(
             .await?;
     }
     server
-        .query()
-        .get(api::GetRequest {
-            sequence_id: metas[0].cursor.as_ref().unwrap().sequence_id,
-        })
-        .await?;
-    server
         .identity()
         .get_inbox_ids(api::GetInboxIdsRequest {
             requests: vec![api::get_inbox_ids_request::Request {
@@ -978,7 +972,6 @@ async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry(
         "db.query",
         "db.newest_envelopes",
         "db.newest_metadata",
-        "db.get",
         "db.inbox_ids",
         "db.advance",
         "db.forward",

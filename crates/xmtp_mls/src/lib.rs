@@ -12,6 +12,7 @@ mod intents;
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
+mod state_tx;
 pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;
 pub mod utils;
@@ -22,18 +23,26 @@ pub use definitions::*;
 pub mod test;
 mod traits;
 
+#[cfg(test)]
 use crate::groups::GroupError;
 pub use client::{Client, Network};
+#[cfg(test)]
 use parking_lot::Mutex;
+#[cfg(test)]
 use std::collections::HashMap;
+#[cfg(test)]
 use std::sync::Arc;
+#[cfg(test)]
 use tokio::sync::Mutex as TokioMutex;
 pub use xmtp_common as common;
 pub use xmtp_db as db;
-use xmtp_db::{DuplicateItem, StorageError};
+#[cfg(test)]
+use xmtp_db::DuplicateItem;
+use xmtp_db::StorageError;
 pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as mls_common;
 pub use xmtp_proto::api_client::*;
+#[cfg(test)]
 use xmtp_proto::types::GroupId;
 
 pub fn version() -> &'static str {
@@ -41,17 +50,20 @@ pub fn version() -> &'static str {
 }
 
 /// A manager for group-specific semaphores
+#[cfg(test)]
 #[derive(Debug)]
 pub struct GroupCommitLock {
     // Storage for group-specific semaphores
     locks: Mutex<HashMap<GroupId, Arc<TokioMutex<()>>>>,
 }
 
+#[cfg(test)]
 impl Default for GroupCommitLock {
     fn default() -> Self {
         Self::new()
     }
 }
+#[cfg(test)]
 impl GroupCommitLock {
     /// Create a new `GroupCommitLock`
     pub fn new() -> Self {
@@ -93,6 +105,7 @@ impl GroupCommitLock {
     }
 }
 /// A guard that releases the semaphore when dropped
+#[cfg(test)]
 pub struct MlsGroupGuard {
     _permit: tokio::sync::OwnedMutexGuard<()>,
 }

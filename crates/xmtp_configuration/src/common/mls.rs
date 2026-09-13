@@ -32,6 +32,17 @@ pub const MAX_INSTALLATIONS_PER_INBOX: usize = 10;
 
 pub const MAX_PAST_EPOCHS: usize = 3;
 
+/// Healthy primary-read time allowed for an absent pinned identity update.
+/// This exceeds the backend's default statement timeout.
+pub const IDENTITY_REFERENCE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Minimum interval between primary reads for an absent identity update.
+pub const IDENTITY_REFERENCE_RETRY_INTERVAL: std::time::Duration =
+    std::time::Duration::from_millis(250);
+
+/// Maximum concurrent identity proof requests in one resolver batch.
+pub const IDENTITY_DEPENDENCY_CONCURRENCY: usize = 8;
+
 pub const CREATE_PQ_KEY_PACKAGE_EXTENSION: bool = true;
 
 // If a metadata field name starts with this character,

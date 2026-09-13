@@ -253,16 +253,17 @@ describe("Preferences", () => {
       }
     })();
 
-    // Four updates are expected: two consent updates (the group and the
-    // inbox-id consent changes) and two HMAC-key updates (one per new
-    // installation). These propagate over the network asynchronously, so
-    // re-sync until the stream has observed all of them rather than racing a
-    // fixed delay, which can cut off the last update and yield only 3.
+    // Each sync-group Welcome cycles the HMAC key. Concurrent installations
+    // can cause more than two key updates. Wait for the required key updates,
+    // then check the consent values, their order, and every key update.
     try {
       await waitFor(
         async () => {
           await client1.conversations.syncAll();
-          return preferences.length >= 4;
+          return (
+            preferences.filter((update) => update.type === "HmacKeyUpdate")
+              .length >= 2
+          );
         },
         { timeout: 30000, interval: 1000 },
       );
@@ -271,7 +272,6 @@ describe("Preferences", () => {
       await collecting;
     }
 
-    expect(preferences.length).toBe(4);
     const consentUpdate1 = preferences[0] as Extract<
       UserPreferenceUpdate,
       { type: "ConsentUpdate" }
@@ -292,17 +292,17 @@ describe("Preferences", () => {
       entityType: ConsentEntityType.InboxId,
       state: ConsentState.Denied,
     });
-    const hmacKeyUpdate1 = preferences[2] as Extract<
+    const hmacKeyUpdates = preferences.slice(2) as Extract<
       UserPreferenceUpdate,
       { type: "HmacKeyUpdate" }
-    >;
-    expect(hmacKeyUpdate1.type).toBe("HmacKeyUpdate");
-    expect(hmacKeyUpdate1.key).toBeInstanceOf(Uint8Array);
-    const hmacKeyUpdate2 = preferences[3] as Extract<
-      UserPreferenceUpdate,
-      { type: "HmacKeyUpdate" }
-    >;
-    expect(hmacKeyUpdate2.type).toBe("HmacKeyUpdate");
-    expect(hmacKeyUpdate2.key).toBeInstanceOf(Uint8Array);
+    >[];
+    const hmacKeys = new Set<string>();
+    for (const update of hmacKeyUpdates) {
+      expect(update.type).toBe("HmacKeyUpdate");
+      expect(update.key).toBeInstanceOf(Uint8Array);
+      expect(update.key.length).toBeGreaterThan(0);
+      hmacKeys.add(update.key.toString());
+    }
+    expect(hmacKeys.size).toBeGreaterThanOrEqual(2);
   });
 });

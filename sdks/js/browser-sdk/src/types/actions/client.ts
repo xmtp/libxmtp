@@ -12,6 +12,7 @@ import type {
 import type { SafeSigner } from "@/utils/signer";
 
 export type ClientAction =
+  | { action: "client.close"; id: string; data: undefined; result: undefined }
   | {
       action: "client.init";
       id: string;

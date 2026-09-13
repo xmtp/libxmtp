@@ -43,14 +43,17 @@ pub mod prelude {
     pub use super::association_state::QueryAssociationStateCache;
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
+    pub use super::delivery::QueryDelivery;
     pub use super::group::QueryDms;
     pub use super::group::QueryGroup;
     pub use super::group::QueryGroupVersion;
     pub use super::group_intent::QueryGroupIntent;
+    pub use super::group_intent::QueryPreparedEnvelope;
     pub use super::group_message::QueryGroupMessage;
     pub use super::identity::QueryIdentity;
     pub use super::identity_cache::QueryIdentityCache;
     pub use super::identity_update::QueryIdentityUpdates;
+    pub use super::incoming_envelope::QueryIncomingEnvelope;
     pub use super::key_package_history::QueryKeyPackageHistory;
     pub use super::key_store_entry::QueryKeyStoreEntry;
     pub use super::local_commit_log::QueryLocalCommitLog;
@@ -123,8 +126,8 @@ pub mod test_util {
     use super::*;
     use ascii_table::AsciiTable;
     use diesel::{
-        ExpressionMethods, RunQueryDsl, connection::LoadConnection, deserialize::FromSqlRow,
-        sql_query,
+        ExpressionMethods, QueryDsl, RunQueryDsl, SelectableHelper, connection::LoadConnection,
+        deserialize::FromSqlRow, sql_query,
     };
 
     impl<C: ConnectionExt> DbConnection<C> {
@@ -308,7 +311,8 @@ pub mod test_util {
                 .filter(group_messages::kind.eq(GroupMessageKind::Application))
                 .order(group_messages::sequence_id.asc());
 
-            self.raw_query(|conn| query.load(conn)).unwrap()
+            self.raw_query(|conn| query.select(StoredGroupMessage::as_select()).load(conn))
+                .unwrap()
         }
 
         pub fn key_package_rotation_history(&self) -> Vec<(i64, i64)> {
@@ -367,7 +371,11 @@ pub mod test_util {
 
             println!("\n=== group_messages ===");
             let msgs: Vec<crate::group_message::StoredGroupMessage> = self
-                .raw_query(|c| crate::schema::group_messages::table.load(c))
+                .raw_query(|c| {
+                    crate::schema::group_messages::table
+                        .select(StoredGroupMessage::as_select())
+                        .load(c)
+                })
                 .unwrap_or_default();
             t.column(0).set_header("id");
             t.column(1).set_header("group_id");
@@ -403,7 +411,11 @@ pub mod test_util {
             let mut t = AsciiTable::default();
             println!("\n=== refresh_state ===");
             let states: Vec<crate::refresh_state::RefreshState> = self
-                .raw_query(|c| crate::schema::refresh_state::table.load(c))
+                .raw_query(|c| {
+                    crate::schema::refresh_state::table
+                        .select(crate::refresh_state::RefreshState::as_select())
+                        .load(c)
+                })
                 .unwrap_or_default();
             t.column(0).set_header("entity_id");
             t.column(1).set_header("entity_kind");

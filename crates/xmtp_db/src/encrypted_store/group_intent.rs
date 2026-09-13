@@ -25,8 +25,10 @@ use crate::{
 };
 
 mod error;
+mod prepared;
 mod types;
 pub use error::*;
+pub use prepared::*;
 pub use types::*;
 
 pub type ID = i32;
@@ -138,7 +140,7 @@ pub enum IntentState {
     Superseded = 6,
 }
 
-#[derive(Queryable, Identifiable, PartialEq, Clone)]
+#[derive(Queryable, Selectable, Identifiable, PartialEq, Clone)]
 #[diesel(table_name = group_intents)]
 #[diesel(primary_key(id))]
 pub struct StoredGroupIntent {
@@ -196,7 +198,7 @@ impl std::fmt::Debug for StoredGroupIntent {
     }
 }
 
-impl_fetch!(StoredGroupIntent, group_intents, ID);
+impl_fetch!(StoredGroupIntent, group_intents, ID, select);
 
 impl<C: ConnectionExt> Delete<StoredGroupIntent> for DbConnection<C> {
     type Key = ID;
@@ -406,6 +408,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         self.raw_query(|conn| {
             diesel::insert_into(dsl::group_intents)
                 .values(to_save)
+                .returning(StoredGroupIntent::as_returning())
                 .get_result(conn)
         })
     }
@@ -433,7 +436,11 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
 
         query = query.order(dsl::id.asc());
 
-        self.raw_query(|conn| query.load::<StoredGroupIntent>(conn))
+        self.raw_query(|conn| {
+            query
+                .select(StoredGroupIntent::as_select())
+                .load::<StoredGroupIntent>(conn)
+        })
     }
 
     // Set the intent with the given ID to `Published` and set the payload hash. Optionally add
@@ -467,6 +474,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
             let already_published = self.raw_query(|conn| {
                 dsl::group_intents
                     .filter(dsl::id.eq(intent_id))
+                    .select(StoredGroupIntent::as_select())
                     .first::<StoredGroupIntent>(conn)
             });
 
@@ -566,6 +574,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                     dsl::post_commit_data.eq(None::<Vec<u8>>),
                     dsl::published_in_epoch.eq(None::<i64>),
                     dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::prepared_envelopes.eq(None::<Vec<u8>>),
                 ))
                 .execute(conn)
         })?;
@@ -603,6 +612,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         let result = self.raw_query(|conn| {
             dsl::group_intents
                 .filter(dsl::payload_hash.eq(payload_hash))
+                .select(StoredGroupIntent::as_select())
                 .first::<StoredGroupIntent>(conn)
                 .optional()
         })?;
@@ -631,7 +641,7 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
                 .inner_join(
                     refresh_state::table.on(refresh_state::entity_id
                         .eq(dsl::group_id)
-                        .and(refresh_state::entity_kind.eq(EntityKind::CommitMessage))),
+                        .and(refresh_state::entity_kind.eq(EntityKind::ApplicationMessage))),
                 )
                 .select((
                     dsl::payload_hash.assume_not_null(),
@@ -810,6 +820,7 @@ pub(crate) mod tests {
         conn.raw_query(|raw_conn| {
             dsl::group_intents
                 .filter(dsl::group_id.eq(group_id))
+                .select(StoredGroupIntent::as_select())
                 .first(raw_conn)
         })
         .unwrap()
@@ -1225,7 +1236,7 @@ pub(crate) mod tests {
             conn.set_group_intent_published(intent2.id, &payload_hash2, None, None, 1)
                 .unwrap();
 
-            conn.update_cursor(group_id, EntityKind::CommitMessage, Cursor(100))
+            conn.update_cursor(group_id, EntityKind::ApplicationMessage, Cursor(100))
                 .unwrap();
 
             let result = conn

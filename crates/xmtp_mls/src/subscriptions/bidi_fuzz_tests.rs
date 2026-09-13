@@ -15,8 +15,9 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 
 use crate::context::XmtpSharedContext;
+use crate::groups::MlsGroup;
 use crate::tester;
-use crate::utils::{LocalTesterBuilder, MlsGroupExt, TesterBuilder};
+use crate::utils::{LocalTesterBuilder, TesterBuilder};
 use xmtp_api_backend::{
     BackendBinding, BidiConnection, BidiEvent, BidiTransport, DEFAULT_LEASE_DEPTH, LeaseEvent,
     OpenError, TopicLease, TransportBinding,
@@ -48,6 +49,14 @@ fn fuzz_rounds(default: usize) -> usize {
             .expect("XMTP_BIDI_FUZZ_ROUNDS must be a usize"),
         Err(_) => default,
     }
+}
+
+/// Keep the reproduction seed in the failure summary even when CI trims logs.
+async fn publish_message<C: XmtpSharedContext>(group: &MlsGroup<C>, payload: &[u8], seed: u64) {
+    group
+        .send_message(payload, Default::default())
+        .await
+        .unwrap_or_else(|error| panic!("fuzz publish failed (seed={seed}): {error:?}"));
 }
 
 fn gm_parts(message: &ServerEnvelope) -> Option<(Topic, u64)> {
@@ -267,7 +276,7 @@ async fn fuzz_server_honors_update_acknowledgements_and_targets() {
     }
     for (group, _) in &groups {
         for msg_idx in 0..rng.random_range(6..14usize) {
-            group.send_msg(format!("seed {msg_idx}").as_bytes()).await;
+            publish_message(group, format!("seed {msg_idx}").as_bytes(), seed).await;
         }
     }
     // Every producer joins every group so racing bursts are real member
@@ -287,7 +296,7 @@ async fn fuzz_server_honors_update_acknowledgements_and_targets() {
             let handle = producer
                 .group(&group.group_id)
                 .expect("producer missing a group it was added to");
-            handle.send_msg(b"settle").await;
+            publish_message(&handle, b"settle", seed).await;
             handles.push(handle);
         }
         producer_groups.push(handles);
@@ -368,7 +377,7 @@ async fn fuzz_server_honors_update_acknowledgements_and_targets() {
                             if cap.fetch_add(1, Ordering::Relaxed) >= PUBLISH_CAP {
                                 break;
                             }
-                            group.send_msg(format!("burst {i}").as_bytes()).await;
+                            publish_message(&group, format!("burst {i}").as_bytes(), seed).await;
                         }
                     });
                 }
@@ -470,7 +479,7 @@ async fn fuzz_server_honors_update_acknowledgements_and_targets() {
     // the live lane, and receiving them bounds each connection's
     // completeness check.
     for (group, _) in &groups {
-        group.send_msg(b"sentinel").await;
+        publish_message(group, b"sentinel", seed).await;
     }
     let truth = ground_truth(api, &group_keys).await;
     for fc in conns.iter_mut() {
@@ -625,11 +634,10 @@ fn spawn_collector(
 /// strictly-increasing delivery and chain-union completeness checked
 /// against the server's own record.
 ///
-/// Each subscriber's wire runs through its own toxiproxy so a fault op can
-/// sever any of them mid-anything (the transport must reconnect
-/// transparently and the invariants must still hold); the publishers and
-/// the ground-truth query stay on direct connections, so faults never blur
-/// what "the server holds" means.
+/// Subscriber wires share the local backend proxy. Each fault interrupts all
+/// subscribers; every transport must reconnect and retain its lease floors.
+/// Publishers and verification queries use direct connections. Run proxy tests
+/// serially in a separate nextest invocation to prevent shared fault changes.
 #[xmtp_common::timeout(Duration::from_secs(300))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn fuzz_transport_delivery_never_loses_above_the_floor() {
@@ -658,9 +666,8 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                 .await,
         );
     }
-    // Consumers read raw frames off leased topics — no MLS membership
-    // needed — but each one is a real proxied client with its own faultable
-    // wire, its own transport, and its own welcome topic.
+    // Each consumer has its own transport and Welcome topic. All subscriber
+    // connections use the same proxy; MLS membership is not needed for reads.
     let mut consumers = Vec::new();
     for i in 0..n_consumers {
         consumers.push(
@@ -684,7 +691,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     }
     for (group, _) in &groups {
         for msg_idx in 0..rng.random_range(6..14usize) {
-            group.send_msg(format!("seed {msg_idx}").as_bytes()).await;
+            publish_message(group, format!("seed {msg_idx}").as_bytes(), seed).await;
         }
     }
     // As in the server-contract fuzz: settle each producer's one-time
@@ -701,7 +708,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
             let handle = producer
                 .group(&group.group_id)
                 .expect("producer missing a group it was added to");
-            handle.send_msg(b"settle").await;
+            publish_message(&handle, b"settle", seed).await;
             handles.push(handle);
         }
         producer_groups.push(handles);
@@ -862,7 +869,8 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                                 if cap.fetch_add(1, Ordering::Relaxed) >= PUBLISH_CAP {
                                     break;
                                 }
-                                group.send_msg(format!("burst {i}").as_bytes()).await;
+                                publish_message(&group, format!("burst {i}").as_bytes(), seed)
+                                    .await;
                             }
                         });
                     }
@@ -875,7 +883,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                             if cap.fetch_add(1, Ordering::Relaxed) >= PUBLISH_CAP {
                                 break;
                             }
-                            group.send_msg(format!("burst {i}").as_bytes()).await;
+                            publish_message(&group, format!("burst {i}").as_bytes(), seed).await;
                         }
                     });
                 }
@@ -937,11 +945,9 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
                     n_stalls += 1;
                 }
             }
-            // Sever a random consumer's TCP mid-anything — occasionally
-            // all of them at once (a correlated outage), occasionally long
-            // enough to eat several reconnect attempts. Every affected
-            // transport must reconnect transparently and re-serve whatever
-            // the cut ate.
+            // Selected consumer handles refer to the same backend proxy.
+            // Every cut is a shared outage, including repeated disable calls.
+            // All transports must recover their original delivery obligations.
             15 => {
                 let blip = if rng.random_range(0..4u8) == 0 {
                     Duration::from_millis(rng.random_range(1200..2400))
@@ -1040,7 +1046,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     // The welcome sentinel is one more group created with EVERY consumer,
     // so each welcome topic gets a live edge to confirm.
     for (group, _) in &groups {
-        group.send_msg(b"sentinel").await;
+        publish_message(group, b"sentinel", seed).await;
     }
     {
         let members: Vec<_> = consumers.iter().map(|c| c.inbox_id()).collect();

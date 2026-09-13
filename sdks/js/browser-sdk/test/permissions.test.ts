@@ -169,10 +169,16 @@ describe("Group permissions", () => {
     const { signer: signer6 } = createSigner();
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
+    // These invitees supply inbox IDs only. Close each worker before opening
+    // another so idle HTTP streams do not fill the browser connection pool.
     const client3 = await createRegisteredClient(signer3);
+    await client3.close();
     const client4 = await createRegisteredClient(signer4);
+    await client4.close();
     const client5 = await createRegisteredClient(signer5);
+    await client5.close();
     const client6 = await createRegisteredClient(signer6);
+    await client6.close();
     // create group with default permissions (anyone can add members)
     const group = await client1.conversations.createGroup([client2.inboxId!]);
 

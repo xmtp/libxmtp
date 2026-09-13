@@ -415,7 +415,7 @@ where
     }
 }
 
-impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>);
+impl_fetch!(StoredGroupMessage, group_messages, Vec<u8>, select);
 
 // Custom store implementation that uses NewStoredGroupMessage to exclude inserted_at_ns
 impl<C> crate::Store<C> for StoredGroupMessage
@@ -425,13 +425,13 @@ where
     type Output = ();
     fn store(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query::<_, _>(|conn| {
+        super::stream_storage::stream_transaction(into, |conn| {
             diesel::insert_into(group_messages::table)
                 .values(&new_msg)
-                .execute(conn)
-                .map(|_| ())
+                .execute(conn)?;
+            super::delivery::assign_sequence(conn, &self.id)?;
+            Ok(())
         })
-        .map_err(Into::into)
     }
 }
 
@@ -444,13 +444,13 @@ where
 
     fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
         let new_msg = NewStoredGroupMessage::from(self);
-        into.raw_query(|conn| {
+        super::stream_storage::stream_transaction(into, |conn| {
             diesel::insert_or_ignore_into(group_messages::table)
                 .values(&new_msg)
-                .execute(conn)
-                .map(|_| ())
+                .execute(conn)?;
+            super::delivery::assign_sequence(conn, &self.id)?;
+            Ok(())
         })
-        .map_err(Into::into)
     }
 }
 
@@ -615,7 +615,7 @@ pub trait QueryGroupMessage {
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
-    ) -> Result<usize, crate::ConnectionError>;
+    ) -> Result<usize, crate::StorageError>;
 
     fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
         &self,
@@ -779,7 +779,7 @@ where
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
-    ) -> Result<usize, crate::ConnectionError> {
+    ) -> Result<usize, crate::StorageError> {
         (**self).set_delivery_status_to_published(msg_id, timestamp, cursor, message_expire_at_ns)
     }
 
@@ -918,7 +918,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             query = query.limit(limit);
         }
 
-        self.raw_query(|conn| query.load::<StoredGroupMessage>(conn))
+        self.raw_query(|conn| {
+            query
+                .select(StoredGroupMessage::as_select())
+                .load::<StoredGroupMessage>(conn)
+        })
     }
 
     /// Count group messages matching the given criteria
@@ -985,7 +989,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .filter(group_messages::kind.eq(GroupMessageKind::Application))
             .order(group_messages::sequence_id.asc());
 
-        self.raw_query(|conn| query.load(conn))
+        self.raw_query(|conn| query.select(StoredGroupMessage::as_select()).load(conn))
     }
 
     #[xmtp_common::db_span]
@@ -1031,7 +1035,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
 
         self.raw_query(|conn| {
             query
-                .select(group_messages::all_columns)
+                .select(StoredGroupMessage::as_select())
                 .load::<StoredGroupMessage>(conn)
         })
     }
@@ -1083,8 +1087,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             SortDirection::Descending => reactions_query.order(dsl::sent_at_ns.desc()),
         };
 
-        let reactions: Vec<StoredGroupMessage> =
-            self.raw_query(|conn| reactions_query.load::<StoredGroupMessage>(conn))?;
+        let reactions: Vec<StoredGroupMessage> = self.raw_query(|conn| {
+            reactions_query
+                .select(StoredGroupMessage::as_select())
+                .load::<StoredGroupMessage>(conn)
+        })?;
 
         // Group reactions by parent message id
         let mut reactions_by_reference: HashMap<Vec<u8>, Vec<StoredGroupMessage>> = HashMap::new();
@@ -1145,8 +1152,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             inbound_relations_query = inbound_relations_query.limit(limit);
         }
 
-        let raw_inbound_relations: Vec<StoredGroupMessage> =
-            self.raw_query(|conn| inbound_relations_query.load::<StoredGroupMessage>(conn))?;
+        let raw_inbound_relations: Vec<StoredGroupMessage> = self.raw_query(|conn| {
+            inbound_relations_query
+                .select(StoredGroupMessage::as_select())
+                .load::<StoredGroupMessage>(conn)
+        })?;
 
         for inbound_reference in raw_inbound_relations {
             if let Some(reference_id) = &inbound_reference.reference_id {
@@ -1171,8 +1181,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .filter(dsl::id.eq_any(reference_ids))
             .into_boxed();
 
-        let raw_outbound_references: Vec<StoredGroupMessage> =
-            self.raw_query(|conn| outbound_references_query.load::<StoredGroupMessage>(conn))?;
+        let raw_outbound_references: Vec<StoredGroupMessage> = self.raw_query(|conn| {
+            outbound_references_query
+                .select(StoredGroupMessage::as_select())
+                .load::<StoredGroupMessage>(conn)
+        })?;
 
         Ok(raw_outbound_references
             .into_iter()
@@ -1239,6 +1252,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
+                .select(StoredGroupMessage::as_select())
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
@@ -1252,6 +1266,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
+                .select(StoredGroupMessage::as_select())
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
@@ -1266,6 +1281,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sent_at_ns.eq(&timestamp))
+                .select(StoredGroupMessage::as_select())
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
@@ -1280,6 +1296,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             dsl::group_messages
                 .filter(dsl::group_id.eq(group_id.as_ref()))
                 .filter(dsl::sequence_id.eq(cursor.0 as i64))
+                .select(StoredGroupMessage::as_select())
                 .first::<StoredGroupMessage>(conn)
                 .optional()
         })
@@ -1291,14 +1308,22 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         timestamp: u64,
         cursor: Cursor,
         message_expire_at_ns: Option<i64>,
-    ) -> Result<usize, crate::ConnectionError> {
+    ) -> Result<usize, crate::StorageError> {
         tracing::info!(
             "Message [{}] published with cursor = {}",
             hex::encode(msg_id),
             cursor
         );
-        self.raw_query(|conn| {
-            diesel::update(dsl::group_messages)
+        super::stream_storage::stream_transaction(self, |conn| {
+            let Some((group_id, previous_sent_at_ns)) = dsl::group_messages
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .select((dsl::group_id, dsl::sent_at_ns))
+                .first::<(GroupId, i64)>(conn)
+                .optional()?
+            else {
+                return Ok(0);
+            };
+            let changed = diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((
                     dsl::delivery_status.eq(DeliveryStatus::Published),
@@ -1306,7 +1331,28 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     dsl::sequence_id.eq(cursor.0 as i64),
                     dsl::expire_at_ns.eq(message_expire_at_ns),
                 ))
-                .execute(conn)
+                .execute(conn)?;
+            if changed > 0 {
+                let latest_sent_at_ns = dsl::group_messages
+                    .filter(dsl::group_id.eq(group_id))
+                    .order(dsl::sent_at_ns.desc())
+                    .select(dsl::sent_at_ns)
+                    .first::<i64>(conn)?;
+                // Correct the replaced timestamp in either direction. Keep a newer message
+                // or independent cached activity that does not match the replaced timestamp.
+                diesel::update(groups_dsl::groups)
+                    .filter(groups_dsl::id.eq(group_id))
+                    .filter(
+                        groups_dsl::last_message_ns
+                            .is_null()
+                            .or(groups_dsl::last_message_ns.eq(previous_sent_at_ns))
+                            .or(groups_dsl::last_message_ns.lt(latest_sent_at_ns)),
+                    )
+                    .set(groups_dsl::last_message_ns.eq(latest_sent_at_ns))
+                    .execute(conn)?;
+                super::delivery::assign_sequence(conn, msg_id.as_ref())?;
+            }
+            Ok(changed)
         })
     }
 

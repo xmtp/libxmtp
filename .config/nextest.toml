@@ -24,9 +24,6 @@ threads-required = 2
 filter = 'test(/\btest_db_migrates/)'
 retries = 3
 
-[[profile.ci.overrides]]
-filter = 'test(/\btest_can_stream_group_messages_for_updates/)'
-retries = 3
 # Fuzz tests print their seed and must fail loudly — a retry would re-roll
 # the seed and mask the finding.
 [[profile.default.overrides]]

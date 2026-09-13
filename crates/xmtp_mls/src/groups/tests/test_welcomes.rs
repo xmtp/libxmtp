@@ -37,7 +37,7 @@ async fn test_welcome_cursor() {
     let alix2_refresh_state = alix2
         .context
         .db()
-        .latest_cursor_for_id(group.group_id, &[EntityKind::CommitMessage])?;
+        .latest_cursor_for_id(group.group_id, &[EntityKind::ApplicationMessage])?;
 
     assert!(alix2_refresh_state.0 > 0);
 }
@@ -49,7 +49,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
-        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::ApplicationMessage])
         .unwrap()
         .values()
         .next()
@@ -59,7 +59,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     assert_eq!(
         msg.cursor(),
         cursor,
-        "local cursor state of commits must be consistent"
+        "the processed group cursor must match the last message"
     );
 
     let other_msg = db2
@@ -72,7 +72,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
         "GroupMessage must equal group message of db2"
     );
     let other_cursor = db2
-        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::ApplicationMessage])
         .unwrap()
         .values()
         .next()
@@ -80,14 +80,14 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
         .unwrap();
     assert_eq!(
         cursor, other_cursor,
-        "commit entry in refresh state cursor store must be equal"
+        "the processed group cursors must be equal"
     );
 }
 
 // All members must derive the same state from the joining commit.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_inviting_members_results_in_consistent_state() {
-    use EntityKind::CommitMessage;
+    use EntityKind::ApplicationMessage;
     tester!(alix);
     tester!(bo);
     tester!(caro);
@@ -119,13 +119,13 @@ async fn test_inviting_members_results_in_consistent_state() {
     // alix has the membership commit
     let alix_commit = alix
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
     let bo_commit = bo
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
     let caro_commit = caro
         .db()
-        .get_last_cursor_for_ids(&[group_id], &[CommitMessage])?;
+        .get_last_cursor_for_ids(&[group_id], &[ApplicationMessage])?;
     assert_eq!(bo_commit, caro_commit);
     assert_eq!(alix_commit, bo_commit);
 }
@@ -163,6 +163,9 @@ async fn test_spoofed_inbox_id() {
         worker_metrics: alix.context.worker_metrics.clone(),
         cancellation_token: alix.context.cancellation_token.clone(),
         shutdown_complete: alix.context.shutdown_complete.clone(),
+        delivery_owner: alix.context.delivery_owner.clone(),
+        incoming_runtime: alix.context.incoming_runtime.clone(),
+        identity_resolutions: alix.context.identity_resolutions.clone(),
     });
     let group = MlsGroup::create_and_insert(
         malicious_context,
@@ -179,25 +182,43 @@ async fn test_spoofed_inbox_id() {
         .await?;
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
-    let send_welcome_action = group
-        .load_mls_group_with_lock_async(async |mut openmls_group| {
-            let publish_intent_data =
-                apply_update_group_membership_intent(&context, &mut openmls_group, intent, signer)
-                    .await?
-                    .unwrap();
+    let old_membership = group.with_group_snapshot(|openmls_group| {
+        Ok(crate::groups::validated_commit::extract_group_membership(
+            openmls_group.extensions(),
+        )?)
+    })?;
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+    )
+    .await?;
+    let send_welcome_action = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |openmls_group, storage| {
+            let publish_intent_data = apply_update_group_membership_intent(
+                storage,
+                openmls_group,
+                intent,
+                changes,
+                signer,
+            )?
+            .unwrap();
             let post_commit_action = PostCommitAction::from_bytes(
                 publish_intent_data.post_commit_data().unwrap().as_slice(),
             )?;
             let PostCommitAction::SendWelcomes(action) = post_commit_action;
             let staged_commit = publish_intent_data.staged_commit().unwrap();
             openmls_group.merge_staged_commit(
-                &XmtpOpenMlsProviderRef::new(context.mls_storage()),
+                &XmtpOpenMlsProviderRef::new(storage),
                 decode_staged_commit(staged_commit.as_slice())?,
             )?;
 
-            Ok::<_, GroupError>(action)
+            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(action))
         })
-        .await?;
+    })?
+    .into_continued();
     group.send_welcomes(send_welcome_action, None).await?;
 
     // We want Bo to reject this welcome, because the inbox ID is spoofed

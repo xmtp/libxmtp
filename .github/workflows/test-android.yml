@@ -58,3 +58,13 @@ jobs:
           NIX_DEVSHELL: android
           NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
         run: just android test-integration
+      - name: Upload failed Android test reports
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-integration-failures
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
+            sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt

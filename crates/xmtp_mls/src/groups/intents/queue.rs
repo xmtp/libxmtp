@@ -4,7 +4,7 @@ use derive_builder::Builder;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_db::{
     DbQuery, TransactionOutcome,
-    group_intent::{IntentKind, NewGroupIntent, StoredGroupIntent},
+    group_intent::{IntentKind, IntentState, NewGroupIntent, StoredGroupIntent},
     prelude::*,
 };
 
@@ -25,16 +25,24 @@ impl QueueIntentBuilder {
     where
         C: XmtpSharedContext,
     {
-        let intent = self.build()?;
-        group
-            .context
-            .mls_storage()
-            .transaction(move |conn| {
-                let storage = conn.key_store();
-                let db = storage.db();
-                intent.queue_with_conn(&db, group).map(Continue)
-            })
-            .map(TransactionOutcome::into_continued)
+        crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            self.queue_in(&db, group).map(Continue)
+        })
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Queue an intent as part of the caller's state transaction.
+    pub(crate) fn queue_in<C>(
+        &mut self,
+        db: &impl DbQuery,
+        group: &MlsGroup<C>,
+    ) -> Result<StoredGroupIntent, GroupError>
+    where
+        C: XmtpSharedContext,
+    {
+        self.build()?.queue_with_conn(db, group)
     }
 }
 
@@ -110,7 +118,7 @@ impl QueueIntent {
 
     /// Create an intent to fire the one-shot AppData-migration
     /// bootstrap commit. The intent payload is a
-    /// [`ProposeGroupContextExtensionsIntentData`] carrying the
+    /// `ProposeGroupContextExtensionsIntentData` carrying the
     /// target extensions blob (four legacy XMTP extensions removed,
     /// `RequiredCapabilities` updated to require
     /// `ExtensionType::AppDataDictionary` and drop the legacy
@@ -145,6 +153,21 @@ impl QueueIntent {
         Ctx: XmtpSharedContext,
     {
         if self.kind == IntentKind::SendMessage {
+            if let Some(existing) = conn
+                .find_group_intents(
+                    group.group_id,
+                    Some(vec![
+                        IntentState::ToPublish,
+                        IntentState::Published,
+                        IntentState::Committed,
+                    ]),
+                    Some(vec![IntentKind::SendMessage]),
+                )?
+                .into_iter()
+                .find(|intent| intent.data == self.data)
+            {
+                return Ok(existing);
+            }
             self.maybe_insert_key_update_intent(conn, group)?;
         }
 

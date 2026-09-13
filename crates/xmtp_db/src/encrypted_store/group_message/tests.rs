@@ -132,7 +132,7 @@ fn it_gets_messages() {
     })
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;
     with_connection(|conn| {
@@ -140,10 +140,12 @@ fn it_cannot_insert_message_without_group() {
         let result = message.store(&conn);
         assert_err!(
             result,
-            crate::StorageError::Connection(crate::ConnectionError::Database(
-                diesel::result::Error::DatabaseError(ForeignKeyViolation, _)
+            crate::StorageError::DieselResult(diesel::result::Error::DatabaseError(
+                ForeignKeyViolation,
+                _
             ))
         );
+        assert!(conn.get_group_message(message.id).unwrap().is_none());
     })
 }
 
@@ -350,8 +352,10 @@ fn it_gets_messages_by_kind() {
     })
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn it_orders_messages_by_sent() {
+    use diesel::connection::SimpleConnection;
+
     with_connection(|conn| {
         let group = generate_group(None);
         group.store(conn).unwrap();
@@ -399,6 +403,84 @@ fn it_orders_messages_by_sent() {
         assert_eq!(messages_desc[1].sent_at_ns, 100_000);
         assert_eq!(messages_desc[2].sent_at_ns, 10_000);
         assert_eq!(messages_desc[3].sent_at_ns, 1_000);
+
+        // A forward client clock must not hide the newer canonical message.
+        let mut skewed = generate_message(None, Some(&group.id), Some(2_000_000), None, None, None);
+        skewed.delivery_status = DeliveryStatus::Unpublished;
+        skewed.store(conn)?;
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(2_000_000)
+        );
+        assert_eq!(
+            conn.set_delivery_status_to_published(&skewed.id, 800_000, Cursor(50), None)?,
+            1
+        );
+        assert_eq!(conn.get_group_message(&skewed.id)??.sent_at_ns, 800_000);
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(1_000_000)
+        );
+        let published_cursor = conn.current_delivery_cursor()?;
+        conn.set_delivery_status_to_published(&skewed.id, 800_000, Cursor(50), None)?;
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(1_000_000)
+        );
+        assert_eq!(conn.current_delivery_cursor()?, published_cursor);
+
+        let mut delayed =
+            generate_message(None, Some(&group.id), Some(1_100_000), None, None, None);
+        delayed.delivery_status = DeliveryStatus::Unpublished;
+        delayed.store(conn)?;
+        conn.set_delivery_status_to_published(&delayed.id, 1_200_000, Cursor(60), None)?;
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(1_200_000)
+        );
+
+        // Failure of the activity update must also roll back publication and delivery.
+        let mut rejected =
+            generate_message(None, Some(&group.id), Some(3_000_000), None, None, None);
+        rejected.delivery_status = DeliveryStatus::Unpublished;
+        rejected.store(conn)?;
+        let before_failure = conn.current_delivery_cursor()?;
+        conn.raw_query(|conn| {
+            conn.batch_execute(
+                "CREATE TEMP TRIGGER fail_publication_activity BEFORE UPDATE OF last_message_ns ON groups BEGIN SELECT RAISE(ABORT, 'injected activity failure'); END;",
+            )
+        })?;
+        assert!(
+            conn.set_delivery_status_to_published(&rejected.id, 900_000, Cursor(70), None)
+                .is_err()
+        );
+        let unchanged = conn.get_group_message(&rejected.id)??;
+        assert_eq!(unchanged.sent_at_ns, 3_000_000);
+        assert_eq!(unchanged.delivery_status, DeliveryStatus::Unpublished);
+        assert_eq!(unchanged.sequence_id, 0);
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(3_000_000)
+        );
+        assert_eq!(conn.current_delivery_cursor()?, before_failure);
+        conn.raw_query(|conn| conn.batch_execute("DROP TRIGGER fail_publication_activity"))?;
+        conn.set_delivery_status_to_published(&rejected.id, 900_000, Cursor(70), None)?;
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(1_200_000)
+        );
+
+        // Cached activity can come from imported metadata without a retained message.
+        conn.raw_query(|conn| {
+            diesel::update(groups_dsl::groups.find(group.id))
+                .set(groups_dsl::last_message_ns.eq(4_000_000))
+                .execute(conn)
+        })?;
+        conn.set_delivery_status_to_published(&skewed.id, 800_000, Cursor(50), None)?;
+        assert_eq!(
+            conn.find_group(&group.id)??.last_message_ns,
+            Some(4_000_000)
+        );
     })
 }
 

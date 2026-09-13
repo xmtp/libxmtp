@@ -1,6 +1,7 @@
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
 
+use crate::subscriptions::local_delivery::LocalDelivery;
 use crate::subscriptions::stream_messages::stream_stats::StreamWithStats;
 use crate::tester;
 use crate::{assert_msg, builder::ClientBuilder};
@@ -12,6 +13,39 @@ use std::time::Duration;
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::group_message::{GroupMessageKind, MsgQueryArgs};
 use xmtp_id::associations::test_utils::WalletTestExt;
+use xmtp_proto::types::GroupId;
+
+async fn assert_retained_history<C, S>(context: &C, stream: &mut S, filter: LocalDeliveryFilter)
+where
+    C: XmtpSharedContext + 'static,
+    S: futures::Stream<Item = Result<StoredGroupMessage>> + Unpin,
+{
+    let snapshot =
+        LocalDelivery::history_snapshot(context, &DeliveryScope::All, &filter, 100).unwrap();
+    assert!(!snapshot.messages.is_empty());
+    for retained in snapshot.messages {
+        assert_eq!(stream.next().await.unwrap().unwrap(), retained.message);
+    }
+}
+
+async fn assert_retained_join<C, S>(context: &C, stream: &mut S, group_id: GroupId)
+where
+    C: XmtpSharedContext + 'static,
+    S: futures::Stream<Item = Result<StoredGroupMessage>> + Unpin,
+{
+    let message = stream.next().await.unwrap().unwrap();
+    assert_eq!(message.group_id, group_id);
+    assert_eq!(message.kind, GroupMessageKind::MembershipChange);
+    let snapshot = LocalDelivery::history_snapshot(
+        context,
+        &DeliveryScope::Groups(vec![group_id]),
+        &LocalDeliveryFilter::default(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.messages[0].message, message);
+}
 
 #[xmtp_common::timeout(Duration::from_secs(15))]
 #[rstest::rstest]
@@ -29,6 +63,7 @@ async fn test_stream_all_messages_changing_group_list() {
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
+    assert_retained_join(&caro.context, &mut stream, alix_group.group_id).await;
 
     alix_group
         .send_message(b"first", SendMessageOpts::default())
@@ -39,6 +74,7 @@ async fn test_stream_all_messages_changing_group_list() {
         .find_or_create_dm_by_identity(caro_wallet.identifier(), None)
         .await
         .unwrap();
+    assert_retained_join(&caro.context, &mut stream, bo_group.group_id).await;
 
     bo_group
         .send_message(b"second", SendMessageOpts::default())
@@ -54,6 +90,7 @@ async fn test_stream_all_messages_changing_group_list() {
 
     let alix_group_2 = alix.create_group(None, None).unwrap();
     alix_group_2.add_members(&[caro.inbox_id()]).await.unwrap();
+    assert_retained_join(&caro.context, &mut stream, alix_group_2.group_id).await;
 
     alix_group
         .send_message(b"fourth", SendMessageOpts::default())
@@ -81,9 +118,11 @@ async fn test_stream_all_messages_unchanging_group_list() {
 
     let bo_group = bo.create_group(None, None).unwrap();
     bo_group.add_members(&[caro.inbox_id()]).await.unwrap();
+    caro.sync_welcomes().await.unwrap();
 
     let stream = caro.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
+    assert_retained_history(&caro.context, &mut stream, LocalDeliveryFilter::default()).await;
     bo_group
         .send_message(b"first", SendMessageOpts::default())
         .await
@@ -120,6 +159,7 @@ async fn test_dm_stream_all_messages() {
     alix_group.add_members(&[bo.inbox_id()]).await.unwrap();
 
     let alix_dm = alix.find_or_create_dm(bo.inbox_id(), None).await.unwrap();
+    bo.sync_welcomes().await.unwrap();
     {
         // start a stream with only group messages
         let stream = bo
@@ -127,6 +167,15 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         futures::pin_mut!(stream);
+        assert_retained_history(
+            &bo.context,
+            &mut stream,
+            LocalDeliveryFilter {
+                conversation_type: Some(ConversationType::Group),
+                consent_states: None,
+            },
+        )
+        .await;
         alix_dm
             .send_message("first DM msg".as_bytes(), SendMessageOpts::default())
             .await
@@ -136,6 +185,12 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         assert_msg!(stream, "first GROUP msg");
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        assert!(
+            xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+                .await
+                .is_err()
+        );
     }
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
     {
@@ -154,10 +209,15 @@ async fn test_dm_stream_all_messages() {
             .await
             .unwrap();
         assert_msg!(stream, "second DM msg");
+        bo.sync_all_welcomes_and_groups(None).await.unwrap();
+        assert!(
+            xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+                .await
+                .is_err()
+        );
     }
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
-    // Start a stream with all conversations
-    // Wait for 2 seconds for the group creation to be streamed
+    // Both filtered streams acknowledged their messages and scanned excluded rows.
     let stream = bo.stream_all_messages(None, None).await.unwrap();
     futures::pin_mut!(stream);
     alix_group
@@ -171,21 +231,6 @@ async fn test_dm_stream_all_messages() {
         .await
         .unwrap();
     assert_msg!(stream, "second");
-}
-
-use std::collections::HashMap;
-fn find_duplicates_with_count(strings: &[String]) -> HashMap<&String, usize> {
-    let mut counts = HashMap::new();
-
-    // Count occurrences
-    for string in strings {
-        *counts.entry(string).or_insert(0) += 1;
-    }
-
-    // Filter to keep only strings that appear more than once
-    counts.retain(|_, count| *count > 1);
-
-    counts
 }
 
 #[xmtp_common::timeout(Duration::from_secs(60))]
@@ -262,7 +307,7 @@ async fn test_stream_all_messages_does_not_lose_messages() {
                 match msg {
                     Ok(m) => messages.push(m),
                     Err(e) => {
-                        tracing::error!("error in stream test {e}");
+                        panic!("stream failed: {e}");
                     }
                 }
             },
@@ -270,16 +315,54 @@ async fn test_stream_all_messages_does_not_lose_messages() {
         }
     }
 
-    let msgs = &messages
+    let ids: HashSet<_> = messages.iter().map(|message| &message.id).collect();
+    assert_eq!(ids.len(), messages.len(), "duplicate message IDs");
+    let application_messages: Vec<_> = messages
         .iter()
-        .map(|m| String::from_utf8_lossy(m.decrypted_message_bytes.as_slice()).to_string())
-        .collect::<Vec<String>>();
-    let duplicates = find_duplicates_with_count(msgs);
-    assert!(duplicates.is_empty());
+        .filter(|message| message.kind == GroupMessageKind::Application)
+        .map(|message| String::from_utf8(message.decrypted_message_bytes.clone()).unwrap())
+        .collect();
+    let expected: HashSet<_> = (0..15)
+        .flat_map(|i| {
+            [
+                format!("main spam {i}"),
+                format!("EVE spam {i} from new group"),
+                format!("bo msg {i}"),
+            ]
+        })
+        .collect();
+    assert_eq!(application_messages.len(), 45);
     assert_eq!(
-        messages.len(),
-        45,
-        "too many messages mean duplicates, too little means missed. Also ensure timeout is sufficient."
+        application_messages.into_iter().collect::<HashSet<_>>(),
+        expected
+    );
+    let memberships: Vec<_> = messages
+        .iter()
+        .filter(|message| message.kind == GroupMessageKind::MembershipChange)
+        .collect();
+    assert_eq!(memberships.len(), 16);
+    assert_eq!(
+        memberships
+            .iter()
+            .map(|message| message.group_id)
+            .collect::<HashSet<_>>()
+            .len(),
+        16,
+    );
+    let history = LocalDelivery::history_snapshot(
+        &caro.context,
+        &DeliveryScope::All,
+        &LocalDeliveryFilter::default(),
+        100,
+    )
+    .unwrap();
+    assert_eq!(
+        messages,
+        history
+            .messages
+            .into_iter()
+            .map(|entry| entry.message)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -362,9 +445,6 @@ async fn test_stream_all_messages_filters_by_consent_state(
         .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
-    denied_group
-        .update_consent_state(ConsentState::Denied)
-        .unwrap();
 
     // Create group with Unknown consent
     let unknown_group = sender.create_group(None, None).unwrap();
@@ -372,18 +452,6 @@ async fn test_stream_all_messages_filters_by_consent_state(
         .add_members(&[receiver.inbox_id()])
         .await
         .unwrap();
-    unknown_group
-        .update_consent_state(ConsentState::Unknown)
-        .unwrap();
-
-    sender.sync_welcomes().await.unwrap();
-    xmtp_common::time::sleep(Duration::from_millis(100)).await;
-
-    let stream = sender
-        .stream_all_messages(None, Some(vec![filter]))
-        .await
-        .unwrap();
-    futures::pin_mut!(stream);
     allowed_group
         .send_message("msg in allowed".as_bytes(), SendMessageOpts::default())
         .await
@@ -397,7 +465,41 @@ async fn test_stream_all_messages_filters_by_consent_state(
         .await
         .unwrap();
 
-    assert_msg!(stream, expected_message);
+    // Sending changes consent to Allowed. Set the selection after all sends finish.
+    denied_group
+        .update_consent_state(ConsentState::Denied)
+        .unwrap();
+    unknown_group
+        .update_consent_state(ConsentState::Unknown)
+        .unwrap();
+    let selection = LocalDeliveryFilter {
+        conversation_type: None,
+        consent_states: Some(vec![filter]),
+    };
+    let snapshot =
+        LocalDelivery::history_snapshot(&sender.context, &DeliveryScope::All, &selection, 100)
+            .unwrap();
+    let texts: Vec<_> = snapshot
+        .messages
+        .iter()
+        .filter(|item| item.message.kind == GroupMessageKind::Application)
+        .collect();
+    assert_eq!(texts.len(), 1);
+    assert_eq!(
+        texts[0].message.decrypted_message_bytes,
+        expected_message.as_bytes()
+    );
+    let stream = sender
+        .stream_all_messages(None, Some(vec![filter]))
+        .await
+        .unwrap();
+    futures::pin_mut!(stream);
+    assert_retained_history(&sender.context, &mut stream, selection).await;
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .is_err()
+    );
 }
 
 #[xmtp_common::timeout(Duration::from_secs(30))]
@@ -451,14 +553,10 @@ async fn stream_messages_keeps_track_of_cursor() {
     let mut s = StreamAllMessages::new(&alice_2.context, None, None)
         .await
         .unwrap();
-    // elapse enough time to update installations
-    xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     alice_group.update_installations().await.unwrap();
-    // if the stream behaved as expected, it should have set the cursor to the latest
-    // in the group before any messages that could actually be decrypted by alices
-    // second installation were sent.
+    assert_retained_join(&alice_2.context, &mut s, alice_group.group_id).await;
 
-    // we should timeout because we have not gotten a decryptable message yet.
+    // The new installation gets its join record, but cannot read the older messages.
     let result = xmtp_common::time::timeout(std::time::Duration::from_secs(1), s.next()).await;
     assert!(matches!(result.unwrap_err(), xmtp_common::time::Expired));
 
@@ -514,7 +612,6 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
         .unwrap();
 
     receiver.sync_welcomes().await.unwrap();
-    xmtp_common::time::sleep(Duration::from_millis(100)).await;
 
     // Start stream filtering for only DM conversations
     let stream = receiver
@@ -522,6 +619,7 @@ async fn test_stream_all_messages_filters_new_group_when_dm_only() {
         .await
         .unwrap();
     futures::pin_mut!(stream);
+    assert_retained_join(&receiver.context, &mut stream, dm.group_id).await;
 
     // Send message in DM - should appear in stream
     dm.send_message("msg in dm".as_bytes(), SendMessageOpts::default())
@@ -558,10 +656,12 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
     let group = sender.create_group(None, None).unwrap();
     group.add_members(&[receiver.inbox_id()]).await.unwrap();
 
+    let first_message;
     {
         // Step 2: Create initial stream with no filters
         let stream = receiver.stream_all_messages(None, None).await.unwrap();
         futures::pin_mut!(stream);
+        assert_retained_join(&receiver.context, &mut stream, group.group_id).await;
 
         // Step 3: Sender sends message 1
         group
@@ -570,7 +670,8 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
             .unwrap();
 
         // Step 4: Receiver gets message 1 from the stream
-        assert_msg!(stream, "message 1");
+        first_message = stream.next().await.unwrap().unwrap();
+        assert_eq!(first_message.decrypted_message_bytes, b"message 1");
 
         // Step 5: Close the stream by dropping it
     }
@@ -592,15 +693,16 @@ async fn test_stream_all_messages_respects_cursor_between_streams() {
             .await
             .unwrap();
 
-        // Verify: The new stream should receive messages 2 and 3
+        // The last item was not acknowledged by a next-item request before close.
+        assert_eq!(new_stream.next().await.unwrap().unwrap(), first_message);
         assert_msg!(new_stream, "message 2");
         assert_msg!(new_stream, "message 3");
 
-        // Verify that message 1 is not received a second time
+        // This request acknowledges message 3. No retained item remains after it.
         let result = xmtp_common::time::timeout(Duration::from_secs(2), new_stream.next()).await;
         assert!(
             result.is_err(),
-            "Should not receive message 1 which was previously processed"
+            "All three application messages must be acknowledged"
         );
     }
 }

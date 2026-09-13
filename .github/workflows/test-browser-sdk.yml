@@ -27,4 +27,4 @@ jobs:
       - name: Start backend
         run: just backend up
       - name: Run browser-sdk tests (shard ${{ matrix.shard }}/4)
-        run: just js test-browser-sdk-ci -- --shard ${{ matrix.shard }}/4
+        run: just js test-browser-sdk-ci --shard ${{ matrix.shard }}/4

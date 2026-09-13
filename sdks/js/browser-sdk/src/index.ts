@@ -6,6 +6,19 @@ export { Conversation } from "./Conversation";
 export { Dm } from "./Dm";
 export { Group } from "./Group";
 export { DecodedMessage } from "./DecodedMessage";
+export {
+  MessageStream,
+  type MessageAcknowledgement,
+  type MessageDelivery,
+  type MessageReaderSource,
+} from "./MessageStream";
+export type {
+  DeliveryCursor,
+  MessageCatchUp,
+  MessageCatchUpGeneration,
+  MessageHistorySnapshot,
+  MessageTopicStatus,
+} from "@xmtp/wasm-bindings";
 export { DebugInformation } from "./DebugInformation";
 export { Preferences } from "./Preferences";
 export { createBackend } from "./utils/createBackend";

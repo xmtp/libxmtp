@@ -305,11 +305,6 @@ fn print_welcomes(welcomes: &[xmtp_proto::types::WelcomeMessage]) {
                 println!("      wrapper_algorithm: {:?}", p.wrapper_algorithm);
                 println!("      welcome_pointer_bytes: {}", p.welcome_pointer.len());
             }
-            WelcomeMessageType::DecryptedWelcomePointer(d) => {
-                println!("      variant: DecryptedWelcomePointer");
-                println!("      destination: {}", d.destination);
-                println!("      aead_type: {:?}", d.aead_type);
-            }
         }
     }
 }

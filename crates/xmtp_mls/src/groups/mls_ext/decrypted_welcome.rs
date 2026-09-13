@@ -1,3 +1,4 @@
+use crate::state_tx::state_write;
 use openmls::{
     group::{MlsGroupJoinConfig, StagedWelcome, WireFormatPolicy},
     prelude::{
@@ -6,10 +7,11 @@ use openmls::{
 };
 use prost::Message;
 use tls_codec::{Deserialize, Serialize};
+use xmtp_db::TransactionOutcome;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::XmtpOpenMlsProviderRef;
 
-use crate::{client::ClientError, groups::GroupError, identity::parse_credential};
+use crate::{groups::GroupError, identity::parse_credential};
 use xmtp_configuration::{MAX_PAST_EPOCHS, WELCOME_HPKE_LABEL};
 use xmtp_db::{
     NotFound,
@@ -25,11 +27,20 @@ use xmtp_proto::{
     xmtp::mls::message_contents::WelcomeMetadata,
 };
 
+/// A staged decode that must stay inside its current state transaction.
 pub(crate) struct DecryptedWelcome {
+    /// MLS state to install or discard before the writer is released.
     pub(crate) staged_welcome: StagedWelcome,
     pub(crate) added_by_inbox_id: String,
     pub(crate) added_by_installation_id: Vec<u8>,
+    /// Authenticated join metadata. Non-Oneshot joins require an anchor.
     pub(crate) welcome_metadata: Option<WelcomeMetadata>,
+}
+
+/// Resolved network input. Every staging attempt reads private keys again.
+pub(crate) struct ResolvedWelcome {
+    /// Immutable pointer payload. No private keys or staged MLS state are cached.
+    pointee: Option<WelcomeMessageV1>,
 }
 
 impl DecryptedWelcome {
@@ -63,32 +74,16 @@ impl DecryptedWelcome {
         )?;
         let welcome = deserialize_welcome(&welcome_bytes)?;
 
-        let welcome_metadata = if welcome_metadata_bytes.is_empty() {
-            tracing::debug!("Welcome Metadata is empty; proceeding without metadata.");
-            None
-        } else {
-            deserialize_welcome_metadata(&welcome_metadata_bytes)
-                .map_err(|e| {
-                    tracing::debug!(error = ?e, "Failed to deserialize welcome metadata; ignoring.")
-                })
-                .ok()
-        };
+        let welcome_metadata = Some(welcome_metadata_bytes.as_slice())
+            .filter(|bytes| !bytes.is_empty())
+            .map(deserialize_welcome_metadata)
+            .transpose()?;
         Ok((welcome, welcome_metadata))
     }
-    async fn welcome_from_decrypted_welcome_pointer(
+    fn welcome_from_decrypted_welcome_pointer(
         decrypted_welcome_pointer: &DecryptedWelcomePointer,
-        context: &impl crate::context::XmtpSharedContext,
-    ) -> Result<Option<(openmls::messages::Welcome, Option<WelcomeMetadata>)>, GroupError> {
-        let Some(v1) = super::super::welcome_pointer::resolve_welcome_pointer(
-            decrypted_welcome_pointer,
-            context,
-        )
-        .await?
-        else {
-            // Message not found, this will be backgrounded and retried
-            return Ok(None);
-        };
-
+        v1: &WelcomeMessageV1,
+    ) -> Result<(openmls::messages::Welcome, Option<WelcomeMetadata>), GroupError> {
         let aead_type = match decrypted_welcome_pointer.aead_type {
             xmtp_proto::xmtp::mls::message_contents::WelcomePointeeEncryptionAeadType::Chacha20Poly1305 => {
                 openmls::prelude::AeadType::ChaCha20Poly1305
@@ -121,67 +116,13 @@ impl DecryptedWelcome {
             .map(deserialize_welcome_metadata)
             .transpose()?;
 
-        Ok(Some((welcome, welcome_metadata)))
+        Ok((welcome, welcome_metadata))
     }
-    pub(crate) async fn from_welcome_proto(
-        welcome: &WelcomeMessage,
-        context: &impl crate::context::XmtpSharedContext,
+    fn stage(
+        welcome: Welcome,
+        welcome_metadata: Option<WelcomeMetadata>,
+        mls_storage: &impl XmtpMlsStorageProvider,
     ) -> Result<Self, GroupError> {
-        use xmtp_common::r#const::{NS_IN_DAY, NS_IN_HOUR, NS_IN_MIN};
-        let mls_storage = context.mls_storage();
-        let (welcome, welcome_metadata) = match &welcome.variant {
-            WelcomeMessageType::V1(v1) => Self::welcome_from_proto_v1(mls_storage, welcome, v1)?,
-            WelcomeMessageType::WelcomePointer(w) => {
-                let welcome_pointer = decrypt_welcome_pointer(mls_storage, w)?;
-                let maybe_welcome =
-                    Self::welcome_from_decrypted_welcome_pointer(&welcome_pointer, context).await?;
-                match maybe_welcome {
-                    Some(welcome) => welcome,
-                    None => {
-                        let destination = hex::encode(welcome_pointer.destination.as_slice());
-                        let now = xmtp_common::time::now_ns();
-                        let backoff = if cfg!(test) {
-                            xmtp_common::r#const::NS_IN_SEC
-                        } else {
-                            NS_IN_MIN * 5
-                        };
-                        #[allow(clippy::unwrap_used)]
-                        let task = xmtp_db::tasks::NewTask::builder()
-                            .originating_message_sequence_id(welcome.cursor.0 as i64)
-
-                            // use created_ns from the welcome so we can reuse it when reprocessing
-                            .created_at_ns(welcome.timestamp())
-                            .expires_at_ns(now + NS_IN_DAY * 3)
-                            .attempts(0)
-                            .max_attempts(100)
-                            .last_attempted_at_ns(now)
-                            .backoff_scaling_factor(1.5)
-                            .max_backoff_duration_ns(NS_IN_HOUR * 2)
-                            .initial_backoff_duration_ns(backoff)
-                            .next_attempt_at_ns(now + backoff)
-                            .build(xmtp_proto::xmtp::mls::database::Task{
-                                task: Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessWelcomePointer(welcome_pointer.to_proto())),
-                            })?;
-                        context.task_channels().send(task);
-                        return Err(GroupError::WelcomeDataNotFound(destination));
-                    }
-                }
-            }
-            // This branch should only be hit if this is from a reprocessing task
-            WelcomeMessageType::DecryptedWelcomePointer(w) => {
-                let maybe_welcome =
-                    Self::welcome_from_decrypted_welcome_pointer(w, context).await?;
-                match maybe_welcome {
-                    Some(welcome) => welcome,
-                    None => {
-                        let destination = hex::encode(w.destination.as_slice());
-                        // only reprocessing, so no need to create a new task
-                        return Err(GroupError::WelcomeDataNotFound(destination));
-                    }
-                }
-            }
-        };
-
         let join_config = build_group_join_config();
 
         let provider = XmtpOpenMlsProviderRef::new(mls_storage);
@@ -210,6 +151,63 @@ impl DecryptedWelcome {
             added_by_installation_id,
             welcome_metadata,
         })
+    }
+}
+
+impl ResolvedWelcome {
+    /// Use an inline Welcome without a network lookup.
+    pub(crate) fn inline(welcome: &WelcomeMessage) -> Option<Self> {
+        matches!(welcome.variant, WelcomeMessageType::V1(_)).then_some(Self { pointee: None })
+    }
+
+    /// Resolve pointer data without holding the database writer during network I/O.
+    pub(crate) async fn resolve(
+        welcome: &WelcomeMessage,
+        context: &impl crate::context::XmtpSharedContext,
+    ) -> Result<Self, GroupError> {
+        let pointer = match &welcome.variant {
+            WelcomeMessageType::V1(_) => return Ok(Self { pointee: None }),
+            WelcomeMessageType::WelcomePointer(pointer) => {
+                state_write(context.mls_storage(), |tx| {
+                    let storage = tx.storage();
+                    decrypt_welcome_pointer(&storage, pointer).map(TransactionOutcome::Continue)
+                })?
+                .into_continued()
+            }
+        };
+        let pointee =
+            super::super::welcome_pointer::resolve_welcome_pointer(&pointer, context).await?;
+        if let Some(pointee) = pointee {
+            return Ok(Self {
+                pointee: Some(pointee),
+            });
+        }
+        Err(GroupError::WelcomeDataNotFound(hex::encode(
+            pointer.destination.as_slice(),
+        )))
+    }
+
+    /// Decode against private keys read under the current write transaction.
+    pub(crate) fn stage(
+        &self,
+        welcome: &WelcomeMessage,
+        storage: &impl XmtpMlsStorageProvider,
+    ) -> Result<DecryptedWelcome, GroupError> {
+        let (welcome, metadata) = match &welcome.variant {
+            WelcomeMessageType::V1(v1) => {
+                DecryptedWelcome::welcome_from_proto_v1(storage, welcome, v1)?
+            }
+            WelcomeMessageType::WelcomePointer(pointer) => {
+                let pointer = decrypt_welcome_pointer(storage, pointer)?;
+                DecryptedWelcome::welcome_from_decrypted_welcome_pointer(
+                    &pointer,
+                    self.pointee
+                        .as_ref()
+                        .ok_or(GroupError::UninitializedResult)?,
+                )?
+            }
+        };
+        DecryptedWelcome::stage(welcome, metadata, storage)
     }
 }
 
@@ -258,22 +256,23 @@ pub(crate) fn build_group_join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
-fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, ClientError> {
+fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, GroupError> {
+    if welcome_bytes
+        .get(..2)
+        .is_some_and(|version| version != [0, 1])
+    {
+        return Err(openmls::prelude::WelcomeError::UnsupportedMlsVersion.into());
+    }
     let welcome = MlsMessageIn::tls_deserialize(&mut welcome_bytes.as_slice())?;
     match welcome.extract() {
         MlsMessageBodyIn::Welcome(welcome) => Ok(welcome),
-        _ => Err(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        )),
+        _ => Err(openmls::prelude::WelcomeError::NotAWelcomeMessage.into()),
     }
 }
 
 fn deserialize_welcome_metadata(metadata_bytes: &[u8]) -> Result<WelcomeMetadata, GroupError> {
-    let metadata = WelcomeMetadata::decode(metadata_bytes).map_err(|_| {
-        GroupError::Client(ClientError::Generic(
-            "unexpected message type in welcome".to_string(),
-        ))
-    })?;
+    let metadata =
+        WelcomeMetadata::decode(metadata_bytes).map_err(|_| GroupError::InvalidWelcomeMetadata)?;
     Ok(metadata)
 }
 

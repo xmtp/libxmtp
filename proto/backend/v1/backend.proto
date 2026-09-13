@@ -216,14 +216,6 @@ message QueryNewestResponse {
   repeated Result results = 1;
 }
 
-// One stored envelope by sequence id. Served from a replica. NOT_FOUND when
-// no visible envelope carries the id (never allocated, aborted, expired, or
-// not yet replicated); a client holding the id from a publish response or a
-// stream may retry briefly. 0 or a value above INT64_MAX is INVALID_ARGUMENT.
-message GetRequest {
-  uint64 sequence_id = 1;
-}
-
 // ---------------------------------------------------------------------------
 // Publish
 // ---------------------------------------------------------------------------
@@ -423,8 +415,6 @@ service QueryService {
   rpc Query(QueryRequest) returns (QueryResponse) {}
   // Newest envelope (or its metadata) per topic.
   rpc QueryNewest(QueryNewestRequest) returns (QueryNewestResponse) {}
-  // One envelope by sequence id, or NOT_FOUND.
-  rpc Get(GetRequest) returns (ServerEnvelope) {}
 }
 
 service PublishService {

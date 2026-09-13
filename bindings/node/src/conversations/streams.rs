@@ -5,7 +5,7 @@ use crate::conversations::{ConversationType, Conversations};
 use crate::messages::Message;
 use crate::messages::decoded_message::DecodedMessage;
 use crate::{client::RustXmtpClient, streams::StreamCloser};
-use napi::bindgen_prelude::{Error, Result, Uint8Array};
+use napi::bindgen_prelude::{Error, FnArgs, Function, Result, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_derive::napi;
 use xmtp_db::consent_record::ConsentState as XmtpConsentState;
@@ -65,19 +65,17 @@ impl Conversations {
 
   #[napi]
   #[xmtp_common::err_span]
-  pub async fn stream_all_messages(
+  #[allow(
+    clippy::type_complexity,
+    reason = "NAPI needs the full callback type for TypeScript generation"
+  )]
+  pub fn stream_all_messages(
     &self,
-    callback: ThreadsafeFunction<Message, ()>,
+    callback: Function<'_, FnArgs<(Option<Error>, Option<Message>)>, ()>,
     on_close: ThreadsafeFunction<(), ()>,
     conversation_type: Option<ConversationType>,
     consent_states: Option<Vec<ConsentState>>,
   ) -> Result<StreamCloser> {
-    tracing::trace!(
-      inbox_id = self.inner_client.inbox_id(),
-      conversation_type = ?conversation_type,
-    );
-
-    let inbox_id = self.inner_client.inbox_id().to_string();
     let consents: Option<Vec<XmtpConsentState>> = consent_states.map(|states| {
       states
         .into_iter()
@@ -85,61 +83,16 @@ impl Conversations {
         .collect()
     });
 
-    let on_message =
-      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
-        tracing::trace!(
-            inbox_id,
-            conversation_type = ?conversation_type,
-            "[received] message result"
-        );
-
-        // Skip any messages that are errors
-        if let Err(err) = &message {
-          tracing::warn!(
-            inbox_id,
-            error = ?err,
-            "[received] message error, swallowing to continue stream"
-          );
-          return; // Skip this message entirely
-        }
-
-        // For successful messages, try to transform and pass to JS
-        // otherwise log error and continue stream
-        match message
-          .map(Into::into)
-          .map_err(ErrorWrapper::from)
-          .map_err(Error::from)
-        {
-          Ok(transformed_msg) => {
-            tracing::trace!(
-              inbox_id,
-              "[received] calling tsfn callback with successful message"
-            );
-            let status = callback.call(Ok(transformed_msg), ThreadsafeFunctionCallMode::Blocking);
-            tracing::info!("Stream status: {:?}", status);
-          }
-          Err(err) => {
-            // Just in case the transformation itself fails
-            tracing::error!(
-              inbox_id,
-              error = ?err,
-              "[received] error during message transformation, swallowing to continue stream"
-            );
-          }
-        }
-      };
-    let on_close = move || {
-      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-    };
-
-    let handle = RustXmtpClient::stream_all_messages_with_callback_dispatch(
-      self.inner_client.clone(),
-      conversation_type.map(Into::into),
-      consents,
-      on_message,
+    crate::message_delivery::callback_stream(
+      self.inner_client.context.clone(),
+      xmtp_mls::subscriptions::local_delivery::DeliveryScope::All,
+      xmtp_mls::subscriptions::local_delivery::LocalDeliveryFilter {
+        conversation_type: conversation_type.map(Into::into),
+        consent_states: consents,
+      },
+      callback,
       on_close,
-    );
-    Ok(StreamCloser::new(handle))
+    )
   }
 
   #[napi]

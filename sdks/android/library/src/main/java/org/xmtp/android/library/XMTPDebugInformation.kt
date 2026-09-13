@@ -26,8 +26,6 @@ class ApiStats(
         get() = apiStats.query.toLong()
     val queryNewest: Long
         get() = apiStats.queryNewest.toLong()
-    val get: Long
-        get() = apiStats.get.toLong()
     val subscribe: Long
         get() = apiStats.subscribe.toLong()
     val subscribeStatic: Long

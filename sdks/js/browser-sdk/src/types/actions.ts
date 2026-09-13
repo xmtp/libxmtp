@@ -5,6 +5,7 @@ import type { DebugInformationAction } from "@/types/actions/debugInformation";
 import type { DmAction } from "@/types/actions/dm";
 import type { GroupAction } from "@/types/actions/group";
 import type { PreferencesAction } from "@/types/actions/preferences";
+import type { MessageReaderAction } from "@/types/actions/messageReader";
 
 export type UnknownAction = {
   action: string;
@@ -23,6 +24,7 @@ export type EndStreamAction = {
 };
 
 export type ClientWorkerAction =
+  | MessageReaderAction
   | EndStreamAction
   | ClientAction
   | ConversationAction

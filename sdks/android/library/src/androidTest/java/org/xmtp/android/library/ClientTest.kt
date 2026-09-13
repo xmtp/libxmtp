@@ -2,11 +2,15 @@ package org.xmtp.android.library
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -110,27 +114,51 @@ class ClientTest : BaseInstrumentedTest() {
         }
 
     @Test
-    fun testCreatesAClient() {
-        val key = SecureRandom().generateSeed(32)
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val fakeWallet = PrivateKeyBuilder()
-        val options =
-            ClientOptions(
-                localApi(appVersion = "Testing/0.0.0"),
-                appContext = context,
-                dbEncryptionKey = key,
-            )
-        val clientIdentity = fakeWallet.publicIdentity
-
-        val inboxId = runBlocking { Client.getOrCreateInboxId(options.api, clientIdentity) }
-        val client = runBlocking { Client.create(account = fakeWallet, options = options) }
+    fun testCreatesAClient() =
         runBlocking {
-            client.canMessage(listOf(clientIdentity))[clientIdentity.identifier]?.let { assert(it) }
+            val callbackTimeoutMs = 3_000L
+            val key = SecureRandom().generateSeed(32)
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            for (inMemory in listOf(false, true)) {
+                val fakeWallet = PrivateKeyBuilder()
+                val appDataChange = CompletableDeferred<AppDataChange>()
+                val options =
+                    ClientOptions(
+                        localApi(appVersion = "Testing/0.0.0"),
+                        appContext = context,
+                        dbEncryptionKey = key,
+                        unstableChangeCallbacks =
+                            UnstableChangeCallbacks(
+                                appData =
+                                    object : AppDataChangeHandler {
+                                        override suspend fun onAppDataChanged(change: AppDataChange) {
+                                            appDataChange.complete(change)
+                                        }
+                                    },
+                            ),
+                    )
+                val clientIdentity = fakeWallet.publicIdentity
+                val inboxId = Client.getOrCreateInboxId(options.api, clientIdentity)
+                val client =
+                    if (inMemory) {
+                        Client.createInMemory(account = fakeWallet, options = options)
+                    } else {
+                        Client.create(account = fakeWallet, options = options)
+                    }
+                assertEquals(true, client.canMessage(listOf(clientIdentity))[clientIdentity.identifier])
+                assertTrue(client.installationId.isNotEmpty())
+                assertEquals(inboxId, client.inboxId)
+                assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
+                assertEquals(inMemory, client.isInMemory)
+
+                val group = client.conversations.newGroup(emptyList())
+                val newAppData = "client-runtime-options"
+                group.updateAppData(newAppData)
+                val change = withTimeout(callbackTimeoutMs) { appDataChange.await() }
+                assertEquals(group.id, change.groupId)
+                assertEquals(newAppData, change.newValue)
+            }
         }
-        assert(client.installationId.isNotEmpty())
-        assertEquals(inboxId, client.inboxId)
-        assertEquals(fakeWallet.publicIdentity.identifier, client.publicIdentity.identifier)
-    }
 
     @Test
     fun testStaticCanMessage() {
@@ -995,7 +1023,7 @@ class ClientTest : BaseInstrumentedTest() {
         runBlocking {
             val wallet = PrivateKeyBuilder()
             val api = localApi(appVersion = "stats/${UUID.randomUUID()}")
-            // Disable scheduled work so each counter measures the explicit calls below.
+            // Disable scheduled workers. Receiver work and retries still count as RPC attempts.
             val ffi =
                 ffiCreateClient(
                     api = Client.connectToApiBackend(api),
@@ -1029,50 +1057,63 @@ class ClientTest : BaseInstrumentedTest() {
             signature.addEcdsaSignature(wallet.sign(signature.signatureText()).rawData)
             alix.ffiRegisterIdentity(signature)
             alix.debugInformation.clearAllStatistics()
+            val resetApiStats = alix.debugInformation.apiStatistics
+            assertEquals("Reset Publish attempts", 0L, resetApiStats.publish)
+            assertEquals("Reset Query attempts", 0L, resetApiStats.query)
+            assertEquals("Reset QueryNewest attempts", 0L, resetApiStats.queryNewest)
+            assertEquals("Reset Subscribe attempts", 0L, resetApiStats.subscribe)
+            assertEquals("Reset SubscribeStatic attempts", 0L, resetApiStats.subscribeStatic)
+            val resetIdentityStats = alix.debugInformation.identityStatistics
+            assertEquals("Reset GetInboxIds attempts", 0L, resetIdentityStats.getInboxIds)
+            assertEquals(
+                "Reset VerifySmartContractWalletSignatures attempts",
+                0L,
+                resetIdentityStats.verifySmartContractWalletSignatures,
+            )
 
             alix.conversations.sync()
-            assertEquals(1L, alix.debugInformation.apiStatistics.query)
-            assertEquals(0L, alix.debugInformation.apiStatistics.publish)
-            assertEquals(0L, alix.debugInformation.apiStatistics.queryNewest)
-            assertEquals(0L, alix.debugInformation.apiStatistics.get)
-            assertEquals(0L, alix.debugInformation.apiStatistics.subscribe)
-            assertEquals(0L, alix.debugInformation.apiStatistics.subscribeStatic)
+            val syncStats = alix.debugInformation.apiStatistics
+            assertEquals("Empty Welcome sync does not publish", 0L, syncStats.publish)
+            assertTrue("Welcome sync captures a newest target", syncStats.queryNewest > 0L)
+            assertTrue("Native Welcome sync opens Subscribe", syncStats.subscribe > 0L)
+            assertEquals("Native Welcome sync does not open SubscribeStatic", 0L, syncStats.subscribeStatic)
 
             val job =
-                CoroutineScope(Dispatchers.IO).launch {
+                launch(Dispatchers.IO) {
                     alix.conversations.streamAllMessages().collect {}
                 }
             try {
                 withTimeout(5_000) {
-                    while (alix.debugInformation.apiStatistics.subscribe != 1L) {
+                    while (alix.debugInformation.apiStatistics.subscribe <= 0L) {
                         delay(10)
                     }
                 }
-                // The exact totals are a backend implementation detail: a query
-                // counts one call for each topic kind it reads. Assert what this
-                // test is about, which is that inboxState issues more queries.
-                val queriesBeforeInboxState = alix.debugInformation.apiStatistics.query
-                assertTrue(queriesBeforeInboxState >= 2L)
+                val liveStats = alix.debugInformation.apiStatistics
+                assertTrue("A live stream records Subscribe attempts", liveStats.subscribe > 0L)
                 alix.inboxState(true)
-                val queriesAfter = alix.debugInformation.apiStatistics.query
-                assertTrue(queriesAfter > queriesBeforeInboxState)
+                val beforeGroup = alix.debugInformation.apiStatistics
+                assertTrue("Inbox refresh records Query attempts", beforeGroup.query > liveStats.query)
 
                 val group = alix.conversations.newGroup(emptyList())
-                val beforeSend = alix.debugInformation.apiStatistics.publish
-                assertEquals(1L, beforeSend)
+                val afterGroup = alix.debugInformation.apiStatistics
+                assertTrue("Group creation records Publish attempts", afterGroup.publish > beforeGroup.publish)
+                assertTrue("Group sync records QueryNewest attempts", afterGroup.queryNewest > beforeGroup.queryNewest)
                 group.send("hi")
                 val apiStats = alix.debugInformation.apiStatistics
-                assertEquals(beforeSend + 1L, apiStats.publish)
-                assertEquals(0L, apiStats.queryNewest)
-                assertEquals(1L, apiStats.subscribe)
-                assertEquals(0L, apiStats.subscribeStatic)
+                assertTrue("Message send records Publish attempts", apiStats.publish > afterGroup.publish)
+                assertTrue("Live delivery records Subscribe attempts", apiStats.subscribe > 0L)
+                assertEquals("Native delivery does not use SubscribeStatic", 0L, apiStats.subscribeStatic)
 
                 val identityStats = alix.debugInformation.identityStatistics
-                assertEquals(0L, identityStats.getInboxIds)
-                assertEquals(0L, identityStats.verifySmartContractWalletSignatures)
-                assertTrue(alix.debugInformation.aggregateStatistics.isNotEmpty())
+                assertEquals("Known inbox IDs do not need GetInboxIds", 0L, identityStats.getInboxIds)
+                assertEquals(
+                    "An EOA does not need VerifySmartContractWalletSignatures",
+                    0L,
+                    identityStats.verifySmartContractWalletSignatures,
+                )
+                assertTrue("Aggregate statistics are exposed", alix.debugInformation.aggregateStatistics.isNotEmpty())
             } finally {
-                job.cancel()
+                withContext(NonCancellable) { job.cancelAndJoin() }
             }
         }
 

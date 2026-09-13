@@ -1290,6 +1290,19 @@ describe("Content types", () => {
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         `No codec found for content type "${contentTypeToString(testCodec.contentType)}"`,
       );
+
+      const stream = await group2!.stream();
+      try {
+        expect((await stream.next()).value?.id).toBe(messages[0].id);
+        const delivered = (await stream.next()).value;
+        expect(delivered?.id).toBe(messages[1].id);
+        expect(delivered?.content).toBeUndefined();
+        expect(delivered?.contentType).toEqual(testCodec.contentType);
+      } finally {
+        await stream.end();
+        await client.close();
+        await clientWithCodec.close();
+      }
     });
 
     it("should send and receive custom content using an object literal codec", async () => {
@@ -1351,6 +1364,7 @@ describe("Content types", () => {
         client2WithCodec.inboxId!,
       ]);
       await group.send(decodeFailureCodec.encode("test"));
+      await group.sendText("after decode failure");
       await client2WithCodec.conversations.sync();
       const group2 = await client2WithCodec.conversations.getConversationById(
         group.id,
@@ -1363,6 +1377,26 @@ describe("Content types", () => {
       expect(consoleWarnSpy).toHaveBeenCalledWith(
         "Error decoding custom content: Decode failure",
       );
+
+      const stream = await group2!.stream();
+      try {
+        expect((await stream.next()).value?.id).toBe(messages[0].id);
+        await expect(stream.next()).rejects.toThrow("Decode failure");
+
+        // A failed codec must leave the same item pending for the next reader.
+        const resumed = await client2WithCodec.conversations.streamAllMessages({
+          groupIds: [group.id],
+        });
+        try {
+          await expect(resumed.next()).rejects.toThrow("Decode failure");
+        } finally {
+          await resumed.end();
+        }
+      } finally {
+        await stream.end();
+        await client2WithCodec.close();
+        await clientWithCodec.close();
+      }
     });
   });
 });

@@ -278,17 +278,13 @@ describe("Conversations", () => {
     const client1 = await createRegisteredClient(signer1);
     const client2 = await createRegisteredClient(signer2);
     const client3 = await createRegisteredClient(signer3);
-    await client1.conversations.createGroup([client2.inboxId]);
+    const group1 = await client1.conversations.createGroup([client2.inboxId]);
     await client1.conversations.createDm(client3.inboxId);
 
-    // Settle before subscribing: the fixed sleep lets the server index the
-    // creation-time fanout so the subscription cursor starts after it. This
-    // is a server-side race with no client-observable condition — do NOT
-    // replace with client syncs, which trigger worker activity that injects
-    // extra messages into the stream.
-    await sleep(2000);
-
-    const stream = await client1.conversations.streamAllMessages();
+    const history = await client1.conversations.messageHistorySnapshot(1);
+    const stream = await client1.conversations.streamAllMessages({
+      from: history.cursor,
+    });
 
     await client2.conversations.sync();
     const groups2 = client2.conversations.listGroups();
@@ -296,8 +292,10 @@ describe("Conversations", () => {
     await client3.conversations.sync();
     const groups3 = client3.conversations.listDms();
 
-    await groups2[0].sendText("gm!");
-    await groups3[0].sendText("gm2!");
+    const messageId1 = await groups2[0].sendText("gm!");
+    // Establish local delivery order before publishing on the other topic.
+    await group1.sync();
+    const messageId2 = await groups3[0].sendText("gm2!");
 
     setTimeout(() => {
       void stream.end();
@@ -308,9 +306,11 @@ describe("Conversations", () => {
       count++;
       expect(message).toBeDefined();
       if (count === 1) {
+        expect(message.id).toBe(messageId1);
         expect(message.senderInboxId).toBe(client2.inboxId);
       }
       if (count === 2) {
+        expect(message.id).toBe(messageId2);
         expect(message.senderInboxId).toBe(client3.inboxId);
       }
     }
@@ -326,18 +326,14 @@ describe("Conversations", () => {
     const client2 = await createRegisteredClient(signer2);
     const client3 = await createRegisteredClient(signer3);
     const client4 = await createRegisteredClient(signer4);
-    await client1.conversations.createGroup([client2.inboxId]);
+    const group1 = await client1.conversations.createGroup([client2.inboxId]);
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
-    // Settle before subscribing: the fixed sleep lets the server index the
-    // creation-time fanout so the subscription cursor starts after it. This
-    // is a server-side race with no client-observable condition — do NOT
-    // replace with client syncs, which trigger worker activity that injects
-    // extra messages into the stream.
-    await sleep(2000);
-
-    const stream = await client1.conversations.streamAllGroupMessages();
+    const history = await client1.conversations.messageHistorySnapshot(1);
+    const stream = await client1.conversations.streamAllGroupMessages({
+      from: history.cursor,
+    });
 
     const groups2 = client2.conversations;
     await groups2.sync();
@@ -352,8 +348,10 @@ describe("Conversations", () => {
     const groupsList4 = await groups4.list();
 
     await groupsList4[0].sendText("gm3!");
-    await groupsList2[0].sendText("gm!");
-    await groupsList3[0].sendText("gm2!");
+    const messageId1 = await groupsList2[0].sendText("gm!");
+    // Establish local delivery order before publishing on the other topic.
+    await group1.sync();
+    const messageId2 = await groupsList3[0].sendText("gm2!");
 
     setTimeout(() => {
       void stream.end();
@@ -364,9 +362,11 @@ describe("Conversations", () => {
       count++;
       expect(message).toBeDefined();
       if (count === 1) {
+        expect(message.id).toBe(messageId1);
         expect(message.senderInboxId).toBe(client2.inboxId);
       }
       if (count === 2) {
+        expect(message.id).toBe(messageId2);
         expect(message.senderInboxId).toBe(client3.inboxId);
       }
     }
@@ -386,14 +386,10 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
-    // Settle before subscribing: the fixed sleep lets the server index the
-    // creation-time fanout so the subscription cursor starts after it. This
-    // is a server-side race with no client-observable condition — do NOT
-    // replace with client syncs, which trigger worker activity that injects
-    // extra messages into the stream.
-    await sleep(2000);
-
-    const stream = await client1.conversations.streamAllDmMessages();
+    const history = await client1.conversations.messageHistorySnapshot(1);
+    const stream = await client1.conversations.streamAllDmMessages({
+      from: history.cursor,
+    });
 
     const groups2 = client2.conversations;
     await groups2.sync();
@@ -490,10 +486,16 @@ describe("Conversations", () => {
   it("should stitch DM groups together", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();
-    const client1 = await createRegisteredClient(signer1);
-    const client2 = await createRegisteredClient(signer2);
+    // Create both physical DMs before either client receives the peer's Welcome.
+    const client1 = await createRegisteredClient(signer1, {
+      disableDeviceSync: true,
+    });
+    const client2 = await createRegisteredClient(signer2, {
+      disableDeviceSync: true,
+    });
     const dm1 = await client1.conversations.createDm(client2.inboxId);
     const dm2 = await client2.conversations.createDm(client1.inboxId);
+    expect(dm1.id).not.toBe(dm2.id);
 
     await dm1.sendText("hi");
     // since this is the last message sent, the stitched group ID will be

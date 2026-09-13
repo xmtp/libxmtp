@@ -236,34 +236,45 @@ describe("Client", () => {
 
   it("should throw when trying to create more than 10 installations", async () => {
     const { signer } = createSigner();
+    // Registration remains after close. Keep only the client that performs
+    // the checks open so idle streams do not fill the HTTP connection pool.
     const client = await createRegisteredClient(signer);
+    await client.close();
     const client2 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client2.close();
     const client3 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
     const client4 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client4.close();
     const client5 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client5.close();
     const client6 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client6.close();
     const client7 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client7.close();
     const client8 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client8.close();
     const client9 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client9.close();
     const client10 = await createRegisteredClient(signer, {
       dbPath: `./test-${uuid()}.db3`,
     });
+    await client10.close();
 
     const inboxState = await client3.preferences.fetchInboxState();
     expect(inboxState.installations.length).toBe(10);

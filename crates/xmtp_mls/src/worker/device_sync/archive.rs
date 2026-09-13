@@ -9,7 +9,7 @@ use crate::{
 use futures::StreamExt;
 pub use xmtp_archive::*;
 use xmtp_db::{
-    ConnectionExt, StoreOrIgnore,
+    ConnectionExt, StoreOrIgnore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
@@ -28,16 +28,27 @@ struct ImportContext {
 impl ImportContext {
     fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
         use xmtp_db::diesel::prelude::*;
+        use xmtp_db::diesel::sql_types::{BigInt, Nullable};
         use xmtp_db::schema::groups::dsl;
 
-        // We want to update the group timestamps to either be what they were before the import,
-        // or what they are in the archive group field.
-        // Propagate update errors to the supervisor rather than swallowing them.
+        // Keep a newer timestamp written by message receipt during the import.
+        // Each group update acquires the writer and uses the current row value.
         for (group_id, timestamp) in &self.group_timestamps {
-            context.db().raw_query(|conn| {
-                xmtp_db::diesel::update(dsl::groups.find(group_id))
-                    .set(dsl::last_message_ns.eq(*timestamp))
-                    .execute(conn)
+            crate::state_tx::state_write(context.mls_storage(), |tx| {
+                let storage = tx.storage();
+                storage.db().raw_query(|conn| {
+                    let newest = xmtp_db::diesel::dsl::sql::<Nullable<BigInt>>(
+                        "CASE WHEN last_message_ns IS NULL OR last_message_ns < ",
+                    )
+                    .bind::<Nullable<BigInt>, _>(*timestamp)
+                    .sql(" THEN ")
+                    .bind::<Nullable<BigInt>, _>(*timestamp)
+                    .sql(" ELSE last_message_ns END");
+                    xmtp_db::diesel::update(dsl::groups.find(group_id))
+                        .set(dsl::last_message_ns.eq(newest))
+                        .execute(conn)
+                })?;
+                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(()))
             })?;
         }
 
@@ -103,9 +114,8 @@ fn insert(
                 .map(|m| m.attributes)
                 .unwrap_or_default();
 
-            // Save the timestamp. We'll need to come back around and re-insert this
-            // because triggers will set this field to now_ns in the database which
-            // is sub-par UX.
+            // Imported messages update this field from their sent time.
+            // Keep the archive timestamp too, including messages omitted by export filters.
             import_context
                 .group_timestamps
                 .insert(save.id.clone(), save.last_message_ns);
@@ -191,6 +201,24 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_timestamp_keeps_a_message_received_during_import() {
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let pending_import = ImportContext {
+            group_timestamps: [(group.group_id.to_vec(), Some(0))].into(),
+        };
+
+        group.send_message_optimistic(b"message during import", Default::default())?;
+        let current = alix.db().find_group(&group.group_id)??.last_message_ns;
+        assert!(current > Some(0));
+        pending_import.post_import(&alix.context)?;
+        assert_eq!(
+            alix.db().find_group(&group.group_id)??.last_message_ns,
+            current
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn test_archive_timestamps() {
         tester!(alix, disable_workers);
         tester!(alix2, from: alix);
@@ -269,7 +297,7 @@ mod tests {
         tester!(bo, disable_workers);
 
         let alix_bo_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-        alix_bo_dm
+        let archived_message_id = alix_bo_dm
             .send_message(b"old group", Default::default())
             .await?;
 
@@ -301,6 +329,40 @@ mod tests {
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &alix2.context).await?;
 
+        // Imported history has no joined MLS state for this installation.
+        // Receipt may retain the old prefix, but processing must wait for a Welcome.
+        let restored = alix2.group(&alix_bo_dm.group_id)?;
+        let restored_topic = xmtp_db::incoming_envelope::StreamTopic::group(alix_bo_dm.group_id);
+        let before_join = alix2.db().topic_progress(&restored_topic)?;
+        crate::mls_store::MlsStore::new(alix2.context.clone())
+            .receive_topics_once(
+                &[xmtp_proto::types::Topic::new_group_message(
+                    alix_bo_dm.group_id,
+                )],
+                alix2
+                    .context
+                    .incoming_runtime()
+                    .policy()
+                    .incoming_limits(xmtp_db::incoming_envelope::NetworkEntityKind::Group),
+            )
+            .await?;
+        let received_before_join = alix2.db().topic_progress(&restored_topic)?;
+        assert!(received_before_join.received > before_join.processed);
+        assert!(matches!(
+            restored.process_pending_group_head(None)?,
+            crate::groups::mls_sync::GroupHeadOutcome::Inactive
+        ));
+        assert_eq!(
+            alix2.db().topic_progress(&restored_topic)?.processed,
+            before_join.processed
+        );
+        assert!(
+            !alix2
+                .db()
+                .pending_states_through(&restored_topic, received_before_join.received)?
+                .is_empty()
+        );
+
         let alix2_bo_dm = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
         assert_ne!(alix_bo_dm.group_id, alix2_bo_dm.group_id);
         let mut msgs = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
@@ -318,13 +380,30 @@ mod tests {
             .last_message_ns?;
         assert_eq!(timestamp, timestamp2);
 
-        alix2_bo_dm
+        let live_message_id = alix2_bo_dm
             .send_message(b"hi bo", Default::default())
             .await?;
 
         bo.sync_all_welcomes_and_groups(None).await?;
         let bo_alix2_dm = bo.group(&alix2_bo_dm.group_id)?;
         assert_eq!(bo_alix2_dm.test_last_message_bytes().await??, b"hi bo");
+
+        // Ordinary sync must add the new installation to the original DM too.
+        alix2.sync_all_welcomes_and_groups(None).await?;
+        let rejoined_original = alix2.group(&alix_bo_dm.group_id)?;
+        assert!(rejoined_original.is_active()?);
+        let stitched = alix2_bo_dm.find_messages(&MsgQueryArgs::default())?;
+        assert_eq!(stitched.len(), 4);
+        let application_ids: Vec<_> = stitched
+            .iter()
+            .filter(|message| message.kind == xmtp_db::group_message::GroupMessageKind::Application)
+            .map(|message| message.id.clone())
+            .collect();
+        assert_eq!(application_ids, vec![archived_message_id, live_message_id]);
+        assert_eq!(alix2.find_groups(Default::default())?.len(), 1);
+        let bo_original = bo.group(&alix_bo_dm.group_id)?;
+        rejoined_original.test_can_talk_with(&bo_original).await?;
+        bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
     #[rstest::rstest]
@@ -369,7 +448,11 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| {
+                group_messages::table
+                    .select(StoredGroupMessage::as_select())
+                    .load(conn)
+            })
             .unwrap();
         assert_eq!(messages.len(), 0);
 
@@ -384,7 +467,11 @@ mod tests {
         let messages: Vec<StoredGroupMessage> = alix2
             .context
             .db()
-            .raw_query(|conn| group_messages::table.load(conn))
+            .raw_query(|conn| {
+                group_messages::table
+                    .select(StoredGroupMessage::as_select())
+                    .load(conn)
+            })
             .unwrap();
         assert_eq!(messages.len(), 1);
     }
@@ -435,10 +522,11 @@ mod tests {
         assert_eq!(groups.len(), 2);
         let old_group = groups.pop()?;
 
-        let old_messages: Vec<StoredGroupMessage> = alix
-            .context
-            .db()
-            .raw_query(|conn| group_messages::table.load(conn))?;
+        let old_messages: Vec<StoredGroupMessage> = alix.context.db().raw_query(|conn| {
+            group_messages::table
+                .select(StoredGroupMessage::as_select())
+                .load(conn)
+        })?;
         assert_eq!(old_messages.len(), 4);
 
         let opts = ArchiveOptions {
@@ -492,6 +580,7 @@ mod tests {
 
         let messages: Vec<StoredGroupMessage> = alix2.context.db().raw_query(|conn| {
             group_messages::table
+                .select(StoredGroupMessage::as_select())
                 .filter(group_messages::group_id.eq(&groups[0].id))
                 .load(conn)
         })?;

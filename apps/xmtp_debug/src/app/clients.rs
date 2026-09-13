@@ -117,7 +117,7 @@ async fn new_client_inner(
         XDBG_ID_NONCE,
         None,
     ))
-    .api_client(api)
+    .api_client_with_streams(api)
     .store(db)
     .default_mls_store()?
     .with_remote_verifier()?
@@ -181,7 +181,7 @@ fn existing_client_inner_for(
     })?;
 
     let client = xmtp_mls::Client::builder(IdentityStrategy::CachedOnly)
-        .api_client(api)
+        .api_client_with_streams(api)
         .with_remote_verifier()?
         .store(store)
         .default_mls_store()?

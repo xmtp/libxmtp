@@ -18,6 +18,10 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/messages::/)
 - Tests use one backend client. Native callback streams use backend bidi streams.
 - Use the `ci` nextest profile for the backend suite. `--ignore-default-filter` includes tests excluded by the default filter.
 - Set `XMTP_BACKEND_URL=http://127.0.0.1:5050` if localhost selects IPv6.
+- Proxy tests share one backend proxy. Run them in a separate nextest invocation
+  with `--test-threads 1`; do not run another proxy test process at the same time.
+- Reproduce bidi fuzz failures with the logged `XMTP_BIDI_FUZZ_SEED`. Keep the
+  default round count and use `--retries 0` so a new seed cannot hide a failure.
 
 ## Conventions
 

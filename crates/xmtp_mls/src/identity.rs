@@ -14,7 +14,7 @@ use openmls::{
     key_packages::KeyPackage,
     prelude::{Credential as OpenMlsCredential, tls_codec::Serialize},
 };
-use openmls_traits::{OpenMlsProvider, types::CryptoError};
+use openmls_traits::types::CryptoError;
 use std::sync::atomic::{AtomicBool, Ordering};
 use thiserror::Error;
 use tracing::debug;
@@ -331,6 +331,12 @@ pub enum IdentityError {
     /// Builder field not initialized. Not retryable.
     #[error(transparent)]
     UninitializedField(#[from] derive_builder::UninitializedFieldError),
+}
+
+impl From<xmtp_db::diesel::result::Error> for IdentityError {
+    fn from(error: xmtp_db::diesel::result::Error) -> Self {
+        Self::StorageError(error.into())
+    }
 }
 
 impl NeedsDbReconnect for IdentityError {
@@ -704,9 +710,9 @@ impl Identity {
         Ok(StoredIdentity::try_from(self)?.store(&mls_storage.db())?)
     }
 
-    /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.
-    /// Callers must follow with `key_package_maintenance::nudge_rotation` — the
-    /// column write alone leaves the KpRotation task parked until next restart.
+    /// Store fresh key material before upload, then record its publication receipt.
+    /// Receipt order controls retirement. Unknown publications stay available.
+    /// Receipt bookkeeping and the next rotation deadline commit together.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn rotate_and_upload_key_package<
         ApiClient: XmtpApi,
@@ -725,53 +731,53 @@ impl Identity {
 
         // Upload to network
         match api_client.upload_key_package(kp_bytes).await {
-            Ok(_) => {
-                // Successfully uploaded. Delete previous KPs
-                let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-                provider
-                    .storage()
-                    .transaction(|conn| {
-                        let storage = conn.key_store();
-                        storage
-                            .db()
-                            .mark_key_package_before_id_to_be_deleted(history_id)?;
-                        Ok::<_, StorageError>(Continue(()))
-                    })
-                    .map(TransactionOutcome::into_continued)?;
-                mls_storage
-                    .db()
-                    .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+            Ok(meta) => {
+                let published_cursor = meta.cursor.filter(|cursor| cursor.sequence_id > 0).ok_or(
+                    xmtp_api::ApiError::InvalidResponse("key package publish cursor"),
+                )?;
+                // Backend publication order can differ from local generation order.
+                crate::state_tx::state_write(mls_storage, |tx| {
+                    let storage = tx.storage();
+                    storage.db().record_key_package_publication(
+                        history_id,
+                        xmtp_proto::types::Cursor(published_cursor.sequence_id),
+                    )?;
+                    storage
+                        .db()
+                        .reset_key_package_rotation_queue(KEY_PACKAGE_ROTATION_INTERVAL_NS)?;
+                    Ok::<_, StorageError>(Continue(()))
+                })
+                .map(TransactionOutcome::into_continued)?;
                 Ok(())
             }
             Err(err) => Err(IdentityError::ApiClient(err)),
         }
     }
 
-    /// Generate and store key package locally (not uploaded to network).
-    /// Returns serialized bytes and history ID for later upload/cleanup.
-    /// Prevents orphaned key packages if signature validation fails.
+    /// Store key material and its history row in one state transaction.
+    /// Return bytes for upload and the history ID for its later receipt.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) fn generate_and_store_key_package<S: XmtpMlsStorageProvider>(
         &self,
         mls_storage: &S,
         include_post_quantum: bool,
     ) -> Result<(Vec<u8>, i32), IdentityError> {
-        let provider = XmtpOpenMlsProviderRef::new(mls_storage);
-        let NewKeyPackageResult {
-            key_package: kp,
-            pq_pub_key,
-        } = self.new_key_package(&provider, include_post_quantum)?;
-
-        let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
-        let history_id = provider
-            .storage()
-            .db()
-            .store_key_package_history_entry(hash_ref, pq_pub_key)?
-            .id;
-
-        let kp_bytes = kp.tls_serialize_detached()?;
-
-        Ok((kp_bytes, history_id))
+        crate::state_tx::state_write(mls_storage, |tx| {
+            let storage = tx.storage();
+            let provider = XmtpOpenMlsProviderRef::new(&storage);
+            let NewKeyPackageResult {
+                key_package: kp,
+                pq_pub_key,
+            } = self.new_key_package(&provider, include_post_quantum)?;
+            let hash_ref = serialize_key_package_hash_ref(&kp, &provider)?;
+            let history_id = storage
+                .db()
+                .store_key_package_history_entry(hash_ref, pq_pub_key)?
+                .id;
+            let kp_bytes = kp.tls_serialize_detached()?;
+            Ok::<_, IdentityError>(Continue((kp_bytes, history_id)))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 }
 
@@ -874,9 +880,7 @@ pub(crate) fn serialize_key_package_hash_ref(
 }
 
 // Takes a post quantum public key and returns the key used to store it in the key package references table
-pub(crate) fn pq_key_package_references_key(
-    raw_pub_key: &Vec<u8>,
-) -> Result<Vec<u8>, IdentityError> {
+pub(crate) fn pq_key_package_references_key(raw_pub_key: &[u8]) -> Result<Vec<u8>, IdentityError> {
     Ok(raw_pub_key.tls_serialize_detached()?)
 }
 

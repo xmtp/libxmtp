@@ -43,20 +43,12 @@ impl WelcomeMessage {
             .timestamp_nanos_opt()
             .expect("timestamp out of range for i64, are we in 2262 A.D?")
     }
-
-    pub fn resuming(&self) -> bool {
-        matches!(
-            &self.variant,
-            WelcomeMessageType::DecryptedWelcomePointer(_)
-        )
-    }
 }
 
 #[derive(Clone, Debug)]
 pub enum WelcomeMessageType {
     V1(WelcomeMessageV1),
     WelcomePointer(WelcomePointer),
-    DecryptedWelcomePointer(DecryptedWelcomePointer),
 }
 
 impl From<WelcomeMessageV1> for WelcomeMessageType {
@@ -68,12 +60,6 @@ impl From<WelcomeMessageV1> for WelcomeMessageType {
 impl From<WelcomePointer> for WelcomeMessageType {
     fn from(pointer: WelcomePointer) -> Self {
         WelcomeMessageType::WelcomePointer(pointer)
-    }
-}
-
-impl From<DecryptedWelcomePointer> for WelcomeMessageType {
-    fn from(pointer: DecryptedWelcomePointer) -> Self {
-        WelcomeMessageType::DecryptedWelcomePointer(pointer)
     }
 }
 
