@@ -35,7 +35,8 @@ For a separate local stack, set `XMTP_BACKEND_DB_PORT` and
 port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.
 
 Set `XMTP_DATABASE_URL` and `XMTP_REPLICA_URL` for startup with the local config. Test and SQL recipes default to
-`postgres://xmtp:xmtp@localhost:55432/xmtp_backend`; `DATABASE_URL` overrides it.
+`postgres://xmtp:xmtp@localhost:55432/xmtp_backend` in the main checkout, and a
+shifted port in any other worktree; `DATABASE_URL` overrides it.
 Use `just backend test --lib service::publish::tests` for one module, or append
 a function-name filter. Tests live beside their owning modules; shared fixtures
 live in `src/test_support.rs`. The recipe defaults to four test threads to bound
@@ -92,7 +93,8 @@ entry point and the `ghcr.io/xmtp/backend:self-hosted` tag.
 
 `just test` needs `just backend up db replica` and the shared backend services.
 It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
-The database URL defaults to `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
+The database URL defaults to this worktree's database; `just backend status`
+prints it.
 Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
 `tester!(alix, backend: &backend)` with optional `auth: callback`.
 This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.
