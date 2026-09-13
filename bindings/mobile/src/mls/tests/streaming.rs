@@ -350,6 +350,10 @@ async fn test_message_streaming_when_removed_then_added() {
         .await
         .unwrap();
 
+    // Keep the existing rejoin-processing window: this regression is scoped to
+    // classifying stream callbacks, not changing rejoin recovery semantics.
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
     amal_group
         .send(b"hello4".to_vec(), FfiSendMessageOpts::default())
         .await
