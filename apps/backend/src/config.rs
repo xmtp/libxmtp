@@ -21,6 +21,7 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS,
 };
 
+pub mod auth;
 mod schema;
 mod telemetry;
 pub use telemetry::TelemetryConfig;
@@ -55,6 +56,8 @@ const DEFAULT_MAX_SCW_CACHE_ENTRIES: usize = 10_000;
 
 #[derive(Debug, Error)]
 pub enum ConfigError {
+    #[error("configuration is invalid: {field} ({reason})")]
+    Auth { field: String, reason: &'static str },
     #[error("could not read configuration file")]
     Read(#[source] std::io::Error),
     #[error("configuration is not valid TOML")]
@@ -93,6 +96,8 @@ fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth: Option<auth::AuthConfig>,
     #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
@@ -126,6 +131,9 @@ impl Config {
 
     /// Validate scalar values and relationships between values.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(auth) = &self.auth {
+            auth.validate()?;
+        }
         for (field, milliseconds) in [
             (
                 "server.max_drain_duration_ms",
@@ -194,6 +202,7 @@ impl std::fmt::Debug for Config {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("Config")
+            .field("auth", &self.auth)
             .field("server", &self.server)
             .field("database", &self.database)
             .field("publishing", &self.publishing)

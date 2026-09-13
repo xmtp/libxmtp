@@ -51,7 +51,7 @@ async fn run(
     let backend = server::initialize(config).await?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(listen = %listener.local_addr()?, "backend ready to serve");
-    let result = server::serve(backend, listener, shutdown).await;
+    let result: Result<(), server::ServeError> = server::serve(backend, listener, shutdown).await;
     logging.disable_telemetry()?;
     result?;
     Ok(())

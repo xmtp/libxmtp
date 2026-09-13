@@ -1,4 +1,5 @@
 use crate::{Backend, api, config::Config, server};
+pub mod auth;
 mod database;
 #[cfg(test)]
 pub(crate) mod metrics;
@@ -38,7 +39,7 @@ pub struct RunningServer {
     pub channel: Channel,
     pub url: String,
     stop: Option<oneshot::Sender<()>>,
-    task: Option<JoinHandle<Result<(), tonic::transport::Error>>>,
+    task: Option<JoinHandle<Result<(), server::ServeError>>>,
 }
 
 impl TestServer {
@@ -107,10 +108,13 @@ impl TestServer {
         Ok(Self { running, database })
     }
 
+    /// Stop the server and remove the database. The database is removed even
+    /// when the server stops with an error, so a failed stop cannot leak it.
     pub async fn stop(mut self) -> TestResult {
-        self.running.stop().await?;
-        self.database.remove()?;
-        Ok(())
+        let stopped = self.running.stop().await;
+        let removed = self.database.remove();
+        stopped?;
+        removed
     }
 }
 

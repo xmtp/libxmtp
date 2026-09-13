@@ -8,7 +8,7 @@ pub(super) fn positive_integer<const MAX: u64>(_: &mut SchemaGenerator) -> Schem
 }
 
 /// Accept a literal value or an environment reference whose value is checked at startup.
-fn with_environment(literal: Schema) -> Schema {
+pub(super) fn with_environment(literal: Schema) -> Schema {
     json_schema!({"anyOf": [literal, {"type": "string", "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"}]})
 }
 
