@@ -292,10 +292,11 @@ describe("MessageStream callback mode", () => {
 
 type Item = { id: string };
 
-const decodeCursor = (deliverySequence: bigint) => ({
-  deliverySequence,
-  databaseId: new Uint8Array(16),
-}) as never;
+const decodeCursor = (deliverySequence: bigint) =>
+  ({
+    deliverySequence,
+    databaseId: new Uint8Array(16),
+  }) as never;
 
 // One acknowledgeable delivery, recording which terminal action it received.
 const makeItem = (id: string, owned = true) => {

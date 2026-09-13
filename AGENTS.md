@@ -49,3 +49,22 @@ Use `XMTP_BACKEND_URL=http://127.0.0.1:5050` when local IPv6 forwarding fails.
 - Tests use `#[xmtp_common::test(unwrap_try = true)]`. Never `#[test]`.
 - Every package has an `AGENTS.md`. Read it before working there. Update it when its commands change.
 - `CLAUDE.md` is only a pointer (`@AGENTS.md`). Content goes in `AGENTS.md`.
+
+## Ephemeral test backends
+
+`just test` needs `just backend up db replica` and the shared backend services.
+It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
+The database URL defaults to `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
+Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
+`tester!(alix, backend: &backend)` with optional `auth: callback`.
+This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.
+The backend exports its fixtures through `xmtp_backend/test-utils`. Its own
+`cargo test` still uses the existing dev-dependencies.
+
+Use the shared backend on port 5050 by default. Use an ephemeral backend only
+when a test needs a specific configuration. Nextest runs each test in its own
+process, so tests cannot share an ephemeral backend. Each such test pays for
+a database create, a migration, and a listener bind.
+
+Run `dev/check-ephemeral-backend` to check dependency boundaries and the test
+recipe environment. The Rust workspace CI job runs this check.
