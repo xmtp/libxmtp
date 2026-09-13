@@ -18,6 +18,7 @@ export {
   type MessageDelivery,
   type MessageReaderSource,
 } from "./MessageStream";
+export * from "./utils/streamFailure";
 export type {
   DeliveryCursor,
   MessageCatchUp,

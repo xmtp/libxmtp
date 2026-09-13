@@ -53,6 +53,11 @@ export class Opfs {
     return this.#worker.action("opfs.exportDb", { path });
   }
 
+  /**
+   * Import a current client database to an absent path.
+   * Close and delete an existing target separately. Import changes the database
+   * identity, so old delivery cursors and acknowledgement tokens cannot be reused.
+   */
   async importDb(path: string, data: Uint8Array) {
     return this.#worker.action("opfs.importDb", { path, data });
   }
