@@ -41,3 +41,6 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `close` releases the default owner. Do not call `free` while an asynchronous reader method holds a borrow.
 - An explicit `DeliveryCursor` starts replay without changing default delivery progress.
 - `messageHistorySnapshot` returns history and its cursor from one database snapshot. `beginningDeliveryCursor` starts replay from the first retained item.
+
+Auth callback bridges return only `auth callback failed` on failure. Never retain
+or log callback error text or credential values. The middleware owns retryability.

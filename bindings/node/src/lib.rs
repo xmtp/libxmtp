@@ -69,3 +69,22 @@ impl<T: ErrorCode + 'static> From<ErrorWrapper<T>> for napi::bindgen_prelude::Er
     Error::from_reason(format!("[{}] {}{}", code, e.0, details))
   }
 }
+
+#[cfg(test)]
+mod auth_error_tests {
+  #[xmtp_common::test(unwrap_try = true)]
+  fn auth_codes_reach_node_errors() {
+    use xmtp_common::ErrorCode;
+    use xmtp_proto::api::{ApiClientError, AuthError};
+    for auth in [
+      AuthError::CredentialRejected { retryable: true },
+      AuthError::CallbackFailed { retryable: false },
+      AuthError::Exhausted,
+      AuthError::MissingCredential,
+    ] {
+      let api = xmtp_api::dyn_err(ApiClientError::from(auth));
+      let error: napi::Error = super::ErrorWrapper::from(api).into();
+      assert_eq!(error.reason, format!("[{}] {}", auth.error_code(), auth));
+    }
+  }
+}

@@ -83,7 +83,13 @@ impl FfiAuthCallbackBridge {
 #[xmtp_common::async_trait]
 impl xmtp_api_backend::AuthCallback for FfiAuthCallbackBridge {
     async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
-        let ffi_auth = self.callback.on_auth_required().await?;
-        ffi_auth.try_into().map_err(Into::into)
+        let ffi_auth = self
+            .callback
+            .on_auth_required()
+            .await
+            .map_err(|_| "auth callback failed")?;
+        ffi_auth
+            .try_into()
+            .map_err(|_| "auth callback failed".into())
     }
 }

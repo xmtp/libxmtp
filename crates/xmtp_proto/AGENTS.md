@@ -33,3 +33,7 @@ dev/nix-shell 'buf lint proto'          # lint owned protobuf sources
   - `TopicCursor` is a map from topic to cursor. `SequenceId` is `u64`.
 - New newtype conversions: infallible `From` for fixed-size arrays (`From<[u8; 16]> for GroupId`), `TryFrom` for `Vec<u8>` / `&[u8]` with a typed error.
 - Inbox ids are lowercase hex `String` (`crates/xmtp_common/src/types.rs:InboxId`). Normalize untrusted input with `crates/xmtp_common/src/hex.rs:NormalizeHex::normalize_hex` (lowercases, strips `0x`). Never hand-roll `to_lowercase().trim_start_matches("0x")`.
+
+- `api::AuthError` owns the four public auth codes and stores retryability at creation.
+  Keep it in `ApiClientError::Auth`; `Other` erases its code.
+  `xmtp_api::dyn_err` maps it to `ApiError::Auth` before network error erasure.

@@ -1,6 +1,6 @@
 # bindings_node
 
-NAPI-RS bindings for Node. Tests are TypeScript (`test/*.test.ts`), not Rust.
+NAPI-RS bindings for Node. API tests are TypeScript (`test/*.test.ts`). Error conversion also has a Rust unit test.
 
 ## Commands
 
@@ -43,3 +43,9 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `close` releases the default owner. A dropped or rejected item stays unacknowledged.
 - An explicit `DeliveryCursor` starts replay. Replay does not change default delivery progress.
 - `messageHistorySnapshot` returns history and its cursor from one database snapshot. `beginningDeliveryCursor` starts replay from the first retained item.
+
+Auth callback bridges return only `auth callback failed` on failure. Never retain
+or log callback error text or credential values. The middleware owns retryability.
+
+Run the error conversion test without a Node runtime:
+`dev/nix-shell 'cargo nextest run --profile ci -p bindings_node --features napi/dyn-symbols,napi/noop auth_codes_reach_node_errors'`.

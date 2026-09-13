@@ -88,8 +88,14 @@ impl AuthCallback {
 #[xmtp_common::async_trait]
 impl xmtp_api_backend::AuthCallback for AuthCallback {
   async fn on_auth_required(&self) -> Result<xmtp_api_backend::Credential, BoxDynError> {
-    let promise = self.callback.call_async(Ok(())).await?;
-    let credential = promise.await?;
-    Ok(credential.try_into()?)
+    let promise = self
+      .callback
+      .call_async(Ok(()))
+      .await
+      .map_err(|_| "auth callback failed")?;
+    let credential = promise.await.map_err(|_| "auth callback failed")?;
+    credential
+      .try_into()
+      .map_err(|_| "auth callback failed".into())
   }
 }
