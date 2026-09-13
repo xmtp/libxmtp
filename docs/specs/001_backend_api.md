@@ -43,7 +43,7 @@ Requirements are numbered `API-nnn`. "Must" is a requirement. "Should" is a reco
 - API-015: The backend must serve a read that starts at a cursor above the topic's newest sequence id as an empty result, not an error.
 - API-016: When a publish response returns, every envelope it stored is committed on the primary database. A read served from a read replica may lag behind the primary. Replication lag is acceptable and does not break the ordering guarantees: a replica still returns a prefix of each topic (API-011), so a lagging read looks like an earlier point in time, never a reordering or a gap.
 - API-017: A client must not assume that a read issued right after its own publish returns that envelope. A client that needs its own write must retry the read or rely on the sequence id from the publish response. Publish validation (section 5) always runs against the primary, so a publish that depends on an earlier publish (a key package before its identity update) is validated against committed data.
-- API-018: Publish and Query use the primary. Newest-envelope reads, get-by-sequence-id reads, subscriptions, and inbox-id lookups may use a replica. Each replica endpoint names one replica instance; lag is expected to be short. This does not make elapsed time a proof that a missing row cannot arrive.
+- API-018: Publish and Query use the primary. Newest-envelope reads, subscriptions, and inbox-id lookups may use a replica. Each replica endpoint names one replica instance; lag is expected to be short. This does not make elapsed time a proof that a missing row cannot arrive.
 
 ## 4. Envelope metadata
 
@@ -62,8 +62,8 @@ Every stored envelope carries the metadata below. The backend assigns all of it.
 - API-021: Retention is set at publish time from server configuration. Defaults: group application messages, welcomes, and key packages use 90 days (the fixed duration called 3 months). Identity updates and commit-log entries never expire. Group messages with `is_commit_or_proposal` true also never expire. These exemptions override the topic-kind duration. Phase 5 defines deletion and cursor behavior. Before that phase, there is no pruning or read-time expiry filter.
 - API-022: A client should store `expiry_ns` but must not act on it before Phase 5 defines the behavior.
 - API-023: Canonical re-encoding applies to the protobuf framing only. The backend must return every payload byte field (group message data, welcome data, key package bytes, commit-log entry bytes) exactly as received.
-- API-024: The client must match its own published messages by `message_hash`, computed over the same canonical envelope encoding, and must store the hash the backend returns as the authoritative value.
-- API-025: Shared canonical encoding and hashing must produce the same bytes on the backend and every client. The outer envelope hash does not replace the separate MLS message ID or payload hash used for client processing.
+- API-024: The client must store the `message_hash` the backend returns as the authoritative value for that envelope and must not recompute it locally. The client matches its own published messages by an identity derived from the inner opaque payload bytes, which the backend stores and returns unchanged.
+- API-025: Canonical envelope encoding and `message_hash` are backend-internal. A client must not depend on reproducing them, because protobuf re-encoding across versions is not guaranteed to be byte-identical. The outer envelope hash does not replace the separate MLS message ID or inner payload identity used for client processing.
 
 Until Phase 5 the backend has no retained-floor signal and the client has no gap detection. A cursor that points below deleted rows silently skips them. For a group message that is a commit, that is a permanent fork. Phase 5 must close this before retention is enabled in production.
 
@@ -135,16 +135,15 @@ API-074 is safe under per-topic order: a topic's cursor moves only when that top
 - API-083: The newest envelope of a topic is the visible envelope with the highest sequence id.
 - API-084: Repeated newest topics coalesce. Validate all entries and apply the input-count limit before coalescing. A successful result must contain all required metadata, including hash, expiry, and the commit/proposal flag.
 
-### 7.1 Get by sequence id
+### 7.1 Registration visibility
 
-- API-085: A get request names one sequence id. The response is the stored envelope with that sequence id, with its metadata. There is no batch form and no limit.
-- API-086: When no visible envelope carries that sequence id, the request fails with `NOT_FOUND`. The backend does not say why: the id may never have been allocated, its transaction may have aborted, the row may have expired, or the row may not yet be visible on the replica that served the read.
-- API-087: A client that holds a sequence id from a publish response or a stream may retry `NOT_FOUND` briefly with backoff, because the read may be served by a lagging replica (API-016). A client with no such evidence must not retry.
-- API-088: A sequence id of 0, or above the signed 64-bit maximum, fails with `INVALID_ARGUMENT`.
+- API-089: To confirm that registration is visible, the client must use a metadata-only newest-envelope read on the registration's exact identity topic. A validated serving head at or above the registration sequence id confirms visibility. An absent or older head does not. Retry absent or older heads with backoff within the caller's deadline, and include request time in that deadline. Surface API and response-validation errors. A primary Query or local identity state does not prove replica visibility.
+
+API-085 through API-088 are retired. The Get endpoint is removed.
 
 ## 8. Subscribe (bidirectional)
 
-One client owns one ingestion cursor per topic. Spec 004 defines the complete contract. The protocol replaces XIP-83; it does not support independent replay cursors for multiple downstream clients.
+One logical client database shares durable receipt and processing per topic. Spec 004 defines the separate client positions and local message readers. One upstream registration does not support independent network replay cursors for multiple downstream clients.
 
 - API-090: The first frame is `Started`, carrying the keepalive interval. No topics are registered yet. An interval of zero means the client uses its default.
 - API-091: An `Update` applies adds and removes atomically, in receive order. Each add supplies a topic and exclusive starting cursor. A topic may occur only once across both lists; duplicate or overlapping entries fail with `INVALID_ARGUMENT`.
@@ -159,12 +158,12 @@ One client owns one ingestion cursor per topic. Spec 004 defines the complete co
 - API-100: Adding an active topic is a no-op regardless of the supplied cursor. Removing an absent topic is a no-op. Removal cancels that registration; already queued messages may precede its `Applied`, but none from it may follow. A later add starts a new registration and target from the supplied cursor.
 - API-101: There is no application-level quota for concurrent subscriptions in v1. The HTTP/2 concurrency limit in API-132 still applies. Phase 6 adds caller quotas.
 - API-102: Reconnect with the current desired topic set and safe durable cursors. The new connection returns fresh targets. Clients remove overlap duplicates using local state; received-but-unprocessed rows must remain recoverable.
-- API-103: A client shares one ordered ingestion path per topic across its local application streams. Their callbacks remain independent. A later local consumer does not rewind the upstream topic. Use history APIs for historical reads.
+- API-103: THE CLIENT SHALL share durable receipt and ordered processing per topic. App message streams SHALL read local storage under spec 004's default-consumer and explicit-replay rules. A later reader SHALL NOT rewind the upstream topic. Local history and message replay SHALL remain independent of network receipt progress.
 - API-104: A bidirectional stream with no topics stays open.
 - API-105: The application chooses topics and filters. Consent and membership can inform that choice, but denied topics may be streamed. The subscription protocol does not enforce consent or membership. Existing payload validation and MLS processing rules still apply.
 - API-106: An unset request oneof fails with `INVALID_ARGUMENT`.
 - API-107: Update and client Ping frames each have a per-stream token bucket of 10 frames/s with burst 100. Exhaustion fails the stream with `RESOURCE_EXHAUSTED`. Pong consumes neither bucket. These are the Phase 2 exception to API-133.
-- API-108: Cancellation and native request half-close end the session. Half-close is not a catch-up command. A bounded SDK sync uses the same stream, processes through fixed targets and any groups discovered within them, then cancels; later traffic does not extend that run.
+- API-108: Cancellation and native request half-close end the session. Half-close is not a catch-up command. THE SDK SHALL implement bounded sync as spec 004's fixed processing barrier over shared receipt, with unary fallback. It SHALL include required groups discovered within fixed Welcome targets. Later traffic SHALL NOT extend the run. Ending the run SHALL release only its own interests, without cancelling a receiver needed elsewhere.
 
 ## 9. Subscribe (static)
 
@@ -202,7 +201,6 @@ The static adapter serves clients that cannot send bidirectional requests.
 | Inbox-id lookup identifiers | 250 |
 | Signatures per smart-contract-wallet verify request | 100 |
 | Identity-update entries per inbox | 256 |
-| Get sequence ids per request | 1 |
 | Concurrent requests per connection (HTTP/2 streams) | 100 |
 | Keepalive interval | 30 s |
 | Update frames per stream | 10/s, burst 100 |
@@ -225,7 +223,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 - API-146: Key-package reads, inbox-id lookups, query paging, and static-subscription splitting are unchunked in the client today. The chunking in API-140, API-141, and API-144 and a `has_more` paging loop for identity-update and commit-log reads are new client work that lands with this API. The status-based retry classifier and per-topic client ledger must land in the same phase.
 - API-148: The backend must reject an identity update for an inbox whose log already holds 256 entries with `INVALID_ARGUMENT` and reason `REASON_INVALID_IDENTITY_UPDATE`, as both existing backends do.
 - API-147: The client must add a fifth topic kind for the commit log and publish and read commit-log entries as envelopes.
-- API-149: Phase 3 replaces the wave ledger with shared per-topic ingestion, processing-based catch-up status, and bounded sync through the same stream. Preserve application-selected filters, including denied topics.
+- API-149: THE CLIENT SHALL keep separate durable receipt, ordered processing, and local app-delivery positions as spec 004 defines. Catch-up and bounded sync SHALL use spec 004's fixed processing predicates over shared receipt. THE SDK SHALL CONTINUE TO preserve app-selected filters, including denied topics.
 
 ## 12. Error contract
 
@@ -239,7 +237,6 @@ The static adapter serves clients that cannot send bidirectional requests.
 | Stream token bucket or slow consumer | `RESOURCE_EXHAUSTED` | Reconnect with backoff from durable per-topic cursors |
 | Oversized response | Tonic size error, or `RESOURCE_EXHAUSTED` from an application check | Reduce read batch size or query limit, or surface the error; publish outcome may be committed |
 | Unexpected storage invariant failure | `INTERNAL` | Surface the error; do not infer a partial success |
-| Get names a sequence id with no visible envelope | `NOT_FOUND` | Retry briefly only when the id came from a publish response or a stream (API-087); otherwise surface |
 
 - API-150: The backend must not rewrite the message text of a status. The text must state the condition in plain words.
 - API-151: A client must not retry `INVALID_ARGUMENT`.
@@ -275,3 +272,4 @@ Current streaming contract: [single-client proposal](https://plan.ref.tools/BbNc
 | 2026-09-04 | PR review: API-016 rewritten for read replicas (a publish response means committed on the primary; replica reads may lag but still return a topic prefix); API-017 added (no read-your-writes across instances; validation runs on the primary). |
 | 2026-09-04 | [Architecture review approved with comments](https://plan.ref.tools/xWi9jEu8VHmuLI0W). Keep replicas, database-clock timestamps, existing validation behavior, SCW caching, and per-stream token buckets. Use simple oversized-response errors. Add exact identity-history snapshots, duplicate-input rules, atomic duplicate outcomes, stream transitions, retention exemptions, and explicit client work. |
 | 2026-09-04 | Added `Get` to the query service (section 7.1, API-085 to API-088): one envelope by sequence id, `NOT_FOUND` when absent, replica-served (API-018, error table). |
+| 2026-09-10 | The [approved stream-state plan](https://plan.ref.tools/JWa4T7fSmGBi69R2) removes Get and retires API-085 through API-088. API-089 replaces registration visibility checks with a metadata-only serving-head read on the exact identity topic. |

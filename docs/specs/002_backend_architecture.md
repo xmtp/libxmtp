@@ -88,7 +88,6 @@ Replicas are supported from day one. Each configured replica URL names one physi
 | Publish, including validation history | Primary |
 | Query | Primary |
 | QueryNewest | Replica, or primary when none is configured |
-| Get | Replica, or primary when none is configured |
 | Subscribe and SubscribeStatic, replay and live | Replica, or primary when none is configured |
 | GetInboxIds | Replica, or primary when none is configured |
 | VerifySmartContractWalletSignatures | Configured chain RPC |
@@ -99,8 +98,9 @@ Replicas are supported from day one. Each configured replica URL names one physi
 - ARC-063: Newest reads join watermarks and envelopes in one statement. Metadata-only results select all metadata but not the payload. Full results add the payload. Do not omit an existing topic to fit a successful response into the byte limit.
 - ARC-064: Identity validation reads complete history from one snapshot. Reads still work if stored history exceeds the write cap. Do not use a separately read head as the validation position.
 - ARC-065: Identifier lookup selects the greatest association sequence ID among active associations for each normalized `(identifier, kind)`. Reconstruct the positional response, including duplicate inputs.
-- ARC-067: Get is one primary-key lookup on the envelope table by sequence id, returning the full row as a `ServerEnvelope`. A sequence id with no row visible in the serving database's snapshot is `NOT_FOUND`; the backend does not distinguish never-allocated, aborted, pruned, or not-yet-replicated. No additional index is needed.
 - ARC-066: Oversized responses eventually fail under spec 001's size-error contract. Preserve Tonic's normal size-limit statuses and details; do not add custom framing or status translation for them. An application response-size check may return `RESOURCE_EXHAUSTED`. No additional pagination protocol or structured size-error type is required.
+
+ARC-067 is retired with the Get endpoint. Registration visibility uses the metadata-only QueryNewest route and API-089. It must not substitute a primary Query or local identity state for a serving-head read.
 
 ## 6. Streaming architecture
 
@@ -117,7 +117,7 @@ Replicas are supported from day one. Each configured replica URL names one physi
 - ARC-080: Bound outbound queues by frames and bytes, fixed private implementation constants of 64 frames and 16 MiB. Pause fetches while safe. If required state cannot be retained, fail that stream with `RESOURCE_EXHAUSTED`. Do not discard data to remain within capacity.
 - ARC-081: Keep separate send-idle and pong-deadline timers. Start the deadline at Ping transport handoff. Only the matching nonce clears it. Before timeout, process already available inbound frames without blocking. Backpressure has its own failure path.
 - ARC-082: Every exit deregisters the session and cancels its work. Tailer failure or a required boundary-task database failure fails affected streams with `UNAVAILABLE`; working keepalives do not prove that delivery works.
-- ARC-083: Native request half-close ends the session without waiting for catch-up. The SDK's bounded sync processes its fixed targets and discovered work, then cancels. There is no server catch-up drain mode.
+- ARC-083: Native request half-close ends the session without waiting for catch-up. THE SDK SHALL use spec 004's fixed processing barriers for bounded sync and release only the completed or cancelled run's interests. A shared receiver needed by another operation SHALL remain active. There is no server catch-up drain mode.
 - ARC-084: Static subscriptions share the same data path. Their initial `Started` frame includes the fixed topic targets. They use one-way keepalives; ending the unary request does not end the subscription.
 - ARC-085: Reject an unset inbound oneof with `INVALID_ARGUMENT`. Apply the Update and Ping buckets in spec 001. Application-selected topics may include denied groups; the streaming layer does not enforce consent or membership.
 
@@ -151,7 +151,7 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 - ARC-099: Accept W3C `traceparent` and `tracestate`, including CORS preflight that names these headers. Install propagation even when export is off. With trace export enabled, the incoming context is the request span parent. Request spans identify the server kind, gRPC system, bounded service and method, and final gRPC status. Completion events include the status name and a trace ID only when a valid incoming or generated trace context exists.
   - No metric label, span field, or log field may derive from a topic, inbox ID, installation ID, group ID, cursor, payload, or request header. The only exceptions are W3C trace context and the server-generated request ID. Operation names and status reasons have bounded vocabularies. Never use request data as a metric name or label.
 
-The required operation span names are `db.commit_publish`, `db.find_duplicates`, `db.history`, `db.query`, `db.newest_envelopes`, `db.newest_metadata`, `db.get`, `db.inbox_ids`, `db.advance`, `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `tailer.poll`, `tailer.bootstrap`, `scw.verify`, `stream.update`, `stream.fetch`. A completed `tailer.poll` span includes INFO-level `rows` and `gaps` fields.
+The required operation span names are `db.commit_publish`, `db.find_duplicates`, `db.history`, `db.query`, `db.newest_envelopes`, `db.newest_metadata`, `db.inbox_ids`, `db.advance`, `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `tailer.poll`, `tailer.bootstrap`, `scw.verify`, `stream.update`, `stream.fetch`. A completed `tailer.poll` span includes INFO-level `rows` and `gaps` fields.
 
 ### Backend metric catalogue
 
@@ -341,6 +341,8 @@ The raw repository URL is the public schema publication target. Publish and vali
 Supported database failover must preserve acknowledged commits and fence the old primary. Promoting a replica that loses acknowledged data or restoring an old backup is an operator recovery event; durable client cursors cannot repair it. The backend does not implement a database failover manager.
 
 ## Review record
+
+The [approved stream-state plan](https://plan.ref.tools/JWa4T7fSmGBi69R2) removes Get and retires ARC-067 on 2026-09-10. Registration visibility uses the existing replica-served QueryNewest route.
 
 The [single-client streaming proposal](https://plan.ref.tools/BbNc54CedfhM1Snb), approved 2026-09-06, replaces the earlier wave design with fixed targets, coalesced live notices, and bounded fair fetch turns. Applications control which topics they stream.
 
