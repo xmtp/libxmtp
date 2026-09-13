@@ -34,3 +34,12 @@ pub const ACTIVE_DATABASE_POLL_INTERVAL: Duration = Duration::from_millis(250);
 pub const DEFAULT_CONSUMER_LEASE_DURATION: Duration = Duration::from_secs(30);
 /// Maximum duration of one bounded catch-up operation.
 pub const STREAM_BARRIER_TIMEOUT: Duration = Duration::from_secs(60);
+/// How often a long-lived client rechecks Welcomes it could not process, so
+/// their retention deadline is reached without restarting the client.
+pub const STREAM_BLOCKED_WELCOME_RESCAN_INTERVAL: Duration = Duration::from_secs(3600);
+/// First delay before retrying a receiver that failed with a permanent error.
+/// A permanent classification describes this response, not every later one, so
+/// the retry never stops. It only slows down.
+pub const STREAM_PERMANENT_RETRY_INITIAL: Duration = Duration::from_secs(5);
+/// Longest delay between retries of a receiver that keeps failing permanently.
+pub const STREAM_PERMANENT_RETRY_MAX: Duration = Duration::from_secs(300);

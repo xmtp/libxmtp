@@ -31,6 +31,11 @@ use xmtp_proto::types::Topic;
 use xmtp_proto::types::{Cursor, GroupId};
 
 const WELCOME_POINTER_RETENTION_NS: i64 = 3 * xmtp_common::NS_IN_DAY;
+/// How long a Welcome this build cannot process is retained before it is
+/// completed and removed. A client that supports it within the window still
+/// joins; past the window the row must not keep the Welcome barrier, the
+/// Welcome budget, and key-package retirement blocked forever.
+const UNSUPPORTED_WELCOME_RETENTION_NS: i64 = xmtp_common::NS_IN_DAY;
 
 /// Work needed before one durable Welcome can be attempted again.
 pub(crate) enum WelcomeRequirement {
@@ -307,7 +312,25 @@ where
         let wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())
             .map_err(|_| xmtp_db::StorageError::DbDeserialize)?;
         if unsupported_welcome_wire(&wire) {
-            self.defer_pending(&pending, "unsupported_welcome", true, None)?;
+            // Give an offline client one real attempt at its deadline before
+            // the row is removed: the retention window can pass while the
+            // client is not running, and expiry must not skip the attempt.
+            if pending
+                .retry_expires_at_ns
+                .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
+            {
+                self.complete_rejected_pending(&pending, "unsupported_welcome_expired")?;
+                return Ok(WelcomeHeadOutcome::Progress {
+                    cursor,
+                    result: Err(GroupError::UnsupportedWelcomeVersion(
+                        "unsupported wrapper algorithm".into(),
+                    )),
+                });
+            }
+            // The first deadline wins; defer_pending never extends it.
+            let deadline =
+                xmtp_common::time::now_ns().saturating_add(UNSUPPORTED_WELCOME_RETENTION_NS);
+            self.defer_pending(&pending, "unsupported_welcome", true, Some(deadline))?;
             return Ok(WelcomeHeadOutcome::Waiting {
                 cursor,
                 code: "unsupported_welcome".into(),
@@ -325,8 +348,13 @@ where
                 });
             }
         };
+        // Only a Welcome still waiting on its pointee expires here. A deadline
+        // written while this build could not read the wrapper must not delete a
+        // Welcome that a later build can now process: support is the recovery
+        // this retention window exists to allow.
         if let Some(deadline) = pending.retry_expires_at_ns
             && deadline <= xmtp_common::time::now_ns()
+            && pending.error_code.as_deref() != Some("unsupported_welcome")
         {
             self.complete_rejected_pending(&pending, "welcome_pointer_expired")?;
             return Ok(WelcomeHeadOutcome::Progress {
@@ -966,6 +994,138 @@ mod tests {
 
     struct RejectMembership {
         retryable: bool,
+    }
+
+    /// An unsupported Welcome is retained for a bounded window, then removed.
+    /// It gets one real attempt at its deadline so a client that was offline
+    /// for the window still joins if it gained support meanwhile.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_unsupported_welcome_expires_after_a_final_attempt() {
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::schema::incoming_envelopes;
+        use xmtp_proto::backend_v1::{client_envelope::Payload, welcome_message::Version};
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.invite(&bo).await?;
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await?
+            .pop()?;
+        let cursor = welcome.cursor;
+        pending_welcome_for_test(&bo.context, &welcome).await?;
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+
+        let pending = db.pending_envelope(&service.topic(), cursor)?.unwrap();
+        let mut wire = xmtp_proto::backend_v1::ServerEnvelope::decode(pending.envelope.as_slice())?;
+        let Payload::WelcomeMessage(message) = wire.envelope.as_mut()?.payload.as_mut()? else {
+            panic!("expected Welcome payload");
+        };
+        match message.version.as_mut()? {
+            Version::V1(message) => message.wrapper_algorithm = i32::MAX,
+            Version::WelcomePointer(message) => message.wrapper_algorithm = i32::MAX,
+        }
+        let row = || {
+            incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                cursor.0 as i64,
+            ))
+        };
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set(incoming_envelopes::envelope.eq(wire.encode_to_vec()))
+                .execute(conn)
+        })?;
+
+        // First pass blocks the row and records a retention deadline.
+        service.process_pending_welcomes_once()?;
+        let blocked = db.pending_envelope(&service.topic(), cursor)?.unwrap();
+        assert!(blocked.blocked);
+        let deadline = blocked.retry_expires_at_ns?;
+        assert!(deadline > xmtp_common::time::now_ns());
+
+        // Before the deadline the row is retained, not removed.
+        service.retry_blocked_welcomes_after(Cursor(0))?;
+        assert!(db.pending_envelope(&service.topic(), cursor)?.is_some());
+        assert_eq!(
+            db.pending_envelope(&service.topic(), cursor)?
+                .unwrap()
+                .retry_expires_at_ns,
+            Some(deadline),
+            "a retry must not extend the first deadline"
+        );
+
+        // At the deadline the final attempt runs and the row is removed, so the
+        // Welcome barrier, the Welcome budget, and key retirement are released.
+        db.raw_query(|conn| {
+            diesel::update(row())
+                .set(incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)))
+                .execute(conn)
+        })?;
+        service.retry_blocked_welcomes_after(Cursor(0))?;
+        assert!(db.pending_envelope(&service.topic(), cursor)?.is_none());
+        assert_eq!(db.topic_progress(&service.topic())?.processed, cursor);
+        assert!(!db.has_pending_welcomes()?);
+    }
+
+    /// Gaining support is the recovery this retention window exists to allow.
+    /// A deadline written while the wrapper was unreadable must never delete a
+    /// Welcome that the client can now process, even past the deadline.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_expired_unsupported_welcome_still_installs_once_it_is_supported() {
+        use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::schema::incoming_envelopes;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let group = alix.create_group(None, None)?;
+        group.invite(&bo).await?;
+        let welcome = bo
+            .context
+            .api()
+            .query_welcome_messages(bo.context.installation_id())
+            .await?
+            .pop()?;
+        let cursor = welcome.cursor;
+        pending_welcome_for_test(&bo.context, &welcome).await?;
+        let service = WelcomeService::new(bo.context.clone());
+        let db = bo.context.db();
+
+        // The row carries an elapsed unsupported deadline, exactly as a build
+        // that could not read the wrapper would have written it, but its bytes
+        // are readable by this build — the post-upgrade state.
+        db.raw_query(|conn| {
+            diesel::update(incoming_envelopes::table.find((
+                bo.context.installation_id().to_vec(),
+                EntityKind::Welcome,
+                cursor.0 as i64,
+            )))
+            .set((
+                incoming_envelopes::blocked.eq(true),
+                incoming_envelopes::error_code.eq(Some("unsupported_welcome")),
+                incoming_envelopes::retry_expires_at_ns.eq(Some(1i64)),
+            ))
+            .execute(conn)
+        })?;
+
+        service.retry_blocked_welcomes_after(Cursor(0))?;
+
+        // The row must survive: an elapsed unsupported deadline must not delete
+        // a Welcome this build can now read. It rejoins ordinary processing,
+        // which may still need an async dependency before it installs.
+        let row = db
+            .pending_envelope(&service.topic(), cursor)?
+            .expect("a supported Welcome must not be deleted by a stale deadline");
+        assert!(!row.blocked, "it must rejoin ordinary processing");
+        assert_ne!(row.error_code.as_deref(), Some("unsupported_welcome"));
+        assert!(db.topic_progress(&service.topic())?.processed < cursor);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

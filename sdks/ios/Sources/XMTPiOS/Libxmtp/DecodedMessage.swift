@@ -191,8 +191,11 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
-	/// Return nil only for content that forges a reserved membership change.
-	/// Parse and codec errors must not consume a delivery.
+	/// Return nil only for content that forges a reserved membership change,
+	/// which the delivery stream consumes without a handoff. Parse and codec
+	/// errors are raised to the caller. The delivery stream propagates them and
+	/// leaves the message pending: acknowledging one this client cannot decode
+	/// would advance the cursor past a message nothing has read.
 	static func decodeForDelivery(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		throws -> DecodedMessage?
 	{

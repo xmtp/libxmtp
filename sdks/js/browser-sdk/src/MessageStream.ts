@@ -109,7 +109,16 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           break;
         }
         this.#pending = item.acknowledgement;
-        const value = await this.#convert(item.message, item.cursor);
+        // A codec that throws must not advance the cursor. The message is
+        // retained and a later reader, or the same client with the codec
+        // registered, must still see it. Acknowledging here would skip a
+        // message nothing has read. This matches the undefined case below:
+        // both mean this client could not decode the message, so both hold
+        // the item rather than discarding it.
+        const value: V | undefined = await this.#convert(
+          item.message,
+          item.cursor,
+        );
         if (this.#hasEnded()) break;
         const checked = item.acknowledgement.checkOwner();
         const valid = typeof checked === "boolean" ? checked : await checked;
@@ -119,8 +128,13 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
           await item.acknowledgement.reject();
           continue;
         }
-        if (value === undefined)
+        if (value === undefined) {
+          // The converter could not produce a value. That includes a failed
+          // lookup, so it is not safe to acknowledge: skipping here would
+          // advance the durable cursor past a message nothing has read.
+          // Report it and stop, leaving the item replayable.
           throw new Error("The retained message could not be decoded");
+        }
         // Do not await between the final ownership check and the app handoff.
         this.#cursor = item.cursor;
         if (this.#onValue) {
@@ -135,7 +149,11 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     } catch (error) {
       if (!this.#hasEnded()) {
         try {
+          // A handler that throws must not replace the real failure. The
+          // caller needs the original cause to know why the stream ended.
           this.#options.onError?.(error as Error);
+        } catch {
+          // Reported through the rethrow below.
         } finally {
           await this.return();
         }

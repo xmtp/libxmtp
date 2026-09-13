@@ -304,6 +304,11 @@ mock! {
             intent_id: crate::group_intent::ID,
         ) -> Result<(), StorageError>;
 
+        fn supersede_pending_intents_for_inactive_group(
+            &self,
+            group_id: &[u8],
+        ) -> Result<usize, StorageError>;
+
         fn set_group_intent_to_publish(
             &self,
             intent_id: crate::group_intent::ID,
@@ -318,6 +323,8 @@ mock! {
             &self,
             payload_hash: &[u8],
         ) -> Result<Option<crate::group_intent::StoredGroupIntent>, StorageError>;
+
+        fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError>;
 
         #[mockall::concretize]
         fn find_dependant_commits<P: AsRef<[u8]>>(

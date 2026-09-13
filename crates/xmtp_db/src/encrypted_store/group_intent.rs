@@ -282,6 +282,21 @@ pub trait QueryGroupIntent {
     /// compare-and-swap guard no longer matches the committed state.
     fn set_group_intent_superseded(&self, intent_id: ID) -> Result<(), StorageError>;
 
+    /// Abandon every unpublished and unconfirmed intent for a group that this
+    /// installation is no longer a member of. Returns the number abandoned.
+    ///
+    /// These become [`IntentState::Error`], not `Superseded`: the write did not
+    /// lose a compare-and-swap race, so reporting it as one would tell the
+    /// caller to re-derive from a value that did not change and queue again.
+    ///
+    /// `Committed` intents are deliberately excluded: their post-commit work
+    /// already landed on the network and may still owe Welcomes to members this
+    /// installation added, which must still be published.
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError>;
+
     // Set the intent with the given ID to `ToPublish`. Wipe any values for `payload_hash` and
     // `post_commit_data`
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError>;
@@ -295,6 +310,16 @@ pub trait QueryGroupIntent {
         &self,
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError>;
+
+    /// True when a row with this payload hash exists but carries an
+    /// `IntentKind` this build cannot decode.
+    ///
+    /// The hash is unique and is the SHA-256 of this installation's own
+    /// prepared envelope, so a match identifies our own echo. Identity must not
+    /// be filtered by kind: reporting "no intent" for our own message sends it
+    /// down the external-message path. Callers use this to reject the envelope
+    /// terminally instead of failing the whole query and retrying forever.
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError>;
 
     /// find the commit message refresh state for each intent payload hash
     fn find_dependant_commits<P: AsRef<[u8]>>(
@@ -364,6 +389,13 @@ where
         (**self).set_group_intent_superseded(intent_id)
     }
 
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        (**self).supersede_pending_intents_for_inactive_group(group_id)
+    }
+
     fn set_group_intent_to_publish(&self, intent_id: ID) -> Result<(), StorageError> {
         (**self).set_group_intent_to_publish(intent_id)
     }
@@ -377,6 +409,10 @@ where
         payload_hash: &[u8],
     ) -> Result<Option<StoredGroupIntent>, StorageError> {
         (**self).find_group_intent_by_payload_hash(payload_hash)
+    }
+
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        (**self).own_intent_kind_is_unreadable(payload_hash)
     }
 
     fn find_dependant_commits<P: AsRef<[u8]>>(
@@ -539,6 +575,41 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         Ok(())
     }
 
+    /// Removal is terminal for work that has not been accepted by the group.
+    /// The state is `Error`, not `Superseded`: nothing raced this write.
+    /// A `ToPublish` intent can never be published now, and a `Published` one
+    /// can never be confirmed: its own echo is unreachable behind the inactive
+    /// boundary, and a later re-add installs fresh state past it. Leaving those
+    /// intents in place strands them, and a stranded `Published` state change
+    /// preempts every later intent on the group.
+    ///
+    /// The prepared attempt is cleared with the state so no stale bytes can be
+    /// reused against a new membership generation.
+    #[tracing::instrument(level = "debug", skip(self))]
+    fn supersede_pending_intents_for_inactive_group(
+        &self,
+        group_id: &[u8],
+    ) -> Result<usize, StorageError> {
+        let rows_changed = self.raw_query(|conn| {
+            diesel::update(dsl::group_intents)
+                .filter(dsl::group_id.eq(group_id))
+                .filter(
+                    dsl::state
+                        .eq(IntentState::ToPublish)
+                        .or(dsl::state.eq(IntentState::Published)),
+                )
+                .set((
+                    dsl::state.eq(IntentState::Error),
+                    dsl::prepared_envelopes.eq(None::<Vec<u8>>),
+                    dsl::staged_commit.eq(None::<Vec<u8>>),
+                    dsl::payload_hash.eq(None::<Vec<u8>>),
+                    dsl::published_in_epoch.eq(None::<i64>),
+                ))
+                .execute(conn)
+        })?;
+        Ok(rows_changed)
+    }
+
     // Set the intent with the given ID to `Committed`
     #[tracing::instrument(level = "debug", skip(self))]
     fn set_group_intent_processed(&self, intent_id: ID) -> Result<(), StorageError> {
@@ -618,6 +689,22 @@ impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
         })?;
 
         Ok(result)
+    }
+
+    #[xmtp_common::db_span]
+    fn own_intent_kind_is_unreadable(&self, payload_hash: &[u8]) -> Result<bool, StorageError> {
+        // Read the discriminant, not the enum: this must answer for a row whose
+        // kind a newer build wrote and this one cannot decode.
+        let kind = self.raw_query(|conn| {
+            dsl::group_intents
+                .filter(dsl::payload_hash.eq(payload_hash))
+                .select(dsl::kind)
+                .first::<i32>(conn)
+                .optional()
+        })?;
+        // Derive the known set from the same iterator the kind filters use,
+        // so a newly added variant is covered without editing this.
+        Ok(kind.is_some_and(|kind| !IntentKind::all().any(|known| known as i32 == kind)))
     }
 
     /// Find the commit message refresh state for each intent by payload hash.
@@ -903,6 +990,68 @@ pub(crate) mod tests {
                 conn.find_group_intents(group_id, Some(vec![IntentState::ToPublish]), None)
                     .is_err(),
                 "unfiltered query should surface the FromSql error for unknown kinds"
+            );
+        })
+    }
+
+    /// Identity by payload hash must survive an unreadable kind. Filtering it
+    /// away would report "not our message" for our own echo, which sends a
+    /// commit we authored down the external-message path.
+    #[xmtp_common::test]
+    fn an_unreadable_own_intent_kind_is_reported_not_hidden() {
+        let group_id = GroupId::generate();
+
+        with_connection(|conn| {
+            insert_group(conn, group_id);
+            let known_hash = rand_vec::<32>();
+            let future_hash = rand_vec::<32>();
+
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(IntentKind::SendMessage),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(known_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            let future_kind = IntentKind::all().count() as i32 + 1;
+            conn.raw_query(|raw_conn| {
+                diesel::insert_into(dsl::group_intents)
+                    .values((
+                        dsl::kind.eq(future_kind),
+                        dsl::group_id.eq(group_id),
+                        dsl::data.eq(rand_vec::<24>()),
+                        dsl::state.eq(IntentState::Published),
+                        dsl::payload_hash.eq(Some(future_hash.clone())),
+                        dsl::publish_attempts.eq(0),
+                        dsl::should_push.eq(false),
+                    ))
+                    .execute(raw_conn)
+            })
+            .unwrap();
+
+            // A readable kind is unaffected, and an absent hash is not ours.
+            assert!(!conn.own_intent_kind_is_unreadable(&known_hash).unwrap());
+            assert!(
+                !conn
+                    .own_intent_kind_is_unreadable(&rand_vec::<32>())
+                    .unwrap()
+            );
+
+            // The unreadable row is reported rather than erroring the query,
+            // so the caller can reject the envelope terminally.
+            assert!(conn.own_intent_kind_is_unreadable(&future_hash).unwrap());
+            assert!(
+                conn.find_group_intent_by_payload_hash(&future_hash)
+                    .is_err(),
+                "the typed lookup still cannot decode it; the probe is what callers use"
             );
         })
     }

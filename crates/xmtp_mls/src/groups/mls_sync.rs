@@ -169,6 +169,18 @@ pub enum GroupMessageProcessingError {
     /// Own ciphertext has no durable prepared attempt.
     #[error("own envelope has no prepared attempt")]
     OwnMessageWithoutAttempt,
+    /// Our own echo names an intent whose kind a newer build wrote and this
+    /// one cannot decode.
+    ///
+    /// This holds the head rather than rejecting it. The envelope may be a
+    /// commit every other member applied; skipping it would leave this
+    /// installation behind the group with no way back. It is also not an
+    /// external message — treating it as one would validate a commit we
+    /// authored against external-actor rules. Not retryable, so the head is
+    /// marked blocked and reconsidered once a build that can read the kind
+    /// runs again.
+    #[error("own intent kind for payload {0} is not supported by this version")]
+    UnsupportedOwnIntentKind(String),
     /// A local prepared attempt cannot safely explain this own envelope.
     #[error("prepared attempt state: {0}")]
     PreparedAttempt(Box<GroupError>),
@@ -280,7 +292,8 @@ impl RetryableError for GroupMessageProcessingError {
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
             | Self::Envelope(_)
-            | Self::OwnMessageWithoutAttempt => false,
+            | Self::OwnMessageWithoutAttempt
+            | Self::UnsupportedOwnIntentKind(_) => false,
             Self::RejectedIntent(_) => false,
             Self::Storage(err) => err.is_retryable(),
             Self::Diesel(err) => err.is_retryable(),
@@ -2391,7 +2404,15 @@ where
         }
         let db = storage.db();
         for intent in
-            db.find_group_intents(self.group_id, Some(vec![IntentState::Published]), None)?
+            // Filter kinds in SQL. An unfiltered load fails outright on a row a
+            // newer build wrote with an IntentKind this build cannot decode,
+            // and that error is neither retryable nor a safe rejection, so the
+            // group head would stop advancing after a downgrade.
+            db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::Published]),
+                Some(IntentKind::all().collect()),
+            )?
         {
             let Some(bytes) = db.prepared_envelopes(intent.id)? else {
                 continue;
@@ -2462,6 +2483,16 @@ where
             return Ok(outcome);
         }
 
+        // An unreadable kind must not reach the external-message path: that
+        // would validate a commit we authored against external-actor rules.
+        // Hold the head instead of skipping it. This envelope may be a commit
+        // every other member applied, so advancing past it would leave this
+        // installation behind the group with no way back.
+        if db.own_intent_kind_is_unreadable(envelope.payload_hash.as_slice())? {
+            return Err(GroupMessageProcessingError::UnsupportedOwnIntentKind(
+                hex::encode(&envelope.payload_hash),
+            ));
+        }
         let intent = db
             .find_group_intent_by_payload_hash(envelope.payload_hash.as_slice())?
             .filter(|intent| intent.group_id == self.group_id);
@@ -2499,6 +2530,20 @@ where
             self.validate_and_process_external_message(mls_group, envelope, storage, events)?;
             ProcessedMessageOutcome::new(mls_group.is_active())
         };
+        // Removal is terminal for unaccepted outgoing work. Abandon it in the
+        // same transaction that applies the removal, so no stranded intent can
+        // preempt publishing after a later re-add (STR-086).
+        if !outcome.group_active {
+            let superseded =
+                db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;
+            if superseded > 0 {
+                tracing::info!(
+                    group_id = %self.group_id,
+                    superseded,
+                    "superseded pending intents for an inactive group"
+                );
+            }
+        }
         self.maybe_update_cursor(&db, envelope)?;
         Self::save_envelope_metadata_with_db(&db, envelope)?;
         Ok(outcome)
