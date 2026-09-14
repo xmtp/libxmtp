@@ -14,6 +14,11 @@ Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `s
 
 ## Commands
 
+The project Codex configuration wraps shell commands in Nix when its hook is
+trusted. Keep the explicit wrapper below as a fallback. Serena provides shared,
+read-only Rust navigation for this worktree. Its diagnostics are advisory; keep
+focused compiler checks and tests. See `docs/agent-tools.md` for setup and limits.
+
 Every `just` recipe runs inside `nix develop` (`dev/nix-shell`).
 Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix-shell '<cmd>'`.
 

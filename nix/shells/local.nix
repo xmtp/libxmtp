@@ -25,6 +25,8 @@
   rust-analyzer,
   nodejs_24,
   just,
+  python311,
+  uv,
 }:
 let
   inherit (stdenv) isDarwin;
@@ -81,6 +83,8 @@ mkShell (
       shellCommon.rustBase.buildInputs
       ++ [
         just
+        python311
+        uv
         # Combined toolchain (wasm + android + iOS targets)
         rust-toolchain
         rust-analyzer

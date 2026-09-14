@@ -18,6 +18,11 @@ description: Use when working with Nix flakes, selecting devShells, debugging en
 
 ## Environment Detection
 
+For agent commands, use `dev/nix-shell 'just <recipe>'`. The project Codex hook
+adds this wrapper when trusted. Nested calls reuse the same environment only
+when the worktree, shell, and input fingerprint match. Do not use the variables
+below as proof that a requested shell is current. See `docs/agent-tools.md`.
+
 ```bash
 echo $XMTP_NIX_ENV     # "yes" if in any Rust-based Nix shell
 echo $XMTP_DEV_SHELL   # "local", "android", "ios", or unset
