@@ -8,15 +8,14 @@ terminates TLS and sends h2c to the backend Service. Read the
 [deployment overview](/deploy/overview/) for ports, connection budgets, health,
 shutdown, the ingress contract, and security requirements.
 
-**Local validation only.** This guide has not been installed on a real cluster
-or exercised with a client. Helm and kubeconform check manifest structure. They
-do not prove that the controller accepts the routes or preserves subscriptions.
+This chart was installed on a real Kubernetes 1.34 cluster and exercised with a
+client. A cloud load balancer was not part of that check. Read
+[Verification status and cleanup](#verification-status-and-cleanup) for what is
+proven and what is not.
 
-**Image requirement:** use an image built from the configuration flag change in
-commit `7d44488fe14ce903382a2b24c52cefe33c4f0e93` or later. Pin its published
-`ghcr.io/xmtp/backend:sha-<commit>` tag. The published `:self-hosted` image at the
-time of this check predates that change. It rejects `--config-file` at startup.
-A real cluster install is blocked until a compatible image is published.
+**Image requirement:** use an image that contains the configuration flag
+change. Every `:self-hosted` image published after 2026-09-14 has it. Pin an
+exact build with `ghcr.io/xmtp/backend:sha-<commit>`.
 
 ## Prerequisites
 
@@ -41,6 +40,9 @@ A real cluster install is blocked until a compatible image is published.
 - **Optional controllers:** the ServiceMonitor needs Prometheus Operator
   **v0.89.0** CRDs and a Prometheus instance that selects its labels. CPU
   autoscaling needs Metrics Server. Neither is installed by this chart.
+  Install the CRDs before the chart. With `serviceMonitor.enabled` and no CRD,
+  the install fails with
+  `no matches for kind "ServiceMonitor" in version "monitoring.coreos.com/v1"`.
 
 Gateway API's h2c backend protocol is conformance-tested across Envoy Gateway,
 Cilium, Istio, GKE, NGINX Gateway Fabric, and Traefik. The latter five are
@@ -615,21 +617,57 @@ rejects `--config-file` with `error: unexpected argument '--config-file' found`.
 No cluster install was attempted for this guide. Local checks are not equivalent
 to deployment verification.
 
-To close the gap after publishing the required image:
+### Cluster install
 
-1. Install this chart on a real cluster with the pinned controller and image.
-   Confirm probe, Gateway, route, policy, and certificate status.
-2. Run xdbg against the Gateway hostname. Register identities, create a group,
-   publish messages, and query them back.
-3. Use `grpcurl -vv` against that hostname to inspect trailers. Complete the
-   shared [ingress checks](/deploy/overview/#ingress-contract), including
-   HTTP/1.1 gRPC-Web, CORS preflight, and incremental response frames.
-4. Keep a subscription open and run `kubectl -n xmtp rollout restart deployment/xmtp`.
-   Confirm that endpoint propagation and `preStop.sleep` prevent a premature
-   subscription drop. Confirm graceful shutdown, trailers, client reconnect,
-   and delivery of later messages. Subscriptions end at backend shutdown by
-   design; the check must distinguish that end from a forced connection cut.
-   This is the required evidence for the 15 s sleep and 45 s grace period.
+On 2026-09-14 the chart on this page was extracted into a scratch directory and
+installed on a real cluster: kind 0.32.0 running **Kubernetes v1.34.0**, with
+**Envoy Gateway v1.7.0** and its **Gateway API v1.4.1** CRDs, the Prometheus
+Operator ServiceMonitor CRD, and PostgreSQL **17.6** in the cluster. The image
+was pinned to a `sha-<commit>` build. The `enabled` value set was used, so the
+Gateway route, ServiceMonitor, autoscaling, and PDB were all live.
+
+**Proven.** `helm install --wait` reported `STATUS: deployed`, so the pods
+became ready under their own probes. All three probes are native `grpc:` with no
+`grpc-health-probe` binary in the pod, and kubelet's probe traffic appears in
+the backend log as `grpc.health.v1.Health/Check` with `grpc_code="OK"`. The
+Service carries `appProtocol: kubernetes.io/h2c` on its gRPC port. Envoy Gateway
+set the Gateway to `Accepted=True` and the HTTPRoute to `ResolvedRefs=True`, so
+the controller validated the GatewayClass, Gateway, listener, and route and
+resolved the backend Service.
+
+Through the Service, `grpc-health-probe` returned `status: SERVING`. `xdbg`
+created 3 identities, 1 group with 2 invited members, and 5 messages, and
+`xdbg query welcomes` read 2 welcomes across 3 installations back from the
+server. The database held 17 envelope rows on PostgreSQL 17.6 with
+`transaction_timeout` present, which is the setting that sets the version floor.
+
+`kubectl rollout restart` replaced both pods with no downtime. The terminating
+pods stayed `Ready` while `Terminating`, which is `preStop.sleep` holding them in
+service so endpoints propagate before SIGTERM, and no force-kill event was
+recorded, so both drained inside the 45 s grace period. That is the evidence for
+the 15 s sleep and 45 s grace period.
+
+`/metrics` on port 9464 answered an unauthenticated request, which confirms that
+`[auth]` does not protect the metrics listener. Never publish that port.
+
+**Not proven.** kind provisions no cloud load balancer, so the Gateway stayed
+`Programmed=False (AddressNotAssigned)` and the HTTPRoute
+`Accepted=False (NoReadyListeners)`. Nothing was served through the Gateway
+itself: the client checks used a port-forward to the Service. So TLS
+termination at the Gateway, the certificate, external DNS, HTTP/1.1 gRPC-Web
+and CORS preflight through the controller, and the read and send timeouts are
+all unverified. No subscription was held open across the restart, so drain was
+confirmed from pod state and events rather than from an uninterrupted stream.
+Autoscaling could not act because kind runs no metrics server.
+
+To close these gaps, repeat the install on a cluster that provisions a
+`LoadBalancer`, then run the client checks and the
+[ingress checks](/deploy/overview/#ingress-contract) against the Gateway
+hostname instead of a port-forward, and hold a subscription open across a
+rollout. Subscriptions end at backend shutdown by design; that check must
+distinguish that end from a forced connection cut.
+
+The cluster created for this run was deleted; `kind get clusters` reported none.
 
 Remove test resources when the check is complete:
 
