@@ -15,7 +15,20 @@ permissions:
 jobs:
   publish:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-16vcpu-ubuntu-2404
+    name: Publish backend image (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: blacksmith-16vcpu-ubuntu-2404
+            nix-disk: "true"
+            target: x86_64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            nix-disk: "false"
+            target: aarch64
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:
       NIX_DEVSHELL: rust
@@ -26,10 +39,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Check for the commit image
+      - name: Check for the architecture image
         id: image
         env:
-          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-${{ matrix.arch }}
         run: |
           if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
@@ -40,6 +53,7 @@ jobs:
         if: steps.image.outputs.exists != 'true'
         with:
           disk-key: rust
+          nix-disk: ${{ matrix.nix-disk }}
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
@@ -47,20 +61,97 @@ jobs:
         if: steps.image.outputs.exists != 'true'
       - name: Build image
         if: steps.image.outputs.exists != 'true'
-        run: just backend image
-      - name: Publish commit image
+        run: just backend image ${{ matrix.target }}
+      - name: Publish architecture image
         if: steps.image.outputs.exists != 'true'
         env:
           COMMIT_SHA: ${{ github.sha }}
+          ARCH: ${{ matrix.arch }}
         run: |
           docker load --input result-backend-image
-          docker tag ghcr.io/xmtp/backend:self-hosted "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}"
-          docker push "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}"
-      - name: Publish branch image
+          docker tag ghcr.io/xmtp/backend:self-hosted "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}-${ARCH}"
+          docker push "ghcr.io/xmtp/backend:sha-${COMMIT_SHA}-${ARCH}"
+
+  manifest:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check for the complete commit manifest
+        id: image
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+          AMD64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-amd64
+          ARM64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-arm64
+        run: |
+          if docker manifest inspect "$AMD64_IMAGE" > /dev/null 2>&1 \
+            && docker manifest inspect "$ARM64_IMAGE" > /dev/null 2>&1 \
+            && manifest="$(docker manifest inspect "$BACKEND_IMAGE" 2> /dev/null)" \
+            && printf '%s\n' "$manifest" | jq -e '
+              (.manifests // [])
+              | map(select(.platform.os == "linux") | .platform.architecture)
+              | sort == ["amd64", "arm64"]
+            ' > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish commit manifest
+        if: steps.image.outputs.exists != 'true'
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+          AMD64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-amd64
+          ARM64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-arm64
+        run: |
+          docker manifest create "$BACKEND_IMAGE" "$AMD64_IMAGE" "$ARM64_IMAGE"
+          docker manifest push --purge "$BACKEND_IMAGE"
+      - name: Check the current branch manifest
+        id: branch
         if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
         env:
           BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+          BRANCH_IMAGE: ghcr.io/xmtp/backend:self-hosted
+          COMMIT_SHA: ${{ github.sha }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          docker pull "$BACKEND_IMAGE"
-          docker tag "$BACKEND_IMAGE" ghcr.io/xmtp/backend:self-hosted
-          docker push ghcr.io/xmtp/backend:self-hosted
+          current_sha="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/git/ref/heads/self-hosted" \
+            | jq --raw-output '.object.sha')"
+          if [ "$current_sha" != "$COMMIT_SHA" ]; then
+            echo "current=false" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "current=true" >> "$GITHUB_OUTPUT"
+          if docker manifest inspect "$BACKEND_IMAGE" > "$RUNNER_TEMP/commit-manifest.json" 2> /dev/null \
+            && docker manifest inspect "$BRANCH_IMAGE" > "$RUNNER_TEMP/branch-manifest.json" 2> /dev/null \
+            && jq -e -s '
+              def platforms:
+                (.manifests // [])
+                | map(select(.platform.os == "linux") | {
+                    digest,
+                    architecture: .platform.architecture,
+                  })
+                | sort_by(.architecture);
+              [(.[0] | platforms), (.[1] | platforms)] as $platforms
+              | ($platforms[0] == $platforms[1])
+                and (($platforms[0] | map(.architecture)) == ["amd64", "arm64"])
+            ' "$RUNNER_TEMP/commit-manifest.json" "$RUNNER_TEMP/branch-manifest.json" > /dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish branch manifest
+        if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted' && steps.branch.outputs.current == 'true' && steps.branch.outputs.exists != 'true'
+        env:
+          AMD64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-amd64
+          ARM64_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}-arm64
+        run: |
+          docker manifest create ghcr.io/xmtp/backend:self-hosted "$AMD64_IMAGE" "$ARM64_IMAGE"
+          docker manifest push --purge ghcr.io/xmtp/backend:self-hosted

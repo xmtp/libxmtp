@@ -16,6 +16,7 @@ just backend test
 just backend test --lib config         # one module
 just backend test --lib https_passthrough # HTTPS streaming ingress check
 just backend image                     # host architecture image
+just backend image aarch64            # explicit architecture image
 just backend up                        # SDK and observability services
 just backend observe-check             # client operations, shared trace, metrics, Grafana
 just backend down                      # stop the shared stack
@@ -85,9 +86,11 @@ The stack includes `db`, `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`,
 architecture spec and observability guide; the catalogue test checks both.
 Backend metrics do not depend on trace sampling. Client span metrics do.
 
-Nix outputs: `xmtp-backend`, `backend-image`, and
-`backend-image-aarch64-unknown-linux-musl`. Both images use the `xmtp-backend`
-entry point and the `ghcr.io/xmtp/backend:self-hosted` tag.
+Nix outputs: `xmtp-backend`, `backend-image`,
+`backend-image-x86_64-unknown-linux-musl`, and
+`backend-image-aarch64-unknown-linux-musl`. `just backend image [target_arch]`
+builds the host target by default or a named musl architecture. Both images use the
+`xmtp-backend` entry point and the `ghcr.io/xmtp/backend:self-hosted` tag.
 
 ## Ephemeral test backends
 

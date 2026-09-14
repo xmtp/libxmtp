@@ -179,6 +179,8 @@ backend-only dependency.
 dev/nix-shell 'SQLX_OFFLINE=true cargo build --locked -p xmtp_backend'
 just backend build
 just backend image
+just backend image x86_64
+just backend image aarch64
 dev/nix-shell 'nix build .#backend-image-aarch64-unknown-linux-musl'
 ```
 
