@@ -1,6 +1,6 @@
 # xmtp-backend
 
-Self-hosted gRPC and gRPC-Web service. PostgreSQL 18 stores durable state.
+Self-hosted gRPC and gRPC-Web service. Requires PostgreSQL 17 or later for durable state.
 
 ## Commands
 

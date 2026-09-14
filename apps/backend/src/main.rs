@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{ArgGroup, Parser};
 use std::path::PathBuf;
 use xmtp_backend::{
     config::{Config, LogFormat},
@@ -6,19 +6,49 @@ use xmtp_backend::{
 };
 
 #[derive(Parser)]
+#[command(group(ArgGroup::new("configuration").required(true).args(["config", "config_file"])))]
 struct Args {
-    #[arg(long)]
-    config: PathBuf,
-    /// Override server.log_level from the configuration file.
+    /// Inline TOML document.
+    #[arg(
+        long,
+        env = "XMTP_CONFIG",
+        hide_env_values = true,
+        conflicts_with = "config_file"
+    )]
+    config: Option<String>,
+    /// Path to a TOML configuration file.
+    #[arg(long, conflicts_with = "config")]
+    config_file: Option<PathBuf>,
+    /// Override server.log_level from the configuration.
     #[arg(long, value_enum)]
     log_level: Option<xmtp_backend::config::LogLevel>,
+}
+
+impl Args {
+    fn load_config(&self) -> Result<Config, Box<dyn std::error::Error + Send + Sync>> {
+        match &self.config {
+            Some(contents) => {
+                if std::fs::symlink_metadata(contents).is_ok() {
+                    return Err(
+                        "--config contains a file path; use --config-file for a TOML file".into(),
+                    );
+                }
+                Ok(Config::load_str(contents)?)
+            }
+            None => {
+                Ok(Config::load(self.config_file.as_ref().expect(
+                    "clap requires --config-file when --config is absent",
+                ))?)
+            }
+        }
+    }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     xmtp_cryptography::install_crypto_provider();
     let args = Args::parse();
-    let mut config = Config::load(&args.config)?;
+    let mut config = args.load_config()?;
     if let Some(level) = args.log_level {
         config.server.log_level = level;
     }

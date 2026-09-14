@@ -8,6 +8,8 @@ use xmtp_logging::test_logging::OtlpCollector;
 
 const CHILD_CONFIG: &str = "XMTP_BACKEND_STARTUP_TEST_CONFIG";
 const TEST_NAME: &str = "tests::startup_preserves_metrics_export_and_shutdown_across_log_settings";
+const CHILD_ARGS: &str = "XMTP_BACKEND_STARTUP_TEST_ARGS";
+const SECRET: &str = "private-config-sentinel";
 const DRAIN_MS: u64 = 1_000;
 
 struct Process {
@@ -17,6 +19,15 @@ struct Process {
 
 impl Process {
     fn start(config: &str, endpoint: Option<&str>) -> Self {
+        Self::start_with_args(config, endpoint, None, None)
+    }
+
+    fn start_with_args(
+        config: &str,
+        endpoint: Option<&str>,
+        args: Option<&[&str]>,
+        inline_env: Option<&str>,
+    ) -> Self {
         let directory = std::env::temp_dir().join(format!("xmtp-startup-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir(&directory).unwrap();
         let path = directory.join("backend.toml");
@@ -25,10 +36,19 @@ impl Process {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command
             .args(["--exact", TEST_NAME, "--nocapture"])
-            .env(CHILD_CONFIG, path)
+            .env(CHILD_CONFIG, &path)
+            .env_remove("XMTP_CONFIG")
+            .env_remove(CHILD_ARGS)
+            .env("XMTP_STARTUP_TEST_SECRET", SECRET)
             .env_remove("OTEL_EXPORTER_OTLP_ENDPOINT")
             .stdout(Stdio::from(output.try_clone().unwrap()))
             .stderr(Stdio::from(output));
+        if let Some(args) = args {
+            command.env(CHILD_ARGS, serde_json::to_string(args).unwrap());
+        }
+        if let Some(contents) = inline_env {
+            command.env("XMTP_CONFIG", contents);
+        }
         if let Some(endpoint) = endpoint {
             command.env("OTEL_EXPORTER_OTLP_ENDPOINT", endpoint);
         }
@@ -111,7 +131,12 @@ async fn scrape(address: &str, expected: &str) -> String {
 async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     if let Ok(path) = std::env::var(CHILD_CONFIG) {
         xmtp_cryptography::install_crypto_provider();
-        let config = Config::load(path)?;
+        let arguments = match std::env::var(CHILD_ARGS) {
+            Ok(arguments) => serde_json::from_str::<Vec<String>>(&arguments)?,
+            Err(_) => vec!["--config-file".into(), path],
+        };
+        let args = Args::parse_from(std::iter::once("xmtp-backend".to_string()).chain(arguments));
+        let config = args.load_config()?;
         if config.telemetry.metrics_listen.is_empty() {
             let occupied = TcpListener::bind("0.0.0.0:9464")?;
             let metrics = telemetry::install("")?;
@@ -267,4 +292,112 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
     assert!(!output.contains("private-url-sentinel"));
     assert!(!output.contains("backend ready to serve"));
     let _listener = TcpListener::bind(grpc)?;
+}
+
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+async fn inline_sources_start_and_serve() {
+    let database = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
+    for from_env in [false, true] {
+        let grpc = address();
+        let metrics = address();
+        let config = format!(
+            "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\nresource_attributes = {{ secret = 'env:XMTP_STARTUP_TEST_SECRET' }}\n"
+        );
+        let mut process = if from_env {
+            Process::start_with_args("", None, Some(&[]), Some(&config))
+        } else {
+            Process::start_with_args("", None, Some(&["--config", &config]), None)
+        };
+        scrape(&metrics, "xmtp_backend_ready 1").await;
+        let channel = tonic::transport::Endpoint::from_shared(format!("http://{grpc}"))?
+            .connect()
+            .await?;
+        let mut client = xmtp_backend::api::query_service_client::QueryServiceClient::new(channel);
+        client
+            .query_newest(xmtp_backend::api::QueryNewestRequest {
+                topics: vec![xmtp_backend::api::Topic {
+                    topic: xmtp_proto::types::Topic::new_group_message(
+                        xmtp_proto::types::GroupId::ZERO,
+                    )
+                    .cloned_vec(),
+                }],
+                include_full_envelope: false,
+            })
+            .await?;
+        process.terminate().await;
+        assert!(!process.output().contains(SECRET));
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn configuration_source_errors_and_help_omit_secrets() {
+    let invalid_value = "[database]\nurl = 'env:XMTP_STARTUP_TEST_SECRET'\n";
+    for (args, env, expected, success) in [
+        (
+            vec!["--config", SECRET, "--config-file", "unused"],
+            None,
+            vec!["--config", "--config-file"],
+            false,
+        ),
+        (
+            vec!["--config-file", "unused"],
+            Some(SECRET),
+            vec!["--config", "--config-file"],
+            false,
+        ),
+        (
+            vec!["--config", "Cargo.toml"],
+            None,
+            vec!["--config-file"],
+            false,
+        ),
+        (vec![], Some("Cargo.toml"), vec!["--config-file"], false),
+        (vec!["--config", "/tmp"], None, vec!["--config-file"], false),
+        (vec!["--config", SECRET], None, vec!["Parse"], false),
+        (
+            vec!["--config", invalid_value],
+            None,
+            vec!["Invalid"],
+            false,
+        ),
+        (vec![], Some(invalid_value), vec!["Invalid"], false),
+        (vec![], Some(SECRET), vec!["Parse"], false),
+        (
+            vec!["--help"],
+            Some(SECRET),
+            vec!["XMTP_CONFIG", "--config-file"],
+            true,
+        ),
+        (
+            vec!["--config", SECRET, "--help"],
+            None,
+            vec!["--config-file"],
+            true,
+        ),
+    ] {
+        let mut process = Process::start_with_args("", None, Some(&args), env);
+        assert_eq!(process.child.wait()?.success(), success);
+        let output = process.output();
+        assert!(!output.contains(SECRET), "{output}");
+        for text in expected {
+            assert!(output.contains(text), "{output}");
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn missing_configuration_source_is_a_clap_usage_error() {
+    let mut process = Process::start_with_args("", None, Some(&[]), None);
+    assert_eq!(process.child.wait()?.code(), Some(2));
+    let output = process.output();
+    assert!(
+        output.contains("required arguments were not provided"),
+        "{output}"
+    );
+    assert!(output.contains("Usage: xmtp-backend"), "{output}");
+    assert!(
+        output.contains("--config <CONFIG>|--config-file <CONFIG_FILE>"),
+        "{output}"
+    );
 }

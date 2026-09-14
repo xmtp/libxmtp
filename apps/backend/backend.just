@@ -26,7 +26,7 @@ image:
 run:
     {{ _env }} && \
       XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$XMTP_REPLICA_URL" XMTP_CHAIN_31337_URL="$ANVIL_URL" \
-      nix run {{ root }}#xmtp-backend -- --config {{ root }}/dev/backend/local.toml
+      nix run {{ root }}#xmtp-backend -- --config-file {{ root }}/dev/backend/local.toml
 
 # Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
 test *args="":

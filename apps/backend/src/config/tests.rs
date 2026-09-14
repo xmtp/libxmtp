@@ -388,3 +388,22 @@ fn telemetry_string_values_resolve_environment_references_once() {
         std::env::var("PATH")?
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn inline_configuration_resolves_environment_references() {
+    let config = Config::load_str(&format!(
+        "{MINIMAL}\n[telemetry]\nresource_attributes = {{ path = 'env:PATH' }}\n"
+    ))?;
+    assert_eq!(
+        config.telemetry.resource_attributes["path"],
+        std::env::var("PATH")?
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_inline_configuration_omits_document_contents() {
+    // Guard the unit variant: retaining a TOML parser error could expose input text.
+    let error = Config::load_str("secret-inline-sentinel = [").unwrap_err();
+    assert!(matches!(error, ConfigError::Parse));
+    assert!(!format!("{error} {error:?}").contains("secret-inline-sentinel"));
+}

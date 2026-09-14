@@ -13,8 +13,8 @@ instance it left. It reconnects with its own topic cursors.
 
 ## Requirements
 
-- PostgreSQL 18.
-- One TOML configuration file.
+- PostgreSQL 17 or later.
+- One TOML configuration document.
 - A TCP port for the gRPC listener. The default is `5050`.
 
 The backend applies its schema from a single migration. Startup never deletes a
@@ -22,8 +22,9 @@ database.
 
 ## Configuration
 
-Pass one TOML file with `--config`. The database URL is required. Every other key
-has a default. Unknown keys, invalid values, and inconsistent size relationships
+Pass inline TOML with `--config` or `XMTP_CONFIG`. For a mounted file, use
+`--config-file` instead. Supply exactly one source. The database URL is required.
+Every other key has a default. Unknown keys, invalid values, and inconsistent size relationships
 fail startup.
 
 A string of the form `env:NAME` reads the environment variable `NAME` at startup.
@@ -121,14 +122,14 @@ from `just backend db-up`.
 ## Run the container image
 
 The published image is `ghcr.io/xmtp/backend`. Mount a configuration file and
-pass `--config`. The entry point is the backend binary, so the container command
+pass `--config-file`. The entry point is the backend binary, so the container command
 is only its arguments.
 
 ```sh
 docker run --rm -p 5050:5050 \
   -e XMTP_DATABASE_URL=postgres://user:password@host:5432/xmtp_backend \
   -v ./config.toml:/config.toml:ro \
-  ghcr.io/xmtp/backend:self-hosted --config /config.toml
+  ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
 ```
 
 ## Ports and health

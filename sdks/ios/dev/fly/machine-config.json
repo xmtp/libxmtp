@@ -56,7 +56,7 @@
         "XMTP_CHAIN_31337_URL": "http://localhost:8545"
       },
       "cmd": [
-        "--config",
+        "--config-file",
         "/config.toml"
       ],
       "depends_on": [

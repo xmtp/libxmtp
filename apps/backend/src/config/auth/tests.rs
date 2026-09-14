@@ -87,14 +87,16 @@ fn keys_are_parsed_as_spki_for_the_exact_algorithm_at_load() {
         let mut config = key.auth_config();
         config.keys.as_mut().unwrap()[0].alg = alg.into();
         let error = config.validate().unwrap_err().to_string();
-        assert!(error.contains(&key.kid));
+        assert!(error.contains("auth.keys[0]"));
+        assert!(!error.contains(&key.kid));
         assert!(!error.contains(&key.public_key));
     }
     let mut key = key.config();
     key.public_key = "private-key-sentinel".into();
     let source = format!("[auth]\nkeys = [{}]", toml::Value::try_from(&key)?);
     let error = loaded(&source).unwrap_err().to_string();
-    assert!(error.contains(&key.kid));
+    assert!(error.contains("auth.keys[0]"));
+    assert!(!error.contains(&key.kid));
     assert!(!error.contains("private-key-sentinel"));
 }
 
@@ -218,4 +220,41 @@ fn schema_describes_all_auth_fields_and_environment_references() {
             .to_string()
             .contains("env:")
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn resolved_key_values_are_absent_from_validation_errors() {
+    const CHILD: &str = "XMTP_AUTH_REDACTION_CHILD";
+    const SENTINEL: &str = "SENTINEL-SECRET-abc123";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "config::auth::tests::resolved_key_values_are_absent_from_validation_errors",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("XMTP_KID_SECRET", SENTINEL)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+        return;
+    }
+    for (alg, reason) in [
+        ("BOGUS", "alg must be a supported asymmetric algorithm"),
+        ("ES256", "public_key must be SubjectPublicKeyInfo for alg"),
+    ] {
+        let error = Config::load_str(&format!(
+            "[database]\nurl = 'postgres://localhost/xmtp'\n[auth]\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
+        )).unwrap_err();
+        for message in [error.to_string(), format!("{error:?}")] {
+            assert!(!message.contains(SENTINEL), "{message}");
+            assert!(message.contains("auth.keys[0]"), "{message}");
+            assert!(message.contains(reason), "{message}");
+        }
+    }
 }

@@ -51,7 +51,7 @@ services:
       tempo: { condition: service_started }
     environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
     volumes: ["../backend/local.toml:/config.toml:ro"]
-    command: ["--config", "/config.toml"]
+    command: ["--config-file", "/config.toml"]
     # The backend binds all interfaces on purpose: the Android emulator reaches
     # the host at 10.0.2.2, which loopback-only publishing would not serve.
     ports: ["${XMTP_BACKEND_PORT:-5050}:5050", "127.0.0.1:${XMTP_BACKEND_METRICS_PORT:-9464}:9464"]
