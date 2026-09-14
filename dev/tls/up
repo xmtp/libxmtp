@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euo pipefail
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+mkdir -p "$script_dir/.generated"
+if [ ! -f "$script_dir/.generated/server.pem" ] ||
+  ! openssl x509 -checkend 3600 -noout -in "$script_dir/.generated/server.crt" >/dev/null 2>&1; then
+  if ! openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
+    -subj /CN=localhost -addext 'subjectAltName=DNS:localhost,IP:127.0.0.1' \
+    -keyout "$script_dir/.generated/server.key" \
+    -out "$script_dir/.generated/server.crt" 2>"$script_dir/.generated/certificate.log"; then
+    cat "$script_dir/.generated/certificate.log" >&2
+    exit 1
+  fi
+  cat "$script_dir/.generated/server.crt" "$script_dir/.generated/server.key" >"$script_dir/.generated/server.pem"
+  rm "$script_dir/.generated/server.key"
+  echo 'Generated a self-signed certificate for local validation.'
+fi
+# The official HAProxy image runs as a non-root user. It must read the PEM.
+# This key is disposable and is only for this local validation stack.
+chmod 755 "$script_dir/.generated"
+chmod 644 "$script_dir/.generated/server.pem" "$script_dir/.generated/server.crt"
+
+if [ "${1:-}" = "--cert-only" ]; then
+  exit 0
+fi
+echo "stack 'libxmtp-tls': https://127.0.0.1:18443"
+exec docker compose -f "$script_dir/compose.yml" -p libxmtp-tls up --detach --remove-orphans --wait "$@"

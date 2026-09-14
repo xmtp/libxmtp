@@ -1,0 +1,5 @@
+[server]
+listen = "[::]:5050"
+
+[database]
+url = "env:XMTP_DATABASE_URL"

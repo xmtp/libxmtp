@@ -1,0 +1,5 @@
+#!/bin/bash
+set -euo pipefail
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+docker compose -f "$script_dir/compose.yml" -p libxmtp-tls down --volumes --remove-orphans "$@"
+rm -rf "$script_dir/.generated"
