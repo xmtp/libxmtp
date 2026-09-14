@@ -8,8 +8,8 @@ needed. Read the [deployment overview](/deploy/overview/) first for image tags,
 ports, connection budgets, health, shutdown, ingress, and security requirements.
 
 **Image requirement:** `--config-file` requires an image that contains the
-configuration flag change. Every `:self-hosted` image published after
-2026-09-14 has it. Pin an exact build with
+configuration flag change, which merged at 2026-09-14 14:14 -0700. An image
+published earlier that day does not have it. Pin an exact build with
 `ghcr.io/xmtp/backend:sha-<commit>`.
 
 ## Create the configuration
@@ -85,7 +85,8 @@ is off to keep the app available for subscriptions.
 Fly has no gRPC check type. The TCP check gives startup and migrations 120 s
 before failures count. Increase this grace period if startup needs more time.
 The 30 s `kill_timeout` covers the [shutdown budgets](/deploy/overview/#shutdown)
-with a margin.
+with a margin. Keep it. Fly's default is 5 s, which cuts the drain short. Fly
+also treats `kill_timeout` as best effort.
 
 ## Create the database and deploy
 
@@ -119,10 +120,11 @@ fly deploy --ha=false
 `--ha=false` starts one Machine for this example. Before adding Machines, check
 the [connection budget](/deploy/overview/#connection-budget).
 
-Managed Postgres does not offer a read replica. If you need one, use an
-unmanaged PostgreSQL deployment and follow the
-[read replica requirements](/deploy/overview/#read-replica). Fly does not support
-unmanaged PostgreSQL.
+Managed Postgres does not offer a read replica. If you need one, use unmanaged
+Fly Postgres (`fly postgres`) and follow the
+[read replica requirements](/deploy/overview/#read-replica). Fly Support does
+not cover unmanaged Fly Postgres, so you own its operations, upgrades, backups,
+and disaster recovery.
 
 ## Check the deployment
 
@@ -147,7 +149,9 @@ deployed; only the app name changed.
 **Proven.** `fly config validate` passed, and `config.toml` passed JSON Schema
 validation with `check-jsonschema 0.38.0`. Fly Managed Postgres **17** was
 provisioned in `sjc`, which confirms that the PostgreSQL 17 floor makes the
-managed offering usable. `fly deploy` started two machines and both reported
+managed offering usable. The run used `fly deploy --now` rather than the
+`--ha=false` this page documents, so Fly's high-availability default created
+two machines instead of one. Both reported
 `1 total, 1 passing` checks. Fly wrote `/config.toml` from `[[files]]` and
 appended the process arguments, so the backend ran as
 `xmtp-backend --config-file /config.toml`. Migrations completed and both
@@ -165,12 +169,16 @@ A native gRPC call over HTTP/2 succeeded, which confirms `h2_backend` and the
 ALPN list. The response carried
 `access-control-expose-headers: grpc-status,grpc-message,grpc-status-details-bin,x-request-id`
 and an `x-request-id`. An error call returned `NotFound` with its message in
-real HTTP/2 trailers, which is the evidence that Fly Proxy forwards bytes
-without gRPC conversion.
+real HTTP/2 trailers, so the proxy preserves trailers, which the
+[ingress contract](/deploy/overview/#ingress-contract) requires. Together with
+the native HTTP/2 call and `h2_backend`, that is the evidence for this path;
+preserved trailers alone would not rule out a gRPC-aware proxy.
 
-Restarting a machine logged `backend shutdown requested`, exited cleanly, and
-returned to serving in about 2.3 s, so SIGTERM drains rather than killing the
-process. The stored data and health were unchanged afterwards.
+Restarting a machine logged `backend shutdown requested` and returned to
+serving in about 2.3 s, so the process received SIGTERM and exited cleanly
+rather than being killed. The stored data and health were unchanged afterwards.
+The run held no in-flight requests, so it does not show that the drain budget
+works; it shows a clean exit.
 
 **Not proven.** No subscription was held open across the restart, so drain
 behavior was confirmed from logs and later reads rather than from an
