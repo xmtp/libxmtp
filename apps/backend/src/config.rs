@@ -22,6 +22,7 @@ use xmtp_configuration::{
 };
 
 pub mod auth;
+pub mod push;
 mod schema;
 mod telemetry;
 pub use telemetry::TelemetryConfig;
@@ -110,6 +111,8 @@ pub struct Config {
     #[serde(default)]
     pub retention: RetentionConfig,
     #[serde(default)]
+    pub push: push::PushConfig,
+    #[serde(default)]
     #[schemars(schema_with = "schema::chains")]
     pub chains: BTreeMap<String, String>,
     #[serde(default)]
@@ -173,6 +176,7 @@ impl Config {
             .validate(self.database.max_statement_timeout_ms)?;
         self.streams.validate()?;
         self.retention.validate()?;
+        self.push.validate()?;
         self.validation.validate()?;
         self.validate_chains()?;
         self.limits.validate()?;
@@ -214,6 +218,7 @@ impl std::fmt::Debug for Config {
             .field("publishing", &self.publishing)
             .field("streams", &self.streams)
             .field("retention", &self.retention)
+            .field("push", &self.push)
             .field(
                 "chains",
                 &format_args!("{} configured chain(s)", self.chains.len()),
@@ -606,6 +611,9 @@ impl Default for ValidationConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct LimitsConfig {
+    /// Maximum stored topics for one push recipient.
+    #[schemars(schema_with = "schema::positive_integer::<{ i32::MAX as u64 }>")]
+    pub max_push_topics: i32,
     #[schemars(schema_with = "schema::positive_integer::<{ usize::MAX as u64 }>")]
     pub max_query_topics: usize,
     #[schemars(schema_with = "schema::positive_integer::<{ i64::MAX as u64 - 1 }>")]
@@ -653,6 +661,7 @@ pub struct LimitsConfig {
 impl LimitsConfig {
     /// Check positive limits, downstream integer ranges, and related capacities.
     fn validate(&self) -> Result<(), ConfigError> {
+        positive(self.max_push_topics, "limits.max_push_topics")?;
         positive(self.max_query_topics, "limits.max_query_topics")?;
         positive(self.default_query_limit, "limits.default_query_limit")?;
         positive(self.max_query_limit, "limits.max_query_limit")?;
@@ -739,6 +748,7 @@ impl LimitsConfig {
 impl Default for LimitsConfig {
     fn default() -> Self {
         Self {
+            max_push_topics: push::DEFAULT_MAX_PUSH_TOPICS,
             max_query_topics: BACKEND_DEFAULT_MAX_QUERY_TOPICS,
             default_query_limit: BACKEND_DEFAULT_QUERY_LIMIT,
             max_query_limit: BACKEND_DEFAULT_MAX_QUERY_LIMIT,

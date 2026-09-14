@@ -41,14 +41,28 @@ where
     }
     fn call(&mut self, request: Request<Body>) -> Self::Future {
         let slot = request.extensions().get::<StatusSlot>().cloned();
+        let notification = matches!(
+            request.uri().path(),
+            "/xmtp.backend.v1.NotificationService/Register"
+                | "/xmtp.backend.v1.NotificationService/Unregister"
+                | "/xmtp.backend.v1.NotificationService/UpdateSubscriptions"
+        );
         let future = self.inner.call(request);
         Box::pin(async move {
-            let response = future.await?;
-            let Some(slot) = slot else {
-                return Ok(response);
-            };
-            slot.record(response.headers());
-            Ok(response.map(|inner| Body::new(StatusBody { inner, slot })))
+            let mut response = future.await?;
+            if notification {
+                normalize_notification_decode(response.headers_mut());
+            }
+            if let Some(slot) = &slot {
+                slot.record(response.headers());
+            }
+            Ok(response.map(|inner| {
+                Body::new(StatusBody {
+                    inner,
+                    slot,
+                    notification,
+                })
+            }))
         })
     }
 }
@@ -59,7 +73,8 @@ where
 struct StatusBody<B> {
     #[pin]
     inner: B,
-    slot: StatusSlot,
+    slot: Option<StatusSlot>,
+    notification: bool,
 }
 impl<B: HttpBody<Data = Bytes>> HttpBody for StatusBody<B> {
     type Data = Bytes;
@@ -69,11 +84,16 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for StatusBody<B> {
         cx: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
         let this = self.project();
-        let frame = this.inner.poll_frame(cx);
-        if let Poll::Ready(Some(Ok(frame))) = &frame
-            && let Some(trailers) = frame.trailers_ref()
+        let mut frame = this.inner.poll_frame(cx);
+        if let Poll::Ready(Some(Ok(frame))) = &mut frame
+            && let Some(trailers) = frame.trailers_mut()
         {
-            this.slot.record(trailers);
+            if *this.notification {
+                normalize_notification_decode(trailers);
+            }
+            if let Some(slot) = this.slot {
+                slot.record(trailers);
+            }
         }
         frame
     }
@@ -82,5 +102,32 @@ impl<B: HttpBody<Data = Bytes>> HttpBody for StatusBody<B> {
     }
     fn size_hint(&self) -> SizeHint {
         self.inner.size_hint()
+    }
+}
+
+/// Prost reports malformed protobuf as INTERNAL before invoking the handler.
+/// Rewrite only that decoder status on notification routes, before logs and
+/// gRPC-Web conversion can observe its input-dependent message.
+fn normalize_notification_decode(headers: &mut http::HeaderMap) {
+    if let Some(status) = tonic::Status::from_header_map(headers)
+        && status.code() == tonic::Code::Internal
+        && (status
+            .message()
+            .starts_with("failed to decode Protobuf message")
+            || status
+                .message()
+                .starts_with("protocol error: received message with")
+            || status.message().starts_with("Error decompressing:")
+            || matches!(
+                status.message(),
+                "Unexpected EOF decoding stream." | "Missing request message."
+            ))
+    {
+        headers.insert("grpc-status", http::HeaderValue::from_static("3"));
+        headers.insert(
+            "grpc-message",
+            http::HeaderValue::from_static(crate::service::notification::MALFORMED_REQUEST),
+        );
+        headers.remove("grpc-status-details-bin");
     }
 }

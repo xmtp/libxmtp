@@ -119,6 +119,21 @@ pub struct ParsedEnvelope {
     pub canonical: CanonicalEnvelope,
 }
 
+impl ParsedEnvelope {
+    /// Classify a parsed envelope for push storage without changing canonical bytes.
+    /// Commits and proposals remain eligible even when the sender disables pushes.
+    pub fn push_fields(&self) -> (bool, Option<Vec<u8>>) {
+        match self.envelope.payload.as_ref() {
+            Some(Payload::GroupMessage(group)) => (
+                self.is_commit_or_proposal || group.should_push,
+                (group.sender_hmac.len() == 32).then(|| group.sender_hmac.clone()),
+            ),
+            Some(Payload::WelcomeMessage(_)) => (true, None),
+            _ => (false, None),
+        }
+    }
+}
+
 /// Parse an MLS group message and preserve accepted trailing bytes.
 ///
 /// The parser consumes the first TLS-encoded message. It returns framing or

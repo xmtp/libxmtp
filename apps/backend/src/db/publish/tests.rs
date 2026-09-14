@@ -24,6 +24,8 @@ async fn new_envelopes_use_transaction_start_time_even_after_a_wait() {
             xmtp_mls_validation::test_utils::inline_welcome_envelope([index as u8; 32]),
         )?;
         pending.push(super::PendingEnvelope {
+            push_eligible: true,
+            sender_hmac: None,
             topic: parsed.topic.to_vec(),
             message_hash: parsed.canonical.hash,
             payload: parsed.canonical.bytes,

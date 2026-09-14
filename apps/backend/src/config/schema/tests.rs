@@ -53,6 +53,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         "publishing",
         "streams",
         "retention",
+        "push",
         "validation",
         "limits",
     ] {
@@ -78,6 +79,9 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 continue;
             }
             let maximum = match (section.as_str(), field.as_str()) {
+                ("push", "recipient_ttl_seconds") => i64::MAX as u64 / 1_000_000_000,
+                ("push", "max_attempts") => 10,
+                ("limits", "max_push_topics") => i32::MAX as u64,
                 ("database", "max_connections")
                 | ("streams", "keepalive_interval_ms")
                 | (
@@ -93,10 +97,15 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 ("limits", "max_query_limit" | "default_query_limit") => i64::MAX as u64 - 1,
                 _ => u64::MAX,
             };
+            let minimum = if section == "push" && field == "recipient_ttl_seconds" {
+                86_400
+            } else {
+                1
+            };
             for (value, accepted) in [
-                (json!(1), true),
+                (json!(minimum), true),
                 (json!(maximum), true),
-                (json!(0), false),
+                (json!(minimum - 1), false),
                 (json!(-1), false),
                 (json!(1.5), false),
                 (
@@ -114,6 +123,30 @@ fn published_schema_enforces_every_numeric_scalar_range() {
             }
         }
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_requires_provider_credentials_and_names_valid_environments() {
+    let validator = validator();
+    let apns = json!({ "key": "env:APNS_KEY", "key_id": "key", "team_id": "team", "bundle_id": "bundle", "environment": "sandbox" });
+    let baseline = json!({ "database": { "url": "env:DB" }, "push": { "apns": apns, "fcm": { "service_account": "env:FCM_ACCOUNT" }, "http": {} } });
+    assert!(validator.is_valid(&baseline));
+    for key in ["key", "key_id", "team_id", "bundle_id", "environment"] {
+        let mut missing = baseline.clone();
+        missing["push"]["apns"].as_object_mut()?.remove(key);
+        assert!(!validator.is_valid(&missing), "missing {key}");
+    }
+    let mut missing = baseline.clone();
+    missing["push"]["fcm"] = json!({});
+    assert!(!validator.is_valid(&missing));
+    for environment in ["sandbox", "production", "env:APNS_ENVIRONMENT"] {
+        let mut instance = baseline.clone();
+        instance["push"]["apns"]["environment"] = json!(environment);
+        assert!(validator.is_valid(&instance));
+    }
+    let mut invalid = baseline;
+    invalid["push"]["apns"]["environment"] = json!("invalid");
+    assert!(!validator.is_valid(&invalid));
 }
 
 #[xmtp_common::test(unwrap_try = true)]

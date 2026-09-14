@@ -144,19 +144,19 @@ async fn storage_constraints_reject_invalid_rows() {
 
     for (statement, expected_code) in [
         (
-            "INSERT INTO envelopes SELECT 0, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "INSERT INTO envelopes SELECT 0, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload, push_eligible, sender_hmac FROM envelopes LIMIT 1",
             "23514",
         ),
         (
-            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload, push_eligible, sender_hmac FROM envelopes LIMIT 1",
             "23505",
         ),
         (
-            "INSERT INTO envelopes SELECT sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "INSERT INTO envelopes SELECT sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal, payload, push_eligible, sender_hmac FROM envelopes LIMIT 1",
             "23505",
         ),
         (
-            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, 'x'::bytea, is_commit_or_proposal, payload FROM envelopes LIMIT 1",
+            "INSERT INTO envelopes SELECT 99, topic, server_ns, expiry_ns, 'x'::bytea, is_commit_or_proposal, payload, push_eligible, sender_hmac FROM envelopes LIMIT 1",
             "23514",
         ),
     ] {

@@ -2,6 +2,7 @@ use crate::{
     Backend,
     api::{
         identity_service_server::IdentityServiceServer,
+        notification_service_server::NotificationServiceServer,
         publish_service_server::PublishServiceServer, query_service_server::QueryServiceServer,
         subscription_service_server::SubscriptionServiceServer,
     },
@@ -59,6 +60,13 @@ pub async fn initialize(
     let verifier = CachedSmartContractSignatureVerifier::new(verifier, capacity)?;
     let store = Store::connect(&config).await?;
     config.retention.validate_at(store.clock_ns().await?)?;
+    config
+        .push
+        .expires_at(store.clock_ns().await?)
+        .map_err(|_| crate::config::ConfigError::Invalid {
+            field: "push.recipient_ttl_seconds",
+            reason: "expiry cannot be represented at the database clock",
+        })?;
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier);
@@ -104,6 +112,9 @@ pub async fn serve(
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let subscription = SubscriptionServiceServer::new(backend.clone())
+        .max_decoding_message_size(receive)
+        .max_encoding_message_size(send);
+    let notification = NotificationServiceServer::new(backend.clone())
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let (reporter, health) = tonic_health::server::health_reporter();
@@ -170,6 +181,7 @@ pub async fn serve(
         .add_service(publish)
         .add_service(identity)
         .add_service(subscription)
+        .add_service(notification)
         .serve_with_incoming_shutdown(incoming, async {
             let _ = stopped.await;
         });
@@ -207,6 +219,7 @@ async fn report_health(
         PublishServiceServer::<Backend>::NAME,
         IdentityServiceServer::<Backend>::NAME,
         SubscriptionServiceServer::<Backend>::NAME,
+        NotificationServiceServer::<Backend>::NAME,
     ] {
         reporter.set_service_status(service, status).await;
     }

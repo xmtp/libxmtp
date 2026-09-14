@@ -171,7 +171,10 @@ impl Backend {
                         .ok_or_else(|| Status::internal("invalid retention duration"))
                 })
                 .transpose()?;
+            let (push_eligible, sender_hmac) = parsed.push_fields();
             pending.push(PendingEnvelope {
+                push_eligible,
+                sender_hmac,
                 topic: parsed.topic.to_vec(),
                 message_hash: parsed.canonical.hash,
                 payload: Vec::new(),

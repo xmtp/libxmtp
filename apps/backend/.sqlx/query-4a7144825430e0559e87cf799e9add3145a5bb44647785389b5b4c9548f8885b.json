@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_subscription WHERE recipient_id = $1 AND topic = ANY($2::bytea[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "ByteaArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a7144825430e0559e87cf799e9add3145a5bb44647785389b5b4c9548f8885b"
+}

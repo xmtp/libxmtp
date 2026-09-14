@@ -4,6 +4,7 @@ breaking:
   use:
     - FILE
 lint:
+  allow_comment_ignores: true
   use:
     - STANDARD
   ignore_only:

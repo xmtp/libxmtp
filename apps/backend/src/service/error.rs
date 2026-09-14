@@ -14,14 +14,18 @@ impl From<Error> for Status {
     fn from(error: Error) -> Self {
         use crate::telemetry::{self, DbErrorKind};
         let kind = match &error {
-            Error::StaleHistory | Error::Admission { .. } => None,
+            Error::StaleHistory
+            | Error::Admission { .. }
+            | Error::PushRecipientMissing
+            | Error::PushSecretInvalid
+            | Error::PushTopicLimit => None,
             Error::Database(sqlx::Error::Database(db))
                 if matches!(db.code().as_deref(), Some("57014" | "25P04")) =>
             {
                 Some(DbErrorKind::Timeout)
             }
             Error::Database(sqlx::Error::PoolTimedOut) => Some(DbErrorKind::Timeout),
-            Error::Invariant(_) => Some(DbErrorKind::Invariant),
+            Error::Invariant(_) | Error::PushExpiryOverflow => Some(DbErrorKind::Invariant),
             Error::Database(sqlx::Error::Database(db))
                 if matches!(db.code().as_deref(), Some("23505" | "23514" | "22003")) =>
             {
@@ -43,6 +47,10 @@ impl From<Error> for Status {
             telemetry::db_error(kind);
         }
         match &error {
+            Error::PushRecipientMissing => Self::not_found("recipient is not registered"),
+            Error::PushSecretInvalid => Self::permission_denied("recipient secret is not valid"),
+            Error::PushTopicLimit => Self::resource_exhausted("recipient topic limit reached"),
+            Error::PushExpiryOverflow => Self::internal("recipient expiry cannot be represented"),
             Error::StaleHistory => Self::aborted("identity history changed during validation"),
             Error::Admission { index, error } => error.status(*index),
             Error::Database(sqlx::Error::Database(db))

@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns)\n            VALUES ($1, $2, $3, $4, $5, $6, 0, $7)\n            ON CONFLICT (recipient_id) DO UPDATE SET channel = EXCLUDED.channel,\n                delivery = EXCLUDED.delivery, signing_key = EXCLUDED.signing_key,\n                metadata = EXCLUDED.metadata, renewed_ns = EXCLUDED.renewed_ns\n            WHERE push_recipient.secret_hash = $2\n            RETURNING topic_count, channel, renewed_ns",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "topic_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "topic_count"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "channel",
+        "type_info": "Int2",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "channel"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "renewed_ns",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "push_recipient",
+            "name": "renewed_ns"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Bytea",
+        "Int2",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e409c719ddf31b6342b7d8ba3efea2cbefda8d69b83001f16b5bcf1a7153b023"
+}

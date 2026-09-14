@@ -160,6 +160,12 @@ impl RunningServer {
         api::publish_service_client::PublishServiceClient::new(self.channel.clone())
     }
 
+    pub fn notifications(
+        &self,
+    ) -> api::notification_service_client::NotificationServiceClient<Channel> {
+        api::notification_service_client::NotificationServiceClient::new(self.channel.clone())
+    }
+
     pub fn identity(&self) -> api::identity_service_client::IdentityServiceClient<Channel> {
         api::identity_service_client::IdentityServiceClient::new(self.channel.clone())
     }
