@@ -97,7 +97,7 @@ export default defineConfig({
         },
         {
           label: "Deploy",
-          items: guidePages("deploy", "overview fly"),
+          items: guidePages("deploy", "overview fly aws-ecs"),
           collapsed: true,
         },
         {
