@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use std::sync::Arc;
+use xmtp_id::associations::unverified::UnverifiedSignature;
 
 use alloy::signers::local::PrivateKeySigner;
 use xmtp_common::tmp_path;
