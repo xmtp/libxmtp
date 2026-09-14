@@ -17,10 +17,12 @@ health, shutdown, and the ingress contract.
 
 Clients must use the Railway-assigned high port, **not port 443**. Do not create
 an HTTP domain for either service. Railway staff state that the HTTP edge
-“will demux down to HTTP/1.1 thus breaking gRPC”. That edge also closes requests
-after 15 minutes, even with data flowing. The TCP proxy has no such documented
-request limit. See [TCP proxy setup](https://docs.railway.com/networking/tcp-proxy)
-and [public networking limits](https://docs.railway.com/networking/public-networking/specs-and-limits).
+“will demux down to HTTP/1.1 thus breaking gRPC”. That edge also caps a request at
+15 minutes even while data flows, and closes it after 5 minutes with no data.
+WebSockets are exempt; gRPC streams are not. The TCP proxy has no such
+documented request limit, though Railway guarantees none either. See
+[TCP proxy setup](https://docs.railway.com/networking/tcp-proxy) and
+[public networking limits](https://docs.railway.com/networking/public-networking/specs-and-limits).
 
 ## Create the backend configuration
 
@@ -35,10 +37,14 @@ listen = "[::]:5050"
 url = "env:XMTP_DATABASE_URL"
 ```
 
-`[::]:5050` accepts IPv4 and IPv6. `0.0.0.0:5050` accepts only IPv4 and fails
-with legacy Railway private DNS. Environments created after 2025-10-16 resolve
-both address families; older environments resolve only IPv6. This setting
-controls the **inbound listener**. Outbound database connectivity is separate.
+`[::]:5050` accepts IPv4 and IPv6. Railway documents that environments created
+after 2025-10-16 resolve private DNS names to both address families, while
+legacy environments resolve them to IPv6 only. A listener bound to
+`0.0.0.0:5050` therefore cannot accept that traffic in a legacy environment,
+because it takes IPv4 alone. Railway's own examples bind both stacks, so
+`::,0.0.0.0` is also correct if your framework needs an explicit IPv4 bind.
+This setting controls the **inbound listener**. Outbound database connectivity
+is separate.
 See [private network addressing](https://docs.railway.com/networking/private-networking/how-it-works).
 
 Set `XMTP_CONFIG` to this complete inline TOML document. Do not set it to a
@@ -108,8 +114,8 @@ defaults
     timeout http-request 10s
     timeout http-keep-alive 5s
     # MUST NOT add option http-buffer-request: it delays streaming requests.
-    # MUST NOT add http-drop-request-trailers: it discards gRPC metadata.
-    # MUST NOT add http-drop-response-trailers: it discards gRPC status/details.
+    # MUST NOT add option http-drop-request-trailers: it drops gRPC metadata.
+    # MUST NOT add option http-drop-response-trailers: it drops grpc-status.
 
 resolvers system
     parse-resolv-conf
@@ -135,8 +141,11 @@ native gRPC and HTTP/1.1 gRPC-Web through this same backend, without a routing
 split. Its [`dev/tls/check.py`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/check.py)
 also checks trailers, CORS, and incremental delivery.
 
-**Keep both 24 h timeouts.** `timeout tunnel` does not apply to HTTP/2.
-Connection-level gRPC PING frames do not refresh an active stream's timer.
+**Keep both 24 h timeouts.** `timeout tunnel` governs a tunnel: TCP mode, a
+WebSocket or CONNECT upgrade, or a response with no keepalive option. An
+ordinary gRPC stream over HTTP/2 is none of those, so `timeout client` and
+`timeout server` govern it instead. Connection-level gRPC PING frames do not
+refresh an active stream's timer.
 The backend's 30 s keepalive therefore does not keep an idle subscription alive
 through HAProxy. Task 7's deliberate short-timeout run dropped an idle
 subscription after about 12.5 s with 12 s client/server timeouts, despite
@@ -260,21 +269,39 @@ Confirm the new certificate serial and expiry through the public endpoint after
 each renewal. Also restart the service once and confirm it serves the same
 certificate from the volume. Do not force a new issuance on every startup.
 
-Do not use HTTP-01. Railway's edge answers port 80 with a synthesized 301 before
-any upstream lookup, so it cannot route the challenge to this container.
+Do not use HTTP-01. Railway's edge answers `/.well-known/acme-challenge/`
+itself with a 404 from `railway-edge`, while other paths on port 80 get a 301 to
+HTTPS, so the challenge never reaches this container. Note that the 301 alone
+would not break the challenge: Let's Encrypt follows up to ten redirects and
+does not validate the certificate it lands on. The edge intercepting the
+challenge path is the reason, together with the fact that the edge terminates
+TLS and requires TLS-encrypted inbound traffic with SNI, so this container never
+owns a port 80 listener.
 Do not use HAProxy 3.2's native ACME. It is experimental, lacks TLS-ALPN-01,
 and keeps certificates in memory without writing them to disk. Each redeploy
-would re-issue a certificate and can quickly hit Let's Encrypt's limit of five
-certificates for the same identifiers per week. See
+would re-issue a certificate and can quickly exhaust Let's Encrypt's
+"New Certificates per Exact Set of Identifiers" limit: five certificates every
+seven days, refilling one every 34 hours, applied globally across accounts and
+not subject to an override. See
 [HAProxy ACME](https://www.haproxy.com/documentation/haproxy-configuration-tutorials/security/ssl-tls/lets-encrypt/)
 and [Let's Encrypt rate limits](https://letsencrypt.org/docs/rate-limits/).
 
 ## Enable the TCP proxy and DNS
 
 In `haproxy` **Settings → Networking**, choose **TCP Proxy** and enter internal
-port `18443`. Copy the generated proxy hostname and high port. Do not choose
-**Generate Domain** or add an HTTP custom domain. CLI 4.58.0 has no TCP proxy
-subcommand; `railway domain --port` creates an HTTP domain and is not a substitute.
+port `18443`. Railway assigns the proxy hostname and a high port; you cannot
+choose the port, and 443 is not available. Copy both. Do not choose
+**Generate Domain** or add an HTTP custom domain: `railway domain --port` routes
+HTTP traffic and is not a substitute.
+
+CLI 5.15.0 and later can do this without the dashboard:
+
+```sh
+railway tcp-proxy create --port 18443 --service haproxy
+```
+
+Older CLI versions, including 4.58.0, have no `tcp-proxy` subcommand and need
+the dashboard. One TCP proxy is allowed for each service instance.
 
 At your DNS provider, create a CNAME from your certificate domain to the
 Railway TCP proxy hostname, without the port. For Cloudflare, select **DNS only**
@@ -283,13 +310,21 @@ HAProxy, not Railway or DNS, terminates TLS on this path.
 
 Do not enable Cloudflare's HTTP proxy in front of this endpoint:
 
-- Cloudflare's gRPC origin must use port 443, TLS, HTTP/2 over ALPN, and at
-  least Full mode. Railway assigns a high TCP proxy port and provides no TLS
-  termination there. A Full-mode TLS fetch to a plaintext backend fails with 525. HAProxy supplies TLS in this guide, but does not remove the port-443
-  requirement or map Cloudflare's origin fetch to the assigned port.
+- Cloudflare's gRPC origin must use port 443, TLS, and HTTP/2 advertised over
+  ALPN, send `application/grpc` content types, sit behind a proxied hostname in
+  at least Full mode, and have the zone's gRPC toggle on. With the toggle off,
+  Cloudflare answers gRPC with 403. Railway assigns a high TCP proxy port, so
+  the port-443 requirement alone rules this out. Full mode also mirrors the
+  visitor's scheme rather than always using TLS to the origin, and an HTTPS
+  visitor against a plaintext origin fails with 525. HAProxy supplies TLS in
+  this guide, but does not remove the port-443 requirement or map Cloudflare's
+  origin fetch to the assigned port.
 - Railway's TCP proxy documentation explicitly requires grey-cloud DNS.
   DNS-only records terminate no TLS and apply no HTTP proxy protection.
 - Cloudflare's 125 s proxy read timeout can cut an idle subscription with 524.
+  It measures the gap between reads, so traffic resets it and a busy
+  subscription survives. Cloudflare's 400 s client-side and 900 s proxy idle
+  limits are not configurable on any plan.
   Only Enterprise can raise it. Activity on other HTTP/2 streams is not a
   substitute for subscription data.
 
@@ -362,12 +397,14 @@ grpcurl -vv -import-path proto -proto backend/v1/backend.proto \
 Keep a subscription open for more than 15 minutes:
 
 ```sh
-grpcurl -vv -max-time 1000 -import-path proto -proto backend/v1/backend.proto \
+grpcurl -vv -max-time 1200 -import-path proto -proto backend/v1/backend.proto \
     -d @ xmtp.example.com:ASSIGNED_PORT \
     xmtp.backend.v1.SubscriptionService/SubscribeStatic < subscription.json
 ```
 
-Confirm its Started frame arrives immediately. After 16 minutes, generate one
+Confirm its Started frame arrives immediately. The 1200 s deadline leaves
+margin for the manual step below; do not lower it to just past 16 minutes.
+After 16 minutes, generate one
 more message from a second terminal with the same `XDBG_DB_ROOT` and endpoint.
 Confirm it arrives on the original response before the 1000 s client deadline.
 The final `DeadlineExceeded` is expected from that client deadline. An earlier
