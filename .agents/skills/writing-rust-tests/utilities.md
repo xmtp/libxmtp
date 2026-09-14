@@ -1,123 +1,96 @@
-# Test Utilities
+# Test utilities
 
-## Data Generators
+## Data generators
 
-```rust
-use xmtp_common::{rand_string, rand_vec, rand_hexstring, rand_account_address, rand_u64, rand_i64};
-use xmtp_common::test::{tmp_path, rand_time, Generate};
-
-let msg = rand_string::<20>();              // 20-char random alphanumeric
-let bytes = rand_vec::<16>();               // 16 random bytes
-let hex = rand_hexstring();                 // 0x-prefixed 40-char hex
-let addr = rand_account_address();          // 42-char alphanumeric
-let path = tmp_path();                      // Temp DB path (WASM-aware)
-let n = rand_u64();                         // Random u64
-let t = rand_time();                        // Random i64 in 0..1_000_000_000
-```
-
-### Generate Trait (for OpenMLS fakes)
+Flat re-exports from `xmtp_common`. `rand_string` and `rand_vec` come from
+`xmtp_cryptography::rand`; the rest from `crates/xmtp_common/src/test.rs`.
 
 ```rust
-use xmtp_common::test::Generate;
+use xmtp_common::{Generate, rand_account_address, rand_hexstring, rand_string, rand_time, rand_u64, rand_vec, tmp_path};
 
-let app_msg = FakeMlsApplicationMessage::generate();
-let commit = FakeMlsCommitMessage::generate();
+let msg = rand_string::<20>();                  // 20-char alphanumeric
+let bytes = rand_vec::<16>();                   // 16 random bytes
+let hex = rand_hexstring();                     // 0x-prefixed, 40 hex chars
+let addr = rand_account_address();
+let path = tmp_path();                          // temp DB path, wasm-aware
+let n = rand_u64();                             // also rand_i64
+let t = rand_time();                            // i64 in 0..1_000_000_000
+let commit = FakeMlsCommitMessage::generate();  // Generate trait; OpenMLS fakes in test/openmls.rs
 ```
-
-**Source:** `crates/xmtp_common/src/test.rs`, `crates/xmtp_common/src/test/openmls.rs`
 
 ## Logging
 
-Logger is initialized automatically by `#[xmtp_common::test]`. Control output with env vars:
+`#[xmtp_common::test]` installs the logger once. Control it with env vars:
 
 ```bash
-RUST_LOG=xmtp_mls=debug cargo nextest run test_name     # Standard log filtering
-CONTEXTUAL=1 cargo nextest run test_name                  # Tree-format async-aware logs
-STRUCTURED=1 cargo nextest run test_name                  # JSON structured logs
-SHOW_SPAN_FIELDS=1 cargo nextest run test_name            # Include tracing span fields
+RUST_LOG=xmtp_mls=debug just test workspace test_name   # target filter
+STRUCTURED=1 just test workspace test_name              # JSON lines
+SHOW_SPAN_FIELDS=1 just test workspace test_name        # include span fields
+XMTP_TEST_LOGGING=false just test workspace test_name   # off; CI=true does the same
 ```
 
-### TestLogReplace
+`just wasm test` forces `RUST_LOG=off`. Client names in logs come from
+`tester!(name)`, which registers the inbox id through `Client::set_name`.
 
-The `tester!` macro automatically registers inbox IDs with human-readable names so logs show "alix" instead of hex addresses. Managed via `TestLogReplace`:
+### Capturing logs
 
-```rust
-let mut replace = TestLogReplace::default();
-replace.add("0x123abc...", "Alice");
-// Cleaned up on Drop
-```
-
-### Traced Test (capturing logs for assertions)
+Native only, `test-utils` only.
 
 ```rust
-use xmtp_common::{traced_test, assert_logged};
-
-traced_test!(async {
-    tracing::info!("expected message");
-    assert_logged!("expected message", 1);  // Assert it appeared exactly once
+// xmtp_logging::test_logging::LogCapture: JSON events through the production filter
+let capture = LogCapture::new(Level::Info);
+tracing::dispatcher::with_default(&capture.dispatch(), || {
+    tracing::info!(target: "xmtp_backend::server", request_id = "sample", "request finished");
 });
+assert!(capture.output().contains("\"request_id\":\"sample\""));
 ```
 
-**Source:** `crates/xmtp_common/src/test.rs`, `crates/xmtp_common/src/test/traced_test.rs`
+`traced_test!(async { .. })` with `assert_logged!("msg", 1)` builds its own
+runtime and subscriber. Call it from a sync `#[test]`, not from an
+`#[xmtp_common::test] async fn` (`crates/xmtp_mls/src/identity_updates.rs`).
 
 ## Retry
 
 ```rust
-use xmtp_common::{retry_async, Retry};
+use xmtp_common::{ExponentialBackoff, Retry, retry_async};
 
-// Retries with exponential backoff if error.is_retryable() returns true
-retry_async!(Retry::default(), (async {
-    fallible_network_call().await
-}))
+retry_async!(Retry::default(), (async { fallible_call().await }))   // retries while is_retryable()
 ```
 
-Default: 3 retries, 50ms initial delay, 3x multiplier, 120s max total wait.
-
-Custom:
+Default: 5 retries, 50 ms base, x3, 25 ms jitter, 120 s total cap. Custom:
 
 ```rust
-use xmtp_common::{Retry, ExponentialBackoff};
-use xmtp_common::time::Duration;
-
 let retry = Retry::builder()
     .retries(5)
-    .strategy(ExponentialBackoff::builder()
-        .duration(Duration::from_millis(25))
-        .multiplier(2)
-        .build())
+    .with_strategy(ExponentialBackoff::builder().duration(Duration::from_millis(25)).multiplier(2).build())
     .build();
-
-retry_async!(retry, (async { op().await }))
 ```
 
 **Source:** `crates/xmtp_common/src/retry.rs`
 
 ## Toxiproxy
 
-For network fault injection tests:
+Native only, behind `xmtp_common/test-utils-network`. `xmtp_common::toxiproxy()`
+is the client, built from `XMTP_TOXIPROXY_API` so it follows the worktree's
+port. `toxiproxy_test` takes a process-wide lock and resets the proxies first.
 
 ```rust
-use xmtp_common::test::toxiproxy_test;
+// crates/xmtp_mls/src/groups/tests/test_network.rs
+use xmtp_common::toxiproxy_test;
 
-// Serializes test access and resets proxy state
-toxiproxy_test(|| async {
+toxiproxy_test(async || {
     tester!(alix, proxy);
-    alix.for_each_proxy(|p| async { p.set_enabled(false).await }).await;
-    // Test behavior under network failure
+    tester!(bo);
+    alix.for_each_proxy(async |p| { p.disable().await.unwrap(); }).await;
+    // behaviour under network failure; p.enable() restores
 }).await;
 ```
 
-**Source:** `crates/xmtp_common/src/test.rs`
-
-## Display Helpers
+## Display helpers
 
 ```rust
-use xmtp_common::fmt::{truncate_hex, debug_hex};
-use xmtp_common::Snippet;
-
-truncate_hex("0x5bf078bd83995fe83092d93c5655f059"); // "0x5bf0...f059"
-debug_hex(bytes);                                     // hex-encoded + truncated
-some_bytes.snippet();                                  // first 6 chars + ".."
+xmtp_common::fmt::truncate_hex("0x5bf078bd83995fe83092d93c5655f059");   // "0x5bf0...f059"
+xmtp_common::fmt::debug_hex(bytes);                                     // hex-encoded, then truncated
+use xmtp_common::snippet::Snippet;
+bytes.snippet();                                                        // "abcdef.."
 ```
-
-**Source:** `crates/xmtp_common/src/fmt.rs`, `crates/xmtp_common/src/snippet.rs`

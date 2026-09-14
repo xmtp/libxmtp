@@ -1,76 +1,54 @@
-# Assertions & Waiting
+# Assertions and waiting
 
-## Result Assertions
-
-```rust
-use xmtp_common::{assert_ok, assert_err};
-
-// assert_ok! — unwraps and returns the value on Ok, panics with debug on Err
-let val = assert_ok!(some_result());
-
-// assert_ok! with expected value
-assert_ok!(some_result(), expected_value);
-assert_ok!(some_result(), expected_value, "custom message: {}", ctx);
-
-// assert_err! — asserts Err matching a pattern
-assert_err!(some_result(), MyError::NotFound);
-assert_err!(some_result(), MyError::NotFound, "should fail for missing item");
-```
-
-## Wait Helpers (eventually-consistent assertions)
-
-All poll with `yield_now()` between attempts, 20-second timeout. From `xmtp_common::test`:
+## Result assertions
 
 ```rust
-use xmtp_common::test::{wait_for_eq, wait_for_ok, wait_for_some, wait_for_ge};
+use xmtp_common::{assert_err, assert_ok};
 
-// Poll until value equals expected
-wait_for_eq(|| async { group.member_count().await }, 3).await?;
-
-// Poll until result is Ok
-wait_for_ok(|| async { client.sync().await }).await?;
-
-// Poll until returns Some
-let msg = wait_for_some(|| async { stream.next().await }).await;
-
-// Poll until value >= threshold
-wait_for_ge(|| async { messages.len() }, 5).await?;
+let val = assert_ok!(result);                          // unwraps; panics with Debug on Err
+assert_ok!(result, expected);                          // assert_eq!(result, Ok(expected.into())); needs PartialEq + Debug
+assert_err!(result, MyError::NotFound(..));            // a pattern; variants with fields need (..) or { .. }
+assert_err!(result, MyError::NotFound(..), "missing item {}", id);
 ```
 
-## Worker Metric Assertions
+**Source:** `crates/xmtp_common/src/test/macros.rs`
 
-For device sync tests, assert on worker completion:
+## Wait helpers
+
+Poll with `yield_now()` between attempts, 20 s timeout. Flat re-exports from
+`xmtp_common`; there is no `xmtp_common::test::` path.
 
 ```rust
-alix.worker()
-    .register_interest(SyncMetric::PayloadSent, 1)
-    .wait().await?;
+use xmtp_common::{wait_for_eq, wait_for_ge, wait_for_ok, wait_for_some};
+
+wait_for_eq(|| async { group.member_count().await }, 3).await?;   // Result<(), Expired>
+wait_for_ge(|| async { messages.len() }, 5).await?;               // Result<(), Expired>
+let v = wait_for_ok(|| async { client.sync().await }).await?;      // Result<T, Expired>; the last error is discarded
+let msg = wait_for_some(|| async { stream.next().await }).await;   // Option<T>; None on timeout, no ?
 ```
 
-## Custom Assertion Patterns
-
-Stream message assertions (defined locally in test modules):
+`xmtp_mls` extras in `crates/xmtp_mls/src/utils/test/mod.rs`:
 
 ```rust
-// From subscriptions/stream_all/tests.rs
-macro_rules! assert_msg {
-    ($stream:expr, $expected:expr) => {
-        let next = $stream.next().await.unwrap().unwrap();
-        assert_eq!(
-            String::from_utf8_lossy(next.decrypted_message_bytes.as_slice()),
-            $expected
-        );
-    };
-}
+wait_for_min_intents(&alix.context.db(), 2).await?;   // 5 s
+let delivery = Delivery::new(None);                    // notify_one(); wait_for_delivery() -> Result<(), Expired>, 60 s
 ```
 
-Track caller for custom assertion helpers:
+Never write a bare `sleep` loop.
+
+## Worker metrics
 
 ```rust
-#[track_caller]
-fn assert_depends_on(env: &XmtpEnvelope, dependant: usize, commit: usize) {
-    // ... custom assertion with good error location
-}
+alix.worker().register_interest(SyncMetric::PayloadSent, 1).wait().await?;
 ```
 
-**Source:** `crates/xmtp_common/src/test/macros.rs`, `crates/xmtp_common/src/test.rs`
+## Stream assertions
+
+`assert_msg!(stream, "text")` and `assert_msg_exists!` are exported from
+`crates/xmtp_mls/src/subscriptions/mod.rs`.
+
+## Custom helpers
+
+Mark a helper that panics with `#[track_caller]` so the failure points at the
+test line. `xmtp_common::DebugDisplay` gives `slice.format_list()` and
+`format_enumerated()` for readable collection output in messages.

@@ -49,7 +49,7 @@ Expected specs by the end of the project:
 
 ### Guidelines
 
-`docs/self-hosted/agent-context.md` is the single standing document for implementer agents. It carries the hard rules for this project - which must be followed and which may be broken - together with the macros, utilities, and coding practices idiomatic in this repository. Because of the project's scope it may contradict otherwise good advice, for example leaving a branch with failing CI or deleting existing functionality. Agents read it once at the start of a session. It is deleted when the project ends.
+`docs/self-hosted/agent-context.md` is the standing document for implementer agents. It carries the hard rules for this project - which must be followed and which may be broken - and the architecture constraints. Because of the project's scope it may contradict otherwise good advice, for example leaving a branch with failing CI or deleting existing functionality. Agents read it once at the start of a session. It is deleted when the project ends. The macros, utilities, and coding practices idiomatic in this repository live in the skills under `.agents/skills/` and outlive the project.
 
 ### Phase 0 documents
 
