@@ -97,6 +97,9 @@ web_modules/
 .env
 .env.test
 
+# Generated per worktree by dev/worktree-env.
+dev/docker/.env
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

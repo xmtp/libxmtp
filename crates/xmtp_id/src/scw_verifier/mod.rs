@@ -257,8 +257,9 @@ impl MultiSmartContractSignatureVerifier {
             self.add_anvil(url)?;
         } else {
             use xmtp_configuration::DockerUrls;
-            info!("adding default anvil url @{}", DockerUrls::ANVIL);
-            self.add_anvil(DockerUrls::ANVIL.to_string())?;
+            let url = DockerUrls::anvil();
+            info!("adding default anvil url @{url}");
+            self.add_anvil(url)?;
         }
         Ok(self)
     }

@@ -93,7 +93,7 @@ mod tests {
             Err(MessageBackendBuilderError::MissingHost)
         ));
         let client = MessageBackendBuilder::default()
-            .host(xmtp_configuration::BACKEND_TEST_URL)
+            .host(xmtp_configuration::backend_test_url())
             .readonly(true)
             .build()?;
         assert!(matches!(

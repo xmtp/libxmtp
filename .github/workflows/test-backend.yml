@@ -79,8 +79,11 @@ jobs:
           PLATFORM: linux/${{ matrix.arch }}
         run: |
           just backend db-up
+          # The Compose project name is per-worktree, so the network name is too.
+          # CI is a clone, not a worktree, so this resolves to `libxmtp_default`.
+          set -a && . dev/docker/.env && set +a
           docker run --detach --name backend-smoke --platform "$PLATFORM" \
-            --network libxmtp_default -p 127.0.0.1:55050:5050 \
+            --network "${XMTP_COMPOSE_PROJECT}_default" -p 127.0.0.1:55050:5050 \
             -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
             -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@db:5432/xmtp_backend \
             -e XMTP_REPLICA_URL=postgres://xmtp:xmtp@replica:5432/xmtp_backend \

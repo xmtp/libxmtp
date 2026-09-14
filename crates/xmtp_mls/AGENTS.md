@@ -33,7 +33,8 @@ dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/messages::/)
 
 `just test` needs `just backend up db replica` and the shared backend services.
 It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
-The database URL defaults to `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
+The database URL defaults to this worktree's database; `just backend status`
+prints it. The main checkout uses `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
 Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
 `tester!(alix, backend: &backend)` with optional `auth: callback`.
 This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.

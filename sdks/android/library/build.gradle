@@ -14,6 +14,28 @@ dokka {
     }
 }
 
+// Read a port for the local test stack: the environment first, then
+// dev/docker/.env (written by dev/worktree-env), then the slot-0 default.
+// Gradle may run without the `just` recipes, so do not rely on the environment
+// alone: falling back to the default would point a worktree's tests at the main
+// checkout's backend.
+String worktreePort(String name, String fallback) {
+    String fromEnv = System.getenv(name)
+    if (fromEnv != null && !fromEnv.isEmpty()) {
+        return fromEnv
+    }
+    File env = new File(rootProject.projectDir, "../../dev/docker/.env")
+    if (env.isFile()) {
+        for (String line : env.readLines()) {
+            if (line.startsWith(name + "=")) {
+                // dev/worktree-env single-quotes values.
+                return line.substring(name.length() + 1).replaceAll("^'|'\$", "")
+            }
+        }
+    }
+    return fallback
+}
+
 android {
     namespace 'org.xmtp.android.library'
     compileSdk 35
@@ -24,6 +46,21 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         consumerProguardFiles "consumer-rules.pro"
+
+        // Each worktree publishes the local stack on its own ports, so the test
+        // endpoints come from this worktree's environment. Prefer a variable the
+        // `just` recipes export, then dev/docker/.env, so a direct ./gradlew or
+        // Android Studio run still reaches this worktree's backend rather than
+        // the main checkout's. 10.0.2.2 is how the emulator reaches the host;
+        // only the port moves.
+        buildConfigField "String", "XMTP_BACKEND_URL",
+            "\"http://10.0.2.2:${worktreePort("XMTP_BACKEND_PORT", "5050")}\""
+        buildConfigField "String", "ANVIL_URL",
+            "\"http://10.0.2.2:${worktreePort("XMTP_ANVIL_PORT", "8545")}\""
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     buildTypes {

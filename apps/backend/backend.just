@@ -3,8 +3,12 @@ set shell := ["./dev/nix-shell"]
 set working-directory := "../.."
 
 root := justfile_directory()
-db_url := env("DATABASE_URL", "postgres://xmtp:xmtp@localhost:55432/xmtp_backend")
 musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
+
+# Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
+# `_env` loads it so a recipe inherits this worktree's values. An already-set
+# variable always wins, so CI and one-off overrides are untouched.
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Build the binary.
 build:
@@ -20,12 +24,14 @@ image:
 
 # Run the backend outside Docker against the `db-up` database.
 run:
-    XMTP_DATABASE_URL="{{ db_url }}" XMTP_REPLICA_URL="${XMTP_REPLICA_URL:-postgres://xmtp:xmtp@localhost:55433/xmtp_backend}" XMTP_CHAIN_31337_URL="http://localhost:8545" \
+    {{ _env }} && \
+      XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$XMTP_REPLICA_URL" XMTP_CHAIN_31337_URL="$ANVIL_URL" \
       nix run {{ root }}#xmtp-backend -- --config {{ root }}/dev/backend/local.toml
 
 # Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
 test *args="":
-    DATABASE_URL="{{ db_url }}" RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
+    {{ _env }} && \
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" cargo test --locked -p xmtp_backend {{ args }}
 
 db-up:
     {{ root }}/dev/docker/up db replica
@@ -34,12 +40,12 @@ db-down:
     {{ root }}/dev/docker/down
 
 sql-prepare:
-    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
-    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare -- --all-targets
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare -- --all-targets
 
 sql-check:
-    DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx migrate run --source apps/backend/migrations
-    cd apps/backend && DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" cargo sqlx prepare --check -- --all-targets
+    {{ _env }} && cargo sqlx migrate run --source apps/backend/migrations
+    {{ _env }} && cd apps/backend && cargo sqlx prepare --check -- --all-targets
 
 [script("bash")]
 schema:
@@ -59,6 +65,33 @@ down:
 
 logs *services:
     {{ root }}/dev/docker/compose logs {{ services }}
+
+# Show this worktree's stack identity: project, slot, ports, and URLs.
+#
+# One shell for the whole recipe: each recipe line is its own shell, so the
+# environment has to be loaded in the same command that reads it.
+@status:
+    {{ _env }} && printf '%s\n' \
+      "worktree:   $XMTP_WORKTREE_NAME (slot $XMTP_WORKTREE_SLOT)" \
+      "project:    $XMTP_COMPOSE_PROJECT" \
+      "backend:    $XMTP_BACKEND_URL" \
+      "toxic:      $XMTP_BACKEND_TOXIC_URL" \
+      "anvil:      $ANVIL_URL" \
+      "database:   $DATABASE_URL" \
+      "replica:    $XMTP_REPLICA_URL" \
+      "grafana:    http://127.0.0.1:$XMTP_GRAFANA_PORT" \
+      "prometheus: http://127.0.0.1:$XMTP_PROMETHEUS_PORT" \
+      "tempo:      http://127.0.0.1:$XMTP_TEMPO_PORT" \
+      "metrics:    http://127.0.0.1:$XMTP_BACKEND_METRICS_PORT/metrics" \
+      && docker compose -f {{ root }}/dev/docker/compose.yml -p "$XMTP_COMPOSE_PROJECT" ps 2>/dev/null || true
+
+# Stop this worktree's stack and give up its port slot.
+#
+# Teardown must succeed before the claim is dropped: releasing a slot whose
+# containers are still running would let another worktree claim those ports.
+release:
+    {{ root }}/dev/docker/down --volumes
+    {{ root }}/dev/worktree-env --release
 
 # Verify client traces, backend metrics, and the local dashboard.
 observe-check:

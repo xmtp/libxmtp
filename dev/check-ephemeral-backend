@@ -3,17 +3,27 @@
 
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
 
-DEFAULT_DATABASE_URL = "postgres://xmtp:xmtp@localhost:55432/xmtp_backend"
+# The default database URL is per-worktree: dev/worktree-env derives the port
+# from the worktree's slot, so only the main checkout gets 55432. Match the
+# shape rather than one literal; the override case below still pins an exact
+# value, which is what actually needs guarding.
+DEFAULT_DATABASE_URL_PATTERN = r"^postgres://xmtp:xmtp@(localhost|127\.0\.0\.1):\d+/xmtp_backend$"
 
 
 def main():
     if sys.argv[1:2] == ["--assert-env"]:
         assert os.environ["SQLX_OFFLINE"] == "true"
-        assert os.environ["DATABASE_URL"] == os.environ["EXPECTED_DATABASE_URL"]
+        actual = os.environ["DATABASE_URL"]
+        expected = os.environ["EXPECTED_DATABASE_URL"]
+        if expected == "<default>":
+            assert re.match(DEFAULT_DATABASE_URL_PATTERN, actual), actual
+        else:
+            assert actual == expected, f"{actual!r} != {expected!r}"
         print("PASS: test compilation and execution share the required environment")
         return
 
@@ -40,7 +50,7 @@ def main():
         env.pop("DATABASE_URL", None)
         if database_url is not None:
             env["DATABASE_URL"] = database_url
-        env["EXPECTED_DATABASE_URL"] = database_url or DEFAULT_DATABASE_URL
+        env["EXPECTED_DATABASE_URL"] = database_url or "<default>"
         env["SQLX_OFFLINE"] = "false"
         env["CARGO_TEST_CMD"] = shlex.join([str(Path(__file__).resolve()), "--assert-env"])
         subprocess.run(

@@ -722,8 +722,7 @@ xmtp_common::if_native! {
         use prost::Message;
         use xmtp_api_grpc::GrpcClient;
         use xmtp_proto::{api_client::{ApiBuilder, NetConnectConfig}, backend_v1 as wire, types::Topic};
-        let host = std::env::var("XMTP_BACKEND_URL")
-            .unwrap_or_else(|_| xmtp_configuration::BACKEND_TEST_URL.into());
+        let host = xmtp_configuration::backend_test_url();
         let mut builder = GrpcClient::builder();
         builder.set_host(url::Url::parse(&host)?);
         let callback = Arc::new(Callback::default());
@@ -760,7 +759,7 @@ xmtp_common::if_wasm! {
         use xmtp_api_grpc::GrpcClient;
         use xmtp_proto::api_client::{ApiBuilder, NetConnectConfig};
         let mut builder = GrpcClient::builder();
-        builder.set_host(url::Url::parse(xmtp_configuration::BACKEND_TEST_URL)?);
+        builder.set_host(url::Url::parse(&xmtp_configuration::backend_test_url())?);
         let client = AuthMiddleware::new(builder.build()?, Some(Arc::new(Callback::default())), None);
         let error = call(&client, Rpc::Bidi).await.err()?;
         assert!(matches!(error, ApiClientError::OtherUnretryable(_)));

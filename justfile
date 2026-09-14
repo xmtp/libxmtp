@@ -16,6 +16,10 @@ nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 cargo_test := env("CARGO_TEST_CMD", "cargo nextest run")
 
+# Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
+# `_env` loads it so the Rust suites reach this worktree's own stack.
+_env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() + "/dev/docker/load-env"
+
 [script("bash")]
 default:
     just --list --list-submodules
@@ -87,12 +91,12 @@ test target="workspace" *args="":
 
 [private]
 _test-workspace *args="":
-    SQLX_OFFLINE=true DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" {{ cargo_test }} --profile ci {{ args }}
+    {{ _env }} && SQLX_OFFLINE=true {{ cargo_test }} --profile ci {{ args }}
 
 [private]
 _test-crate +crates:
-    args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
-    SQLX_OFFLINE=true DATABASE_URL="${DATABASE_URL:-postgres://xmtp:xmtp@localhost:55432/xmtp_backend}" {{ cargo_test }} --profile ci $args
+    {{ _env }} && args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
+    SQLX_OFFLINE=true {{ cargo_test }} --profile ci $args
 
 # Verify the shared validation crate without workspace feature unification.
 check-validation:
@@ -103,6 +107,12 @@ test-validation:
     dev/check-validation test
 
 validation: check-validation test-validation
+
+# --- WORKTREE ---
+
+# Show this worktree's stack identity, ports, and URLs.
+worktree:
+    just backend status
 
 # --- DISK ---
 
