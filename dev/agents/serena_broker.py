@@ -35,6 +35,7 @@ def identity():
     digest = hashlib.sha256(os.environ.get("XMTP_NIX_WRAPPER_ID", "").encode())
     for name in ("serena_broker.py", "context.yml", "uv.lock", "pyproject.toml"):
         digest.update((ROOT / "dev/agents" / name).read_bytes())
+    digest.update((ROOT / "dev/serena").read_bytes())
     digest.update(sys.executable.encode())
     return digest.hexdigest()
 
@@ -243,19 +244,61 @@ async def proxy(record):
                     )
 
 
+def wait_for_exit(process, timeout):
+    """A different client may own the child and must reap its zombie later."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            process.wait(timeout=min(0.2, max(0, deadline - time.monotonic())))
+            return
+        except psutil.NoSuchProcess:
+            return
+        except psutil.TimeoutExpired:
+            try:
+                if process.status() == psutil.STATUS_ZOMBIE:
+                    return
+            except psutil.NoSuchProcess:
+                return
+            if time.monotonic() >= deadline:
+                raise
+
+
+def shutdown(process):
+    """Stop the server and its children if active clients prevent graceful exit."""
+    try:
+        process.terminate()
+        wait_for_exit(process, 30)
+    except psutil.NoSuchProcess:
+        return
+    except psutil.TimeoutExpired:
+        children = process.children(recursive=True)
+        for child in reversed(children):
+            try:
+                child.kill()
+            except psutil.NoSuchProcess:
+                pass
+        try:
+            process.kill()
+            wait_for_exit(process, 5)
+        except psutil.NoSuchProcess:
+            pass
+        _, alive = psutil.wait_procs(children, timeout=5)
+        for child in alive:
+            try:
+                if child.status() != psutil.STATUS_ZOMBIE:
+                    raise RuntimeError("Serena child processes have not stopped.")
+            except psutil.NoSuchProcess:
+                pass
+
+
 def stop():
     STATE.mkdir(parents=True, exist_ok=True, mode=0o700)
     with (STATE / "lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         process = live_process(read_record())
         if process:
-            process.terminate()
-            try:
-                process.wait(timeout=30)
-            except psutil.TimeoutExpired:
-                raise RuntimeError(
-                    "Serena has not stopped. Check server.log before retrying."
-                ) from None
+            shutdown(process)
+            (STATE / "server.json").unlink(missing_ok=True)
         print("Serena stopped for this worktree.", file=sys.stderr)
 
 
@@ -278,5 +321,13 @@ if __name__ == "__main__":
         from smoke_serena import main
 
         asyncio.run(main())
+    elif action == "test":
+        import unittest
+
+        suite = unittest.defaultTestLoader.discover(
+            str(ROOT / "dev/agents"), pattern="serena_checks.py"
+        )
+        result = unittest.TextTestRunner(verbosity=2).run(suite)
+        sys.exit(not result.wasSuccessful())
     else:
-        sys.exit("Usage: dev/serena [connect|stop|smoke]")
+        sys.exit("Usage: dev/serena [connect|stop|smoke|test]")

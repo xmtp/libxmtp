@@ -68,6 +68,8 @@ dev/serena stop
 ```
 
 This disconnects all clients in this worktree. Other worktrees are not affected.
+If clients prevent graceful shutdown for 30 seconds, the stop command kills the
+server and its child processes.
 If startup fails, read `.cache/agents/serena/server.log`. The first start needs
 network access to fetch the pinned Python dependencies. The launcher does not
 install Rust or change global Codex or Serena settings.
@@ -76,11 +78,13 @@ install Rust or change global Codex or Serena settings.
 
 ```sh
 dev/nix-shell 'just agent-test'
+dev/serena test
 dev/serena smoke
 ```
 
 The tests cover quoting, working directory, exit status, nested reuse, shell
 selection, input changes, and the hook's scope and permission behavior.
+The broker tests check launcher invalidation and graceful or forced shutdown.
 The optional smoke check connects two clients and checks shared-process reuse,
 the query-only tool list, rejected project switching, and stale-process handling.
 It can start the shared server. Use `dev/serena stop` when no clients need it.
