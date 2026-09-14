@@ -22,6 +22,7 @@ fresh. Prefix every call: `dev/nix-shell 'just lint'`, not `just lint`.
 Prefer a `just` recipe over a hand-rolled `cargo` line.
 
 ```bash
+# Run each one as dev/nix-shell 'just <recipe> [args]'.
 just                    # list all recipes
 just backend up         # docker services. Most tests need them.
 just backend build      # self-hosted service through Nix. No database needed.

@@ -140,33 +140,63 @@ clean-incremental days="14":
 # Compact output for agents. See .agents/skills/check-ci.
 
 # Signature outline of a source file: declarations and line numbers, no bodies.
+# Rust by default; Kotlin, Swift, and TypeScript/JavaScript by extension. A file
+# with no declarations prints nothing and succeeds.
+[script("bash")]
 outline file:
-    @rg -n '^\s{0,8}(pub(\([a-z]+\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' {{ file }}
+    set -euo pipefail
+    case "{{ file }}" in
+      *.kt|*.kts) pat='^\s{0,8}((public|private|internal|protected|open|abstract|override|suspend|data|sealed|inline|inner|companion|enum|annotation|operator|infix)\s+)*(fun|class|object|interface|typealias|constructor)\b' ;;
+      *.swift) pat='^\s{0,8}((public|private|internal|fileprivate|open|static|final|override|mutating|convenience|required|indirect|nonisolated)\s+)*(func|class|struct|enum|protocol|extension|actor|init|typealias|subscript)\b' ;;
+      *.ts|*.tsx|*.js|*.mjs|*.cjs) pat='^((export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(async\s+)?(function\*?|class|interface|enum|namespace)\b|(export\s+)?(declare\s+)?type\s+[A-Za-z_$][\w$]*\s*(<[^>]*>)?\s*=|(export\s+)?(declare\s+)?(const|let|var)\s+[A-Za-z_$][\w$]*|\s{2}((public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*[A-Za-z_$#][\w$]*\s*(<[^>]*>)?\s*\([^;]*$)' ;;
+      *) pat='^\s{0,8}(pub(\([a-z]+\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' ;;
+    esac
+    # Control-flow statements at two-space indent look like TS class members; drop them.
+    rg -n "$pat" "{{ file }}" | rg -v '^[0-9]+:\s+(if|for|while|switch|return|catch|throw|await|else|do|try)\b' || test $? -eq 1
 
 # CI status for a PR: failures first, then a one-line summary.
 [script("bash")]
 ci-status pr:
     set -euo pipefail
+    # Both rollup types count. A CheckRun that is not COMPLETED is running; any
+    # terminal conclusion other than SUCCESS, SKIPPED, or NEUTRAL is a failure.
+    # A StatusContext has a state instead: PENDING/EXPECTED running, SUCCESS ok,
+    # anything else (FAILURE, ERROR) a failure.
     gh pr view {{ pr }} --repo xmtp/libxmtp --json statusCheckRollup --jq '
-      [.statusCheckRollup[] | select(.__typename == "CheckRun")]
-      | group_by(.name) | map(max_by(.startedAt // ""))
-      | (map(select(.conclusion == "FAILURE"))
-         | if length > 0 then "FAILED:\n" + (map("  \(.name)  \(.detailsUrl)") | join("\n")) else "" end),
-        (map(select(.status != "COMPLETED"))
+      [.statusCheckRollup[]
+       | if .__typename == "CheckRun" then
+           { name, url: .detailsUrl, at: (.startedAt // ""),
+             state: (if .status != "COMPLETED" then "running"
+                     elif .conclusion == "SUCCESS" then "ok"
+                     elif (.conclusion == "SKIPPED" or .conclusion == "NEUTRAL") then "skipped"
+                     else "failed" end) }
+         else
+           { name: .context, url: .targetUrl, at: (.startedAt // .createdAt // ""),
+             state: (if (.state == "PENDING" or .state == "EXPECTED") then "running"
+                     elif .state == "SUCCESS" then "ok"
+                     else "failed" end) }
+         end]
+      | group_by(.name) | map(max_by(.at))
+      | (map(select(.state == "failed"))
+         | if length > 0 then "FAILED:\n" + (map("  \(.name)  \(.url)") | join("\n")) else "" end),
+        (map(select(.state == "running"))
          | if length > 0 then "RUNNING: \(length) job(s)" else "" end),
-        ("SUMMARY: \(map(select(.conclusion == "SUCCESS")) | length) ok, \(map(select(.conclusion == "FAILURE")) | length) failed, \(map(select(.conclusion == "SKIPPED")) | length) skipped, \(map(select(.status != "COMPLETED")) | length) running")
+        ("SUMMARY: \(map(select(.state == "ok")) | length) ok, \(map(select(.state == "failed")) | length) failed, \(map(select(.state == "skipped")) | length) skipped, \(map(select(.state == "running")) | length) running")
       | select(. != "")'
 
 # Why one job failed. Strips timestamps and ANSI, keeps failure markers only.
 [script("bash")]
 ci-failures job:
     set -euo pipefail
-    gh api repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
+    # gh 2.97+ refuses to print a log that contains ANSI escapes (cargo colour
+    # output) unless asked. Older gh has no such flag.
+    esc=""; gh api --help | grep -q -- --allow-escape-sequences && esc="--allow-escape-sequences"
+    gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //; s/\x1b\[[0-9;]*[mGKH]//g' \
-      | rg -N '(^##\[error\]|^\s*FAIL |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error\[E[0-9]+\]|^error: recipe .* failed|Tests\s+[0-9]+ failed|test result: FAILED)' \
-      | sort -u | head -40
+      | { rg -N '(^##\[error\]|^\s*FAIL |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error(\[[^]]+\])?:|Tests\s+[0-9]+ failed|test result: FAILED|^\s*\S+ FAILED\s*$)' || test $? -eq 1; } \
+      | sort -u | sed -n '1,40p'
 
 # Annotations for a check run. Cheaper than logs when the job records them.
 ci-annotations check:
-    @gh api repos/xmtp/libxmtp/check-runs/{{ check }}/annotations \
+    @gh api --paginate repos/xmtp/libxmtp/check-runs/{{ check }}/annotations \
       --jq '.[] | "\(.path // "-"):\(.start_line // 0)  \(.message | split("\n")[0])"'
