@@ -450,9 +450,10 @@ Use at least two replicas when you enable it.
 
 ## Install
 
-These commands are instructions for a future live check. They were not run
-against a cluster. First publish a compatible image, set its immutable tag in
-`values.yaml`, and prepare the database Secret and access controls.
+These commands were run on a real cluster. Set an immutable image tag in
+`values.yaml`, and prepare the database Secret and access controls first. See
+[Verification status and cleanup](#verification-status-and-cleanup) for what the
+run proved.
 
 Install the pinned controller, which includes its Gateway API and Envoy policy CRDs:
 
@@ -612,10 +613,8 @@ The exact `-schema-location` values were `default` and
 `schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json`.
 All CRD sources were reachable. No resource was skipped.
 
-**No real cluster or client verification has passed.** The known published image
-rejects `--config-file` with `error: unexpected argument '--config-file' found`.
-No cluster install was attempted for this guide. Local checks are not equivalent
-to deployment verification.
+Local checks are not equivalent to deployment verification. The cluster install
+below covers that separately.
 
 ### Cluster install
 
@@ -626,7 +625,7 @@ Operator ServiceMonitor CRD, and PostgreSQL **17.6** in the cluster. The image
 was pinned to a `sha-<commit>` build. The `enabled` value set was used, so the
 Gateway route, ServiceMonitor, autoscaling, and PDB were all live.
 
-**Proven.** `helm install --wait` reported `STATUS: deployed`, so the pods
+**Proven.** The install reported `STATUS: deployed` under `--wait`, so the pods
 became ready under their own probes. All three probes are native `grpc:` with no
 `grpc-health-probe` binary in the pod, and kubelet's probe traffic appears in
 the backend log as `grpc.health.v1.Health/Check` with `grpc_code="OK"`. The
@@ -641,11 +640,23 @@ created 3 identities, 1 group with 2 invited members, and 5 messages, and
 server. The database held 17 envelope rows on PostgreSQL 17.6 with
 `transaction_timeout` present, which is the setting that sets the version floor.
 
-`kubectl rollout restart` replaced both pods with no downtime. The terminating
-pods stayed `Ready` while `Terminating`, which is `preStop.sleep` holding them in
-service so endpoints propagate before SIGTERM, and no force-kill event was
-recorded, so both drained inside the 45 s grace period. That is the evidence for
-the 15 s sleep and 45 s grace period.
+`kubectl rollout restart` replaced both pods with no downtime. New pods became
+ready before the old pods went away. The terminating pods stayed `Ready` while
+`Terminating`, and no force-kill event was recorded, so termination finished
+inside the 45 s grace period.
+
+That is weaker evidence than it looks, so treat the 15 s sleep and 45 s grace
+period as **unproven**. A pod that exits after 2 s and a pod that exits after
+44 s both produce no force-kill event, so the absence of one measures nothing
+about the margin. A terminating pod also stays `Ready` for as long as its
+process runs, with or without a `preStop` hook, so that state does not isolate
+the sleep. The run also held no subscription open, so the drain had no in-flight
+work and probably used almost none of its 10 s budget.
+
+To prove these values, measure the interval from the deletion timestamp to the
+first `backend shutdown requested` log line and check that it is about 15 s,
+then measure the whole pod lifetime against 45 s, with a subscription open
+across the rollout.
 
 `/metrics` on port 9464 answered an unauthenticated request, which confirms that
 `[auth]` does not protect the metrics listener. Never publish that port.
