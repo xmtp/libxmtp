@@ -822,4 +822,3 @@ fn test_inbound_relation_counts() {
         assert!(!reply_counts.contains_key(&msg3.id)); // No replies
     })
 }
-

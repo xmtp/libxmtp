@@ -4,7 +4,6 @@ use super::super::*;
 use crate::Store;
 use xmtp_common::{Generate, rand_time, rand_vec};
 
-
 pub(crate) fn generate_message(
     kind: Option<GroupMessageKind>,
     group_id: Option<&GroupId>,
@@ -71,4 +70,3 @@ pub(crate) fn generate_message_with_reference<C: ConnectionExt>(
     message.store(conn).unwrap();
     message
 }
-

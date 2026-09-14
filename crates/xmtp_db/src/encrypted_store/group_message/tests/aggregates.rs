@@ -747,4 +747,3 @@ fn test_get_latest_message_times_by_sender_mixed_content_types() {
         assert_eq!(latest_times_both.get(&sender2_id).unwrap(), &6000); // Latest text
     })
 }
-

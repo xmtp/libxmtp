@@ -18,6 +18,10 @@ mod test_metadata_read_amplification;
 mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
+mod test_proposals_app_data;
+mod test_proposals_enablement;
+mod test_proposals_pause;
+mod test_proposals_permissions;
 mod test_send_message_opts;
 mod test_starting_membership_sequence_id;
 #[cfg(not(target_arch = "wasm32"))]

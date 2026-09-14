@@ -626,4 +626,3 @@ fn it_dedupes_group_updated_messages_from_dm_by_default() {
         assert_eq!(messages_with_group_updated[0].sent_at_ns, 5_000);
     })
 }
-
