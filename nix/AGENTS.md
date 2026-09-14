@@ -1,6 +1,6 @@
 # Nix
 
-Read `.claude/skills/working-with-nix/SKILL.md` before changing derivations.
+Read `.agents/skills/working-with-nix/SKILL.md` before changing derivations.
 Check an affected output with `nix build --no-link .#<output>`; run `just lint-config`.
 
 ## Build isolation
