@@ -19,7 +19,7 @@ caveats, and the ingress contract below, before you rely on it.
 | Platform                              | Ingress mechanism                                                     | Native gRPC                                                                         |
 | ------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | [Fly.io](/deploy/fly/)                | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
-| Railway                               | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
+| [Railway](/deploy/railway/)           | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
 | [AWS ECS (Fargate)](/deploy/aws-ecs/) | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
 | [Kubernetes](/deploy/kubernetes/)     | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
 
