@@ -93,22 +93,51 @@ worktree_key() {
   printf '%s' "${git_dir}"
 }
 
+# Run a command holding the slot lock.
+#
+# `mkdir` is the atomic primitive: exactly one process can create the directory.
+# A crashed run would leave it behind forever, so the holder records its PID and
+# a waiter reclaims the lock only after confirming that PID is gone. Never break
+# a lock on a timeout alone: a slow-but-alive holder would then have a second
+# process running beside it, which is the one thing the lock must prevent.
 with_lock() {
-  local attempts=0
+  local owner waited=0
   while ! mkdir "${lock_dir}" 2>/dev/null; do
-    attempts=$((attempts + 1))
-    if [ "${attempts}" -gt 100 ]; then
-      # A crashed run can leave the directory behind. Break the lock rather
-      # than wedging every future invocation.
-      echo "worktree-env: breaking stale lock ${lock_dir}" >&2
-      rmdir "${lock_dir}" 2>/dev/null || true
+    owner="$(cat "${lock_dir}/pid" 2>/dev/null || true)"
+    if [ -z "${owner}" ]; then
+      # No PID yet. Either the holder is between its mkdir and its PID write,
+      # or it died in that window and would wedge the lock forever. Give it a
+      # moment to appear, then treat the lock as abandoned.
+      waited=$((waited + 1))
+      if [ "${waited}" -gt 50 ]; then
+        echo "worktree-env: clearing a lock left with no owner." >&2
+        rmdir "${lock_dir}" 2>/dev/null || true
+        waited=0
+      fi
+      sleep 0.1
+      continue
+    fi
+    waited=0
+    if ! kill -0 "${owner}" 2>/dev/null; then
+      # The recorded holder is gone. Remove the PID first so a second waiter
+      # sees no owner rather than racing to rmdir the same directory.
+      if rm -f "${lock_dir}/pid" 2>/dev/null && rmdir "${lock_dir}" 2>/dev/null; then
+        echo "worktree-env: reclaimed the lock from dead process ${owner}." >&2
+      fi
       continue
     fi
     sleep 0.1
   done
+  echo "$$" >"${lock_dir}/pid"
+
   local status=0
   "$@" || status=$?
-  rmdir "${lock_dir}" 2>/dev/null || true
+
+  # Only ever release our own lock.
+  if [ "$(cat "${lock_dir}/pid" 2>/dev/null || true)" = "$$" ]; then
+    rm -f "${lock_dir}/pid" 2>/dev/null || true
+    rmdir "${lock_dir}" 2>/dev/null || true
+  fi
   return "${status}"
 }
 
@@ -151,7 +180,6 @@ slot_is_taken() {
   return 1
 }
 
-# True when every host port in this slot's block is free or already ours.
 # Every base port, in one place. `slot_ports_free` and `check_conflicts` both
 # walk this, so a new service is added once.
 base_ports() {
@@ -356,11 +384,17 @@ main() {
 
   # The main checkout keeps the bare project name so its containers stay
   # "libxmtp-*", matching the existing docs and CI.
+  #
+  # Every other worktree gets the slot appended. The name alone is not unique:
+  # it comes from the parent directory, so two worktrees under one parent
+  # ("/src/wt/one" and "/src/wt/two") would otherwise share a project name and
+  # therefore a container namespace, and `down` in one would stop the other's
+  # stack. The slot is unique by construction, so name-plus-slot is too.
   local project
   if [ "${slot}" = "0" ]; then
     project="libxmtp"
   else
-    project="libxmtp-${name}"
+    project="libxmtp-${name}-${slot}"
   fi
 
   local tmp
