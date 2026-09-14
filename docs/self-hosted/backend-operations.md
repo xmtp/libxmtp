@@ -1,7 +1,7 @@
 # Self-hosted backend operations
 
 The backend serves native gRPC, gRPC-Web, and standard gRPC health on one port.
-It stores durable state in PostgreSQL 18. The local stack also serves SDK tests.
+It stores durable state in PostgreSQL 17 or later. The local stack also serves SDK tests.
 
 ## Local development
 
@@ -100,7 +100,8 @@ Check its readiness with `curl -sf http://127.0.0.1:3200/ready`.
 
 ## Configuration
 
-Use `--config` to select one TOML file. The primary database URL is required.
+Use `--config` or `XMTP_CONFIG` to supply inline TOML. Use `--config-file` for a
+file path. Supply exactly one source. The primary database URL is required.
 Other settings have defaults. Unknown keys and invalid values fail startup.
 The config schema is in `docs/schemas/backend-v1.json`. After changing the typed
 config, run `just backend schema` to regenerate it, then run the config tests.
@@ -182,7 +183,8 @@ dev/nix-shell 'nix build .#backend-image-aarch64-unknown-linux-musl'
 ```
 
 Nix builds need no database. The images use `ghcr.io/xmtp/backend:self-hosted`
-and accept `--config` with a mounted config file.
+and accept inline TOML through `--config` or `XMTP_CONFIG`. Use `--config-file`
+with a mounted config file. Supply exactly one source.
 
 ## Transport and retention
 

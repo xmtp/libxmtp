@@ -122,7 +122,13 @@ impl Config {
     /// Load, resolve environment references, and validate one TOML file.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, ConfigError> {
         let contents = fs::read_to_string(path).map_err(ConfigError::Read)?;
-        let mut value: toml::Value = toml::from_str(&contents).map_err(|_| ConfigError::Parse)?;
+        Self::load_str(&contents)
+    }
+
+    /// Parse, resolve environment references, and validate one TOML document.
+    /// Errors omit document contents. This method cannot return `ConfigError::Read`.
+    pub fn load_str(contents: &str) -> Result<Self, ConfigError> {
+        let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value)?;
         let config: Self = value.try_into().map_err(|_| ConfigError::Parse)?;
         config.validate()?;
@@ -221,7 +227,7 @@ impl std::fmt::Debug for Config {
 /// Attach the configuration field to an environment error without including its value.
 /// Resolve string references once, before typed decoding, including string enums.
 /// Resolved values are never included in errors and are not recursively expanded.
-pub(crate) fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
+fn resolve_environment(value: &mut toml::Value) -> Result<(), ConfigError> {
     match value {
         toml::Value::String(text) => {
             *text = resolve_env(text).map_err(|error| match error {

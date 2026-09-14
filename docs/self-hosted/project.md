@@ -14,7 +14,7 @@ XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtp
 - `libxmtp` and the platform SDKs are overhauled to work with this backend exclusively. Dead code for decentralization, blockchains, the payer service, and originator IDs is removed. Smart-contract-wallet (SCW) signature verification remains a chain-RPC dependency for SDK compatibility. The complexity `xmtpd` and v4 added for ordering messages between originators is removed. Streaming is expected to be simplified.
 - The `xmtpd`, `xmtp-node-go`, and `proto` repositories are deprecated. The entire stack lives in `libxmtp`. All `.proto` files live in a `proto/` folder in this repository.
 - Server-based history transfer is removed. Message-based device sync and file-based archive export and import stay.
-- Durable backend state lives in Postgres. Stream queues, subscription state, and reconstructible caches may live in memory. A reconnect to another instance must not need the previous instance's state.
+- Durable backend state requires PostgreSQL 17 or later. Stream queues, subscription state, and reconstructible caches may live in memory. A reconnect to another instance must not need the previous instance's state.
 - The MLS validation service stops being a standalone service and becomes a crate the new backend uses.
 - The payer service and all related code, and `xmtp_api_d14n` and associated code, are removed from `libxmtp`.
 - All code shared by the backend and the client lives in a crate separate from `apps/backend` and `crates/xmtp_mls`.

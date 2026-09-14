@@ -54,7 +54,8 @@ impl TestServer {
     /// `server.listen` is accepted and validated but has no effect: the fixture
     /// always binds a loopback port chosen by the OS.
     pub async fn from_toml(toml: &str) -> TestResult<Self> {
-        let mut value: toml::Table = toml::from_str(toml)?;
+        let mut value: toml::Table =
+            toml::from_str(toml).map_err(|_| crate::config::ConfigError::Parse)?;
         let database = value
             .entry("database")
             .or_insert_with(|| toml::Value::Table(Default::default()));
@@ -67,10 +68,7 @@ impl TestServer {
             }
         }
         database.insert("url".into(), "postgres://localhost/ephemeral".into());
-        let mut value = toml::Value::Table(value);
-        crate::config::resolve_environment(&mut value)?;
-        let mut config: Config = value.try_into()?;
-        config.validate()?;
+        let mut config = Config::load_str(&toml::to_string(&value)?)?;
         Self::start(
             move |defaults| {
                 config.database.url = defaults.database.url.clone();

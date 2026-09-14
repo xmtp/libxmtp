@@ -98,7 +98,7 @@ impl AuthConfig {
         }
         let mut kids = BTreeSet::new();
         for (index, key) in self.keys.iter().flatten().enumerate() {
-            let field = format!("auth.keys[{index}] kid {:?}", key.kid);
+            let field = format!("auth.keys[{index}]");
             let error = |reason| ConfigError::Auth {
                 field: field.clone(),
                 reason,
