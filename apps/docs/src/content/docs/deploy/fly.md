@@ -7,11 +7,10 @@ Fly injects your configuration file into the published image. No image build is
 needed. Read the [deployment overview](/deploy/overview/) first for image tags,
 ports, connection budgets, health, shutdown, ingress, and security requirements.
 
-**Image requirement:** `--config-file` requires an image built from the
-configuration flag change in commit
-`7d44488fe14ce903382a2b24c52cefe33c4f0e93` or later. Pin a published image with
-`ghcr.io/xmtp/backend:sha-<commit>`. At the time of verification, `:self-hosted`
-predated this change and could not start with this guide's configuration.
+**Image requirement:** `--config-file` requires an image that contains the
+configuration flag change. Every `:self-hosted` image published after
+2026-09-14 has it. Pin an exact build with
+`ghcr.io/xmtp/backend:sha-<commit>`.
 
 ## Create the configuration
 
@@ -134,26 +133,52 @@ grpc-health-probe -addr=my-xmtp-backend.fly.dev:443 -tls
 fly checks list --app my-xmtp-backend
 ```
 
+The backend serves no gRPC reflection service. `grpcurl` therefore needs a
+local copy of the service definition, for example
+`grpcurl -import-path . -proto health.proto`. Without it, `grpcurl` fails while
+it resolves descriptors, even though the endpoint is healthy.
+
 ## Verification record
 
-The 2026-09-14 check used Fly CLI `0.4.102`. The guide's `fly.toml` passed
-`fly config validate --strict`. Its `config.toml` passed JSON Schema validation
-with `check-jsonschema 0.38.0`. Fly Managed Postgres **17.11**
-(`Debian 17.11-1.pgdg13+2`) was provisioned successfully in `sjc`.
+This guide was exercised against a real deployment on 2026-09-14 with Fly CLI
+`0.4.102`. The `fly.toml` and `config.toml` on this page are the files that were
+deployed; only the app name changed.
 
-**Blocked:** the published `ghcr.io/xmtp/backend:self-hosted` image at digest
-`sha256:594ce54f04379ed6fc86853019b687990ed397c0ee342d8a0861e6221d85b2fa`
-rejected `--config-file` and exited with code 2. It predates the configuration
-flag change. Fly injected the file and passed the process arguments, but the
-backend did not start. The end-to-end exercise could not run. The health probe
-timed out; the identity and trailer attempts received no backend response.
+**Proven.** `fly config validate` passed, and `config.toml` passed JSON Schema
+validation with `check-jsonschema 0.38.0`. Fly Managed Postgres **17** was
+provisioned in `sjc`, which confirms that the PostgreSQL 17 floor makes the
+managed offering usable. `fly deploy` started two machines and both reported
+`1 total, 1 passing` checks. Fly wrote `/config.toml` from `[[files]]` and
+appended the process arguments, so the backend ran as
+`xmtp-backend --config-file /config.toml`. Migrations completed and both
+machines logged `backend ready to serve listen=0.0.0.0:5050`. The TCP check
+failed once during startup and then passed, which is why the grace period is
+120 s.
 
-**UNTESTED:** successful gRPC health checks; `xdbg` identity registration, group
-creation, message publish, and query readback; `grpcurl` trailers; and drain and
-reconnect during a mid-stream restart. The guide will be exercised once an image
-containing the new flag is published. It has not met the live deployment
-verification requirement.
+`grpc-health-probe -addr=<app>.fly.dev:443 -tls` returned `status: SERVING`.
+`xdbg` created 3 identities, 1 group with 2 invited members, and 5 messages
+through the public endpoint. `xdbg query welcomes`, which reads the server
+rather than local state, returned 2 welcomes across 3 installations with a real
+sequence ID and payload size, so writes reached PostgreSQL and were queryable.
 
-gRPC-Web, CORS, authentication, smart-contract wallets, read replicas, database
-failover, and load capacity are also untested. The verification app and database
-were destroyed after this attempt.
+A native gRPC call over HTTP/2 succeeded, which confirms `h2_backend` and the
+ALPN list. The response carried
+`access-control-expose-headers: grpc-status,grpc-message,grpc-status-details-bin,x-request-id`
+and an `x-request-id`. An error call returned `NotFound` with its message in
+real HTTP/2 trailers, which is the evidence that Fly Proxy forwards bytes
+without gRPC conversion.
+
+Restarting a machine logged `backend shutdown requested`, exited cleanly, and
+returned to serving in about 2.3 s, so SIGTERM drains rather than killing the
+process. The stored data and health were unchanged afterwards.
+
+**Not proven.** No subscription was held open across the restart, so drain
+behavior was confirmed from logs and later reads rather than from an
+uninterrupted stream. gRPC-Web, CORS, authentication, smart-contract wallets,
+read replicas, database failover, and load capacity were not exercised. The
+backend publishes no gRPC reflection service, so `grpcurl` needs a local
+`health.proto` and `-import-path`; a bare `grpcurl` call fails while resolving
+descriptors, which is a client limitation and not a deployment fault.
+
+The app and the database created for this run were destroyed. `fly apps list`
+and `fly mpg list` both confirmed their removal.

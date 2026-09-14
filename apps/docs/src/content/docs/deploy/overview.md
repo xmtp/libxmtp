@@ -12,9 +12,9 @@ configuration reference.
 
 ## Choose a platform
 
-These ingress mechanisms must meet the transport requirements below. Platform
-guides and deployment checks will follow. This table does not claim that these
-deployments have been tested.
+These ingress mechanisms must meet the transport requirements below. How far
+each guide was verified differs, so read the verification record at the end of
+a platform page before you rely on it.
 
 | Platform               | Ingress mechanism                                                     | Native gRPC                                                                         |
 | ---------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
