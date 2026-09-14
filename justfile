@@ -149,7 +149,7 @@ outline file:
       *.kt|*.kts) pat='^\s{0,8}((public|private|internal|protected|open|abstract|override|suspend|data|sealed|inline|inner|companion|enum|annotation|operator|infix)\s+)*(fun|class|object|interface|typealias|constructor)\b' ;;
       *.swift) pat='^\s{0,8}((public|private|internal|fileprivate|open|static|final|override|mutating|convenience|required|indirect|nonisolated)\s+)*(func|class|struct|enum|protocol|extension|actor|init|typealias|subscript)\b' ;;
       *.ts|*.tsx|*.js|*.mjs|*.cjs) pat='^((export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(async\s+)?(function\*?|class|interface|enum|namespace)\b|(export\s+)?(declare\s+)?type\s+[A-Za-z_$][\w$]*\s*(<[^>]*>)?\s*=|(export\s+)?(declare\s+)?(const|let|var)\s+[A-Za-z_$][\w$]*|\s{2}((public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*[A-Za-z_$#][\w$]*\s*(<[^>]*>)?\s*\([^;]*$)' ;;
-      *) pat='^\s{0,8}(pub(\([a-z]+\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' ;;
+      *) pat='^\s{0,8}(pub(\([^)]*\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' ;;
     esac
     # Control-flow statements at two-space indent look like TS class members; drop them.
     rg -n "$pat" "{{ file }}" | rg -v '^[0-9]+:\s+(if|for|while|switch|return|catch|throw|await|else|do|try)\b' || test $? -eq 1
