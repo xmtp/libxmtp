@@ -5,7 +5,7 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 ## Package Reference
 
 | Package | Command | Description |
-|---------|---------|-------------|
+| --- | --- | --- |
 | `wasm-bindings` | `nix build .#wasm-bindings` | WASM compiled bindings (wasm-pack output) |
 | `android-libs` | `nix build .#android-libs` | All Android targets (.so + Kotlin bindings) |
 | `android-libs-fast` | `nix build .#android-libs-fast` | Host-matching Android target only |
@@ -24,7 +24,7 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `nix/package/wasm.nix` | WASM build derivation + dev shell |
 | `nix/package/android.nix` | Android build derivation (all targets + aggregate) |
 | `nix/package/ios.nix` | iOS build derivation (all targets + aggregate, macOS only) |
@@ -35,13 +35,14 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 ## Node Build Details
 
 Node builds use the crane two-phase pattern (same as iOS/Android):
+
 1. `buildDepsOnly` — compile dependencies (cached per target)
 2. `buildPackage` — build the `.node` file using cached deps
 
 Target mapping (Rust triple -> NAPI platform name):
 
 | Rust Target | NAPI Name |
-|-------------|-----------|
+| --- | --- |
 | `x86_64-unknown-linux-gnu` | `linux-x64-gnu` |
 | `x86_64-unknown-linux-musl` | `linux-x64-musl` |
 | `aarch64-unknown-linux-gnu` | `linux-arm64-gnu` |

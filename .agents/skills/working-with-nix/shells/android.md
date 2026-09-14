@@ -7,7 +7,7 @@ For building Android bindings and running Android tests.
 ## Environment Variables
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `XMTP_DEV_SHELL` | `android` | Identifies this shell |
 | `OPENSSL_DIR` | `${openssl.dev}` | OpenSSL headers |
 | `ANDROID_HOME` | SDK path | Android SDK location |
@@ -32,7 +32,7 @@ For building Android bindings and running Android tests.
 ## Android SDK Configuration
 
 | Setting | Value |
-|---------|-------|
+| --- | --- |
 | Platforms | 34, 35 |
 | Platform Tools | 35.0.2 |
 | Build Tools | 34.0.0, 35.0.0 |
@@ -60,6 +60,7 @@ The `EMULATOR` env var points to the `run-test-emulator` custom script (not nixp
 - Sets `ANDROID_SERIAL` for subsequent `adb` commands
 
 Usage:
+
 ```bash
 run-test-emulator  # Starts emulator, blocks until ready
 ```

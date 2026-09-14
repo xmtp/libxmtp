@@ -111,53 +111,25 @@ CHROMEDRIVER_ARGS="--log-level=OFF" just wasm test
 
 ### Log Output Flags for Tests
 
-- Output test logs in a async-aware context-specific tree format with the
-  environment variable `CONTEXTUAL`
+`#[xmtp_common::test]` installs the test logger. Control it with environment
+variables:
 
 ```bash
-CONTEXTUAL=1 cargo test
+RUST_LOG=xmtp_mls=debug,xmtp_api=off,xmtp_id=info cargo test   # filter by crate
+STRUCTURED=1 cargo test                                        # JSON lines for a log viewer
+SHOW_SPAN_FIELDS=1 cargo test                                  # include tracing span fields
+XMTP_TEST_LOGGING=false cargo test                             # no test logging; CI=true does the same
 ```
 
-- Filter tests logs by Crate
-
-```bash
-RUST_LOG=xmtp_mls=debug,xmtp_api=off,xmtp_id=info cargo test
-```
-
-- Output test logs as in a structured JSON format for inspection with
-  third-party viewer
-
-```bash
-STRUCTURED=1 cargo test
-```
-
-- Two ways to replace InboxIds/InstallationIds/EthAddresses with a
-  human-readable string name in logs
-
-_NOTE_: Only works when using `CONTEXTUAL=1` flag. So to get the replacement,
-`CONTEXTUAL=1 cargo test`
-
-1.)
-
-Before the test runs, add an `TestLogReplace` declaration to the top
-`replace.add` accepts two arguments: the string to replace in logs and the
-string to replace it with. Note that on dropping the "TestLogReplace" object,
-the replacements will no longer be made.
-
-```rust
-let mut replace = TestLogReplace::default();
-replace.add(alix.installation_id(), "alix_installation_id");
-```
-
-2.) Build the `TesterBuilder` `with_name`
+Give test clients a name so log lines can be matched to them. `tester!(alix)`
+does this for you; a hand-built client uses the builder:
 
 ```rust
 let tester = Tester::builder().with_name("alix").build().await;
 ```
 
-This replaces all instances of alix's InboxIds, InstallationIds and Identifiers
-with "alix", "alix_installation", "alix_identifier" respectively, in test output
-logs.
+The name is logged with the client's installation id in an `AssociateName`
+event. See `.agents/skills/writing-rust-tests/` for the full test guide.
 
 ## Quick Start (Dev Containers)
 

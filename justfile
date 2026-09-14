@@ -66,7 +66,7 @@ lint-treefmt:
 
 # Exclude the generated error glossary and release changelogs.
 lint-markdown:
-    markdownlint "**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "sdks/js/*/CHANGELOG.md" --disable MD001 MD013
+    markdownlint "**/*.md" ".agents/**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "sdks/js/*/CHANGELOG.md" --disable MD001 MD013
 
 # --- FORMAT ---
 

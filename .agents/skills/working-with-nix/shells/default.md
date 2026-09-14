@@ -7,7 +7,7 @@ Full local development shell — superset of all other Rust-based shells. Includ
 ## Environment Variables
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `XMTP_NIX_ENV` | `yes` | Nix environment is active |
 | `XMTP_DEV_SHELL` | `local` | Identifies this shell |
 | `OPENSSL_DIR` | `${openssl.dev}` | OpenSSL headers location |
@@ -28,7 +28,7 @@ Full local development shell — superset of all other Rust-based shells. Includ
 ### Darwin-only shell hook (set dynamically)
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `DEVELOPER_DIR` | Xcode path | Active Xcode installation |
 | `IPHONEOS_DEPLOYMENT_TARGET` | `14` | Minimum iOS version |
 | `CC_aarch64_apple_ios` | Xcode clang | iOS device C compiler |

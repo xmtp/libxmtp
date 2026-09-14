@@ -56,8 +56,7 @@ macro and every helper here sit behind `xmtp_common`'s `test-utils` feature or
 - Every new API endpoint gets an integration test: happy path, each error,
   each limit. Integration tests cross real service boundaries.
 - Moving a test preserves its assertions, coverage, and runner inclusion.
-- Delete a test when its behaviour no longer exists. Never disable one to hide
-  a bug.
+- Never disable a test to hide a bug.
 
 ## Running
 

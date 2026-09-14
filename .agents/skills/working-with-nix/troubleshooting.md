@@ -5,6 +5,7 @@ Common issues and solutions for libxmtp Nix development.
 ## Issue: First Build is Extremely Slow
 
 **Symptoms:**
+
 - `nix develop` takes 20+ minutes
 - Seeing lots of "building" or "fetching" messages
 - CPU usage is high for extended periods
@@ -12,13 +13,16 @@ Common issues and solutions for libxmtp Nix development.
 **Cause:** Cachix binary cache not being used.
 
 **Solution:**
+
 1. Verify the cache is configured:
+
    ```bash
    nix config show | grep substituters
    # Should include: https://xmtp.cachix.org
    ```
 
 2. If missing, the flake's `nixConfig` should add it automatically. Check that your Nix installation trusts flake configs:
+
    ```bash
    # In /etc/nix/nix.conf or ~/.config/nix/nix.conf
    # Should have:
@@ -26,6 +30,7 @@ Common issues and solutions for libxmtp Nix development.
    ```
 
 3. Manually add if needed:
+
    ```bash
    # Add to nix.conf
    extra-substituters = https://xmtp.cachix.org
@@ -37,6 +42,7 @@ Common issues and solutions for libxmtp Nix development.
 ## Issue: New File Not Found During Build
 
 **Symptoms:**
+
 - `nix build` or `nix develop` says a file doesn't exist
 - File exists on disk and is visible with `ls`
 - Build worked before adding the new file
@@ -44,6 +50,7 @@ Common issues and solutions for libxmtp Nix development.
 **Cause:** Nix flakes only see git-tracked files.
 
 **Solution:**
+
 ```bash
 git add <new-file>
 # Then retry the nix command
@@ -56,6 +63,7 @@ This is a fundamental property of Nix flakes for reproducibility. The flake's so
 ## Issue: iOS Shell Fails on Linux
 
 **Symptoms:**
+
 - `nix develop .#ios` immediately fails
 - Error mentions missing `darwin` or `xcbuild`
 - Works on a colleague's Mac
@@ -71,12 +79,14 @@ There is no workaround. The iOS shell requires Darwin-specific toolchains and Xc
 ## Issue: Xcode Version Too Old for iOS
 
 **Symptoms:**
+
 - Warning on shell entry: "Xcode X.X detected. Xcode 16+ required for Swift 6.1"
 - Swift Package Manager fails with Package Traits errors
 
 **Cause:** Xcode < 16 doesn't support Swift 6.1 Package Traits.
 
 **Solution:**
+
 ```bash
 # Check current version
 xcodebuild -version
@@ -90,6 +100,7 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ## Issue: iOS Build Uses Wrong Compiler
 
 **Symptoms:**
+
 - iOS cross-compilation fails with `-mmacos-version-min` errors
 - Linker errors mentioning macOS flags during iOS builds
 - Nix's cc-wrapper injecting wrong flags
@@ -99,6 +110,7 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 **Solution:**
 
 The iOS shell (`ios.nix`) and default shell (`local.nix`) handle this automatically by:
+
 1. Resolving the real Xcode path via `/usr/bin/xcode-select`
 2. Setting `CC_aarch64_apple_ios` (etc.) to the full Xcode toolchain clang path
 3. Unsetting `SDKROOT` so xcrun discovers per-target SDKs
@@ -110,6 +122,7 @@ If you encounter this outside the Nix shells, ensure you're using `nix develop .
 ## Issue: Rust Version Mismatch
 
 **Symptoms:**
+
 - `rustc --version` shows wrong version outside Nix
 - Build fails with "requires Rust 1.92.0"
 - Cargo.toml's rust-version check fails
@@ -119,6 +132,7 @@ If you encounter this outside the Nix shells, ensure you're using `nix develop .
 **Solution:**
 
 Always use the Nix shell for development:
+
 ```bash
 nix develop
 # Now rustc --version shows 1.92.0
@@ -131,6 +145,7 @@ nix develop
 ## Issue: direnv Not Loading
 
 **Symptoms:**
+
 - Entering the directory doesn't activate Nix
 - `which cargo` shows system cargo, not Nix
 - No shell prompt change
@@ -147,6 +162,7 @@ nix develop
 ## Issue: WASM Build Fails
 
 **Symptoms:**
+
 - `wasm-pack build` fails
 - Missing `wasm32-unknown-unknown` target
 - Linker errors mentioning WASM
@@ -156,6 +172,7 @@ nix develop
 **Solution:**
 
 Use the dedicated WASM shell:
+
 ```bash
 nix develop .#wasm
 wasm-pack build --target web bindings/wasm
@@ -168,6 +185,7 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 ## Issue: OpenSSL Errors
 
 **Symptoms:**
+
 - "Can't locate openssl headers"
 - "openssl-sys" crate build fails
 - Linking errors with libssl
@@ -177,18 +195,21 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 **Solution:**
 
 1. Ensure you're in a Nix shell:
+
    ```bash
    nix develop
    echo $OPENSSL_DIR  # Should be set
    ```
 
 2. If building outside Nix (not recommended), set:
+
    ```bash
    export OPENSSL_DIR=$(brew --prefix openssl)  # macOS
    export OPENSSL_DIR=/usr  # Linux
    ```
 
 3. Force vendored OpenSSL (last resort):
+
    ```bash
    unset OPENSSL_NO_VENDOR
    cargo build  # Will build OpenSSL from source
@@ -199,6 +220,7 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 ## Issue: Android Emulator Won't Start
 
 **Symptoms:**
+
 - `run-test-emulator` fails or hangs
 - "ANDROID_HOME not set"
 - Port binding errors
@@ -208,16 +230,19 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 **Solution:**
 
 1. Use the Android shell:
+
    ```bash
    nix develop .#android
    ```
 
 2. Launch the emulator:
+
    ```bash
    run-test-emulator  # Custom script, scans ports 5560-5584
    ```
 
 3. The custom `run-test-emulator` script avoids ports 5554-5558 which conflict with Docker services started by `dev/docker/up`. If the emulator still hangs, check:
+
    ```bash
    # Ensure Docker services aren't using ports in 5560+ range
    lsof -i :5560-5584
@@ -230,6 +255,7 @@ The WASM shell uses Chrome/ChromeDriver for testing (not Firefox). It has a sepa
 ## Issue: Node Build Fails with Sandbox Error
 
 **Symptoms:**
+
 - `nix build .#node-bindings-js` fails with network errors
 - Sandbox violation during `yarn install`
 
@@ -246,6 +272,7 @@ The per-target `.node` builds (`node-bindings-*`) do NOT require network access 
 ## Issue: WASM Tests Fail — Playwright Executable Doesn't Exist
 
 **Symptoms:**
+
 - `browserType.launch: Executable doesn't exist at /nix/store/...-playwright-browsers/chromium_headless_shell-NNNN/...`
 - Playwright suggests running `yarn playwright install` (do NOT — browsers come from Nix)
 - Usually appears right after a nixpkgs (flake.lock) bump

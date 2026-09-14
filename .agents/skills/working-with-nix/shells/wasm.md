@@ -7,7 +7,7 @@ For WebAssembly builds and testing. Uses `fenix.stable` Rust (not the project-pi
 ## Environment Variables
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `CARGO_BUILD_TARGET` | `wasm32-unknown-unknown` | Default build target |
 | `XMTP_NIX_ENV` | `1` | Nix environment is active |
 | `CC_wasm32_unknown_unknown` | clang path | WASM C compiler |
@@ -25,6 +25,7 @@ For WebAssembly builds and testing. Uses `fenix.stable` Rust (not the project-pi
 ## Rust Configuration
 
 Uses `fenix.stable` toolchain (not the project-pinned version) with:
+
 - `cargo`, `rustc`
 - `wasm32-unknown-unknown` target
 

@@ -8,7 +8,7 @@ description: Use when working with Nix flakes, selecting devShells, debugging en
 ## Quick Shell Selection
 
 | Task | Shell | Command |
-|------|-------|---------|
+| --- | --- | --- |
 | Focused Rust crates/bindings work | rust | `nix develop .#rust` |
 | Full local development (default) | local | `nix develop` |
 | Android builds/testing | android | `nix develop .#android` |
@@ -59,7 +59,7 @@ Verify the binary cache is active: `nix config show | grep substituters` — sho
 
 Shells are independent — they compose from shared building blocks, not from each other:
 
-```
+```text
 shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
   ├── rust.nix     → focused Rust shell (crates/bindings, lint, test)
   ├── local.nix    → full local dev (default) = all targets + debug + misc
@@ -99,14 +99,14 @@ nix develop --show-trace  # Verbose error output
 ## Platform Support
 
 | Platform | Shells Available |
-|----------|------------------|
+| --- | --- |
 | macOS (aarch64-darwin) | rust, default, android, ios, js, wasm |
 | Linux (x86_64-linux) | rust, default, android, js, wasm |
 
 ## Key Files
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `flake.nix` | DevShell + package definitions, input pinning, cachix |
 | `nix/lib/default.nix` | Overlay wiring — exposes `xmtp.*` to all Nix files |
 | `nix/lib/shell-common.nix` | Shared building blocks (rustBase, wasmEnv, tool groups) |

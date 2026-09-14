@@ -7,7 +7,7 @@ For JavaScript/Node.js development and browser testing. **No Rust toolchain** â€
 ## Environment Variables
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `PLAYWRIGHT_BROWSERS_PATH` | Browser path | Pre-built browsers |
 | `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` | `true` | Skip host checks |
 | `PLAYWRIGHT_VERSION` | Version string | Playwright version |

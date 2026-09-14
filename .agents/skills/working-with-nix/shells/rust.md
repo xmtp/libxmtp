@@ -7,7 +7,7 @@ Focused Rust development shell for crates/ and bindings/ work. Supports `dev/lin
 ## Environment Variables
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `XMTP_NIX_ENV` | `yes` | Nix environment is active |
 | `OPENSSL_DIR` | `${openssl.dev}` | OpenSSL headers location |
 | `OPENSSL_LIB_DIR` | `${openssl}/lib` | OpenSSL library location |

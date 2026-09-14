@@ -9,13 +9,13 @@ For building iOS bindings. **macOS only.**
 Set statically by `mkShell`:
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `XMTP_DEV_SHELL` | `ios` (set in shellHook) | Identifies this shell |
 
 Set dynamically in `shellHook` (resolved from Xcode at shell entry):
 
 | Variable | Value | Purpose |
-|----------|-------|---------|
+| --- | --- | --- |
 | `DEVELOPER_DIR` | Xcode path | Active Xcode installation |
 | `IPHONEOS_DEPLOYMENT_TARGET` | `14` | Minimum iOS version |
 | `CC_aarch64_apple_ios` | Xcode clang | iOS device C compiler |
