@@ -1,4 +1,36 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-exec nix develop "${REPO_ROOT}#${NIX_DEVSHELL:-default}" --command bash -euc "$1"
+shell_name="${NIX_DEVSHELL:-default}"
+if [[ "${1:-}" == --shell ]]; then
+  shell_name="${2:?Expected a shell name}"
+  shift 2
+fi
+if [[ "${1:-}" == --command ]]; then
+  shift
+  [[ $# -gt 0 ]] || { echo 'Expected a command after --command' >&2; exit 2; }
+  command_args=("$@")
+else
+  [[ $# -eq 1 ]] || { echo 'Usage: dev/nix-shell [--shell NAME] STRING | --command ARGS...' >&2; exit 2; }
+  command_args=(bash -euc "$1")
+fi
+
+# Reuse only an environment entered by this wrapper with the same inputs.
+fingerprint="$(
+  cd "$REPO_ROOT"
+  git ls-files -z --cached --others --exclude-standard -- \
+    '*.nix' flake.lock Cargo.lock '*Cargo.toml' '*package.json' '*yarn.lock' \
+    '*webdriver.json' dev/nix-shell |
+    while IFS= read -r -d '' path; do
+      if [[ -f "$path" ]]; then shasum -a 256 "$path"; fi
+    done | shasum -a 256
+)"
+identity="$REPO_ROOT:$shell_name:$fingerprint"
+if [[ "${XMTP_NIX_WRAPPER_ID:-}" == "$identity" ]]; then
+  exec "${command_args[@]}"
+fi
+# shellcheck disable=SC2016
+exec nix develop "${REPO_ROOT}#${shell_name}" --command bash -euc \
+  'export XMTP_NIX_WRAPPER_ID="$1"; shift; exec "$@"' \
+  nix-shell "$identity" "${command_args[@]}"

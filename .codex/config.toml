@@ -1,0 +1,19 @@
+# Review and trust this project hook through the normal Codex trust flow.
+[[hooks.PreToolUse]]
+matcher = "Bash"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = 'python3 "$(git rev-parse --show-toplevel)/dev/agents/nix_hook.py"'
+
+[mcp_servers.serena]
+command = "bash"
+args = ["-c", 'exec "$(git rev-parse --show-toplevel)/dev/serena"']
+startup_timeout_sec = 180
+tool_timeout_sec = 240
+enabled_tools = [
+  "find_symbol",
+  "get_symbols_overview",
+  "find_referencing_symbols",
+  "find_declaration",
+  "get_diagnostics_for_file",
+]

@@ -10,6 +10,9 @@
   just,
   sqlcipher,
   corepack,
+  rust-analyzer,
+  python311,
+  uv,
   xmtp,
 }:
 let
@@ -46,6 +49,9 @@ mkShell {
       just
       sqlcipher
       corepack
+      rust-analyzer
+      python311
+      uv
     ]
     ++ shellCommon.wasmTools
     ++ shellCommon.cargoTools

@@ -212,3 +212,7 @@ docs/plans
 # Claude Code
 .claude/scheduled_tasks.lock
 /target-linux-amd64
+
+# Agent Python runtime and bytecode
+dev/agents/.venv/
+dev/agents/__pycache__/

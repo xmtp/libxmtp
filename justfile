@@ -10,6 +10,10 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
 
+# Test the agent shell wrapper and hook without starting a language server.
+agent-test:
+    python3 -m unittest discover -s dev/agents -p 'test_*.py' -v
+
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage

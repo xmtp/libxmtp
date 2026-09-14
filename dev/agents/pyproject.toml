@@ -1,0 +1,11 @@
+[project]
+name = "libxmtp-agent-tools"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+  "httpx>=0.28,<0.29",
+  "mcp>=1.28,<2",
+  "psutil>=7,<8",
+  "uvicorn>=0.53,<0.54",
+  "serena-agent @ git+https://github.com/oraios/serena@18fa47bfccd9c27d05910a0ea12918276f1a6521",
+]
