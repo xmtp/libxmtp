@@ -263,7 +263,13 @@ if __name__ == "__main__":
     os.umask(0o077)
     action = sys.argv[1] if len(sys.argv) > 1 else "connect"
     if action == "--serve":
-        serve()
+        # Keep ownership if the client that started this process is interrupted.
+        with (STATE / "server.lock").open("a") as lifetime:
+            try:
+                fcntl.flock(lifetime, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                sys.exit("Serena is already running for this worktree.")
+            serve()
     elif action == "stop":
         stop()
     elif action == "connect":

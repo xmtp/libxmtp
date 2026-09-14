@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import subprocess
+import sys
 from unittest.mock import patch
 
 from mcp import ClientSession, StdioServerParameters
@@ -35,6 +37,14 @@ async def main():
     first, second = await asyncio.gather(query(), query())
     assert first == second, (first, second)
     record = json.loads((STATE / "server.json").read_text())
+    duplicate = subprocess.run(
+        [sys.executable, str(ROOT / "dev/agents/serena_broker.py"), "--serve"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    assert duplicate.returncode != 0, duplicate
+    assert "already running" in duplicate.stderr, duplicate.stderr
     assert live_process({**record, "created": record["created"] - 1}) is None
     assert live_process({**record, "root": "/other/worktree"}) is None
     with patch("serena_broker.identity", return_value="changed inputs"):
