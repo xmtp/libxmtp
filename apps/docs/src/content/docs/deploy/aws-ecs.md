@@ -45,6 +45,7 @@ repeatable cleanup. This module does not create or own the RDS instance or secre
 Create a working directory outside the repository. Save this as `config.toml`:
 
 ```toml
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
 [database]
 url = "env:XMTP_DATABASE_URL"
 ```
@@ -59,8 +60,8 @@ Never pass a secret as a literal CLI argument: it becomes visible in argv.
 ## Terraform module
 
 Save this single module as `modules/backend/main.tf` in your working directory.
-The AWS provider requires version 5 or later for the separate security group
-rule resources; this module pins version 5. ALPN support requires at least 3.36.
+This module pins AWS provider version 5. The separate security group rule
+resources need at least 4.56, and `alpn_policy` needs at least 3.36.
 
 ```hcl
 terraform {
@@ -294,6 +295,9 @@ NLB target groups have no gRPC matcher. Do not add `path` or `matcher` to this
 TCP check.
 
 The NLB TLS listener has a fixed 350 s idle timeout. It cannot be configured.
+A TCP listener also defaults to 350 s, but there you can set
+`tcp.idle_timeout.seconds` between 60 and 6000. That knob does not apply to a
+TLS listener.
 The default `streams.keepalive_interval_ms` in `apps/backend/src/config.rs`
 uses the shared value `30000` ms (30 s). Server keepalive traffic keeps active
 streams inside this limit. The example sets a 30 s deregistration delay and a
