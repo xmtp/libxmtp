@@ -57,6 +57,7 @@ workspace-members = [
   "xmtp_cryptography",
   "xmtp_configuration",
   "xmtp_proto",
+  "xmtp_push_types",
   "xmtp_id",
   "xmtp_macro",
   "xmtp_logging",

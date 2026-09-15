@@ -96,10 +96,19 @@ ratio. Collector loss can reduce that population further.
 | `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. | result | fixed | JWKS refresh | Key source unavailable | Success swaps keys; failure keeps the last set |
 | `xmtp_auth_keys` | gauge | Loaded JWT verification keys. | none | none | key load and refresh | Empty or unexpected key set | Number of usable keys |
 | `xmtp_push_recipients_total` | counter | Push recipient changes by action. | action | registered, unregistered, expired, dead | recipient changes | Registration and deletion activity | Recipient changes |
+| `xmtp_push_deliveries_total` | counter | Push deliveries by channel and outcome. | channel, outcome | apns, fcm, http; delivered, failed, rejected, mismatch, dead, suppressed | completed delivery | Provider results and sender suppression | Push delivery results |
+| `xmtp_push_dispatcher` | gauge | Whether this instance holds the push dispatcher lock. | none | none | lock acquisition and release | One holder per database | Push dispatcher holder |
 | `xmtp_push_subscriptions_total` | counter | Push subscription changes by action. | action | added, removed | subscription transaction | Topic changes | Inserted and deleted topics |
 | `xmtp_backend_info` | gauge | Backend build version. | version | explicit | backend startup | Wrong build deployed | Build version with value one |
 
 Error-only families can be absent until their first event.
+
+The push dispatcher starts only when at least one push provider is configured.
+One instance holds the dispatcher lock for each database. Delivery metrics use
+only fixed channel and outcome labels. They do not contain recipient IDs,
+targets, topic bytes, or signing keys. A graceful shutdown
+uses the same deadline for RPCs and push attempts. A restart can repeat an
+unfinished delivery window after a crash or an expired shutdown deadline.
 
 Auth rejection reasons are `missing`, `malformed`, `unsupported_alg`, `untrusted`,
 `expired`, `not_yet_valid`, `audience`, `issuer`, and `scope`. JWKS refresh results

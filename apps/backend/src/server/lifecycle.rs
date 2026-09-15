@@ -178,6 +178,7 @@ impl AsyncWrite for DrainIo {
 pub(super) struct ShutdownGuard {
     pub lifecycle: Arc<Lifecycle>,
     pub streams: Option<Arc<crate::stream::StreamHub>>,
+    pub push: Option<Arc<crate::push::PushHub>>,
 }
 impl ShutdownGuard {
     pub fn stop(&self) {
@@ -190,6 +191,9 @@ impl ShutdownGuard {
 impl Drop for ShutdownGuard {
     fn drop(&mut self) {
         self.stop();
+        if let Some(push) = &self.push {
+            push.abort();
+        }
         self.lifecycle.cancel();
     }
 }

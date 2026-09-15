@@ -14,9 +14,10 @@ pub(crate) use model::*;
 #[cfg(test)]
 mod tests;
 
-const GLOBAL_LOCK_DOMAIN: i32 = 0;
+pub(crate) const GLOBAL_LOCK_DOMAIN: i32 = 0;
 const IDENTITY_LOCK: i32 = 1;
 const ALLOCATION_BARRIER: i32 = 2;
+pub(crate) const PUSH_DISPATCHER: i32 = 3;
 
 #[derive(Clone)]
 /// PostgreSQL access for durable backend state.

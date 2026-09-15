@@ -4,6 +4,7 @@ pub mod auth;
 pub mod config;
 pub mod db;
 pub mod error;
+mod push;
 pub mod server;
 pub mod service;
 mod stream;

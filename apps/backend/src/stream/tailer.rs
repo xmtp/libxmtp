@@ -40,6 +40,7 @@ pub(super) async fn start(
     read: PgPool,
     registry: Arc<Registry>,
     config: &Config,
+    maintenance: Arc<Notify>,
 ) -> Result<JoinHandle<()>, Error> {
     let interval = Duration::from_millis(config.streams.poll_interval_ms);
     let wait = config.publishing.max_barrier_wait_ms;
@@ -51,7 +52,6 @@ pub(super) async fn start(
     Ok(tokio::spawn(async move {
         let mut initial = first;
         loop {
-            let maintenance = Arc::new(Notify::new());
             let mut boundary = Worker(tokio::spawn(maintain(
                 primary.clone(),
                 maintenance.clone(),
@@ -62,7 +62,7 @@ pub(super) async fn start(
             let tailer = run(
                 initial.connection,
                 &registry,
-                maintenance,
+                maintenance.clone(),
                 initial.boundary,
                 max_gaps,
                 interval,
@@ -79,6 +79,9 @@ pub(super) async fn start(
             registry.fail_all(failure, reason);
             telemetry::tailer_restarted();
             drop(boundary);
+            // A consumed request may have been inside the failed attempt.
+            // Keep demand alive until recovery and the next maintenance pass.
+            maintenance.notify_one();
             loop {
                 sleep(interval).await;
                 if let Ok(boundary) = bootstrap(&primary, &read, wait, interval, statement_ms).await

@@ -55,6 +55,7 @@ let
     (src + /crates/xmtp_db/migrations)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))
     (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
+    (fileFilter (file: lib.hasSuffix ".sql" file.name) (src + /apps/backend/src))
     (src + /proto)
     (src + /webdriver.json)
     (lib.fileset.maybeMissing (src + /docs/schemas/backend-v1.json))

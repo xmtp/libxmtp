@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE push_cursor SET sequence_id = $1 WHERE singleton AND sequence_id = $2 AND sequence_id < $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e7b2a9dbeaa31dec485bebcaccddb87f9cec16792514eac518df207461022d26"
+}
