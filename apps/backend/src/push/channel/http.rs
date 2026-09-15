@@ -24,6 +24,7 @@ impl Resolver for SystemResolver {
 
 pub(crate) struct HttpSender {
     allow_private: bool,
+    allowed_domains: Option<Vec<String>>,
     resolver: Arc<dyn Resolver>,
     #[cfg(test)]
     trusted_root: Option<reqwest::Certificate>,
@@ -40,6 +41,7 @@ impl HttpSender {
     pub fn new(config: &crate::config::push::HttpConfig) -> Self {
         Self {
             allow_private: config.allow_private_addresses,
+            allowed_domains: config.allowed_domains.clone(),
             resolver: Arc::new(SystemResolver),
             #[cfg(test)]
             trusted_root: None,
@@ -54,6 +56,14 @@ impl HttpSender {
     ) -> Result<ValidatedDelivery<'a>, Outcome> {
         let url = parse_delivery_url(&delivery.config.delivery)?;
         let host = url.host().ok_or(Outcome::Rejected)?;
+        if let Some(domains) = &self.allowed_domains
+            && !domains.is_empty()
+            && !domains.iter().any(|domain| {
+                crate::service::notification::webhook_url::matches_domain(&host.to_string(), domain)
+            })
+        {
+            return Err(Outcome::Rejected);
+        }
         let port = url.port_or_known_default().unwrap_or(443);
         let addresses: Vec<SocketAddr> = match host {
             url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
