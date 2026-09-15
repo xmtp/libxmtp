@@ -600,7 +600,7 @@ export class Conversations<ContentTypes = unknown> {
    * Gets the HMAC keys for all conversations
    *
    * @returns The HMAC keys for all conversations
-   * @see https://docs.xmtp.org/sdk/push-notifications/#hmac-keys
+   * @see https://docs.xmtp.org/sdk/push-notifications/
    */
   hmacKeys() {
     return this.#conversations.hmacKeys();

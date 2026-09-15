@@ -23,17 +23,17 @@ final class NotificationConfigTests: XCTestCase {
 			case .http: XCTFail("Expected a provider channel")
 			}
 			XCTAssertEqual(config.consentStates, [.denied, .unknown])
-			XCTAssertFalse(config.includeWelcomes)
-			XCTAssertTrue(config.includeSyncGroups)
-			XCTAssertTrue(config.includeCommits)
+			XCTAssertEqual(config.includeWelcomes, false)
+			XCTAssertEqual(config.includeSyncGroups, true)
+			XCTAssertEqual(config.includeCommits, true)
 			XCTAssertEqual(config.metadata, Data([0, 128, 255]))
 
 			let defaults = NotificationConfig(channel: channel).toFFI
 			XCTAssertEqual(defaults.channel, config.channel)
 			XCTAssertEqual(defaults.consentStates, [.allowed])
-			XCTAssertTrue(defaults.includeWelcomes)
-			XCTAssertFalse(defaults.includeSyncGroups)
-			XCTAssertFalse(defaults.includeCommits)
+			XCTAssertEqual(defaults.includeWelcomes, true)
+			XCTAssertEqual(defaults.includeSyncGroups, false)
+			XCTAssertEqual(defaults.includeCommits, false)
 			XCTAssertEqual(defaults.metadata, Data())
 		}
 	}

@@ -2,8 +2,6 @@ package org.xmtp.android.library
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.xmtpv3.FfiConsentState
 import uniffi.xmtpv3.FfiNotificationChannel
@@ -28,17 +26,17 @@ class NotificationConfigTest {
                 is NotificationChannel.Http -> error("Expected a provider channel")
             }
             assertEquals(listOf(FfiConsentState.DENIED, FfiConsentState.UNKNOWN), config.consentStates)
-            assertFalse(config.includeWelcomes)
-            assertTrue(config.includeSyncGroups)
-            assertTrue(config.includeCommits)
+            assertEquals(false, config.includeWelcomes)
+            assertEquals(true, config.includeSyncGroups)
+            assertEquals(true, config.includeCommits)
             assertArrayEquals(byteArrayOf(0, -128, -1), config.metadata)
 
             val defaults = NotificationConfig(channel).toFfi()
             assertEquals(config.channel, defaults.channel)
             assertEquals(listOf(FfiConsentState.ALLOWED), defaults.consentStates)
-            assertTrue(defaults.includeWelcomes)
-            assertFalse(defaults.includeSyncGroups)
-            assertFalse(defaults.includeCommits)
+            assertEquals(true, defaults.includeWelcomes)
+            assertEquals(false, defaults.includeSyncGroups)
+            assertEquals(false, defaults.includeCommits)
             assertArrayEquals(byteArrayOf(), defaults.metadata)
         }
     }
