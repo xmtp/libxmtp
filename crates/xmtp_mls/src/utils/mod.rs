@@ -16,11 +16,9 @@ pub mod hash {
 }
 
 pub mod time {
-    const SECS_IN_30_DAYS: i64 = 60 * 60 * 24 * 30;
-
     /// Current hmac epoch. HMAC keys change every 30 days
     pub fn hmac_epoch() -> i64 {
-        xmtp_common::time::now_secs() / SECS_IN_30_DAYS
+        xmtp_push_types::hmac_epoch(xmtp_common::time::now_secs())
     }
 }
 
