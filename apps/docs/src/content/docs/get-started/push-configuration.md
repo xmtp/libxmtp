@@ -55,12 +55,12 @@ max_push_topics = 100000
 | ----------------------------------- | ------------------- | ------------------------------------------------------- |
 | `push.recipient_ttl_seconds`        | `2592000` (30 days) | At least `86400`. Registrations without renewal expire. |
 | `push.max_attempts`                 | `3`                 | From `1` to `10` attempts per delivery.                 |
-| `push.apns.environment`             | `production`        | `production` or `sandbox`. Must match the app token.    |
+| `push.apns.environment`             | None (required)     | `production` or `sandbox`. Must match the app token.    |
 | `push.http.allowed_domains`         | Empty list          | Empty permits any public host.                          |
 | `push.http.allow_private_addresses` | `false`             | Use `true` only for development or tests.               |
 | `limits.max_push_topics`            | `100000`            | Maximum subscriptions per recipient.                    |
 
-All APNs fields except `environment` are required when `[push.apns]` is present.
+All APNs fields, including `environment`, are required when `[push.apns]` is present.
 `service_account` is required when `[push.fcm]` is present. `key` contains a
 PKCS#8 PEM key; `service_account` contains the full JSON document. `env:NAME`
 reads the variable's contents, not a file path. These secrets do not appear in
