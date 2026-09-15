@@ -33,3 +33,11 @@ pub fn lib() {
     panic!("only webassembly is supported")
   }
 }
+
+#[cfg(doctest)]
+/// Notification types must stay absent from the browser binding.
+///
+/// ```compile_fail
+/// use bindings_wasm::{NotificationChannel, NotificationConfig, NotificationOverride, NotificationState};
+/// ```
+struct WasmNotificationApiIsUnavailable;

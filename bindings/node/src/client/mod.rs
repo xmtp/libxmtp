@@ -17,6 +17,7 @@ mod consent_state;
 pub mod create_client;
 mod identity;
 mod inbox_state;
+mod notifications;
 pub mod options;
 mod registration_visible;
 mod signatures;
