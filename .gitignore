@@ -1,6 +1,8 @@
 **/target
 **/*.rs.bk
 bin/
+!apps/cli/bin/
+!apps/cli/bin/*.js
 pkg/
 wasm-pack.log
 
