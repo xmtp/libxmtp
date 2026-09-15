@@ -98,11 +98,7 @@ async fn hmac_uses_each_epoch_key_without_merging_other_messages() {
     let page = super::super::window::load(&fixture.store, 0, 5, &(0, vec![]), &mut cache).await?;
     assert_eq!(page.suppressed.len(), 3);
     assert_eq!(page.deliveries.len(), 7);
-    assert_eq!(
-        cache.len(),
-        3,
-        "missing keys and absent HMAC must not load payloads"
-    );
+    assert_eq!(cache.len(), 1, "only the most recent payload stays cached");
     let own: Vec<_> = page
         .deliveries
         .iter()
@@ -118,13 +114,14 @@ async fn terminal_response_compares_every_delivery_field() {
     let original = fixture
         .recipient(1, PushChannel::Http, &[1], false, 0)
         .await?;
-    for field in 0..4 {
+    for field in 0..5 {
         let mut attempted = original.clone();
         match field {
             0 => attempted.channel = PushChannel::Apns,
             1 => attempted.delivery.push_str("/old"),
             2 => attempted.signing_key = Some(vec![99; 32]),
-            _ => attempted.metadata.push(99),
+            3 => attempted.metadata.push(99),
+            _ => attempted.secret_hash = vec![99; 32],
         }
         assert!(!dispatcher::delete_dead(&fixture.store, &attempted).await?);
     }
@@ -133,6 +130,89 @@ async fn terminal_response_compares_every_delivery_field() {
         .fetch_one(&fixture.store.primary)
         .await?;
     assert_eq!(count, 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn stale_terminal_response_keeps_reregistered_recipient_and_subscriptions() {
+    let fixture = Fixture::new().await?;
+    let old = fixture
+        .recipient(1, PushChannel::Http, &[1], false, 0)
+        .await?;
+    sqlx::query("DELETE FROM push_recipient WHERE recipient_id = $1")
+        .bind(&old.recipient_id)
+        .execute(&fixture.store.primary)
+        .await?;
+    let mut replacement = fixture
+        .recipient(1, PushChannel::Http, &[1], false, 0)
+        .await?;
+    replacement.secret_hash = vec![10; 32];
+    sqlx::query("UPDATE push_recipient SET secret_hash = $2 WHERE recipient_id = $1")
+        .bind(&replacement.recipient_id)
+        .bind(&replacement.secret_hash)
+        .execute(&fixture.store.primary)
+        .await?;
+    fixture.seed(1, &[1], false).await?;
+    let page =
+        super::super::window::load(&fixture.store, 0, 1, &(0, vec![]), &mut HashMap::new()).await?;
+    assert!(page.deliveries[0].config == replacement);
+    assert!(!dispatcher::delete_dead(&fixture.store, &old).await?);
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM push_subscription")
+        .fetch_one(&fixture.store.primary)
+        .await?;
+    assert_eq!(count, 1);
+    assert!(dispatcher::delete_dead(&fixture.store, &replacement).await?);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn hmac_payload_cache_reuses_split_rows_and_releases_previous_payload() {
+    let fixture = Fixture::new().await?;
+    fixture.seed(2, &[1], false).await?;
+    let key = vec![11u8; 42];
+    let data = vec![7; 2 * 1024 * 1024 - 32];
+    let payload = api::ClientEnvelope {
+        payload: Some(api::client_envelope::Payload::GroupMessage(
+            api::GroupMessage {
+                data: data.clone(),
+                ..Default::default()
+            },
+        )),
+    }
+    .encode_to_vec();
+    let mut mac = Hmac::<Sha256>::new_from_slice(&key)?;
+    mac.update(&data);
+    sqlx::query("UPDATE envelopes SET payload = $1, sender_hmac = $2")
+        .bind(&payload)
+        .bind(mac.finalize().into_bytes().to_vec())
+        .execute(&fixture.store.primary)
+        .await?;
+    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), ''::bytea, 1, 1 FROM generate_series(1,1001) id")
+        .execute(&fixture.store.primary).await?;
+    sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits, hmac_epoch_base, hmac_key_0, hmac_key_1, hmac_key_2) SELECT recipient_id, $1, 0, false, 0, $2, $2, $2 FROM push_recipient")
+        .bind(&[1u8][..]).bind(&key).execute(&fixture.store.primary).await?;
+    sqlx::query("UPDATE push_subscription SET hmac_epoch_base = NULL, hmac_key_0 = NULL, hmac_key_1 = NULL, hmac_key_2 = NULL WHERE recipient_id > decode(lpad(to_hex(1),64,'0'),'hex') AND recipient_id < decode(lpad(to_hex(1000),64,'0'),'hex')")
+        .execute(&fixture.store.primary).await?;
+    let mut cache = HashMap::new();
+    let first = super::super::window::load(&fixture.store, 0, 2, &(0, vec![]), &mut cache).await?;
+    assert_eq!(first.suppressed.len(), 2);
+    assert_eq!(cache.len(), 1);
+    // The next page must reuse row one's payload, even if pruning removes it.
+    sqlx::query("UPDATE envelopes SET payload = ''::bytea WHERE sequence_id = 1")
+        .execute(&fixture.store.primary)
+        .await?;
+    let second = super::super::window::load(&fixture.store, 0, 2, &first.next, &mut cache).await?;
+    assert_eq!(second.suppressed.len(), 2);
+    assert_eq!(cache.len(), 1);
+    assert!(!cache.contains_key(&1));
+    assert_eq!(
+        cache.get(&2).and_then(Option::as_ref).map(Vec::len),
+        Some(payload.len())
+    );
+    let last = super::super::window::load(&fixture.store, 0, 2, &second.next, &mut cache).await?;
+    assert_eq!(last.suppressed.len(), 2);
+    assert!(!last.full);
+    assert_eq!(first.deliveries.len(), 998);
+    assert_eq!(second.deliveries.len(), 998);
+    assert!(last.deliveries.is_empty());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

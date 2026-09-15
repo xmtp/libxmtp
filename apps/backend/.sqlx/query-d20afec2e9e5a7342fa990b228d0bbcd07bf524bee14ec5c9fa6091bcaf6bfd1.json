@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND metadata = $5 AND secret_hash = $6",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Bytea",
+        "Int2",
+        "Text",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d20afec2e9e5a7342fa990b228d0bbcd07bf524bee14ec5c9fa6091bcaf6bfd1"
+}

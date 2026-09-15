@@ -6,6 +6,7 @@ fn delivery(id: u64, channel: PushChannel) -> Delivery {
         payload: xmtp_push_types::PushPayload::new(&[1], id),
         config: DeliveryConfig {
             recipient_id: vec![id as u8; 32],
+            secret_hash: vec![9; 32],
             channel,
             delivery: "https://example.org/push".into(),
             signing_key: Some(vec![7; 32]),
@@ -184,4 +185,35 @@ fn deletion_discards_only_matching_pending_configuration() {
     assert_eq!(pending.delivery.config.metadata, vec![9]);
     work.complete(pending, Outcome::Delivered, 3);
     assert_eq!(work.low_watermark(), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn deletion_stops_active_retries_but_keeps_replacement_configuration() {
+    let mut work = Work::new(0);
+    let old = delivery(1, PushChannel::Http);
+    let mut replacement = old.clone();
+    replacement.config.secret_hash = vec![10; 32];
+    work.add_page(1, 1, false, vec![old.clone(), old.clone(), replacement]);
+    let first = work.next(Instant::now())?;
+    let second = work.next(Instant::now())?;
+    let renewed = work.next(Instant::now())?;
+    work.deleted(&old.config);
+    for attempt in [first, second] {
+        assert!(matches!(
+            work.complete(attempt, Outcome::Transient { retry_after: None }, 3),
+            Completion::Done("failed")
+        ));
+    }
+    assert_eq!(work.active_configs.len(), 1);
+    assert!(matches!(
+        work.complete(renewed, Outcome::Transient { retry_after: None }, 3),
+        Completion::Retry
+    ));
+    assert!(work.active_configs.is_empty());
+    assert_eq!(work.low_watermark(), 1);
+    assert_eq!(work.queue.len(), 1);
+    let retry = work.next(work.queue.front()?.due)?;
+    assert_eq!(retry.delivery.config.secret_hash, vec![10; 32]);
+    work.complete(retry, Outcome::Delivered, 3);
+    assert!(work.is_empty());
 }

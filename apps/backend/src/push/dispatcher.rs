@@ -68,6 +68,8 @@ impl PushHub {
 
     pub async fn finished(&self) {
         let mut done = self.done.clone();
+        // Cancellation drops the only sender. Channel closure also means the
+        // worker has exited, even though it could not publish true.
         let _ = done.wait_for(|done| *done).await;
     }
 
@@ -178,14 +180,12 @@ async fn hold(
     let mut loader_state = None;
     let mut loading = JoinSet::new();
     let mut attempts: JoinSet<(Attempt, Outcome)> = JoinSet::new();
-    let mut deadline = None;
+    let mut deadline;
     let mut failure = None;
     loop {
-        if deadline.is_none() {
-            deadline = *stop.borrow();
-            if deadline.is_some() {
-                loading.abort_all();
-            }
+        deadline = *stop.borrow_and_update();
+        if deadline.is_some() {
+            loading.abort_all();
         }
         if let Some(error) = failure.take() {
             telemetry::push_dispatcher(false);
@@ -199,7 +199,7 @@ async fn hold(
                 });
                 tokio::select! {
                     _ = attempts.join_next() => {},
-                    _ = stop.changed(), if end.is_none() => {},
+                    _ = stop.changed() => {},
                     _ = sleep(remaining) => break,
                 }
             }
@@ -259,7 +259,7 @@ async fn hold(
             };
             let polled = tokio::select! {
                 biased;
-                _ = stop.changed(), if deadline.is_none() => continue,
+                _ = stop.changed() => continue,
                 _ = sleep(deadline.map_or(ATTEMPT_TIMEOUT, |end| end.saturating_duration_since(Instant::now()))), if deadline.is_some() => break,
                 result = poll => result,
             };
@@ -307,7 +307,7 @@ async fn hold(
         });
         tokio::select! {
             biased;
-            _ = stop.changed(), if deadline.is_none() => {},
+            _ = stop.changed() => {},
             result = attempts.join_next(), if !attempts.is_empty() => {
                 let Some(Ok((attempt, outcome))) = result else { failure = Some(Error::Invariant("push sender task failed")); continue };
                 let channel = attempt.delivery.config.channel;
@@ -359,12 +359,12 @@ async fn hold(
 }
 
 /// Compare the complete configuration, so a delayed provider response cannot
-/// delete a recipient that registered a new key, metadata, channel, or target.
+/// delete a recipient that registered a new secret, key, metadata, channel, or target.
 #[xmtp_common::db_span]
 pub(super) async fn delete_dead(store: &Store, config: &DeliveryConfig) -> Result<bool, Error> {
-    Ok(sqlx::query!("DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND metadata = $5",
+    Ok(sqlx::query!("DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND metadata = $5 AND secret_hash = $6",
         &config.recipient_id, config.channel as i16, &config.delivery,
-        config.signing_key.as_deref(), &config.metadata).execute(&store.primary).await?.rows_affected() != 0)
+        config.signing_key.as_deref(), &config.metadata, &config.secret_hash).execute(&store.primary).await?.rows_affected() != 0)
 }
 
 /// Move the cursor forward only on the dedicated advisory-lock connection.

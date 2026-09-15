@@ -1,6 +1,49 @@
 use super::*;
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn abort_closes_finished_signal_and_releases_dispatcher_lock() {
+    let fixture = Fixture::new().await?;
+    fixture
+        .recipient(1, PushChannel::Http, &[1], false, 0)
+        .await?;
+    fixture.seed(1, &[1], false).await?;
+    fixture.boundary(1).await?;
+    let sender = FakeSender::blocked();
+    let hub = fixture.hub(sender.clone());
+    xmtp_common::wait_for_eq(|| async { sender.count() }, 1).await?;
+    hub.abort();
+    timeout(Duration::from_secs(2), hub.finished()).await?;
+    xmtp_common::wait_for_eq(|| holder_pid(&fixture.store), None).await?;
+    assert_eq!(fixture.cursor().await, 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_shorter_deadline_interrupts_an_active_drain() {
+    let fixture = Fixture::new().await?;
+    fixture
+        .recipient(1, PushChannel::Http, &[1], false, 0)
+        .await?;
+    fixture.seed(1, &[1], false).await?;
+    fixture.boundary(1).await?;
+    let sender = Arc::new(FakeSender {
+        gate: Some(Arc::new(Semaphore::new(0))),
+        outcomes: Mutex::new(VecDeque::from([Outcome::Transient { retry_after: None }])),
+        ..FakeSender::default()
+    });
+    let hub = fixture.hub(sender.clone());
+    xmtp_common::wait_for_eq(|| async { sender.count() }, 1).await?;
+    hub.stop(Instant::now() + Duration::from_secs(30));
+    sender.gate.as_ref()?.add_permits(1);
+    // The gated retry starts only after the worker has processed the first
+    // stop signal. It remains active when the deadline is shortened.
+    xmtp_common::wait_for_eq(|| async { sender.count() }, 2).await?;
+    hub.stop(Instant::now());
+    timeout(Duration::from_secs(2), hub.finished()).await?;
+    assert_eq!(fixture.cursor().await, 1);
+    assert_eq!(sender.count(), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn only_settled_envelopes_send_and_above_boundary_requests_maintenance() {
     let fixture = Fixture::new().await?;
     fixture

@@ -16,6 +16,7 @@ struct Row {
     server_ns: Option<i64>,
     sender_hmac: Option<Vec<u8>>,
     recipient_id: Option<Vec<u8>>,
+    secret_hash: Option<Vec<u8>>,
     hmac_epoch_base: Option<i64>,
     hmac_key_0: Option<Vec<u8>>,
     hmac_key_1: Option<Vec<u8>>,
@@ -36,7 +37,8 @@ pub(crate) struct Page {
 }
 
 /// Read one page and suppress only matching senders. The cache belongs to the
-/// complete window, including all of its pages. A database failure loads no work.
+/// current row, including all of its pages. Ordered fan-out needs at most one
+/// cached payload. A database failure loads no work.
 #[xmtp_common::db_span]
 pub(crate) async fn load(
     store: &Store,
@@ -83,14 +85,17 @@ pub(crate) async fn load(
         )
         .filter(|_| row.sender_hmac.is_some())
         {
-            if let std::collections::hash_map::Entry::Vacant(entry) = payloads.entry(sequence_id) {
+            if !payloads.contains_key(&sequence_id) {
+                // Sequence ids increase across pages. Release the prior payload
+                // before loading the next one; no later delivery needs it.
+                payloads.clear();
                 let payload: Option<Vec<u8>> = sqlx::query_scalar!(
                     "SELECT payload FROM envelopes WHERE sequence_id = $1",
                     sequence_id
                 )
                 .fetch_optional(&store.read)
                 .await?;
-                entry.insert(payload);
+                payloads.insert(sequence_id, payload);
             }
             if payloads
                 .get(&sequence_id)
@@ -114,6 +119,7 @@ pub(crate) async fn load(
             ),
             config: DeliveryConfig {
                 recipient_id,
+                secret_hash: row.secret_hash.ok_or_else(missing)?,
                 channel,
                 delivery: row.delivery.ok_or_else(missing)?,
                 signing_key: row.signing_key,

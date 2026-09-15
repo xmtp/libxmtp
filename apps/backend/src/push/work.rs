@@ -25,10 +25,17 @@ struct Window {
     loaded: bool,
 }
 
+struct ActiveConfig {
+    config: DeliveryConfig,
+    count: usize,
+    deleted: bool,
+}
+
 pub(crate) struct Work {
     windows: BTreeMap<i64, Window>,
     queue: VecDeque<Attempt>,
     active: [usize; 3],
+    active_configs: Vec<ActiveConfig>,
     reserved: usize,
     pub read_position: i64,
 }
@@ -45,6 +52,7 @@ impl Work {
             windows: BTreeMap::new(),
             queue: VecDeque::new(),
             active: [0; 3],
+            active_configs: Vec::new(),
             reserved: 0,
             read_position: position,
         }
@@ -110,6 +118,19 @@ impl Work {
         })?;
         let mut attempt = self.queue.remove(index)?;
         self.active[attempt.delivery.config.channel as usize - 1] += 1;
+        if let Some(active) = self
+            .active_configs
+            .iter_mut()
+            .find(|active| active.config == attempt.delivery.config)
+        {
+            active.count += 1;
+        } else {
+            self.active_configs.push(ActiveConfig {
+                config: attempt.delivery.config.clone(),
+                count: 1,
+                deleted: false,
+            });
+        }
         attempt.count += 1;
         Some(attempt)
     }
@@ -144,6 +165,14 @@ impl Work {
     ) -> Completion {
         self.active[attempt.delivery.config.channel as usize - 1] -= 1;
         self.first_completed(&attempt);
+        let mut deleted = false;
+        self.active_configs.retain_mut(|active| {
+            if active.config == attempt.delivery.config {
+                active.count -= 1;
+                deleted = active.deleted;
+            }
+            active.count != 0
+        });
         attempt.all_gone &= outcome == Outcome::GoneTransient;
         let delay = match outcome {
             Outcome::Delivered => return Completion::Done("delivered"),
@@ -158,7 +187,10 @@ impl Work {
                 .unwrap_or(RETRY_DELAY)
                 .clamp(RETRY_DELAY, MAX_RETRY_DELAY),
         };
-        if attempt.count >= max_attempts || self.queue.len() + self.reserved >= RETAINED_LIMIT {
+        if deleted
+            || attempt.count >= max_attempts
+            || self.queue.len() + self.reserved >= RETAINED_LIMIT
+        {
             return Completion::Done("failed");
         }
         attempt.due = Instant::now() + delay;
@@ -169,6 +201,13 @@ impl Work {
     /// Discard queued work only for the deleted configuration. A concurrent
     /// registration with different delivery fields keeps its pending work.
     pub fn deleted(&mut self, config: &DeliveryConfig) {
+        // Mark only active configurations. The marker is removed when their
+        // last attempt completes, so terminal responses cannot grow this state.
+        for active in &mut self.active_configs {
+            if &active.config == config {
+                active.deleted = true;
+            }
+        }
         let mut kept = VecDeque::new();
         while let Some(mut attempt) = self.queue.pop_front() {
             if &attempt.delivery.config == config {

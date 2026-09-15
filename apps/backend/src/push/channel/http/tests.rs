@@ -126,6 +126,7 @@ fn delivery(url: String) -> Delivery {
     Delivery {
         payload: xmtp_push_types::PushPayload::new(&[1, 2, 3], 9_007_199_254_740_993),
         config: DeliveryConfig {
+            secret_hash: vec![9; 32],
             recipient_id: vec![1, 1],
             channel: PushChannel::Http,
             delivery: url,

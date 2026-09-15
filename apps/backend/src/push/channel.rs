@@ -15,6 +15,7 @@ pub(crate) const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct DeliveryConfig {
     pub recipient_id: Vec<u8>,
+    pub secret_hash: Vec<u8>,
     pub channel: PushChannel,
     pub delivery: String,
     pub signing_key: Option<Vec<u8>>,
