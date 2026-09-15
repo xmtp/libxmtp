@@ -461,6 +461,39 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_revocation_discards_a_prepared_batch() {
+    for override_change in [false, true] {
+        let (client, peer) = support::client().await;
+        let group = client.create_group(None, None)?;
+        let mut config = config();
+        config.include_welcomes = false;
+        client.enable_notifications(config).await?;
+        let changed_group = group.clone();
+        let _hook = support::on_before_request(move || {
+            if override_change {
+                changed_group
+                    .set_notifications(NotificationOverride::Disabled)
+                    .unwrap();
+            } else {
+                changed_group
+                    .update_consent_state(ConsentState::Denied)
+                    .unwrap();
+            }
+        });
+        let TaskOutcome::RescheduleAt(next) = run(&client.context).await? else {
+            panic!("a changed desired set must be scanned again");
+        };
+        assert!(next <= time::now_ns());
+        assert!(!group.notifications_enabled()?);
+        assert_eq!(peer.calls(Call::Update), 0);
+        assert!(client.db().uploaded_topics()?.is_empty());
+        run(&client.context).await?;
+        assert_eq!(peer.calls(Call::Update), 0);
+        assert!(peer.state.lock().subscriptions.is_empty());
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_stale_upload_is_removed_after_configuration_change() {
     let (client, peer) = support::client().await;
     let group = client.create_group(None, None)?;

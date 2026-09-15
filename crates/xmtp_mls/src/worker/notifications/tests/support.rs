@@ -4,6 +4,35 @@ use std::{collections::BTreeMap, sync::Arc};
 use tokio::sync::Notify;
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
 
+thread_local! {
+    static BEFORE_REQUEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> = const {
+        std::cell::RefCell::new(None)
+    };
+}
+
+pub(crate) struct BeforeRequestGuard(std::marker::PhantomData<std::rc::Rc<()>>);
+
+impl Drop for BeforeRequestGuard {
+    fn drop(&mut self) {
+        BEFORE_REQUEST.with(|hook| hook.borrow_mut().take());
+    }
+}
+
+/// Run one local change after batch preparation and before request validation.
+pub(crate) fn on_before_request(change: impl FnOnce() + 'static) -> BeforeRequestGuard {
+    BEFORE_REQUEST.with(|hook| {
+        assert!(hook.borrow_mut().replace(Box::new(change)).is_none());
+    });
+    BeforeRequestGuard(Default::default())
+}
+
+pub(crate) fn before_request() {
+    let change = BEFORE_REQUEST.with(|hook| hook.borrow_mut().take());
+    if let Some(change) = change {
+        change();
+    }
+}
+
 pub(crate) const TEST_TTL_NS: i64 = 4 * xmtp_common::NS_IN_DAY;
 pub(crate) type Context = Arc<
     crate::context::XmtpMlsLocalContext<

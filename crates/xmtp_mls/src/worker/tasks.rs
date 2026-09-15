@@ -112,6 +112,7 @@ pub struct TaskWorkerChannels {
     pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
+    notification_revision: Arc<std::sync::atomic::AtomicUsize>,
     notification_wake_pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
@@ -128,6 +129,7 @@ impl TaskWorkerChannels {
             task_sender,
             task_receiver: Arc::new(tokio::sync::Mutex::new(task_receiver)),
             notification_request: Default::default(),
+            notification_revision: Default::default(),
             notification_wake_pending: Default::default(),
         }
     }
@@ -147,9 +149,17 @@ impl TaskWorkerChannels {
     /// Send a memory hint only. The task runner owns durable notification scheduling.
     pub fn wake_notifications(&self) {
         use std::sync::atomic::Ordering;
+        // Every committed change invalidates a prepared batch, even when its
+        // scheduling hint coalesces with a hint already in the channel.
+        self.notification_revision.fetch_add(1, Ordering::AcqRel);
         if !self.notification_wake_pending.swap(true, Ordering::AcqRel) {
             let _ = self.task_sender.send(TaskMessage::NotificationWake);
         }
+    }
+
+    pub(crate) fn notification_revision(&self) -> usize {
+        self.notification_revision
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 }
 

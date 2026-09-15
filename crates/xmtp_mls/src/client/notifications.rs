@@ -302,6 +302,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
     }
 
     /// Disable locally before unregistering. The recipient identity and overrides stay.
+    /// A failed unregister leaves the client disabled; the backend recipient expires.
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
         let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {

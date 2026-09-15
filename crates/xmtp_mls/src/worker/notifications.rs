@@ -420,8 +420,14 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
         }
         return finish_turn(context, register(context, &record, &config).await);
     }
+    let revision = context.task_channels().notification_revision();
     let desired = desired(context, &config)?;
     let batch = prepare_batch(context, &record, &desired)?;
+    #[cfg(test)]
+    tests::support::before_request();
+    if context.task_channels().notification_revision() != revision {
+        return finish_turn(context, Ok(()));
+    }
     if batch.request.adds.is_empty() && batch.request.removes.is_empty() {
         let next = time::now_ns()
             .saturating_add(NS_IN_HOUR)
@@ -445,7 +451,10 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
         return Ok(TaskOutcome::RescheduleAt(time::now_ns() + RETRY_NS));
     };
     let current = context.db().notification_record()?;
-    if current.push_generation != record.push_generation || current.push_state != 1 {
+    if current.push_generation != record.push_generation
+        || current.push_state != 1
+        || context.task_channels().notification_revision() != revision
+    {
         return finish_turn(context, Ok(()));
     }
     let result = match bounded(context.api().update_subscriptions(batch.request.clone())).await {

@@ -184,6 +184,49 @@ async fn notification_disable_keeps_identity_and_conversation_override() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_failed_unregister_stays_disabled_without_background_retry() {
+    for code in [tonic::Code::Unavailable, tonic::Code::DeadlineExceeded] {
+        let (client, peer) = support::client().await;
+        client.enable_notifications(config()).await?;
+        notifications::run(&client.context).await?;
+        let original = client.db().notification_record()?;
+        peer.state.lock().next_error = Some(code);
+        assert!(
+            client
+                .disable_notifications()
+                .await
+                .unwrap_err()
+                .is_retryable()
+        );
+        assert!(matches!(
+            client.notification_state()?,
+            NotificationState::Disabled
+        ));
+        let disabled = client.db().notification_record()?;
+        assert_eq!(disabled.push_recipient_id, original.push_recipient_id);
+        assert_eq!(
+            disabled.push_recipient_secret,
+            original.push_recipient_secret
+        );
+        assert!(disabled.push_config.is_none());
+        assert!(disabled.push_deadlines.is_none());
+        assert!(client.db().uploaded_topics()?.is_empty());
+        // PUSH-081 forbids calls from later tasks while disabled. The backend
+        // retains the recipient only until expiry unless the caller retries.
+        notifications::wake(&client.context)?;
+        assert_eq!(
+            notifications::run(&client.context).await?,
+            crate::worker::tasks::TaskOutcome::Done
+        );
+        assert_eq!(peer.calls(support::Call::Unregister), 1);
+        assert!(peer.state.lock().registered);
+        client.disable_notifications().await?;
+        assert_eq!(peer.calls(support::Call::Unregister), 2);
+        assert!(!peer.state.lock().registered);
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_terminal_status_is_typed_and_stops_tasks() {
     let (client, peer) = support::client().await;
     for (code, expected) in [
