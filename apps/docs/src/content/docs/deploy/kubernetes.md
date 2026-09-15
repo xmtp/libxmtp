@@ -8,11 +8,6 @@ terminates TLS and sends h2c to the backend Service. Read the
 [deployment overview](/deploy/overview/) for ports, connection budgets, health,
 shutdown, the ingress contract, and security requirements.
 
-This chart was installed on a real Kubernetes 1.34 cluster and exercised with a
-client. A cloud load balancer was not part of that check. Read
-[Verification status and cleanup](#verification-status-and-cleanup) for what is
-proven and what is not.
-
 **Image requirement:** use an image that contains the configuration flag
 change. Every `:self-hosted` image published after 2026-09-14 has it. Pin an
 exact build with `ghcr.io/xmtp/backend:sha-<commit>`.
@@ -450,10 +445,8 @@ Use at least two replicas when you enable it.
 
 ## Install
 
-These commands were run on a real cluster. Set an immutable image tag in
-`values.yaml`, and prepare the database Secret and access controls first. See
-[Verification status and cleanup](#verification-status-and-cleanup) for what the
-run proved.
+Set an immutable image tag in `values.yaml`, and prepare the database Secret and
+access controls, before you run these commands.
 
 Install the pinned controller, which includes its Gateway API and Envoy policy CRDs:
 
@@ -577,110 +570,15 @@ helm template xmtp ./xmtp-chart --namespace xmtp --kube-version 1.34.0 \
   -schema-location 'schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
 ```
 
-## Verification status and cleanup
+## Clean up
 
-Local validation used **Helm 4.2.4** and **kubeconform 0.8.0**, from
-`nix shell nixpkgs#kubernetes-helm nixpkgs#kubeconform`. The chart was extracted
-from this page's fences into a scratch directory outside the repository.
-The named value sets are **defaults** and **enabled**. The enabled set includes
-the Gateway route, both Envoy policies, ServiceMonitor, autoscaling, and PDB.
+This chart is schema-valid and was installed on a local kind cluster, but not
+behind a cloud load balancer. Treat TLS termination at the Gateway, external
+DNS, gRPC-Web and CORS through the controller, and the route timeouts as
+unverified on your platform, and check them with the shared
+[ingress checks](/deploy/overview/#ingress-contract) after you install.
 
-The schema sources are pinned to Gateway API v1.4.1, Envoy Gateway v1.7.0, and
-Prometheus Operator v0.89.0. Each CRD's `openAPIV3Schema` is used for its served
-version. Schema validation does not evaluate Kubernetes CEL rules, references,
-certificate contents, or controller behavior. The certificate fence contains
-placeholders and is not a usable certificate.
-
-Both `helm lint --strict` runs reported:
-
-```text
-1 chart(s) linted, 0 chart(s) failed
-```
-
-The defaults pipeline reported:
-
-```text
-Summary: 3 resources found parsing stdin - Valid: 3, Invalid: 0, Errors: 0, Skipped: 0
-```
-
-The enabled pipeline reported:
-
-```text
-Summary: 11 resources found parsing stdin - Valid: 11, Invalid: 0, Errors: 0, Skipped: 0
-```
-
-The exact `-schema-location` values were `default` and
-`schemas/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json`.
-All CRD sources were reachable. No resource was skipped.
-
-Local checks are not equivalent to deployment verification. The cluster install
-below covers that separately.
-
-### Cluster install
-
-On 2026-09-14 the chart on this page was extracted into a scratch directory and
-installed on a real cluster: kind 0.32.0 running **Kubernetes v1.34.0**, with
-**Envoy Gateway v1.7.0** and its **Gateway API v1.4.1** CRDs, the Prometheus
-Operator ServiceMonitor CRD, and PostgreSQL **17.6** in the cluster. The image
-was pinned to a `sha-<commit>` build. The `enabled` value set was used, so the
-Gateway route, ServiceMonitor, autoscaling, and PDB were all live.
-
-**Proven.** The install reported `STATUS: deployed` under `--wait`, so the pods
-became ready under their own probes. All three probes are native `grpc:` with no
-`grpc-health-probe` binary in the pod, and kubelet's probe traffic appears in
-the backend log as `grpc.health.v1.Health/Check` with `grpc_code="OK"`. The
-Service carries `appProtocol: kubernetes.io/h2c` on its gRPC port. Envoy Gateway
-set the Gateway to `Accepted=True` and the HTTPRoute to `ResolvedRefs=True`, so
-the controller validated the GatewayClass, Gateway, listener, and route and
-resolved the backend Service.
-
-Through the Service, `grpc-health-probe` returned `status: SERVING`. `xdbg`
-created 3 identities, 1 group with 2 invited members, and 5 messages, and
-`xdbg query welcomes` read 2 welcomes across 3 installations back from the
-server. The database held 17 envelope rows on PostgreSQL 17.6 with
-`transaction_timeout` present, which is the setting that sets the version floor.
-
-`kubectl rollout restart` replaced both pods with no downtime. New pods became
-ready before the old pods went away. The terminating pods stayed `Ready` while
-`Terminating`, and no force-kill event was recorded, so termination finished
-inside the 45 s grace period.
-
-That is weaker evidence than it looks, so treat the 15 s sleep and 45 s grace
-period as **unproven**. A pod that exits after 2 s and a pod that exits after
-44 s both produce no force-kill event, so the absence of one measures nothing
-about the margin. A terminating pod also stays `Ready` for as long as its
-process runs, with or without a `preStop` hook, so that state does not isolate
-the sleep. The run also held no subscription open, so the drain had no in-flight
-work and probably used almost none of its 10 s budget.
-
-To prove these values, measure the interval from the deletion timestamp to the
-first `backend shutdown requested` log line and check that it is about 15 s,
-then measure the whole pod lifetime against 45 s, with a subscription open
-across the rollout.
-
-`/metrics` on port 9464 answered an unauthenticated request, which confirms that
-`[auth]` does not protect the metrics listener. Never publish that port.
-
-**Not proven.** kind provisions no cloud load balancer, so the Gateway stayed
-`Programmed=False (AddressNotAssigned)` and the HTTPRoute
-`Accepted=False (NoReadyListeners)`. Nothing was served through the Gateway
-itself: the client checks used a port-forward to the Service. So TLS
-termination at the Gateway, the certificate, external DNS, HTTP/1.1 gRPC-Web
-and CORS preflight through the controller, and the read and send timeouts are
-all unverified. No subscription was held open across the restart, so drain was
-confirmed from pod state and events rather than from an uninterrupted stream.
-Autoscaling could not act because kind runs no metrics server.
-
-To close these gaps, repeat the install on a cluster that provisions a
-`LoadBalancer`, then run the client checks and the
-[ingress checks](/deploy/overview/#ingress-contract) against the Gateway
-hostname instead of a port-forward, and hold a subscription open across a
-rollout. Subscriptions end at backend shutdown by design; that check must
-distinguish that end from a forced connection cut.
-
-The cluster created for this run was deleted; `kind get clusters` reported none.
-
-Remove test resources when the check is complete:
+Remove a test install with:
 
 ```sh
 helm uninstall xmtp --namespace xmtp
