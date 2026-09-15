@@ -86,7 +86,6 @@ class NotificationsTest : BaseInstrumentedTest() {
                     includeWelcomes = false,
                     includeSyncGroups = false,
                     includeCommits = true,
-                    metadata = byteArrayOf(0, -128, -1),
                 ),
             )
             for (conversation in listOf(Conversation.Group(group), Conversation.Dm(dm))) {

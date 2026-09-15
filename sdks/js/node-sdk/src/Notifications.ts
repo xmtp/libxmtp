@@ -24,8 +24,6 @@ export type NotificationConfig = {
   includeSyncGroups?: boolean;
   /** Defaults to false. */
   includeCommits?: boolean;
-  /** Opaque recipient data. Defaults to empty bytes. */
-  metadata?: Uint8Array;
 };
 
 /** Reset to the configured consent rules with "default". */
@@ -51,14 +49,13 @@ export type NotificationState =
 export const toBindingNotificationConfig = (
   config: NotificationConfig,
 ): BindingNotificationConfig => {
-  const { channel, metadata, ...rules } = config;
+  const { channel, ...rules } = config;
   return {
     ...rules,
     channel: channel.type,
     ...(channel.type === "http"
       ? { url: channel.url, signingKey: Array.from(channel.signingKey) }
       : { token: channel.token }),
-    metadata: metadata === undefined ? undefined : Array.from(metadata),
   };
 };
 

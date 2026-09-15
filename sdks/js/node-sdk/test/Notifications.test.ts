@@ -29,7 +29,6 @@ describe("Notifications", () => {
         ...httpConfig(),
         consentStates: [],
         includeWelcomes: false,
-        metadata: new Uint8Array([0, 128, 255]),
       });
       await group.setNotifications("enabled");
       await client.close();
@@ -79,7 +78,6 @@ describe("Notifications", () => {
         includeWelcomes: false,
         includeSyncGroups: false,
         includeCommits: true,
-        metadata: new Uint8Array([0, 128, 255]),
       });
       for (const conversation of [group, dm]) {
         expect(await conversation.notificationsEnabled()).toBe(false);

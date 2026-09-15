@@ -36,7 +36,6 @@ class NotificationConfig(
     val includeWelcomes: Boolean = true,
     val includeSyncGroups: Boolean = false,
     val includeCommits: Boolean = false,
-    val metadata: ByteArray = byteArrayOf(),
 ) {
     internal fun toFfi(): FfiNotificationConfig =
         FfiNotificationConfig(
@@ -45,7 +44,6 @@ class NotificationConfig(
             includeWelcomes = includeWelcomes,
             includeSyncGroups = includeSyncGroups,
             includeCommits = includeCommits,
-            metadata = metadata,
         )
 }
 

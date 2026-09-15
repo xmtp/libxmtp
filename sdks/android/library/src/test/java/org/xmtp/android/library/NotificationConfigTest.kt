@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import uniffi.xmtpv3.FfiConsentState
@@ -8,7 +7,7 @@ import uniffi.xmtpv3.FfiNotificationChannel
 
 class NotificationConfigTest {
     @Test
-    fun preservesProviderTokensRulesAndMetadataAtTheBindingBoundary() {
+    fun preservesProviderTokensAndRulesAtTheBindingBoundary() {
         val channels = listOf(NotificationChannel.Apns("ab".repeat(32)), NotificationChannel.Fcm("fcm:token-_123"))
         for (channel in channels) {
             val config =
@@ -18,7 +17,6 @@ class NotificationConfigTest {
                     includeWelcomes = false,
                     includeSyncGroups = true,
                     includeCommits = true,
-                    metadata = byteArrayOf(0, -128, -1),
                 ).toFfi()
             when (channel) {
                 is NotificationChannel.Apns -> assertEquals(FfiNotificationChannel.Apns(channel.token), config.channel)
@@ -29,7 +27,6 @@ class NotificationConfigTest {
             assertEquals(false, config.includeWelcomes)
             assertEquals(true, config.includeSyncGroups)
             assertEquals(true, config.includeCommits)
-            assertArrayEquals(byteArrayOf(0, -128, -1), config.metadata)
 
             val defaults = NotificationConfig(channel).toFfi()
             assertEquals(config.channel, defaults.channel)
@@ -37,7 +34,6 @@ class NotificationConfigTest {
             assertEquals(true, defaults.includeWelcomes)
             assertEquals(false, defaults.includeSyncGroups)
             assertEquals(false, defaults.includeCommits)
-            assertArrayEquals(byteArrayOf(), defaults.metadata)
         }
     }
 }

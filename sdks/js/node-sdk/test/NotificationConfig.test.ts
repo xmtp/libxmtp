@@ -4,7 +4,7 @@ import { toBindingNotificationConfig } from "@/Notifications";
 
 describe("NotificationConfig", () => {
   it.each(["apns", "fcm"] as const)(
-    "preserves the %s token, rules, and metadata at the binding boundary",
+    "preserves the %s token and rules at the binding boundary",
     (type) => {
       const token = type === "apns" ? "ab".repeat(32) : "fcm:token-_123";
       expect(
@@ -14,7 +14,6 @@ describe("NotificationConfig", () => {
           includeWelcomes: false,
           includeSyncGroups: true,
           includeCommits: true,
-          metadata: new Uint8Array([0, 128, 255]),
         }),
       ).toEqual({
         channel: type,
@@ -23,10 +22,9 @@ describe("NotificationConfig", () => {
         includeWelcomes: false,
         includeSyncGroups: true,
         includeCommits: true,
-        metadata: [0, 128, 255],
       });
       expect(toBindingNotificationConfig({ channel: { type, token } })).toEqual(
-        { channel: type, token, metadata: undefined },
+        { channel: type, token },
       );
     },
   );

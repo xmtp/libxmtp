@@ -3,7 +3,7 @@ import XCTest
 @testable import XMTPiOS
 
 final class NotificationConfigTests: XCTestCase {
-	func testPreservesProviderTokensRulesAndMetadataAtTheBindingBoundary() {
+	func testPreservesProviderTokensAndRulesAtTheBindingBoundary() {
 		let channels: [NotificationChannel] = [
 			.apns(token: String(repeating: "ab", count: 32)),
 			.fcm(token: "fcm:token-_123"),
@@ -14,8 +14,7 @@ final class NotificationConfigTests: XCTestCase {
 				consentStates: [.denied, .unknown],
 				includeWelcomes: false,
 				includeSyncGroups: true,
-				includeCommits: true,
-				metadata: Data([0, 128, 255])
+				includeCommits: true
 			).toFFI
 			switch channel {
 			case let .apns(token): XCTAssertEqual(config.channel, .apns(token: token))
@@ -26,7 +25,6 @@ final class NotificationConfigTests: XCTestCase {
 			XCTAssertEqual(config.includeWelcomes, false)
 			XCTAssertEqual(config.includeSyncGroups, true)
 			XCTAssertEqual(config.includeCommits, true)
-			XCTAssertEqual(config.metadata, Data([0, 128, 255]))
 
 			let defaults = NotificationConfig(channel: channel).toFFI
 			XCTAssertEqual(defaults.channel, config.channel)
@@ -34,7 +32,6 @@ final class NotificationConfigTests: XCTestCase {
 			XCTAssertEqual(defaults.includeWelcomes, true)
 			XCTAssertEqual(defaults.includeSyncGroups, false)
 			XCTAssertEqual(defaults.includeCommits, false)
-			XCTAssertEqual(defaults.metadata, Data())
 		}
 	}
 }

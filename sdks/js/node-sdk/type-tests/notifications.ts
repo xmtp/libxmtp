@@ -43,7 +43,6 @@ export async function checkNotifications(
 ): Promise<void> {
   const config: NotificationConfig = {
     channel: channels[0],
-    metadata: new Uint8Array([0, 255]),
   };
   const enabled: NotificationState = await client.enableNotifications(config);
   const state: NotificationState = await client.notificationState();

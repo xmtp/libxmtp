@@ -22,22 +22,19 @@ public struct NotificationConfig {
 	public var includeWelcomes: Bool
 	public var includeSyncGroups: Bool
 	public var includeCommits: Bool
-	public var metadata: Data
 
 	public init(
 		channel: NotificationChannel,
 		consentStates: [ConsentState] = [.allowed],
 		includeWelcomes: Bool = true,
 		includeSyncGroups: Bool = false,
-		includeCommits: Bool = false,
-		metadata: Data = Data()
+		includeCommits: Bool = false
 	) {
 		self.channel = channel
 		self.consentStates = consentStates
 		self.includeWelcomes = includeWelcomes
 		self.includeSyncGroups = includeSyncGroups
 		self.includeCommits = includeCommits
-		self.metadata = metadata
 	}
 
 	var toFFI: FfiNotificationConfig {
@@ -46,8 +43,7 @@ public struct NotificationConfig {
 			consentStates: consentStates.toFFI,
 			includeWelcomes: includeWelcomes,
 			includeSyncGroups: includeSyncGroups,
-			includeCommits: includeCommits,
-			metadata: metadata
+			includeCommits: includeCommits
 		)
 	}
 }

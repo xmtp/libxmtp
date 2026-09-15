@@ -73,7 +73,6 @@ flowchart LR
 
 ### Assumptions
 
-- Metadata is at most 4096 bytes, a fixed protocol constant and not a config key. The owner confirmed a practical limit on 2026-09-14.
 - Q9 (deltas or full replacement) had no answer. Assumed: deltas, with a maintained topic count so drift is detectable from one row. See §4.9.
 - The secret rides on TLS. A deployment that serves the backend in clear exposes recipient secrets as it exposes Phase 4.3 tokens.
 

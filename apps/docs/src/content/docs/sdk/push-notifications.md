@@ -85,7 +85,6 @@ Bytes use `ByteArray`, `Data`, and `Uint8Array`, respectively.
 | `includeWelcomes`   | `true`       | Subscribe to this installation's welcome topic.                                                 |
 | `includeSyncGroups` | `false`      | Include device-sync groups.                                                                     |
 | `includeCommits`    | `false`      | Include commits and proposals on subscribed group topics.                                       |
-| `metadata`          | Empty bytes  | Up to 4096 bytes of recipient data. Returned only in webhook payloads.                          |
 
 An enabled or disabled override takes priority over `consentStates`. Reset with
 `NotificationOverride.Default`, `.default`, or `"default"`. Overrides cannot
@@ -143,8 +142,9 @@ JavaScript `bigint`. Do not convert it to a JavaScript `number` or use it alone
 as a message-delivery cursor.
 
 APNs adds `"aps": { "content-available": 1 }`. FCM puts `topic` and
-`sequence_id` in the message's `data` object. HTTPS adds `recipient_id` as hex
-and `metadata` as base64. HTTPS requests carry the Standard Webhooks headers
+`sequence_id` in the message's `data` object. HTTPS adds `recipient_id` as hex.
+The HTTPS payload contains only `topic`, `sequence_id`, and `recipient_id`.
+HTTPS requests carry the Standard Webhooks headers
 `webhook-id`, `webhook-timestamp`, and `webhook-signature`. Verify the signature
 over the exact body bytes before parsing, check the timestamp, and reject
 replayed webhook IDs.

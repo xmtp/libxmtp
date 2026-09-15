@@ -84,7 +84,6 @@ final class NotificationsTests: XCTestCase {
 		config.includeWelcomes = false
 		config.includeSyncGroups = false
 		config.includeCommits = true
-		config.metadata = Data([0, 128, 255])
 		_ = try await client.enableNotifications(config)
 		for conversation in [Conversation.group(group), .dm(dm)] {
 			enabled = try await conversation.notificationsEnabled()
