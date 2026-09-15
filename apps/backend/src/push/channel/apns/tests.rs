@@ -50,6 +50,7 @@ pub(crate) fn delivery() -> Delivery {
         payload: xmtp_push_types::PushPayload::new(&[1; 33], 9_007_199_254_740_993),
         config: DeliveryConfig {
             recipient_id: vec![0x8d; 32],
+            secret_hash: vec![0x4a; 32],
             channel: PushChannel::Apns,
             delivery: "abcdef0123456789".repeat(4),
             signing_key: None,
