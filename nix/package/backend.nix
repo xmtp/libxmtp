@@ -20,6 +20,7 @@ let
         (root + /proto)
         (lib.fileset.maybeMissing (root + /apps/backend/.sqlx))
         (lib.fileset.maybeMissing (root + /apps/backend/migrations))
+        (lib.fileset.fileFilter (file: lib.hasSuffix ".sql" file.name) (root + /apps/backend/src))
         (lib.fileset.maybeMissing (root + /docs/schemas/backend-v1.json))
         (root + /dev/backend/local.toml)
         (rust.fileset.commonCargoSources (root + /apps/backend))
@@ -36,6 +37,7 @@ let
         "xmtp_mls_common"
         "xmtp_mls_validation"
         "xmtp_proto"
+        "xmtp_push_types"
       ]
     );
   };
