@@ -17,6 +17,42 @@ const httpConfig = (): NotificationConfig => ({
 });
 
 describe("Notifications", () => {
+  it("restores notification state, rules, and overrides after restart", async () => {
+    const signer = createSigner().signer;
+    let client = await createRegisteredClient(signer);
+    const peer = await createRegisteredClient(createSigner().signer);
+    try {
+      const group = await client.conversations.createGroup([peer.inboxId]);
+      const groupId = group.id;
+      const installationId = client.installationId;
+      await client.enableNotifications({
+        ...httpConfig(),
+        consentStates: [],
+        includeWelcomes: false,
+        metadata: new Uint8Array([0, 128, 255]),
+      });
+      await group.setNotifications("enabled");
+      await client.close();
+      client = await createRegisteredClient(signer);
+      expect(client.installationId).toBe(installationId);
+      expect(await client.notificationState()).toEqual({ state: "enabled" });
+      const restored = await client.conversations.getConversationById(groupId);
+      expect(restored).toBeDefined();
+      if (!restored) throw new Error("Expected the saved group");
+      expect(await restored.notificationsEnabled()).toBe(true);
+      await restored.setNotifications("default");
+      expect(await restored.notificationsEnabled()).toBe(false);
+      await client.disableNotifications();
+      await client.close();
+      client = await createRegisteredClient(signer);
+      expect(client.installationId).toBe(installationId);
+      expect(await client.notificationState()).toEqual({ state: "disabled" });
+    } finally {
+      await client.close();
+      await peer.close();
+    }
+  });
+
   it("registers HTTP delivery and resets group and DM overrides", async () => {
     const client = await createRegisteredClient(createSigner().signer);
     const peer = await createRegisteredClient(createSigner().signer);
