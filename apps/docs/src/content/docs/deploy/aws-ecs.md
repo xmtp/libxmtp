@@ -370,17 +370,11 @@ Allow the task security group through the database security group, then create
 the DNS CNAME. Wait for the ECS task and target group to become healthy. Use the
 `endpoint` output for clients. Keep the Terraform state and lock file secure.
 
-## Verification status and cleanup
+## Check the deployment and clean up
 
-This guide has **no live AWS deployment evidence**. Validation used Terraform
-1.14.5 without credentials. Provider validation confirms that the resource and
-attribute names are real. A plan with a mocked AWS provider passed. This checks the module structure,
-but does not prove that AWS will accept or run this deployment.
-The local AWS session was expired; no AWS API call or apply was attempted.
-This is not the same evidence as a deployment-verified guide.
-
-To close this gap, run `terraform apply`, then complete the shared
-[ingress checks](/deploy/overview/#ingress-contract):
+This guide's Terraform is validated but has not been applied against a live AWS
+account, so treat the deployment itself as unverified. After `terraform apply`,
+work through the shared [ingress checks](/deploy/overview/#ingress-contract):
 
 1. Run `grpc-health-probe` against the NLB hostname with TLS and the certificate
    DNS name as `-tls-server-name`.
@@ -390,10 +384,12 @@ To close this gap, run `terraform apply`, then complete the shared
 4. Force an ECS task replacement during a subscription. Confirm that the
    deregistration delay permits the backend to drain, rather than cutting the
    subscription. Confirm that the client reconnects and receives later messages.
-5. Run `terraform destroy` here and in the prerequisite infrastructure project.
-   Confirm that the NLB, RDS instance, and secret are gone. The NLB and RDS bill
-   hourly; Secrets Manager also charges for retained secrets. A secret scheduled
-   for deletion is not yet deleted. Remove the DNS record too.
+
+To tear a test down, run `terraform destroy` here and in the prerequisite
+infrastructure project. Confirm that the NLB, RDS instance, and secret are gone.
+The NLB and RDS bill hourly; Secrets Manager also charges for retained secrets,
+and a secret scheduled for deletion is not yet deleted. Remove the DNS record
+too.
 
 Destroying this module alone leaves the database, secret, VPC, and certificate
 in place. If you created them in the console, delete them there after the test.
