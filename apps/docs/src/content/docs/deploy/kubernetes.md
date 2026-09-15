@@ -572,10 +572,9 @@ helm template xmtp ./xmtp-chart --namespace xmtp --kube-version 1.34.0 \
 
 ## Clean up
 
-This chart is schema-valid and was installed on a local kind cluster, but not
-behind a cloud load balancer. Treat TLS termination at the Gateway, external
-DNS, gRPC-Web and CORS through the controller, and the route timeouts as
-unverified on your platform, and check them with the shared
+Each platform terminates TLS and programmes DNS differently, so check TLS at
+the Gateway, external DNS, gRPC-Web and CORS through your controller, and the
+route timeouts against the shared
 [ingress checks](/deploy/overview/#ingress-contract) after you install.
 
 Remove a test install with:
