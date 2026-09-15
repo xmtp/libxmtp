@@ -70,6 +70,7 @@ futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.4", default-features = false }
 gloo-timers = "0.4"
 hex = { package = "const-hex", version = "1.19" }
+hmac = "0.12.1"
 metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
 metrics-util = "0.20.4"
@@ -250,6 +251,7 @@ xmtp_mls = { path = "crates/xmtp_mls" }
 xmtp_mls_common = { path = "crates/xmtp_mls_common" }
 xmtp_mls_validation = { path = "crates/xmtp_mls_validation" }
 xmtp_proto = { path = "crates/xmtp_proto" }
+xmtp_push_types = { path = "crates/xmtp_push_types" }
 
 [profile.dbg]
 debug = true

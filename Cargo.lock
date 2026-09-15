@@ -12005,6 +12005,7 @@ dependencies = [
  "ed25519-dalek",
  "futures",
  "h2 0.4.19",
+ "hmac 0.12.1",
  "http 1.4.2",
  "http-body 1.1.0",
  "http-body-util",
@@ -12026,6 +12027,7 @@ dependencies = [
  "schemars 1.2.1",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "sqlx",
  "subtle",
  "thiserror 2.0.19",
@@ -12050,6 +12052,7 @@ dependencies = [
  "xmtp_logging",
  "xmtp_mls_validation",
  "xmtp_proto",
+ "xmtp_push_types",
 ]
 
 [[package]]
@@ -12454,6 +12457,18 @@ dependencies = [
  "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_configuration",
+]
+
+[[package]]
+name = "xmtp_push_types"
+version = "1.12.0-dev"
+dependencies = [
+ "base64 0.23.0",
+ "serde",
+ "serde_json",
+ "tokio",
+ "xmtp_common",
+ "xmtp_proto",
 ]
 
 [[package]]
