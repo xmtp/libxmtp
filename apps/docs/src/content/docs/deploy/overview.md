@@ -44,21 +44,16 @@ require a fresh database. Startup never deletes an existing database.
 
 ### Connection budget
 
-The tailer keeps one dedicated connection to the selected read database. This is
-in addition to the configured request pools. Without a replica, budget at most
-`max_connections + 1` backend connections per instance. With a replica, budget
-`max_connections` on the primary and `max_connections + 1` on the replica.
-The boundary worker uses the primary pool. Apply these budgets to each backend
-instance when you size the database connection limits.
+Each instance needs `max_connections + 1` connections: its request pool plus one
+for the tailer. Size the database connection limit for the number of instances
+you run.
 
 ### Read replica
 
-Configure at most one physical replica. Never use a load-balanced reader
-endpoint that selects independently lagging replicas.
-
-Publish and Query use the primary. Newest, identifier lookup, and subscriptions
-use the selected read database. These reads can lag behind a successful publish.
-Without a replica, the selected read database is the primary.
+A read replica is optional. If you configure one, it must be a single physical
+replica, not a reader endpoint that load-balances across independently lagging
+replicas. Reads served by the replica can lag behind a successful publish. See
+[`[database]`](/get-started/run-the-backend/#database) for both settings.
 
 ## Ports and health
 
