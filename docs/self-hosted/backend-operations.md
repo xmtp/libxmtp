@@ -123,6 +123,84 @@ in addition to the configured request pools. Without a replica, budget at most
 The boundary worker uses the primary pool. Keeping the tailer separate permits
 a one-connection request pool and makes a lost tailer connection observable.
 
+## Push providers
+
+Add a provider block to enable registrations for that channel. Each backend
+supports one APNs key and one Firebase project. Credentials load at startup;
+restart the backend after you change them. Keep private keys and service-account
+JSON in your secret manager. Pass their contents through environment variables,
+not file paths. The backend does not put them in logs, errors, or Debug output.
+
+```toml
+[push.apns]
+key = "env:XMTP_APNS_KEY"
+key_id = "ABC123DEFG"
+team_id = "TEAM123456"
+bundle_id = "org.example.app"
+environment = "production"
+
+[push.fcm]
+service_account = "env:XMTP_FCM_SERVICE_ACCOUNT"
+```
+
+### APNs credentials
+
+In your Apple developer account, enable push notifications for the app. Then
+[create a private key](https://developer.apple.com/help/account/keys/create-a-private-key)
+with the APNs capability. Download the `.p8` file and store it securely. Apple
+does not let you download that key again. Set `XMTP_APNS_KEY` to its full PKCS#8
+PEM contents, including the header, footer, and line breaks.
+
+Set `key_id` to the key identifier and `team_id` to your Apple developer team
+identifier. Set `bundle_id` to the app's exact bundle identifier. The app and
+key must support the selected environment. Use `sandbox` for development
+tokens and `production` for production tokens. A development token sent to
+the production host does not deliver a push. The backend selects the fixed
+Apple host for that environment and refreshes its provider JWT every 55 minutes.
+
+### FCM credentials
+
+Enable the Firebase Cloud Messaging API in the app's Firebase project. In
+Firebase **Project settings > Service accounts**, create a service-account
+private key and download the JSON file. Follow the
+[FCM server authentication guide](https://firebase.google.com/docs/cloud-messaging/auth-server)
+for the required account permissions. Set `XMTP_FCM_SERVICE_ACCOUNT` to the
+complete JSON contents. The backend reads `project_id` from that JSON; there
+is no separate project setting and no default credential discovery.
+
+The JSON must contain a valid RSA private key, `client_email`, `project_id`,
+and `token_uri` equal to `https://oauth2.googleapis.com/token`. OAuth tokens
+use only the `firebase.messaging` scope. The backend caches them and permits
+only one refresh at a time. It does not follow redirects during token exchange
+or message delivery.
+
+For Apple apps reached through FCM, also
+[upload the APNs authentication key to Firebase](https://firebase.google.com/docs/cloud-messaging/ios/get-started).
+A service account alone does not enable Apple delivery. The backend sends
+data-only messages, with high priority for Android and background priority 5
+for Apple. The app fetches and decrypts the message before it shows a notification.
+
+### Delivery failures
+
+Watch `xmtp_push_deliveries_total{channel="apns",outcome="mismatch"}` and
+`xmtp_push_deliveries_total{channel="fcm",outcome="mismatch"}`. A rising count can
+mean a wrong APNs environment, bundle identifier, or Firebase project. Affected
+recipients keep their registrations and subscriptions. New pushes resume after
+you correct the config and restart the backend; clients need not register again.
+Failed past deliveries are not replayed. Normal recipient expiry still applies.
+
+An APNs `410 Unregistered` or `410 ExpiredToken`, or an FCM `UNREGISTERED` detail,
+deletes the dead recipient and its subscriptions. Other answers do not delete
+them. Removing a provider block counts later deliveries for that channel as
+`failed`, emits a warning, and keeps the registrations.
+
+Each attempt has one 10 second deadline, including credentials and response
+bodies. Response bodies, including OAuth responses, are limited to 16 KiB.
+FCM quota retries wait at least 60 seconds. Other FCM retry responses honor
+`Retry-After`, with a maximum of 300 seconds. Transient attempts stop at
+`push.max_attempts`. See [backend observability](../backend-observability.md)
+for the complete metric catalogue.
+
 ## Logging
 
 Set `server.log_level` to `off`, `error`, `warn`, `info`, `debug`, or `trace`.

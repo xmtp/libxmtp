@@ -87,14 +87,14 @@ mod validation;
 
 fn configured(config: &mut Config) {
     config.push.apns = Some(ApnsConfig {
-        key: Some("fixture-apns-credential".into()),
+        key: Some(crate::test_support::auth::TestKey::es256().private_key),
         key_id: Some("key-id".into()),
         team_id: Some("team-id".into()),
         bundle_id: Some("bundle-id".into()),
         environment: Some("sandbox".into()),
     });
     config.push.fcm = Some(FcmConfig {
-        service_account: Some("fixture-credential".into()),
+        service_account: Some(crate::push::channel::fcm::tests::service_account()),
     });
     config.push.http = Some(HttpConfig {
         allow_private_addresses: true,

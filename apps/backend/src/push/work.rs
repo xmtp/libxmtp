@@ -177,6 +177,7 @@ impl Work {
         let delay = match outcome {
             Outcome::Delivered => return Completion::Done("delivered"),
             Outcome::Rejected => return Completion::Done("rejected"),
+            Outcome::Unconfigured => return Completion::Done("failed"),
             Outcome::Mismatch => return Completion::Done("mismatch"),
             Outcome::Terminal => return Completion::Dead(attempt.delivery.config),
             Outcome::GoneTransient if attempt.count >= max_attempts && attempt.all_gone => {

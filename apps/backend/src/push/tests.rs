@@ -12,6 +12,7 @@ use xmtp_common::time::{Duration, Instant, timeout};
 
 mod lifecycle;
 mod maintenance;
+mod providers;
 mod telemetry;
 mod window;
 

@@ -4987,6 +4987,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+ "webpki-roots",
 ]
 
 [[package]]
@@ -12009,6 +12010,10 @@ dependencies = [
  "http 1.4.2",
  "http-body 1.1.0",
  "http-body-util",
+ "httpdate",
+ "hyper 1.11.0",
+ "hyper-rustls",
+ "hyper-util",
  "jsonschema",
  "jsonwebtoken",
  "metrics",
@@ -12022,6 +12027,7 @@ dependencies = [
  "prost-types",
  "rcgen",
  "reqwest 0.13.4",
+ "ring",
  "rsa",
  "rustls",
  "schemars 1.2.1",
