@@ -13,6 +13,7 @@ workspace = true
 [dependencies]
 base64.workspace = true
 serde.workspace = true
+xmtp-workspace-hack.workspace = true
 xmtp_proto.workspace = true
 
 [dev-dependencies]

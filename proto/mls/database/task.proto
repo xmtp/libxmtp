@@ -14,6 +14,7 @@ message Task {
     KpDeletion kp_deletion = 6;
     AddMissingInstallations add_missing_installations = 7;
     KpLiveness kp_liveness = 8;
+    NotificationSync notification_sync = 9;
   }
 }
 
@@ -46,6 +47,9 @@ message KpDeletion {}
 // its own retry/backoff, and a network probe rather than a local deadline as
 // its source of truth. Empty payload => stable data_hash for pull-ins.
 message KpLiveness {}
+
+// One recurring notification task owns subscription sync and renewal.
+message NotificationSync {}
 
 // Durable TaskRunner intent: process a group's pending self-remove requests
 // (build the MLS RemoveProposal/Commit to evict members who sent a LeaveRequest,

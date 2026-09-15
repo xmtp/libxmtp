@@ -819,6 +819,7 @@ where
             new_group.update_consent_state(ConsentState::Allowed)?;
         }
 
+        context.task_channels().wake_notifications();
         Ok(new_group)
     }
 

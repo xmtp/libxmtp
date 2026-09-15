@@ -89,6 +89,7 @@ diesel::table! {
         commit_log_public_key -> Nullable<Binary>,
         is_commit_log_forked -> Nullable<Bool>,
         has_pending_leave_request -> Nullable<Bool>,
+        push_override -> Nullable<Integer>,
     }
 }
 
@@ -203,6 +204,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    push_uploaded_topic (topic) {
+        topic -> Binary,
+        hmac_epoch_base -> Nullable<BigInt>,
+        include_commits -> Bool,
+        root_key_fingerprint -> Binary,
+        stale -> Bool,
+    }
+}
+
+diesel::table! {
     readd_status (group_id, installation_id) {
         group_id -> Binary,
         installation_id -> Binary,
@@ -261,6 +272,16 @@ diesel::table! {
         stream_database_id -> Binary,
         delivery_owner -> Nullable<Binary>,
         delivery_owner_until_ns -> Nullable<BigInt>,
+        push_recipient_id -> Nullable<Binary>,
+        push_recipient_secret -> Nullable<Binary>,
+        push_state -> Integer,
+        push_failed_error -> Nullable<Binary>,
+        push_config -> Nullable<Binary>,
+        push_deadlines -> Nullable<Binary>,
+        push_last_state -> Nullable<Binary>,
+        push_repairing -> Bool,
+        push_generation -> BigInt,
+        push_suppressed -> Nullable<Binary>,
     }
 }
 
@@ -287,6 +308,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     openmls_key_value,
     pending_remove,
     processed_device_sync_messages,
+    push_uploaded_topic,
     readd_status,
     refresh_state,
     remote_commit_log,

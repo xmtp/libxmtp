@@ -15,6 +15,7 @@ use crate::{
     },
     worker::{WorkerRunner, metrics::WorkerMetrics},
 };
+pub mod notifications;
 use crate::{
     groups::welcome_sync::GroupSyncSummary,
     identity_updates::{batch_get_association_state_with_verifier, get_creation_signature_kind},
@@ -601,6 +602,7 @@ where
         let changed_records = conn.insert_or_replace_consent_records(records)?;
 
         if !changed_records.is_empty() {
+            self.context.task_channels().wake_notifications();
             let updates: Vec<_> = changed_records
                 .into_iter()
                 .map(PreferenceUpdate::Consent)

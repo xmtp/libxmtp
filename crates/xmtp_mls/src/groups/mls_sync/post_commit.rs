@@ -205,7 +205,7 @@ where
         .map(TransactionOutcome::into_continued)
     }
 
-    fn hmac_keys_in(
+    pub(crate) fn hmac_keys_in(
         &self,
         conn: impl xmtp_db::DbQuery,
         epoch_delta_range: RangeInclusive<i64>,

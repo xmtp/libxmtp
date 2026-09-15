@@ -104,6 +104,7 @@ xmtp_macro.workspace = true
 xmtp_mls_common.workspace = true
 xmtp_mls_validation.workspace = true
 xmtp_proto.workspace = true
+xmtp_push_types.workspace = true
 
 # Optional/Features
 alloy = { workspace = true, optional = true }
