@@ -101,6 +101,7 @@ pub struct HttpConfig {
 
 impl PushConfig {
     /// Validate provider fields without including their values in errors.
+    /// Schemars describes the public schema; it does not validate loaded values.
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         if !(MIN_RECIPIENT_TTL_SECONDS..=MAX_RETENTION_SECONDS as i64)
             .contains(&self.recipient_ttl_seconds)

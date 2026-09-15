@@ -26,7 +26,7 @@ flowchart LR
 
 - One recipient row and one subscription row per topic. No per-message state. At most one cursor write per poll interval. No write per delivery attempt.
 - A recipient proves ownership with a 32-byte random secret that the backend stores only as a hash. The secret is a bearer credential on the transport's TLS, the same model as a Phase 4.3 token. Optional JWT auth gates access to the API through the existing global scope list and nothing else.
-- No message content leaves the backend in a push. The payload is the topic and the sequence id, plus the recipient id and its own metadata on the webhook channel.
+- No message content leaves the backend in a push. The payload is the topic and the sequence id, plus the recipient id on the webhook channel.
 - The sender's own messages are not pushed to the sender's inbox when the backend holds the key for the message's epoch. Missing or mismatched keys fail open: the push is sent. A running client keeps its keys current.
 - Exactly one dispatcher sends new windows at a time across all instances. Failover needs no operator action. A shutdown that drains within its deadline sends no duplicate; a crash, a drain that runs out of time, or an ambiguous provider outcome may.
 - A settled envelope is never skipped: the dispatcher reads only rows at or below the closed allocation boundary and moves its cursor only past windows whose every delivery has had one attempt.
@@ -114,7 +114,8 @@ message RegisterRequest {
     FcmDelivery fcm = 4;       // string token
     HttpDelivery http = 5;     // string url; bytes signing_key (16..64 bytes)
   }
-  bytes metadata = 6;          // app-defined, at most 4096 bytes, opaque
+  reserved 6;
+  reserved "metadata";
 }
 message UnregisterRequest { bytes recipient_id = 1; bytes recipient_secret = 2; }
 message UpdateSubscriptionsRequest {
@@ -136,7 +137,7 @@ message RecipientState {
 }
 ```
 
-`Register` and `UpdateSubscriptions` return a `RecipientState`. `Unregister` returns an empty response. `Register` is an upsert: an unknown id creates the recipient, a known id with the right secret replaces its delivery config and metadata and keeps its subscriptions.
+`Register` and `UpdateSubscriptions` return a `RecipientState`. `Unregister` returns an empty response. `Register` is an upsert: an unknown id creates the recipient, a known id with the right secret replaces its delivery config and keeps its subscriptions.
 
 Checks, in order. The first failing check decides the status.
 
@@ -149,10 +150,9 @@ Checks, in order. The first failing check decides the status.
 | 5 | channel has no config block | `FAILED_PRECONDITION` | `channel is not configured` |
 | 6 | webhook URL not `https`, its host outside `allowed_domains` when the list is set, or its host resolves to a blocked address while `allow_private_addresses` is false | `INVALID_ARGUMENT` | `webhook url is not allowed` |
 | 7 | webhook signing key outside 16..64 bytes | `INVALID_ARGUMENT` | `webhook signing key length is not allowed` |
-| 8 | `metadata` over 4096 bytes | `INVALID_ARGUMENT` | `metadata is too large` |
-| 9 | topic kind not `0x00` or `0x01`, wrong identifier length, more than 3 keys, a key not 42 bytes, `epoch_base` negative, a topic in both adds and removes, a duplicate topic | `INVALID_ARGUMENT` | `subscription is malformed` |
-| 10 | adds would raise the recipient's topic count above `max_push_topics` | `RESOURCE_EXHAUSTED` | `recipient topic limit reached` |
-| 11 | database unavailable | `UNAVAILABLE` | as spec 001 |
+| 8 | topic kind not `0x00` or `0x01`, wrong identifier length, more than 3 keys, a key not 42 bytes, `epoch_base` negative, a topic in both adds and removes, a duplicate topic | `INVALID_ARGUMENT` | `subscription is malformed` |
+| 9 | adds would raise the recipient's topic count above `max_push_topics` | `RESOURCE_EXHAUSTED` | `recipient topic limit reached` |
+| 10 | database unavailable | `UNAVAILABLE` | as spec 001 |
 
 A request that decodes but fails a later check changes nothing. Messages are constants. No status names a recipient id, secret, token, URL, key, or topic.
 
@@ -162,7 +162,7 @@ Four changes to the one mutable migration.
 
 | Table | Columns | Keys and indexes |
 | --- | --- | --- |
-| `push_recipient` | `recipient_id bytea` (32), `secret_hash bytea` (32), `channel smallint`, `delivery text` (token or URL), `signing_key bytea` nullable, `metadata bytea`, `topic_count integer`, `renewed_ns bigint` | PK `recipient_id`; index `(renewed_ns)` for expiry |
+| `push_recipient` | `recipient_id bytea` (32), `secret_hash bytea` (32), `channel smallint`, `delivery text` (token or URL), `signing_key bytea` nullable, `topic_count integer`, `renewed_ns bigint` | PK `recipient_id`; index `(renewed_ns)` for expiry |
 | `push_subscription` | `recipient_id bytea` references `push_recipient` on delete cascade, `topic bytea`, `since_sequence_id bigint`, `hmac_epoch_base bigint` nullable, `hmac_key_0 bytea`, `hmac_key_1 bytea`, `hmac_key_2 bytea` all nullable and 42 bytes when present, `include_commits boolean not null` | PK `(recipient_id, topic)`; index `(topic)` for the window join |
 | `push_cursor` | `singleton boolean`, `sequence_id bigint` | PK `singleton`, one row seeded at 0 |
 | `envelopes` | adds `push_eligible boolean not null`, `sender_hmac bytea` nullable, 32 bytes when present | partial index on `(sequence_id)` where `push_eligible` |
@@ -205,7 +205,7 @@ flowchart TD
 Rules the pipeline obeys:
 
 - Only settled rows: `read_position < sequence_id <= closed_boundary` and `push_eligible`. Rows above the boundary wait. When such rows exist the dispatcher asks its instance's boundary task to advance, which is already bounded to once per poll interval (ARC-040). Streams keep delivering visible rows above the boundary; the boundary is a ceiling for push only.
-- Window statement: one statement selects the next 1024 eligible rows above the read position, joins them with `push_subscription` on `topic` where `sequence_id > since_sequence_id` and where the row is not a commit or proposal or the subscription has `include_commits`, joins recipients, and returns one delivery per (row, subscription): the row's sequence id, `server_ns`, and `sender_hmac`, the recipient's channel, delivery config, signing key, and metadata, and the subscription's key window. No rows are merged. The same statement reports the window's first and last sequence id. A row with no subscriber, a row at or below every subscriber's start position, and a commit or proposal with no opted-in subscriber produce no delivery and never leave the database. The read position moves to the window's last row once the window's deliveries are loaded, even when there are none.
+- Window statement: one statement selects the next 1024 eligible rows above the read position, joins them with `push_subscription` on `topic` where `sequence_id > since_sequence_id` and where the row is not a commit or proposal or the subscription has `include_commits`, joins recipients, and returns one delivery per (row, subscription): the row's sequence id, `server_ns`, and `sender_hmac`, the recipient's channel, delivery config and signing key, and the subscription's key window. No rows are merged. The same statement reports the window's first and last sequence id. A row with no subscriber, a row at or below every subscriber's start position, and a commit or proposal with no opted-in subscriber produce no delivery and never leave the database. The read position moves to the window's last row once the window's deliveries are loaded, even when there are none.
 - Pages: deliveries are read in keyset pages of 1000 ordered by (sequence id, recipient). A page loads only when retained work has room. A full window loops without sleeping.
 - Retained work is bounded: the dispatcher holds at most 10,000 deliveries that await a first attempt or a retry, over any number of windows. When the bound is reached, loading pauses until attempts complete. A transient failure that finds no room for its retry counts as `failed` and is dropped.
 - HMAC check, per delivery: epoch = `server_ns / (30 days in ns)` of the row. If the row has a `sender_hmac` and the subscription's window covers the epoch, the dispatcher loads the payload, decodes the group message, and compares `HMAC-SHA256(key, data)` with `sender_hmac` in constant time. Equal means the recipient's inbox sent it and the delivery is suppressed. Any other case sends. Payloads are loaded once per distinct row per window and only for rows that need the check.
@@ -226,7 +226,7 @@ Payload, all channels: JSON object `{"topic": "<base64 of the topic bytes>", "se
 | --- | --- | --- | --- | --- | --- |
 | APNs | HTTP/2 to the production or sandbox host from config, provider JWT (ES256, key id, team id) refreshed every 55 minutes, headers `apns-topic` = bundle id, `apns-push-type: background`, `apns-priority: 5`, `apns-collapse-id` = the base64 topic, body `{"aps":{"content-available":1},"topic":..,"sequence_id":..}` | `200` | `410 Unregistered`, `410 ExpiredToken` | mismatch: `400 BadDeviceToken`, `400 DeviceTokenNotForTopic`; rejected: any other `400`, `403`, `404`, `405`, `413` | `429`, `500`, `503`, timeout, connection error |
 | FCM | HTTP v1 `messages:send` with an OAuth2 service-account token, `data` = `{"topic": .., "sequence_id": ..}`, `android.priority: HIGH`, `apns.headers` `apns-priority: 5` and `apns-push-type: background`, `apns.payload.aps.content-available: 1`, no collapse key | `200` | `UNREGISTERED` | mismatch: `SENDER_ID_MISMATCH`; rejected: `INVALID_ARGUMENT`, `THIRD_PARTY_AUTH_ERROR`, other `4xx` | `QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`, timeout, connection error |
-| HTTPS | `POST` to the URL, `content-type: application/json`, headers `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64 HMAC-SHA256(signing_key, id.timestamp.body)>`, no redirects, 10 s timeout, body adds `"recipient_id": "<hex>"` and `"metadata": "<base64>"` | any `2xx` | `404` or `410` on every one of `max_attempts` attempts | other `4xx`, including a redirect | `5xx`, timeout, connection error |
+| HTTPS | `POST` to the URL, `content-type: application/json`, headers `webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64 HMAC-SHA256(signing_key, id.timestamp.body)>`, no redirects, 10 s timeout, body adds `"recipient_id": "<hex>"` | any `2xx` | `404` or `410` on every one of `max_attempts` attempts | other `4xx`, including a redirect | `5xx`, timeout, connection error |
 
 On the HTTPS channel a `404` or `410` is retried like a transient failure; the recipient is terminal only when every attempt answered `404` or `410`. A mismatch outcome names a token that does not belong to this sender: it is one attempt, no delete, and its own counter, because an operator who changes `environment`, `bundle_id`, or the FCM project would otherwise delete every affected recipient in one sweep. Those recipients stop receiving pushes until the config is corrected, and expire on their own if it never is. FCM reports its code in a typed `FcmError` detail rather than the HTTP status; a response with no recognizable detail is rejected. Android uses high priority because the app shows a notification on receipt; FCM downgrades senders that do not. Apple devices through FCM must use priority 5 or FCM rejects the message.
 
@@ -257,14 +257,14 @@ allow_private_addresses = false   # webhooks to private or loopback hosts; dev a
 max_push_topics = 100000          # topics per recipient
 ```
 
-Rules: `[push]` is optional and every key has a default. A channel exists when its block is present and not otherwise; `[push.http]` may be empty. `recipient_ttl_seconds` is at least 86400. `max_attempts` is 1 to 10. `environment` is `production` or `sandbox`. An `allowed_domains` entry is a host name, optionally with a leading `*.`; a star anywhere else, an empty label, a scheme, a port, or a path fails startup. `key` and `service_account` accept `env:NAME` and never appear in `Debug`, logs, or errors. The JSON schema describes every key. Fixed protocol constants shared with the client: recipient id and secret 32 bytes each, key window at most 3 keys of 42 bytes, metadata at most 4096 bytes, HMAC epoch 30 days. Fixed backend constants: window 1024 rows, page 1000 deliveries, retained deliveries 10,000, in-flight sends 256 per channel, provider timeout 10 seconds. Retry delay is per channel: 1 second on APNs and HTTPS; on FCM 60 seconds after `QUOTA_EXCEEDED` and the response's `Retry-After` when it carries one, bounded to 300 seconds, because FCM denylists senders that retry quota failures faster. Fixed client constants: 1000 subscriptions per request, notification request timeout 30 seconds, first retry backoff 60 seconds, sync period 1 hour.
+Rules: `[push]` is optional and every key has a default. A channel exists when its block is present and not otherwise; `[push.http]` may be empty. `recipient_ttl_seconds` is at least 86400. `max_attempts` is 1 to 10. `environment` is `production` or `sandbox`. An `allowed_domains` entry is a host name, optionally with a leading `*.`; a star anywhere else, an empty label, a scheme, a port, or a path fails startup. `key` and `service_account` accept `env:NAME` and never appear in `Debug`, logs, or errors. The JSON schema describes every key. Fixed protocol constants shared with the client: recipient id and secret 32 bytes each, key window at most 3 keys of 42 bytes, HMAC epoch 30 days. Fixed backend constants: window 1024 rows, page 1000 deliveries, retained deliveries 10,000, in-flight sends 256 per channel, provider timeout 10 seconds. Retry delay is per channel: 1 second on APNs and HTTPS; on FCM 60 seconds after `QUOTA_EXCEEDED` and the response's `Retry-After` when it carries one, bounded to 300 seconds, because FCM denylists senders that retry quota failures faster. Fixed client constants: 1000 subscriptions per request, notification request timeout 30 seconds, first retry backoff 60 seconds, sync period 1 hour.
 
 ### 4.8 Client
 
 State the client keeps, on the installation's local settings row, an uploaded-topic table, and the group record:
 
 - Recipient identity: id and secret. Generated on the first `enableNotifications` and kept for the life of the local database, across disable and enable.
-- Notification state: `disabled`, `enabled`, or `failed` with a typed error. With `enabled`: delivery config, rules (`consent_states`, default `[Allowed]`; `include_welcomes`, default true; `include_sync_groups`, default false; `include_commits`, default false; `metadata`), the renewal deadline, the sync deadline, and the last `RecipientState` seen.
+- Notification state: `disabled`, `enabled`, or `failed` with a typed error. With `enabled`: delivery config, rules (`consent_states`, default `[Allowed]`; `include_welcomes`, default true; `include_sync_groups`, default false; `include_commits`, default false), the renewal deadline, the sync deadline, and the last `RecipientState` seen.
 - Uploaded set: one row per topic stored on the backend with its key window `epoch_base`, its `include_commits` value, the fingerprint of the root key its keys derive from, and a stale mark that a repair pass sets and each confirmed upload clears.
 - Per group or DM: an override, `enabled`, `disabled`, or none. An override beats the rules. Sync groups have no override; `include_sync_groups` alone decides them.
 
@@ -336,7 +336,7 @@ Shared between backend and client, in a shared crate: the push payload type and 
 Registration and ownership
 
 - PUSH-001: WHEN a `Register` names an unknown `recipient_id`, carries a 32-byte secret, and names a configured channel THE SYSTEM SHALL store a recipient with `secret_hash` equal to `SHA-256(recipient_secret)`, `renewed_ns` set to the backend clock, zero topics, and return its `RecipientState`.
-- PUSH-002: WHEN a `Register` names a known recipient and its secret hashes to the stored hash THE SYSTEM SHALL replace the delivery config and metadata, reset `renewed_ns`, keep every subscription with its start position and flags, and return the `RecipientState`.
+- PUSH-002: WHEN a `Register` names a known recipient and its secret hashes to the stored hash THE SYSTEM SHALL replace the delivery config, reset `renewed_ns`, keep every subscription with its start position and flags, and return the `RecipientState`.
 - PUSH-003: WHEN any request names a known recipient and its secret does not hash to the stored hash THE SYSTEM SHALL respond `PERMISSION_DENIED` and change nothing, and the comparison SHALL run in constant time.
 - PUSH-004: WHEN a request fails a structural check THE SYSTEM SHALL respond `INVALID_ARGUMENT` with the constant message of §4.2, and the checks SHALL run in the order of §4.2.
 - PUSH-005: WHEN a `Register` names a channel whose config block is absent, `[push.http]` included, THE SYSTEM SHALL respond `FAILED_PRECONDITION`.
@@ -382,12 +382,12 @@ Channels
 - PUSH-061: WHEN APNs answers `200` THE SYSTEM SHALL count the delivery as delivered; WHEN it answers `410 Unregistered` or `410 ExpiredToken` THE SYSTEM SHALL treat the attempt as terminal; WHEN it answers `400 BadDeviceToken` or `400 DeviceTokenNotForTopic` THE SYSTEM SHALL treat it as mismatch; WHEN it answers `429`, `500`, `503`, a timeout, or a connection error THE SYSTEM SHALL treat it as transient; every other status SHALL be rejected.
 - PUSH-062: WHEN sending through FCM THE SYSTEM SHALL post to the v1 send endpoint of the service account's project with a cached OAuth2 token, `data` holding `topic` and `sequence_id` as strings, `android.priority` `HIGH`, `apns.headers` `apns-priority` `5` and `apns-push-type` `background`, `apns.payload.aps.content-available` `1`, and no collapse key.
 - PUSH-063: WHEN FCM answers `200` THE SYSTEM SHALL count the delivery as delivered; WHEN it answers `UNREGISTERED` THE SYSTEM SHALL treat the attempt as terminal; WHEN it answers `SENDER_ID_MISMATCH` THE SYSTEM SHALL treat it as mismatch; WHEN it answers `QUOTA_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`, a timeout, or a connection error THE SYSTEM SHALL treat it as transient; every other error SHALL be rejected. THE SYSTEM SHALL read the provider code from the typed `FcmError` detail of the response, and SHALL treat a response with no recognizable detail as rejected.
-- PUSH-064: WHEN sending through HTTPS THE SYSTEM SHALL post the JSON body with `recipient_id` and `metadata` added, `content-type: application/json`, `webhook-id`, `webhook-timestamp`, and `webhook-signature` computed as `v1,` plus base64 of `HMAC-SHA256(signing_key, id + "." + timestamp + "." + body)`, with no redirects and a 10 second timeout.
+- PUSH-064: WHEN sending through HTTPS THE SYSTEM SHALL post the JSON body with `recipient_id` added, `content-type: application/json`, `webhook-id`, `webhook-timestamp`, and `webhook-signature` computed as `v1,` plus base64 of `HMAC-SHA256(signing_key, id + "." + timestamp + "." + body)`, with no redirects and a 10 second timeout.
 - PUSH-065: WHEN an HTTPS attempt answers `2xx` THE SYSTEM SHALL count the delivery as delivered; WHEN it answers `404` or `410` THE SYSTEM SHALL retry after the channel's retry delay, and WHEN every one of `max_attempts` attempts answered `404` or `410` THE SYSTEM SHALL treat the delivery as terminal; WHEN an attempt answers `5xx`, times out, or fails to connect THE SYSTEM SHALL treat it as transient; any other non-2xx, including a redirect, SHALL be rejected.
 - PUSH-066: WHEN a webhook host resolves to a private, loopback, link-local, unspecified, or IPv6 or IPv4-mapped equivalent address AND `allow_private_addresses` is false THE SYSTEM SHALL reject the URL at `Register` and reject the attempt at send time, and SHALL connect only to the address it checked.
 - PUSH-068: WHERE `allowed_domains` is set THE SYSTEM SHALL accept a webhook URL at `Register` only when its host equals an entry or matches an entry's `*.` suffix with at least one label before it, case-insensitive, SHALL respond `INVALID_ARGUMENT` otherwise, and SHALL keep sending to a recipient registered before the list changed until its next `Register`.
 - PUSH-069: THE SYSTEM SHALL wait at least the channel's retry delay between attempts on one delivery: 1 second on APNs and HTTPS, and on FCM 60 seconds after `QUOTA_EXCEEDED` and the value of `Retry-After` when the response carries one, bounded to 300 seconds. A delivery whose next attempt is not yet due SHALL hold no in-flight permit.
-- PUSH-067: THE SYSTEM SHALL put nothing in a push body except the topic, the sequence id, and on the HTTPS channel the recipient id and the recipient's own metadata; no payload bytes, message hash, inbox id, or secret.
+- PUSH-067: THE SYSTEM SHALL put nothing in a push body except the topic, the sequence id, and on the HTTPS channel the recipient id; no payload bytes, message hash, inbox id, or secret.
 
 Configuration
 
@@ -414,7 +414,7 @@ Client
 Observability
 
 - PUSH-095: THE SYSTEM SHALL count `xmtp_push_deliveries_total{channel, outcome}` with `outcome` in `delivered`, `failed`, `rejected`, `mismatch`, `dead`, `suppressed`; `xmtp_push_recipients_total{action}` with `action` in `registered`, `unregistered`, `expired`, `dead`; `xmtp_push_subscriptions_total{action}` with `action` in `added`, `removed`; and `xmtp_push_dispatcher` equal to 1 on the holder and 0 elsewhere. All four SHALL be in the catalogue, spec 002 §7, and the observability guide, and the three methods SHALL be in the bounded RPC label map.
-- PUSH-096: THE SYSTEM SHALL NOT put a recipient id, secret, token, URL, key, topic, or metadata in any log, span field, metric label, or status message.
+- PUSH-096: THE SYSTEM SHALL NOT put a recipient id, secret, token, URL, key or topic in any log, span field, metric label, or status message.
 
 ### 6.2 Regression protection
 
@@ -463,11 +463,12 @@ PR 4 starts after PR 1 merges, since it needs the proto. PRs 2 and 3 do not depe
 
 ## Review record
 
+- 2026-09-15: owner review of PR 4119 removed unused recipient metadata from registration, storage, webhook payloads, and client options. The protobuf field number and name remain reserved.
 - 2026-09-11: owner answers to the 43 design questions (Ref `O10M7N3MTgzjp61Z`).
 - 2026-09-11: adversarial review round 1 (Codex `gpt-6-astra`, read-only, report Ref `arl71rkYU1VowtmD`): 1 critical, 24 major, 4 minor, all folded in.
 - 2026-09-11: adversarial review round 2 (Codex `gpt-6-astra`, read-only, report Ref `oekUYHAFF3stAqoJ`): 1 critical, 11 major, 3 minor, all folded in. The replay findings of both rounds (method-bound signatures, revisions, tombstones) were later superseded by the owner's choice of a bearer secret; the rest stand.
 - 2026-09-11: owner comments on §4.5 (Ref `S5KxfsGYiG1GgrK7`), folded in on 2026-09-14: fan-out, start-position filter, and coalescing moved into one grouped window statement so unsubscribed rows never load; the cursor became a low-water mark written once per tick so one slow send holds the cursor and not the pipeline; in-flight bounds became per channel; the coalescing-before-HMAC miss is recorded in §3.
-- 2026-09-14: owner review comments (Ref `S5KxfsGYiG1GgrK7`), folded in the same day: metadata limit of 4096 bytes confirmed; `delivery` stored as text; commits and proposals pushed per subscription through `include_commits`, default false, with publish marking them eligible whatever the wire flag says; the server-maintained topic digest dropped in favor of the count.
+- 2026-09-14: owner review comments (Ref `S5KxfsGYiG1GgrK7`), folded in the same day: `delivery` stored as text; commits and proposals pushed per subscription through `include_commits`, default false, with publish marking them eligible whatever the wire flag says; the server-maintained topic digest dropped in favor of the count.
 - 2026-09-14: approved by the owner at revision 6, with one request: a high-level implementation plan in at most five PRs, added as §7.
 - 2026-09-14: owner review comments on revision 5, folded in as revision 6: coalescing dropped altogether, so every row is one delivery per subscriber and the coalescing miss is gone; every channel, HTTPS included, exists only when its config block does; `[push.http]` gains `allowed_domains` with leading-wildcard entries, checked at `Register`.
 - 2026-09-14: adversarial review of the five implementation plans (Codex CLI, `gpt-6-astra`, read-only, high effort) returned ISSUES on all five and found five defects in this spec. The owner chose all five fixes, revision 7: auth uses the existing global `auth.required_scopes`; drift repair is a converging repair pass instead of clear-and-restart; provider statuses that mean wrong sender become `mismatch` and never delete; retry delay is per channel to satisfy FCM; the HMAC key window is three nullable columns instead of an array.

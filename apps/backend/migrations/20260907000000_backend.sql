@@ -43,7 +43,6 @@ CREATE TABLE push_recipient (
     channel smallint NOT NULL CHECK (channel BETWEEN 1 AND 3),
     delivery text NOT NULL CHECK (length(delivery) BETWEEN 1 AND 2048),
     signing_key bytea CHECK (octet_length(signing_key) BETWEEN 16 AND 64),
-    metadata bytea NOT NULL CHECK (octet_length(metadata) <= 4096),
     topic_count integer NOT NULL CHECK (topic_count >= 0),
     renewed_ns bigint NOT NULL CHECK (renewed_ns >= 0)
 );

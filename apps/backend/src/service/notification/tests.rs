@@ -109,7 +109,6 @@ fn registration() -> api::RegisterRequest {
         delivery: Some(api::register_request::Delivery::Fcm(api::FcmDelivery {
             token: "device-token".into(),
         })),
-        metadata: vec![33; 4],
     }
 }
 
@@ -183,7 +182,6 @@ async fn registration_hashes_secret_and_renewal_preserves_subscriptions() {
         xmtp_common::sha256_array(&request.recipient_secret)
     );
     assert_ne!(row.secret_hash, request.recipient_secret);
-    assert_ne!(row.metadata, request.recipient_secret);
     assert_ne!(row.delivery.as_bytes(), request.recipient_secret);
     assert!(row.signing_key.is_none());
     assert_eq!(
@@ -200,7 +198,6 @@ async fn registration_hashes_secret_and_renewal_preserves_subscriptions() {
     changed.delivery = Some(api::register_request::Delivery::Apns(api::ApnsDelivery {
         token: "replacement-token".into(),
     }));
-    changed.metadata = vec![44];
     let renewed = client.register(changed.clone()).await?.into_inner();
     assert_eq!(renewed.topic_count, 1);
     assert_eq!(renewed.channel, api::Channel::Apns as i32);
@@ -212,7 +209,6 @@ async fn registration_hashes_secret_and_renewal_preserves_subscriptions() {
         .await?
         .unwrap();
     assert_eq!(row.delivery, "replacement-token");
-    assert_eq!(row.metadata, vec![44]);
     let after: i64 = sqlx::query_scalar("SELECT since_sequence_id FROM push_subscription")
         .fetch_one(&server.backend.store.primary)
         .await?;

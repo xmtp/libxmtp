@@ -76,7 +76,6 @@ async fn ownership_checks_precede_payload_checks_on_each_method() {
     wrong.delivery = Some(api::register_request::Delivery::Apns(api::ApnsDelivery {
         token: "unused".into(),
     }));
-    wrong.metadata = vec![0; MAX_METADATA_BYTES + 1];
     status(
         client.register(wrong).await.unwrap_err(),
         Code::PermissionDenied,
@@ -101,7 +100,7 @@ async fn ownership_checks_precede_payload_checks_on_each_method() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn delivery_checks_follow_channel_url_key_and_metadata_order() {
+async fn delivery_checks_follow_channel_url_and_key_order() {
     let server = TestServer::new(|_| {}).await?;
     let mut client = server.notifications();
     for delivery in [
@@ -120,7 +119,6 @@ async fn delivery_checks_follow_channel_url_key_and_metadata_order() {
             client
                 .register(api::RegisterRequest {
                     delivery: Some(delivery),
-                    metadata: vec![0; MAX_METADATA_BYTES + 1],
                     ..registration()
                 })
                 .await
@@ -145,24 +143,15 @@ async fn delivery_checks_follow_channel_url_key_and_metadata_order() {
         );
     }
     for length in [0, 15, 65] {
-        let mut request = webhook("https://127.0.0.1/hook", vec![1; length]);
-        request.metadata = vec![0; MAX_METADATA_BYTES + 1];
+        let request = webhook("https://127.0.0.1/hook", vec![1; length]);
         status(
             client.register(request).await.unwrap_err(),
             Code::InvalidArgument,
             "webhook signing key length is not allowed",
         );
     }
-    let mut too_large = webhook("https://127.0.0.1/hook", vec![1; 16]);
-    too_large.metadata = vec![0; MAX_METADATA_BYTES + 1];
-    status(
-        client.register(too_large).await.unwrap_err(),
-        Code::InvalidArgument,
-        "metadata is too large",
-    );
     for length in [16, 64] {
-        let mut request = webhook("https://127.0.0.1/hook", vec![1; length]);
-        request.metadata = vec![0; MAX_METADATA_BYTES];
+        let request = webhook("https://127.0.0.1/hook", vec![1; length]);
         assert_eq!(
             client.register(request).await?.into_inner().channel,
             api::Channel::Http as i32

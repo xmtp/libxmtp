@@ -15,7 +15,7 @@ impl Store {
         recipient_id: &[u8],
     ) -> Result<Option<PushRecipientRecord>, Error> {
         let row = sqlx::query!(
-            "SELECT recipient_id, secret_hash, channel, delivery, signing_key, metadata, renewed_ns FROM push_recipient WHERE recipient_id = $1",
+            "SELECT recipient_id, secret_hash, channel, delivery, signing_key, renewed_ns FROM push_recipient WHERE recipient_id = $1",
             recipient_id
         ).fetch_optional(&self.primary).await?;
         row.map(|row| {
@@ -25,7 +25,6 @@ impl Store {
                 channel: row.channel.try_into()?,
                 delivery: row.delivery,
                 signing_key: row.signing_key,
-                metadata: row.metadata,
                 renewed_ns: row.renewed_ns,
             })
         })
@@ -40,15 +39,15 @@ impl Store {
         record: &PushRecipientRecord,
     ) -> Result<RecipientStateRecord, Error> {
         let row = sqlx::query!(
-            "INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns)
-            VALUES ($1, $2, $3, $4, $5, $6, 0, $7)
+            "INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns)
+            VALUES ($1, $2, $3, $4, $5, 0, $6)
             ON CONFLICT (recipient_id) DO UPDATE SET channel = EXCLUDED.channel,
                 delivery = EXCLUDED.delivery, signing_key = EXCLUDED.signing_key,
-                metadata = EXCLUDED.metadata, renewed_ns = EXCLUDED.renewed_ns
+                renewed_ns = EXCLUDED.renewed_ns
             WHERE push_recipient.secret_hash = $2
             RETURNING topic_count, channel, renewed_ns",
             &record.recipient_id, &record.secret_hash, record.channel as i16,
-            &record.delivery, record.signing_key.as_deref(), &record.metadata, record.renewed_ns
+            &record.delivery, record.signing_key.as_deref(), record.renewed_ns
         ).fetch_optional(&self.primary).await?.ok_or(Error::PushSecretInvalid)?;
         Ok(RecipientStateRecord {
             topic_count: row.topic_count,

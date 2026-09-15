@@ -87,7 +87,6 @@ pub(crate) struct PushRecipientRecord {
     pub channel: PushChannel,
     pub delivery: String,
     pub signing_key: Option<Vec<u8>>,
-    pub metadata: Vec<u8>,
     pub renewed_ns: i64,
 }
 

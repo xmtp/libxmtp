@@ -466,8 +466,8 @@ message RegisterRequest {
     FcmDelivery fcm = 4;
     HttpDelivery http = 5;
   }
-  // Opaque application metadata, at most 4096 bytes.
-  bytes metadata = 6;
+  reserved 6;
+  reserved "metadata";
 }
 
 message UnregisterRequest {

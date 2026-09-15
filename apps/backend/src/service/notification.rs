@@ -19,7 +19,6 @@ const IDENTITY_BYTES: usize = 32;
 const MAX_DELIVERY_CHARACTERS: usize = 2048;
 const MIN_SIGNING_KEY_BYTES: usize = 16;
 const MAX_SIGNING_KEY_BYTES: usize = 64;
-const MAX_METADATA_BYTES: usize = 4096;
 const MAX_HMAC_KEYS: usize = 3;
 const HMAC_KEY_BYTES: usize = 42;
 pub(crate) const MALFORMED_REQUEST: &str = "request is malformed";
@@ -46,7 +45,6 @@ impl api::notification_service_server::NotificationService for Backend {
             channel,
             delivery,
             signing_key,
-            metadata: request.metadata,
             renewed_ns,
         };
         let state = self.store.upsert_recipient(&record).await?;
@@ -120,7 +118,7 @@ impl Backend {
         })
     }
 
-    /// Check channel availability, URL, signing key, and metadata in wire order.
+    /// Check channel availability, URL, and signing key in wire order.
     async fn validate_delivery(
         &self,
         request: &api::RegisterRequest,
@@ -161,9 +159,6 @@ impl Backend {
             || delivery.contains('\0')
         {
             return Err(Status::invalid_argument(MALFORMED_REQUEST));
-        }
-        if request.metadata.len() > MAX_METADATA_BYTES {
-            return Err(Status::invalid_argument("metadata is too large"));
         }
         Ok((channel, delivery, signing_key))
     }

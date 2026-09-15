@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT recipient_id, secret_hash, channel, delivery, signing_key, metadata, renewed_ns FROM push_recipient WHERE recipient_id = $1",
+  "query": "SELECT recipient_id, secret_hash, channel, delivery, signing_key, renewed_ns FROM push_recipient WHERE recipient_id = $1",
   "describe": {
     "columns": [
       {
@@ -60,17 +60,6 @@
       },
       {
         "ordinal": 5,
-        "name": "metadata",
-        "type_info": "Bytea",
-        "origin": {
-          "Table": {
-            "table": "push_recipient",
-            "name": "metadata"
-          }
-        }
-      },
-      {
-        "ordinal": 6,
         "name": "renewed_ns",
         "type_info": "Int8",
         "origin": {
@@ -92,9 +81,8 @@
       false,
       false,
       true,
-      false,
       false
     ]
   },
-  "hash": "f55f08d99d0bfc942389a3baac74db1b0cacc1359155d10511c123cff692d18c"
+  "hash": "6e24b72f3fe39dbffa1ca5587b8023811619d36900f2ed6efb2eafdfc6d8d9b8"
 }
