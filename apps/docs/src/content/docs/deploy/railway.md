@@ -93,7 +93,7 @@ Save the following files in a separate `haproxy` directory. The configuration is
 an exact copy of [`dev/tls/haproxy.cfg`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/haproxy.cfg).
 Its existing `resolve-prefer ipv6` supports legacy `*.railway.internal` DNS.
 No routing or timeout setting changes for Railway. The local certificate
-comment describes the Task 7 testing and validation stack only. This deployment
+comment describes the repository's local test stack only. This deployment
 uses a publicly trusted DNS-01 certificate.
 
 ```text title="haproxy.cfg"
@@ -136,9 +136,9 @@ backend xmtp
     server backend "${XMTP_TLS_BACKEND}" proto h2 resolvers system init-addr last,libc,none resolve-prefer ipv6
 ```
 
-One frontend and one `proto h2` backend serve both client kinds. Task 7 verified
-native gRPC and HTTP/1.1 gRPC-Web through this same backend, without a routing
-split. Its [`dev/tls/check.py`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/check.py)
+One frontend and one `proto h2` backend serve both client kinds. The
+repository's local TLS stack serves native gRPC and HTTP/1.1 gRPC-Web through
+this same backend, with no routing split. Its [`dev/tls/check.py`](https://github.com/xmtp/libxmtp/blob/self-hosted/dev/tls/check.py)
 also checks trailers, CORS, and incremental delivery.
 
 **Keep both 24 h timeouts.** `timeout tunnel` governs a tunnel: TCP mode, a
@@ -147,9 +147,8 @@ ordinary gRPC stream over HTTP/2 is none of those, so `timeout client` and
 `timeout server` govern it instead. Connection-level gRPC PING frames do not
 refresh an active stream's timer.
 The backend's 30 s keepalive therefore does not keep an idle subscription alive
-through HAProxy. Task 7's deliberate short-timeout run dropped an idle
-subscription after about 12.5 s with 12 s client/server timeouts, despite
-keepalives. Keep `http-request` and `http-keep-alive` short. Clients still need
+through HAProxy. Lowering both to 12 s in the local stack drops an idle
+subscription after about 12.5 s, despite keepalives. Keep `http-request` and `http-keep-alive` short. Clients still need
 to reconnect after the long timeout or a deployment restart.
 
 ```dockerfile title="Dockerfile"
@@ -428,51 +427,16 @@ Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30` on the backend to cover its drain
 and telemetry flush budgets. See [deployment teardown](https://docs.railway.com/deployments/deployment-teardown). Test reconnects during a redeploy. Do not delete
 the certificate volume to deploy a new HAProxy image.
 
-## Verification record
+## What is unverified
 
-Local checks on 2026-09-14 passed with `check-jsonschema 0.38.0` and Nix
-HAProxy **3.4.3**. The embedded HAProxy configuration matches `dev/tls/haproxy.cfg`
-exactly. The container built with HAProxy **3.2.23** and lego **4.35.2**, and its
-configuration parsed too. The parse checks used a throwaway local certificate
-only; they do not validate public certificate trust. xdbg built from this
-checkout. `just lint-markdown`, `just docs lint`, and the site build all
-passed, with every internal link valid.
+This guide's configuration is schema-valid and its HAProxy config is the same
+one the repository's local TLS stack exercises, but no client call has been made
+through a Railway TCP proxy end to end. Treat these as unverified until you
+check them yourself: health and client calls through the proxy, native gRPC
+trailers, gRPC-Web and CORS through the proxy, certificate renewal and its
+survival across a redeploy, and a subscription held past 15 minutes. Work
+through the shared [ingress checks](/deploy/overview/#ingress-contract) after
+you deploy.
 
-### Railway deployment: partially verified
-
-A real Railway project was built from this guide on 2026-09-14 with CLI 4.58.0:
-a Postgres service, a private `backend` service on a pinned
-`ghcr.io/xmtp/backend:sha-<commit>` image, and a public `haproxy` service with a
-`/certs` volume. It was destroyed afterwards.
-
-**Proven on Railway.** The backend started from inline `XMTP_CONFIG` with no
-`--config-file` and logged
-`backend ready to serve listen=[::]:5050`, so migrations ran and the dual-stack
-listener bound. `${{Postgres.DATABASE_URL}}` resolved to
-`postgres.railway.internal:5432`, the private address, so database traffic stays
-off the public proxy. The backend service had no public domain. The HAProxy
-image built from the Dockerfile on this page and started with the volume mounted,
-then waited for the PEM exactly as `start.sh` intends.
-
-**Proven off Railway, for the certificate path.** `lego` issued a real Let's
-Encrypt certificate for a subdomain we control through manual DNS-01, so the
-documented issuance path works and is not merely asserted. Concatenating the
-certificate and key into one PEM, as `install-certificate.sh` does, produced a
-file HAProxy accepted. With that PEM and an unresolvable backend address,
-HAProxy started and disabled the server rather than failing, which is the
-`init-addr last,libc,none` behavior this guide depends on after a deploy.
-
-**Not proven.** No client call was made through the TCP proxy, so the endpoint
-itself is unverified end to end. Two steps could not be completed
-non-interactively: `railway ssh` failed with `Host key verification failed.`,
-and the CLI offers no flag to accept the host key, so the PEM was never
-installed on the volume; and no A or CNAME record was created for the
-verification subdomain, so no client could reach it by name. That leaves
-untested: health through the proxy, identity registration, group creation,
-message publish and readback, native gRPC trailers, gRPC-Web and CORS through
-the proxy, certificate renewal and reload, certificate persistence across a
-redeploy, external reachability of port 9464, and a subscription held past 15
-minutes. Task 7's local ingress results do not prove these Railway behaviors.
-
-Treat this guide as less verified than the [Fly.io guide](/deploy/fly/), which
-carries an end-to-end client exercise.
+Remember to delete the project, its volume, and the TCP proxy when an
+evaluation ends. Railway bills for a running service and a retained volume.
