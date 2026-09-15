@@ -98,9 +98,14 @@ def unary(service, kind, text, status=0):
         while True:
             flag, body = frame(response)
             if flag == 128:
-                trailers = body.decode().lower()
+                # Keep trailer values verbatim; base64 details are case-sensitive.
+                trailers = body.decode()
                 require(
-                    re.search(rf"grpc-status:\s*{status}\s*(?:\r?\n|$)", trailers),
+                    re.search(
+                        rf"^grpc-status:\s*{status}\s*$",
+                        trailers,
+                        re.IGNORECASE | re.MULTILINE,
+                    ),
                     trailers,
                 )
                 require(response.read() == b"", "bytes after trailers")
@@ -201,7 +206,24 @@ def main():
     newest, _ = unary("QueryService/QueryNewest", "QueryNewest", "")
     require(newest == b"", "expected an empty QueryNewestResponse")
     _, trailers = unary("PublishService/Publish", "Publish", "envelopes {}", status=3)
-    require("grpc-status-details-bin:" in trailers, "missing structured error details")
+    details = re.search(
+        r"^grpc-status-details-bin:\s*(\S+)\s*$", trailers, re.IGNORECASE | re.MULTILINE
+    )
+    require(details, f"missing structured error details: {trailers}")
+    # gRPC omits base64 padding on binary trailers; restore it before decoding.
+    encoded = details.group(1)
+    raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), validate=True)
+    require(raw, "empty grpc-status-details-bin")
+    # google.rpc.Status is not in this repo's schema, but the detail it carries
+    # is. Locate the embedded Any payload and decode it with our own proto, which
+    # proves the bytes survived intact rather than merely being present.
+    marker = b"type.googleapis.com/xmtp.backend.v1.PublishError"
+    require(marker in raw, f"unexpected status details: {raw!r}")
+    inner = raw[raw.index(marker) + len(marker) :]
+    require(inner[:1] == b"\x12", f"unexpected Any framing: {inner[:4]!r}")
+    size = inner[1]
+    decoded = protobuf("PublishError", inner[2 : 2 + size], decode=True)
+    require(b"reason:" in decoded, f"undecodable PublishError: {decoded!r}")
     print(
         "PASS 2: HTTP/1.1 gRPC-Web succeeds through the single proto h2 backend; error details survive"
     )
@@ -222,6 +244,12 @@ def main():
         for value in response.getheader("access-control-allow-headers", "").split(",")
     }
     require(required <= allowed, f"missing allowed headers: {required - allowed}")
+    # Without this header a browser rejects the preflight and never sends the POST.
+    origin = response.getheader("access-control-allow-origin")
+    require(
+        origin in ("*", HEADERS["origin"]),
+        f"missing allow-origin on preflight: {response.getheaders()}",
+    )
     response.read()
     connection.close()
 
@@ -288,6 +316,8 @@ def main():
         while True:
             require(time.monotonic() < deadline, "message did not arrive within 5s")
             flag, body = frame(response)
+            # frame() blocks, so the deadline can pass while it waits.
+            require(time.monotonic() < deadline, "message arrived after 5s")
             require(flag == 0, "stream ended before message")
             if body == expected:
                 break
