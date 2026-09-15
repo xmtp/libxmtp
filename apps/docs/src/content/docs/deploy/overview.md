@@ -13,8 +13,8 @@ configuration reference.
 ## Choose a platform
 
 These ingress mechanisms must meet the transport requirements below. How far
-each guide was verified differs, so read the verification record at the end of
-a platform page before you rely on it.
+each path has been exercised differs by platform, so check a guide's own
+caveats, and the ingress contract below, before you rely on it.
 
 | Platform               | Ingress mechanism                                                     | Native gRPC                                                                         |
 | ---------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
