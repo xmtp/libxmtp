@@ -221,8 +221,15 @@ def main():
     require(marker in raw, f"unexpected status details: {raw!r}")
     inner = raw[raw.index(marker) + len(marker) :]
     require(inner[:1] == b"\x12", f"unexpected Any framing: {inner[:4]!r}")
-    size = inner[1]
-    decoded = protobuf("PublishError", inner[2 : 2 + size], decode=True)
+    # Read the Any.value length as a varint; a longer message spans two bytes.
+    size, shift, offset = 0, 0, 1
+    while True:
+        byte = inner[offset]
+        size |= (byte & 0x7F) << shift
+        offset, shift = offset + 1, shift + 7
+        if not byte & 0x80:
+            break
+    decoded = protobuf("PublishError", inner[offset : offset + size], decode=True)
     require(b"reason:" in decoded, f"undecodable PublishError: {decoded!r}")
     print(
         "PASS 2: HTTP/1.1 gRPC-Web succeeds through the single proto h2 backend; error details survive"
