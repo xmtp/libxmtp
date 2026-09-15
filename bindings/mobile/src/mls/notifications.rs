@@ -6,11 +6,21 @@ use xmtp_mls::client::notifications::{
 };
 
 /// The notification delivery endpoint.
-#[derive(uniffi::Enum, Clone, Debug)]
+#[derive(uniffi::Enum, Clone)]
 pub enum FfiNotificationChannel {
     Apns { token: String },
     Fcm { token: String },
     Http { url: String, signing_key: Vec<u8> },
+}
+
+impl std::fmt::Debug for FfiNotificationChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Apns { .. } => "Apns",
+            Self::Fcm { .. } => "Fcm",
+            Self::Http { .. } => "Http",
+        })
+    }
 }
 
 impl From<FfiNotificationChannel> for NotificationChannel {
@@ -24,7 +34,7 @@ impl From<FfiNotificationChannel> for NotificationChannel {
 }
 
 /// Notification delivery details and topic-selection rules.
-#[derive(uniffi::Record, Debug)]
+#[derive(uniffi::Record)]
 pub struct FfiNotificationConfig {
     pub channel: FfiNotificationChannel,
     #[uniffi(default = None)]
@@ -37,6 +47,18 @@ pub struct FfiNotificationConfig {
     pub include_commits: Option<bool>,
     #[uniffi(default = None)]
     pub metadata: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for FfiNotificationConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FfiNotificationConfig")
+            .field("channel", &self.channel)
+            .field("consent_states", &self.consent_states)
+            .field("include_welcomes", &self.include_welcomes)
+            .field("include_sync_groups", &self.include_sync_groups)
+            .field("include_commits", &self.include_commits)
+            .finish_non_exhaustive()
+    }
 }
 
 impl From<FfiNotificationConfig> for NotificationConfig {
@@ -165,5 +187,30 @@ impl FfiConversation {
     #[xmtp_common::err_span]
     pub fn notifications_enabled(&self) -> Result<bool, FfiError> {
         self.inner.notifications_enabled().map_err(Into::into)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn notification_debug_redacts_credentials() {
+        let channel = FfiNotificationChannel::Http {
+            url: "https://secret.example".into(),
+            signing_key: b"signing-key".to_vec(),
+        };
+        let config = FfiNotificationConfig {
+            channel,
+            consent_states: None,
+            include_welcomes: None,
+            include_sync_groups: None,
+            include_commits: None,
+            metadata: Some(b"metadata".to_vec()),
+        };
+        let debug = format!("{config:?}");
+        assert!(!debug.contains("secret.example"));
+        assert!(!debug.contains("signing-key"));
+        assert!(!debug.contains("metadata"));
     }
 }

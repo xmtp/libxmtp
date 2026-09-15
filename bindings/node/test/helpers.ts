@@ -13,6 +13,7 @@ import {
   IdentifierKind,
   LogLevel,
   SyncWorkerMode,
+  WorkerKind,
 } from '../dist/index'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -44,7 +45,11 @@ export const createUser = () => {
 
 export type User = ReturnType<typeof createUser>
 
-export const createClient = async (user: User, appVersion?: string) => {
+export const createClient = async (
+  user: User,
+  appVersion?: string,
+  disableTaskRunner = false
+) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
   const backend = await createLocalBackend(appVersion)
   const inboxId =
@@ -67,7 +72,9 @@ export const createClient = async (user: User, appVersion?: string) => {
       identifierKind: IdentifierKind.Ethereum,
     },
     SyncWorkerMode.Disabled,
-    undefined,
+    disableTaskRunner
+      ? { disabledWorkers: [WorkerKind.TaskRunner] }
+      : undefined,
     { level: LogLevel.Error },
     undefined
   )

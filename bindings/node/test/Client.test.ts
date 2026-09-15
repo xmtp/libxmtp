@@ -21,6 +21,35 @@ import {
 } from '../dist'
 
 describe('Client', () => {
+  it('should pass an FCM notification channel to Rust', async () => {
+    const client = await createClient(createUser(), undefined, true)
+
+    await expect(
+      client.enableNotifications({
+        channel: 'fcm',
+        token: 'fcm-token',
+      })
+    ).rejects.toThrow('notification task runner is disabled')
+  })
+
+  it('should reject invalid notification channel configurations', async () => {
+    const client = await createClient(createUser(), undefined, true)
+
+    for (const config of [
+      { channel: 'unknown', token: 'token' },
+      { channel: 'fcm' },
+      {
+        channel: 'apns',
+        token: 'token',
+        url: 'https://example.test',
+      },
+    ]) {
+      await expect(client.enableNotifications(config)).rejects.toThrow(
+        '[NotificationError::InvalidArgument] notification configuration is invalid'
+      )
+    }
+  })
+
   it('should not be registered at first', async () => {
     const user = createUser()
     const client = await createClient(user)

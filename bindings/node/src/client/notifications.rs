@@ -17,7 +17,7 @@ impl Client {
     Ok(
       self
         .inner_client()
-        .enable_notifications(config.into())
+        .enable_notifications(config.try_into().map_err(ErrorWrapper::from)?)
         .await
         .map(Into::into)
         .map_err(ErrorWrapper::from)?,

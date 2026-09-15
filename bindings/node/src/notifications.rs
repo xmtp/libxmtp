@@ -1,4 +1,3 @@
-use napi::bindgen_prelude::Either3;
 use napi_derive::napi;
 use xmtp_mls::client::notifications::{
   NotificationChannel as XmtpNotificationChannel, NotificationConfig as XmtpNotificationConfig,
@@ -7,27 +6,11 @@ use xmtp_mls::client::notifications::{
 };
 
 #[napi(object)]
-pub struct ApnsNotificationChannel {
-  pub token: String,
-}
-
-#[napi(object)]
-pub struct FcmNotificationChannel {
-  pub token: String,
-}
-
-#[napi(object)]
-pub struct HttpNotificationChannel {
-  pub url: String,
-  pub signing_key: Vec<u8>,
-}
-
-pub type NotificationChannel =
-  Either3<ApnsNotificationChannel, FcmNotificationChannel, HttpNotificationChannel>;
-
-#[napi(object)]
 pub struct NotificationConfig {
-  pub channel: NotificationChannel,
+  pub channel: String,
+  pub token: Option<String>,
+  pub url: Option<String>,
+  pub signing_key: Option<Vec<u8>>,
   pub consent_states: Option<Vec<crate::consent_state::ConsentState>>,
   pub include_welcomes: Option<bool>,
   pub include_sync_groups: Option<bool>,
@@ -35,19 +18,28 @@ pub struct NotificationConfig {
   pub metadata: Option<Vec<u8>>,
 }
 
-impl From<NotificationConfig> for XmtpNotificationConfig {
-  fn from(value: NotificationConfig) -> Self {
-    let channel = match value.channel {
-      Either3::A(channel) => XmtpNotificationChannel::Apns {
-        token: channel.token,
-      },
-      Either3::B(channel) => XmtpNotificationChannel::Fcm {
-        token: channel.token,
-      },
-      Either3::C(channel) => XmtpNotificationChannel::Http {
-        url: channel.url,
-        signing_key: channel.signing_key,
-      },
+impl TryFrom<NotificationConfig> for XmtpNotificationConfig {
+  type Error = NotificationError;
+
+  fn try_from(value: NotificationConfig) -> Result<Self, Self::Error> {
+    let channel = match (
+      value.channel.as_str(),
+      value.token,
+      value.url,
+      value.signing_key,
+    ) {
+      ("apns", Some(token), None, None) if !token.is_empty() => {
+        XmtpNotificationChannel::Apns { token }
+      }
+      ("fcm", Some(token), None, None) if !token.is_empty() => {
+        XmtpNotificationChannel::Fcm { token }
+      }
+      ("http", None, Some(url), Some(signing_key))
+        if !url.is_empty() && !signing_key.is_empty() =>
+      {
+        XmtpNotificationChannel::Http { url, signing_key }
+      }
+      _ => return Err(NotificationError::InvalidArgument),
     };
     let mut config = Self::new(channel);
     if let Some(consent_states) = value.consent_states {
@@ -65,7 +57,95 @@ impl From<NotificationConfig> for XmtpNotificationConfig {
     if let Some(metadata) = value.metadata {
       config.metadata = metadata;
     }
-    config
+    Ok(config)
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[xmtp_common::test(unwrap_try = true)]
+  fn notification_channel_discriminants_select_delivery() {
+    let fcm: XmtpNotificationConfig = NotificationConfig {
+      channel: "fcm".into(),
+      token: Some("fcm-token".into()),
+      url: None,
+      signing_key: None,
+      consent_states: None,
+      include_welcomes: None,
+      include_sync_groups: None,
+      include_commits: None,
+      metadata: None,
+    }
+    .try_into()?;
+
+    assert!(matches!(
+      fcm.channel,
+      XmtpNotificationChannel::Fcm { token } if token == "fcm-token"
+    ));
+
+    let apns: XmtpNotificationConfig = NotificationConfig {
+      channel: "apns".into(),
+      token: Some("apns-token".into()),
+      url: None,
+      signing_key: None,
+      consent_states: None,
+      include_welcomes: None,
+      include_sync_groups: None,
+      include_commits: None,
+      metadata: None,
+    }
+    .try_into()?;
+
+    assert!(matches!(
+      apns.channel,
+      XmtpNotificationChannel::Apns { token } if token == "apns-token"
+    ));
+  }
+
+  #[xmtp_common::test(unwrap_try = true)]
+  fn notification_channel_rejects_invalid_combinations() {
+    for config in [
+      NotificationConfig {
+        channel: "unknown".into(),
+        token: Some("token".into()),
+        url: None,
+        signing_key: None,
+        consent_states: None,
+        include_welcomes: None,
+        include_sync_groups: None,
+        include_commits: None,
+        metadata: None,
+      },
+      NotificationConfig {
+        channel: "fcm".into(),
+        token: None,
+        url: None,
+        signing_key: None,
+        consent_states: None,
+        include_welcomes: None,
+        include_sync_groups: None,
+        include_commits: None,
+        metadata: None,
+      },
+      NotificationConfig {
+        channel: "apns".into(),
+        token: Some("token".into()),
+        url: Some("https://example.test".into()),
+        signing_key: None,
+        consent_states: None,
+        include_welcomes: None,
+        include_sync_groups: None,
+        include_commits: None,
+        metadata: None,
+      },
+    ] {
+      assert!(matches!(
+        XmtpNotificationConfig::try_from(config),
+        Err(NotificationError::InvalidArgument)
+      ));
+    }
   }
 }
 
