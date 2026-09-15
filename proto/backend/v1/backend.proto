@@ -435,3 +435,78 @@ service IdentityService {
   // Verify ERC-1271 / ERC-6492 signatures over chain RPC.
   rpc VerifySmartContractWalletSignatures(VerifySmartContractWalletSignaturesRequest) returns (VerifySmartContractWalletSignaturesResponse) {}
 }
+
+enum Channel {
+  CHANNEL_UNSPECIFIED = 0;
+  CHANNEL_APNS = 1;
+  CHANNEL_FCM = 2;
+  CHANNEL_HTTP = 3;
+}
+
+message ApnsDelivery {
+  string token = 1;
+}
+
+message FcmDelivery {
+  string token = 1;
+}
+
+message HttpDelivery {
+  string url = 1;
+  // Webhook signing key, 16 to 64 bytes.
+  bytes signing_key = 2;
+}
+
+message RegisterRequest {
+  // Random recipient identity and bearer secret, each 32 bytes.
+  bytes recipient_id = 1;
+  bytes recipient_secret = 2;
+  oneof delivery {
+    ApnsDelivery apns = 3;
+    FcmDelivery fcm = 4;
+    HttpDelivery http = 5;
+  }
+  reserved 6;
+  reserved "metadata";
+}
+
+message UnregisterRequest {
+  bytes recipient_id = 1;
+  bytes recipient_secret = 2;
+}
+
+message UnregisterResponse {}
+
+message UpdateSubscriptionsRequest {
+  bytes recipient_id = 1;
+  bytes recipient_secret = 2;
+  repeated Subscription adds = 3;
+  repeated bytes removes = 4;
+}
+
+message Subscription {
+  // Group-message or welcome topic bytes.
+  bytes topic = 1;
+  // First epoch of the consecutive key window; zero with no keys.
+  int64 hmac_epoch_base = 2;
+  // At most three keys, each 42 bytes.
+  repeated bytes hmac_keys = 3;
+  bool include_commits = 4;
+}
+
+message RecipientState {
+  uint64 topic_count = 1;
+  Channel channel = 2;
+  int64 expires_at_ns = 3;
+}
+
+service NotificationService {
+  // Create or renew a recipient, preserving its subscriptions.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc Register(RegisterRequest) returns (RecipientState) {}
+  // Delete a recipient and its subscriptions.
+  rpc Unregister(UnregisterRequest) returns (UnregisterResponse) {}
+  // Apply topic changes atomically and renew the recipient.
+  // buf:lint:ignore RPC_REQUEST_RESPONSE_UNIQUE
+  rpc UpdateSubscriptions(UpdateSubscriptionsRequest) returns (RecipientState) {}
+}

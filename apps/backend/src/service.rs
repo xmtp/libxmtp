@@ -1,6 +1,7 @@
 mod conversion;
 mod error;
 mod identity;
+pub(crate) mod notification;
 mod publish;
 mod query;
 mod subscription;

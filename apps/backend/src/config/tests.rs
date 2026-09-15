@@ -22,6 +22,145 @@ const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
 const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;
 
 #[xmtp_common::test(unwrap_try = true)]
+fn push_defaults_provider_fields_and_redaction() {
+    let config = Config::load_str(MINIMAL)?;
+    assert_eq!(config.push.recipient_ttl_seconds, 2_592_000);
+    assert_eq!(config.push.max_attempts, 3);
+    assert_eq!(config.limits.max_push_topics, 100_000);
+    assert!(config.push.apns.is_none() && config.push.fcm.is_none() && config.push.http.is_none());
+    let source = format!(
+        "{MINIMAL}\n[push.apns]\nkey = 'private-apns-credential'\nkey_id = 'key'\nteam_id = 'team'\nbundle_id = 'bundle'\nenvironment = 'sandbox'\n[push.fcm]\nservice_account = 'private-fcm-credential'\n[push.http]\n"
+    );
+    let config = Config::load_str(&source)?;
+    assert!(config.push.http.is_some());
+    let debug = format!("{config:?}");
+    assert!(debug.contains("<redacted>"));
+    assert!(!debug.contains("private-apns-credential"));
+    assert!(!debug.contains("private-fcm-credential"));
+    let source = source
+        .replace("private-apns-credential", "env:CARGO_MANIFEST_DIR")
+        .replace("private-fcm-credential", "env:CARGO_MANIFEST_DIR");
+    let config = Config::load_str(&source)?;
+    let expected = std::env::var("CARGO_MANIFEST_DIR")?;
+    assert_eq!(
+        config.push.apns.unwrap().key.as_deref(),
+        Some(expected.as_str())
+    );
+    assert_eq!(
+        config.push.fcm.unwrap().service_account.as_deref(),
+        Some(expected.as_str())
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn push_invalid_values_name_the_configuration_key() {
+    for (extra, field) in [
+        (
+            "[push]\nrecipient_ttl_seconds = -1",
+            "push.recipient_ttl_seconds",
+        ),
+        ("[push]\nmax_attempts = -1", "push.max_attempts"),
+        ("[push]\nmax_attempts = 4294967296", "push.max_attempts"),
+        (
+            "[push]\nrecipient_ttl_seconds = 86399",
+            "push.recipient_ttl_seconds",
+        ),
+        ("[push]\nmax_attempts = 0", "push.max_attempts"),
+        ("[push]\nmax_attempts = 11", "push.max_attempts"),
+        ("[push.apns]", "push.apns.key"),
+        ("[push.apns]\nkey = 'key'", "push.apns.key_id"),
+        (
+            "[push.apns]\nkey = 'key'\nkey_id = 'id'",
+            "push.apns.team_id",
+        ),
+        (
+            "[push.apns]\nkey = 'key'\nkey_id = 'id'\nteam_id = 'team'",
+            "push.apns.bundle_id",
+        ),
+        (
+            "[push.apns]\nkey = 'key'\nkey_id = 'id'\nteam_id = 'team'\nbundle_id = 'bundle'",
+            "push.apns.environment",
+        ),
+        (
+            "[push.apns]\nkey = 'key'\nkey_id = 'id'\nteam_id = 'team'\nbundle_id = 'bundle'\nenvironment = 'invalid'",
+            "push.apns.environment",
+        ),
+        ("[push.fcm]", "push.fcm.service_account"),
+        (
+            "[push.fcm]\nservice_account = ''",
+            "push.fcm.service_account",
+        ),
+        ("[limits]\nmax_push_topics = 0", "limits.max_push_topics"),
+    ] {
+        let error = Config::load_str(&format!("{MINIMAL}\n{extra}")).unwrap_err();
+        assert!(
+            matches!(error, ConfigError::Invalid { field: actual, .. } if actual == field),
+            "{error}"
+        );
+    }
+    for domain in [
+        "*",
+        "a.*.org",
+        "a*.org",
+        "example..org",
+        "",
+        ".example.org",
+        "example.org.",
+        "https://example.org",
+        "example.org:443",
+        "example.org/path",
+        "-example.org",
+        "example-.org",
+    ] {
+        let error = Config::load_str(&format!(
+            "{MINIMAL}\n[push.http]\nallowed_domains = ['{domain}']"
+        ))
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            ConfigError::Invalid {
+                field: "push.http.allowed_domains",
+                ..
+            }
+        ));
+    }
+    Config::load_str(&format!(
+        "{MINIMAL}\n[push]\nrecipient_ttl_seconds = 86400\nmax_attempts = 10\n[push.http]\nallowed_domains = ['hooks.example.com', '*.EXAMPLE.org']"
+    ))?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn push_expiry_is_checked_at_both_duration_and_clock_boundaries() {
+    let config = Config::load_str(&format!(
+        "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {MAX_RETENTION_SECONDS}"
+    ))?;
+    assert_eq!(
+        config.push.expires_at(0)?,
+        MAX_RETENTION_SECONDS as i64 * NS_IN_SEC
+    );
+    assert!(matches!(
+        config.push.expires_at(NS_IN_SEC),
+        Err(crate::error::Error::PushExpiryOverflow)
+    ));
+    assert!(matches!(
+        config.push.expires_at(-1),
+        Err(crate::error::Error::PushExpiryOverflow)
+    ));
+    let error = Config::load_str(&format!(
+        "{MINIMAL}\n[push]\nrecipient_ttl_seconds = {}",
+        MAX_RETENTION_SECONDS + 1
+    ))
+    .unwrap_err();
+    assert!(matches!(
+        error,
+        ConfigError::Invalid {
+            field: "push.recipient_ttl_seconds",
+            ..
+        }
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn minimal_configuration_uses_defaults() {
     let config: Config = toml::from_str(MINIMAL)?;
     config.validate()?;

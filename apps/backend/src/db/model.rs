@@ -48,6 +48,8 @@ pub(crate) struct IdentityAdmission {
 }
 
 pub(crate) struct PendingEnvelope {
+    pub push_eligible: bool,
+    pub sender_hmac: Option<Vec<u8>>,
     pub topic: Vec<u8>,
     pub message_hash: [u8; 32],
     pub payload: Vec<u8>,
@@ -57,4 +59,52 @@ pub(crate) struct PendingEnvelope {
     pub duplicate: Option<StoredMeta>,
     pub validation: Result<Option<Projection>, AdmissionError>,
     pub retention_ns: Option<i64>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(i16)]
+pub(crate) enum PushChannel {
+    Apns = 1,
+    Fcm = 2,
+    Http = 3,
+}
+
+impl TryFrom<i16> for PushChannel {
+    type Error = crate::error::Error;
+    fn try_from(value: i16) -> Result<Self, Self::Error> {
+        match value {
+            1 => Ok(Self::Apns),
+            2 => Ok(Self::Fcm),
+            3 => Ok(Self::Http),
+            _ => Err(crate::error::Error::Invariant("invalid push channel")),
+        }
+    }
+}
+
+pub(crate) struct PushRecipientRecord {
+    pub recipient_id: Vec<u8>,
+    pub secret_hash: Vec<u8>,
+    pub channel: PushChannel,
+    pub delivery: String,
+    pub signing_key: Option<Vec<u8>>,
+    pub renewed_ns: i64,
+}
+
+pub(crate) struct PushSubscriptionRecord {
+    pub topic: Vec<u8>,
+    pub hmac_epoch_base: Option<i64>,
+    pub hmac_keys: [Option<Vec<u8>>; 3],
+    pub include_commits: bool,
+}
+
+pub(crate) struct RecipientStateRecord {
+    pub topic_count: i32,
+    pub channel: PushChannel,
+    pub renewed_ns: i64,
+}
+
+pub(crate) struct SubscriptionChanges {
+    pub state: RecipientStateRecord,
+    pub added: u64,
+    pub removed: u64,
 }

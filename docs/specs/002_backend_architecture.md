@@ -218,6 +218,8 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 | `xmtp_auth_rejections_total` | counter | Authentication rejections by reason. |
 | `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. |
 | `xmtp_auth_keys` | gauge | Loaded JWT verification keys. |
+| `xmtp_push_recipients_total` | counter | Push recipient changes by action. |
+| `xmtp_push_subscriptions_total` | counter | Push subscription changes by action. |
 | `xmtp_backend_info` | gauge | Backend build version. |
 
 ## 8. Configuration

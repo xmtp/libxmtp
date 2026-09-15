@@ -23,6 +23,16 @@ pub struct MetricSpec {
 /// Single source of truth for backend-owned metric names, types, and descriptions.
 pub const CATALOGUE: &[MetricSpec] = &[
     MetricSpec {
+        name: "xmtp_push_recipients_total",
+        kind: MetricType::Counter,
+        help: "Push recipient changes by action.",
+    },
+    MetricSpec {
+        name: "xmtp_push_subscriptions_total",
+        kind: MetricType::Counter,
+        help: "Push subscription changes by action.",
+    },
+    MetricSpec {
         name: "xmtp_auth_rejections_total",
         kind: MetricType::Counter,
         help: "Authentication rejections by reason.",
@@ -280,6 +290,15 @@ impl RpcLabels {
                 "VerifySmartContractWalletSignatures",
             ),
             "/grpc.health.v1.Health/Check" => ("grpc.health.v1.Health", "Check"),
+            "/xmtp.backend.v1.NotificationService/Register" => {
+                ("xmtp.backend.v1.NotificationService", "Register")
+            }
+            "/xmtp.backend.v1.NotificationService/Unregister" => {
+                ("xmtp.backend.v1.NotificationService", "Unregister")
+            }
+            "/xmtp.backend.v1.NotificationService/UpdateSubscriptions" => {
+                ("xmtp.backend.v1.NotificationService", "UpdateSubscriptions")
+            }
             "/grpc.health.v1.Health/Watch" => ("grpc.health.v1.Health", "Watch"),
             "/grpc.health.v1.Health/List" => ("grpc.health.v1.Health", "List"),
             _ => ("unknown", "unknown"),
@@ -593,4 +612,17 @@ pub(crate) fn auth_jwks_refresh(success: bool) {
 }
 pub(crate) fn auth_keys(count: usize) {
     gauge!("xmtp_auth_keys").set(count as f64);
+}
+
+pub(crate) fn push_registered() {
+    metrics::counter!("xmtp_push_recipients_total", "action" => "registered").increment(1);
+}
+
+pub(crate) fn push_unregistered() {
+    metrics::counter!("xmtp_push_recipients_total", "action" => "unregistered").increment(1);
+}
+
+pub(crate) fn push_subscriptions_changed(added: u64, removed: u64) {
+    metrics::counter!("xmtp_push_subscriptions_total", "action" => "added").increment(added);
+    metrics::counter!("xmtp_push_subscriptions_total", "action" => "removed").increment(removed);
 }

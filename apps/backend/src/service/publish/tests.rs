@@ -11,6 +11,62 @@ use xmtp_mls_validation::test_utils::{
 };
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
+    use xmtp_mls_validation::test_utils::{commit_log_envelope, key_package_envelope};
+    let server = TestServer::new(|_| {}).await?;
+    let mut envelopes = Vec::new();
+    let mut expected = Vec::new();
+    for (index, (kind, should_push, hmac_length, eligible)) in [
+        (GroupMessageKind::Application, true, 32, true),
+        (GroupMessageKind::Application, false, 32, false),
+        (GroupMessageKind::Application, true, 31, true),
+        (GroupMessageKind::Application, false, 33, false),
+        (GroupMessageKind::Commit, false, 32, true),
+        (GroupMessageKind::Proposal, false, 0, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut envelope = group_message_envelope([index as u8; 16], kind, []);
+        if let Some(api::client_envelope::Payload::GroupMessage(group)) = &mut envelope.payload {
+            group.should_push = should_push;
+            group.sender_hmac = vec![88; hmac_length];
+        }
+        envelopes.push(envelope);
+        expected.push((eligible, (hmac_length == 32).then(|| vec![88; 32])));
+    }
+    envelopes.extend([
+        inline_welcome_envelope([77; 32]),
+        key_package_envelope("", Default::default()).envelope,
+        commit_log_envelope([66; 16]),
+    ]);
+    expected.extend([(true, None), (false, None), (false, None)]);
+    let identity = identity_history_with_passkey().await;
+    envelopes.push(identity_envelope(identity.history[0].clone()));
+    expected.push((false, None));
+    let metas = server.publish(envelopes.clone()).await?;
+    for ((meta, original), (eligible, hmac)) in metas.iter().zip(&envelopes).zip(expected) {
+        let sequence_id = meta.cursor.as_ref().unwrap().sequence_id as i64;
+        let row: (bool, Option<Vec<u8>>, Vec<u8>) = sqlx::query_as(
+            "SELECT push_eligible, sender_hmac, payload FROM envelopes WHERE sequence_id = $1",
+        )
+        .bind(sequence_id)
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+        assert_eq!(row.0, eligible);
+        assert_eq!(row.1, hmac);
+        let canonical = xmtp_proto::types::canonical_envelope(original);
+        assert_eq!(row.2, canonical.bytes);
+        assert_eq!(
+            meta.message_hash.as_ref().unwrap().hash,
+            Some(api::message_hash::Hash::Sha256(canonical.hash.to_vec()))
+        );
+    }
+    assert_eq!(server.publish(envelopes).await?, metas);
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn application_envelope_limit_accepts_exact_size_and_rejects_one_past() {
     let envelope = group_message_envelope([1; 16], GroupMessageKind::Application, []);
     let size = envelope.encoded_len();

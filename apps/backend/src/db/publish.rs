@@ -284,15 +284,17 @@ async fn insert(
     let flags: Vec<_> = new.iter().map(|item| item.is_commit_or_proposal).collect();
     let payloads: Vec<_> = new.iter().map(|item| item.payload.clone()).collect();
     let retention: Vec<_> = new.iter().map(|item| item.retention_ns).collect();
+    let push_eligible: Vec<_> = new.iter().map(|item| item.push_eligible).collect();
+    let sender_hmac: Vec<_> = new.iter().map(|item| item.sender_hmac.clone()).collect();
     // Advance watermarks from RETURNING rows; sibling CTEs share one snapshot.
     let rows = sqlx::query!(
         r#"WITH input AS (
             SELECT r.*, (extract(epoch FROM CURRENT_TIMESTAMP) * 1000000000)::bigint AS server_ns
-            FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[])
-            WITH ORDINALITY AS r(sequence_id, topic, message_hash, is_commit_or_proposal, payload, retention_ns, ordinal)
+            FROM unnest($1::bigint[], $2::bytea[], $3::bytea[], $4::boolean[], $5::bytea[], $6::bigint[], $7::boolean[], $8::bytea[])
+            WITH ORDINALITY AS r(sequence_id, topic, message_hash, is_commit_or_proposal, payload, retention_ns, push_eligible, sender_hmac, ordinal)
         ), inserted AS (
-            INSERT INTO envelopes (sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, expiry_ns)
-            SELECT sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, server_ns + retention_ns
+            INSERT INTO envelopes (sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, expiry_ns, push_eligible, sender_hmac)
+            SELECT sequence_id, topic, message_hash, is_commit_or_proposal, payload, server_ns, server_ns + retention_ns, push_eligible, sender_hmac
             FROM input ORDER BY ordinal
             RETURNING sequence_id, topic, server_ns, expiry_ns, message_hash, is_commit_or_proposal
         ), new_heads AS (
@@ -308,7 +310,8 @@ async fn insert(
             inserted.message_hash AS "message_hash!", inserted.is_commit_or_proposal AS "is_commit_or_proposal!",
             (SELECT count(*) FROM advanced) = (SELECT count(*) FROM new_heads) AS "advanced!"
         FROM input JOIN inserted USING (sequence_id) ORDER BY input.ordinal"#,
-        &ids, &topics, &hashes, &flags, &payloads, &retention as &[Option<i64>]
+        &ids, &topics, &hashes, &flags, &payloads, &retention as &[Option<i64>],
+        &push_eligible, &sender_hmac as &[Option<Vec<u8>>]
     ).fetch_all(&mut **tx).await?;
     if rows.len() != new.len() || rows.iter().any(|row| !row.advanced) {
         return Err(Error::Invariant(

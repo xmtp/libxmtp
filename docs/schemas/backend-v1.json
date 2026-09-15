@@ -63,6 +63,16 @@
         "key_package_seconds": 7776000
       }
     },
+    "push": {
+      "$ref": "#/$defs/PushConfig",
+      "default": {
+        "recipient_ttl_seconds": 2592000,
+        "max_attempts": 3,
+        "apns": null,
+        "fcm": null,
+        "http": null
+      }
+    },
     "chains": {
       "type": "object",
       "propertyNames": {
@@ -92,6 +102,7 @@
     "limits": {
       "$ref": "#/$defs/LimitsConfig",
       "default": {
+        "max_push_topics": 100000,
         "max_query_topics": 1000,
         "default_query_limit": 100,
         "max_query_limit": 1000,
@@ -538,6 +549,144 @@
       },
       "additionalProperties": false
     },
+    "PushConfig": {
+      "type": "object",
+      "properties": {
+        "recipient_ttl_seconds": {
+          "description": "Time without renewal before a recipient expires, in seconds.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 86400,
+          "maximum": 9223372036,
+          "default": 2592000
+        },
+        "max_attempts": {
+          "description": "Maximum provider attempts for each delivery.",
+          "type": "integer",
+          "format": "int64",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3
+        },
+        "apns": {
+          "description": "APNs is available only when this block is present.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ApnsConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fcm": {
+          "description": "FCM is available only when this block is present.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FcmConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "http": {
+          "description": "HTTPS webhooks are available only when this block is present.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "additionalProperties": false
+    },
+    "ApnsConfig": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "description": "PKCS#8 PEM credential; accepts an env:NAME reference.",
+          "type": "string"
+        },
+        "key_id": {
+          "description": "Apple signing-key identifier.",
+          "type": "string"
+        },
+        "team_id": {
+          "description": "Apple developer team identifier.",
+          "type": "string"
+        },
+        "bundle_id": {
+          "description": "Application bundle identifier used as the APNs topic.",
+          "type": "string"
+        },
+        "environment": {
+          "description": "Either production or sandbox.",
+          "anyOf": [
+            {
+              "type": "string",
+              "enum": [
+                "production",
+                "sandbox"
+              ]
+            },
+            {
+              "type": "string",
+              "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "key",
+        "key_id",
+        "team_id",
+        "bundle_id",
+        "environment"
+      ]
+    },
+    "FcmConfig": {
+      "type": "object",
+      "properties": {
+        "service_account": {
+          "description": "Service-account JSON credential; accepts an env:NAME reference.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "service_account"
+      ]
+    },
+    "HttpConfig": {
+      "type": "object",
+      "properties": {
+        "allowed_domains": {
+          "description": "Allowed hosts, with an optional leading *. wildcard. Absent allows all hosts.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "default": null
+        },
+        "allow_private_addresses": {
+          "description": "Permit private and local network addresses. Defaults to false.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "additionalProperties": false
+    },
     "ValidationConfig": {
       "type": "object",
       "properties": {
@@ -553,6 +702,13 @@
     "LimitsConfig": {
       "type": "object",
       "properties": {
+        "max_push_topics": {
+          "description": "Maximum stored topics for one push recipient.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647,
+          "default": 100000
+        },
         "max_query_topics": {
           "type": "integer",
           "minimum": 1,

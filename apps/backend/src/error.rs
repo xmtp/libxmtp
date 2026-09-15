@@ -2,6 +2,14 @@ use xmtp_mls_validation::ValidationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("recipient is not registered")]
+    PushRecipientMissing,
+    #[error("recipient secret is not valid")]
+    PushSecretInvalid,
+    #[error("recipient topic limit reached")]
+    PushTopicLimit,
+    #[error("recipient expiry cannot be represented")]
+    PushExpiryOverflow,
     #[error("identity history changed during validation")]
     StaleHistory,
     #[error("envelope admission failed")]

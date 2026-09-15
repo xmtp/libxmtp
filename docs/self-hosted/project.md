@@ -39,6 +39,7 @@ Expected specs by the end of the project:
 | `002_backend_architecture.md` | Backend service design and database schema |
 | `003_message_security.md` | Backend and identity trust limits, then adaptation of the `xmtp_mls` README |
 | `004_streaming.md` | Streaming APIs and semantics |
+| `005_push_subscriptions.md` | Push recipients, subscriptions, dispatch, and the client sync task |
 
 ### Git
 
@@ -148,6 +149,7 @@ configuration, metrics, traces, alerts, and the end-to-end check.
 
 - Port key functionality from xmtp/example-notification-server-go into the backend, allowing for clients to register push subscriptions
 - Update Rust SDK to have native support for registering push subscriptions
+- Spec: `docs/specs/005_push_subscriptions.md`, approved 2026-09-14, with a five-PR plan in its §7
 
 #### 4.8: Self Publishing SDK Versions
 

@@ -95,6 +95,8 @@ ratio. Collector loss can reduce that population further.
 | `xmtp_auth_rejections_total` | counter | Authentication rejections by reason. | reason | fixed | auth admission | Missing or invalid caller credentials | One increment per rejected request |
 | `xmtp_auth_jwks_refresh_total` | counter | JWKS refresh attempts by result. | result | fixed | JWKS refresh | Key source unavailable | Success swaps keys; failure keeps the last set |
 | `xmtp_auth_keys` | gauge | Loaded JWT verification keys. | none | none | key load and refresh | Empty or unexpected key set | Number of usable keys |
+| `xmtp_push_recipients_total` | counter | Push recipient changes by action. | action | registered, unregistered, expired, dead | recipient changes | Registration and deletion activity | Recipient changes |
+| `xmtp_push_subscriptions_total` | counter | Push subscription changes by action. | action | added, removed | subscription transaction | Topic changes | Inserted and deleted topics |
 | `xmtp_backend_info` | gauge | Backend build version. | version | explicit | backend startup | Wrong build deployed | Build version with value one |
 
 Error-only families can be absent until their first event.
