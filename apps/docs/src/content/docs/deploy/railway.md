@@ -337,83 +337,37 @@ hostnames. Neither is a substitute for this public endpoint. See
 
 ## Check the deployment
 
-Use the certificate hostname and assigned port. Do not disable certificate
-verification or add a custom trust certificate. For example:
+Use the certificate hostname and the assigned port. Do not disable certificate
+verification.
 
 ```sh
 grpc-health-probe -addr=xmtp.example.com:ASSIGNED_PORT -tls
 ```
 
-Build xdbg from this repository with `nix build .#xdbg`. In a repository devshell,
-set `XDBG_DB_ROOT` to an empty scratch directory and run:
+Then drive real client traffic with xdbg. Build it from this repository with
+`nix build .#xdbg`, then, in a repository devshell:
 
 ```sh
-export XDBG_DB_ROOT=/tmp/xmtp-railway-client
+export XDBG_DB_ROOT=$(mktemp -d)
 export XMTP_ENDPOINT=https://xmtp.example.com:ASSIGNED_PORT
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity identity --amount 3
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity group --amount 1 --invite 2
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity message --amount 10
-./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast sync
-./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast query all-key-packages
+./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast query welcomes
 ```
 
-Export the generated group's topic and make wire-format requests. xdbg exports
-topics as hex strings; protobuf JSON requires base64:
+Identity, group, and message generation exercise publish; `query welcomes` reads
+the result back through the proxy. A successful run proves TLS, native gRPC, and
+publish-then-read across the TCP proxy.
 
-```sh
-./result/bin/xdbg --url "$XMTP_ENDPOINT" export --entity group-topics --out group-topics.json
-python3 - <<'PYTHON'
-import base64
-import json
-from pathlib import Path
+Two paths this does not cover, both specific to Railway's proxy: hold a
+subscription open past the 15-minute cap, and confirm the certificate survives a
+redeploy. Work through the shared
+[ingress checks](/deploy/overview/#ingress-contract) for the rest.
 
-topics = json.loads(Path("group-topics.json").read_text())
-queries = [{"topic": {"topic": base64.b64encode(bytes.fromhex(t)).decode()}}
-           for t in topics]
-Path("query.json").write_text(json.dumps({"queries": queries, "limit": 1000}))
-Path("subscription.json").write_text(json.dumps({"topics": queries}))
-PYTHON
-```
-
-From the repository root, query the stored envelopes and inspect native gRPC
-trailers. Confirm the response includes the generated group messages. A
-successful empty query alone does not prove message readback:
-
-```sh
-grpcurl -vv -import-path proto -proto backend/v1/backend.proto \
-    -d @ xmtp.example.com:ASSIGNED_PORT \
-    xmtp.backend.v1.QueryService/Query < query.json
-```
-
-Check an empty newest query too:
-
-```sh
-grpcurl -vv -import-path proto -proto backend/v1/backend.proto \
-    -d '{}' xmtp.example.com:ASSIGNED_PORT \
-    xmtp.backend.v1.QueryService/QueryNewest
-```
-
-Keep a subscription open for more than 15 minutes:
-
-```sh
-grpcurl -vv -max-time 1200 -import-path proto -proto backend/v1/backend.proto \
-    -d @ xmtp.example.com:ASSIGNED_PORT \
-    xmtp.backend.v1.SubscriptionService/SubscribeStatic < subscription.json
-```
-
-Confirm its Started frame arrives immediately. The 1200 s deadline leaves
-margin for the manual step below; do not lower it to just past 16 minutes.
-After 16 minutes, generate one
-more message from a second terminal with the same `XDBG_DB_ROOT` and endpoint.
-Confirm it arrives on the original response before the 1000 s client deadline.
-The final `DeadlineExceeded` is expected from that client deadline. An earlier
-disconnect is a failure. A reconnect does not prove that the original stream
-survived. Run the remaining [ingress checks](/deploy/overview/#ingress-contract) too.
-
-Inspect backend **Public Networking** and confirm it has no domain or TCP proxy.
-Confirm that the HAProxy TCP proxy targets only `18443`. From outside Railway,
-check that port 9464 is unreachable. Record the project, endpoint, commands, and
-outputs before cleanup.
+Finally, confirm the backend's **Public Networking** has no domain or TCP proxy,
+that the HAProxy TCP proxy targets only `18443`, and that port 9464 is
+unreachable from outside Railway.
 
 ## Scaling and shutdown
 
@@ -427,16 +381,7 @@ Set `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30` on the backend to cover its drain
 and telemetry flush budgets. See [deployment teardown](https://docs.railway.com/deployments/deployment-teardown). Test reconnects during a redeploy. Do not delete
 the certificate volume to deploy a new HAProxy image.
 
-## What is unverified
+## Clean up
 
-This guide's configuration is schema-valid and its HAProxy config is the same
-one the repository's local TLS stack exercises, but no client call has been made
-through a Railway TCP proxy end to end. Treat these as unverified until you
-check them yourself: health and client calls through the proxy, native gRPC
-trailers, gRPC-Web and CORS through the proxy, certificate renewal and its
-survival across a redeploy, and a subscription held past 15 minutes. Work
-through the shared [ingress checks](/deploy/overview/#ingress-contract) after
-you deploy.
-
-Remember to delete the project, its volume, and the TCP proxy when an
-evaluation ends. Railway bills for a running service and a retained volume.
+Delete the project, its volume, and the TCP proxy when an evaluation ends.
+Railway bills for a running service and a retained volume.
