@@ -9,6 +9,45 @@ import org.junit.Test
 import java.security.SecureRandom
 
 class NotificationsTest : BaseInstrumentedTest() {
+    @Test
+    @OptIn(DelicateApi::class)
+    fun restoresNotificationStateRulesAndOverridesAfterRestart() =
+        runBlocking {
+            val wallet = createWallet()
+            val options = createClientOptions(localApi(), deviceSyncEnabled = true)
+            var client = Client.create(account = wallet, options = options)
+            try {
+                val group = client.conversations.newGroup(emptyList())
+                val groupId = group.id
+                val installationId = client.installationId
+                val dbPath = client.dbPath
+                client.enableNotifications(
+                    NotificationConfig(
+                        channel = httpConfig().channel,
+                        consentStates = emptyList(),
+                        includeWelcomes = false,
+                    ),
+                )
+                group.setNotifications(NotificationOverride.Enabled)
+                client.dropLocalDatabaseConnection()
+                client = Client.create(account = wallet, options = options)
+                assertEquals(dbPath, client.dbPath)
+                assertEquals(installationId, client.installationId)
+                assertEquals(NotificationState.Enabled, client.notificationState())
+                val restored = requireNotNull(client.conversations.findGroup(groupId))
+                assertTrue(restored.notificationsEnabled())
+                restored.setNotifications(NotificationOverride.Default)
+                assertFalse(restored.notificationsEnabled())
+                client.disableNotifications()
+                client.dropLocalDatabaseConnection()
+                client = Client.create(account = wallet, options = options)
+                assertEquals(installationId, client.installationId)
+                assertEquals(NotificationState.Disabled, client.notificationState())
+            } finally {
+                client.dropLocalDatabaseConnection()
+            }
+        }
+
     private fun httpConfig(): NotificationConfig =
         NotificationConfig(
             channel =

@@ -5,6 +5,43 @@ import XMTPTestHelpers
 
 @available(iOS 15, *)
 final class NotificationsTests: XCTestCase {
+	func testRestoresNotificationStateRulesAndOverridesAfterRestart() async throws {
+		let wallet = try PrivateKey.generate()
+		let options = try ClientOptions(
+			api: localApi(),
+			dbEncryptionKey: Crypto.secureRandomBytes(count: 32)
+		)
+		var client = try await Client.create(account: wallet, options: options)
+		defer { try? client.deleteLocalDatabase() }
+		let group = try await client.conversations.newGroup(with: [])
+		let groupId = group.id
+		let installationID = client.installationID
+		let dbPath = client.dbPath
+		var config = try httpConfig()
+		config.consentStates = []
+		config.includeWelcomes = false
+		_ = try await client.enableNotifications(config)
+		try await group.setNotifications(.enabled)
+		try client.dropLocalDatabaseConnection()
+		client = try await Client.create(account: wallet, options: options)
+		XCTAssertEqual(client.dbPath, dbPath)
+		XCTAssertEqual(client.installationID, installationID)
+		var state = try await client.notificationState()
+		XCTAssertEqual(state, .enabled)
+		let restored = try XCTUnwrap(client.conversations.findGroup(groupId: groupId))
+		var enabled = try await restored.notificationsEnabled()
+		XCTAssertTrue(enabled)
+		try await restored.setNotifications(.default)
+		enabled = try await restored.notificationsEnabled()
+		XCTAssertFalse(enabled)
+		try await client.disableNotifications()
+		try client.dropLocalDatabaseConnection()
+		client = try await Client.create(account: wallet, options: options)
+		XCTAssertEqual(client.installationID, installationID)
+		state = try await client.notificationState()
+		XCTAssertEqual(state, .disabled)
+	}
+
 	private func httpConfig() throws -> NotificationConfig {
 		try NotificationConfig(channel: .http(
 			url: "https://example.com/xmtp-notification-test",
