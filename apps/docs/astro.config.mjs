@@ -96,6 +96,11 @@ export default defineConfig({
           ),
         },
         {
+          label: "Deploy",
+          items: guidePages("deploy", "overview"),
+          collapsed: true,
+        },
+        {
           label: "SDK guide",
           items: guidePages(
             "sdk",
@@ -161,6 +166,7 @@ export default defineConfig({
               paths: [
                 "index",
                 "get-started/**",
+                "deploy/**",
                 "sdk/**",
                 "content-types/**",
                 "agents/**",

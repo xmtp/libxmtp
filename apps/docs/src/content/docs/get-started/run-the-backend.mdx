@@ -47,8 +47,23 @@ The JSON schema at that URL validates the file in editors that support Taplo.
 | ----------------------- | ------------------------------------------------ | -------------- | -------------------------------------------------------------------------------- |
 | `listen`                | socket address                                   | `0.0.0.0:5050` | Address the plaintext gRPC listener binds.                                       |
 | `log_level`             | `off`, `error`, `warn`, `info`, `debug`, `trace` | `info`         | Global log level. The `--log-level` flag overrides it.                           |
+| `log_format`            | `text`, `json`                                   | `text`         | Log output format.                                                               |
 | `request_logger`        | boolean                                          | `true`         | Emit one INFO event when each gRPC response finishes or is cancelled.            |
 | `max_drain_duration_ms` | integer                                          | `10000`        | How long shutdown waits for in-flight unary requests. Open streams fail at once. |
+
+### `[telemetry]`
+
+| Key                   | Type                           | Default        | Purpose                                                                                            |
+| --------------------- | ------------------------------ | -------------- | -------------------------------------------------------------------------------------------------- |
+| `metrics_listen`      | socket address or empty string | `0.0.0.0:9464` | Separate Prometheus listener. An empty string disables it.                                         |
+| `otlp_endpoint`       | HTTP or HTTPS URL              | unset          | OTLP gRPC endpoint. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT`. No endpoint disables OTLP export. |
+| `otlp_logs`           | boolean                        | `false`        | Export logs through OTLP when an endpoint is set.                                                  |
+| `service_name`        | string                         | `xmtp-backend` | Non-empty telemetry service name.                                                                  |
+| `sample_ratio`        | number from 0 to 1             | `1.0`          | Trace sampling ratio. Backend metrics do not depend on it.                                         |
+| `resource_attributes` | map of strings                 | `{}`           | Extra resource attributes. `service.name` and `service.version` are reserved.                      |
+
+Keep the metrics listener private. Resource attributes are exported as supplied.
+Never put secrets in them.
 
 ### `[database]`
 
@@ -84,6 +99,53 @@ instance. With a replica, budget `max_connections` on the primary and
 | `max_gap_ranges`        | integer | `10000` | Unresolved gap ranges the tailer keeps before it fails affected streams.                       |
 | `keepalive_interval_ms` | integer | `30000` | Send-idle time before the server sends a Ping.                                                 |
 | `max_pong_wait_ms`      | integer | `90000` | How long the server waits for the matching Pong. Must be greater than `keepalive_interval_ms`. |
+
+### `[retention]`
+
+| Key                     | Type             | Default   | Purpose                                       |
+| ----------------------- | ---------------- | --------- | --------------------------------------------- |
+| `group_message_seconds` | positive integer | `7776000` | Expiry period for group application messages. |
+| `welcome_seconds`       | positive integer | `7776000` | Expiry period for welcomes.                   |
+| `key_package_seconds`   | positive integer | `7776000` | Expiry period for key packages.               |
+
+Each default is 90 days. Identity updates, commit-log entries, and group commits
+and proposals do not expire. Startup checks that each period fits the stored
+timestamp type against the primary database clock. Expiry is currently metadata:
+rows are not pruned or hidden at read time.
+
+### `[auth]`
+
+Omit this section to disable caller authentication. To enable JWT authentication,
+set exactly one key source: `jwks_url` or a non-empty `keys` array. An empty
+`[auth]` section fails startup. Requests then require a valid bearer token,
+except for gRPC health and CORS preflight. Streams are checked when they open.
+
+| Key                      | Type                  | Default | Purpose                                                                                                                                           |
+| ------------------------ | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jwks_url`               | URL                   | unset   | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                     |
+| `keys`                   | array of key tables   | unset   | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`. |
+| `audiences`              | array of strings      | unset   | Require a matching audience when set. Must not be empty.                                                                                          |
+| `issuers`                | array of strings      | unset   | Require a matching issuer when set. Must not be empty.                                                                                            |
+| `required_scopes`        | array of strings      | `[]`    | Require every listed scope.                                                                                                                       |
+| `leeway_seconds`         | integer from 0 to 300 | `60`    | Allow this clock tolerance when validating token times.                                                                                           |
+| `jwks_refresh_seconds`   | positive integer      | `300`   | Interval between signing-key refreshes, before jitter.                                                                                            |
+| `jwks_max_stale_seconds` | positive integer      | `3600`  | Maximum time since a successful key fetch before the backend drains and exits.                                                                    |
+
+Supported key algorithms are `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, and
+`EdDSA`. The stale-key budget must cover the refresh interval, up to 10% jitter
+rounded up to whole seconds, and a 10 s fetch timeout.
+
+For example, supply your key-set URL and expected token claims:
+
+```toml
+[auth]
+jwks_url = "env:XMTP_JWKS_URL"
+audiences = ["xmtp"]
+issuers = ["https://auth.example.com"]
+required_scopes = ["xmtp:access"]
+```
+
+Caller quotas are not implemented. A valid token does not prove group membership.
 
 ### `[chains]`
 
@@ -126,7 +188,7 @@ pass `--config-file`. The entry point is the backend binary, so the container co
 is only its arguments.
 
 ```sh
-docker run --rm -p 5050:5050 \
+docker run --rm -p 127.0.0.1:5050:5050 \
   -e XMTP_DATABASE_URL=postgres://user:password@host:5432/xmtp_backend \
   -v ./config.toml:/config.toml:ro \
   ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
@@ -134,8 +196,9 @@ docker run --rm -p 5050:5050 \
 
 ## Ports and health
 
-One port carries everything: native gRPC, gRPC-Web, and the standard gRPC health
-service. There is no separate metrics or admin port and no HTTP health path.
+Port `5050` serves native gRPC, gRPC-Web, and the standard gRPC health service.
+The separate Prometheus listener defaults to port `9464`; see
+[`[telemetry]`](#telemetry). Keep it private. There is no HTTP health path.
 
 Probe health with a gRPC health client against the listener, for example
 `grpc-health-probe -addr=127.0.0.1:5050`. The backend reports both the aggregate
@@ -166,7 +229,11 @@ calls keep working and only subscriptions break.
 
 ## Security
 
-The backend has no caller authentication. Any client that can reach the listener
-can publish and read. Do not expose it to untrusted traffic. Put it on a private
-network, or behind a load balancer that you control and that restricts who can
-reach it.
+Optional JWT authentication is available. Configure [`[auth]`](#auth) to require
+valid bearer tokens. Caller quotas are not implemented. A valid token does not
+prove group membership.
+
+Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
+service to untrusted traffic. Put it on a private network, or behind a trusted
+load balancer that restricts access. Public application traffic must use TLS.
+See the [deployment overview](/deploy/overview/) for shared deployment requirements.

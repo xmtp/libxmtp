@@ -93,7 +93,7 @@
   "/fund-agents-apps/update-sdk": "/get-started/migrate-to-self-hosted/",
   "/network/faq": "/get-started/run-the-backend/",
   "/network/network-nodes": "/protocol/overview/",
-  "/network/run-a-node": "/get-started/run-the-backend/",
+  "/network/run-a-node": "/deploy/overview/",
   "/protocol/signatures": "/sdk/use-signatures/",
   "/protocol/xips": "/protocol/overview/"
 }
