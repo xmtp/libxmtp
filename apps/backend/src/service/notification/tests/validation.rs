@@ -296,7 +296,7 @@ async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn webhook_private_addresses_and_domain_list_are_enforced() {
+async fn webhook_absent_domain_list_allows_public_hosts_and_blocks_private_addresses() {
     let server = TestServer::new(|config| config.push.http = Some(HttpConfig::default())).await?;
     let mut client = server.notifications();
     for url in [
@@ -326,6 +326,42 @@ async fn webhook_private_addresses_and_domain_list_are_enforced() {
         .register(webhook("https://8.8.8.8/hook", vec![1; 32]))
         .await?;
     server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn webhook_empty_domain_list_allows_public_hosts_and_preserves_url_safety_checks() {
+    let server = TestServer::new(|config| {
+        config.push.http = Some(HttpConfig {
+            allowed_domains: Some(vec![]),
+            ..HttpConfig::default()
+        })
+    })
+    .await?;
+    let mut client = server.notifications();
+    client
+        .register(webhook("https://8.8.8.8/hook", vec![1; 32]))
+        .await?;
+    for url in [
+        "https://127.0.0.1/hook",
+        "https://10.0.0.1/hook",
+        "https://[::1]/hook",
+        "http://8.8.8.8/hook",
+        "https://user:password@8.8.8.8/hook",
+    ] {
+        status(
+            client
+                .register(webhook(url, vec![1; 32]))
+                .await
+                .unwrap_err(),
+            Code::InvalidArgument,
+            "webhook url is not allowed",
+        );
+    }
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn webhook_populated_domain_list_restricts_hosts() {
     let server = TestServer::new(|config| {
         config.push.http = Some(HttpConfig {
             allowed_domains: Some(vec!["LOCALHOST".into()]),

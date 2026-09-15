@@ -17,7 +17,9 @@ pub(crate) async fn validate(url: &str, config: &HttpConfig) -> Result<(), Webho
         return Err(WebhookUrlError);
     }
     let host = parsed.host().ok_or(WebhookUrlError)?;
-    if let Some(domains) = &config.allowed_domains {
+    if let Some(domains) = &config.allowed_domains
+        && !domains.is_empty()
+    {
         let name = host.to_string();
         if !domains.iter().any(|domain| matches_domain(&name, domain)) {
             return Err(WebhookUrlError);
