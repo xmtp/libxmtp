@@ -65,10 +65,9 @@ impl Fixture {
             channel,
             delivery: "https://push.invalid/hook".into(),
             signing_key: Some(vec![7; 32]),
-            metadata: vec![8; 4],
         };
-        sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns) VALUES ($1, $2, $3, $4, $5, $6, 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint)")
-            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(&config.signing_key).bind(&config.metadata)
+        sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) VALUES ($1, $2, $3, $4, $5, 1, (extract(epoch FROM clock_timestamp()) * 1000000000)::bigint)")
+            .bind(&config.recipient_id).bind(&config.secret_hash).bind(channel as i16).bind(&config.delivery).bind(&config.signing_key)
             .execute(&self.store.primary).await?;
         sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) VALUES ($1, $2, $3, $4)")
             .bind(&config.recipient_id).bind(topic).bind(since).bind(commits).execute(&self.store.primary).await?;

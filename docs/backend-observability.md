@@ -106,7 +106,7 @@ Error-only families can be absent until their first event.
 The push dispatcher starts only when at least one push provider is configured.
 One instance holds the dispatcher lock for each database. Delivery metrics use
 only fixed channel and outcome labels. They do not contain recipient IDs,
-targets, topic bytes, signing keys, or recipient metadata. A graceful shutdown
+targets, topic bytes, or signing keys. A graceful shutdown
 uses the same deadline for RPCs and push attempts. A restart can repeat an
 unfinished delivery window after a crash or an expired shutdown deadline.
 

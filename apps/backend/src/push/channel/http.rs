@@ -29,6 +29,13 @@ pub(crate) struct HttpSender {
     trusted_root: Option<reqwest::Certificate>,
 }
 
+struct ValidatedDelivery<'a> {
+    url: url::Url,
+    client: reqwest::Client,
+    key: &'a [u8],
+    body: Vec<u8>,
+}
+
 impl HttpSender {
     pub fn new(config: &crate::config::push::HttpConfig) -> Self {
         Self {
@@ -39,36 +46,33 @@ impl HttpSender {
         }
     }
 
-    /// The outer deadline includes DNS, connection establishment, and response
-    /// headers. Proxy and redirect handling cannot bypass the checked address.
-    async fn attempt(&self, delivery: &Delivery) -> Outcome {
-        let Ok(url) = url::Url::parse(&delivery.config.delivery) else {
-            return Outcome::Rejected;
-        };
-        if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-            return Outcome::Rejected;
-        }
-        let Some(host) = url.host() else {
-            return Outcome::Rejected;
-        };
+    /// Validate one attempt and prepare its signing data and pinned client.
+    /// DNS failures are transient; invalid delivery fields are rejected.
+    async fn validate_delivery<'a>(
+        &self,
+        delivery: &'a Delivery,
+    ) -> Result<ValidatedDelivery<'a>, Outcome> {
+        let url = parse_delivery_url(&delivery.config.delivery)?;
+        let host = url.host().ok_or(Outcome::Rejected)?;
         let port = url.port_or_known_default().unwrap_or(443);
         let addresses: Vec<SocketAddr> = match host {
             url::Host::Ipv4(ip) => vec![SocketAddr::new(ip.into(), port)],
             url::Host::Ipv6(ip) => vec![SocketAddr::new(ip.into(), port)],
-            url::Host::Domain(name) => match self.resolver.resolve(name, port).await {
-                Ok(addresses) => addresses,
-                Err(_) => return Outcome::Transient { retry_after: None },
-            },
+            url::Host::Domain(name) => self
+                .resolver
+                .resolve(name, port)
+                .await
+                .map_err(|_| Outcome::Transient { retry_after: None })?,
         };
         if addresses.is_empty() {
-            return Outcome::Transient { retry_after: None };
+            return Err(Outcome::Transient { retry_after: None });
         }
         if !self.allow_private
             && addresses
                 .iter()
                 .any(|address| crate::service::notification::webhook_url::blocked(address.ip()))
         {
-            return Outcome::Rejected;
+            return Err(Outcome::Rejected);
         }
         let builder = xmtp_common::http::client_builder()
             .no_proxy()
@@ -84,14 +88,32 @@ impl HttpSender {
         } else {
             builder
         };
-        let Ok(client) = builder.build() else {
-            return Outcome::Rejected;
-        };
-        let Some(key) = delivery.config.signing_key.as_deref() else {
-            return Outcome::Rejected;
-        };
-        let Ok(body) = body(delivery) else {
-            return Outcome::Rejected;
+        let client = builder.build().map_err(|_| Outcome::Rejected)?;
+        let key = delivery
+            .config
+            .signing_key
+            .as_deref()
+            .ok_or(Outcome::Rejected)?;
+        let body = body(delivery).map_err(|_| Outcome::Rejected)?;
+        Ok(ValidatedDelivery {
+            url,
+            client,
+            key,
+            body,
+        })
+    }
+
+    /// The outer deadline includes DNS, connection establishment, and response
+    /// headers. Proxy and redirect handling cannot bypass the checked address.
+    async fn attempt(&self, delivery: &Delivery) -> Outcome {
+        let ValidatedDelivery {
+            url,
+            client,
+            key,
+            body,
+        } = match self.validate_delivery(delivery).await {
+            Ok(validated) => validated,
+            Err(outcome) => return outcome,
         };
         let id = uuid::Uuid::new_v4().to_string();
         let timestamp = xmtp_common::time::now_secs().to_string();
@@ -110,6 +132,15 @@ impl HttpSender {
             Err(_) => Outcome::Transient { retry_after: None },
         }
     }
+}
+
+/// Parse an HTTPS delivery URL without accepting credentials in the URL.
+fn parse_delivery_url(value: &str) -> Result<url::Url, Outcome> {
+    let url = url::Url::parse(value).map_err(|_| Outcome::Rejected)?;
+    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
+        return Err(Outcome::Rejected);
+    }
+    Ok(url)
 }
 
 #[async_trait::async_trait]
@@ -136,12 +167,10 @@ fn body(delivery: &Delivery) -> Result<Vec<u8>, serde_json::Error> {
         #[serde(flatten)]
         payload: &'a xmtp_push_types::PushPayload,
         recipient_id: String,
-        metadata: String,
     }
     serde_json::to_vec(&Body {
         payload: &delivery.payload,
         recipient_id: hex::encode(&delivery.config.recipient_id),
-        metadata: STANDARD.encode(&delivery.config.metadata),
     })
 }
 

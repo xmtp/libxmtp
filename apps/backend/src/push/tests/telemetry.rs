@@ -83,13 +83,7 @@ async fn dispatcher_records_bounded_delivery_outcomes_and_holder_lifecycle() {
     stop(&hub).await;
     assert_eq!(value(&handle, "xmtp_push_dispatcher", &[]), 0.0);
     let output = handle.render();
-    for forbidden in [
-        "push.invalid",
-        "recipient_id=",
-        "topic=",
-        "metadata=",
-        "signing_key=",
-    ] {
+    for forbidden in ["push.invalid", "recipient_id=", "topic=", "signing_key="] {
         assert!(!output.contains(forbidden), "metric contains private field");
     }
 }

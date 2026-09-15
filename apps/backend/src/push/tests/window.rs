@@ -29,7 +29,7 @@ async fn keyset_pages_keep_subscribers_and_start_commit_filters() {
     fixture.seed(1, &[1], true).await?;
     fixture.seed(1, &[1], false).await?;
     // One thousand and one recipients exercise a partial second page.
-    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), ''::bytea, 1, 1 FROM generate_series(1,1001) id")
+    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), 1, 1 FROM generate_series(1,1001) id")
         .execute(&fixture.store.primary).await?;
     sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits) SELECT recipient_id, $1, 0, false FROM push_recipient")
         .bind(&[1u8][..]).execute(&fixture.store.primary).await?;
@@ -114,13 +114,12 @@ async fn terminal_response_compares_every_delivery_field() {
     let original = fixture
         .recipient(1, PushChannel::Http, &[1], false, 0)
         .await?;
-    for field in 0..5 {
+    for field in 0..4 {
         let mut attempted = original.clone();
         match field {
             0 => attempted.channel = PushChannel::Apns,
             1 => attempted.delivery.push_str("/old"),
             2 => attempted.signing_key = Some(vec![99; 32]),
-            3 => attempted.metadata.push(99),
             _ => attempted.secret_hash = vec![99; 32],
         }
         assert!(!dispatcher::delete_dead(&fixture.store, &attempted).await?);
@@ -185,7 +184,7 @@ async fn hmac_payload_cache_reuses_split_rows_and_releases_previous_payload() {
         .bind(mac.finalize().into_bytes().to_vec())
         .execute(&fixture.store.primary)
         .await?;
-    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, metadata, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), ''::bytea, 1, 1 FROM generate_series(1,1001) id")
+    sqlx::query("INSERT INTO push_recipient (recipient_id, secret_hash, channel, delivery, signing_key, topic_count, renewed_ns) SELECT decode(lpad(to_hex(id), 64, '0'), 'hex'), decode(repeat('01', 32), 'hex'), 3, 'https://push.invalid', decode(repeat('07',32),'hex'), 1, 1 FROM generate_series(1,1001) id")
         .execute(&fixture.store.primary).await?;
     sqlx::query("INSERT INTO push_subscription (recipient_id, topic, since_sequence_id, include_commits, hmac_epoch_base, hmac_key_0, hmac_key_1, hmac_key_2) SELECT recipient_id, $1, 0, false, 0, $2, $2, $2 FROM push_recipient")
         .bind(&[1u8][..]).bind(&key).execute(&fixture.store.primary).await?;

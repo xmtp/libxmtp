@@ -131,7 +131,6 @@ fn delivery(url: String) -> Delivery {
             channel: PushChannel::Http,
             delivery: url,
             signing_key: Some(vec![7; 32]),
-            metadata: vec![2, 3],
         },
     }
 }
@@ -141,11 +140,11 @@ fn signature_matches_an_independent_fixed_vector() {
     let body = body(&delivery("https://unused.invalid".into()))?;
     assert_eq!(
         std::str::from_utf8(&body)?,
-        r#"{"topic":"AQID","sequence_id":"9007199254740993","recipient_id":"0101","metadata":"AgM="}"#
+        r#"{"topic":"AQID","sequence_id":"9007199254740993","recipient_id":"0101"}"#
     );
     assert_eq!(
         signature(&[7; 32], "fixed-id", "1700000000", &body),
-        "v1,W4CI1QWIAwIdDzsAffgnt1Uam9gS8lYrVF3w63HW9OM="
+        "v1,IszeBLRjxb7spJ5RLi+KW0w/aK3Buioq9E6jl3MKWZw="
     );
 }
 
@@ -181,6 +180,50 @@ async fn tls_requests_use_pinned_dns_and_fresh_signed_headers_without_secrets() 
         );
     }
     assert_ne!(ids[0], ids[1]);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_delivery_urls_and_missing_signing_keys_send_no_request() {
+    let mut webhook = Webhook::start(vec![]).await?;
+    for url in [
+        "not a URL",
+        "http://push.invalid/hook",
+        "https://user@push.invalid/hook",
+        "https://user:password@push.invalid/hook",
+        "https://:password@push.invalid/hook",
+    ] {
+        assert_eq!(
+            webhook.sender.send(&delivery(url.into())).await,
+            Outcome::Rejected
+        );
+    }
+    let mut unsigned = delivery(webhook.url.clone());
+    unsigned.config.signing_key = None;
+    assert_eq!(webhook.sender.send(&unsigned).await, Outcome::Rejected);
+    assert!(webhook.requests.try_recv().is_err());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn empty_dns_answer_is_transient_and_private_ip_literals_are_rejected() {
+    let resolver = Arc::new(FixedResolver {
+        addresses: Vec::new(),
+        calls: AtomicUsize::new(0),
+    });
+    let sender = HttpSender {
+        allow_private: false,
+        resolver: resolver.clone(),
+        trusted_root: None,
+    };
+    assert_eq!(
+        sender
+            .send(&delivery("https://empty.invalid/hook".into()))
+            .await,
+        Outcome::Transient { retry_after: None }
+    );
+    for url in ["https://127.0.0.1/hook", "https://[::1]/hook"] {
+        assert_eq!(sender.send(&delivery(url.into())).await, Outcome::Rejected);
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -267,7 +310,6 @@ async fn webhook_logs_do_not_contain_recipient_fields_or_signing_keys() {
     let webhook = Webhook::start(vec![200]).await?;
     let mut delivery = delivery(webhook.url.clone());
     delivery.config.recipient_id = vec![0x8d; 32];
-    delivery.config.metadata = b"private-webhook-metadata".to_vec();
     delivery.config.signing_key = Some(vec![0x7e; 32]);
     delivery.payload = xmtp_push_types::PushPayload::new(&[0x9a; 17], 1);
     let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Trace);
@@ -285,8 +327,6 @@ async fn webhook_logs_do_not_contain_recipient_fields_or_signing_keys() {
         hex::encode(&delivery.config.recipient_id),
         STANDARD.encode(delivery.config.signing_key.as_deref()?),
         hex::encode(delivery.config.signing_key.as_deref()?),
-        STANDARD.encode(&delivery.config.metadata),
-        "private-webhook-metadata".into(),
         delivery.payload.topic,
     ] {
         assert!(

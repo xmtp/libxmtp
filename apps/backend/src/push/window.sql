@@ -16,12 +16,12 @@ SELECT b.first_id AS "first_id?", b.last_id AS "last_id?",
     d.hmac_epoch_base AS "hmac_epoch_base?", d.hmac_key_0 AS "hmac_key_0?",
     d.hmac_key_1 AS "hmac_key_1?", d.hmac_key_2 AS "hmac_key_2?",
     d.channel AS "channel?", d.delivery AS "delivery?",
-    d.signing_key AS "signing_key?", d.metadata AS "metadata?"
+    d.signing_key AS "signing_key?"
 FROM bounds b
 LEFT JOIN LATERAL (
     SELECT w.sequence_id, w.topic, w.server_ns, w.sender_hmac,
         s.recipient_id, s.hmac_epoch_base, s.hmac_key_0, s.hmac_key_1, s.hmac_key_2,
-        r.channel, r.delivery, r.signing_key, r.metadata, r.secret_hash
+        r.channel, r.delivery, r.signing_key, r.secret_hash
     FROM window_rows w
     JOIN push_subscription s ON s.topic = w.topic
         AND w.sequence_id > s.since_sequence_id

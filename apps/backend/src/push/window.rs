@@ -24,7 +24,6 @@ struct Row {
     channel: Option<i16>,
     delivery: Option<String>,
     signing_key: Option<Vec<u8>>,
-    metadata: Option<Vec<u8>>,
 }
 
 pub(crate) struct Page {
@@ -123,7 +122,6 @@ pub(crate) async fn load(
                 channel,
                 delivery: row.delivery.ok_or_else(missing)?,
                 signing_key: row.signing_key,
-                metadata: row.metadata.ok_or_else(missing)?,
             },
         });
     }

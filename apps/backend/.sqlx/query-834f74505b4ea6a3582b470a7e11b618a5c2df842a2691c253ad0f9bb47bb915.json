@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- Bound the ordered eligible-envelope scan before joining subscriptions by\n-- topic and sorting fan-out by its keyset. The outer lateral join preserves\n-- the bounds even when no subscription matches. No payload leaves this query.\nWITH window_rows AS MATERIALIZED (\n    SELECT sequence_id, topic, server_ns, sender_hmac, is_commit_or_proposal\n    FROM envelopes\n    WHERE push_eligible AND sequence_id > $1 AND sequence_id <= $2\n    ORDER BY sequence_id LIMIT $3\n), bounds AS (\n    SELECT min(sequence_id) AS first_id, max(sequence_id) AS last_id FROM window_rows\n)\nSELECT b.first_id AS \"first_id?\", b.last_id AS \"last_id?\",\n    d.sequence_id AS \"sequence_id?\", d.topic AS \"topic?\", d.server_ns AS \"server_ns?\",\n    d.sender_hmac AS \"sender_hmac?\", d.recipient_id AS \"recipient_id?\",\n    d.secret_hash AS \"secret_hash?\",\n    d.hmac_epoch_base AS \"hmac_epoch_base?\", d.hmac_key_0 AS \"hmac_key_0?\",\n    d.hmac_key_1 AS \"hmac_key_1?\", d.hmac_key_2 AS \"hmac_key_2?\",\n    d.channel AS \"channel?\", d.delivery AS \"delivery?\",\n    d.signing_key AS \"signing_key?\", d.metadata AS \"metadata?\"\nFROM bounds b\nLEFT JOIN LATERAL (\n    SELECT w.sequence_id, w.topic, w.server_ns, w.sender_hmac,\n        s.recipient_id, s.hmac_epoch_base, s.hmac_key_0, s.hmac_key_1, s.hmac_key_2,\n        r.channel, r.delivery, r.signing_key, r.metadata, r.secret_hash\n    FROM window_rows w\n    JOIN push_subscription s ON s.topic = w.topic\n        AND w.sequence_id > s.since_sequence_id\n        AND (NOT w.is_commit_or_proposal OR s.include_commits)\n    JOIN push_recipient r ON r.recipient_id = s.recipient_id\n    WHERE (w.sequence_id, s.recipient_id) > ($4, $5)\n    ORDER BY w.sequence_id, s.recipient_id LIMIT $6\n) d ON true\nORDER BY d.sequence_id, d.recipient_id\n",
+  "query": "-- Bound the ordered eligible-envelope scan before joining subscriptions by\n-- topic and sorting fan-out by its keyset. The outer lateral join preserves\n-- the bounds even when no subscription matches. No payload leaves this query.\nWITH window_rows AS MATERIALIZED (\n    SELECT sequence_id, topic, server_ns, sender_hmac, is_commit_or_proposal\n    FROM envelopes\n    WHERE push_eligible AND sequence_id > $1 AND sequence_id <= $2\n    ORDER BY sequence_id LIMIT $3\n), bounds AS (\n    SELECT min(sequence_id) AS first_id, max(sequence_id) AS last_id FROM window_rows\n)\nSELECT b.first_id AS \"first_id?\", b.last_id AS \"last_id?\",\n    d.sequence_id AS \"sequence_id?\", d.topic AS \"topic?\", d.server_ns AS \"server_ns?\",\n    d.sender_hmac AS \"sender_hmac?\", d.recipient_id AS \"recipient_id?\",\n    d.secret_hash AS \"secret_hash?\",\n    d.hmac_epoch_base AS \"hmac_epoch_base?\", d.hmac_key_0 AS \"hmac_key_0?\",\n    d.hmac_key_1 AS \"hmac_key_1?\", d.hmac_key_2 AS \"hmac_key_2?\",\n    d.channel AS \"channel?\", d.delivery AS \"delivery?\",\n    d.signing_key AS \"signing_key?\"\nFROM bounds b\nLEFT JOIN LATERAL (\n    SELECT w.sequence_id, w.topic, w.server_ns, w.sender_hmac,\n        s.recipient_id, s.hmac_epoch_base, s.hmac_key_0, s.hmac_key_1, s.hmac_key_2,\n        r.channel, r.delivery, r.signing_key, r.secret_hash\n    FROM window_rows w\n    JOIN push_subscription s ON s.topic = w.topic\n        AND w.sequence_id > s.since_sequence_id\n        AND (NOT w.is_commit_or_proposal OR s.include_commits)\n    JOIN push_recipient r ON r.recipient_id = s.recipient_id\n    WHERE (w.sequence_id, s.recipient_id) > ($4, $5)\n    ORDER BY w.sequence_id, s.recipient_id LIMIT $6\n) d ON true\nORDER BY d.sequence_id, d.recipient_id\n",
   "describe": {
     "columns": [
       {
@@ -157,17 +157,6 @@
             "name": "signing_key"
           }
         }
-      },
-      {
-        "ordinal": 15,
-        "name": "metadata?",
-        "type_info": "Bytea",
-        "origin": {
-          "Table": {
-            "table": "push_recipient",
-            "name": "metadata"
-          }
-        }
       }
     ],
     "parameters": {
@@ -195,9 +184,8 @@
       true,
       false,
       false,
-      true,
-      false
+      true
     ]
   },
-  "hash": "e981aecd8a536731f4de42b2ac7a60b8a7e09b657ae079ef82c002da044a5361"
+  "hash": "834f74505b4ea6a3582b470a7e11b618a5c2df842a2691c253ad0f9bb47bb915"
 }

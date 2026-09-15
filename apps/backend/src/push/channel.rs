@@ -19,7 +19,6 @@ pub(crate) struct DeliveryConfig {
     pub channel: PushChannel,
     pub delivery: String,
     pub signing_key: Option<Vec<u8>>,
-    pub metadata: Vec<u8>,
 }
 
 #[derive(Clone)]

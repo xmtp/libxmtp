@@ -359,12 +359,12 @@ async fn hold(
 }
 
 /// Compare the complete configuration, so a delayed provider response cannot
-/// delete a recipient that registered a new secret, key, metadata, channel, or target.
+/// delete a recipient that registered a new secret, key, channel, or target.
 #[xmtp_common::db_span]
 pub(super) async fn delete_dead(store: &Store, config: &DeliveryConfig) -> Result<bool, Error> {
-    Ok(sqlx::query!("DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND metadata = $5 AND secret_hash = $6",
+    Ok(sqlx::query!("DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND secret_hash = $5",
         &config.recipient_id, config.channel as i16, &config.delivery,
-        config.signing_key.as_deref(), &config.metadata, &config.secret_hash).execute(&store.primary).await?.rows_affected() != 0)
+        config.signing_key.as_deref(), &config.secret_hash).execute(&store.primary).await?.rows_affected() != 0)
 }
 
 /// Move the cursor forward only on the dedicated advisory-lock connection.
