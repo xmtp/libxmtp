@@ -38,9 +38,9 @@ Use PostgreSQL 17 or later. No extensions are required.
 Migrations run in the backend process against the primary at boot, before the
 RPC listener binds. There is no separate migration job.
 
-The backend uses one mutable migration until completion of Phase 6.
-**There is no in-place upgrade path yet.** A schema change can require a fresh
-database. Startup never deletes an existing database.
+The backend currently ships a single migration that can change between
+releases. **There is no in-place upgrade path yet,** so a schema change can
+require a fresh database. Startup never deletes an existing database.
 
 ### Connection budget
 
@@ -88,9 +88,8 @@ does not prove that the write failed.
 
 ## Ingress contract
 
-Every public endpoint that carries application traffic must use TLS. No
-published deployment guide may present a public application endpoint without TLS.
-Terminate TLS at a trusted load balancer and forward to the private backend.
+Use TLS on every public endpoint that carries application traffic. Terminate
+TLS at a trusted load balancer and forward to the private backend.
 
 The TLS terminator must pass HTTP bytes through without gRPC conversion or
 buffering. It must speak h2c (HTTP/2 without TLS) or HTTP/1.1 to the backend.
@@ -105,9 +104,9 @@ An ingress path that downgrades native gRPC to HTTP/1.1 does not meet this contr
   including trailers encoded in gRPC-Web response bodies. Preserve CORS response
   headers so browser clients can read status details.
 
-The backend's `https_passthrough` test in `https_ingress.rs` checks CORS,
-headers, incremental gRPC-Web frames, and error details through a TLS terminator.
-Each platform must preserve the same behavior for both client types.
+Check your ingress against both client kinds before you rely on it. A path that
+serves unary calls correctly can still drop long-lived subscriptions or strip
+the trailers that carry error details.
 
 ## Security
 
