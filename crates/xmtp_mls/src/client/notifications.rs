@@ -320,6 +320,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
         let record = self.context.db().notification_record()?;
         if record.push_generation == generation && record.push_state == 1 {
             let result = worker::register(&self.context, &record, &config).await;
+            if let Ok(true) = &result {
+                worker::resume_after_registration(&self.context, generation)?;
+            }
             drop(_guard);
             self.context.task_channels().wake_notifications();
             result?;

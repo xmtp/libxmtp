@@ -37,6 +37,9 @@ pub(crate) struct Deadlines {
     pub(crate) sync_ns: i64,
     pub(crate) renewal_ns: i64,
     pub(crate) registration_owed: bool,
+    /// A successful inline registration asks the runner to reset old backoff.
+    #[serde(default)]
+    reset_retry: bool,
 }
 
 fn deadlines(record: &StoredNotification) -> Result<Deadlines, StorageError> {
@@ -60,33 +63,67 @@ pub(crate) fn task_hash() -> TaskDataHash {
 
 /// Only the runner changes its notification deadline. Producers send a memory hint.
 pub(crate) fn wake<Context: XmtpSharedContext>(context: &Context) -> Result<(), StorageError> {
-    let db = context.db();
-    if db.notification_record()?.push_state != 1 {
-        return Ok(());
-    }
-    let now = time::now_ns();
-    let seed = NewTask::builder()
-        .originating_message_sequence_id(0)
-        .expires_at_ns(i64::MAX)
-        .max_attempts(i32::MAX)
-        .backoff_scaling_factor(2.0)
-        // The generic runner multiplies once before the first retry.
-        .initial_backoff_duration_ns(RETRY_NS / 2)
-        .max_backoff_duration_ns(NS_IN_HOUR)
-        .next_attempt_at_ns(now)
-        .build(task_proto())?;
-    db.create_or_ignore_task(seed)?;
-    // Failed attempts retain their retry deadline. Only an ordinary sync wait
-    // can be shortened by a hint. The runner is the sole task rescheduler.
-    if db
-        .get_tasks()?
-        .iter()
-        .any(|task| task.data_hash == task_hash().as_ref() && task.attempts > 0)
-    {
-        return Ok(());
-    }
-    db.pull_in_task_deadline(&task_hash(), now)?;
-    Ok(())
+    state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        let mut record = db.notification_record()?;
+        if record.push_state != 1 {
+            return Ok(Continue(()));
+        }
+        let now = time::now_ns();
+        let seed = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .expires_at_ns(i64::MAX)
+            .max_attempts(i32::MAX)
+            .backoff_scaling_factor(2.0)
+            // The generic runner multiplies once before the first retry.
+            .initial_backoff_duration_ns(RETRY_NS / 2)
+            .max_backoff_duration_ns(NS_IN_HOUR)
+            .next_attempt_at_ns(now)
+            .build(task_proto())?;
+        db.create_or_ignore_task(seed)?;
+        let mut deadlines = deadlines(&record)?;
+        if let Some(task) = db
+            .get_tasks()?
+            .into_iter()
+            .find(|task| task.data_hash == task_hash().as_ref())
+        {
+            if deadlines.reset_retry {
+                db.update_task(task.id, 0, task.last_attempted_at_ns, now)?;
+                deadlines.reset_retry = false;
+                record.push_deadlines = Some(encode(&deadlines)?);
+                db.save_notification_record(&record)?;
+            } else if task.attempts > 0 {
+                // Ordinary wakes retain backoff. Only a confirmed inline Register
+                // can request a reset, which the runner consumes in this transaction.
+                return Ok(Continue(()));
+            }
+        }
+        db.pull_in_task_deadline(&task_hash(), now)?;
+        Ok::<_, StorageError>(Continue(()))
+    })
+    .map(|outcome| outcome.into_continued())
+}
+
+/// Request prompt sync after an inline Register confirmed this generation.
+/// The task runner remains the sole owner of the task's retry state.
+pub(crate) fn resume_after_registration<Context: XmtpSharedContext>(
+    context: &Context,
+    generation: i64,
+) -> Result<(), StorageError> {
+    state_write(context.mls_storage(), |tx| {
+        let storage = tx.storage();
+        let db = storage.db();
+        let mut record = db.notification_record()?;
+        if record.push_state == 1 && record.push_generation == generation {
+            let mut deadlines = deadlines(&record)?;
+            deadlines.reset_retry = true;
+            record.push_deadlines = Some(encode(&deadlines)?);
+            db.save_notification_record(&record)?;
+        }
+        Ok::<_, StorageError>(Continue(()))
+    })
+    .map(|outcome| outcome.into_continued())
 }
 
 /// Bound auth, retries, and transport together. No database writer is held here.
@@ -100,21 +137,26 @@ pub(crate) async fn bounded<T>(
 }
 
 /// Register while the caller holds the notification request lock.
+/// Return true only when the current generation accepts the successful response.
 pub(crate) async fn register<Context: XmtpSharedContext>(
     context: &Context,
     record: &StoredNotification,
     config: &NotificationConfig,
-) -> Result<(), NotificationError> {
+) -> Result<bool, NotificationError> {
     match bounded(context.api().register(config.registration(record))).await {
-        Ok(response) => {
-            confirm(context, record.push_generation, config, &response, &[], &[])?;
-            Ok(())
-        }
+        Ok(response) => Ok(confirm(
+            context,
+            record.push_generation,
+            config,
+            &response,
+            &[],
+            &[],
+        )?),
         Err(error) => {
             if record_error(context, record.push_generation, &error, None)? {
                 Err(error)
             } else {
-                Ok(())
+                Ok(false)
             }
         }
     }
@@ -163,6 +205,7 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
             sync_ns: now,
             renewal_ns: now.saturating_add(response.expires_at_ns.saturating_sub(now) / 4),
             registration_owed: false,
+            reset_retry: false,
         };
         record.push_deadlines = Some(encode(&next)?);
         record.push_last_state = Some(response.encode_to_vec());
@@ -199,6 +242,11 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
         if record.push_generation != generation || record.push_state != 1 {
             return Ok(Continue(false));
         }
+        // A later request failure must retain its own backoff, even if the
+        // runner has not consumed an earlier inline registration hint yet.
+        let mut deadlines = deadlines(&record)?;
+        deadlines.reset_retry = false;
+        record.push_deadlines = Some(encode(&deadlines)?);
         if let Some(failure) = error.failure() {
             record.push_state = 2;
             record.push_failed_error = Some(encode(&failure)?);
@@ -432,7 +480,10 @@ pub(crate) async fn run<Context: XmtpSharedContext>(
         if current.push_generation != record.push_generation || current.push_state != 1 {
             return finish_turn(context, Ok(()));
         }
-        return finish_turn(context, register(context, &record, &config).await);
+        return finish_turn(
+            context,
+            register(context, &record, &config).await.map(|_| ()),
+        );
     }
     let revision = context.task_channels().notification_revision();
     let desired = desired(context, &config)?;

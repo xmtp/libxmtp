@@ -461,6 +461,87 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_successful_reenable_resets_old_retry_backoff() {
+    use crate::worker::tasks::TaskWorker;
+    let (client, peer) = support::client().await;
+    client.create_group(None, None)?;
+    client.enable_notifications(config()).await?;
+    wake(&client.context)?;
+    let task = || {
+        client
+            .db()
+            .get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|row| row.data_hash == task_hash().as_ref())
+            .unwrap()
+    };
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    assert_eq!(task().attempts, 1);
+    assert!(peer.state.lock().subscriptions.is_empty());
+    // Simulate an existing long retry without waiting through each failure.
+    let retry_at = time::now_ns() + NS_IN_HOUR;
+    let row = task();
+    client
+        .db()
+        .update_task(row.id, 5, row.last_attempted_at_ns, retry_at)?;
+
+    // Neither ordinary hints nor an unsuccessful enable bypass the retry.
+    wake(&client.context)?;
+    assert_eq!(task().next_attempt_at_ns, retry_at);
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    assert!(client.enable_notifications(config()).await.is_err());
+    wake(&client.context)?;
+    assert_eq!(task().attempts, 5);
+    assert_eq!(task().next_attempt_at_ns, retry_at);
+
+    client.enable_notifications(config()).await?;
+    // The runner consumes the successful registration hint.
+    wake(&client.context)?;
+    assert_eq!(task().attempts, 0);
+    assert!(task().next_attempt_at_ns <= time::now_ns());
+    TaskWorker::run_and_reschedule_task(task(), &client.context).await?;
+    assert_eq!(peer.state.lock().subscriptions.len(), 2);
+    assert_eq!(client.db().uploaded_topics()?.len(), 2);
+    assert_eq!(peer.calls(Call::Update), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_later_failure_cancels_registration_retry_reset() {
+    use crate::worker::tasks::TaskWorker;
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    wake(&client.context)?;
+    client.enable_notifications(config()).await?;
+    // A due timer can run before the runner consumes the registration hint.
+    let row = client
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|row| row.data_hash == task_hash().as_ref())
+        .unwrap();
+    peer.state.lock().next_error = Some(tonic::Code::Unavailable);
+    TaskWorker::run_and_reschedule_task(row, &client.context).await?;
+    let failed = client
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|row| row.data_hash == task_hash().as_ref())
+        .unwrap();
+    assert_eq!(failed.attempts, 1);
+    wake(&client.context)?;
+    let after = client
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|row| row.data_hash == task_hash().as_ref())
+        .unwrap();
+    assert_eq!(after.attempts, failed.attempts);
+    assert_eq!(after.next_attempt_at_ns, failed.next_attempt_at_ns);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_revocation_discards_a_prepared_batch() {
     for override_change in [false, true] {
         let (client, peer) = support::client().await;
