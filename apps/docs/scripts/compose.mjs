@@ -109,7 +109,9 @@ export async function compose({
     if (installReferences) await installReferences({ siteRoot: stage });
     const redirects = JSON.parse(await readFile(redirectsPath, "utf8"));
     await writeRedirects(stage, redirects);
-    if (installReferences) await validateDocC(stage);
+    // The Swift reference is built on push only; see references.mjs.
+    if (installReferences && process.env.DOCS_SKIP_NATIVE_REFERENCES !== "1")
+      await validateDocC(stage);
 
     try {
       await stat(output);

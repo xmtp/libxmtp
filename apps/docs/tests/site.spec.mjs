@@ -112,11 +112,17 @@ test("the header fits above the page content", async ({ page, viewport }) => {
 });
 
 test("native references load their content and styles", async ({ page }) => {
-  for (const path of [
-    "/rust/",
-    "/reference/kotlin/",
-    "/reference/swift/documentation/xmtpios/",
-  ]) {
+  // The Kotlin and Swift references are built on push only; a pull-request
+  // build composes without them. See apps/docs/AGENTS.md.
+  const paths =
+    process.env.DOCS_SKIP_NATIVE_REFERENCES === "1"
+      ? ["/rust/"]
+      : [
+          "/rust/",
+          "/reference/kotlin/",
+          "/reference/swift/documentation/xmtpios/",
+        ];
+  for (const path of paths) {
     await page.goto(path);
     await expect(page.locator("h1").first()).toBeVisible();
     const styles = await page

@@ -3,8 +3,8 @@ name: programmer
 description: "Coding agent for libxmtp: builds and tests the Rust/MLS workspace through Nix."
 category: Engineering
 tasks:
-  - subject: "Build the workspace: run `dev/nix-shell 'just check'` from the repo root. It must exit zero."
-  - subject: "Test the workspace: run `dev/nix-shell 'just backend up db replica'`, then `dev/nix-shell 'just test'`. Both must exit zero."
+  - subject: "Build the workspace: run `just check` from the repo root. It must exit zero."
+  - subject: "Test the workspace: run `just backend up db replica`, then `just test`. Both must exit zero."
 ---
 
 # libxmtp coding agent
@@ -18,58 +18,68 @@ messaging. The repo root holds a Cargo workspace; bindings live in
 This project gets its entire toolchain from a Nix flake: Rust 1.97.1, Node 24,
 just, foundry, sqlcipher, and the rest. Nothing is on the bare PATH.
 
-Never run `cargo`, `yarn`, `./gradlew`, `swift`, or `just` bare. They are not
-installed outside the Nix shell, and a bare invocation either fails or picks up
-the wrong toolchain. Every command goes through the wrapper:
+`just` is the one exception on this image: it is a shim that enters the Nix
+shell for you, so run it bare.
 
-    dev/nix-shell 'just check'
-    dev/nix-shell 'just test'
-    dev/nix-shell 'just lint'
+    just check
+    just test
+    just lint
 
-Each shell you get is fresh, so prefix every single call. Prefer an existing
+Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. They are not installed
+outside the Nix shell, and a bare invocation either fails or picks up the wrong
+toolchain. Anything that is not a `just` recipe goes through the wrapper:
+
+    dev/nix-shell 'cargo tree -p xmtp_mls'
+
+Each shell you get is fresh, so prefix every such call. Prefer an existing
 `just` recipe over a hand-rolled cargo line.
 
-This VM image is pre-warmed. The `default` and `rust` dev shells and the
-backend musl container image were built into the Nix store when the image was
-baked, so `dev/nix-shell` and `just backend up` should start quickly rather
-than downloading a toolchain closure.
+This VM image is pre-warmed. The `default` and `rust` dev shells, the backend
+musl container image, and the Docker images the test stack needs were all built
+into the image when it was baked, so `just` and `just backend up` should start
+quickly rather than downloading a toolchain closure or pulling images.
 
 That warm store is pinned to `flake.lock` and `Cargo.lock` as they were at bake
 time. If those files have moved since, Nix re-fetches or rebuilds whatever
 changed, and the first call is slow again. The image also carries the
 `xmtp.cachix.org` substituter, the same binary cache CI uses, so a miss is
-usually a download rather than a source build. Either way: let it run. Do not
-interrupt it and do not conclude it has hung.
+usually a download rather than a source build.
+
+What is NOT warm is anything `cargo` produces. The first `just check` or
+`just test` on a fresh VM compiles the workspace from scratch and takes many
+minutes.
+
+Either way: let it run. Do not interrupt it and do not conclude it has hung.
 
 ## Build and test
 
-    Build:  dev/nix-shell 'just check'
-    Test:   dev/nix-shell 'just test'
-    Lint:   dev/nix-shell 'just lint'      # run before any commit
+    Build:  just check
+    Test:   just test
+    Lint:   just lint      # run before any commit
 
 `just check` runs `cargo check --locked` over the default members:
 `apps/backend`, `bindings/*`, and `crates/*`.
 
 Most tests need the backend services. Start them first:
 
-    dev/nix-shell 'just backend up db replica'   # disposable Postgres primary + replica
-    dev/nix-shell 'just backend up'              # the full stack
-    dev/nix-shell 'just backend status'          # this worktree's ports and URLs
+    just backend up db replica   # disposable Postgres primary + replica
+    just backend up              # the full stack
+    just backend status          # this worktree's ports and URLs
 
 `just test` excludes the backend database tests. Run those with
-`dev/nix-shell 'just backend test'`. Ports differ per worktree, so read
-`just backend status` for the checkout you are actually in rather than assuming
-the main checkout's numbers.
+`just backend test`. Ports differ per worktree, so read `just backend status`
+for the checkout you are actually in rather than assuming the main checkout's
+numbers.
 
-Run `dev/nix-shell 'just'` to list every available recipe.
+Run `just` to list every available recipe.
 
 ## Repo conventions that will trip you up
 
 Tests use `#[xmtp_common::test(unwrap_try = true)]`. Never plain `#[test]`.
 
-Read a file's outline before reading the whole file:
-`dev/nix-shell 'just outline <path>'`. Reading entire files repeatedly is the
-largest single source of wasted context in this repo.
+Read a file's outline before reading the whole file: `just outline <path>`.
+Reading entire files repeatedly is the largest single source of wasted context
+in this repo.
 
 Every package has its own `AGENTS.md`. Read it before working in that package,
 and update it when the package's commands change. `CLAUDE.md` is only a pointer
@@ -79,8 +89,8 @@ Skills in `.agents/skills/` cover specific work: `writing-rust`,
 `writing-rust-tests`, `working-with-nix`, `working-with-worktrees`, and
 `check-ci`. Read the relevant one when you start that kind of work.
 
-For CI results use `dev/nix-shell 'just ci-status <pr>'` and
-`dev/nix-shell 'just ci-failures <job>'`. Never fetch a raw CI log.
+For CI results use `just ci-status <pr>` and `just ci-failures <job>`. Never
+fetch a raw CI log.
 
 ## Disk
 
@@ -95,17 +105,17 @@ error, check disk before you debug the error itself:
 
 To reclaim space, in increasing order of severity:
 
-    cargo clean -p <crate>                        # one crate's artifacts
-    dev/nix-shell 'just clean-incremental'        # stale incremental dirs
-    docker system prune -f                        # unused images and volumes
-    nix-collect-garbage                           # unrooted store paths
+    cargo clean -p <crate>          # one crate's artifacts
+    just clean-incremental          # stale incremental dirs
+    docker system prune -f          # unused images and volumes
+    nix-collect-garbage             # unrooted store paths
 
-Never run `nix-collect-garbage -d`. The `-d` flag deletes old profile
-generations, which on this image includes the pre-warmed dev shell and backend
-image closures. Removing them means the next build re-downloads everything the
-bake already paid for.
+The warm closures are held by GC roots under
+`/nix/var/nix/gcroots/libxmtp-warm`, so ordinary garbage collection does not
+touch them. Do not delete that directory: without those roots the next
+collection reclaims everything the bake paid for, and the VM re-downloads it.
 
 ## Before you finish
 
-Always build and test your changes, and run `dev/nix-shell 'just lint'` before
+Always build and test your changes, and run `just lint` before
 committing. Report honestly: if tests fail, say so and include the output.

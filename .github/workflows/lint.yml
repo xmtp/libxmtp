@@ -2,7 +2,10 @@ name: Lint
 
 on:
   push:
-    branches: [main]
+    # Trusted runs commit the /nix sticky disks and the sccache cache that PR
+    # jobs read, and are the only runs where dev/ci/warm-deps does anything.
+    # Work happens on self-hosted, so it must be here or PRs always build cold.
+    branches: [main, self-hosted]
   pull_request:
 
 permissions:

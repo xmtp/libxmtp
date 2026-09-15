@@ -48,7 +48,14 @@ Use MDX only when a page needs components. Platform tabs use `syncKey="sdk"`
 and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
-The public site deploys from `main`. This project targets `self-hosted`.
+The public site deploys from `self-hosted`, which is the branch this project
+targets. A push to `main` runs the full build but does not publish.
+
+The Kotlin and Swift references are built on push only, because each is a
+from-scratch Rust cross-compile. A pull request builds the site and the Rust
+reference, and composes without the native references; the workflow sets
+`DOCS_SKIP_NATIVE_REFERENCES=1` so `compose.mjs` and `check-site.mjs` do not
+require them.
 DNS cutover is a separate task.
 
 ## TypeScript examples

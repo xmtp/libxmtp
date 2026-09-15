@@ -65,7 +65,10 @@ max-jobs = auto
 substituters = https://cache.nixos.org https://xmtp.cachix.org
 trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
 trusted-substituters = https://xmtp.cachix.org
-netrc-file = /etc/nix/netrc
+# The warm store is one large substitution; the defaults (16 and 25) leave the
+# instance's bandwidth idle. Agents also re-fetch after flake.lock moves.
+max-substitution-jobs = 32
+http-connections = 64
 warn-dirty = false
 EOF
 chmod 0644 /etc/nix/nix.conf
@@ -111,10 +114,10 @@ EOF
 chown murmur:murmur /home/murmur/.config/nix/nix.conf
 chmod 0644 /home/murmur/.config/nix/nix.conf
 
-echo "=== Warm the Nix store: dev shell + backend image ==="
-# Without this, every fresh VM pays a multi-minute download for the dev shell
-# closure, and the first `just backend up` pays a full musl cross-compile of
-# the backend. Both costs belong here, paid once per image.
+echo "=== Warm the Nix store and the Docker images ==="
+# Every cost paid here is a cost no agent VM pays again. Three things are warm
+# after this stage: the `default` and `rust` dev shell closures, the backend
+# musl container image, and the upstream Docker images `just backend up` needs.
 #
 # This clones the repo ONLY to evaluate the flake. Nix copies what it needs
 # into /nix/store, which is what the snapshot keeps; the checkout itself is
@@ -123,137 +126,129 @@ echo "=== Warm the Nix store: dev shell + backend image ==="
 #
 # The warm store is pinned to flake.lock and Cargo.lock as of bake time. When
 # those move, agents re-fetch whatever changed. Rebake periodically to keep
-# the image warm.
+# the image warm. See .murmur/nightly-rebake.md.
 WARM_DIR=/tmp/libxmtp-warm
+GCROOTS=/nix/var/nix/gcroots/libxmtp-warm
 rm -rf "$WARM_DIR"
+# The warm steps build as `murmur`, and creating the --out-link symlink needs
+# write permission on this directory. Root's `mkdir` leaves it 0755 root-owned,
+# which would fail every warm step.
+mkdir -p "$GCROOTS"
+chown murmur:murmur "$GCROOTS"
 
-# The recipe timeout is 1h and that is the platform maximum, so the warming
-# stage must never be allowed to consume the whole budget. Track elapsed time
-# and skip the expensive optional step if we are running late. A bake that
-# finishes with a partially warm store beats a bake that times out and
-# produces no image at all.
+# The recipe timeout is 1h and that is the platform maximum, so this stage
+# must never consume the whole budget. Every step reports its own elapsed
+# time, because a bake that runs long is otherwise impossible to diagnose
+# after the fact -- the platform keeps no per-step timing.
 WARM_START=$(date +%s)
 warm_elapsed() { echo $(( ($(date +%s) - WARM_START) / 60 )); }
+stage() { echo "=== [$(warm_elapsed)m] $* ==="; }
 
 warm_failed=0
+
+# Run a warm step as the murmur user and report how long it took.
+# Usage: warm_step <label> <timeout> <command...>
+warm_step() {
+  local label="$1" limit="$2"
+  shift 2
+  local began rc
+  began=$(date +%s)
+  stage "start: $label"
+  # Declare rc before the call: `local` is itself a command and would reset $?.
+  rc=0
+  timeout "$limit" sudo -u murmur -H bash -lc "cd $WARM_DIR && $*" || rc=$?
+  if [ "$rc" -eq 0 ]; then
+    echo "=== [$(warm_elapsed)m] done: $label ($(( ($(date +%s) - began) / 60 ))m) ==="
+    return 0
+  fi
+  if [ "$rc" -eq 124 ]; then
+    echo "NOTE: $label hit its ${limit} cap; agents will build it on first use" >&2
+  else
+    echo "WARNING: $label failed (exit $rc)" >&2
+  fi
+  return "$rc"
+}
+
 if git clone --depth 1 --branch self-hosted \
      https://github.com/xmtp/libxmtp "$WARM_DIR" 2>&1; then
   chown -R murmur:murmur "$WARM_DIR"
 
-  # `nix develop --command true` realizes the full devShell closure without
-  # entering an interactive shell. Run as murmur so the per-user profile and
-  # eval cache are warmed for the account that actually builds.
-  echo "--- warming the default dev shell ---"
-  if sudo -u murmur -H bash -lc "cd $WARM_DIR && nix develop .#default --command true"; then
-    echo "default dev shell warmed"
-  else
-    echo "WARNING: default dev shell warm failed" >&2
-    warm_failed=1
-  fi
+  # Build the devShell derivations rather than entering them. A devShell's
+  # output records its build inputs as runtime dependencies, so a single
+  # out-link under gcroots pins the entire closure -- no requisites walk, and
+  # no cap on how much gets pinned.
+  #
+  # The `rust` shell is what .envrc selects and what backend.just defaults to;
+  # `default` is what `dev/nix-shell` picks with no NIX_DEVSHELL set.
+  for shell in default rust; do
+    warm_step "$shell dev shell" 20m \
+      "nix build '.#devShells.x86_64-linux.$shell' --out-link '$GCROOTS/shell-$shell'" \
+      || warm_failed=1
+  done
 
-  # The `rust` shell is what .envrc selects and what backend.just defaults to.
-  echo "--- warming the rust dev shell ---"
-  if sudo -u murmur -H bash -lc "cd $WARM_DIR && nix develop .#rust --command true"; then
-    echo "rust dev shell warmed"
-  else
-    echo "WARNING: rust dev shell warm failed" >&2
-    warm_failed=1
-  fi
-
-  # `just backend up` depends on `just backend image`, which cross-compiles
-  # the backend for musl. This is the single most expensive cold-start cost.
+  # `just backend up` depends on `just backend image`, which cross-compiles the
+  # backend for musl. This is the single most expensive cold-start cost.
+  # fh-cache.yml pushes this image to Cachix on every push to self-hosted, so
+  # the normal case is a download; the cap covers the cache-miss case, which
+  # happens when a commit changes the closure and nothing matches the cache.
+  #
   # Build it outside any devshell, per the note in backend.just: a devshell
   # puts a newer glibc on the library path and breaks the git that Nix uses
   # to fetch git dependencies.
-  # The backend musl cross-compile is the single most expensive warm step and
-  # the most likely to blow the 1h ceiling -- especially when a commit changes
-  # the shell closure, because then nothing is in the Cachix cache and the
-  # shells above had to be BUILT rather than downloaded.
-  #
-  # Only start it when enough budget remains. Skipping it costs the first
-  # agent one backend build; timing out costs everyone the entire image.
-  BACKEND_WARM_DEADLINE_MIN=24
-  if [ "$(warm_elapsed)" -lt "$BACKEND_WARM_DEADLINE_MIN" ]; then
-    echo "--- warming the backend musl container image ($(warm_elapsed)m elapsed) ---"
-    # Hard-cap the step itself so a slow build cannot run to the bake timeout.
-    if timeout 14m sudo -u murmur -H bash -lc \
-         "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl --no-link"; then
-      echo "backend image warmed"
-    else
-      rc=$?
-      if [ "$rc" -eq 124 ]; then
-        echo "NOTE: backend image warm hit its 14m cap; skipping it." >&2
-        echo "      Agents will build the backend on first \`just backend up\`." >&2
-      else
-        echo "WARNING: backend image warm failed (exit $rc)" >&2
-      fi
-      # Not a bake failure: the image is still valid without this.
-    fi
+  if [ "$(warm_elapsed)" -lt 35 ]; then
+    warm_step "backend musl image" 15m \
+      "nix build .#backend-image-x86_64-unknown-linux-musl --out-link '$GCROOTS/backend-image'" \
+      || true  # Not a bake failure: the image is still valid without this.
   else
-    echo "--- SKIPPING backend image warm: $(warm_elapsed)m already elapsed ---"
+    stage "SKIPPING backend image warm: $(warm_elapsed)m already elapsed"
     echo "    Budget reserved for finishing the bake. Agents will build the" >&2
     echo "    backend image on their first \`just backend up\`." >&2
   fi
 
-  # Pin every warmed closure with a GC root so `nix-collect-garbage` below
-  # cannot delete the very paths this stage just paid for.
-  echo "--- pinning warmed closures against GC ---"
-  mkdir -p /nix/var/nix/gcroots/libxmtp-warm
-  # Only root the backend image if it actually got built above. `--no-link`
-  # built it without a root; this re-runs against the now-warm store, so it is
-  # near-instant when present and must not rebuild when it was skipped.
-  if sudo -u murmur -H bash -lc \
-       "cd $WARM_DIR && nix path-info .#backend-image-x86_64-unknown-linux-musl" \
-       >/dev/null 2>&1; then
-    timeout 5m sudo -u murmur -H bash -lc \
-      "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl \
-         --out-link /tmp/warm-backend-image" || true
-    if [ -e /tmp/warm-backend-image ]; then
-      cp -P /tmp/warm-backend-image /nix/var/nix/gcroots/libxmtp-warm/backend-image
-    fi
-  else
-    echo "backend image not in store; nothing to pin"
+  # Pre-load every image the stack starts. Without this, each VM pulls the
+  # whole set on its first `just backend up`. /var/lib/docker is part of the
+  # snapshot, so what lands here ships in the image.
+  stage "start: docker images"
+  systemctl start docker.service || true
+  if [ -e "$GCROOTS/backend-image" ]; then
+    docker load --input "$GCROOTS/backend-image" || \
+      echo "WARNING: could not load the backend image into docker" >&2
   fi
-  # A devShell's build inputs are not the output of `nix build` on the shell
-  # derivation, so root the .drv itself: that keeps the inputs `nix develop`
-  # pulled in from being collected.
-  for shell in default rust; do
-    drv="$(sudo -u murmur -H bash -lc \
-      "cd $WARM_DIR && nix path-info --derivation .#devShells.x86_64-linux.$shell" \
-      2>/dev/null || true)"
-    if [ -n "$drv" ] && [ -e "$drv" ]; then
-      ln -sfn "$drv" "/nix/var/nix/gcroots/libxmtp-warm/shell-$shell.drv"
-      # Root the realized inputs too, not just the recipe for building them.
-      sudo -u murmur -H bash -lc \
-        "nix-store --query --requisites '$drv'" 2>/dev/null \
-        | head -4000 > "/tmp/warm-reqs-$shell" || true
-    fi
-  done
-
-  # Keep every realized path the warm steps produced. Indexed symlinks under
-  # a gcroots directory are the documented way to pin arbitrary store paths.
-  idx=0
-  for reqfile in /tmp/warm-reqs-default /tmp/warm-reqs-rust; do
-    [ -f "$reqfile" ] || continue
-    while IFS= read -r storepath; do
-      [ -n "$storepath" ] || continue
-      [ -e "$storepath" ] || continue
-      idx=$((idx + 1))
-      ln -sfn "$storepath" \
-        "/nix/var/nix/gcroots/libxmtp-warm/req-$idx" 2>/dev/null || true
-    done < "$reqfile"
-  done
-  echo "pinned $idx warmed store paths against GC"
-  rm -f /tmp/warm-reqs-default /tmp/warm-reqs-rust
+  # Let compose name the images: it reads dev/docker/compose.yml, so this
+  # cannot drift from the stack the agents actually start. Compose pulls them
+  # in parallel, which matters because the daemon's max-concurrent-downloads
+  # applies per pull and serial pulls leave the instance's bandwidth idle.
+  #
+  # Every variable in compose.yml has a default, so this parses without the
+  # per-worktree env file that dev/docker/up generates.
+  #
+  # --policy missing skips the backend image loaded just above, which is built
+  # by Nix and does not exist in any registry. --ignore-pull-failures keeps a
+  # transient registry failure from aborting the bake; a VM that pulls one
+  # image on first use is a small cost.
+  #
+  # One timeout covers the whole group. Serial pulls with a timeout each could
+  # add 30 minutes on top of the shell and backend steps, run the bake past
+  # the 1h platform ceiling, and produce no image at all.
+  IMAGE_BUDGET=$((WARM_START + 55 * 60 - $(date +%s)))
+  if [ "$IMAGE_BUDGET" -le 0 ]; then
+    echo "NOTE: out of budget; skipping the image pulls" >&2
+  else
+    [ "$IMAGE_BUDGET" -gt 600 ] && IMAGE_BUDGET=600
+    timeout "${IMAGE_BUDGET}s" docker compose -f "$WARM_DIR/dev/docker/compose.yml" \
+      pull --policy missing --ignore-pull-failures --quiet \
+      || echo "WARNING: could not pre-pull every compose image" >&2
+  fi
+  stage "done: docker images"
 else
   echo "WARNING: could not clone libxmtp to warm the store" >&2
   warm_failed=1
 fi
 
-# Remove the checkout. Only /nix/store paths survive into the image.
-rm -rf "$WARM_DIR" /tmp/warm-backend-image /tmp/warm-shell-default /tmp/warm-shell-rust
+# Remove the checkout. Only /nix/store paths and /var/lib/docker survive.
+rm -rf "$WARM_DIR"
 
-echo "=== warming stage took $(warm_elapsed) minutes ==="
+stage "warming stage complete"
 
 if [ "$warm_failed" -ne 0 ]; then
   # A warm miss makes agents slower, not broken -- they rebuild on demand.
@@ -261,113 +256,25 @@ if [ "$warm_failed" -ne 0 ]; then
   echo "NOTE: one or more warm steps failed; agents will build those on first use" >&2
 fi
 
-echo "=== Install the Ref MCP bootstrap ==="
-# Ref is a remote HTTP MCP server. Both Claude Code and Codex want the API key
-# written INSIDE a config file -- Claude as an x-ref-api-key header in
-# ~/.claude.json, Codex as a query parameter in ~/.codex/config.toml. Neither
-# reads $REF_API_KEY on its own.
+echo "=== Install the just shim ==="
+# Agents reach for bare `just check`. Nothing is on the bare PATH on this
+# image, so without a shim that fails and the agent has to remember the
+# `dev/nix-shell '...'` wrapper on every single call.
 #
-# The key is a PERSONAL credential, so it must never be baked into this shared
-# image. Instead the image ships this generator, and the key arrives at runtime
-# from `murmur secret mount REF_API_KEY`. The script is a no-op when the
-# variable is absent, so an agent without the mount simply runs without Ref.
-cat > /usr/local/bin/murmur-ref-mcp-setup <<'SETUP_EOF'
+# dev/nix-shell short-circuits when it is already inside a matching
+# environment, so a recipe that shells out to `just` again does not enter Nix
+# twice. Outside a libxmtp checkout this falls through to the store's `just`.
+cat > /usr/local/bin/just <<'SHIM_EOF'
 #!/usr/bin/env bash
-# Wire the Ref MCP server into Claude Code and Codex using $REF_API_KEY.
-# Safe to run repeatedly; it rewrites only the Ref entries.
-set -uo pipefail
-
-if [ -z "${REF_API_KEY:-}" ]; then
-  exit 0
+# Run `just` inside this worktree's Nix environment. See .murmur/persona.md.
+set -euo pipefail
+if root="$(git rev-parse --show-toplevel 2>/dev/null)" \
+   && [ -x "$root/dev/nix-shell" ]; then
+  exec "$root/dev/nix-shell" --command just "$@"
 fi
-
-REF_URL="https://api.plan.ref.tools/mcp"
-
-# --- Claude Code: merge into ~/.claude.json, preserving everything else ---
-CLAUDE_CFG="$HOME/.claude.json"
-python3 - "$CLAUDE_CFG" "$REF_URL" <<'PY'
-import json, os, sys
-
-path, url = sys.argv[1], sys.argv[2]
-key = os.environ.get("REF_API_KEY", "")
-if not key:
-    sys.exit(0)
-
-try:
-    with open(path) as fh:
-        cfg = json.load(fh)
-    if not isinstance(cfg, dict):
-        cfg = {}
-except (FileNotFoundError, ValueError):
-    cfg = {}
-
-servers = cfg.get("mcpServers")
-if not isinstance(servers, dict):
-    servers = {}
-servers["ref-plan"] = {
-    "type": "http",
-    "url": url,
-    "headers": {"x-ref-api-key": key},
-}
-cfg["mcpServers"] = servers
-
-tmp = path + ".tmp"
-with open(tmp, "w") as fh:
-    json.dump(cfg, fh, indent=2)
-os.replace(tmp, path)
-PY
-chmod 0600 "$CLAUDE_CFG" 2>/dev/null || true
-
-# --- Codex: merge into ~/.codex/config.toml ---
-# Codex takes the key as a query parameter rather than a header.
-CODEX_DIR="$HOME/.codex"
-CODEX_CFG="$CODEX_DIR/config.toml"
-mkdir -p "$CODEX_DIR"
-touch "$CODEX_CFG"
-python3 - "$CODEX_CFG" "$REF_URL" <<'PY'
-import os, re, sys
-from urllib.parse import quote
-
-path, base_url = sys.argv[1], sys.argv[2]
-key = os.environ.get("REF_API_KEY", "")
-if not key:
-    sys.exit(0)
-
-with open(path) as fh:
-    text = fh.read()
-
-# Drop any existing ref-plan table so repeated runs do not stack duplicates.
-text = re.sub(
-    r"^\[mcp_servers\.ref-plan\]\s*\n(?:(?!^\[).*\n?)*",
-    "",
-    text,
-    flags=re.MULTILINE,
-)
-
-if text and not text.endswith("\n"):
-    text += "\n"
-url = base_url + "?apiKey=" + quote(key, safe="")
-text += '\n[mcp_servers.ref-plan]\nurl = "' + url + '"\n'
-
-tmp = path + ".tmp"
-with open(tmp, "w") as fh:
-    fh.write(text)
-os.replace(tmp, path)
-PY
-chmod 0600 "$CODEX_CFG" 2>/dev/null || true
-SETUP_EOF
-chmod 0755 /usr/local/bin/murmur-ref-mcp-setup
-
-# Run it on every login shell so the config exists before an agent starts.
-# It re-reads $REF_API_KEY each time, so a rotated key takes effect on the
-# next VM with no rebake.
-cat > /etc/profile.d/20-ref-mcp.sh <<'EOF'
-# Wire up the Ref MCP server when a personal REF_API_KEY is mounted.
-if [ -n "${REF_API_KEY:-}" ] && [ -x /usr/local/bin/murmur-ref-mcp-setup ]; then
-  /usr/local/bin/murmur-ref-mcp-setup >/dev/null 2>&1 || true
-fi
-EOF
-chmod 0644 /etc/profile.d/20-ref-mcp.sh
+exec nix run nixpkgs#just -- "$@"
+SHIM_EOF
+chmod 0755 /usr/local/bin/just
 
 echo "=== Verify the murmur user can reach the toolchain ==="
 # This is the contract that matters: the bake runs as root, agents run as
@@ -375,12 +282,18 @@ echo "=== Verify the murmur user can reach the toolchain ==="
 sudo -u murmur -H bash -lc 'nix --version'
 sudo -u murmur -H bash -lc 'docker --version'
 sudo -u murmur -H bash -lc 'git --version'
+# The warm closures must still be in the store, and reachable by their roots.
+for shell in default rust; do
+  test -e "/nix/var/nix/gcroots/libxmtp-warm/shell-$shell" \
+    || echo "WARNING: $shell dev shell was not warmed" >&2
+done
 
 echo "=== Clean up ==="
 apt-get clean
 rm -rf /var/lib/apt/lists/*
-# Only delete paths with no GC root. The warm closures above are rooted
-# under /nix/var/nix/gcroots/libxmtp-warm, so they survive this.
-nix-collect-garbage >/dev/null 2>&1 || true
+# No nix-collect-garbage here. Every warm closure is rooted under
+# /nix/var/nix/gcroots/libxmtp-warm, so a collection would only reclaim
+# build-time inputs, and it pays a full store scan to do it. The disk is
+# 200 GB and the image is captured once.
 
 echo "=== Provisioning complete ==="
