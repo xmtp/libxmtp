@@ -89,6 +89,7 @@ pub trait DbQuery:
     + QueryAssociationStateCache
     + QueryReaddStatus
     + QueryTasks
+    + QueryNotifications
     + QueryPendingRemove
     + QueryMessageDeletion
     + Pragmas
@@ -122,6 +123,7 @@ impl<T> DbQuery for T where
         + QueryAssociationStateCache
         + QueryReaddStatus
         + QueryTasks
+        + QueryNotifications
         + QueryPendingRemove
         + QueryMessageDeletion
         + Pragmas

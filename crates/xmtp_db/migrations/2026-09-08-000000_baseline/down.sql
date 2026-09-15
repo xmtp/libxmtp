@@ -21,6 +21,7 @@ DROP TABLE IF EXISTS "remote_commit_log";
 DROP TABLE IF EXISTS "local_commit_log";
 DROP TABLE IF EXISTS "processed_device_sync_messages";
 DROP TABLE IF EXISTS "user_preferences";
+DROP TABLE IF EXISTS "push_uploaded_topic";
 DROP TABLE IF EXISTS "identity_cache";
 DROP TABLE IF EXISTS "key_package_history";
 DROP TABLE IF EXISTS "consent_records";

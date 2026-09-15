@@ -17,6 +17,7 @@ pub mod inbox_id;
 mod inbox_state;
 mod message_delivery;
 mod messages;
+mod notifications;
 mod permissions;
 mod signatures;
 pub mod stats;

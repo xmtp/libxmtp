@@ -197,6 +197,7 @@ mod tests {
             commit_log_public_key: None,
             is_commit_log_forked: None,
             has_pending_leave_request: None,
+            push_override: None,
         }
         .store(conn)
         .unwrap();

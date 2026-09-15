@@ -12375,6 +12375,7 @@ dependencies = [
  "xmtp_mls_common",
  "xmtp_mls_validation",
  "xmtp_proto",
+ "xmtp_push_types",
  "zeroize",
 ]
 

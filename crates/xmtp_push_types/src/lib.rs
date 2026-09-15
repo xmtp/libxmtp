@@ -4,7 +4,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 
 /// A message location. Sequence identifiers remain decimal text in JSON.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PushPayload {
     pub topic: String,
     pub sequence_id: String,
@@ -49,6 +49,25 @@ mod tests {
             json,
             r#"{"topic":"AQID","sequence_id":"18446744073709551615"}"#
         );
-        assert!(serde_json::from_str::<PushPayload>(&json)? == payload);
+        assert_eq!(serde_json::from_str::<PushPayload>(&json)?, payload);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn epoch_boundaries_and_topic_rules() {
+        assert_eq!(hmac_epoch(HMAC_EPOCH_SECONDS - 1), 0);
+        assert_eq!(hmac_epoch(HMAC_EPOCH_SECONDS), 1);
+        assert_eq!(hmac_epoch(HMAC_EPOCH_SECONDS * 2), 2);
+        use xmtp_proto::types::TopicKind;
+
+        for kind in [TopicKind::GroupMessagesV1, TopicKind::WelcomeMessagesV1] {
+            assert!(is_push_topic(kind));
+        }
+        for kind in [
+            TopicKind::IdentityUpdatesV1,
+            TopicKind::KeyPackagesV1,
+            TopicKind::CommitLogEntriesV1,
+        ] {
+            assert!(!is_push_topic(kind));
+        }
     }
 }

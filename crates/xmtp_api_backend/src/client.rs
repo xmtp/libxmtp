@@ -47,6 +47,23 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
             .query(&self.client)
             .await
     }
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error> {
+        backend::Register(request).query(&self.client).await
+    }
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error> {
+        backend::Unregister(request).query(&self.client).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error> {
+        backend::UpdateSubscriptions(request)
+            .query(&self.client)
+            .await
+    }
 }
 
 #[xmtp_common::async_trait]

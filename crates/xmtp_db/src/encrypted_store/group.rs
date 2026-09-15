@@ -100,6 +100,10 @@ pub struct StoredGroup {
     /// NULL if the pending-remove didn't receive an update yet
     #[builder(default = None)]
     pub has_pending_leave_request: Option<bool>,
+    /// Optional notification rule for this conversation.
+    #[builder(default = None)]
+    #[serde(default)]
+    pub push_override: Option<i32>,
     //todo: store member role?
 }
 

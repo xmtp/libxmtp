@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**37 error types** across **10 crates** with **387 total error codes**.
+**38 error types** across **10 crates** with **396 total error codes**.
 
 ## mobile
 
@@ -580,6 +580,24 @@ Errors that can occur when working with GroupMutablePermissions.
 | `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |
 | `LocalDeliveryError::InvalidConfiguration` | The batch or timing settings cannot maintain a valid consumer lease. Not retryable. |
 | `LocalDeliveryError::Closed` | This reader has been closed. Not retryable. |
+
+### NotificationError <sub>enum</sub>
+
+<small>`crates/xmtp_mls/src/client/notifications.rs`</small>
+
+Errors use fixed messages and never include notification credentials.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `NotificationError::TaskRunnerDisabled` | The task runner is disabled. Not retryable. |
+| `NotificationError::PermissionDenied` | The recipient credential was rejected. Not retryable. |
+| `NotificationError::InvalidArgument` | The delivery configuration is invalid. Not retryable. |
+| `NotificationError::OutOfRange` | A notification value is outside the allowed range. Not retryable. |
+| `NotificationError::Unimplemented` | The backend does not support notifications. Not retryable. |
+| `NotificationError::ChannelNotConfigured` | The delivery channel is not configured. Not retryable. |
+| `NotificationError::ResourceExhausted` | The recipient topic limit was reached. Retry after the desired set changes. |
+| `NotificationError::RequestTimeout` | The notification request exceeded its time limit. Retryable. |
+| `NotificationError::NotFound` | The recipient must register again. Retryable. |
 
 ### SubscribeError <sub>enum</sub>
 

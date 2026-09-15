@@ -246,6 +246,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         .map(TransactionOutcome::into_continued)
         .and_then(|outcome| outcome);
         if let Ok(outcome) = &result {
+            if envelope.is_commit() {
+                self.context.task_channels().wake_notifications();
+            }
             events.send_all(&self.context);
             if outcome.disappearing_message_stored
                 && self

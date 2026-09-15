@@ -326,6 +326,7 @@ where
         })
         .map(TransactionOutcome::into_continued)?;
         if matches!(&commit_result, CommitResult::Ok(_)) {
+            self.context.task_channels().wake_notifications();
             attempt_events.send_all(&self.context);
             events.send_all(&self.context);
         }

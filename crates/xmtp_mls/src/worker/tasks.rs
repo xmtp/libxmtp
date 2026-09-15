@@ -62,6 +62,8 @@ pub enum TaskWorkerError {
     KeyPackageMaintenance(
         #[from] crate::worker::key_package_maintenance::KeyPackageMaintenanceError,
     ),
+    #[error("notification task failed")]
+    Notification(#[from] crate::client::notifications::NotificationError),
 }
 
 impl NeedsDbReconnect for TaskWorkerError {
@@ -81,6 +83,13 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::Conversion(_) => false,
             TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
             TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
+            TaskWorkerError::Notification(
+                crate::client::notifications::NotificationError::Storage(e),
+            ) => e.db_needs_connection(),
+            TaskWorkerError::Notification(
+                crate::client::notifications::NotificationError::Group(e),
+            ) => e.needs_db_reconnect(),
+            TaskWorkerError::Notification(_) => false,
         }
     }
 }
@@ -92,6 +101,8 @@ pub enum TaskMessage {
     /// No-op wake: the task row was already inserted directly in a DB
     /// transaction; receiving this just makes the loop re-read the tasks table.
     Wake,
+    /// Recompute notification work after a committed local change.
+    NotificationWake,
 }
 
 #[derive(Clone)]
@@ -99,6 +110,18 @@ pub struct TaskWorkerChannels {
     // Using unbounded to avoid potential issues with the receiver queue being full
     pub task_sender: tokio::sync::mpsc::UnboundedSender<TaskMessage>,
     pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
+    /// Serializes notification requests across inline calls and task turns.
+    pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
+    /// Confirmed backend topics retained while local notifications are disabled.
+    /// This memory state does not survive a client restart.
+    /// Lock before the database writer. Never hold across an await.
+    pub(crate) notification_pending_topics: Arc<
+        parking_lot::Mutex<
+            std::collections::BTreeMap<Vec<u8>, xmtp_db::notifications::UploadedTopic>,
+        >,
+    >,
+    notification_revision: Arc<std::sync::atomic::AtomicUsize>,
+    notification_wake_pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -113,6 +136,10 @@ impl TaskWorkerChannels {
         Self {
             task_sender,
             task_receiver: Arc::new(tokio::sync::Mutex::new(task_receiver)),
+            notification_request: Default::default(),
+            notification_pending_topics: Default::default(),
+            notification_revision: Default::default(),
+            notification_wake_pending: Default::default(),
         }
     }
     pub fn send(&self, new_task: DbNewTask) {
@@ -126,6 +153,22 @@ impl TaskWorkerChannels {
         self.task_sender
             .send(TaskMessage::Wake)
             .expect("Task receiver is owned by same struct");
+    }
+
+    /// Send a memory hint only. The task runner owns durable notification scheduling.
+    pub fn wake_notifications(&self) {
+        use std::sync::atomic::Ordering;
+        // Every committed change invalidates a prepared batch, even when its
+        // scheduling hint coalesces with a hint already in the channel.
+        self.notification_revision.fetch_add(1, Ordering::AcqRel);
+        if !self.notification_wake_pending.swap(true, Ordering::AcqRel) {
+            let _ = self.task_sender.send(TaskMessage::NotificationWake);
+        }
+    }
+
+    pub(crate) fn notification_revision(&self) -> usize {
+        self.notification_revision
+            .load(std::sync::atomic::Ordering::Acquire)
     }
 }
 
@@ -224,6 +267,7 @@ where
             Ok(receiver) => receiver,
             Err(_) => return Err(TaskWorkerError::ReceiverLocked),
         };
+        crate::worker::notifications::wake(&self.context)?;
         loop {
             let next_task = self.context.db().get_next_task()?;
             let next_wakeup = Self::next_wakeup(
@@ -234,10 +278,13 @@ where
                 msg = receiver.recv() => {
                     // A Wake is a no-op here: its row is already in the DB, and
                     // any recv loops back to recompute the next due task.
-                    if let TaskMessage::New(task) =
-                        msg.expect("Task sender is owned by the task worker")
-                    {
-                        self.context.db().create_task(task)?;
+                    match msg.expect("Task sender is owned by the task worker") {
+                        TaskMessage::New(task) => { self.context.db().create_task(task)?; }
+                        TaskMessage::NotificationWake => {
+                            self.channels.notification_wake_pending.store(false, std::sync::atomic::Ordering::Release);
+                            crate::worker::notifications::wake(&self.context)?;
+                        }
+                        TaskMessage::Wake => {}
                     }
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {
@@ -290,7 +337,13 @@ where
                 let next_attempt_duration = (((task.initial_backoff_duration_ns as f64)
                     * attempt_scaling_factor) as i64)
                     .min(task.max_backoff_duration_ns);
-                let next_attempt_at_ns = now.saturating_add(next_attempt_duration);
+                let retry_from =
+                    if task.data_hash == crate::worker::notifications::task_hash().as_ref() {
+                        xmtp_common::time::now_ns()
+                    } else {
+                        now
+                    };
+                let next_attempt_at_ns = retry_from.saturating_add(next_attempt_duration);
                 tracing::warn!(%error, "Task {} retry failed. Retrying in {next_attempt_duration}ns", task.id);
                 match context
                     .db()
@@ -334,6 +387,9 @@ where
             }
         };
         match task_proto.task {
+            Some(xmtp_proto::xmtp::mls::database::task::Task::NotificationSync(_)) => {
+                return Ok(crate::worker::notifications::run(context).await?);
+            }
             Some(xmtp_proto::xmtp::mls::database::task::Task::ProcessPendingSelfRemove(
                 pending,
             )) => {

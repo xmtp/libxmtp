@@ -33,3 +33,58 @@ pub fn lib() {
     panic!("only webassembly is supported")
   }
 }
+
+#[cfg(all(doctest, target_arch = "wasm32"))]
+/// Notification APIs must stay absent from the browser binding.
+///
+/// ```compile_fail
+/// use bindings_wasm::client::Client;
+/// let _ = Client::enable_notifications;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::client::Client;
+/// let _ = Client::disable_notifications;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::client::Client;
+/// let _ = Client::notification_state;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::conversation::Conversation;
+/// let _ = Conversation::set_notifications;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::conversation::Conversation;
+/// let _ = Conversation::notifications_enabled;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::client::NotificationChannel;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::client::NotificationConfig;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::client::NotificationState;
+/// ```
+///
+/// ```compile_fail
+/// use bindings_wasm::conversation::NotificationOverride;
+/// ```
+struct WasmNotificationApiIsUnavailable;
+
+#[cfg(all(doctest, target_arch = "wasm32"))]
+/// Browser bindings must continue to export the client and conversation types.
+///
+/// ```no_run
+/// use bindings_wasm::{client::Client, conversation::Conversation};
+///
+/// fn uses_browser_types(_: &Client, _: &Conversation) {}
+/// ```
+struct WasmClientAndConversationAreExported;

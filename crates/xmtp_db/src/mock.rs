@@ -718,6 +718,18 @@ mock! {
         ) -> Result<Vec<AssociationStateProto>, StorageError>;
     }
 
+    impl QueryNotifications for DbQuery {
+        fn disable_notifications(&self) -> Result<(crate::notifications::StoredNotification, Vec<crate::notifications::UploadedTopic>), StorageError>;
+        fn notification_record(&self) -> Result<crate::notifications::StoredNotification, StorageError>;
+        fn save_notification_record(&self, record: &crate::notifications::StoredNotification) -> Result<(), StorageError>;
+        fn uploaded_topics(&self) -> Result<Vec<crate::notifications::UploadedTopic>, StorageError>;
+        fn confirm_uploaded_topics(&self, adds: &[crate::notifications::UploadedTopic], removes: &[Vec<u8>]) -> Result<(), StorageError>;
+        fn clear_uploaded_topics(&self) -> Result<(), StorageError>;
+        fn mark_uploaded_topics_stale(&self) -> Result<(), StorageError>;
+        fn notification_groups(&self) -> Result<Vec<crate::group::StoredGroup>, StorageError>;
+        fn set_notification_override(&self, group: &GroupId, value: Option<i32>) -> Result<(), StorageError>;
+    }
+
     impl QueryTasks for DbQuery {
         fn create_task(&self, task: crate::tasks::NewTask) -> Result<crate::tasks::Task, StorageError>;
 

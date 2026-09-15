@@ -13,6 +13,7 @@ pub mod hmac_key;
 pub mod membership;
 pub mod messages;
 pub mod metadata;
+pub mod notifications;
 pub mod permissions;
 pub mod streams;
 pub mod unstable;

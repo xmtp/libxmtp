@@ -16,11 +16,113 @@ import {
   GroupMessageKind,
   IdentifierKind,
   Message,
+  NotificationStateKind,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
+import { notificationBackend } from './notificationBackend'
 
 describe('Client', () => {
+  it.each(['fcm', 'apns'])(
+    'should register the exact %s notification channel and token',
+    async (channel) => {
+      const backend = await notificationBackend()
+      const user = createUser()
+      let client: Awaited<ReturnType<typeof createClient>> | undefined
+      try {
+        client = await createClient(user, undefined, false, backend.url)
+        const state = await client.enableNotifications({
+          channel,
+          token: `${channel}-exact-token`,
+          includeWelcomes: false,
+        })
+        expect(state.state).toBe(NotificationStateKind.Enabled)
+        expect(client.notificationState().state).toBe(
+          NotificationStateKind.Enabled
+        )
+        expect(backend.registrations).toHaveLength(1)
+        expect(backend.registrations[0]).toMatchObject({
+          [channel]: { token: `${channel}-exact-token` },
+        })
+        expect(
+          backend.registrations[0][channel === 'fcm' ? 'apns' : 'fcm']
+        ).toBeUndefined()
+        await client.close()
+        client = await createClient(user, undefined, false, backend.url)
+        expect(client.notificationState().state).toBe(
+          NotificationStateKind.Enabled
+        )
+      } finally {
+        await client?.close()
+        await backend.close()
+      }
+    }
+  )
+
+  it.each([15, 16, 64, 65])(
+    'should validate a %i-byte HTTP notification signing key before registration',
+    async (size) => {
+      const backend = await notificationBackend()
+      const client = await createClient(
+        createUser(),
+        undefined,
+        false,
+        backend.url
+      )
+      try {
+        const config = {
+          channel: 'http',
+          url: 'https://example.test',
+          signingKey: Array(size).fill(7),
+          includeWelcomes: false,
+        }
+        if (size === 16 || size === 64) {
+          expect((await client.enableNotifications(config)).state).toBe(
+            NotificationStateKind.Enabled
+          )
+          expect(backend.registrations).toHaveLength(1)
+          expect(backend.registrations[0].http).toEqual({
+            url: config.url,
+            signingKey: config.signingKey,
+          })
+        } else {
+          await expect(client.enableNotifications(config)).rejects.toThrow(
+            '[NotificationError::InvalidArgument] notification configuration is invalid'
+          )
+          expect(backend.registrations).toHaveLength(0)
+          expect(client.notificationState().state).toBe(
+            NotificationStateKind.Disabled
+          )
+        }
+      } finally {
+        await client.close()
+        await backend.close()
+      }
+    }
+  )
+
+  it('should reject invalid notification channel configurations', async () => {
+    const client = await createClient(createUser(), undefined, true)
+
+    try {
+      for (const config of [
+        { channel: 'unknown', token: 'token' },
+        { channel: 'fcm' },
+        {
+          channel: 'apns',
+          token: 'token',
+          url: 'https://example.test',
+        },
+      ]) {
+        await expect(client.enableNotifications(config)).rejects.toThrow(
+          '[NotificationError::InvalidArgument] notification configuration is invalid'
+        )
+      }
+    } finally {
+      await client.close()
+    }
+  })
+
   it('should not be registered at first', async () => {
     const user = createUser()
     const client = await createClient(user)

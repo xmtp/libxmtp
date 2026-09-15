@@ -82,6 +82,7 @@ where
             .collect();
 
         if !new_records.is_empty() {
+            self.context.task_channels().wake_notifications();
             // Dispatch an update event so it can be synced across devices
             let _ = self
                 .context

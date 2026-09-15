@@ -377,6 +377,7 @@ where
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
                 let updated = store_preference_updates(updates.clone(), &conn, handle)?;
                 if !updated.is_empty() {
+                    self.context.task_channels().wake_notifications();
                     let _ = self
                         .context
                         .local_events()

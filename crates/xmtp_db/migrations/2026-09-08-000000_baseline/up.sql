@@ -39,6 +39,8 @@ CREATE TABLE "groups"(
 
 CREATE INDEX groups_created_at_idx ON GROUPS (created_at_ns);
 
+ALTER TABLE groups ADD COLUMN push_override INTEGER CHECK (push_override IN (0, 1));
+
 CREATE INDEX groups_membership_state_created_at_idx ON GROUPS (membership_state, created_at_ns);
 
 CREATE TABLE group_welcome_discovery (
@@ -118,9 +120,27 @@ CREATE TABLE user_preferences (
     stream_database_id BLOB NOT NULL DEFAULT (randomblob(16)) CHECK (length(stream_database_id) = 16),
     delivery_owner BLOB CHECK (delivery_owner IS NULL OR length(delivery_owner) = 16),
     delivery_owner_until_ns BIGINT,
+    push_recipient_id BLOB,
+    push_recipient_secret BLOB,
+    push_state INTEGER NOT NULL DEFAULT 0,
+    push_failed_error BLOB,
+    push_config BLOB,
+    push_deadlines BLOB,
+    push_last_state BLOB,
+    push_repairing BOOLEAN NOT NULL DEFAULT FALSE,
+    push_generation BIGINT NOT NULL DEFAULT 0,
+    push_suppressed BLOB,
     CHECK ((delivery_owner IS NULL) = (delivery_owner_until_ns IS NULL)));
 
 INSERT INTO user_preferences(id) VALUES (0);
+
+CREATE TABLE push_uploaded_topic (
+    topic BLOB PRIMARY KEY NOT NULL,
+    hmac_epoch_base BIGINT,
+    include_commits BOOLEAN NOT NULL,
+    root_key_fingerprint BLOB NOT NULL,
+    stale BOOLEAN NOT NULL DEFAULT FALSE
+);
 
 CREATE TABLE processed_device_sync_messages (message_id BLOB PRIMARY KEY NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, state INTEGER NOT NULL DEFAULT 0);
 

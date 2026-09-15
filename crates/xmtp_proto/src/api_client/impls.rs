@@ -29,6 +29,21 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error> {
+        (**self).register(request).await
+    }
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error> {
+        (**self).unregister(request).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error> {
+        (**self).update_subscriptions(request).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -104,6 +119,21 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error> {
+        (**self).register(request).await
+    }
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error> {
+        (**self).unregister(request).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error> {
+        (**self).update_subscriptions(request).await
+    }
 }
 
 #[xmtp_common::async_trait]
@@ -178,6 +208,21 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
         (**self)
             .verify_smart_contract_wallet_signatures(request)
             .await
+    }
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error> {
+        (**self).register(request).await
+    }
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error> {
+        (**self).unregister(request).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error> {
+        (**self).update_subscriptions(request).await
     }
 }
 

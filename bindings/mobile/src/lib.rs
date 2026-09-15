@@ -130,6 +130,9 @@ pub enum GenericError {
     Api(#[from] xmtp_api::ApiError),
     #[error(transparent)]
     #[error_code(inherit)]
+    Notification(#[from] xmtp_mls::client::notifications::NotificationError),
+    #[error(transparent)]
+    #[error_code(inherit)]
     Enrich(#[from] EnrichMessageError),
     /// Log Level failed to parse because it was invalid
     #[error(transparent)]
