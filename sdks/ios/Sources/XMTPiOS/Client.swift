@@ -182,6 +182,29 @@ actor ApiClientCache {
 public typealias InboxId = String
 
 public final class Client {
+	/// Enable notifications and register the delivery channel.
+	public func enableNotifications(_ config: NotificationConfig) async throws -> NotificationState {
+		do {
+			return try await NotificationState(ffiClient.enableNotifications(config: config.toFFI))
+		} catch {
+			throw NotificationError.from(error)
+		}
+	}
+
+	/// Disable notifications. Per-conversation overrides remain stored.
+	public func disableNotifications() async throws {
+		do {
+			try await ffiClient.disableNotifications()
+		} catch {
+			throw NotificationError.from(error)
+		}
+	}
+
+	/// Read the local state without a backend request.
+	public func notificationState() async throws -> NotificationState {
+		try NotificationState(ffiClient.notificationState())
+	}
+
 	/// Sentinel value assigned to ``dbPath`` when the client was created via
 	/// ``createInMemory(account:options:)``. No file exists at this path.
 	public static let inMemoryDbPath = ":memory:"

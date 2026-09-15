@@ -2,15 +2,6 @@
   "originHash" : "4c1b6f80bd776d1185fdd88444f3ef2f319e97f67aadcfd6b35dd0780f1353da",
   "pins" : [
     {
-      "identity" : "connect-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/bufbuild/connect-swift",
-      "state" : {
-        "revision" : "8ff57dad962668357af2959fdd63868682f3053e",
-        "version" : "1.2.0"
-      }
-    },
-    {
       "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",

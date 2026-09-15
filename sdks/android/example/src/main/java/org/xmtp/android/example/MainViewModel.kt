@@ -18,22 +18,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.xmtp.android.example.extension.flowWhileShared
 import org.xmtp.android.example.extension.stateFlow
-import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.library.Conversation
-import org.xmtp.android.library.Topic
 import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.push.Service
 
 class MainViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<UiState>(UiState.Loading(null))
     val uiState: StateFlow<UiState> = _uiState
-
-    @UiThread
-    fun setupPush() {
-        viewModelScope.launch(Dispatchers.IO) {
-            PushNotificationTokenManager.ensurePushTokenIsConfigured()
-        }
-    }
 
     @UiThread
     fun fetchConversations() {
@@ -47,41 +37,6 @@ class MainViewModel : ViewModel() {
                 val conversations = ClientManager.client.conversations
                 // Ensure we fetch the latest conversations from the network before listing
                 conversations.sync()
-                val subscriptions =
-                    conversations
-                        .allPushTopics()
-                        .map {
-                            val hmacKeysResult = ClientManager.client.conversations.getHmacKeys()
-                            val hmacKeys = hmacKeysResult.hmacKeysMap
-                            val result =
-                                hmacKeys[it]?.valuesList?.map { hmacKey ->
-                                    Service.Subscription.HmacKey
-                                        .newBuilder()
-                                        .also { sub_key ->
-                                            sub_key.key = hmacKey.hmacKey
-                                            sub_key.thirtyDayPeriodsSinceEpoch = hmacKey.thirtyDayPeriodsSinceEpoch
-                                        }.build()
-                                }
-
-                            Service.Subscription
-                                .newBuilder()
-                                .also { sub ->
-                                    sub.addAllHmacKeys(result)
-                                    sub.topic = it
-                                    sub.isSilent = false
-                                }.build()
-                        }.toMutableList()
-
-                val welcomeTopic =
-                    Service.Subscription
-                        .newBuilder()
-                        .also { sub ->
-                            sub.topic = Topic.userWelcome(ClientManager.client.installationId).description
-                            sub.isSilent = false
-                        }.build()
-                subscriptions.add(welcomeTopic)
-
-                PushNotificationTokenManager.xmtpPush.subscribeWithMetadata(subscriptions)
                 listItems.addAll(
                     conversations.list().map { conversation ->
                         val lastMessage = fetchMostRecentMessage(conversation)

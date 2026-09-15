@@ -18,6 +18,12 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 check:
     ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift build
 
+# Compile both retained example apps against this checkout's SDK.
+check-examples:
+    ./dev/bindings
+    xcodebuild build -project XMTPiOSExample/XMTPiOSExample.xcodeproj -scheme XMTPiOSExample -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+    xcodebuild build -project example/example.xcodeproj -scheme example -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
+
 # Run SwiftLint + SwiftFormat check
 lint:
     swiftlint && swiftformat --lint .

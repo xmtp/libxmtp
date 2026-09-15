@@ -758,24 +758,6 @@ data class Conversations(
             hmacKeysResponse.build()
         }
 
-    suspend fun allPushTopics(): List<String> =
-        withContext(Dispatchers.IO) {
-            val conversations =
-                ffiConversations.list(
-                    FfiListConversationsOptions(
-                        null,
-                        null,
-                        null,
-                        null,
-                        ListConversationsOrderBy.CREATED_AT.toFfi(),
-                        null,
-                        null,
-                        includeDuplicateDms = true,
-                    ),
-                )
-            conversations.map { Topic.groupMessage(it.conversation().id().toHex()).description }
-        }
-
     suspend fun deleteMessageLocally(messageId: String) =
         withContext(Dispatchers.IO) { ffiClient.deleteMessage(messageId.hexToByteArray()) }
 }

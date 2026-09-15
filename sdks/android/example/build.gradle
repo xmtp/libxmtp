@@ -8,7 +8,6 @@ buildscript {
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
-//    id 'com.google.gms.google-services'
 }
 
 android {
@@ -56,7 +55,6 @@ dependencies {
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycle_version"
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'com.google.firebase:firebase-messaging:23.4.0'
     implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
     implementation 'androidx.fragment:fragment-ktx:1.6.2'
     implementation 'androidx.activity:activity-ktx:1.8.2'

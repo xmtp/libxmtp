@@ -152,6 +152,30 @@ class Client(
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient
 
+    /** Enable notifications and register the delivery channel. */
+    suspend fun enableNotifications(config: NotificationConfig): NotificationState =
+        withContext(Dispatchers.IO) {
+            try {
+                NotificationState.fromFfi(ffiClient.enableNotifications(config.toFfi()))
+            } catch (error: Exception) {
+                throw NotificationError.from(error)
+            }
+        }
+
+    /** Disable notifications. Per-conversation overrides remain stored. */
+    suspend fun disableNotifications() =
+        withContext(Dispatchers.IO) {
+            try {
+                ffiClient.disableNotifications()
+            } catch (error: Exception) {
+                throw NotificationError.from(error)
+            }
+        }
+
+    /** Read the local state without a backend request. */
+    suspend fun notificationState(): NotificationState =
+        withContext(Dispatchers.IO) { NotificationState.fromFfi(ffiClient.notificationState()) }
+
     /**
      * `true` when this client is backed by an in-memory database. In that case
      * [deleteLocalDatabase], [dropLocalDatabaseConnection] and

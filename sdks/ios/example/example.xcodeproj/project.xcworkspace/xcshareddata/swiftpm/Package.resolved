@@ -11,15 +11,6 @@
       }
     },
     {
-      "identity" : "connect-swift",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/bufbuild/connect-swift",
-      "state" : {
-        "revision" : "a8c984a1077f78e94e0884c5c11683a7f684f92c",
-        "version" : "1.0.0"
-      }
-    },
-    {
       "identity" : "cryptoswift",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/krzyzanowskim/CryptoSwift.git",

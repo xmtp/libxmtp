@@ -7,6 +7,7 @@ Swift. Wraps `bindings/mobile` through a uniffi xcframework.
 ```bash
 just ios build                          # xcframework + Swift bindings, via Nix
 just ios check                          # bindings + swift build
+just ios check-examples                 # both example apps against this SDK
 just ios lint                           # swiftlint + swiftformat --lint
 just ios format
 just ios test                           # bindings + macOS Swift tests

@@ -16,3 +16,6 @@ replica_url = "env:XMTP_REPLICA_URL"
 [limits]
 default_query_limit = 50
 max_query_limit = 50
+
+# SDK registration tests use public HTTPS recipients.
+[push.http]

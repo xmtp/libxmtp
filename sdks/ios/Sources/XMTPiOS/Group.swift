@@ -839,8 +839,14 @@ public struct Group: Identifiable, Equatable, Hashable {
 		return hmacKeysResponse
 	}
 
-	public func getPushTopics() throws -> [String] {
-		[topic]
+	/// Override notification rules, or reset the override with `.default`.
+	public func setNotifications(_ value: NotificationOverride) async throws {
+		try ffiGroup.setNotifications(value: value.toFFI)
+	}
+
+	/// Read the effective notification value for this conversation.
+	public func notificationsEnabled() async throws -> Bool {
+		try ffiGroup.notificationsEnabled()
 	}
 
 	public func getDebugInformation() async throws -> ConversationDebugInfo {

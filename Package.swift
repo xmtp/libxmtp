@@ -37,7 +37,7 @@ var packageTargets: [Target] = [
     .target(
         name: "XMTPiOS",
         dependencies: [
-            .product(name: "Connect", package: "connect-swift"),
+            .product(name: "SwiftProtobuf", package: "swift-protobuf"),
             .target(name: "LibXMTPSwiftFFI", condition: .when(traits: ["static"])),
             .product(name: "CryptoSwift", package: "CryptoSwift"),
         ]
@@ -94,7 +94,7 @@ let package = Package(
         .default(enabledTraits: ["static"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/bufbuild/connect-swift", exact: "1.2.0"),
+        .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.38.1"),
         .package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.4.3"),
         .package(url: "https://github.com/krzyzanowskim/CryptoSwift.git", "1.8.4" ..< "2.0.0"),
         .package(url: "https://github.com/SimplyDanny/SwiftLintPlugins", from: "0.62.1"),

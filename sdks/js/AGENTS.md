@@ -10,6 +10,7 @@ just js bindings                        # build node + wasm bindings via Nix, st
 just js bindings-node                    # build only Node bindings via Nix
 just js install-node-ci                  # install only Node and agent workspaces
 just js check-node                       # typecheck Node and agent SDKs
+just js check-notification-surface       # published Node types; Browser/WASM absence
 just js lint-node                        # lint Node and agent SDKs
 just js build-node                       # build Node and agent SDKs
 just js check                           # typecheck all

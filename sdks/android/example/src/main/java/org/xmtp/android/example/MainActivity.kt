@@ -1,12 +1,10 @@
 package org.xmtp.android.example
 
-import android.Manifest
 import android.accounts.AccountManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
@@ -15,8 +13,6 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -34,7 +30,6 @@ import org.xmtp.android.example.conversation.NewConversationBottomSheet
 import org.xmtp.android.example.conversation.NewGroupBottomSheet
 import org.xmtp.android.example.databinding.ActivityMainBinding
 import org.xmtp.android.example.logs.LogViewerBottomSheet
-import org.xmtp.android.example.pushnotifications.PushNotificationTokenManager
 import org.xmtp.android.example.utils.KeyUtil
 import org.xmtp.android.library.Client
 import org.xmtp.android.library.Conversation
@@ -51,7 +46,6 @@ class MainActivity :
     private var bottomSheet: NewConversationBottomSheet? = null
     private var groupBottomSheet: NewGroupBottomSheet? = null
     private var logsBottomSheet: LogViewerBottomSheet? = null
-    private val REQUEST_CODE_POST_NOTIFICATIONS = 101
 
     // Add constant for SharedPreferences
     companion object {
@@ -62,9 +56,6 @@ class MainActivity :
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         accountManager = AccountManager.get(this)
-        checkAndRequestPermissions()
-        PushNotificationTokenManager.init(this, "10.0.2.2:8080")
-        viewModel.setupPush()
 
         val keys = KeyUtil(this).loadKeys()
         if (keys == null) {
@@ -306,7 +297,6 @@ class MainActivity :
 
     private fun disconnectWallet() {
         ClientManager.clearClient()
-        PushNotificationTokenManager.clearXMTPPush()
         val accounts = accountManager.getAccountsByType(resources.getString(R.string.account_type))
         accounts.forEach { account ->
             accountManager.removeAccount(account, null, null, null)
@@ -342,20 +332,6 @@ class MainActivity :
             supportFragmentManager,
             LogViewerBottomSheet.TAG,
         )
-    }
-
-    private fun checkAndRequestPermissions() {
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
-                REQUEST_CODE_POST_NOTIFICATIONS,
-            )
-        }
     }
 
     // Add helper methods to manage log activation state

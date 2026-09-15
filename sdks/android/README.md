@@ -21,7 +21,7 @@ Access the [Kotlin client SDK reference documentation](https://xmtp.github.io/xm
 
 Use the [XMTP Android quickstart app](./example) as a tool to start building an app with XMTP. This basic messaging app has an intentionally unopinionated UI to help make it easier for you to build with.
 
-To learn about example app push notifications, see [Enable the quickstart app to send push notifications](library/src/main/java/org/xmtp/android/library/push/README.md).
+The example app does not include push notifications. See the [shared push guide](../../apps/docs/src/content/docs/sdk/push-notifications.md) to add them to an app.
 
 ## Install from Maven Central
 
