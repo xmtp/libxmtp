@@ -39,13 +39,17 @@ just backend test       # backend unit and RPC/storage tests.
 just check              # cargo check. default-members only.
 just test               # workspace tests. default-members only.
 just lint               # rust + config + markdown. Run before commit.
-just lint-markdown      # excludes generated error glossary and JS release changelogs.
+just lint-markdown      # excludes generated glossary and JS/CLI release changelogs.
 just lint-proto         # Buf checks the local proto/ schemas.
 just validation         # isolated shared validation checks and native/wasm tests.
 just docs build         # Starlight site. Run just docs install first.
 just docs lint          # site code and Markdown.
 just docs format-check  # site formatting.
 just docs test          # site build-tool tests.
+just cli install        # install standalone CLI dependencies.
+just cli check          # build linked Node SDK and typecheck CLI.
+just cli lint           # lint CLI TypeScript.
+just cli test           # test CLI against the worktree backend.
 just outline <file>     # signature outline of a source file. No bodies.
 just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
 just ci-failures <job>  # why one job failed. Filtered, not the raw log.
