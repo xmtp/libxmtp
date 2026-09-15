@@ -315,6 +315,7 @@ async fn webhook_absent_domain_list_allows_public_hosts_and_blocks_private_addre
         "https://[::]",
         "https://[fc00::1]",
         "https://[fe80::1]",
+        "https://[fec0::1]",
         "https://[::ffff:127.0.0.1]",
     ] {
         status(
@@ -404,6 +405,22 @@ fn webhook_shared_address_filter_blocks_the_exact_range_and_mapped_ipv4() {
     ] {
         assert_eq!(
             webhook_url::blocked(address.parse()?),
+            expected,
+            "{address}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn webhook_deprecated_site_local_filter_matches_exact_range() {
+    for (address, expected) in [
+        ("febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff", false),
+        ("fec0::", true),
+        ("feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true),
+        ("ff00::", false),
+    ] {
+        assert_eq!(
+            webhook_url::deprecated_site_local(address.parse()?),
             expected,
             "{address}"
         );

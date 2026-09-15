@@ -6,6 +6,8 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 const SHARED_ADDRESS_NETWORK: u32 = u32::from_be_bytes([100, 64, 0, 0]);
 const SHARED_ADDRESS_MASK: u32 = u32::from_be_bytes([255, 192, 0, 0]);
+const SITE_LOCAL_NETWORK: u16 = 0xfec0;
+const SITE_LOCAL_MASK: u16 = 0xffc0;
 
 #[derive(Debug, thiserror::Error)]
 #[error("webhook url is not allowed")]
@@ -68,7 +70,11 @@ fn blocked_v4(ip: Ipv4Addr) -> bool {
         || ip.is_multicast()
 }
 
-/// Include mapped IPv4, unique-local IPv6, and IPv6 link-local ranges.
+pub(crate) fn deprecated_site_local(ip: std::net::Ipv6Addr) -> bool {
+    (ip.segments()[0] & SITE_LOCAL_MASK) == SITE_LOCAL_NETWORK
+}
+
+/// Include mapped IPv4 and all non-public IPv6 address ranges.
 pub(crate) fn blocked(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => blocked_v4(ip),
@@ -78,6 +84,7 @@ pub(crate) fn blocked(ip: IpAddr) -> bool {
                 || ip.is_unspecified()
                 || ip.is_unique_local()
                 || ip.is_unicast_link_local()
+                || deprecated_site_local(ip)
                 || ip.is_multicast()
         }
     }
