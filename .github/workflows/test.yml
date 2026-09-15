@@ -2,7 +2,10 @@ name: Test
 
 on:
   push:
-    branches: [main]
+    # Trusted runs commit the /nix sticky disks and the sccache cache that PR
+    # jobs read, and are the only runs where dev/ci/warm-deps does anything.
+    # Work happens on self-hosted, so it must be here or PRs always build cold.
+    branches: [main, self-hosted]
   pull_request:
 
 permissions:
@@ -23,7 +26,9 @@ jobs:
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
       agent_sdk: ${{ steps.filter.outputs.agent_sdk }}
       ios: ${{ steps.filter.outputs.ios }}
+      ios_direct: ${{ steps.filter.outputs.ios_direct }}
       android: ${{ steps.filter.outputs.android }}
+      android_direct: ${{ steps.filter.outputs.android_direct }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
       devcontainer: ${{ steps.filter.outputs.devcontainer }}
       keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
@@ -129,6 +134,19 @@ jobs:
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/test-ios*'
+            # The mobile suites do not gate merge (see the `test` job's needs
+            # list). On a pull request they run only for a direct change to
+            # mobile sources; a crate change that breaks them is caught by the
+            # push run on merge, which uses the broad filter above.
+            ios_direct:
+              - 'sdks/ios/**'
+              - 'bindings/mobile/**'
+              - 'Package.swift'
+              - '.github/workflows/test-ios*'
+            android_direct:
+              - 'sdks/android/**'
+              - 'bindings/mobile/**'
+              - '.github/workflows/test-android*'
             android:
               - 'apps/backend/**'
               - 'sdks/android/**'
@@ -281,9 +299,13 @@ jobs:
       packages: write
     needs: detect-changes
     if: |
-      needs.detect-changes.outputs.ios == 'true' &&
       (
-        github.event_name != 'pull_request' ||
+        github.event_name != 'pull_request' &&
+        needs.detect-changes.outputs.ios == 'true'
+      ) ||
+      (
+        github.event_name == 'pull_request' &&
+        needs.detect-changes.outputs.ios_direct == 'true' &&
         github.event.pull_request.head.repo.full_name == github.repository
       )
     uses: ./.github/workflows/test-ios.yml
@@ -291,7 +313,15 @@ jobs:
 
   test-android:
     needs: detect-changes
-    if: needs.detect-changes.outputs.android == 'true'
+    if: |
+      (
+        github.event_name != 'pull_request' &&
+        needs.detect-changes.outputs.android == 'true'
+      ) ||
+      (
+        github.event_name == 'pull_request' &&
+        needs.detect-changes.outputs.android_direct == 'true'
+      )
     uses: ./.github/workflows/test-android.yml
     secrets: inherit
 

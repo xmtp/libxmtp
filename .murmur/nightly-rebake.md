@@ -92,15 +92,16 @@ bakes too, so matching on the recipe name would match a previous run and you
 would report on the wrong bake.
 
 Poll until the bake leaves the running list. A full bake takes 30-55 minutes:
-it installs Nix and Docker, warms both dev shell closures, and — only if enough
-time remains — cross-compiles the backend for musl.
+it installs Nix and Docker, warms both dev shell closures, cross-compiles the
+backend for musl, and pre-pulls the stack's Docker images.
 
-The provisioning script budgets its own time against the 1h ceiling. If the dev
-shells take too long (which happens when a commit changes the shell closure, so
-nothing matches the Cachix cache and the shells must be BUILT rather than
-downloaded), the script deliberately SKIPS the backend image warm and says so in
-its output. That is a healthy bake, not a failure: the image is still correct
-and agents simply build the backend on their first `just backend up`.
+The provisioning script budgets its own time against the 1h ceiling and prints
+a timing line for every stage, like `=== [12m] done: rust dev shell (7m) ===`.
+Read those lines to see where a slow bake spent its time. If more than 35
+minutes have elapsed when the backend image step is reached, the script
+deliberately SKIPS it and says so. That is a healthy bake, not a failure: the
+image is still correct and agents build the backend on their first
+`just backend up`.
 
 Do not conclude the bake has hung before 60 minutes. The recipe's timeout is 1h,
 which is the platform maximum, so a bake that exceeds it fails and produces no
@@ -113,10 +114,11 @@ image.
 
 A row whose phase is `completed` or `cached` succeeded. Anything else failed.
 
-If the bake TIMED OUT, say so explicitly in your report and note that the
-warm-stage time budget may need tightening — the knobs are
-`BACKEND_WARM_DEADLINE_MIN` and the `timeout` on the backend build step in the
-recipe's provisioning script. Do not change them yourself; report and stop.
+If the bake TIMED OUT, say so explicitly in your report, and quote the stage
+timing lines so the slow stage is identified. The warm-stage budget may need
+tightening — the knobs are the 35-minute guard before the backend image step
+and the per-step `timeout` values in the recipe's provisioning script. Do not
+change them yourself; report and stop.
 
 ## Step 4: Roll the workspace forward
 
@@ -140,7 +142,8 @@ State plainly:
 
 - whether you rebaked or skipped, and why
 - the commit the new image was built from
-- how long the bake took
+- how long the bake took, and the per-stage timing lines
+- whether the backend image warm ran or was skipped
 - whether you rolled the workspace forward, and the new image name
 - any permission that was denied
 

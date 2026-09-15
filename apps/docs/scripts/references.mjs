@@ -8,22 +8,30 @@ export async function installReferences({
   generatedRoot = resolve(repositoryRoot, "apps/docs/generated/reference"),
   siteRoot = resolve(repositoryRoot, "apps/docs/_site"),
 } = {}) {
+  // The Kotlin and Swift references are built on push only, because each is a
+  // from-scratch Rust cross-compile. A pull-request build composes the site
+  // without them and sets DOCS_SKIP_NATIVE_REFERENCES.
+  const skipNative = process.env.DOCS_SKIP_NATIVE_REFERENCES === "1";
   const references = [
     {
       name: "Rust",
       source: resolve(generatedRoot, "rust"),
       destination: resolve(siteRoot, "rust"),
     },
-    {
-      name: "Kotlin",
-      source: resolve(generatedRoot, "kotlin"),
-      destination: resolve(siteRoot, "reference/kotlin"),
-    },
-    {
-      name: "Swift",
-      source: resolve(generatedRoot, "swift"),
-      destination: resolve(siteRoot, "reference/swift"),
-    },
+    ...(skipNative
+      ? []
+      : [
+          {
+            name: "Kotlin",
+            source: resolve(generatedRoot, "kotlin"),
+            destination: resolve(siteRoot, "reference/kotlin"),
+          },
+          {
+            name: "Swift",
+            source: resolve(generatedRoot, "swift"),
+            destination: resolve(siteRoot, "reference/swift"),
+          },
+        ]),
   ];
 
   await mkdir(siteRoot, { recursive: true });
@@ -51,13 +59,15 @@ export async function installReferences({
     '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=./xmtp_mls/"><link rel="canonical" href="./xmtp_mls/"><title>XMTP Rust API reference</title><p><a href="./xmtp_mls/">Open the XMTP Rust API reference</a>.</p>\n',
   );
 
-  const swiftModuleIndex = resolve(
-    siteRoot,
-    "reference/swift/documentation/xmtpios/index.html",
-  );
-  await access(swiftModuleIndex, constants.R_OK).catch(() => {
-    throw new Error(`Swift module index is missing: ${swiftModuleIndex}`);
-  });
+  if (!skipNative) {
+    const swiftModuleIndex = resolve(
+      siteRoot,
+      "reference/swift/documentation/xmtpios/index.html",
+    );
+    await access(swiftModuleIndex, constants.R_OK).catch(() => {
+      throw new Error(`Swift module index is missing: ${swiftModuleIndex}`);
+    });
+  }
 }
 
 if (

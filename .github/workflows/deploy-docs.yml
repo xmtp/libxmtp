@@ -1,9 +1,24 @@
 name: Build and Deploy Docs
 
 on:
+  # A pull request builds the site and the Rust reference only, and only when
+  # it touches something the site is built from. The native references (Swift,
+  # Kotlin) are a from-scratch Rust cross-compile that dominates the run, so
+  # they are left to the push builds below. docs-quality.yml lints, formats,
+  # and tests the site on every pull request regardless.
   pull_request:
+    paths:
+      - "apps/docs/**"
+      - "docs/**"
+      - "sdks/js/**"
+      - "bindings/node/**"
+      - "bindings/wasm/**"
+      - "crates/**"
+      - "nix/**"
+      - "flake.lock"
+      - ".github/workflows/deploy-docs.yml"
   push:
-    branches: [main]
+    branches: [main, self-hosted]
   workflow_dispatch:
 
 permissions:
@@ -40,6 +55,9 @@ jobs:
 
   swift:
     name: Swift reference
+    # Push builds only: this is a from-scratch Rust cross-compile for two Apple
+    # targets and is the whole critical path of the run. DocC itself is a minute.
+    if: github.event_name != 'pull_request'
     runs-on: macos-15
     timeout-minutes: 60
     steps:
@@ -48,6 +66,10 @@ jobs:
         with:
           nix-disk: "false"
           github-token: ${{ github.token }}
+          # macOS has no sticky /nix disk, so Cachix is the only cache this job
+          # has. Without the token it substitutes but never pushes, and the
+          # dependency closure is rebuilt on every run.
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - run: just ios docs apps/docs/generated/reference/swift
       - name: Archive Swift reference
@@ -64,6 +86,9 @@ jobs:
 
   kotlin:
     name: Kotlin reference
+    # Push builds only, like swift: the Rust bindings build dominates it and
+    # dokka itself is under a minute.
+    if: github.event_name != 'pull_request'
     runs-on: blacksmith-16vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
@@ -73,6 +98,7 @@ jobs:
           disk-key: android
           gradle-disk: "true"
           github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - run: just android docs
       - uses: actions/upload-artifact@v7
@@ -109,11 +135,22 @@ jobs:
 
   compose:
     name: Validate the composed site
+    # swift and kotlin are skipped on a pull request, and a skipped need would
+    # otherwise skip this job too. Fail only when a need actually failed.
     needs: [rust, swift, kotlin, site]
+    if: >-
+      !cancelled()
+      && needs.rust.result == 'success'
+      && needs.site.result == 'success'
+      && needs.swift.result != 'failure'
+      && needs.kotlin.result != 'failure'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 20
     env:
       NIX_DEVSHELL: docs
+      # Without the native references, check-site.mjs must not demand their
+      # entrypoints and compose.mjs must not demand their directories.
+      DOCS_SKIP_NATIVE_REFERENCES: ${{ github.event_name == 'pull_request' && '1' || '' }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
@@ -131,14 +168,17 @@ jobs:
           name: docs-rust
           path: apps/docs/generated/reference/rust
       - uses: actions/download-artifact@v8
+        if: github.event_name != 'pull_request'
         with:
           name: docs-swift
           path: ${{ runner.temp }}/docs-swift
       - name: Extract Swift reference
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p apps/docs/generated/reference/swift
           tar -xf "${RUNNER_TEMP}/docs-swift/docs-swift.tar" -C apps/docs/generated/reference/swift
       - uses: actions/download-artifact@v8
+        if: github.event_name != 'pull_request'
         with:
           name: docs-kotlin
           path: apps/docs/generated/reference/kotlin
@@ -186,12 +226,18 @@ jobs:
             apps/docs/test-results
             apps/docs/playwright-report
           if-no-files-found: ignore
+      # Only the deploy job consumes this, and a pull-request artifact would be
+      # missing the native references anyway.
       - uses: actions/upload-pages-artifact@v4
+        if: github.event_name != 'pull_request'
         with:
           path: apps/docs/_site
 
   deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # self-hosted is where the work happens, so it is what publishes. A push to
+    # main still runs the full build as a signal; GitHub Pages serves one site
+    # per repository, so only one branch can deploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/self-hosted'
     needs: compose
     permissions:
       pages: write

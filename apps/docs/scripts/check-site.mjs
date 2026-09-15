@@ -13,11 +13,16 @@ import {
 
 const SOURCE_EXTENSIONS = new Set([".md", ".mdx"]);
 const ALLOWED_SCHEMES = /^(?:https?:|mailto:|tel:|data:|javascript:)/i;
+// The Kotlin and Swift references are built on push only, because each is a
+// from-scratch Rust cross-compile. A pull-request build composes without them
+// and sets DOCS_SKIP_NATIVE_REFERENCES so they are not required here.
+const skipNativeReferences = process.env.DOCS_SKIP_NATIVE_REFERENCES === "1";
 const NATIVE_ENTRYPOINTS = [
   "rust/index.html",
   "rust/xmtp_mls/index.html",
-  "reference/kotlin/index.html",
-  "reference/swift/index.html",
+  ...(skipNativeReferences
+    ? []
+    : ["reference/kotlin/index.html", "reference/swift/index.html"]),
 ];
 
 export async function checkSource({ contentRoot }) {
