@@ -171,17 +171,23 @@ async fn only_typed_fcm_errors_can_delete_or_report_mismatch() {
         (
             503,
             json!({"error": {"status": "UNAVAILABLE"}}),
-            Outcome::Rejected,
+            Outcome::Transient {
+                retry_after: Some(FAILED_REQUEST_DELAY),
+            },
         ),
         (
             500,
             failure("INTERNAL"),
-            Outcome::Transient { retry_after: None },
+            Outcome::Transient {
+                retry_after: Some(FAILED_REQUEST_DELAY),
+            },
         ),
         (
             503,
             failure("UNAVAILABLE"),
-            Outcome::Transient { retry_after: None },
+            Outcome::Transient {
+                retry_after: Some(FAILED_REQUEST_DELAY),
+            },
         ),
         (302, json!({}), Outcome::Rejected),
     ];
@@ -257,6 +263,58 @@ async fn quota_and_retry_after_delays_are_bounded_and_never_under_one_minute_for
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn quota_details_and_http_statuses_retry_without_fcm_details() {
+    let cases = [
+        (
+            429,
+            json!({"error": {"status": "RESOURCE_EXHAUSTED"}}).to_string(),
+            None,
+            60,
+        ),
+        (429, String::new(), Some("120"), 120),
+        (
+            400,
+            json!({"error": {"details": [{"@type": QUOTA_FAILURE_TYPE, "violations": []}]}})
+                .to_string(),
+            Some("1"),
+            60,
+        ),
+        (500, String::new(), None, 10),
+        (503, "not json".into(), Some("1"), 10),
+        (503, String::new(), Some("120"), 120),
+        (503, "not json".into(), Some("999"), 300),
+        (503, String::new(), Some("invalid"), 10),
+    ];
+    let token = Provider::start(Protocol::Http1, vec![token_reply()]).await?;
+    let provider = Provider::start(
+        Protocol::Http1,
+        cases
+            .iter()
+            .map(|(status, body, delay, _)| {
+                let mut reply = Reply::json(*status, json!({}));
+                reply.body = body.as_bytes().to_vec();
+                if let Some(delay) = delay {
+                    reply.headers.push(("retry-after", delay.to_string()));
+                }
+                reply
+            })
+            .collect(),
+    )
+    .await?;
+    let sender = sender(&token, &provider)?;
+    for (status, _, _, seconds) in &cases {
+        assert_eq!(
+            sender.send(&delivery()).await,
+            Outcome::Transient {
+                retry_after: Some(Duration::from_secs(*seconds))
+            },
+            "HTTP {status}"
+        );
+    }
+    assert_eq!(provider.count(), cases.len());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_cache_misses_and_expiry_share_one_exchange_and_failures_recover() {
     let mut reply = token_reply();
     reply.delay = Duration::from_millis(50);
@@ -279,11 +337,10 @@ async fn concurrent_cache_misses_and_expiry_share_one_exchange_and_failures_reco
     }]);
     let delivery = delivery();
     let results = futures::future::join_all((0..64).map(|_| sender.send(&delivery))).await;
-    assert!(
-        results
-            .iter()
-            .all(|result| *result == Outcome::Transient { retry_after: None })
-    );
+    assert!(results.iter().all(|result| *result
+        == Outcome::Transient {
+            retry_after: Some(FAILED_REQUEST_DELAY)
+        }));
     assert_eq!(token.count(), 3);
     assert_eq!(provider.count(), 0);
     expire(&sender);
@@ -347,11 +404,10 @@ async fn whole_attempt_deadline_covers_provider_headers_body_and_oauth_headers_b
         futures::future::join_all(senders.iter().map(|sender| sender.send(&delivery))),
     )
     .await?;
-    assert!(
-        results
-            .iter()
-            .all(|outcome| *outcome == Outcome::Transient { retry_after: None })
-    );
+    assert!(results.iter().all(|outcome| *outcome
+        == Outcome::Transient {
+            retry_after: Some(FAILED_REQUEST_DELAY)
+        }));
     assert!(started.elapsed() >= ATTEMPT_TIMEOUT - Duration::from_millis(100));
     assert_eq!(
         headers.count(),
@@ -374,23 +430,69 @@ async fn oauth_and_send_responses_have_a_byte_bound() {
     let sender = sender(&token, &provider)?;
     assert_eq!(
         sender.send(&delivery()).await,
-        Outcome::Transient { retry_after: None }
+        Outcome::Transient {
+            retry_after: Some(FAILED_REQUEST_DELAY)
+        }
     );
     assert_eq!(provider.count(), 0);
     expire(&sender);
     token.set_replies(vec![token_reply()]);
     assert_eq!(
         sender.send(&delivery()).await,
-        Outcome::Transient { retry_after: None }
+        Outcome::Transient {
+            retry_after: Some(FAILED_REQUEST_DELAY)
+        }
     );
     assert_eq!(provider.count(), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn stalled_error_bodies_keep_quota_and_retry_after_delays() {
+    let token = Provider::start(Protocol::Http1, vec![token_reply()]).await?;
+    let quota = Provider::start(
+        Protocol::Http1,
+        vec![Reply {
+            stall_body: true,
+            ..Reply::json(429, json!({}))
+        }],
+    )
+    .await?;
+    let mut unavailable_reply = Reply::json(503, json!({}));
+    unavailable_reply.stall_body = true;
+    unavailable_reply
+        .headers
+        .push(("retry-after", "120".into()));
+    let unavailable = Provider::start(Protocol::Http1, vec![unavailable_reply]).await?;
+    let quota_sender = sender(&token, &quota)?;
+    let unavailable_sender = sender(&token, &unavailable)?;
+    let delivery = delivery();
+    let results = xmtp_common::time::timeout(ATTEMPT_TIMEOUT + Duration::from_secs(2), async {
+        tokio::join!(
+            quota_sender.send(&delivery),
+            unavailable_sender.send(&delivery)
+        )
+    })
+    .await?;
+    assert_eq!(
+        results,
+        (
+            Outcome::Transient {
+                retry_after: Some(Duration::from_secs(60))
+            },
+            Outcome::Transient {
+                retry_after: Some(Duration::from_secs(120))
+            },
+        )
+    );
+    assert_eq!(quota.count(), 1);
+    assert_eq!(unavailable.count(), 1);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn credentials_and_echoed_provider_errors_do_not_expose_private_fields() {
     let delivery = delivery();
     let echo = format!(
-        "{} {} {} private-provider-metadata private-oauth-token",
+        "{} {} {} private-oauth-token",
         delivery.config.delivery,
         delivery.payload.topic,
         hex::encode(&delivery.config.recipient_id)
@@ -411,7 +513,9 @@ async fn credentials_and_echoed_provider_errors_do_not_expose_private_fields() {
         tracing::info!(target: "xmtp_backend::push", "provider privacy capture active");
         assert_eq!(
             sender.send(&delivery).await,
-            Outcome::Transient { retry_after: None }
+            Outcome::Transient {
+                retry_after: Some(FAILED_REQUEST_DELAY)
+            }
         );
         expire(&sender);
         token.set_replies(vec![token_reply()]);

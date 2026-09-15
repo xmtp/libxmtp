@@ -68,6 +68,7 @@ async fn apns_terminal_replies_delete_but_sender_mismatches_keep_subscriptions_a
         (400, "DeviceTokenNotForTopic", false),
         (400, "Unregistered", false),
         (410, "UnknownReason", false),
+        (403, "ExpiredProviderToken", false),
     ]
     .into_iter()
     .enumerate()

@@ -37,6 +37,8 @@ struct CachedToken {
     issued: Instant,
 }
 
+struct ExpiredProviderToken;
+
 #[derive(Serialize)]
 struct Claims<'a> {
     iss: &'a str,
@@ -134,11 +136,30 @@ impl ApnsSender {
         value
     }
 
-    /// Read a bounded response body before classifying the provider answer.
+    /// Refresh a rejected credential once. Both requests share the send deadline.
     async fn attempt(&self, delivery: &Delivery) -> Outcome {
         let Ok(token) = self.token().await else {
             return Outcome::Transient { retry_after: None };
         };
+        match self.request(delivery, &token).await {
+            Ok(outcome) => outcome,
+            Err(ExpiredProviderToken) => {
+                let Ok(token) = self.token().await else {
+                    return Outcome::Transient { retry_after: None };
+                };
+                self.request(delivery, &token)
+                    .await
+                    .unwrap_or(Outcome::Rejected)
+            }
+        }
+    }
+
+    /// Read a bounded response body before classifying the provider answer.
+    async fn request(
+        &self,
+        delivery: &Delivery,
+        token: &str,
+    ) -> Result<Outcome, ExpiredProviderToken> {
         if delivery.config.delivery.is_empty()
             || !delivery
                 .config
@@ -146,7 +167,7 @@ impl ApnsSender {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
         {
-            return Outcome::Rejected;
+            return Ok(Outcome::Rejected);
         }
         let body = serde_json::json!({
             "aps": {"content-available": 1},
@@ -155,7 +176,7 @@ impl ApnsSender {
         });
         let mut authorization = match http::HeaderValue::from_str(&format!("bearer {token}")) {
             Ok(value) => value,
-            Err(_) => return Outcome::Rejected,
+            Err(_) => return Ok(Outcome::Rejected),
         };
         authorization.set_sensitive(true);
         let request = http::Request::post(format!(
@@ -171,24 +192,36 @@ impl ApnsSender {
         .header("apns-collapse-id", &delivery.payload.topic)
         .body(Full::new(Bytes::from(body.to_string())));
         let Ok(request) = request else {
-            return Outcome::Rejected;
+            return Ok(Outcome::Rejected);
         };
         let Ok(response) = self.client.request(request).await else {
-            return Outcome::Transient { retry_after: None };
+            return Ok(Outcome::Transient { retry_after: None });
         };
         let status = response.status().as_u16();
         let Ok(body) = Limited::new(response.into_body(), MAX_RESPONSE_BYTES)
             .collect()
             .await
         else {
-            return Outcome::Transient { retry_after: None };
+            return Ok(Outcome::Transient { retry_after: None });
         };
         #[derive(Deserialize)]
         struct Failure {
             reason: String,
         }
         let reason = serde_json::from_slice::<Failure>(&body.to_bytes()).ok();
-        classify(status, reason.as_ref().map(|error| error.reason.as_str()))
+        let reason = reason.as_ref().map(|error| error.reason.as_str());
+        if status == 403 && reason == Some("ExpiredProviderToken") {
+            let mut cached = self.token.lock().await;
+            // Do not remove a newer token installed by another request.
+            if cached
+                .as_ref()
+                .is_some_and(|cached| cached.value.as_deref() == Ok(token))
+            {
+                *cached = None;
+            }
+            return Err(ExpiredProviderToken);
+        }
+        Ok(classify(status, reason))
     }
 }
 

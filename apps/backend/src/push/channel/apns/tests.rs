@@ -54,7 +54,6 @@ pub(crate) fn delivery() -> Delivery {
             channel: PushChannel::Apns,
             delivery: "abcdef0123456789".repeat(4),
             signing_key: None,
-            metadata: b"private-provider-metadata".to_vec(),
         },
     }
 }
@@ -214,6 +213,79 @@ async fn expired_token_refresh_is_shared_and_a_signing_failure_recovers() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn provider_token_expiry_refreshes_once_and_repeated_expiry_keeps_recipient() {
+    for (second, expected) in [(200, Outcome::Delivered), (403, Outcome::Rejected)] {
+        let provider = Provider::start(
+            Protocol::Http2Tls,
+            vec![
+                Reply::json(403, json!({"reason": "ExpiredProviderToken"})),
+                Reply::json(second, json!({"reason": "ExpiredProviderToken"})),
+            ],
+        )
+        .await?;
+        let sender = sender(&provider)?;
+        sender.token.lock().await.as_mut().unwrap().value = Ok("stale-credential".into());
+        assert_eq!(sender.send(&delivery()).await, expected);
+        assert_eq!(provider.count(), 2);
+        assert_eq!(sender.refreshes.load(Ordering::SeqCst), 1);
+        assert_eq!(sender.token.lock().await.is_none(), second == 403);
+        let requests = provider.requests.lock();
+        assert_eq!(
+            requests[0].headers["authorization"],
+            "bearer stale-credential"
+        );
+        let refreshed = requests[1].headers["authorization"]
+            .to_str()?
+            .strip_prefix("bearer ")
+            .unwrap();
+        verify_token(refreshed)?;
+        assert_eq!(requests[0].body, requests[1].body);
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn stale_expiry_response_does_not_invalidate_a_newer_cached_token() {
+    let provider = Provider::start(
+        Protocol::Http2Tls,
+        vec![Reply::json(403, json!({"reason": "ExpiredProviderToken"}))],
+    )
+    .await?;
+    let sender = sender(&provider)?;
+    let current = sender.token().await.unwrap();
+    assert!(sender.request(&delivery(), "older-token").await.is_err());
+    assert_eq!(sender.token().await.unwrap(), current);
+    assert_eq!(sender.refreshes.load(Ordering::SeqCst), 0);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn credential_resend_uses_the_original_attempt_deadline() {
+    let provider = Provider::start(
+        Protocol::Http2Tls,
+        vec![
+            Reply {
+                delay: Duration::from_secs(3),
+                ..Reply::json(403, json!({"reason": "ExpiredProviderToken"}))
+            },
+            Reply {
+                stall_headers: true,
+                ..Reply::json(200, json!({}))
+            },
+        ],
+    )
+    .await?;
+    let sender = sender(&provider)?;
+    let started = Instant::now();
+    let outcome = xmtp_common::time::timeout(
+        ATTEMPT_TIMEOUT + Duration::from_secs(2),
+        sender.send(&delivery()),
+    )
+    .await?;
+    assert_eq!(outcome, Outcome::Transient { retry_after: None });
+    assert!(started.elapsed() >= ATTEMPT_TIMEOUT);
+    assert_eq!(provider.count(), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn whole_attempt_deadline_covers_headers_body_and_credential_wait() {
     let headers = Provider::start(
         Protocol::Http2Tls,
@@ -262,7 +334,7 @@ async fn whole_attempt_deadline_covers_headers_body_and_credential_wait() {
 async fn request_and_echoed_error_do_not_expose_private_fields_in_logs() {
     let delivery = delivery();
     let echo = format!(
-        "{} {} {} private-provider-metadata",
+        "{} {} {}",
         delivery.config.delivery,
         delivery.payload.topic,
         hex::encode(&delivery.config.recipient_id)

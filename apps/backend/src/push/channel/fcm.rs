@@ -21,7 +21,9 @@ const TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const SEND_BASE: &str = "https://fcm.googleapis.com/v1/projects";
 const SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
 const FCM_ERROR_TYPE: &str = "type.googleapis.com/google.firebase.fcm.v1.FcmError";
+const QUOTA_FAILURE_TYPE: &str = "type.googleapis.com/google.rpc.QuotaFailure";
 const QUOTA_DELAY: Duration = Duration::from_secs(60);
+const FAILED_REQUEST_DELAY: Duration = Duration::from_secs(10);
 const TOKEN_LIFETIME_SECONDS: i64 = 3600;
 const TOKEN_REFRESH_MARGIN: Duration = Duration::from_secs(20);
 type TokenFlight = Shared<BoxFuture<'static, CachedToken>>;
@@ -146,7 +148,7 @@ impl FcmSender {
         flight.await.value
     }
 
-    async fn attempt(&self, delivery: &Delivery) -> Outcome {
+    async fn attempt(&self, delivery: &Delivery, timeout_outcome: &mut Outcome) -> Outcome {
         let Ok(token) = self.token().await else {
             return Outcome::Transient { retry_after: None };
         };
@@ -175,8 +177,14 @@ impl FcmSender {
             .get(reqwest::header::RETRY_AFTER)
             .and_then(|value| value.to_str().ok())
             .and_then(retry_after);
-        let Ok(body) = response_body(response).await else {
-            return Outcome::Transient { retry_after: None };
+        // Keep the provider's delay if the body stalls until the send deadline.
+        if matches!(status, 429 | 500 | 503) {
+            *timeout_outcome = classify(status, &[], retry_after);
+        }
+        let body = match response_body(response).await {
+            Ok(body) => body,
+            Err(()) if matches!(status, 429 | 500 | 503) => Vec::new(),
+            Err(()) => return Outcome::Transient { retry_after: None },
         };
         classify(status, &body, retry_after)
     }
@@ -270,10 +278,24 @@ async fn response_body(mut response: reqwest::Response) -> Result<Vec<u8>, ()> {
 #[async_trait::async_trait]
 impl Sender for FcmSender {
     async fn send(&self, delivery: &Delivery) -> Outcome {
-        xmtp_common::time::timeout(ATTEMPT_TIMEOUT, self.attempt(delivery))
-            .with_subscriber(tracing::Dispatch::none())
-            .await
-            .unwrap_or(Outcome::Transient { retry_after: None })
+        let mut timeout_outcome = Outcome::Transient { retry_after: None };
+        let outcome = xmtp_common::time::timeout(
+            ATTEMPT_TIMEOUT,
+            self.attempt(delivery, &mut timeout_outcome),
+        )
+        .with_subscriber(tracing::Dispatch::none())
+        .await
+        .unwrap_or(timeout_outcome);
+        match outcome {
+            Outcome::Transient { retry_after } => Outcome::Transient {
+                retry_after: Some(
+                    retry_after
+                        .unwrap_or(FAILED_REQUEST_DELAY)
+                        .clamp(FAILED_REQUEST_DELAY, MAX_RETRY_DELAY),
+                ),
+            },
+            other => other,
+        }
     }
 }
 
@@ -298,29 +320,35 @@ fn classify(status: u16, body: &[u8], retry_after: Option<Duration>) -> Outcome 
         #[serde(default)]
         details: Vec<serde_json::Value>,
     }
-    #[derive(Deserialize)]
-    struct Detail {
-        #[serde(rename = "@type")]
-        kind: String,
-        #[serde(rename = "errorCode")]
-        code: String,
-    }
     let response = serde_json::from_slice::<Response>(body).ok();
-    let code = response.and_then(|response| {
-        response
-            .error
-            .details
-            .into_iter()
-            .filter_map(|value| serde_json::from_value::<Detail>(value).ok())
-            .find(|detail| detail.kind == FCM_ERROR_TYPE)
-            .map(|detail| detail.code)
+    let details = response
+        .map(|response| response.error.details)
+        .unwrap_or_default();
+    let code = details.iter().find_map(|detail| {
+        (detail["@type"] == FCM_ERROR_TYPE)
+            .then(|| detail["errorCode"].as_str())
+            .flatten()
     });
-    match code.as_deref() {
+    if status == 429
+        || code == Some("QUOTA_EXCEEDED")
+        || details
+            .iter()
+            .any(|detail| detail["@type"] == QUOTA_FAILURE_TYPE)
+    {
+        return Outcome::Transient {
+            retry_after: Some(
+                retry_after
+                    .unwrap_or(QUOTA_DELAY)
+                    .clamp(QUOTA_DELAY, MAX_RETRY_DELAY),
+            ),
+        };
+    }
+    if matches!(status, 500 | 503) {
+        return Outcome::Transient { retry_after };
+    }
+    match code {
         Some("UNREGISTERED") => Outcome::Terminal,
         Some("SENDER_ID_MISMATCH") => Outcome::Mismatch,
-        Some("QUOTA_EXCEEDED") => Outcome::Transient {
-            retry_after: Some(retry_after.unwrap_or(QUOTA_DELAY).max(QUOTA_DELAY)),
-        },
         Some("UNAVAILABLE" | "INTERNAL") => Outcome::Transient { retry_after },
         _ => Outcome::Rejected,
     }
