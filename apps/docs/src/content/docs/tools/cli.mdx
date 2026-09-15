@@ -1,0 +1,48 @@
+---
+title: XMTP CLI
+description: Initialize identities, inspect clients, and work with XMTP conversations from a terminal.
+---
+
+The XMTP CLI provides terminal commands for identities, conversations,
+messages, consent, and installations. It connects directly to a self-hosted
+backend through a required URL.
+
+## Install
+
+```bash
+npm install --global @xmtp/cli
+```
+
+## Initialize
+
+Choose the backend explicitly when generating the local configuration:
+
+```bash
+xmtp init --backend-url http://127.0.0.1:5050
+```
+
+This writes wallet and database-encryption keys, the backend URL, and the
+database label to `~/.xmtp/.env`. Later commands load configuration from flags,
+an explicit `--env-file`, `./.env`, then `~/.xmtp/.env`.
+
+## Use the CLI
+
+```bash
+xmtp client info
+xmtp can-message 0x...
+xmtp conversations create-dm 0x...
+xmtp conversation send-text <conversation-id> "Hello"
+xmtp conversation messages <conversation-id>
+```
+
+Use `--json` for structured output. Run `xmtp <command> --help` for command and
+flag details.
+
+## Backend-specific databases
+
+By default, the CLI stores data at `~/.xmtp/<backend-label>/xmtp-db`. The label
+is derived from the backend origin, so changing the backend URL does not reuse
+another backend's database. Override the path with `--db-path` or
+`XMTP_DB_PATH` when needed.
+
+`--env` and `XMTP_ENV` are database labels only. They do not choose a backend.

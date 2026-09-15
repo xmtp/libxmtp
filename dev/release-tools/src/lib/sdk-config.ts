@@ -121,6 +121,18 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
     releaseWorkflow: "release-agent-sdk.yml",
     channels: ["nightly", "rc", "final"],
   },
+  [Sdk.Cli]: {
+    name: "CLI",
+    manifestPath: "apps/cli/package.json",
+    tagPrefix: "cli-",
+    artifactTagSuffix: "",
+    manifest: createPackageJsonManifestProvider("apps/cli/package.json"),
+    versionTrack: "independent",
+    notesIncludeGlobs: ["apps/cli/**"],
+    notesExcludeGlobs: ["crates/**", "bindings/**", "sdks/js/**"],
+    releaseWorkflow: "release-cli.yml",
+    channels: ["nightly", "rc", "final"],
+  },
   [Sdk.Libxmtp]: {
     name: "Libxmtp",
     manifestPath: "Cargo.toml",

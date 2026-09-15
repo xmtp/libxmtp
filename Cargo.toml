@@ -8,7 +8,7 @@ members = [
   "crates/*",
 ]
 
-exclude = ["apps/android", "apps/docs"]
+exclude = ["apps/android", "apps/cli", "apps/docs", "apps/web-chat"]
 
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
