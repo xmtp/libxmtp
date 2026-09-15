@@ -152,3 +152,72 @@ async fn stale_cursor_compare_and_set_cannot_advance() {
     );
     assert_eq!(fixture.cursor().await, 5);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn concurrent_cursor_compare_and_set_updates_have_one_winner() {
+    for (first_next, second_next) in [(8, 5), (5, 8)] {
+        let fixture = Fixture::new().await?;
+        let mut first = fixture.store.primary.begin().await?;
+        let mut second = fixture.store.primary.begin().await?;
+        let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *first)
+            .await?;
+        let second_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *second)
+            .await?;
+        assert_ne!(first_pid, second_pid);
+        let mut first_previous: i64 =
+            sqlx::query_scalar("SELECT sequence_id FROM push_cursor WHERE singleton")
+                .fetch_one(&mut *first)
+                .await?;
+        let mut second_previous: i64 =
+            sqlx::query_scalar("SELECT sequence_id FROM push_cursor WHERE singleton")
+                .fetch_one(&mut *second)
+                .await?;
+        assert_eq!((first_previous, second_previous), (0, 0));
+
+        let first_result = dispatcher::persist(&mut first, &mut first_previous, first_next).await;
+        assert!(first_result.is_ok());
+        assert_eq!(fixture.cursor().await, 0);
+
+        // Keep the first update uncommitted until PostgreSQL confirms that the
+        // other connection waits for its row lock. No timing assumption is needed.
+        let (after_first_commit, second_result) = tokio::join!(
+            async {
+                xmtp_common::wait_for_eq(
+                    || async {
+                        sqlx::query_scalar::<_, bool>("SELECT $1 = ANY(pg_blocking_pids($2))")
+                            .bind(first_pid)
+                            .bind(second_pid)
+                            .fetch_one(&fixture.store.primary)
+                            .await?
+                    },
+                    true,
+                )
+                .await?;
+                first.commit().await?;
+                fixture.cursor().await
+            },
+            async {
+                let result =
+                    dispatcher::persist(&mut second, &mut second_previous, second_next).await;
+                second.commit().await?;
+                result
+            },
+        );
+
+        assert_eq!(
+            usize::from(first_result.is_ok()) + usize::from(second_result.is_ok()),
+            1
+        );
+        assert!(matches!(
+            second_result,
+            Err(crate::error::Error::Invariant(
+                "push cursor ownership changed"
+            ))
+        ));
+        assert_eq!((first_previous, second_previous), (first_next, 0));
+        assert_eq!(after_first_commit, first_next);
+        assert_eq!(fixture.cursor().await, first_next);
+    }
+}
