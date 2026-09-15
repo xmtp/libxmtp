@@ -1948,6 +1948,7 @@ __metadata:
     fast-glob: "npm:^3.3.3"
     prettier: "npm:^3.9.6"
     prettier-plugin-packagejson: "npm:^3.0.0"
+    protobufjs: "npm:^7.0.0"
     tsx: "npm:^4.23.1"
     typescript: "npm:^5.9.3"
     uuid: "npm:^14.0.1"

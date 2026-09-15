@@ -37,59 +37,27 @@ fn synthetic_desired(count: u128) -> Desired {
         .collect()
 }
 
-/// Drive the same diff and response transaction against a bounded scripted backend.
-async fn send_synthetic_batch(
-    client: &crate::Client<support::Context>,
-    desired: &Desired,
-) -> Result<(), NotificationError> {
-    let db = client.context.db();
-    let record = db.notification_record()?;
-    let epoch = crate::utils::time::hmac_epoch();
-    let (topics, removes) = diff(desired, &db.uploaded_topics()?, epoch, &[3; 32], false);
-    let adds: Vec<_> = topics
-        .into_iter()
-        .map(|topic| UploadedTopic {
-            topic,
-            hmac_epoch_base: Some(epoch - 1),
-            include_commits: false,
-            root_key_fingerprint: vec![3; 32],
-            stale: false,
-        })
-        .collect();
-    let request = UpdateSubscriptionsRequest {
-        recipient_id: record.push_recipient_id.unwrap(),
-        recipient_secret: record.push_recipient_secret.unwrap(),
-        adds: adds
-            .iter()
-            .map(|row| Subscription {
-                topic: row.topic.clone(),
-                hmac_epoch_base: epoch - 1,
-                hmac_keys: vec![vec![1; 42]; 3],
-                include_commits: false,
-            })
-            .collect(),
-        removes: removes.clone(),
-    };
-    assert!(request.adds.len() + request.removes.len() <= REQUEST_TOPICS);
-    let response = client.context.api().update_subscriptions(request).await?;
-    confirm(
-        &client.context,
-        record.push_generation,
-        &config(),
-        &response,
-        &adds,
-        &removes,
-    )?;
-    Ok(())
-}
-
 #[xmtp_common::test(unwrap_try = true)]
 async fn notification_repair_reaches_2500_topics_in_three_turns() {
+    use crate::worker::tasks::TaskWorker;
     let (client, peer) = support::client().await;
+    // The welcome topic and 2,499 real MLS groups form the desired set.
+    for _ in 0..2499 {
+        client.create_group(None, None)?;
+    }
     client.enable_notifications(config()).await?;
     peer.state.lock().extra = 1;
-    let desired = synthetic_desired(2500);
-    send_synthetic_batch(&client, &desired).await?;
+    wake(&client.context)?;
+    let next_task = || {
+        client
+            .db()
+            .get_tasks()
+            .unwrap()
+            .into_iter()
+            .find(|task| task.data_hash == task_hash().as_ref())
+            .unwrap()
+    };
+    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
     assert_eq!(
         client
             .db()
@@ -99,8 +67,8 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         1000
     );
-    send_synthetic_batch(&client, &desired).await?;
-    send_synthetic_batch(&client, &desired).await?;
+    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
     assert_eq!(peer.calls(Call::Update), 3);
     assert_eq!(peer.state.lock().subscriptions.len(), 2500);
     assert_eq!(client.db().uploaded_topics()?.len(), 2500);
@@ -114,9 +82,17 @@ async fn notification_repair_reaches_2500_topics_in_three_turns() {
             .count(),
         500
     );
-    send_synthetic_batch(&client, &desired).await?;
+    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
     assert!(!client.db().notification_record()?.push_repairing);
     assert!(client.db().uploaded_topics()?.iter().all(|row| !row.stale));
+    assert_eq!(
+        peer.state.lock().batches,
+        vec![(1000, 0), (1000, 0), (1000, 0), (500, 0)]
+    );
+    TaskWorker::run_and_reschedule_task(next_task(), &client.context).await?;
+    assert_eq!(peer.calls(Call::Update), 4);
+    assert_eq!(next_task().attempts, 0);
+    assert!(next_task().next_attempt_at_ns > time::now_ns());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

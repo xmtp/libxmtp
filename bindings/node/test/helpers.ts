@@ -20,8 +20,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 export const TEST_API_URL =
   process.env.XMTP_BACKEND_URL ?? 'http://127.0.0.1:5050'
 
-export const createLocalBackend = async (appVersion?: string) => {
-  const builder = new BackendBuilder(TEST_API_URL)
+export const createLocalBackend = async (
+  appVersion?: string,
+  url = TEST_API_URL
+) => {
+  const builder = new BackendBuilder(url)
   if (appVersion) {
     builder.setAppVersion(appVersion)
   }
@@ -48,10 +51,11 @@ export type User = ReturnType<typeof createUser>
 export const createClient = async (
   user: User,
   appVersion?: string,
-  disableTaskRunner = false
+  disableTaskRunner = false,
+  url = TEST_API_URL
 ) => {
   const dbPath = join(__dirname, `${user.uuid}.db3`)
-  const backend = await createLocalBackend(appVersion)
+  const backend = await createLocalBackend(appVersion, url)
   const inboxId =
     (await getInboxIdByIdentity(backend, {
       identifier: user.account.address,

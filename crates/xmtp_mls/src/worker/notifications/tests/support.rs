@@ -25,6 +25,8 @@ pub(crate) enum Call {
 pub(crate) struct Server {
     pub(crate) registered: bool,
     pub(crate) delivery: Option<wire::register_request::Delivery>,
+    pub(crate) metadata: Vec<u8>,
+    pub(crate) batches: Vec<(usize, usize)>,
     pub(crate) subscriptions: BTreeMap<Vec<u8>, wire::Subscription>,
     pub(crate) extra: u64,
     pub(crate) limit: Option<usize>,
@@ -66,7 +68,11 @@ impl Peer {
         let state = self.state.lock();
         wire::RecipientState {
             topic_count: state.subscriptions.len() as u64 + state.extra,
-            channel: wire::Channel::Http as i32,
+            channel: match state.delivery {
+                Some(wire::register_request::Delivery::Apns(_)) => wire::Channel::Apns,
+                Some(wire::register_request::Delivery::Fcm(_)) => wire::Channel::Fcm,
+                _ => wire::Channel::Http,
+            } as i32,
             expires_at_ns: xmtp_common::time::now_ns() + TEST_TTL_NS,
         }
     }
@@ -131,6 +137,7 @@ impl XmtpBackendClient for ScriptedApi {
             let mut state = self.peer.state.lock();
             state.registered = true;
             state.delivery = request.delivery;
+            state.metadata = request.metadata;
         }
         Ok(self.peer.response())
     }
@@ -156,6 +163,9 @@ impl XmtpBackendClient for ScriptedApi {
         self.peer.gate(Call::Update).await?;
         {
             let mut state = self.peer.state.lock();
+            state
+                .batches
+                .push((request.adds.len(), request.removes.len()));
             if !state.registered {
                 return Err(status(tonic::Code::NotFound));
             }

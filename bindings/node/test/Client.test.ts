@@ -16,37 +16,70 @@ import {
   GroupMessageKind,
   IdentifierKind,
   Message,
+  NotificationStateKind,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
 } from '../dist'
+import { notificationBackend } from './notificationBackend'
 
 describe('Client', () => {
-  it('should pass an FCM notification channel to Rust', async () => {
-    const client = await createClient(createUser(), undefined, true)
-
-    await expect(
-      client.enableNotifications({
-        channel: 'fcm',
-        token: 'fcm-token',
-      })
-    ).rejects.toThrow('notification task runner is disabled')
-  })
+  it.each(['fcm', 'apns'])(
+    'should register the exact %s notification channel and token',
+    async (channel) => {
+      const backend = await notificationBackend()
+      const user = createUser()
+      let client: Awaited<ReturnType<typeof createClient>> | undefined
+      try {
+        client = await createClient(user, undefined, false, backend.url)
+        const state = await client.enableNotifications({
+          channel,
+          token: `${channel}-exact-token`,
+          includeWelcomes: false,
+          metadata: [1, 2, 3],
+        })
+        expect(state.state).toBe(NotificationStateKind.Enabled)
+        expect(client.notificationState().state).toBe(
+          NotificationStateKind.Enabled
+        )
+        expect(backend.registrations).toHaveLength(1)
+        expect(backend.registrations[0]).toMatchObject({
+          [channel]: { token: `${channel}-exact-token` },
+          metadata: [1, 2, 3],
+        })
+        expect(
+          backend.registrations[0][channel === 'fcm' ? 'apns' : 'fcm']
+        ).toBeUndefined()
+        await client.close()
+        client = await createClient(user, undefined, false, backend.url)
+        expect(client.notificationState().state).toBe(
+          NotificationStateKind.Enabled
+        )
+      } finally {
+        await client?.close()
+        await backend.close()
+      }
+    }
+  )
 
   it('should reject invalid notification channel configurations', async () => {
     const client = await createClient(createUser(), undefined, true)
 
-    for (const config of [
-      { channel: 'unknown', token: 'token' },
-      { channel: 'fcm' },
-      {
-        channel: 'apns',
-        token: 'token',
-        url: 'https://example.test',
-      },
-    ]) {
-      await expect(client.enableNotifications(config)).rejects.toThrow(
-        '[NotificationError::InvalidArgument] notification configuration is invalid'
-      )
+    try {
+      for (const config of [
+        { channel: 'unknown', token: 'token' },
+        { channel: 'fcm' },
+        {
+          channel: 'apns',
+          token: 'token',
+          url: 'https://example.test',
+        },
+      ]) {
+        await expect(client.enableNotifications(config)).rejects.toThrow(
+          '[NotificationError::InvalidArgument] notification configuration is invalid'
+        )
+      }
+    } finally {
+      await client.close()
     }
   })
 

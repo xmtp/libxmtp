@@ -32,6 +32,104 @@ async fn notification_enable_without_task_runner_stores_nothing() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
+    use xmtp_db::ConnectionExt;
+    use xmtp_proto::{backend_v1::register_request::Delivery, types::Topic};
+
+    for channel in [
+        NotificationChannel::Apns {
+            token: "apns-exact-token".into(),
+        },
+        NotificationChannel::Fcm {
+            token: "fcm-exact-token".into(),
+        },
+    ] {
+        let (client, peer) = support::client().await;
+        let group = client.create_group(None, None)?;
+        group.update_consent_state(ConsentState::Denied)?;
+        let excluded = client.create_group(None, None)?;
+        let sync = MlsGroup::create_and_insert(
+            client.context.clone(),
+            xmtp_proto::types::ConversationType::Sync,
+            Default::default(),
+            Default::default(),
+            None,
+        )?;
+        let config = NotificationConfig {
+            channel,
+            consent_states: vec![ConsentState::Unknown, ConsentState::Denied],
+            include_welcomes: false,
+            include_sync_groups: true,
+            include_commits: true,
+            metadata: vec![1, 2, 3, 4],
+        };
+        assert!(matches!(
+            client.enable_notifications(config.clone()).await?,
+            NotificationState::Enabled
+        ));
+        {
+            let server = peer.state.lock();
+            match (&config.channel, &server.delivery) {
+                (NotificationChannel::Apns { token }, Some(Delivery::Apns(delivery))) => {
+                    assert_eq!(&delivery.token, token)
+                }
+                (NotificationChannel::Fcm { token }, Some(Delivery::Fcm(delivery))) => {
+                    assert_eq!(&delivery.token, token)
+                }
+                _ => panic!("registration must preserve the configured channel"),
+            }
+            assert_eq!(server.metadata, config.metadata);
+        }
+        notifications::run(&client.context).await?;
+        {
+            let server = peer.state.lock();
+            assert_eq!(server.subscriptions.len(), 2);
+            for id in [group.group_id, sync.group_id] {
+                assert!(
+                    server.subscriptions[&Topic::new_group_message(id).cloned_vec()]
+                        .include_commits
+                );
+            }
+            assert!(
+                !server
+                    .subscriptions
+                    .contains_key(&Topic::new_group_message(excluded.group_id).cloned_vec())
+            );
+            assert!(!server.subscriptions.contains_key(
+                &Topic::new_welcome_message(client.context.installation_id()).cloned_vec()
+            ));
+        }
+        let record = client.db().notification_record()?;
+        let snapshot = std::sync::Arc::new(
+            client
+                .db()
+                .raw_query(|conn| Ok(conn.serialize_database_to_buffer().to_vec()))?,
+        );
+        tester!(restored, snapshot: snapshot, disable_workers);
+        let persisted = restored.db().notification_record()?;
+        assert_eq!(persisted.push_config, Some(encode(&config)?));
+        assert_eq!(persisted.push_recipient_id, record.push_recipient_id);
+        assert_eq!(
+            persisted.push_recipient_secret,
+            record.push_recipient_secret
+        );
+        assert_eq!(persisted.push_last_state, record.push_last_state);
+        assert!(persisted.push_last_state.is_some());
+        assert!(matches!(
+            restored.notification_state()?,
+            NotificationState::Enabled
+        ));
+        assert_eq!(restored.db().uploaded_topics()?.len(), 2);
+        assert!(restored.group(&group.group_id)?.notifications_enabled()?);
+        assert!(
+            !restored
+                .group(&excluded.group_id)?
+                .notifications_enabled()?
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_registration_capacity_error_uses_backoff() {
     let (client, peer) = support::client().await;
     peer.state.lock().next_error = Some(tonic::Code::ResourceExhausted);
