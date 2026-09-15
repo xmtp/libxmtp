@@ -45,8 +45,6 @@ pub struct FfiNotificationConfig {
     pub include_sync_groups: Option<bool>,
     #[uniffi(default = None)]
     pub include_commits: Option<bool>,
-    #[uniffi(default = None)]
-    pub metadata: Option<Vec<u8>>,
 }
 
 impl std::fmt::Debug for FfiNotificationConfig {
@@ -75,9 +73,6 @@ impl From<FfiNotificationConfig> for NotificationConfig {
         }
         if let Some(include_commits) = value.include_commits {
             config.include_commits = include_commits;
-        }
-        if let Some(metadata) = value.metadata {
-            config.metadata = metadata;
         }
         config
     }
@@ -206,11 +201,9 @@ mod tests {
             include_welcomes: None,
             include_sync_groups: None,
             include_commits: None,
-            metadata: Some(b"metadata".to_vec()),
         };
         let debug = format!("{config:?}");
         assert!(!debug.contains("secret.example"));
         assert!(!debug.contains("signing-key"));
-        assert!(!debug.contains("metadata"));
     }
 }

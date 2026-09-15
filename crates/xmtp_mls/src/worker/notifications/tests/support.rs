@@ -54,7 +54,6 @@ pub(crate) enum Call {
 pub(crate) struct Server {
     pub(crate) registered: bool,
     pub(crate) delivery: Option<wire::register_request::Delivery>,
-    pub(crate) metadata: Vec<u8>,
     pub(crate) batches: Vec<(usize, usize)>,
     pub(crate) subscriptions: BTreeMap<Vec<u8>, wire::Subscription>,
     pub(crate) extra: u64,
@@ -166,7 +165,6 @@ impl XmtpBackendClient for ScriptedApi {
             let mut state = self.peer.state.lock();
             state.registered = true;
             state.delivery = request.delivery;
-            state.metadata = request.metadata;
         }
         Ok(self.peer.response())
     }

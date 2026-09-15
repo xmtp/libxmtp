@@ -35,7 +35,6 @@ describe('Client', () => {
           channel,
           token: `${channel}-exact-token`,
           includeWelcomes: false,
-          metadata: [1, 2, 3],
         })
         expect(state.state).toBe(NotificationStateKind.Enabled)
         expect(client.notificationState().state).toBe(
@@ -44,7 +43,6 @@ describe('Client', () => {
         expect(backend.registrations).toHaveLength(1)
         expect(backend.registrations[0]).toMatchObject({
           [channel]: { token: `${channel}-exact-token` },
-          metadata: [1, 2, 3],
         })
         expect(
           backend.registrations[0][channel === 'fcm' ? 'apns' : 'fcm']
@@ -56,6 +54,48 @@ describe('Client', () => {
         )
       } finally {
         await client?.close()
+        await backend.close()
+      }
+    }
+  )
+
+  it.each([15, 16, 64, 65])(
+    'should validate a %i-byte HTTP notification signing key before registration',
+    async (size) => {
+      const backend = await notificationBackend()
+      const client = await createClient(
+        createUser(),
+        undefined,
+        false,
+        backend.url
+      )
+      try {
+        const config = {
+          channel: 'http',
+          url: 'https://example.test',
+          signingKey: Array(size).fill(7),
+          includeWelcomes: false,
+        }
+        if (size === 16 || size === 64) {
+          expect((await client.enableNotifications(config)).state).toBe(
+            NotificationStateKind.Enabled
+          )
+          expect(backend.registrations).toHaveLength(1)
+          expect(backend.registrations[0].http).toEqual({
+            url: config.url,
+            signingKey: config.signingKey,
+          })
+        } else {
+          await expect(client.enableNotifications(config)).rejects.toThrow(
+            '[NotificationError::InvalidArgument] notification configuration is invalid'
+          )
+          expect(backend.registrations).toHaveLength(0)
+          expect(client.notificationState().state).toBe(
+            NotificationStateKind.Disabled
+          )
+        }
+      } finally {
+        await client.close()
         await backend.close()
       }
     }

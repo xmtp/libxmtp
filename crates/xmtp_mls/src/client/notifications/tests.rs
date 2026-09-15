@@ -19,6 +19,35 @@ fn notification_error_debug_does_not_expose_backend_text() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_http_signing_key_boundaries_before_persistence() {
+    for size in [15, 16, 64, 65] {
+        let (client, peer) = support::client().await;
+        let config = NotificationConfig::new(NotificationChannel::Http {
+            url: "https://example.test".into(),
+            signing_key: vec![7; size],
+        });
+        let result = client.enable_notifications(config).await;
+        let record = client.db().notification_record()?;
+        if (16..=64).contains(&size) {
+            assert!(matches!(result?, NotificationState::Enabled));
+            assert_eq!(peer.calls(support::Call::Register), 1);
+            assert!(record.push_config.is_some());
+        } else {
+            assert!(matches!(result, Err(NotificationError::InvalidArgument)));
+            assert_eq!(peer.calls(support::Call::Register), 0);
+            assert!(record.push_config.is_none());
+            assert!(record.push_recipient_id.is_none());
+            assert!(record.push_recipient_secret.is_none());
+            assert_eq!(record.push_generation, 0);
+            assert!(matches!(
+                client.notification_state()?,
+                NotificationState::Disabled
+            ));
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_enable_without_task_runner_stores_nothing() {
     tester!(alix, disable_workers);
     let result = alix.enable_notifications(config()).await;
@@ -61,7 +90,6 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
             include_welcomes: false,
             include_sync_groups: true,
             include_commits: true,
-            metadata: vec![1, 2, 3, 4],
         };
         assert!(matches!(
             client.enable_notifications(config.clone()).await?,
@@ -78,7 +106,6 @@ async fn notification_apns_and_fcm_preserve_registration_rules_and_state() {
                 }
                 _ => panic!("registration must preserve the configured channel"),
             }
-            assert_eq!(server.metadata, config.metadata);
         }
         notifications::run(&client.context).await?;
         {

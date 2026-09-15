@@ -719,6 +719,7 @@ mock! {
     }
 
     impl QueryNotifications for DbQuery {
+        fn disable_notifications(&self) -> Result<(crate::notifications::StoredNotification, Vec<crate::notifications::UploadedTopic>), StorageError>;
         fn notification_record(&self) -> Result<crate::notifications::StoredNotification, StorageError>;
         fn save_notification_record(&self, record: &crate::notifications::StoredNotification) -> Result<(), StorageError>;
         fn uploaded_topics(&self) -> Result<Vec<crate::notifications::UploadedTopic>, StorageError>;

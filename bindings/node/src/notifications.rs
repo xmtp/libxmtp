@@ -15,7 +15,6 @@ pub struct NotificationConfig {
   pub include_welcomes: Option<bool>,
   pub include_sync_groups: Option<bool>,
   pub include_commits: Option<bool>,
-  pub metadata: Option<Vec<u8>>,
 }
 
 impl TryFrom<NotificationConfig> for XmtpNotificationConfig {
@@ -35,7 +34,7 @@ impl TryFrom<NotificationConfig> for XmtpNotificationConfig {
         XmtpNotificationChannel::Fcm { token }
       }
       ("http", None, Some(url), Some(signing_key))
-        if !url.is_empty() && !signing_key.is_empty() =>
+        if !url.is_empty() && (16..=64).contains(&signing_key.len()) =>
       {
         XmtpNotificationChannel::Http { url, signing_key }
       }
@@ -54,9 +53,6 @@ impl TryFrom<NotificationConfig> for XmtpNotificationConfig {
     if let Some(include_commits) = value.include_commits {
       config.include_commits = include_commits;
     }
-    if let Some(metadata) = value.metadata {
-      config.metadata = metadata;
-    }
     Ok(config)
   }
 }
@@ -64,6 +60,29 @@ impl TryFrom<NotificationConfig> for XmtpNotificationConfig {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[xmtp_common::test(unwrap_try = true)]
+  fn notification_http_signing_key_boundaries() {
+    for size in [15, 16, 64, 65] {
+      let result = XmtpNotificationConfig::try_from(NotificationConfig {
+        channel: "http".into(),
+        token: None,
+        url: Some("https://example.test".into()),
+        signing_key: Some(vec![7; size]),
+        consent_states: None,
+        include_welcomes: None,
+        include_sync_groups: None,
+        include_commits: None,
+      });
+      if (16..=64).contains(&size) {
+        assert!(
+          matches!(result?.channel, XmtpNotificationChannel::Http { signing_key, .. } if signing_key.len() == size)
+        );
+      } else {
+        assert!(matches!(result, Err(NotificationError::InvalidArgument)));
+      }
+    }
+  }
 
   #[xmtp_common::test(unwrap_try = true)]
   fn notification_channel_discriminants_select_delivery() {
@@ -76,7 +95,6 @@ mod tests {
       include_welcomes: None,
       include_sync_groups: None,
       include_commits: None,
-      metadata: None,
     }
     .try_into()?;
 
@@ -94,7 +112,6 @@ mod tests {
       include_welcomes: None,
       include_sync_groups: None,
       include_commits: None,
-      metadata: None,
     }
     .try_into()?;
 
@@ -116,7 +133,6 @@ mod tests {
         include_welcomes: None,
         include_sync_groups: None,
         include_commits: None,
-        metadata: None,
       },
       NotificationConfig {
         channel: "fcm".into(),
@@ -127,7 +143,6 @@ mod tests {
         include_welcomes: None,
         include_sync_groups: None,
         include_commits: None,
-        metadata: None,
       },
       NotificationConfig {
         channel: "apns".into(),
@@ -138,7 +153,6 @@ mod tests {
         include_welcomes: None,
         include_sync_groups: None,
         include_commits: None,
-        metadata: None,
       },
     ] {
       assert!(matches!(

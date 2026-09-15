@@ -357,7 +357,7 @@ async fn notification_stale_failure_cannot_fail_a_new_configuration() {
     timeout(Duration::from_secs(5), peer.entered.notified()).await?;
     let changed_client = client.clone();
     let mut replacement = config();
-    replacement.metadata = b"new configuration".to_vec();
+    replacement.include_commits = true;
     let enable = xmtp_common::spawn(None, async move {
         changed_client.enable_notifications(replacement).await
     });
@@ -663,7 +663,7 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     .await?;
     let other = client.clone();
     let mut replacement = config();
-    replacement.metadata = b"newer configuration".to_vec();
+    replacement.include_commits = true;
     let enable = xmtp_common::spawn(None, async move {
         other.enable_notifications(replacement).await
     });
@@ -680,10 +680,7 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
     assert_eq!(peer.calls(Call::Unregister), 0);
     assert!(peer.state.lock().registered);
     let record = client.db().notification_record()?;
-    assert_eq!(
-        decode::<NotificationConfig>(record.push_config.as_deref().unwrap())?.metadata,
-        b"newer configuration"
-    );
+    assert!(decode::<NotificationConfig>(record.push_config.as_deref().unwrap())?.include_commits);
     assert!(matches!(
         client.notification_state()?,
         NotificationState::Enabled

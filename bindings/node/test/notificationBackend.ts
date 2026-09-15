@@ -23,7 +23,7 @@ export async function notificationBackend() {
   const registrations: Array<{
     apns?: { token: string }
     fcm?: { token: string }
-    metadata: number[]
+    http?: { url: string; signingKey: number[] }
   }> = []
   const server = createServer()
   const sessions = new Set<ServerHttp2Session>()
@@ -65,7 +65,7 @@ export async function notificationBackend() {
           recipient
             .encode(
               recipient.fromObject({
-                channel: request.fcm ? 2 : 1,
+                channel: request.http ? 3 : request.fcm ? 2 : 1,
                 expiresAtNs: (
                   BigInt(Date.now()) * 1_000_000n +
                   86_400_000_000_000n

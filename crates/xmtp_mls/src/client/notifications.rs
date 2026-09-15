@@ -41,7 +41,6 @@ pub struct NotificationConfig {
     pub include_welcomes: bool,
     pub include_sync_groups: bool,
     pub include_commits: bool,
-    pub metadata: Vec<u8>,
 }
 
 impl NotificationConfig {
@@ -53,7 +52,6 @@ impl NotificationConfig {
             include_welcomes: true,
             include_sync_groups: false,
             include_commits: false,
-            metadata: Vec::new(),
         }
     }
 
@@ -84,7 +82,6 @@ impl NotificationConfig {
             recipient_id: record.push_recipient_id.clone().unwrap_or_default(),
             recipient_secret: record.push_recipient_secret.clone().unwrap_or_default(),
             delivery: Some(delivery),
-            metadata: self.metadata.clone(),
         }
     }
 }
@@ -263,6 +260,11 @@ impl<Context: XmtpSharedContext> Client<Context> {
         {
             return Err(NotificationError::TaskRunnerDisabled);
         }
+        if let NotificationChannel::Http { signing_key, .. } = &config.channel
+            && !(16..=64).contains(&signing_key.len())
+        {
+            return Err(NotificationError::InvalidArgument);
+        }
         let generation = {
             let mut pending = self
                 .context
@@ -342,24 +344,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
                 .lock();
             let (record, cleared) =
                 crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-                    let storage = tx.storage();
-                    let db = storage.db();
-                    let mut record = db.notification_record()?;
-                    record.push_generation = record
-                        .push_generation
-                        .checked_add(1)
-                        .ok_or(StorageError::DbSerialize)?;
-                    record.push_state = 0;
-                    record.push_config = None;
-                    record.push_failed_error = None;
-                    record.push_deadlines = None;
-                    record.push_last_state = None;
-                    record.push_repairing = false;
-                    record.push_suppressed = None;
-                    let cleared = db.uploaded_topics()?;
-                    db.clear_uploaded_topics()?;
-                    db.save_notification_record(&record)?;
-                    Ok::<_, StorageError>(Continue((record, cleared)))
+                    Ok::<_, StorageError>(Continue(tx.storage().db().disable_notifications()?))
                 })?
                 .into_continued();
             pending.extend(cleared.into_iter().map(|row| (row.topic.clone(), row)));
