@@ -216,3 +216,7 @@ docs/plans
 # Agent Python runtime and bytecode
 dev/agents/.venv/
 dev/agents/__pycache__/
+
+# Murmur local config (per-developer, not checked in)
+.murmur/murmur.local.yaml
+.murmur/murmur.*.local.yaml
