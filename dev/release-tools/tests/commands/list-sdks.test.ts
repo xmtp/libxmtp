@@ -9,6 +9,7 @@ describe("listSdksForChannel", () => {
       "agent-sdk",
       "android",
       "browser-sdk",
+      "cli",
       "ios",
       "node-bindings",
       "node-sdk",

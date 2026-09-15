@@ -127,6 +127,11 @@ export default defineConfig({
           collapsed: true,
         },
         {
+          label: "Tools",
+          items: guidePages("tools", "cli"),
+          collapsed: true,
+        },
+        {
           label: "Protocol",
           items: guidePages(
             "protocol",
@@ -173,6 +178,7 @@ export default defineConfig({
                 "sdk/**",
                 "content-types/**",
                 "agents/**",
+                "tools/**",
                 "protocol/**",
                 "specs/**",
                 "reference/limits",

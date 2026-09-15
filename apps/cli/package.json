@@ -1,0 +1,119 @@
+{
+  "name": "@xmtp/cli",
+  "version": "0.3.0",
+  "description": "A command-line interface for XMTP",
+  "keywords": [
+    "xmtp",
+    "messaging",
+    "web3",
+    "js",
+    "javascript",
+    "node",
+    "nodejs"
+  ],
+  "homepage": "https://github.com/xmtp/libxmtp/tree/main/apps/cli",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "apps/cli"
+  },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "xmtp": "./bin/run.js"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "skills",
+    "oclif.manifest.json"
+  ],
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "dev": "tsx bin/dev.js",
+    "lint": "eslint .",
+    "manifest": "oclif manifest",
+    "prepack": "yarn build && yarn manifest",
+    "start": "tsx bin/run.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "oclif": {
+    "bin": "xmtp",
+    "commands": "./dist/commands",
+    "dirname": "xmtp",
+    "helpClass": "./dist/help",
+    "plugins": [
+      "@oclif/plugin-autocomplete",
+      "@oclif/plugin-help",
+      "@oclif/plugin-not-found",
+      "@oclif/plugin-warn-if-update-available"
+    ],
+    "topicSeparator": " ",
+    "topics": {
+      "client": {
+        "description": "Manage your XMTP client identity and installations"
+      },
+      "conversation": {
+        "description": "Interact with a specific conversation (group or DM)"
+      },
+      "conversations": {
+        "description": "List, create, and stream conversations"
+      },
+      "preferences": {
+        "description": "Manage consent and sync preferences"
+      }
+    },
+    "warn-if-update-available": {
+      "frequency": 1,
+      "frequencyUnit": "days",
+      "message": "<%= config.name %> update available from <%= chalk.greenBright(config.version) %> to <%= chalk.greenBright(latest) %>.",
+      "timeoutInDays": 7
+    }
+  },
+  "dependencies": {
+    "@oclif/core": "^4.8.0",
+    "@oclif/plugin-autocomplete": "^3.2.40",
+    "@oclif/plugin-help": "^6.2.37",
+    "@oclif/plugin-not-found": "^3.2.74",
+    "@oclif/plugin-warn-if-update-available": "^3.1.55",
+    "@xmtp/node-sdk": "portal:../../sdks/js/node-sdk",
+    "viem": "^2.44.4"
+  },
+  "devDependencies": {
+    "@eslint/compat": "^2.0.1",
+    "@eslint/js": "^9.39.2",
+    "@oclif/plugin-legacy": "^2.0.27",
+    "@types/node": "^24.10.9",
+    "eslint": "^9.39.2",
+    "execa": "^9.6.1",
+    "globals": "^17.1.0",
+    "oclif": "^4.22.70",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.53.1",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "packageManager": "yarn@4.10.3"
+}
