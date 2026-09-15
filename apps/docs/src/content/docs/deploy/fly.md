@@ -3,14 +3,22 @@ title: Deploy on Fly.io
 description: Run the published XMTP backend image with Fly Proxy and Managed Postgres.
 ---
 
+**This example has no caller authentication.** It publishes an
+`http_service`, so anyone who reaches the `*.fly.dev` URL can call publish,
+query, and subscription RPCs. TLS protects traffic in transit; it does not
+restrict callers. Configure [authentication](/get-started/run-the-backend/#auth)
+before you carry real traffic, and use disposable data until you do. Caller
+quotas do not exist yet.
+
 Fly injects your configuration file into the published image. No image build is
 needed. Read the [deployment overview](/deploy/overview/) first for image tags,
 ports, connection budgets, health, shutdown, ingress, and security requirements.
 
-**Image requirement:** `--config-file` requires an image that contains the
-configuration flag change, which merged at 2026-09-14 14:14 -0700. An image
-published earlier that day does not have it. Pin an exact build with
-`ghcr.io/xmtp/backend:sha-<commit>`.
+**Image requirement:** replace `sha-REPLACE_WITH_FULL_COMMIT` below with a real
+`sha-<full commit>` tag. `--config-file` needs an image that contains the
+configuration flag change, which merged at 2026-09-14 14:14 -0700, so an older
+image exits at startup instead of deploying. The moving `:self-hosted` tag
+would also change the running version under you on a later deploy.
 
 ## Create the configuration
 
@@ -27,7 +35,7 @@ kill_signal = "SIGTERM"
 kill_timeout = "30s"
 
 [build]
-image = "ghcr.io/xmtp/backend:self-hosted"
+image = "ghcr.io/xmtp/backend:sha-REPLACE_WITH_FULL_COMMIT"
 
 [processes]
 app = "--config-file /config.toml"
