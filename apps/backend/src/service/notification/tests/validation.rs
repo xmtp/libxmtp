@@ -303,6 +303,10 @@ async fn webhook_absent_domain_list_allows_public_hosts_and_blocks_private_addre
         "https://localhost/hook",
         "https://127.0.0.1",
         "https://10.0.0.1",
+        "https://100.64.0.0",
+        "https://100.100.100.100",
+        "https://100.127.255.255",
+        "https://[::ffff:100.100.100.100]",
         "https://172.16.0.1",
         "https://192.168.0.1",
         "https://169.254.169.254",
@@ -383,6 +387,27 @@ async fn webhook_populated_domain_list_restricts_hosts() {
         "webhook url is not allowed",
     );
     server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn webhook_shared_address_filter_blocks_the_exact_range_and_mapped_ipv4() {
+    for (address, expected) in [
+        ("100.63.255.255", false),
+        ("100.64.0.0", true),
+        ("100.100.100.100", true),
+        ("100.127.255.255", true),
+        ("100.128.0.0", false),
+        ("::ffff:100.63.255.255", false),
+        ("::ffff:100.64.0.0", true),
+        ("::ffff:100.127.255.255", true),
+        ("::ffff:100.128.0.0", false),
+    ] {
+        assert_eq!(
+            webhook_url::blocked(address.parse()?),
+            expected,
+            "{address}"
+        );
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -4,6 +4,8 @@ use crate::config::push::HttpConfig;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 const DNS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+const SHARED_ADDRESS_NETWORK: u32 = u32::from_be_bytes([100, 64, 0, 0]);
+const SHARED_ADDRESS_MASK: u32 = u32::from_be_bytes([255, 192, 0, 0]);
 
 #[derive(Debug, thiserror::Error)]
 #[error("webhook url is not allowed")]
@@ -58,6 +60,7 @@ pub(crate) fn matches_domain(host: &str, domain: &str) -> bool {
 
 fn blocked_v4(ip: Ipv4Addr) -> bool {
     ip.is_private()
+        || (u32::from(ip) & SHARED_ADDRESS_MASK) == SHARED_ADDRESS_NETWORK
         || ip.is_loopback()
         || ip.is_link_local()
         || ip.is_unspecified()
