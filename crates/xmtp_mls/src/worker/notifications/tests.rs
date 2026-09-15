@@ -293,6 +293,40 @@ async fn notification_resource_exhaustion_suppresses_adds_but_keeps_removes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_suppressed_batch_still_removes_without_a_rule_change() {
+    let (client, peer) = support::client().await;
+    let removed = client.create_group(None, None)?;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config).await?;
+    run(&client.context).await?;
+    peer.state.lock().limit = Some(1);
+    client.create_group(None, None)?;
+    let extra = client.create_group(None, None)?;
+    removed.set_notifications(NotificationOverride::Disabled)?;
+
+    // The combined delta exceeds the limit and leaves the old upload in place.
+    run(&client.context).await?;
+    let suppressed = client.db().notification_record()?.push_suppressed.unwrap();
+    assert_eq!(peer.state.lock().subscriptions.len(), 1);
+    run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert_eq!(
+        client.db().notification_record()?.push_suppressed,
+        Some(suppressed)
+    );
+    let calls = peer.calls(Call::Update);
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls);
+
+    // A rule change makes the desired set small enough and permits adds again.
+    extra.set_notifications(NotificationOverride::Disabled)?;
+    run(&client.context).await?;
+    assert_eq!(peer.state.lock().subscriptions.len(), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_renewal_recreation_and_not_found_repair() {
     let (client, peer) = support::client().await;
     client.create_group(None, None)?;
@@ -450,6 +484,52 @@ async fn notification_disable_discards_an_in_flight_success() {
     assert!(client.db().uploaded_topics()?.is_empty());
     assert!(client.db().notification_record()?.push_last_state.is_none());
     assert_eq!(peer.calls(Call::Unregister), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let generation = client.db().notification_record()?.push_generation;
+    peer.state.lock().pause_next = true;
+    let context = client.context.clone();
+    let upload = xmtp_common::spawn(None, async move { run(&context).await });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+
+    let other = client.clone();
+    let disable = xmtp_common::spawn(None, async move { other.disable_notifications().await });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_generation },
+        generation + 1,
+    )
+    .await?;
+    let other = client.clone();
+    let mut replacement = config();
+    replacement.metadata = b"newer configuration".to_vec();
+    let enable = xmtp_common::spawn(None, async move {
+        other.enable_notifications(replacement).await
+    });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_generation },
+        generation + 2,
+    )
+    .await?;
+    peer.release.notify_one();
+    upload.join().await??;
+    disable.join().await??;
+    enable.join().await??;
+
+    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert!(peer.state.lock().registered);
+    let record = client.db().notification_record()?;
+    assert_eq!(
+        decode::<NotificationConfig>(record.push_config.as_deref().unwrap())?.metadata,
+        b"newer configuration"
+    );
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Enabled
+    ));
 }
 
 #[xmtp_common::test(unwrap_try = true)]

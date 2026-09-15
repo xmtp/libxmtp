@@ -8,6 +8,17 @@ use crate::{
 };
 
 #[xmtp_common::test(unwrap_try = true)]
+fn notification_error_debug_does_not_expose_backend_text() {
+    let secret = "recipient secret echoed by a backend";
+    let error = NotificationError::from(xmtp_api::dyn_err(
+        xmtp_proto::api::ApiClientError::OtherUnretryable(Box::new(tonic::Status::unknown(secret))),
+    ));
+    assert!(!format!("{error:?}").contains(secret));
+    assert!(!error.to_string().contains(secret));
+    assert!(!format!("{:?}", NotificationState::Failed(error)).contains(secret));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_enable_without_task_runner_stores_nothing() {
     tester!(alix, disable_workers);
     let result = alix.enable_notifications(config()).await;

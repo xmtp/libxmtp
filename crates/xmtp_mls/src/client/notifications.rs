@@ -106,7 +106,7 @@ pub enum NotificationOverride {
 }
 
 /// Errors use fixed messages and never include notification credentials.
-#[derive(Debug, thiserror::Error, ErrorCode)]
+#[derive(thiserror::Error, ErrorCode)]
 pub enum NotificationError {
     /// The task runner is disabled. Not retryable.
     #[error("notification task runner is disabled")]
@@ -145,6 +145,12 @@ pub enum NotificationError {
     #[error(transparent)]
     #[error_code(inherit)]
     Group(#[from] crate::groups::GroupError),
+}
+
+impl std::fmt::Debug for NotificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.error_code())
+    }
 }
 
 impl RetryableError for NotificationError {
