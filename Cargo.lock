@@ -12474,7 +12474,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_proto",
 ]
