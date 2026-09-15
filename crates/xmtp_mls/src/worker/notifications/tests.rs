@@ -259,6 +259,7 @@ async fn notification_resource_exhaustion_suppresses_adds_but_keeps_removes() {
     group.set_notifications(NotificationOverride::Disabled)?;
     run(&client.context).await?;
     assert_eq!(peer.state.lock().subscriptions.len(), 1);
+    assert!(client.db().notification_record()?.push_suppressed.is_none());
     assert!(
         !peer
             .state
@@ -266,6 +267,14 @@ async fn notification_resource_exhaustion_suppresses_adds_but_keeps_removes() {
             .subscriptions
             .contains_key(&Topic::new_group_message(group.group_id).cloned_vec())
     );
+
+    // Returning to the old desired set must make a new request. Its old
+    // fingerprint cannot stay suppressed after the successful update above.
+    let calls = peer.calls(Call::Update);
+    group.set_notifications(NotificationOverride::Enabled)?;
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls + 1);
+    assert!(client.db().notification_record()?.push_suppressed.is_some());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -288,6 +297,10 @@ async fn notification_suppressed_batch_still_removes_without_a_rule_change() {
     run(&client.context).await?;
     assert!(peer.state.lock().subscriptions.is_empty());
     assert!(client.db().uploaded_topics()?.is_empty());
+    assert!(client.db().notification_record()?.push_suppressed.is_none());
+    let calls = peer.calls(Call::Update);
+    run(&client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls + 1);
     assert_eq!(
         client.db().notification_record()?.push_suppressed,
         Some(suppressed)
@@ -300,6 +313,7 @@ async fn notification_suppressed_batch_still_removes_without_a_rule_change() {
     extra.set_notifications(NotificationOverride::Disabled)?;
     run(&client.context).await?;
     assert_eq!(peer.state.lock().subscriptions.len(), 1);
+    assert!(client.db().notification_record()?.push_suppressed.is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
