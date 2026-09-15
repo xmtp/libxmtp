@@ -243,6 +243,7 @@ async fn drain_finishes_a_queued_retry_and_loads_no_new_window() {
     fixture.seed(1, &[1], false).await?;
     fixture.boundary(1).await?;
     let sender = Arc::new(FakeSender {
+        gate: Some(Arc::new(Semaphore::new(0))),
         outcomes: Mutex::new(VecDeque::from([
             Outcome::Transient { retry_after: None },
             Outcome::Delivered,
@@ -250,11 +251,18 @@ async fn drain_finishes_a_queued_retry_and_loads_no_new_window() {
         ..Default::default()
     });
     let hub = fixture.hub(sender.clone());
+    xmtp_common::wait_for_eq(|| async { sender.count() }, 1).await?;
+    // Stop before the first outcome creates its retry. Hold both attempts so
+    // their phase does not depend on database or CI scheduling speed.
+    let drain_budget = channel::ATTEMPT_TIMEOUT * 3;
+    hub.stop(Instant::now() + drain_budget);
+    sender.gate.as_ref().unwrap().add_permits(1);
     xmtp_common::wait_for_eq(|| fixture.cursor(), 1).await?;
-    hub.stop(Instant::now() + Duration::from_secs(2));
+    xmtp_common::wait_for_eq(|| async { sender.count() }, 2).await?;
     fixture.seed(1, &[1], false).await?;
     fixture.boundary(2).await?;
-    hub.finished().await;
+    sender.gate.as_ref().unwrap().add_permits(1);
+    timeout(drain_budget, hub.finished()).await?;
     assert_eq!(
         sender
             .calls
@@ -264,6 +272,7 @@ async fn drain_finishes_a_queued_retry_and_loads_no_new_window() {
             .collect::<Vec<_>>(),
         vec![1, 1]
     );
+    assert!(sender.outcomes.lock().is_empty());
     assert_eq!(fixture.cursor().await, 1);
 }
 
