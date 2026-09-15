@@ -3,13 +3,6 @@ title: Deploy on Fly.io
 description: Run the published XMTP backend image with Fly Proxy and Managed Postgres.
 ---
 
-**This example has no caller authentication.** It publishes an
-`http_service`, so anyone who reaches the `*.fly.dev` URL can call publish,
-query, and subscription RPCs. TLS protects traffic in transit; it does not
-restrict callers. Configure [authentication](/get-started/run-the-backend/#auth)
-before you carry real traffic, and use disposable data until you do. Caller
-quotas do not exist yet.
-
 Fly injects your configuration file into the published image. No image build is
 needed. Read the [deployment overview](/deploy/overview/) first for image tags,
 ports, connection budgets, health, shutdown, ingress, and security requirements.
@@ -78,6 +71,14 @@ memory = "512mb"
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
 [database]
 url = "env:XMTP_DATABASE_URL"
+
+# This app publishes an http_service, so anyone who reaches the URL can call
+# publish, query, and subscription RPCs. Uncomment and set a key source to
+# require bearer tokens before you carry real traffic.
+# [auth]
+# jwks_url = "env:XMTP_JWKS_URL"
+# audiences = ["xmtp"]
+# issuers = ["https://auth.example.com"]
 ```
 
 Fly reads `local_path` at deploy time and writes the file at `guest_path`.
