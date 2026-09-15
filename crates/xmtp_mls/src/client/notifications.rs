@@ -263,27 +263,53 @@ impl<Context: XmtpSharedContext> Client<Context> {
         {
             return Err(NotificationError::TaskRunnerDisabled);
         }
-        let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let mut record = db.notification_record()?;
-            if record.push_recipient_id.is_none() {
-                record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
-                record.push_recipient_secret = Some(xmtp_common::rand_vec::<32>());
-            }
-            record.push_generation = record
-                .push_generation
-                .checked_add(1)
-                .ok_or(StorageError::DbSerialize)?;
-            record.push_config = Some(encode(&config)?);
-            record.push_state = 1;
-            record.push_failed_error = None;
-            record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
-            record.push_suppressed = None;
-            db.save_notification_record(&record)?;
-            Ok::<_, StorageError>(Continue(record.push_generation))
-        })?
-        .into_continued();
+        let generation = {
+            let mut pending = self
+                .context
+                .task_channels()
+                .notification_pending_topics
+                .lock();
+            let generation = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let mut record = db.notification_record()?;
+                if record.push_recipient_id.is_none() {
+                    record.push_recipient_id = Some(xmtp_common::rand_vec::<32>());
+                    record.push_recipient_secret = Some(xmtp_common::rand_vec::<32>());
+                }
+                record.push_generation = record
+                    .push_generation
+                    .checked_add(1)
+                    .ok_or(StorageError::DbSerialize)?;
+                record.push_config = Some(encode(&config)?);
+                record.push_state = 1;
+                record.push_failed_error = None;
+                record.push_deadlines = Some(encode(&worker::Deadlines::default())?);
+                record.push_suppressed = None;
+                // A disabled client keeps confirmed backend topics in memory.
+                // Restore them as stale so this configuration can reconcile them.
+                let present: std::collections::BTreeSet<_> = db
+                    .uploaded_topics()?
+                    .into_iter()
+                    .map(|row| row.topic)
+                    .collect();
+                let restore: Vec<_> = pending
+                    .values()
+                    .filter(|row| !present.contains(&row.topic))
+                    .cloned()
+                    .map(|mut row| {
+                        row.stale = true;
+                        row
+                    })
+                    .collect();
+                db.confirm_uploaded_topics(&restore, &[])?;
+                db.save_notification_record(&record)?;
+                Ok::<_, StorageError>(Continue(record.push_generation))
+            })?
+            .into_continued();
+            pending.clear();
+            generation
+        };
         self.context.task_channels().wake_notifications();
         let _guard = self
             .context
@@ -305,27 +331,37 @@ impl<Context: XmtpSharedContext> Client<Context> {
     /// A failed unregister leaves the client disabled; the backend recipient expires.
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let (record, cleared) = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let mut record = db.notification_record()?;
-            record.push_generation = record
-                .push_generation
-                .checked_add(1)
-                .ok_or(StorageError::DbSerialize)?;
-            record.push_state = 0;
-            record.push_config = None;
-            record.push_failed_error = None;
-            record.push_deadlines = None;
-            record.push_last_state = None;
-            record.push_repairing = false;
-            record.push_suppressed = None;
-            let cleared = db.uploaded_topics()?;
-            db.clear_uploaded_topics()?;
-            db.save_notification_record(&record)?;
-            Ok::<_, StorageError>(Continue((record, cleared)))
-        })?
-        .into_continued();
+        let record = {
+            let mut pending = self
+                .context
+                .task_channels()
+                .notification_pending_topics
+                .lock();
+            let (record, cleared) =
+                crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    let mut record = db.notification_record()?;
+                    record.push_generation = record
+                        .push_generation
+                        .checked_add(1)
+                        .ok_or(StorageError::DbSerialize)?;
+                    record.push_state = 0;
+                    record.push_config = None;
+                    record.push_failed_error = None;
+                    record.push_deadlines = None;
+                    record.push_last_state = None;
+                    record.push_repairing = false;
+                    record.push_suppressed = None;
+                    let cleared = db.uploaded_topics()?;
+                    db.clear_uploaded_topics()?;
+                    db.save_notification_record(&record)?;
+                    Ok::<_, StorageError>(Continue((record, cleared)))
+                })?
+                .into_continued();
+            pending.extend(cleared.into_iter().map(|row| (row.topic.clone(), row)));
+            record
+        };
         self.context.task_channels().wake_notifications();
         if record.push_recipient_id.is_none() {
             return Ok(());
@@ -336,33 +372,9 @@ impl<Context: XmtpSharedContext> Client<Context> {
             .notification_request
             .lock()
             .await;
-        let unregister = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let current = db.notification_record()?;
-            // A later disable still wants this recipient removed. The request
-            // lock orders any subsequent enable's Register after Unregister.
-            if current.push_state == 0 {
-                return Ok(Continue(true));
-            }
-            // A newer enable keeps the backend recipient. Restore topics
-            // cleared by this pending disable so its next diff can remove
-            // them. Do not replace rows confirmed by a newer request.
-            let present: std::collections::BTreeSet<_> = db
-                .uploaded_topics()?
-                .into_iter()
-                .map(|row| row.topic)
-                .collect();
-            let mut restore = cleared;
-            restore.retain(|row| !present.contains(&row.topic));
-            for row in &mut restore {
-                row.stale = true;
-            }
-            db.confirm_uploaded_topics(&restore, &[])?;
-            Ok::<_, StorageError>(Continue(false))
-        })?
-        .into_continued();
-        if !unregister {
+        // A later disable still wants this recipient removed. The request
+        // lock orders any subsequent enable's Register after Unregister.
+        if self.context.db().notification_record()?.push_state != 0 {
             self.context.task_channels().wake_notifications();
             return Ok(());
         }
@@ -371,7 +383,14 @@ impl<Context: XmtpSharedContext> Client<Context> {
             recipient_secret: record.push_recipient_secret.unwrap_or_default(),
         };
         match worker::bounded(self.context.api().unregister(request)).await {
-            Ok(_) | Err(NotificationError::NotFound) => Ok(()),
+            Ok(_) | Err(NotificationError::NotFound) => {
+                self.context
+                    .task_channels()
+                    .notification_pending_topics
+                    .lock()
+                    .clear();
+                Ok(())
+            }
             Err(error) => Err(error),
         }
     }

@@ -129,19 +129,20 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
     adds: &[UploadedTopic],
     removes: &[Vec<u8>],
 ) -> Result<bool, StorageError> {
-    state_write(context.mls_storage(), |tx| {
+    let mut pending = context.task_channels().notification_pending_topics.lock();
+    let (enabled, accepted) = state_write(context.mls_storage(), |tx| {
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
         if record.push_state != 1 {
-            return Ok(Continue(false));
+            return Ok(Continue((false, false)));
         }
         // The request lock orders backend mutations and their confirmations.
         // A newer enable can change local rules while this request is in flight.
         // Retain its confirmed delta so the next scan can remove obsolete topics.
         db.confirm_uploaded_topics(adds, removes)?;
         if record.push_generation != generation {
-            return Ok(Continue(false));
+            return Ok(Continue((true, false)));
         }
         let uploaded = db.uploaded_topics()?;
         if response.channel != config.channel_id() {
@@ -166,9 +167,22 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         record.push_deadlines = Some(encode(&next)?);
         record.push_last_state = Some(response.encode_to_vec());
         db.save_notification_record(&record)?;
-        Ok::<_, StorageError>(Continue(true))
-    })
-    .map(|outcome| outcome.into_continued())
+        Ok::<_, StorageError>(Continue((true, true)))
+    })?
+    .into_continued();
+    // Keep remote deltas even when Disable has cleared the local table.
+    // Change the memory snapshot only after the transaction commits.
+    for topic in removes {
+        pending.remove(topic);
+    }
+    for row in adds {
+        if enabled {
+            pending.remove(&row.topic);
+        } else {
+            pending.insert(row.topic.clone(), row.clone());
+        }
+    }
+    Ok(accepted)
 }
 
 /// Persist only typed terminal failures and repair/suppression state for this generation.

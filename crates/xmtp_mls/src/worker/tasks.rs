@@ -112,6 +112,14 @@ pub struct TaskWorkerChannels {
     pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
+    /// Confirmed backend topics retained while local notifications are disabled.
+    /// This memory state does not survive a client restart.
+    /// Lock before the database writer. Never hold across an await.
+    pub(crate) notification_pending_topics: Arc<
+        parking_lot::Mutex<
+            std::collections::BTreeMap<Vec<u8>, xmtp_db::notifications::UploadedTopic>,
+        >,
+    >,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
     notification_wake_pending: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -129,6 +137,7 @@ impl TaskWorkerChannels {
             task_sender,
             task_receiver: Arc::new(tokio::sync::Mutex::new(task_receiver)),
             notification_request: Default::default(),
+            notification_pending_topics: Default::default(),
             notification_revision: Default::default(),
             notification_wake_pending: Default::default(),
         }

@@ -723,6 +723,76 @@ async fn notification_two_disables_remove_topics_before_a_newer_enable() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_in_flight_deltas_survive_disable_enable_interleavings() {
+    for remove in [false, true] {
+        for two_disables in [false, true] {
+            for enable_before_confirm in [false, true] {
+                let (client, peer) = support::client().await;
+                let group = client.create_group(None, None)?;
+                let topic = Topic::new_group_message(group.group_id).cloned_vec();
+                let mut initial = config();
+                initial.include_welcomes = false;
+                client.enable_notifications(initial.clone()).await?;
+                if remove {
+                    run(&client.context).await?;
+                    initial.consent_states.clear();
+                    client.enable_notifications(initial.clone()).await?;
+                }
+                peer.state.lock().pause_next = true;
+                let context = client.context.clone();
+                let upload = xmtp_common::spawn(None, async move { run(&context).await });
+                timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+
+                let mut first = std::pin::pin!(client.disable_notifications());
+                assert!(futures::poll!(first.as_mut()).is_pending());
+                let mut second = std::pin::pin!(client.disable_notifications());
+                if two_disables {
+                    assert!(futures::poll!(second.as_mut()).is_pending());
+                }
+                assert!(client.db().uploaded_topics()?.is_empty());
+
+                let mut replacement = config();
+                replacement.include_welcomes = false;
+                if !remove {
+                    replacement.consent_states.clear();
+                }
+                let mut enable = std::pin::pin!(client.enable_notifications(replacement));
+                if enable_before_confirm {
+                    assert!(futures::poll!(enable.as_mut()).is_pending());
+                }
+                peer.release.notify_one();
+                upload.join().await??;
+                if !enable_before_confirm {
+                    // Finish confirmation while Disabled. Do not poll either
+                    // disable again until the newer enable has changed state.
+                    assert!(matches!(
+                        client.notification_state()?,
+                        NotificationState::Disabled
+                    ));
+                    assert!(client.db().uploaded_topics()?.is_empty());
+                    assert!(futures::poll!(enable.as_mut()).is_pending());
+                }
+                first.await?;
+                if two_disables {
+                    second.await?;
+                }
+                enable.await?;
+                assert_eq!(peer.calls(Call::Unregister), 0);
+                assert_eq!(
+                    peer.state.lock().subscriptions.contains_key(&topic),
+                    !remove
+                );
+
+                run(&client.context).await?;
+                assert_eq!(peer.state.lock().subscriptions.contains_key(&topic), remove);
+                assert_eq!(client.db().uploaded_topics()?.len(), usize::from(remove));
+                assert_eq!(peer.calls(Call::Update), if remove { 3 } else { 2 });
+            }
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_request_keeps_the_root_key_snapshot() {
     let (client, peer) = support::client().await;
     let group = client.create_group(None, None)?;
