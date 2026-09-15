@@ -12,16 +12,16 @@ configuration reference.
 
 ## Choose a platform
 
-These ingress mechanisms must meet the transport requirements below. Platform
-guides and deployment checks will follow. This table does not claim that these
-deployments have been tested.
+These ingress mechanisms must meet the transport requirements below. How far
+each path has been exercised differs by platform, so check a guide's own
+caveats, and the ingress contract below, before you rely on it.
 
-| Platform          | Ingress mechanism                                                     | Native gRPC                                                                         |
-| ----------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| Fly.io            | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
-| Railway           | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
-| AWS ECS (Fargate) | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
-| Kubernetes        | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
+| Platform               | Ingress mechanism                                                     | Native gRPC                                                                         |
+| ---------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| [Fly.io](/deploy/fly/) | Fly Proxy with TLS termination and h2c to the backend                 | Yes                                                                                 |
+| Railway                | **DEVELOPMENT ONLY:** TCP proxy to a separate HAProxy TLS terminator  | Yes, through the TCP proxy and HAProxy. The HTTP edge does not support native gRPC. |
+| AWS ECS (Fargate)      | NLB TLS listener with ALPN `HTTP2Preferred` and a TCP target group    | Yes                                                                                 |
+| Kubernetes             | Gateway API HTTPS listener and HTTPRoute, with an h2c backend service | Yes, with a controller that preserves streaming and trailers                        |
 
 ## Container image
 
@@ -64,7 +64,9 @@ replicas. Reads served by the replica can lag behind a successful publish. See
 
 The default listen addresses are `0.0.0.0:5050` and `0.0.0.0:9464`. A bind to all
 interfaces does not restrict access. Use network controls to keep metrics private.
-See [telemetry configuration](/get-started/run-the-backend/#telemetry).
+`[auth]` does not protect the metrics listener. Port 9464 stays unauthenticated
+even when authentication is on, so never publish it. See
+[telemetry configuration](/get-started/run-the-backend/#telemetry).
 
 Probe health through `grpc.health.v1` only. There is no HTTP health path.
 Shutdown marks aggregate health and every named RPC service `NOT_SERVING`.
@@ -91,13 +93,19 @@ buffering. It must speak h2c (HTTP/2 without TLS) or HTTP/1.1 to the backend.
 Both native gRPC clients over HTTP/2 and gRPC-Web clients over HTTP/1.1 must work.
 An ingress path that downgrades native gRPC to HTTP/1.1 does not meet this contract.
 
-- Preserve CORS preflight and request headers, including authorization, version,
-  and trace headers.
+- Forward `access-control-request-headers` unmodified. The backend mirrors the
+  preflight request, so this header is input. A terminator that strips or
+  rewrites it breaks browser clients. The backend allows `authorization`,
+  `content-type`, `x-app-version`, `x-libxmtp-version`, `traceparent`, and
+  `tracestate`.
 - Forward response frames as the backend emits them. A subscription must receive
   its Started frame and later messages while the same response stays open.
 - Preserve `grpc-status`, `grpc-message`, and `grpc-status-details-bin` trailers,
-  including trailers encoded in gRPC-Web response bodies. Preserve CORS response
-  headers so browser clients can read status details.
+  including trailers encoded in gRPC-Web response bodies.
+- Preserve `access-control-expose-headers`, which carries `grpc-status`,
+  `grpc-message`, `grpc-status-details-bin`, and `x-request-id`. Browser clients
+  cannot read status details without it. The backend sets no
+  `access-control-max-age`, so do not enable preflight caching at the edge.
 
 Check your ingress against both client kinds before you rely on it. A path that
 serves unary calls correctly can still drop long-lived subscriptions or strip

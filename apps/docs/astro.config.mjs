@@ -97,7 +97,7 @@ export default defineConfig({
         },
         {
           label: "Deploy",
-          items: guidePages("deploy", "overview"),
+          items: guidePages("deploy", "overview fly"),
           collapsed: true,
         },
         {
