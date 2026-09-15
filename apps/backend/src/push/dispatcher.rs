@@ -9,7 +9,7 @@ use tokio::{
 use xmtp_common::time::{Duration, Instant, sleep, timeout};
 
 use super::{
-    channel::{ATTEMPT_TIMEOUT, DeliveryConfig, Outcome, Senders, http::HttpSender},
+    channel::{ATTEMPT_TIMEOUT, DeliveryConfig, Outcome, Senders},
     window,
     work::{Attempt, Completion, Work},
 };
@@ -29,11 +29,12 @@ pub(crate) struct PushHub {
 }
 
 impl PushHub {
-    pub fn start(store: Store, config: &Config, maintenance: Arc<Notify>) -> Arc<Self> {
-        let mut senders = Senders::default();
-        if let Some(http) = &config.push.http {
-            senders.0[2] = Some(Arc::new(HttpSender::new(http)));
-        }
+    pub fn start(
+        store: Store,
+        config: &Config,
+        maintenance: Arc<Notify>,
+        senders: Senders,
+    ) -> Arc<Self> {
         Self::with_senders(store, config, maintenance, senders)
     }
 
@@ -215,7 +216,13 @@ async fn hold(
                     Some(sender) => timeout(ATTEMPT_TIMEOUT, sender.send(&attempt.delivery))
                         .await
                         .unwrap_or(Outcome::Transient { retry_after: None }),
-                    None => Outcome::Rejected,
+                    None => {
+                        tracing::warn!(
+                            channel = attempt.delivery.config.channel.label(),
+                            "push channel is not configured"
+                        );
+                        Outcome::Unconfigured
+                    }
                 };
                 (attempt, outcome)
             });

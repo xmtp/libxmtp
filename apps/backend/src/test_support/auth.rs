@@ -22,6 +22,7 @@ use xmtp_common::time::{Duration, Instant};
 
 #[derive(Clone)]
 pub struct TestKey {
+    pub private_key: String,
     pub kid: String,
     pub alg: Algorithm,
     pub public_key: String,
@@ -85,6 +86,7 @@ impl TestKey {
         jwk["alg"] = json!(alg);
         jwk["use"] = json!("sig");
         Self {
+            private_key: private,
             kid,
             alg,
             public_key,
@@ -104,6 +106,7 @@ impl TestKey {
                 .expect("RSA private PEM");
             let kid = uuid::Uuid::new_v4().to_string();
             TestKey {
+                private_key: pem.to_string(),
                 kid: kid.clone(),
                 alg: Algorithm::RS256,
                 public_key: public.to_public_key_pem(LineEnding::LF).expect("RSA SPKI"),

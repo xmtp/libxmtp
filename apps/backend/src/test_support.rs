@@ -3,6 +3,8 @@ pub mod auth;
 mod database;
 #[cfg(test)]
 pub(crate) mod metrics;
+#[cfg(test)]
+pub(crate) mod push_provider;
 pub use database::TestDatabase;
 // Only `apps/backend`'s own tests use these. Keep them out of the
 // `test-utils` surface that `xmtp_mls` consumes.

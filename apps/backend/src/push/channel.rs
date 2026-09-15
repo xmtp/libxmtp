@@ -5,11 +5,14 @@ use std::sync::Arc;
 use xmtp_common::time::Duration;
 use xmtp_push_types::PushPayload;
 
+pub(crate) mod apns;
+pub(crate) mod fcm;
 pub(crate) mod http;
 
 pub(crate) const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const RETRY_DELAY: Duration = Duration::from_secs(1);
 pub(crate) const MAX_RETRY_DELAY: Duration = Duration::from_secs(300);
+pub(super) const MAX_RESPONSE_BYTES: usize = 16 * 1024;
 
 /// Do not format this type: its fields contain recipient secrets and addresses.
 #[derive(Clone, PartialEq, Eq)]
@@ -30,13 +33,10 @@ pub(crate) struct Delivery {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Delivered,
-    Transient {
-        retry_after: Option<Duration>,
-    },
+    Transient { retry_after: Option<Duration> },
     Rejected,
-    #[allow(dead_code)] // APNs and FCM use this outcome when their senders land.
+    Unconfigured,
     Mismatch,
-    #[allow(dead_code)] // HTTPS reaches terminal state through repeated GoneTransient.
     Terminal,
     GoneTransient,
 }
@@ -50,6 +50,24 @@ pub(crate) trait Sender: Send + Sync {
 pub(crate) struct Senders(pub [Option<Arc<dyn Sender>>; 3]);
 
 impl Senders {
+    /// Construct exactly the configured channels and validate credentials before
+    /// starting any dispatcher tasks. Errors name config keys, never values.
+    pub fn new(
+        config: &crate::config::push::PushConfig,
+    ) -> Result<Self, crate::config::ConfigError> {
+        let mut senders = Self::default();
+        if let Some(config) = &config.apns {
+            senders.0[0] = Some(Arc::new(apns::ApnsSender::new(config)?));
+        }
+        if let Some(config) = &config.fcm {
+            senders.0[1] = Some(Arc::new(fcm::FcmSender::new(config)?));
+        }
+        if let Some(config) = &config.http {
+            senders.0[2] = Some(Arc::new(http::HttpSender::new(config)));
+        }
+        Ok(senders)
+    }
+
     pub fn get(&self, channel: PushChannel) -> Option<Arc<dyn Sender>> {
         self.0[channel as usize - 1].clone()
     }

@@ -43,6 +43,7 @@ pub async fn initialize(
 ) -> Result<Backend, Box<dyn std::error::Error + Send + Sync>> {
     config.validate()?;
     xmtp_cryptography::install_crypto_provider();
+    let push_senders = crate::push::channel::Senders::new(&config.push)?;
     let auth = match &config.auth {
         Some(auth) => Some(std::sync::Arc::new(
             crate::auth::Authentication::initialize(auth).await?,
@@ -76,6 +77,7 @@ pub async fn initialize(
             (*backend.store).clone(),
             &backend.config,
             streams.maintenance.clone(),
+            push_senders,
         ));
     } else {
         crate::telemetry::push_dispatcher(false);
