@@ -372,9 +372,8 @@ the DNS CNAME. Wait for the ECS task and target group to become healthy. Use the
 
 ## Check the deployment and clean up
 
-This guide's Terraform is validated but has not been applied against a live AWS
-account, so treat the deployment itself as unverified. After `terraform apply`,
-work through the shared [ingress checks](/deploy/overview/#ingress-contract):
+After `terraform apply`, work through the shared
+[ingress checks](/deploy/overview/#ingress-contract):
 
 1. Run `grpc-health-probe` against the NLB hostname with TLS and the certificate
    DNS name as `-tls-server-name`.
