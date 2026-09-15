@@ -1,0 +1,43 @@
+name: libxmtp-tls
+
+services:
+  db:
+    image: postgres:18.6
+    environment:
+      POSTGRES_USER: xmtp
+      POSTGRES_PASSWORD: xmtp
+      POSTGRES_DB: xmtp_backend
+    tmpfs:
+      - /var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U xmtp -d xmtp_backend"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    image: ghcr.io/xmtp/backend:self-hosted
+    depends_on:
+      db: { condition: service_healthy }
+    environment:
+      XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend
+    volumes: ["./backend.toml:/config.toml:ro"]
+    command: ["--config-file", "/config.toml"]
+    healthcheck:
+      test: ["CMD", "/bin/grpc-health-probe", "-addr=127.0.0.1:5050"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+
+  haproxy:
+    image: haproxy:3.2.15-alpine
+    depends_on:
+      backend: { condition: service_healthy }
+    environment:
+      XMTP_TLS_PEM: /certs/server.pem
+      XMTP_TLS_BACKEND: backend:5050
+    volumes:
+      - ${XMTP_TLS_CONFIG:-./haproxy.cfg}:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./.generated:/certs:ro
+    # 18443 is outside every dev/worktree-env port range. No DB host port.
+    ports: ["127.0.0.1:18443:18443"]

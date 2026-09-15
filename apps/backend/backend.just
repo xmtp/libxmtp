@@ -97,3 +97,12 @@ release:
 # Verify client traces, backend metrics, and the local dashboard.
 observe-check:
     bash {{ root }}/dev/docker/observe-check.sh
+
+# Build and check the separate HAProxy TLS validation stack. Always clean up.
+[script("bash")]
+tls-check: image
+    set -euo pipefail
+    docker load --input {{ root }}/result-backend-image
+    trap '{{ root }}/dev/tls/down' EXIT
+    {{ root }}/dev/tls/up
+    {{ root }}/dev/tls/check.sh

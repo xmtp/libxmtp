@@ -19,6 +19,7 @@ just backend image                     # host architecture image
 just backend image aarch64            # explicit architecture image
 just backend up                        # SDK and observability services
 just backend observe-check             # client operations, shared trace, metrics, Grafana
+just backend tls-check                 # build, start, check, and remove the TLS stack
 just backend down                      # stop the shared stack
 just backend logs backend tempo
 just lint-rust
@@ -34,6 +35,32 @@ The shared stack is in `dev/docker/compose.yml`. Database ports are 55432
 For a separate local stack, set `XMTP_BACKEND_DB_PORT` and
 `XMTP_BACKEND_REPLICA_PORT` before startup. Set `DATABASE_URL` to its primary
 port for tests and SQL checks. Replica tests use `XMTP_BACKEND_REPLICA_PORT`.
+
+`dev/tls/` contains the reusable HAProxy config and the separate `libxmtp-tls`
+validation stack. Run `dev/nix-shell 'just backend tls-check'` for native gRPC
+trailers, HTTP/1.1 gRPC-Web, CORS, incremental streaming, and TLS health checks.
+It uses port 18443, an internal PostgreSQL 18 database, and a disposable
+self-signed certificate. The combined certificate/key PEM is readable by the
+non-root HAProxy user. Do not use this certificate for deployment.
+The check needs `grpcurl`, `protoc`, Python 3, OpenSSL, Docker, and Nix.
+It gets `grpc-health-probe` from `nix shell nixpkgs#grpc-health-probe`.
+
+For the deliberate idle-stream failure check, run these through `dev/nix-shell`:
+`dev/tls/up`, `dev/tls/check.sh --short-timeout`, then `dev/tls/down`.
+The check uses 12-second client/server timeouts plus a one-hour tunnel timeout.
+It requires an acknowledged HTTP/2 PING before the stream drops, then restores
+the normal config on exit.
+HTTP/2 uses client/server timeouts, not `timeout tunnel`. Connection-level
+PING frames do not refresh stream timers. Application keepalive messages do
+carry stream data, but the backend's default 30-second interval cannot prevent
+a 12-second timeout. The normal config uses 24-hour timeouts.
+
+This local stack cannot prove Railway TCP proxy passthrough, the assigned
+public port, or `*.railway.internal` DNS behavior. Check those on Railway.
+For a config parse check, run `dev/tls/up --cert-only`, set `XMTP_TLS_PEM` to
+the absolute `dev/tls/.generated/server.pem` path, and set `XMTP_TLS_BACKEND`
+to `backend:5050`. Then run
+`nix shell nixpkgs#haproxy --command haproxy -c -f dev/tls/haproxy.cfg`.
 
 Set `XMTP_DATABASE_URL` and `XMTP_REPLICA_URL` for startup with the local config. Test and SQL recipes default to
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend` in the main checkout, and a
