@@ -5,13 +5,6 @@ matcher = "Bash"
 type = "command"
 command = 'python3 "$(git rev-parse --show-toplevel)/dev/agents/nix_hook.py"'
 
-# Ref reads its key from the environment. On a murmur VM it arrives through
-# `murmur secret mount REF_API_KEY`; locally, export it. The header is omitted
-# when the variable is unset, so the server is simply unavailable then.
-[mcp_servers.ref-plan]
-url = "https://api.plan.ref.tools/mcp"
-env_http_headers = { "x-ref-api-key" = "REF_API_KEY" }
-
 [mcp_servers.serena]
 command = "bash"
 args = ["-c", 'exec "$(git rev-parse --show-toplevel)/dev/serena"']

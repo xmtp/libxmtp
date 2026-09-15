@@ -74,18 +74,16 @@ If startup fails, read `.cache/agents/serena/server.log`. The first start needs
 network access to fetch the pinned Python dependencies. The launcher does not
 install Rust or change global Codex or Serena settings.
 
-## Ref
+## Ref on a Murmur VM
 
-The Ref plan server is configured in the repository: `.mcp.json` for Claude
-Code and `.codex/config.toml` for Codex. Both read the key from the
-`REF_API_KEY` environment variable, which is never written into either file.
+Nothing in this repository configures the Ref plan server for a local
+developer. Configure it however you normally do.
 
-On a murmur agent VM the key arrives through `murmur secret mount REF_API_KEY`.
-Locally, export `REF_API_KEY` before starting the agent. Without it the server
-is unavailable and everything else still works. If you already reach Ref
-through a plugin or a personal configuration, add `ref-plan` to
-`disabledMcpjsonServers` in `.claude/settings.local.json` to silence the
-duplicate.
+On a Murmur agent VM, `.murmur/hooks/prepare-workspace.sh` writes the agent's
+own `~/.claude.json` and `~/.codex/config.toml` after the repo is cloned and
+before the agent starts. It reads `REF_API_KEY`, which arrives from
+`murmur secret mount REF_API_KEY`, and is a no-op when that variable is absent.
+The key is never written into the repo or the VM image.
 
 ## Checks
 

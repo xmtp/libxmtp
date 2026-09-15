@@ -130,7 +130,11 @@ echo "=== Warm the Nix store and the Docker images ==="
 WARM_DIR=/tmp/libxmtp-warm
 GCROOTS=/nix/var/nix/gcroots/libxmtp-warm
 rm -rf "$WARM_DIR"
+# The warm steps build as `murmur`, and creating the --out-link symlink needs
+# write permission on this directory. Root's `mkdir` leaves it 0755 root-owned,
+# which would fail every warm step.
 mkdir -p "$GCROOTS"
+chown murmur:murmur "$GCROOTS"
 
 # The recipe timeout is 1h and that is the platform maximum, so this stage
 # must never consume the whole budget. Every step reports its own elapsed
@@ -201,26 +205,40 @@ if git clone --depth 1 --branch self-hosted \
     echo "    backend image on their first \`just backend up\`." >&2
   fi
 
-  # Pre-load the images `dev/docker/compose.yml` starts. Without this, every
-  # VM pulls postgres, foundry, toxiproxy, tempo, prometheus, and grafana on
-  # its first `just backend up`. /var/lib/docker is part of the snapshot.
+  # Pre-load every image the stack starts. Without this, each VM pulls the
+  # whole set on its first `just backend up`. /var/lib/docker is part of the
+  # snapshot, so what lands here ships in the image.
   stage "start: docker images"
   systemctl start docker.service || true
   if [ -e "$GCROOTS/backend-image" ]; then
     docker load --input "$GCROOTS/backend-image" || \
       echo "WARNING: could not load the backend image into docker" >&2
   fi
-  # Keep this list in step with dev/docker/compose.yml.
-  for img in \
-    postgres:18.6 \
-    ghcr.io/foundry-rs/foundry:stable \
-    ghcr.io/shopify/toxiproxy:2.12.0 \
-    grafana/tempo:3.0.1 \
-    prom/prometheus:v3.6.0 \
-    grafana/grafana:12.2.0; do
-    timeout 5m docker pull --quiet "$img" || \
-      echo "WARNING: could not pre-pull $img" >&2
-  done
+  # Let compose name the images: it reads dev/docker/compose.yml, so this
+  # cannot drift from the stack the agents actually start. Compose pulls them
+  # in parallel, which matters because the daemon's max-concurrent-downloads
+  # applies per pull and serial pulls leave the instance's bandwidth idle.
+  #
+  # Every variable in compose.yml has a default, so this parses without the
+  # per-worktree env file that dev/docker/up generates.
+  #
+  # --policy missing skips the backend image loaded just above, which is built
+  # by Nix and does not exist in any registry. --ignore-pull-failures keeps a
+  # transient registry failure from aborting the bake; a VM that pulls one
+  # image on first use is a small cost.
+  #
+  # One timeout covers the whole group. Serial pulls with a timeout each could
+  # add 30 minutes on top of the shell and backend steps, run the bake past
+  # the 1h platform ceiling, and produce no image at all.
+  IMAGE_BUDGET=$((WARM_START + 55 * 60 - $(date +%s)))
+  if [ "$IMAGE_BUDGET" -le 0 ]; then
+    echo "NOTE: out of budget; skipping the image pulls" >&2
+  else
+    [ "$IMAGE_BUDGET" -gt 600 ] && IMAGE_BUDGET=600
+    timeout "${IMAGE_BUDGET}s" docker compose -f "$WARM_DIR/dev/docker/compose.yml" \
+      pull --policy missing --ignore-pull-failures --quiet \
+      || echo "WARNING: could not pre-pull every compose image" >&2
+  fi
   stage "done: docker images"
 else
   echo "WARNING: could not clone libxmtp to warm the store" >&2
