@@ -97,6 +97,27 @@ impl XmtpBackendClient for StalledApi {
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
+
+    async fn register(
+        &self,
+        request: wire::RegisterRequest,
+    ) -> Result<wire::RecipientState, Self::Error> {
+        self.inner.register(request).await
+    }
+
+    async fn unregister(
+        &self,
+        request: wire::UnregisterRequest,
+    ) -> Result<wire::UnregisterResponse, Self::Error> {
+        self.inner.unregister(request).await
+    }
+
+    async fn update_subscriptions(
+        &self,
+        request: wire::UpdateSubscriptionsRequest,
+    ) -> Result<wire::RecipientState, Self::Error> {
+        self.inner.update_subscriptions(request).await
+    }
 }
 
 async fn client_with_stalled_api(

@@ -10,6 +10,12 @@ mod verify_smart_contract_wallet_signatures;
 pub use verify_smart_contract_wallet_signatures::VerifySmartContractWalletSignatures;
 mod subscribe_static;
 pub use subscribe_static::SubscribeStatic;
+mod register;
+pub use register::Register;
+mod unregister;
+pub use unregister::Unregister;
+mod update_subscriptions;
+pub use update_subscriptions::UpdateSubscriptions;
 
 #[cfg(test)]
 mod tests {
@@ -42,6 +48,18 @@ mod tests {
             (
                 SubscribeStatic(Default::default()).grpc_endpoint(),
                 "/xmtp.backend.v1.SubscriptionService/SubscribeStatic",
+            ),
+            (
+                Register(Default::default()).grpc_endpoint(),
+                "/xmtp.backend.v1.NotificationService/Register",
+            ),
+            (
+                Unregister(Default::default()).grpc_endpoint(),
+                "/xmtp.backend.v1.NotificationService/Unregister",
+            ),
+            (
+                UpdateSubscriptions(Default::default()).grpc_endpoint(),
+                "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
             ),
         ];
         for (actual, expected) in paths {

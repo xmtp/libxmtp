@@ -1,7 +1,8 @@
 use crate::api::IsConnectedCheck;
 pub use crate::backend_v1::{
     GetInboxIdsRequest, GetInboxIdsResponse, PublishRequest, PublishResponse, QueryNewestRequest,
-    QueryNewestResponse, QueryRequest, QueryResponse, ServerEnvelope,
+    QueryNewestResponse, QueryRequest, QueryResponse, RecipientState, RegisterRequest,
+    ServerEnvelope, UnregisterRequest, UnregisterResponse, UpdateSubscriptionsRequest,
     VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use crate::types::{
@@ -77,7 +78,7 @@ where
 
 impl<T> XmtpApi for T where T: XmtpBackendClient + ?Sized {}
 
-/// The five unary RPCs of the backend API. Callers own retries and chunking.
+/// The backend unary RPCs. Callers own retries and chunking.
 #[xmtp_common::async_trait]
 pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
@@ -95,6 +96,15 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
     ) -> Result<VerifySmartContractWalletSignaturesResponse, Self::Error>;
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error>;
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error>;
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error>;
 }
 
 /// Represents the backend API required for an MLS Delivery Service

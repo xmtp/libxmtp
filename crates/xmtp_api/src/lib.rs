@@ -2,6 +2,7 @@
 
 pub mod identity;
 pub mod mls;
+mod notification;
 pub mod scw_verifier;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;

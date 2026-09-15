@@ -58,6 +58,21 @@ impl<C: XmtpBackendClient> XmtpBackendClient for TrackedStatsClient<C> {
             .verify_smart_contract_wallet_signatures(request)
             .await
     }
+    async fn register(&self, request: RegisterRequest) -> Result<RecipientState, Self::Error> {
+        self.inner.register(request).await
+    }
+    async fn unregister(
+        &self,
+        request: UnregisterRequest,
+    ) -> Result<UnregisterResponse, Self::Error> {
+        self.inner.unregister(request).await
+    }
+    async fn update_subscriptions(
+        &self,
+        request: UpdateSubscriptionsRequest,
+    ) -> Result<RecipientState, Self::Error> {
+        self.inner.update_subscriptions(request).await
+    }
 }
 #[xmtp_common::async_trait]
 impl<C: XmtpMlsStreams> XmtpMlsStreams for TrackedStatsClient<C> {
