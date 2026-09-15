@@ -22,7 +22,6 @@ test conventions are in `writing-rust-tests`. Both are under `.agents/skills/`.
 
 ## 2. Deleting code
 
-10. Delete code `docs/self-hosted/deletions.md` marks for deletion as soon as every keeper and dependent has moved off it. It gives the order and the keep list.
 11. Delete dead code in the same PR that orphans it. Do not comment it out. Do not deprecate.
 12. Delete a test when its behavior no longer exists.
 13. Never add a compatibility shim for the xmtpd or xmtp-node-go wire formats.

@@ -1,6 +1,8 @@
 # XMTP Self-Hosted Transition
 
-XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtpd`) with one self-hosted backend. The backend and client integration are complete through Phase 3. This document is the plan of record for the project. Future agents must treat it, and the approved specs in `docs/specs`, as authoritative.
+XMTP is replacing both the v3 network (`xmtp-node-go`) and the v4 network (`xmtpd`) with one self-hosted backend. Phases 0 through 3 are complete, as are 4.1, 4.3, 4.5, 4.7, and 5.1.
+
+This document is now mostly a historical record of scope and sequencing. It is not agent context. The approved specs in `docs/specs` are authoritative for current behavior.
 
 ## Compatibility
 
@@ -54,11 +56,13 @@ Expected specs by the end of the project:
 
 ### Phase 0 documents
 
-Ephemeral documents produced in Phase 0 live in `docs/self-hosted`: the existing-behavior wiki in `existing/` and the deletion inventory in `deletions.md`. They are deleted when the project ends.
+Ephemeral documents produced in Phase 0 live in `docs/self-hosted`, including the existing-behavior wiki in `existing/`. They are deleted when the project ends.
 
 ## Phases
 
 ### Phase 0: Preparation
+
+Status: complete.
 
 - Dispatch sub-agents to research the existing implementations in `libxmtp`, `xmtp-node-go`, `xmtpd`, and `proto`, and catalog all current behaviors and requirements of the existing endpoints in a detailed wiki at `docs/self-hosted/existing`. Required content: the input parameters of each endpoint and their exact formats (serialization, bindings of fields to database tables), the database schema, what conditions trigger errors and how errors are surfaced to the client, limits applied to endpoints, rate limiting, and anything else relevant to future implementers. All claims cite function names and file paths. The goal is a complete and accurate specification of the relevant parts of the existing services.
 - Interrogate the proposed `proto/backend/v1/backend.proto`. Will it lead to a performant backend that can handle all needs of the new client? Analyze the expected callers of each backend API in `libxmtp` and ensure their core business requirements can be met.
@@ -73,51 +77,71 @@ Expected pull requests: a stack of two, one for documentation changes and one fo
 
 ### Phase 1: Scaffolding
 
-- Scaffold `apps/backend`. Ensure it builds with Nix. Give it a hello-world main and a single test.
-- Scaffold `crates/xmtp_mls_validation` for shared payload parsing, validation, topic derivation, and canonical envelope encoding. Include its `test-utils` fixtures. Ensure it builds and tests independently on native and wasm, without client database dependencies or accidental workspace feature unification.
-- Audit all of `crates/xmtp_mls`, including its runtime and test utilities, against the expected scope of the backend API. Move every function, struct, utility, and type the backend will share out of `xmtp_mls` and into the appropriate other crate. Spec 002 must be written before this audit; without it the comparison cannot be accurate.
-- Extract the shared validation logic and fixtures in this phase. Phase 2 connects them to backend storage and requests. Share canonical envelope encoding and hashing as well as topic derivation; preserve the separate client MLS message-ID and payload-hash rules.
-- Ensure the backend can produce a Docker image, the way the MLS validation service is built with Nix. Ensure all check, build, and test commands work and maximize Nix caching.
-- Create the `proto/` folder for all `.proto` files. Copy every required file from the `proto` repository (including files for endpoints this project removes, such as v4) plus the new backend protos. Set up Buf linting in the justfile. Update all scripts and `crates/xmtp_proto` to make this folder authoritative, and delete the old generated tree and the `proto` repository dependency in the same phase.
-- Ensure tests for the new crates run in CI.
-- Temporarily disable these GitHub Actions to speed up CI: anything for xdbg, wasm, the browser SDK, cross-test, and `nightly-protos.yml`. The browser SDK is handled in a later phase.
+Status: complete.
+
+- Scaffolded `apps/backend` with a Nix build, a Docker image, and CI checks.
+- Created `crates/xmtp_mls_validation` for shared payload parsing, validation,
+  topic derivation, and canonical envelope encoding, with portable fixtures that
+  build and test on native and wasm without client database dependencies.
+- Moved the code the backend shares out of `crates/xmtp_mls` into the shared
+  crates, guided by spec 002.
+- Made `proto/` authoritative for all `.proto` files, added Buf linting, and
+  removed the old generated tree and the `proto` repository dependency.
 
 ### Phase 2: Backend
 
-Specs 001 and 002 must be completed and approved before this phase begins. This phase sets up the backend, creates its tests, and implements the complete API surface. The backend is not integrated into any client or SDK yet, except for minimal stateless test harnesses required by the test suite.
+Status: complete. Specs 001, 002, and 004 describe the result.
 
-- Single-client bidirectional streaming with one ingestion cursor per topic, atomic interest updates, and fixed catch-up targets (spec 004). This replaces XIP-83. Static gRPC-Web subscriptions provide the same ordered feed for browsers.
-- Complete support for the API surface defined in `proto/backend/v1/backend.proto`. The standard gRPC health service is served. There is no version or metadata endpoint in v1.
-- A Postgres schema designed for the API surface, with indexes for every query parameter.
-- A single binary that can be horizontally scaled and load balanced. The MLS validation service is not used; the backend connects storage to the shared validation logic extracted in Phase 1.
-- Support read replicas from day one. Each configured replica URL points to one replica instance. Publish and Query use the primary; newest reads, streams, and identity lookups may use the replica.
-- No caller quotas, authentication, or authorization. Phase 6 adds them. Exception: per-stream Update and client Ping token buckets protect the stream protocol in Phase 2 (10 frames/s each, burst 100).
-- Establish, and include in the spec, a concise TOML config format for all server configuration. Config files may reference environment variables for secrets. The format should have a defined schema that can be publicly hosted and referenced by config files that support Taplo schemas.
+- The full `proto/backend/v1/backend.proto` API surface, plus the standard gRPC
+  health service. No version or metadata endpoint in v1.
+- Single-client bidirectional streaming with one ingestion cursor per topic,
+  atomic interest updates, and fixed catch-up targets (spec 004). Static
+  gRPC-Web subscriptions give browsers the same ordered feed.
+- A PostgreSQL schema indexed for every query parameter, and read replica
+  support. Publish and Query use the primary; newest reads, streams, and
+  identity lookups may use a replica.
+- One stateless binary that scales horizontally. The MLS validation service is
+  gone; the backend calls the shared validation crate directly.
+- A TOML config format with a published schema. Config files may reference
+  environment variables for secrets.
+- No caller quotas or authentication in this phase. Per-stream Update and client
+  Ping token buckets protect the stream protocol (10 frames/s each, burst 100).
 
 ### Phase 3: Client Support And Cleanup
 
-Status: implementation complete. Tasks 1 to 14 implement the backend transition. The identifier sweep passes with documented historical and archive-format exceptions. Full CI verification is still required. The follow-ups below remain outside Phase 3.
+Status: complete. Delivered as a four-pull-request stack (#4075 to #4078).
 
-Replace all backend selection in `xmtp_mls` with the self-hosted backend. This requires updates to every binding in `bindings/`, every SDK in `sdks/`, and the CLIs in `apps/`. The diff is large and changes the test harness of every client SDK. `docs/self-hosted/deletions.md` gives the order of the deletions in this phase.
-
-- Update client creation options, removing anything to do with d14n or other deprecated/removed features. A backend URL is a new required config option with no default. `env` should transition to a String, and would only be used informationally and for selecting database file name if no explicit `dbPath` was specified.
-- Remove `historySyncUrl` from all client configuration options, and any downstream support for the history sync server. We still want device sync that is message-based, or file-based restores, but we don't need any server-based history sync. It's mostly gone already anyways.
-- Native streams use the bidi router over backend `Subscribe`. WebAssembly uses the legacy stream stack over `SubscribeStatic`. The backend implements the spec 004 wire contract. Shared client ingestion and processing-based catch-up are deferred to Phase 5.1.
-- Update API clients (`xmtp_api`, renamed `xmtp_api_backend`) to exclusively support the new backend. Remove all dead proto code, and all dead code related to v3 or d14n. Keep the auth and read-only middleware. Remove the payer read-write middleware. We will be using and extending the auth middleware in a later phase.
-- Implement the spec 001 client obligations: keyed key-package results with absence, batch chunking, identity and commit-log query paging, static-subscription splitting, and status-based retry classification. Anything else required to make the client tests pass against a self-hosted backend and preserve correct behavior. Preserve public SDK methods and stream callbacks.
-- Preserve canonical envelope bytes for publish retries and hash matching. An oversized publish response can follow a committed write; response failure does not prove rollback.
-- `apps/xmtp_debug` stays as an app. Its backend selection and other dead functionality are deleted as the code they depend on goes.
-- The `anvil` service stays. The SCW verifier tests keep using it, as the owner decided on 2026-09-08.
-- Audit all scripts in the dev folder and justfile and remove any scripts or configuration that is now dead code.
-- The `anvil` service stays in `dev/docker/compose.yml`. The stack now contains `db` (Postgres 18), `replica`, `backend`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`. The legacy node, validation, and history services and the separate d14n compose file are removed.
+- `xmtp_mls` talks only to the self-hosted backend. A backend URL is a required
+  client option with no default. `env` is now a string used only for information
+  and for choosing the database file name when no `dbPath` is given.
+- `historySyncUrl` and all server-based history sync are removed. Message-based
+  device sync and file-based archive export and import stay.
+- Native streams use the bidi router over `Subscribe`. WebAssembly uses the
+  legacy stream stack over `SubscribeStatic`.
+- `xmtp_api` is renamed `xmtp_api_backend` and supports only the new backend.
+  Dead v3, d14n, and payer code is gone. The auth and read-only middleware stay.
+- The spec 001 client obligations are implemented: keyed key-package results
+  with absence, batch chunking, identity and commit-log paging, static
+  subscription splitting, and status-based retry classification. Public SDK
+  methods and stream callbacks are preserved.
+- Every binding in `bindings/`, every SDK in `sdks/`, and `apps/xmtp_debug` are
+  updated. Dead dev scripts and justfile entries are removed.
+- `dev/docker/compose.yml` now holds `db` (PostgreSQL 18), `replica`, `backend`,
+  `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`. The legacy node,
+  validation, and history services and the d14n compose file are gone.
 
 ### Phase 4: Polish
 
 #### 4.1: Docs Site
 
-- A new docs site backed entirely by this repo.
-- Would take a subset of the docs from the existing <https://github.com/xmtp/docs-xmtp-org>. Hopefully greatly simplified for easier maintenance
-- All markdown files and docs code lives inside this repo
+Status: complete.
+
+- A Starlight docs site in `apps/docs`, built and linted from this repository.
+  All Markdown and site code live here.
+- Content is a simplified subset of `xmtp/docs-xmtp-org`, plus generated API
+  references for the SDKs and the Agent SDK.
+- Deployment guides for Fly.io, AWS ECS Fargate, Kubernetes with Helm, and
+  Railway, each validated locally, with a reusable HAProxy TLS terminator.
 
 #### 4.2: Message Pruning
 
@@ -126,8 +150,16 @@ Replace all backend selection in `xmtp_mls` with the self-hosted backend. This r
 
 #### 4.3: Authentication
 
-- Provide backend configuration options for JWT authentication. Allow configuration of approved public keys or JWKs URLs, audiences, and required scopes. If authentication is required, reject requests missing an auth token or with an invalid token.
-- Allow client applications to provide auth tokens for callers, attached to all gRPC requests as headers using the auth middleware. Refresh the token on unauthorized responses.
+Status: complete. Delivered as a three-pull-request stack (#4092 to #4094).
+
+- Backend JWT verification, configured with approved public keys or JWKS URLs,
+  audiences, and required scopes. When authentication is required, requests with
+  a missing or invalid token are rejected.
+- Clients attach caller tokens to every gRPC request through the auth
+  middleware, refetch credentials on unauthorized responses, and back off into a
+  lockout instead of retrying forever.
+- Added `EphemeralBackend` so `xmtp_mls` tests can run against a backend with a
+  specific configuration.
 
 #### 4.4: Rate Limiting
 
@@ -135,10 +167,12 @@ Replace all backend selection in `xmtp_mls` with the self-hosted backend. This r
 
 #### 4.5: Metrics And Telemetry
 
-Status: done. See [backend observability](../backend-observability.md) for
-configuration, metrics, traces, alerts, and the end-to-end check.
+Status: complete (#4081). See [backend observability](../backend-observability.md)
+for configuration, metrics, traces, alerts, and the end-to-end check.
 
-- Full OpenTelemetry and Prometheus metrics for the backend. Reuse metric names, labels, and conventions from `xmtpd` and `xmtp-node-go` where applicable.
+- Full OpenTelemetry traces and Prometheus metrics for the backend, reusing
+  metric names, labels, and conventions from `xmtpd` and `xmtp-node-go` where
+  they applied.
 
 #### 4.6: Benchmarks And Performance
 
@@ -147,9 +181,14 @@ configuration, metrics, traces, alerts, and the end-to-end check.
 
 #### 4.7: Push Subscriptions
 
-- Port key functionality from xmtp/example-notification-server-go into the backend, allowing for clients to register push subscriptions
-- Update Rust SDK to have native support for registering push subscriptions
-- Spec: `docs/specs/005_push_subscriptions.md`, approved 2026-09-14, with a five-PR plan in its §7
+Status: complete. Spec `docs/specs/005_push_subscriptions.md`, approved
+2026-09-14. Delivered as a five-pull-request stack (#4119 to #4124).
+
+- Backend registration API and storage for push recipients and subscriptions.
+- A dispatcher that delivers signed HTTPS webhooks, plus direct APNs and FCM
+  delivery with bounded credential handling.
+- Client notification sync, bindings, and SDK notification APIs. The legacy push
+  path is removed.
 
 #### 4.8: Self Publishing SDK Versions
 
@@ -166,10 +205,16 @@ configuration, metrics, traces, alerts, and the end-to-end check.
 
 #### 5.1: Overhaul Message Fetching
 
-- Complete overhaul of the streaming code to take advantage of the new backend streaming APIs.
-- Add durable-progress feedback to the lease ledger. Today, a reopen after wire failure or resume replays from each lease's floor. Replay cost grows with the history since the lease opened.
-- Carry a drop reason across the lease boundary. Today, transport backpressure can end a lease and fire `on_close`. P3-STR-015 intends that callback only for an explicit close or a non-retryable failure.
-- <https://plan.ref.tools/W6p6z0HV0nVruZwI>
+Status: complete. Contracts in <https://plan.ref.tools/W6p6z0HV0nVruZwI>
+and #4086. Implementation in #4088, #4089, and #4096.
+
+- Durable client receipt and state processing over the new backend streaming
+  APIs, with a Rust reader and focused regression tests.
+- The lease ledger carries durable progress, so a reopen after a wire failure
+  resumes instead of replaying from each lease's floor.
+- A drop reason crosses the lease boundary, so transport backpressure no longer
+  fires `on_close`. That callback now means an explicit close or a
+  non-retryable failure, as P3-STR-015 intended.
 
 #### 5.2: Codegen SDKs
 
