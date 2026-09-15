@@ -175,6 +175,10 @@ least `default_query_limit`, `max_envelope_bytes` at most `max_request_bytes`, a
 
 ## Run it locally
 
+To send notifications, configure one or more delivery channels. See
+[Push configuration](/get-started/push-configuration/) for APNs, FCM, and HTTPS
+settings and credential setup.
+
 `just backend up` starts PostgreSQL, the backend, an Anvil chain, and Toxiproxy.
 The backend listens on `127.0.0.1:5050`.
 

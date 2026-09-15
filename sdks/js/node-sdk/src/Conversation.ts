@@ -25,6 +25,10 @@ import {
   DecodedMessage,
 } from "@/DecodedMessage";
 import { MessageStream } from "@/MessageStream";
+import {
+  toBindingNotificationOverride,
+  type NotificationOverride,
+} from "@/Notifications";
 import { nsToDate } from "@/utils/date";
 import { MissingContentTypeError } from "@/utils/errors";
 import type { StreamOptions } from "@/utils/streams";
@@ -68,6 +72,20 @@ export class Conversation<ContentTypes = unknown> {
    */
   get isActive() {
     return this.#conversation.isActive();
+  }
+
+  /** Override notification rules, or reset the override with "default". */
+  setNotifications(value: NotificationOverride): Promise<void> {
+    return Promise.resolve().then(() => {
+      this.#conversation.setNotifications(toBindingNotificationOverride(value));
+    });
+  }
+
+  /** Read the effective notification value for this conversation. */
+  notificationsEnabled(): Promise<boolean> {
+    return Promise.resolve().then(() =>
+      this.#conversation.notificationsEnabled(),
+    );
   }
 
   /**

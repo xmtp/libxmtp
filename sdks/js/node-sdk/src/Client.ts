@@ -21,6 +21,13 @@ import { CodecRegistry } from "@/CodecRegistry";
 import { Conversations } from "@/Conversations";
 import { DebugInformation } from "@/DebugInformation";
 import { Preferences } from "@/Preferences";
+import {
+  throwNotificationError,
+  toBindingNotificationConfig,
+  toNotificationState,
+  type NotificationConfig,
+  type NotificationState,
+} from "@/Notifications";
 import type {
   ClientOptions,
   DistributiveOmit,
@@ -984,5 +991,39 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     }
 
     return this.#client.deviceSync().syncAllDeviceSyncGroups();
+  }
+
+  /** Enable notifications and register the delivery channel. */
+  async enableNotifications(
+    config: NotificationConfig,
+  ): Promise<NotificationState> {
+    if (!this.#client) throw new ClientNotInitializedError();
+    try {
+      return toNotificationState(
+        await this.#client.enableNotifications(
+          toBindingNotificationConfig(config),
+        ),
+      );
+    } catch (error) {
+      return throwNotificationError(error);
+    }
+  }
+
+  /** Disable notifications. Per-conversation overrides remain stored. */
+  async disableNotifications(): Promise<void> {
+    if (!this.#client) throw new ClientNotInitializedError();
+    try {
+      await this.#client.disableNotifications();
+    } catch (error) {
+      throwNotificationError(error);
+    }
+  }
+
+  /** Read the local state without a backend request. */
+  notificationState(): Promise<NotificationState> {
+    return Promise.resolve().then(() => {
+      if (!this.#client) throw new ClientNotInitializedError();
+      return toNotificationState(this.#client.notificationState());
+    });
   }
 }

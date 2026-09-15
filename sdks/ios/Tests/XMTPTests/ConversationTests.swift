@@ -530,7 +530,7 @@ class ConversationTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
-	func testReturnsAllTopics() async throws {
+	func testHmacKeysIncludeDuplicateDms() async throws {
 		let key = try Crypto.secureRandomBytes(count: 32)
 		let opts = ClientOptions(
 			api: localApi(),
@@ -580,29 +580,14 @@ class ConversationTests: XCTestCase {
 		_ = try await eriClient2.conversations.syncAllConversations()
 		_ = try await eriClient.conversations.syncAllConversations()
 
-		// Get all the topics and HMAC keys
-		let allTopics = try await eriClient.conversations.allPushTopics()
+		// HMAC keys include duplicate DM groups.
 		let conversations = try await eriClient.conversations.list()
 		let allHmacKeys = try await eriClient.conversations.getHmacKeys()
 		let dmHmacKeys = try dm1.getHmacKeys()
-		let dmTopics = try await dm1.getPushTopics()
-
-		// Assertions
-		XCTAssertEqual(allTopics.count, 3)
+		XCTAssertEqual(allHmacKeys.hmacKeys.count, 3)
 		XCTAssertEqual(conversations.count, 2)
-
-		let hmacTopics = allHmacKeys.hmacKeys.keys
-		for topic in allTopics {
-			XCTAssertTrue(hmacTopics.contains(topic))
-		}
-
-		XCTAssertEqual(dmTopics.count, 2)
-		XCTAssertTrue(Set(allTopics).isSuperset(of: Set(dmTopics)))
-
-		let dmHmacTopics = dmHmacKeys.hmacKeys.keys
-		for topic in dmTopics {
-			XCTAssertTrue(dmHmacTopics.contains(topic))
-		}
+		XCTAssertEqual(dmHmacKeys.hmacKeys.count, 2)
+		XCTAssertTrue(Set(allHmacKeys.hmacKeys.keys).isSuperset(of: Set(dmHmacKeys.hmacKeys.keys)))
 		try fixtures.cleanUpDatabases()
 	}
 

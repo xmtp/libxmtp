@@ -104,7 +104,7 @@
 			mainGroup = 02DE6EC52D7BD2E7002FE4CD;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				0286B7F22D97E5C100984C0A /* XCLocalSwiftPackageReference "../../xmtp-ios" */,
+				0286B7F22D97E5C100984C0A /* XCLocalSwiftPackageReference "../../.." */,
 				0286B7F82D9A840C00984C0A /* XCRemoteSwiftPackageReference "BigInt" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -339,9 +339,9 @@
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
-		0286B7F22D97E5C100984C0A /* XCLocalSwiftPackageReference "../../xmtp-ios" */ = {
+		0286B7F22D97E5C100984C0A /* XCLocalSwiftPackageReference "../../.." */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "../../xmtp-ios";
+			relativePath = "../../..";
 		};
 /* End XCLocalSwiftPackageReference section */
 

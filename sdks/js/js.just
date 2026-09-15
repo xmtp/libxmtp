@@ -41,7 +41,15 @@ check: install bindings
 check-node: install-node-ci bindings-node
     yarn workspace @xmtp/node-sdk run build
     yarn workspace @xmtp/node-sdk run typecheck
+    yarn workspace @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
     yarn workspace @xmtp/agent-sdk run typecheck
+
+# Check the published Node push API and its absence from Browser and WASM.
+check-notification-surface: install-ci bindings
+    yarn workspace @xmtp/node-sdk run build
+    yarn workspace @xmtp/browser-sdk run build
+    yarn workspace @xmtp/node-sdk exec tsc -p type-tests/tsconfig.json
+    yarn workspace @xmtp/browser-sdk exec tsc -p type-tests/tsconfig.json
 
 # Build all SDKs in topological order (needs bindings present)
 build: install bindings

@@ -9,6 +9,13 @@ export * from "./utils/messages";
 export type { AsyncStreamProxy, ResolveValue } from "./AsyncStream";
 export { CodecRegistry } from "./CodecRegistry";
 export { Client } from "./Client";
+export {
+  NotificationError,
+  type NotificationChannel,
+  type NotificationConfig,
+  type NotificationOverride,
+  type NotificationState,
+} from "./Notifications";
 export { Conversation } from "./Conversation";
 export { Conversations } from "./Conversations";
 export { DecodedMessage } from "./DecodedMessage";

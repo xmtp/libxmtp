@@ -350,7 +350,7 @@ class ConversationsTest : BaseInstrumentedTest() {
     }
 
     @Test
-    fun testReturnsAllTopics() {
+    fun testHmacKeysIncludeDuplicateDms() {
         val key = SecureRandom().generateSeed(32)
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val eriWallet = PrivateKeyBuilder()
@@ -390,23 +390,13 @@ class ConversationsTest : BaseInstrumentedTest() {
             eriClient.conversations.syncAllConversations()
         }
 
-        val allTopics = runBlocking { eriClient.conversations.allPushTopics() }
         val conversations = runBlocking { eriClient.conversations.list() }
         val allHmacKeys = runBlocking { eriClient.conversations.getHmacKeys() }
         val dmHmacKeys = runBlocking { dm1.getHmacKeys() }
-        val dmTopics = runBlocking { dm1.getPushTopics() }
-
-        assertEquals(allTopics.size, 3)
+        assertEquals(allHmacKeys.hmacKeysMap.size, 3)
         assertEquals(conversations.size, 2)
-
-        val hmacTopics = allHmacKeys.hmacKeysMap.keys
-        allTopics.forEach { topic -> assertTrue(hmacTopics.contains(topic)) }
-
-        assertEquals(dmTopics.size, 2)
-        assertTrue(allTopics.containsAll(dmTopics))
-
-        val dmHmacTopics = dmHmacKeys.hmacKeysMap.keys
-        dmTopics.forEach { topic -> assertTrue(dmHmacTopics.contains(topic)) }
+        assertEquals(dmHmacKeys.hmacKeysMap.size, 2)
+        assertTrue(allHmacKeys.hmacKeysMap.keys.containsAll(dmHmacKeys.hmacKeysMap.keys))
     }
 
     @Test

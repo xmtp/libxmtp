@@ -594,13 +594,12 @@ class Dm(
             hmacKeysResponse.build()
         }
 
-    suspend fun getPushTopics(): List<String> =
-        withContext(Dispatchers.IO) {
-            val duplicates = libXMTPGroup.findDuplicateDms()
-            val topicIds = duplicates.map { it.id().toHex() }.toMutableList()
-            topicIds.add(id)
-            topicIds.map { Topic.groupMessage(it).description }
-        }
+    /** Override notification rules, or reset the override with Default. */
+    suspend fun setNotifications(value: NotificationOverride) =
+        withContext(Dispatchers.IO) { libXMTPGroup.setNotifications(value.toFfi()) }
+
+    /** Read the effective notification value for this conversation. */
+    suspend fun notificationsEnabled(): Boolean = withContext(Dispatchers.IO) { libXMTPGroup.notificationsEnabled() }
 
     suspend fun getDebugInformation(): ConversationDebugInfo =
         withContext(Dispatchers.IO) {

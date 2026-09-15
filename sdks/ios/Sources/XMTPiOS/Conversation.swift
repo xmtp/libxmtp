@@ -501,12 +501,23 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func getPushTopics() async throws -> [String] {
+	/// Override notification rules, or reset the override with `.default`.
+	public func setNotifications(_ value: NotificationOverride) async throws {
 		switch self {
 		case let .group(group):
-			try group.getPushTopics()
+			try await group.setNotifications(value)
 		case let .dm(dm):
-			try await dm.getPushTopics()
+			try await dm.setNotifications(value)
+		}
+	}
+
+	/// Read the effective notification value for this conversation.
+	public func notificationsEnabled() async throws -> Bool {
+		switch self {
+		case let .group(group):
+			try await group.notificationsEnabled()
+		case let .dm(dm):
+			try await dm.notificationsEnabled()
 		}
 	}
 

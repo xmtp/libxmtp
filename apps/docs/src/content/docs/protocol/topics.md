@@ -22,7 +22,7 @@ The group message topic is used to send and receive messages within a specific c
 
 - **Purpose**: Carries all ongoing communication for a conversation, including [application messages](/protocol/envelope-types/#group-messages) (text, reactions, etc.) and [commit messages](/protocol/envelope-types/#group-messages) that modify the group state.
 
-> **Note on [DM stitching](/sdk/push-notifications/#dm-stitching):** For direct messages, multiple underlying conversations might be "stitched" together in the UI. For push notifications to be reliable, an app must subscribe to the group message topic for each of these underlying conversations.
+> **Note on [DM stitching](/sdk/push-notifications/#dm-stitching):** A DM can contain several underlying groups. The notification sync task subscribes to every matching group automatically.
 
 The welcome message topic is used to deliver a `Welcome` message to a new member of a group. This message bootstraps the new member, providing them with the group's state so they can participate.
 

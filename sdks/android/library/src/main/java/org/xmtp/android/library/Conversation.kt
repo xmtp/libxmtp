@@ -550,11 +550,21 @@ sealed class Conversation {
             }
         }
 
-    suspend fun getPushTopics(): List<String> =
+    /** Override notification rules, or reset the override with Default. */
+    suspend fun setNotifications(value: NotificationOverride) =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {
-                is Group -> group.getPushTopics()
-                is Dm -> dm.getPushTopics()
+                is Group -> group.setNotifications(value)
+                is Dm -> dm.setNotifications(value)
+            }
+        }
+
+    /** Read the effective notification value for this conversation. */
+    suspend fun notificationsEnabled(): Boolean =
+        withContext(Dispatchers.IO) {
+            when (this@Conversation) {
+                is Group -> group.notificationsEnabled()
+                is Dm -> dm.notificationsEnabled()
             }
         }
 

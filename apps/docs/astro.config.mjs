@@ -92,7 +92,7 @@ export default defineConfig({
           label: "Get started",
           items: guidePages(
             "get-started",
-            "quickstart install run-the-backend migrate-to-self-hosted",
+            "quickstart install run-the-backend push-configuration migrate-to-self-hosted",
           ),
         },
         {

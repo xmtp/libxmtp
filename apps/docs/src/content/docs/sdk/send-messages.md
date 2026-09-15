@@ -16,7 +16,7 @@ Every form returns the message ID.
 
 ## Control push notifications for a message
 
-`shouldPush` decides whether a message triggers a push notification on recipient devices. See [Push notifications](/sdk/push-notifications/#the-three-stage-filter).
+`shouldPush` decides whether a message triggers a push notification on recipient devices. See [Push notifications](/sdk/push-notifications/).
 
 The text and content forms derive `shouldPush` from the content codec. To override it, encode the content and use the encoded-content form:
 

@@ -22,7 +22,7 @@ Pod::Spec.new do |spec|
   spec.source_files  	= "Sources/**/*.swift"
   spec.frameworks 		= "CryptoKit", "UIKit"
 
-  spec.dependency "Connect-Swift", "~> 1.2.0"
+  spec.dependency "SwiftProtobuf", "~> 1.38"
   spec.dependency 'CryptoSwift', '= 1.8.3'
   spec.dependency 'SQLCipher', '= 4.5.7'
   spec.vendored_frameworks = 'LibXMTPSwiftFFI.xcframework'
