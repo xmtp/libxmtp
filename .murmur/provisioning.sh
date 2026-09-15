@@ -127,6 +127,14 @@ echo "=== Warm the Nix store: dev shell + backend image ==="
 WARM_DIR=/tmp/libxmtp-warm
 rm -rf "$WARM_DIR"
 
+# The recipe timeout is 1h and that is the platform maximum, so the warming
+# stage must never be allowed to consume the whole budget. Track elapsed time
+# and skip the expensive optional step if we are running late. A bake that
+# finishes with a partially warm store beats a bake that times out and
+# produces no image at all.
+WARM_START=$(date +%s)
+warm_elapsed() { echo $(( ($(date +%s) - WARM_START) / 60 )); }
+
 warm_failed=0
 if git clone --depth 1 --branch self-hosted \
      https://github.com/xmtp/libxmtp "$WARM_DIR" 2>&1; then
@@ -157,24 +165,54 @@ if git clone --depth 1 --branch self-hosted \
   # Build it outside any devshell, per the note in backend.just: a devshell
   # puts a newer glibc on the library path and breaks the git that Nix uses
   # to fetch git dependencies.
-  echo "--- warming the backend musl container image ---"
-  if sudo -u murmur -H bash -lc \
-       "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl --no-link"; then
-    echo "backend image warmed"
+  # The backend musl cross-compile is the single most expensive warm step and
+  # the most likely to blow the 1h ceiling -- especially when a commit changes
+  # the shell closure, because then nothing is in the Cachix cache and the
+  # shells above had to be BUILT rather than downloaded.
+  #
+  # Only start it when enough budget remains. Skipping it costs the first
+  # agent one backend build; timing out costs everyone the entire image.
+  BACKEND_WARM_DEADLINE_MIN=24
+  if [ "$(warm_elapsed)" -lt "$BACKEND_WARM_DEADLINE_MIN" ]; then
+    echo "--- warming the backend musl container image ($(warm_elapsed)m elapsed) ---"
+    # Hard-cap the step itself so a slow build cannot run to the bake timeout.
+    if timeout 14m sudo -u murmur -H bash -lc \
+         "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl --no-link"; then
+      echo "backend image warmed"
+    else
+      rc=$?
+      if [ "$rc" -eq 124 ]; then
+        echo "NOTE: backend image warm hit its 14m cap; skipping it." >&2
+        echo "      Agents will build the backend on first \`just backend up\`." >&2
+      else
+        echo "WARNING: backend image warm failed (exit $rc)" >&2
+      fi
+      # Not a bake failure: the image is still valid without this.
+    fi
   else
-    echo "WARNING: backend image warm failed" >&2
-    warm_failed=1
+    echo "--- SKIPPING backend image warm: $(warm_elapsed)m already elapsed ---"
+    echo "    Budget reserved for finishing the bake. Agents will build the" >&2
+    echo "    backend image on their first \`just backend up\`." >&2
   fi
 
   # Pin every warmed closure with a GC root so `nix-collect-garbage` below
   # cannot delete the very paths this stage just paid for.
   echo "--- pinning warmed closures against GC ---"
   mkdir -p /nix/var/nix/gcroots/libxmtp-warm
-  sudo -u murmur -H bash -lc \
-    "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl \
-       --out-link /tmp/warm-backend-image" || true
-  if [ -e /tmp/warm-backend-image ]; then
-    cp -P /tmp/warm-backend-image /nix/var/nix/gcroots/libxmtp-warm/backend-image
+  # Only root the backend image if it actually got built above. `--no-link`
+  # built it without a root; this re-runs against the now-warm store, so it is
+  # near-instant when present and must not rebuild when it was skipped.
+  if sudo -u murmur -H bash -lc \
+       "cd $WARM_DIR && nix path-info .#backend-image-x86_64-unknown-linux-musl" \
+       >/dev/null 2>&1; then
+    timeout 5m sudo -u murmur -H bash -lc \
+      "cd $WARM_DIR && nix build .#backend-image-x86_64-unknown-linux-musl \
+         --out-link /tmp/warm-backend-image" || true
+    if [ -e /tmp/warm-backend-image ]; then
+      cp -P /tmp/warm-backend-image /nix/var/nix/gcroots/libxmtp-warm/backend-image
+    fi
+  else
+    echo "backend image not in store; nothing to pin"
   fi
   # A devShell's build inputs are not the output of `nix build` on the shell
   # derivation, so root the .drv itself: that keeps the inputs `nix develop`
@@ -214,6 +252,8 @@ fi
 
 # Remove the checkout. Only /nix/store paths survive into the image.
 rm -rf "$WARM_DIR" /tmp/warm-backend-image /tmp/warm-shell-default /tmp/warm-shell-rust
+
+echo "=== warming stage took $(warm_elapsed) minutes ==="
 
 if [ "$warm_failed" -ne 0 ]; then
   # A warm miss makes agents slower, not broken -- they rebuild on demand.
