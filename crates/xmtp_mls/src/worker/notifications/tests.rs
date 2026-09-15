@@ -610,6 +610,66 @@ async fn notification_queued_disable_cannot_unregister_a_newer_enable() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_superseded_disable_reconciles_previously_uploaded_topics() {
+    let (client, peer) = support::client().await;
+    let group = client.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id).cloned_vec();
+    let mut initial = config();
+    initial.include_welcomes = false;
+    client.enable_notifications(initial.clone()).await?;
+    run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert_eq!(client.db().uploaded_topics()?.len(), 1);
+
+    let mut record = client.db().notification_record()?;
+    let generation = record.push_generation;
+    record.push_deadlines = Some(encode(&Deadlines::default())?);
+    client.db().save_notification_record(&record)?;
+    peer.state.lock().pause_next = true;
+    let context = client.context.clone();
+    let renewal = xmtp_common::spawn(None, async move { run(&context).await });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+    assert_eq!(peer.calls(Call::Register), 2);
+
+    let other = client.clone();
+    let disable = xmtp_common::spawn(None, async move { other.disable_notifications().await });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_generation },
+        generation + 1,
+    )
+    .await?;
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Disabled
+    ));
+
+    initial.consent_states.clear();
+    let other = client.clone();
+    let enable = xmtp_common::spawn(
+        None,
+        async move { other.enable_notifications(initial).await },
+    );
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_generation },
+        generation + 2,
+    )
+    .await?;
+    peer.release.notify_one();
+    renewal.join().await??;
+    disable.join().await??;
+    enable.join().await??;
+
+    assert_eq!(peer.calls(Call::Unregister), 0);
+    assert_eq!(peer.calls(Call::Register), 3);
+    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert_eq!(peer.state.lock().batches, vec![(1, 0), (0, 1)]);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_request_keeps_the_root_key_snapshot() {
     let (client, peer) = support::client().await;
     let group = client.create_group(None, None)?;

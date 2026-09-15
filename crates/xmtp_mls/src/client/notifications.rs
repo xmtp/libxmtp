@@ -305,7 +305,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
     /// A failed unregister leaves the client disabled; the backend recipient expires.
     #[xmtp_common::rpc_span]
     pub async fn disable_notifications(&self) -> Result<(), NotificationError> {
-        let record = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+        let (record, cleared) = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             let storage = tx.storage();
             let db = storage.db();
             let mut record = db.notification_record()?;
@@ -320,9 +320,10 @@ impl<Context: XmtpSharedContext> Client<Context> {
             record.push_last_state = None;
             record.push_repairing = false;
             record.push_suppressed = None;
+            let cleared = db.uploaded_topics()?;
             db.clear_uploaded_topics()?;
             db.save_notification_record(&record)?;
-            Ok::<_, StorageError>(Continue(record))
+            Ok::<_, StorageError>(Continue((record, cleared)))
         })?
         .into_continued();
         self.context.task_channels().wake_notifications();
@@ -335,7 +336,34 @@ impl<Context: XmtpSharedContext> Client<Context> {
             .notification_request
             .lock()
             .await;
-        if self.context.db().notification_record()?.push_generation != record.push_generation {
+        let unregister = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let current = db.notification_record()?;
+            if current.push_generation == record.push_generation {
+                return Ok(Continue(true));
+            }
+            if current.push_state != 0 {
+                // A newer enable keeps the backend recipient. Restore topics
+                // cleared by this pending disable so its next diff can remove
+                // them. Do not replace rows confirmed by a newer request.
+                let present: std::collections::BTreeSet<_> = db
+                    .uploaded_topics()?
+                    .into_iter()
+                    .map(|row| row.topic)
+                    .collect();
+                let mut restore = cleared;
+                restore.retain(|row| !present.contains(&row.topic));
+                for row in &mut restore {
+                    row.stale = true;
+                }
+                db.confirm_uploaded_topics(&restore, &[])?;
+            }
+            Ok::<_, StorageError>(Continue(false))
+        })?
+        .into_continued();
+        if !unregister {
+            self.context.task_channels().wake_notifications();
             return Ok(());
         }
         let request = backend_v1::UnregisterRequest {
