@@ -26,3 +26,9 @@ jobs:
         run: just js lint-node
       - name: Build Node and agent SDKs
         run: just js build-node
+      - name: Install CLI dependencies
+        run: just cli install-ci
+      - name: Typecheck CLI
+        run: just cli check
+      - name: Lint CLI
+        run: just cli lint

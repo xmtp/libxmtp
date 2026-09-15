@@ -27,3 +27,7 @@ jobs:
         run: just backend up
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
         run: just js test-node-sdk-ci --shard ${{ matrix.shard }}/2
+      - name: Install CLI dependencies
+        run: just cli install-ci
+      - name: Run CLI tests (shard ${{ matrix.shard }}/2)
+        run: just cli test-ci --shard ${{ matrix.shard }}/2

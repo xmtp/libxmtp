@@ -62,6 +62,16 @@ on:
           - "minor"
           - "major"
         default: "none"
+      cli-bump:
+        description: "CLI version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
       node:
         description: "Include Node bindings in release"
         required: false
@@ -94,6 +104,7 @@ jobs:
           NODE_SDK_BUMP: ${{ inputs.node-sdk-bump }}
           BROWSER_SDK_BUMP: ${{ inputs.browser-sdk-bump }}
           AGENT_SDK_BUMP: ${{ inputs.agent-sdk-bump }}
+          CLI_BUMP: ${{ inputs.cli-bump }}
         run: |
           xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
@@ -103,6 +114,7 @@ jobs:
             --node-sdk "$NODE_SDK_BUMP" \
             --browser-sdk "$BROWSER_SDK_BUMP" \
             --agent-sdk "$AGENT_SDK_BUMP" \
+            --cli "$CLI_BUMP" \
             ${{ inputs.node && '--node' || '' }} \
             ${{ inputs.wasm && '--wasm' || '' }}
 

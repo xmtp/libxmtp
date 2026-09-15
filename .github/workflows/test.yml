@@ -39,7 +39,11 @@ jobs:
               - 'proto/**'
               - 'crates/**'
               - 'bindings/**'
-              - 'apps/**'
+              - 'apps/backend/**'
+              - 'apps/db_tools/**'
+              - 'apps/error_glossary/**'
+              - 'apps/keepalive-probe/**'
+              - 'apps/xmtp_debug/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.cargo/**'
@@ -60,6 +64,7 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-wasm.yml'
             browser_sdk:
+              - 'apps/web-chat/**'
               - 'apps/backend/**'
               - 'crates/**'
               - 'proto/**'
@@ -83,6 +88,7 @@ jobs:
               - 'dev/up'
               - '.github/workflows/test-node*'
             node_sdk:
+              - 'apps/cli/**'
               - 'apps/backend/**'
               - 'sdks/js/node-sdk/**'
               - 'sdks/js/package.json'

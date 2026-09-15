@@ -124,6 +124,11 @@ jobs:
         working-directory: ${{ inputs.package-dir }}
         run: npm publish --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
+      - name: Preview NPM package
+        if: ${{ inputs.dry-run == true }}
+        working-directory: ${{ inputs.package-dir }}
+        run: npm publish --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+
       - name: Tag release
         if: ${{ inputs.dry-run != true }}
         run: xmtp-release tag-release --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}" --ignore-if-exists
