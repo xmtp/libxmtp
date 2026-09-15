@@ -76,6 +76,15 @@ pub(crate) fn wake<Context: XmtpSharedContext>(context: &Context) -> Result<(), 
         .next_attempt_at_ns(now)
         .build(task_proto())?;
     db.create_or_ignore_task(seed)?;
+    // Failed attempts retain their retry deadline. Only an ordinary sync wait
+    // can be shortened by a hint. The runner is the sole task rescheduler.
+    if db
+        .get_tasks()?
+        .iter()
+        .any(|task| task.data_hash == task_hash().as_ref() && task.attempts > 0)
+    {
+        return Ok(());
+    }
     db.pull_in_task_deadline(&task_hash(), now)?;
     Ok(())
 }
@@ -111,7 +120,7 @@ pub(crate) async fn register<Context: XmtpSharedContext>(
     }
 }
 
-/// Apply a response only to the configuration that built its request.
+/// Preserve confirmed deltas, but apply response state only to its configuration.
 pub(crate) fn confirm<Context: XmtpSharedContext>(
     context: &Context,
     generation: i64,
@@ -124,10 +133,16 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
-        if record.push_generation != generation || record.push_state != 1 {
+        if record.push_state != 1 {
             return Ok(Continue(false));
         }
+        // The request lock orders backend mutations and their confirmations.
+        // A newer enable can change local rules while this request is in flight.
+        // Retain its confirmed delta so the next scan can remove obsolete topics.
         db.confirm_uploaded_topics(adds, removes)?;
+        if record.push_generation != generation {
+            return Ok(Continue(false));
+        }
         let uploaded = db.uploaded_topics()?;
         if response.channel != config.channel_id() {
             tracing::warn!("notification channel differs from the local configuration");

@@ -434,14 +434,27 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     assert_eq!(row.attempts, 1);
     assert!(row.next_attempt_at_ns >= before + RETRY_NS);
     assert!(row.next_attempt_at_ns <= time::now_ns() + RETRY_NS);
-    wake(&client.context)?;
+    let retry_at = row.next_attempt_at_ns;
+    let calls = peer.calls(Call::Update);
+    for _ in 0..20 {
+        wake(&client.context)?;
+    }
     let row = client
         .db()
         .get_tasks()?
         .into_iter()
         .find(|row| row.data_hash == task_hash().as_ref())
         .unwrap();
-    TaskWorker::run_and_reschedule_task(row, &client.context).await?;
+    assert_eq!(row.next_attempt_at_ns, retry_at);
+    TaskWorker::run_and_reschedule_task(row.clone(), &client.context).await?;
+    assert_eq!(peer.calls(Call::Update), calls);
+    // Make the stored retry due without waiting for wall-clock time.
+    client
+        .db()
+        .update_task(row.id, row.attempts, before, before)?;
+    let mut due = row;
+    due.next_attempt_at_ns = before;
+    TaskWorker::run_and_reschedule_task(due, &client.context).await?;
     let row = client
         .db()
         .get_tasks()?
@@ -456,10 +469,65 @@ async fn notification_task_is_durable_coalesced_and_retries_after_sixty_seconds(
     };
     assert_eq!(peer.calls(Call::Update), calls);
     assert!(next >= before + NS_IN_HOUR);
+    client.db().update_task(row.id, 0, before, next)?;
+    wake(&client.context)?;
+    let advanced = client
+        .db()
+        .get_tasks()?
+        .into_iter()
+        .find(|task| task.data_hash == task_hash().as_ref())
+        .unwrap();
+    assert!(advanced.next_attempt_at_ns < next);
     // A missed hint is repaired by the same local scan when the task next runs.
     client.create_group(None, None)?;
     run(&client.context).await?;
     assert_eq!(peer.calls(Call::Update), calls + 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_stale_upload_is_removed_after_configuration_change() {
+    let (client, peer) = support::client().await;
+    let group = client.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id).cloned_vec();
+    client.enable_notifications(config()).await?;
+    let generation = client.db().notification_record()?.push_generation;
+    peer.state.lock().pause_next = true;
+    let context = client.context.clone();
+    let upload = xmtp_common::spawn(None, async move { run(&context).await });
+    timeout(Duration::from_secs(5), peer.entered.notified()).await?;
+
+    let other = client.clone();
+    let mut replacement = config();
+    replacement.consent_states.clear();
+    replacement.include_welcomes = false;
+    let enable = xmtp_common::spawn(None, async move {
+        other.enable_notifications(replacement).await
+    });
+    wait_for_eq(
+        || async { client.db().notification_record().unwrap().push_generation },
+        generation + 1,
+    )
+    .await?;
+    peer.release.notify_one();
+    upload.join().await??;
+    enable.join().await??;
+
+    assert!(peer.state.lock().subscriptions.contains_key(&topic));
+    assert!(
+        client
+            .db()
+            .uploaded_topics()?
+            .iter()
+            .any(|row| row.topic == topic)
+    );
+    run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert_eq!(peer.calls(Call::Update), 2);
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Enabled
+    ));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
