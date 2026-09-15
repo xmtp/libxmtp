@@ -340,25 +340,25 @@ impl<Context: XmtpSharedContext> Client<Context> {
             let storage = tx.storage();
             let db = storage.db();
             let current = db.notification_record()?;
-            if current.push_generation == record.push_generation {
+            // A later disable still wants this recipient removed. The request
+            // lock orders any subsequent enable's Register after Unregister.
+            if current.push_state == 0 {
                 return Ok(Continue(true));
             }
-            if current.push_state != 0 {
-                // A newer enable keeps the backend recipient. Restore topics
-                // cleared by this pending disable so its next diff can remove
-                // them. Do not replace rows confirmed by a newer request.
-                let present: std::collections::BTreeSet<_> = db
-                    .uploaded_topics()?
-                    .into_iter()
-                    .map(|row| row.topic)
-                    .collect();
-                let mut restore = cleared;
-                restore.retain(|row| !present.contains(&row.topic));
-                for row in &mut restore {
-                    row.stale = true;
-                }
-                db.confirm_uploaded_topics(&restore, &[])?;
+            // A newer enable keeps the backend recipient. Restore topics
+            // cleared by this pending disable so its next diff can remove
+            // them. Do not replace rows confirmed by a newer request.
+            let present: std::collections::BTreeSet<_> = db
+                .uploaded_topics()?
+                .into_iter()
+                .map(|row| row.topic)
+                .collect();
+            let mut restore = cleared;
+            restore.retain(|row| !present.contains(&row.topic));
+            for row in &mut restore {
+                row.stale = true;
             }
+            db.confirm_uploaded_topics(&restore, &[])?;
             Ok::<_, StorageError>(Continue(false))
         })?
         .into_continued();

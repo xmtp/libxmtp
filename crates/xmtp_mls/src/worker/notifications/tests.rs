@@ -670,6 +670,59 @@ async fn notification_superseded_disable_reconciles_previously_uploaded_topics()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn notification_two_disables_remove_topics_before_a_newer_enable() {
+    let (client, peer) = support::client().await;
+    client.create_group(None, None)?;
+    let mut config = config();
+    config.include_welcomes = false;
+    client.enable_notifications(config.clone()).await?;
+    run(&client.context).await?;
+    assert_eq!(client.db().uploaded_topics()?.len(), 1);
+    assert_eq!(peer.state.lock().subscriptions.len(), 1);
+
+    let generation = client.db().notification_record()?.push_generation;
+    let guard = client
+        .context
+        .task_channels()
+        .notification_request
+        .lock()
+        .await;
+    let mut first = std::pin::pin!(client.disable_notifications());
+    assert!(futures::poll!(first.as_mut()).is_pending());
+    assert!(client.db().uploaded_topics()?.is_empty());
+    let mut second = std::pin::pin!(client.disable_notifications());
+    assert!(futures::poll!(second.as_mut()).is_pending());
+    assert_eq!(
+        client.db().notification_record()?.push_generation,
+        generation + 2
+    );
+    drop(guard);
+
+    // Poll only D1. D2 has cleared an empty set but has not resumed at the lock.
+    first.await?;
+    assert!(matches!(
+        client.notification_state()?,
+        NotificationState::Disabled
+    ));
+    config.consent_states.clear();
+    let mut enable = std::pin::pin!(client.enable_notifications(config));
+    assert!(futures::poll!(enable.as_mut()).is_pending());
+    assert_eq!(
+        client.db().notification_record()?.push_generation,
+        generation + 3
+    );
+    second.await?;
+    enable.await?;
+
+    run(&client.context).await?;
+    assert!(peer.state.lock().subscriptions.is_empty());
+    assert!(client.db().uploaded_topics()?.is_empty());
+    assert_eq!(peer.calls(Call::Unregister), 1);
+    assert_eq!(peer.calls(Call::Register), 2);
+    assert_eq!(peer.calls(Call::Update), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn notification_request_keeps_the_root_key_snapshot() {
     let (client, peer) = support::client().await;
     let group = client.create_group(None, None)?;
