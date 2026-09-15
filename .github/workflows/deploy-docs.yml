@@ -208,6 +208,7 @@ jobs:
             'apps/docs/_site/sdk/**/*.html'
             'apps/docs/_site/specs/**/*.html'
             'apps/docs/_site/terms/**/*.html'
+            'apps/docs/_site/tools/**/*.html'
             'apps/docs/_site/reference/browser-sdk/**/*.html'
             'apps/docs/_site/reference/node-sdk/**/*.html'
             'apps/docs/_site/reference/agent-sdk/**/*.html'
