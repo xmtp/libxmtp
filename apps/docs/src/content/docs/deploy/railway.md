@@ -350,7 +350,7 @@ set `XDBG_DB_ROOT` to an empty scratch directory and run:
 ```sh
 export XDBG_DB_ROOT=/tmp/xmtp-railway-client
 export XMTP_ENDPOINT=https://xmtp.example.com:ASSIGNED_PORT
-./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity identity --amount 2
+./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity identity --amount 3
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity group --amount 1 --invite 2
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast generate --entity message --amount 10
 ./result/bin/xdbg --url "$XMTP_ENDPOINT" --fail-fast sync
