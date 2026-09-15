@@ -70,6 +70,16 @@ pub async fn initialize(
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier);
+    let push = &backend.config.push;
+    if push.http.is_some() || push.apns.is_some() || push.fcm.is_some() {
+        backend.push = Some(crate::push::PushHub::start(
+            (*backend.store).clone(),
+            &backend.config,
+            streams.maintenance.clone(),
+        ));
+    } else {
+        crate::telemetry::push_dispatcher(false);
+    }
     backend.streams = Some(streams);
     backend.auth = auth;
     Ok(backend)
@@ -134,6 +144,7 @@ pub async fn serve(
     let guard = lifecycle::ShutdownGuard {
         lifecycle: lifecycle.clone(),
         streams: backend.streams.clone(),
+        push: backend.push.clone(),
     };
     let incoming_lifecycle = lifecycle.clone();
     let incoming = TcpListenerStream::new(listener)
@@ -189,16 +200,34 @@ pub async fn serve(
     let result = tokio::select! {
         result = &mut serving => result,
         _ = shutdown => {
+            let drain = xmtp_common::time::Duration::from_millis(backend.config.server.max_drain_duration_ms);
+            let deadline = xmtp_common::time::Instant::now() + drain;
+            if let Some(push) = &backend.push { push.stop(deadline); }
             guard.stop();
             report_health(&reporter, tonic_health::ServingStatus::NotServing).await;
             let _ = stop.send(());
-            let drain = xmtp_common::time::Duration::from_millis(backend.config.server.max_drain_duration_ms);
-            match xmtp_common::time::timeout(drain, &mut serving).await {
+            let draining = async {
+                let (result, ()) = tokio::join!(&mut serving, async {
+                    if let Some(push) = &backend.push { push.finished().await; }
+                });
+                result
+            };
+            match xmtp_common::time::timeout(deadline.saturating_duration_since(xmtp_common::time::Instant::now()), draining).await {
                 Ok(result) => result,
-                Err(_) => { lifecycle.cancel(); Ok(()) },
+                Err(_) => {
+                    lifecycle.cancel();
+                    if let Some(push) = &backend.push {
+                        push.abort();
+                        push.finished().await;
+                    }
+                    Ok(())
+                },
             }
         }
     };
+    if let Some(push) = &backend.push {
+        push.stop(xmtp_common::time::Instant::now());
+    }
     if jwks_stale.load(Ordering::Acquire) {
         Err(ServeError::JwksStale)
     } else {

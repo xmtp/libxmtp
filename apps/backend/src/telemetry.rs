@@ -23,6 +23,16 @@ pub struct MetricSpec {
 /// Single source of truth for backend-owned metric names, types, and descriptions.
 pub const CATALOGUE: &[MetricSpec] = &[
     MetricSpec {
+        name: "xmtp_push_deliveries_total",
+        kind: MetricType::Counter,
+        help: "Push deliveries by channel and outcome.",
+    },
+    MetricSpec {
+        name: "xmtp_push_dispatcher",
+        kind: MetricType::Gauge,
+        help: "Whether this instance holds the push dispatcher lock.",
+    },
+    MetricSpec {
         name: "xmtp_push_recipients_total",
         kind: MetricType::Counter,
         help: "Push recipient changes by action.",
@@ -616,6 +626,18 @@ pub(crate) fn auth_keys(count: usize) {
 
 pub(crate) fn push_registered() {
     metrics::counter!("xmtp_push_recipients_total", "action" => "registered").increment(1);
+}
+
+pub(crate) fn push_delivery(channel: crate::db::PushChannel, outcome: &'static str) {
+    metrics::counter!("xmtp_push_deliveries_total", "channel" => channel.label(), "outcome" => outcome).increment(1);
+}
+
+pub(crate) fn push_dispatcher(holder: bool) {
+    metrics::gauge!("xmtp_push_dispatcher").set(u8::from(holder) as f64);
+}
+
+pub(crate) fn push_recipients_removed(action: &'static str, count: u64) {
+    metrics::counter!("xmtp_push_recipients_total", "action" => action).increment(count);
 }
 
 pub(crate) fn push_unregistered() {

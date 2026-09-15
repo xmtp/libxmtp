@@ -17,6 +17,7 @@ pub struct Backend {
     pub verifier: Arc<CachedSmartContractSignatureVerifier>,
     pub(crate) auth: Option<Arc<crate::auth::Authentication>>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
+    pub(crate) push: Option<Arc<crate::push::PushHub>>,
 }
 
 impl Backend {
@@ -34,6 +35,7 @@ impl Backend {
             config: Arc::new(config),
             verifier: Arc::new(verifier),
             streams: None,
+            push: None,
             auth: None,
         }
     }

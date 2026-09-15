@@ -25,6 +25,7 @@ pub(crate) struct StreamHub {
     pub registry: Arc<Registry>,
     pub read: PgPool,
     pub fetches: Arc<Semaphore>,
+    pub maintenance: Arc<tokio::sync::Notify>,
     worker: JoinHandle<()>,
 }
 
@@ -33,11 +34,20 @@ impl StreamHub {
     /// database errors prevent readiness until a fresh boundary is visible.
     pub async fn start(primary: PgPool, read: PgPool, config: &Config) -> Result<Arc<Self>, Error> {
         let registry = Arc::new(Registry::default());
-        let worker = tailer::start(primary, read.clone(), registry.clone(), config).await?;
+        let maintenance = Arc::new(tokio::sync::Notify::new());
+        let worker = tailer::start(
+            primary,
+            read.clone(),
+            registry.clone(),
+            config,
+            maintenance.clone(),
+        )
+        .await?;
         Ok(Arc::new(Self {
             registry,
             read,
             fetches: Arc::new(Semaphore::new(FETCH_WORKERS)),
+            maintenance,
             worker,
         }))
     }
