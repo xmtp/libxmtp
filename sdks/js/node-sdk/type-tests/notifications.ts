@@ -22,16 +22,16 @@ export const channels: NotificationChannel[] = [
 
 // @ts-expect-error APNs requires a token.
 export const missingToken: NotificationChannel = { type: "apns" };
-// @ts-expect-error HTTPS requires a byte array, not a number array.
 export const wrongBytes: NotificationChannel = {
   type: "http",
   url: "https://example.com",
+  // @ts-expect-error HTTPS requires a byte array, not a number array.
   signingKey: [1],
 };
-// @ts-expect-error Fields from another channel are not accepted.
 export const mixedChannel: NotificationChannel = {
   type: "fcm",
   token: "token",
+  // @ts-expect-error Fields from another channel are not accepted.
   url: "https://example.com",
 };
 // @ts-expect-error The reset value is default.
