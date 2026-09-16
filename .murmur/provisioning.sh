@@ -53,17 +53,24 @@ done
 
 echo "=== Configure Nix: flakes + xmtp Cachix substituter ==="
 mkdir -p /etc/nix
-# Mirrors .devcontainer/nix.conf so agent builds hit the same binary cache CI
-# uses. trusted-users lets the murmur user set flake config without sudo.
-cat > /etc/nix/nix.conf <<'EOF'
+# Determinate Nix owns /etc/nix/nix.conf and documents nix.custom.conf as the
+# only supported place for extra settings, so write there and leave its file
+# alone. Overwriting nix.conf loses whatever the installer put in it.
+#
+# `trusted-users` is the setting that matters most here. This repo's flake
+# declares nixConfig { http-connections, max-substitution-jobs, sandbox }, and
+# `accept-flake-config` makes the client forward them to the daemon. All three
+# are restricted settings: the daemon discards them, with a warning on every
+# single nix invocation, unless the requesting user is trusted. `sandbox =
+# relaxed` is not cosmetic -- `nix build .#nextest` needs it.
+cat > /etc/nix/nix.custom.conf <<'EOF'
 experimental-features = nix-command flakes
 accept-flake-config = true
-build-users-group = nixbld
 trusted-users = root murmur
 sandbox = relaxed
 max-jobs = auto
-substituters = https://cache.nixos.org https://xmtp.cachix.org
-trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY= xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
+extra-substituters = https://xmtp.cachix.org
+extra-trusted-public-keys = xmtp.cachix.org-1:nFPFrqLQ9kjYQKiWL7gKq6llcNEeaV4iI+Ka1F+Tmq0=
 trusted-substituters = https://xmtp.cachix.org
 # The warm store is one large substitution; the defaults (16 and 25) leave the
 # instance's bandwidth idle. Agents also re-fetch after flake.lock moves.
@@ -71,11 +78,29 @@ max-substitution-jobs = 32
 http-connections = 64
 warn-dirty = false
 EOF
-chmod 0644 /etc/nix/nix.conf
+chmod 0644 /etc/nix/nix.custom.conf
 
-# The Determinate installer writes its own nix.conf include; restart so the
-# daemon picks up the substituter list above.
+# Pick up the settings above, then prove they actually took effect as the
+# user that will use them. Both of these have already been silently wrong on
+# a shipped image: trusted-users showed up only as a warning on every nix
+# call, and the missing cache only as builds that were slower than expected.
 systemctl restart nix-daemon.service || true
+sleep 2
+nix_effective="$(sudo -u murmur -H bash -lc 'nix config show' 2>/dev/null || true)"
+if echo "$nix_effective" | grep -E '^trusted-users' | grep -qw murmur; then
+  echo "nix: trusted-users includes murmur"
+else
+  echo "WARNING: murmur is not a trusted nix user. The flake's nixConfig" >&2
+  echo "         (sandbox, http-connections, max-substitution-jobs) will be" >&2
+  echo "         discarded on every nix invocation, and nix build .#nextest" >&2
+  echo "         needs sandbox = relaxed." >&2
+fi
+if echo "$nix_effective" | grep -q 'xmtp.cachix.org'; then
+  echo "nix: xmtp.cachix.org is an effective substituter"
+else
+  echo "WARNING: xmtp.cachix.org is not in the effective substituters; every" >&2
+  echo "         agent build will miss the cache that CI populates." >&2
+fi
 
 echo "=== Install Docker Engine + compose plugin ==="
 install -m 0755 -d /etc/apt/keyrings
