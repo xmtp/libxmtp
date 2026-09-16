@@ -762,11 +762,13 @@ mod tests {
                     let first = calls.fetch_add(1, Ordering::Relaxed) == 0;
                     let token = token.clone();
                     async move {
+                        // Both subscriptions share one concrete stream type: a
+                        // boxed one would need `Send`, which `SubscribeError`
+                        // does not have on wasm.
                         if first {
                             // One stale trip sends the loop down the reconnect path.
                             return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
-                                .chain(stream::pending())
-                                .boxed());
+                                .chain(stream::pending()));
                         }
                         // The refresh worker latches and cancels while we are here.
                         token.cancel();
@@ -775,7 +777,8 @@ mod tests {
                             Err(SubscribeError::GroupMessageNotFound)
                         } else {
                             // Cancelled during the reconnect throttle.
-                            Ok(stream::pending::<Result<u8, SubscribeError>>().boxed())
+                            Ok(stream::iter(Vec::<Result<u8, SubscribeError>>::new())
+                                .chain(stream::pending()))
                         }
                     }
                 }
