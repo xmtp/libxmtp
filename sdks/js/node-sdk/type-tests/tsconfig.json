@@ -7,5 +7,5 @@
     "strict": true,
     "target": "ESNext"
   },
-  "include": ["notifications.ts"]
+  "include": ["notifications.ts", "serverConfiguration.ts"]
 }

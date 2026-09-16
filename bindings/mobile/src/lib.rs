@@ -7,6 +7,7 @@ pub mod inbox_owner;
 pub mod logger;
 pub mod message;
 pub mod mls;
+pub mod server_configuration;
 pub mod stream_failure;
 pub mod worker;
 pub mod worker_config;
@@ -24,7 +25,8 @@ use xmtp_api_backend::MessageBackendBuilderError;
 use xmtp_common::ErrorCode;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_mls::{
-    messages::enrichment::EnrichMessageError, mls_common::group_metadata::GroupMetadataError,
+    client::ClientError, messages::enrichment::EnrichMessageError,
+    mls_common::group_metadata::GroupMetadataError,
 };
 
 extern crate tracing as log;
@@ -148,37 +150,163 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
 
 /// Keep the error code prefix and append structured details for processing failures.
 /// The flat error keeps existing callback interfaces compatible.
+///
+/// The six server-configuration conditions of CFG-083 are separate variants, so
+/// Kotlin and Swift match on a type instead of reading a message. Each one keeps
+/// the originating [`GenericError`] beside the structured fields, so its error
+/// code and message are exactly what they were before the variant existed.
 #[derive(Debug, uniffi::Error)]
 #[uniffi(flat_error)]
 pub enum FfiError {
     Error(GenericError),
+    /// CFG-041: the backend did not serve its configuration, or the answer
+    /// could not be stored.
+    ConfigurationUnavailable(GenericError),
+    /// CFG-044: the backend published a configuration this client cannot use.
+    ConfigurationInvalid(GenericError),
+    /// CFG-051: this database is bound to one backend and a different one
+    /// answered.
+    BackendMismatch {
+        error: GenericError,
+        stored: String,
+        received: String,
+    },
+    /// CFG-060 and CFG-061: the backend requires a newer libxmtp than this build.
+    ClientVersionTooOld {
+        error: GenericError,
+        client: String,
+        minimum: String,
+    },
+    /// CFG-062: the backend requires a credential and none was configured.
+    AuthRequired {
+        error: GenericError,
+        required_scopes: Vec<String>,
+    },
+    /// CFG-069 and CFG-070: the backend does not verify smart contract wallet
+    /// signatures on this chain.
+    ChainNotAccepted {
+        error: GenericError,
+        chain: String,
+        accepted: Vec<String>,
+    },
+}
+
+impl FfiError {
+    /// The error every variant wraps. Display, source, and the error code read
+    /// through this, so a configuration variant reports what `Error` reported.
+    fn inner(&self) -> &GenericError {
+        match self {
+            FfiError::Error(e)
+            | FfiError::ConfigurationUnavailable(e)
+            | FfiError::ConfigurationInvalid(e)
+            | FfiError::BackendMismatch { error: e, .. }
+            | FfiError::ClientVersionTooOld { error: e, .. }
+            | FfiError::AuthRequired { error: e, .. }
+            | FfiError::ChainNotAccepted { error: e, .. } => e,
+        }
+    }
 }
 
 impl std::fmt::Display for FfiError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FfiError::Error(e) => {
-                write!(f, "[{}] {}", e.error_code(), e)?;
-                if let Some(details) = stream_failure::encode_error(e) {
-                    write!(f, "{details}")?;
-                }
-                Ok(())
-            }
+        let e = self.inner();
+        write!(f, "[{}] {}", e.error_code(), e)?;
+        if let Some(details) = stream_failure::encode_error(e) {
+            write!(f, "{details}")?;
         }
+        Ok(())
     }
 }
 
 impl std::error::Error for FfiError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            FfiError::Error(e) => e.source(),
-        }
+        self.inner().source()
+    }
+}
+
+/// The structured fields one of the CFG-083 conditions carries, lifted out of
+/// the error before it is moved into its [`FfiError`] variant.
+enum ConfigurationFailure {
+    Unavailable,
+    Invalid,
+    BackendMismatch {
+        stored: String,
+        received: String,
+    },
+    ClientVersionTooOld {
+        client: String,
+        minimum: String,
+    },
+    AuthRequired {
+        required_scopes: Vec<String>,
+    },
+    ChainNotAccepted {
+        chain: String,
+        accepted: Vec<String>,
+    },
+}
+
+impl ConfigurationFailure {
+    fn of(error: &GenericError) -> Option<Self> {
+        let GenericError::Client(client) = error else {
+            return None;
+        };
+        Some(match client {
+            ClientError::ConfigurationUnavailable(_) => Self::Unavailable,
+            ClientError::ConfigurationInvalid(_) => Self::Invalid,
+            ClientError::BackendMismatch { stored, received } => Self::BackendMismatch {
+                stored: stored.clone(),
+                received: received.clone(),
+            },
+            ClientError::ClientVersionTooOld { client, minimum } => Self::ClientVersionTooOld {
+                client: client.clone(),
+                minimum: minimum.clone(),
+            },
+            ClientError::AuthRequired { required_scopes } => Self::AuthRequired {
+                required_scopes: required_scopes.clone(),
+            },
+            ClientError::ChainNotAccepted { chain, accepted } => Self::ChainNotAccepted {
+                chain: chain.clone(),
+                accepted: accepted.clone(),
+            },
+            _ => return None,
+        })
     }
 }
 
 impl<T: Into<GenericError>> From<T> for FfiError {
     fn from(err: T) -> Self {
-        Self::Error(err.into())
+        let err = err.into();
+        match ConfigurationFailure::of(&err) {
+            None => Self::Error(err),
+            Some(ConfigurationFailure::Unavailable) => Self::ConfigurationUnavailable(err),
+            Some(ConfigurationFailure::Invalid) => Self::ConfigurationInvalid(err),
+            Some(ConfigurationFailure::BackendMismatch { stored, received }) => {
+                Self::BackendMismatch {
+                    error: err,
+                    stored,
+                    received,
+                }
+            }
+            Some(ConfigurationFailure::ClientVersionTooOld { client, minimum }) => {
+                Self::ClientVersionTooOld {
+                    error: err,
+                    client,
+                    minimum,
+                }
+            }
+            Some(ConfigurationFailure::AuthRequired { required_scopes }) => Self::AuthRequired {
+                error: err,
+                required_scopes,
+            },
+            Some(ConfigurationFailure::ChainNotAccepted { chain, accepted }) => {
+                Self::ChainNotAccepted {
+                    error: err,
+                    chain,
+                    accepted,
+                }
+            }
+        }
     }
 }
 

@@ -43,6 +43,7 @@ import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
 import java.io.File
+import uniffi.xmtpv3.fetchServerConfiguration as ffiFetchServerConfiguration
 import uniffi.xmtpv3.setNativeLogLevel as ffiSetNativeLogLevel
 
 typealias PreEventCallback = suspend () -> Unit
@@ -417,6 +418,30 @@ class Client(
                 val apiClient = connectToApiBackend(api)
                 inboxStateFromInboxIds(apiClient, inboxIds).map { InboxState(it) }
             }
+
+        /**
+         * Read a deployment's configuration with no database, no client, and no
+         * credential (spec 006 CFG-081).
+         *
+         * Call this before deciding how to build a client: it reports whether
+         * the deployment requires authentication, which scopes it wants, and
+         * which chains it accepts. Nothing is stored and no identifier binding
+         * is applied, because there is no database to bind to.
+         *
+         * @throws ConfigurationUnavailableException when the deployment did not answer.
+         * @throws ConfigurationInvalidException when it answered with a configuration this client cannot use.
+         */
+        suspend fun fetchServerConfiguration(
+            backendUrl: String,
+            appVersion: String? = null,
+        ): ServerConfiguration =
+            withContext(Dispatchers.IO) {
+                ServerConfiguration.fromFfi(ffiFetchServerConfiguration(backendUrl, appVersion))
+            }
+
+        /** [fetchServerConfiguration] for an already-built [ClientOptions.Api]. */
+        suspend fun fetchServerConfiguration(api: ClientOptions.Api): ServerConfiguration =
+            fetchServerConfiguration(api.backendUrl, api.appVersion)
 
         suspend fun getNewestMessageMetadata(
             groupIds: List<String>,
@@ -880,6 +905,33 @@ class Client(
     suspend fun inboxState(refreshFromNetwork: Boolean): InboxState =
         withContext(Dispatchers.IO) {
             InboxState(ffiClient.inboxState(refreshFromNetwork))
+        }
+
+    /**
+     * What this deployment published about itself, as resolved when this client
+     * was built (spec 006 CFG-030, CFG-080).
+     *
+     * The snapshot is fixed for the life of the client: a refresh, whether the
+     * hourly worker's or [refreshServerConfiguration], rewrites the stored copy
+     * and never changes this value. A new value takes effect at the next build.
+     * The call is local and makes no request.
+     */
+    fun serverConfiguration(): ServerConfiguration = ServerConfiguration.fromFfi(ffiClient.serverConfiguration())
+
+    /**
+     * Fetch this deployment's configuration now, rewrite the stored copy, and
+     * return what the deployment answered (spec 006 CFG-082).
+     *
+     * Applies the same validation, storage, and identifier binding the hourly
+     * refresh worker applies. [serverConfiguration] is unchanged by this call.
+     *
+     * @throws ConfigurationUnavailableException when the deployment did not answer.
+     * @throws ConfigurationInvalidException when the answer is unusable.
+     * @throws BackendMismatchException when a different deployment answered than this database is bound to.
+     */
+    suspend fun refreshServerConfiguration(): ServerConfiguration =
+        withContext(Dispatchers.IO) {
+            ServerConfiguration.fromFfi(ffiClient.refreshServerConfiguration())
         }
 
     /**

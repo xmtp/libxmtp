@@ -23,6 +23,7 @@ export type {
 export { DebugInformation } from "./DebugInformation";
 export { Preferences } from "./Preferences";
 export { createBackend } from "./utils/createBackend";
+export { fetchServerConfiguration } from "./utils/serverConfiguration";
 export { generateInboxId, getInboxIdForIdentifier } from "./utils/inboxId";
 export { metadataFieldName } from "./utils/metadata";
 export type * from "./types/options";
@@ -36,6 +37,7 @@ export type {
   ArchiveMetadata,
   ArchiveOptions,
   Attachment,
+  AuthConfiguration,
   Backend,
   BackendBuilder,
   Consent,
@@ -60,21 +62,26 @@ export type {
   KeyPackageStatus,
   LeaveRequest,
   Lifetime,
+  LimitsConfiguration,
   ListConversationsOptions,
   ListMessagesOptions,
   LogOptions,
   Message,
   MessageDisappearingSettings,
   MetadataFieldChange,
+  MlsConfiguration,
   MultiRemoteAttachment,
   PermissionPolicySet,
   Reaction,
   ReadReceipt,
   RemoteAttachment,
   Reply,
+  RetentionConfiguration,
   SendMessageOpts,
   SendOpts,
+  ServerConfiguration,
   SignatureRequestHandle,
+  SigningKeyDescription,
   TransactionMetadata,
   TransactionReference,
   UserPreferenceUpdate,

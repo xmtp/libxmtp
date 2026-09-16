@@ -92,6 +92,7 @@ mod group_management;
 mod identity;
 mod lifecycle;
 mod networking;
+mod server_configuration;
 mod static_methods;
 mod streaming;
 mod test_self_removal;

@@ -119,6 +119,7 @@ self.onmessage = async (
           installationId: maybeClient.installationId,
           installationIdBytes: maybeClient.installationIdBytes,
           libxmtpVersion: maybeClient.libxmtpVersion,
+          serverConfiguration: maybeClient.serverConfiguration,
         },
       });
       return;
@@ -520,6 +521,11 @@ self.onmessage = async (
       }
       case "client.syncAllDeviceSyncGroups": {
         const result = await client.syncAllDeviceSyncGroups();
+        postMessage({ id, action, result });
+        break;
+      }
+      case "client.refreshServerConfiguration": {
+        const result = await client.refreshServerConfiguration();
         postMessage({ id, action, result });
         break;
       }

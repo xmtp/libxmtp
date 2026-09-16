@@ -97,3 +97,69 @@ mod auth_error_tests {
     }
   }
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod configuration_error_tests {
+  /// CFG-083: the six server-configuration failures reach JavaScript as
+  /// distinct types, carried by a distinct `code` property rather than by a
+  /// message an app would have to parse.
+  #[xmtp_common::test(unwrap_try = true)]
+  fn configuration_codes_reach_js_errors() {
+    use std::collections::BTreeSet;
+    use xmtp_common::ErrorCode;
+    use xmtp_mls::client::ClientError;
+    use xmtp_mls::server_configuration::ConfigurationFetchError;
+
+    let errors = [
+      ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Api(
+        xmtp_api::ApiError::EnvelopeTooLarge,
+      ))),
+      ClientError::ConfigurationInvalid(xmtp_configuration::ServerConfigurationError::Identifier),
+      ClientError::BackendMismatch {
+        stored: "org.xmtp.stored".to_string(),
+        received: "org.xmtp.received".to_string(),
+      },
+      ClientError::ClientVersionTooOld {
+        client: "1.0.0".to_string(),
+        minimum: "2.0.0".to_string(),
+      },
+      ClientError::AuthRequired {
+        required_scopes: vec!["messages:write".to_string()],
+      },
+      ClientError::ChainNotAccepted {
+        chain: "eip155:1".to_string(),
+        accepted: vec!["eip155:8453".to_string()],
+      },
+    ];
+
+    let expected = [
+      "ClientError::ConfigurationUnavailable",
+      "ClientError::ConfigurationInvalid",
+      "ClientError::BackendMismatch",
+      "ClientError::ClientVersionTooOld",
+      "ClientError::AuthRequired",
+      "ClientError::ChainNotAccepted",
+    ];
+
+    let mut seen = BTreeSet::new();
+    for (error, expected) in errors.iter().zip(expected) {
+      assert_eq!(error.error_code(), expected);
+      // A distinct type, not a message string: every code is its own.
+      assert!(seen.insert(error.error_code()));
+    }
+
+    for error in errors {
+      let code = error.error_code();
+      let display = error.to_string();
+      let js: wasm_bindgen::JsValue = super::ErrorWrapper::js(error).into();
+      assert_eq!(
+        js_sys::Reflect::get(&js, &"code".into())?.as_string()?,
+        code
+      );
+      assert_eq!(
+        js_sys::Reflect::get(&js, &"message".into())?.as_string()?,
+        format!("[{code}] {display}")
+      );
+    }
+  }
+}
