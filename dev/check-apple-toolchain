@@ -7,6 +7,7 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 # Exercise both cc-rs's native compiler selection and Cargo's native linker.
+# Link iconv explicitly: a mixed toolchain can link libc but fail on iconv.
 # No Xcode version or SDK path is fixed here.
 compiler="${CC_aarch64_apple_darwin:-${CC:-cc}}"
 linker="${CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER:-cc}"
@@ -15,8 +16,8 @@ check_dir="$(mktemp -d -t xmtp-apple-toolchain.XXXXXX)"
 trap 'rm -f "$check_dir/c" "$check_dir/rust"; rmdir "$check_dir"' EXIT
 
 printf '#include <stdio.h>\nint main(void) { return puts("C SDK link passed") < 0; }\n' |
-  "$compiler" --target=arm64-apple-macosx -isysroot "$sdk" -x c - -o "$check_dir/c"
+  "$compiler" --target=arm64-apple-macosx -isysroot "$sdk" -x c - -liconv -o "$check_dir/c"
 "$check_dir/c"
 printf 'fn main() { println!("Rust SDK link passed"); }\n' |
-  rustc - --crate-name apple_sdk_smoke -C "linker=$linker" -o "$check_dir/rust"
+  rustc - --crate-name apple_sdk_smoke -l iconv -C "linker=$linker" -o "$check_dir/rust"
 "$check_dir/rust"
