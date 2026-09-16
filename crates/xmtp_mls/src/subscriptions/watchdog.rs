@@ -543,7 +543,11 @@ where
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
                     tokio::select! {
-                        _ = cancel.cancelled() => break 'reconnect Ok(()),
+                        // CFG-051 and CFG-061: a latch that lands mid-reconnect
+                        // closes this stream with the reason too, not silently.
+                        _ = cancel.cancelled() => {
+                            break 'reconnect close_reason(&cancel, true, &mut callback);
+                        }
                         _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
                     }
                 }
@@ -552,7 +556,8 @@ where
         // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
         // only a tight loop is paced. `next` buffers during the wait.
         tokio::select! {
-            _ = cancel.cancelled() => break 'reconnect Ok(()),
+            // Same during the throttle wait: the latch is the close reason.
+            _ = cancel.cancelled() => break 'reconnect close_reason(&cancel, true, &mut callback),
             _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
         }
         attempt_started = Instant::now();
@@ -727,6 +732,82 @@ mod tests {
         // Well past any real timeout: a disabled watchdog must still be waiting, never stale.
         let polled = xmtp_common::time::timeout(Duration::from_millis(100), watchdog.next()).await;
         assert!(polled.is_err(), "disabled watchdog should never trip");
+    }
+
+    /// CFG-051 and CFG-061: a latch that lands while the stream is between
+    /// subscriptions — retrying a failed `subscribe()`, or waiting out the
+    /// reconnect throttle — closes it with the reason, not as a clean end.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_latch_during_reconnect_closes_with_the_reason() {
+        use crate::server_configuration::{ConfigurationLatch, ServerConfigurationHandle};
+        use std::sync::atomic::AtomicUsize;
+
+        for fail_resubscribe in [true, false] {
+            let configuration = ServerConfigurationHandle::default();
+            configuration.latch(ConfigurationLatch::ClientVersionTooOld {
+                client: "1.0.0".to_string(),
+                minimum: "9999.0.0".to_string(),
+            });
+            let token = CancellationToken::new();
+            let cancel = StreamCancel {
+                token: token.clone(),
+                configuration: Some(configuration),
+            };
+
+            let calls = Arc::new(AtomicUsize::new(0));
+            let subscribe = {
+                let calls = calls.clone();
+                let token = token.clone();
+                move || {
+                    let first = calls.fetch_add(1, Ordering::Relaxed) == 0;
+                    let token = token.clone();
+                    async move {
+                        if first {
+                            // One stale trip sends the loop down the reconnect path.
+                            return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
+                                .chain(stream::pending())
+                                .boxed());
+                        }
+                        // The refresh worker latches and cancels while we are here.
+                        token.cancel();
+                        if fail_resubscribe {
+                            // Cancelled while retrying a failed subscription.
+                            Err(SubscribeError::GroupMessageNotFound)
+                        } else {
+                            // Cancelled during the reconnect throttle.
+                            Ok(stream::pending::<Result<u8, SubscribeError>>().boxed())
+                        }
+                    }
+                }
+            };
+
+            let reported = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+            let sink = reported.clone();
+            let closed = run_watchdog_stream(
+                cancel,
+                "test",
+                subscribe,
+                || {},
+                move |item: Result<u8, SubscribeError>| {
+                    if let Err(error) = item {
+                        sink.lock().push(error.to_string());
+                    }
+                },
+                || {},
+            )
+            .await
+            .expect_err("a latched cancellation must not close cleanly");
+
+            assert!(
+                closed.to_string().contains("9999.0.0"),
+                "the handle must report the latch, got {closed}"
+            );
+            let reported = reported.lock().clone();
+            assert!(
+                reported.iter().any(|error| error.contains("9999.0.0")),
+                "the callback must see the latch, got {reported:?}"
+            );
+        }
     }
 
     /// Env parsing: present + valid values win, an explicit `0` is honored, and

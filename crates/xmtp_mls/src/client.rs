@@ -203,8 +203,8 @@ pub enum ClientError {
     ///
     /// The backend did not serve its configuration, or the answer could not be
     /// stored. A backend older than spec 006 answers `UNIMPLEMENTED`; there is
-    /// no compatibility shim. Not retryable — build again once the backend is
-    /// reachable.
+    /// no compatibility shim. Retryable exactly when the wrapped failure is:
+    /// an unreachable backend is worth another attempt, `UNIMPLEMENTED` is not.
     #[error("server configuration unavailable: {0}")]
     ConfigurationUnavailable(#[source] Box<crate::server_configuration::ConfigurationFetchError>),
     /// Server configuration invalid.
@@ -283,6 +283,10 @@ impl xmtp_common::RetryableError for ClientError {
             // transient RPC provider failures must not advance the welcome cursor.
             // See xmtp/libxmtp#3394.
             ClientError::SignatureValidation(e) => retryable!(e),
+            // A backend that was briefly unreachable, or a database that was
+            // briefly locked, is worth another attempt: the refresh worker's
+            // backoff depends on this answer.
+            ClientError::ConfigurationUnavailable(e) => retryable!(e),
             ClientError::Generic(err) => err.contains("database is locked"),
             _ => false,
         }

@@ -104,6 +104,32 @@ fn an_invalid_response_is_rejected() {
     assert!(validated(&response).is_err());
 }
 
+// CFG-048: the refresh worker's three attempts are driven by this
+// classification, so a transient failure must read as retryable through the
+// `ClientError` the fetch wraps it in, and a permanent one must not.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_transient_configuration_failure_stays_retryable() {
+    use xmtp_common::RetryableError;
+
+    let transient = ClientError::ConfigurationUnavailable(Box::new(
+        ConfigurationFetchError::Storage(StorageError::DieselConnect(
+            diesel::ConnectionError::BadConnection("the database went away".to_owned()),
+        )),
+    ));
+    assert!(
+        transient.is_retryable(),
+        "a transient storage failure must be retried"
+    );
+
+    let permanent = ClientError::ConfigurationUnavailable(Box::new(
+        ConfigurationFetchError::Storage(StorageError::DbSerialize),
+    ));
+    assert!(
+        !permanent.is_retryable(),
+        "a permanent failure must not be retried"
+    );
+}
+
 // CFG-069, CFG-070, CFG-105: the handle binds a signature request to the
 // chains the snapshot names, and does not when the app supplied its verifier.
 #[xmtp_common::test(unwrap_try = true)]

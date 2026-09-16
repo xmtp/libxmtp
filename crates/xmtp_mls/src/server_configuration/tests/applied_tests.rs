@@ -278,6 +278,38 @@ async fn a_provider_snapshot_requiring_a_newer_client_refuses_the_build() {
     );
 }
 
+// CFG-069: every signature request the client hands back is bound to the chains
+// the deployment accepts, revocation included. Installing the default remote
+// verifier also ends the app-supplied-verifier exemption, so a caller that sets
+// its own verifier and then asks for the remote one is bound like anyone else.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_revocation_request_is_bound_to_the_accepted_chains() {
+    let owner = generate_local_wallet();
+    let client = Client::builder(identity_setup(&owner))
+        .store(xmtp_db::TestDb::create_ephemeral_store().await)
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_remote_verifier()?
+        .with_disable_workers(true)
+        .config_provider(provider(|c| {
+            c.smart_contract_wallet_chains = vec!["eip155:1".to_owned()];
+        }))
+        .default_mls_store()?
+        .build()
+        .await?;
+    crate::utils::test::register_client(&client, &owner).await;
+
+    let request = client
+        .identity_updates()
+        .revoke_installations(vec![vec![9u8; 32]])
+        .await?;
+    assert_eq!(
+        request.accepted_chains(),
+        Some(&["eip155:1".to_owned()][..]),
+        "a revocation request must carry the deployment's chains"
+    );
+}
+
 // CFG-051 and CFG-061: once latched, every later call fails with the reason the
 // client latched, and the client's cancellation token closes its streams.
 #[xmtp_common::test(unwrap_try = true)]

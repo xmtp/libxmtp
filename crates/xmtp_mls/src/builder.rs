@@ -935,7 +935,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
                 as Box<dyn SmartContractSignatureVerifier>),
-            custom_scw_verifier: self.custom_scw_verifier,
+            // CFG-069 exempts an app-supplied verifier, and this replaces any
+            // the caller set with the default one, so the exemption ends here.
+            custom_scw_verifier: false,
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
