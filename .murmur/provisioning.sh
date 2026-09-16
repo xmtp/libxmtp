@@ -80,17 +80,26 @@ warn-dirty = false
 EOF
 chmod 0644 /etc/nix/nix.custom.conf
 
-# Pick up the settings above, and prove trusted-users took effect: a warning
-# on every nix call is the symptom that this file was not read.
+# Pick up the settings above, then prove they actually took effect as the
+# user that will use them. Both of these have already been silently wrong on
+# a shipped image: trusted-users showed up only as a warning on every nix
+# call, and the missing cache only as builds that were slower than expected.
 systemctl restart nix-daemon.service || true
 sleep 2
-if sudo -u murmur -H bash -lc 'nix config show trusted-users' 2>/dev/null \
-     | grep -qw murmur; then
-  echo "trusted-users includes murmur"
+nix_effective="$(sudo -u murmur -H bash -lc 'nix config show' 2>/dev/null || true)"
+if echo "$nix_effective" | grep -E '^trusted-users' | grep -qw murmur; then
+  echo "nix: trusted-users includes murmur"
 else
-  echo "WARNING: murmur is not a trusted nix user; the flake's nixConfig" >&2
+  echo "WARNING: murmur is not a trusted nix user. The flake's nixConfig" >&2
   echo "         (sandbox, http-connections, max-substitution-jobs) will be" >&2
-  echo "         discarded on every nix invocation." >&2
+  echo "         discarded on every nix invocation, and nix build .#nextest" >&2
+  echo "         needs sandbox = relaxed." >&2
+fi
+if echo "$nix_effective" | grep -q 'xmtp.cachix.org'; then
+  echo "nix: xmtp.cachix.org is an effective substituter"
+else
+  echo "WARNING: xmtp.cachix.org is not in the effective substituters; every" >&2
+  echo "         agent build will miss the cache that CI populates." >&2
 fi
 
 echo "=== Install Docker Engine + compose plugin ==="
