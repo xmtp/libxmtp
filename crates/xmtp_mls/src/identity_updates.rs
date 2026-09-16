@@ -414,11 +414,15 @@ where
             })
         )?;
 
-        let result = revoke_installations_with_verifier(
+        let mut result = revoke_installations_with_verifier(
             &current_state.recovery_identifier().clone(),
             inbox_id,
             installation_ids,
         )?;
+        // CFG-069: every request this client hands back is bound to the
+        // deployment's accepted chains, so an app cannot sign it from a chain
+        // the deployment refuses.
+        self.context.server_configuration().restrict(&mut result);
 
         let _ = self
             .context
