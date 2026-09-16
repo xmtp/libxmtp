@@ -86,6 +86,10 @@ jobs:
         with:
           xcode-version: "26"
       - uses: taiki-e/install-action@just
+      - name: Check native Apple toolchain
+        env:
+          NIX_DEVSHELL: ios
+        run: dev/nix-shell 'bash dev/check-apple-toolchain'
       - name: Build and test
         env:
           NIX_DEVSHELL: ios
