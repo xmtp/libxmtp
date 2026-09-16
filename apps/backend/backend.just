@@ -32,7 +32,7 @@ run:
 # Backend unit, RPC, storage, replica, and ingress tests. Needs `db-up`.
 test *args="":
     {{ _env }} && \
-      RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" {{ root }}/dev/agent-run cargo test --locked -p xmtp_backend {{ args }}
+      RUST_TEST_THREADS="${RUST_TEST_THREADS:-4}" "{{ root }}/dev/agent-run" cargo test --locked -p xmtp_backend {{ args }}
 
 db-up:
     {{ root }}/dev/docker/up db replica
