@@ -69,6 +69,11 @@ memory = "512mb"
 
 ```toml
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[server]
+# Change this to a reverse-DNS name you own. Never change it again once
+# clients have connected: every client database is bound to it.
+identifier = "org.example.xmtp"
+
 [database]
 url = "env:XMTP_DATABASE_URL"
 
@@ -76,6 +81,7 @@ url = "env:XMTP_DATABASE_URL"
 # publish, query, and subscription RPCs. Uncomment and set a key source to
 # require bearer tokens before you carry real traffic.
 # [auth]
+# enabled = true
 # jwks_url = "env:XMTP_JWKS_URL"
 # audiences = ["xmtp"]
 # issuers = ["https://auth.example.com"]

@@ -56,6 +56,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         "push",
         "validation",
         "limits",
+        "mls",
     ] {
         let mut instance = example.clone();
         if section.is_empty() {
@@ -95,6 +96,7 @@ fn published_schema_enforces_every_numeric_scalar_range() {
                 ("database", "max_statement_timeout_ms") | ("publishing", _) => i32::MAX as u64,
                 ("retention", _) => i64::MAX as u64 / 1_000_000_000,
                 ("limits", "max_query_limit" | "default_query_limit") => i64::MAX as u64 - 1,
+                ("mls", _) => super::super::MAX_MLS_LIMIT as u64,
                 _ => u64::MAX,
             };
             let minimum = if section == "push" && field == "recipient_ttl_seconds" {
@@ -275,7 +277,9 @@ fn published_schema_checks_urls_chain_keys_and_environment_references() {
 
 #[xmtp_common::test(unwrap_try = true)]
 fn keepalive_interval_fits_the_started_wire_field() {
-    let mut config: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'")?;
+    let mut config: Config = toml::from_str(
+        "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'",
+    )?;
     config.streams.keepalive_interval_ms = u32::MAX as u64;
     config.streams.max_pong_wait_ms = u32::MAX as u64 + 2;
     config.validate()?;

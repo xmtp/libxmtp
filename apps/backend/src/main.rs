@@ -60,7 +60,9 @@ async fn run(
     config: Config,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let otlp = config.telemetry.logging_config()?;
+    let otlp = config
+        .telemetry
+        .logging_config(config.server.identifier())?;
     telemetry::install(&config.telemetry.metrics_listen)?;
     let stdout_level: xmtp_logging::Level = config.server.log_level.into();
     let level = match stdout_level {

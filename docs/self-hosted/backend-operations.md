@@ -101,10 +101,33 @@ Check its readiness with `curl -sf http://127.0.0.1:3200/ready`.
 ## Configuration
 
 Use `--config` or `XMTP_CONFIG` to supply inline TOML. Use `--config-file` for a
-file path. Supply exactly one source. The primary database URL is required.
-Other settings have defaults. Unknown keys and invalid values fail startup.
+file path. Supply exactly one source. `server.identifier` and the primary
+database URL are required. Other settings have defaults. Unknown keys and
+invalid values fail startup.
 The config schema is in `docs/schemas/backend-v1.json`. After changing the typed
 config, run `just backend schema` to regenerate it, then run the config tests.
+
+`server.identifier` names this deployment, by convention a reverse-DNS name such
+as `org.xmtp.dev`. It is 1 to 256 bytes with no whitespace or control
+characters. It must never change once clients have connected: every client
+database is bound to the identifier it first saw, and a client that reaches a
+backend publishing a different one stops with a backend-mismatch error. Hosts,
+ports, and URLs may change freely.
+
+`server.min_libxmtp_version` is an optional semantic version. It is published to
+clients, which refuse to build below it. Only major, minor, and patch are
+compared. The backend does not yet reject requests by version.
+
+`[mls]` carries advisory group policy (`max_group_members`,
+`max_installations_per_inbox`, `commit_log_enabled`) that the backend publishes
+but does not enforce. `limits.max_request_bytes` and `limits.max_response_bytes`
+are capped at the fixed 25 MiB transport ceiling.
+
+`ConfigurationService.GetConfiguration` publishes these settings without a
+credential. The response is built once at startup and never changes while the
+process runs. It carries no URL, key material, leeway, refresh timing, or
+database, telemetry, or listener setting, and startup fails if it encodes to more
+than 64 KiB.
 
 A value such as `env:XMTP_DATABASE_URL` reads an environment variable at startup.
 Keep secrets in environment variables. Do not commit them in config files.
@@ -208,7 +231,8 @@ The default is `info`. The `--log-level` CLI flag overrides the config value.
 The service uses `xmtp_logging`; no separate subscriber or OTEL setup is needed.
 
 `server.request_logger` defaults to `true`. At INFO, it emits one completion event
-with `method`, `duration_ms`, `request_size_bytes`, `response_size_bytes`, and a generated `request_id`.
+with `method`, `duration_ms`, `request_size_bytes`, `response_size_bytes`, a
+generated `request_id`, and the backend `identifier`.
 Request size counts HTTP body bytes consumed, including gRPC framing and any
 compression. Bidirectional streams accumulate this count until the response ends
 or is cancelled. Headers are not counted, and request bodies are not buffered.
@@ -225,7 +249,8 @@ The local stack configures the OTLP endpoint for Tempo.
 `server.log_format` selects `text` (default) or `json`. `[telemetry]` configures
 the metrics listener, OTLP endpoint, optional log export, service name, sample
 ratio, and resource attributes. An absent endpoint uses
-`OTEL_EXPORTER_OTLP_ENDPOINT`. Resource attributes are exported verbatim; never
+`OTEL_EXPORTER_OTLP_ENDPOINT`. The identifier is exported as the
+`xmtp.backend.identifier` resource attribute and is reserved like `service.name`. Resource attributes are exported verbatim; never
 put secrets in them. Backend metrics do not depend on trace sampling.
 Tempo-derived client metrics depend on `sample_ratio` and successful export.
 
@@ -288,9 +313,14 @@ response does not establish whether a publish committed.
 Shutdown marks both aggregate health and every named RPC service `NOT_SERVING`.
 
 Optional JWT authentication is available through the `[auth]` config section.
+The section must state `enabled = true` or `enabled = false`; a section without
+it fails startup, so auth cannot switch off by accident. A disabled section
+checks no credential and loads no key material.
 See the [authentication configuration](../../apps/docs/src/content/docs/get-started/run-the-backend.mdx#auth)
 to require valid bearer tokens. Caller quotas are not implemented. A valid token
-does not prove group membership. Without `[auth]`, the service is unauthenticated.
+does not prove group membership. Health and `ConfigurationService` are served without a credential whatever the
+setting is; no other method is exempt.
+Without `[auth]`, the service is unauthenticated.
 Do not expose an unauthenticated service to untrusted traffic.
 
 Expiry is metadata until Phase 5. The service does not prune rows or hide them

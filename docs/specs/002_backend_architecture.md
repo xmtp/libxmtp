@@ -9,7 +9,7 @@ Spec 001 defines the public API. This spec defines storage, transaction boundari
 ## 1. Service and shared logic
 
 - ARC-001: The backend is one Rust binary behind a load balancer. Durable state lives in Postgres. Subscription state, queues, and caches are disposable. Reconnecting clients need no state from the previous instance. An open transport stays on its serving instance; reconnects need no instance affinity.
-- ARC-002: Serve native gRPC, gRPC-Web, and standard gRPC health directly through Tonic on one port. TLS terminates at the trusted load balancer, which passes HTTPS requests through without gRPC-Web conversion. The plaintext listener accepts HTTP/1.1 and HTTP/2. CORS and proxy behavior must satisfy spec 001. No version or metadata endpoint is served. The metrics listener uses a separate port. The gRPC port serves no additional endpoint.
+- ARC-002: Serve native gRPC, gRPC-Web, and standard gRPC health directly through Tonic on one port. TLS terminates at the trusted load balancer, which passes HTTPS requests through without gRPC-Web conversion. The plaintext listener accepts HTTP/1.1 and HTTP/2. CORS and proxy behavior must satisfy spec 001. The gRPC port also serves `ConfigurationService`, which publishes this deployment's settings to clients and, like health, needs no credential; spec 006 states it. The metrics listener uses a separate port. The gRPC port serves no other endpoint.
 - ARC-003: Shutdown stops new requests, fails open streams with `UNAVAILABLE`, and drains unary requests within the configured deadline. A missing response does not prove that a publish rolled back.
 - ARC-004: Package the service as a Nix-built container. Builds must not require a live database.
 - ARC-005: Use sqlx with compile-time checked queries and a committed offline query cache. Embed migrations and apply them at startup under a database advisory lock. Do not report readiness until migrations and database initialization succeed.
@@ -138,8 +138,11 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 
 ### Optional JWT authentication
 
-Authentication is disabled when the configuration has no auth section. When
-enabled, every request except health requires a bearer JWT. Admission uses the
+Authentication is disabled when the configuration has no auth section, or when
+that section sets `enabled = false`; a present section must state which, so auth
+cannot switch off by accident. A disabled section loads no key and fetches no
+JWKS. When enabled, every request except health and `ConfigurationService`
+requires a bearer JWT. Admission uses the
 request path, regardless of HTTP method or content type. CORS preflight is
 answered before admission. Every authenticated path requires the configured
 scopes, including unknown paths. Missing scopes return PERMISSION_DENIED. Missing or invalid tokens return UNAUTHENTICATED. Accepted
@@ -172,7 +175,7 @@ request ID and a fixed reason label.
   - A malformed resolved endpoint fails startup. The error names the key or environment variable and must not include the resolved value. An unreachable endpoint must not prevent serving, metrics, or stdout logs. Count each failed export batch. After the request drain, flush and stop export within a separate five-second bound.
   - Export service identity as `service.name` (default `xmtp-backend`) and the build version as `service.version`. Reject either key in extra resource attributes. The root sample ratio must be finite and between zero and one, inclusive. OTLP logs are disabled by default and no log exporter is built when disabled.
 - ARC-098: The optional telemetry section configures a separate Prometheus text listener, default `0.0.0.0:9464`. An empty listen address disables only the listener; metrics remain recorded in process. An occupied address fails startup and the error names that address. Install the recorder before logging. Publish readiness zero and build version before database initialization; change readiness in the same call that reports health Serving or NotServing.
-  - Request metrics cover response-body completion, failure, or cancellation, including native and gRPC-Web streams. Preserve the actual status from headers or trailers. With no status, a dropped body is Cancelled and an ended body is Unknown. Decrement in-flight exactly once. Exclude preflight and health from all gRPC metrics; retain health completion events and server-generated request IDs. Use `grpc_type`, `grpc_service`, `grpc_method`, and, for completion count and duration, `grpc_code`. Match only the four backend services and standard health routes; unknown paths use the single unknown service and method label. Subscribe is `bidi_stream`, SubscribeStatic is `server_stream`, and other methods are `unary`.
+  - Request metrics cover response-body completion, failure, or cancellation, including native and gRPC-Web streams. Preserve the actual status from headers or trailers. With no status, a dropped body is Cancelled and an ended body is Unknown. Decrement in-flight exactly once. Exclude preflight and health from all gRPC metrics; retain health completion events and server-generated request IDs. Use `grpc_type`, `grpc_service`, `grpc_method`, and, for completion count and duration, `grpc_code`. Match only the backend application services, `ConfigurationService`, and standard health routes; unknown paths use the single unknown service and method label. Subscribe is `bidi_stream`, SubscribeStatic is `server_stream`, and other methods are `unary`.
   - Sample pools, sequence IDs, replica replay delay, process resources, runtime activity, and occupied fetch permits every five seconds. Report the read pool and read sequence only when a distinct read pool exists. An empty envelope table reports sequence zero. Equal receive and replay WAL positions report delay zero; otherwise report the age of the last replayed transaction, and omit the sample when that timestamp is absent. Each database query obeys the configured statement timeout. A failed sample increments its error counter, retains the previous affected gauge values, and does not stop later sampling.
   - Count every publish input position once by response origin: stored, duplicate, or rejected when the request fails. Count every registered stream termination once with a fixed reason. Remove registry gauges once even during recovery failure. Measure delivery lag only for live envelopes at outbound admission, clamp negative lag to zero, and measure outbound waiting only when capacity was unavailable. A new recovery generation resets tailer readiness and gap count until recovery succeeds. Count barrier lock timeouts and emit one warning for each. Describe every backend metric from one catalogue.
 - ARC-099: Accept W3C `traceparent` and `tracestate`, including CORS preflight that names these headers. Install propagation even when export is off. With trace export enabled, the incoming context is the request span parent. Request spans identify the server kind, gRPC system, bounded service and method, and final gRPC status. Completion events include the status name and a trace ID only when a valid incoming or generated trace context exists.
@@ -226,13 +229,20 @@ Shared logging emits operation-span and export-failure metrics. The backend cata
 
 ## 8. Configuration
 
-- ARC-100: Read one TOML document, supplied inline by `--config` (or its environment variable `XMTP_CONFIG`) or read from the file path given by `--config-file`. Exactly one source must be given: the inline document or the file path. An inline document from `XMTP_CONFIG` conflicts with `--config-file`. The database URL is required; other values have the defaults below. Publish a JSON schema usable by Taplo. Reject unknown keys, invalid values, and inconsistent size relationships at startup; the relationships to check are the ones stated in the key comments below. Private implementation constants do not need config keys. Configured timer durations must form representable deadlines on the host's monotonic clock.
+- ARC-100: Read one TOML document, supplied inline by `--config` (or its environment variable `XMTP_CONFIG`) or read from the file path given by `--config-file`. Exactly one source must be given: the inline document or the file path. An inline document from `XMTP_CONFIG` conflicts with `--config-file`. The database URL and `server.identifier` are required; other values have the defaults below. Publish a JSON schema usable by Taplo. Reject unknown keys, invalid values, and inconsistent size relationships at startup; the relationships to check are the ones stated in the key comments below. Private implementation constants do not need config keys. Configured timer durations must form representable deadlines on the host's monotonic clock.
 - ARC-101: A string of the form `env:NAME` reads that environment variable at startup. A missing variable fails startup. Error messages and logs must not include resolved secrets.
 - ARC-102: Each public limit has one named config value. Server-only settings stay with the server; values shared with clients have one shared definition. A lower deployment limit can require smaller client batches. Identity and commit retention exemptions cannot be disabled by a finite duration setting. Retention is configured in seconds and converted to nanoseconds when `expiry_ns` is computed; the config never carries a nanosecond literal. Before readiness, validate each finite retention period against the primary database clock: the resulting expiry must fit the stored timestamp type. Do not substitute the application clock. Later time advances or database clock steps can still cause an insert-time arithmetic error; startup validation does not remove that check.
 
 ```toml
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
 [server]
+# Reverse-DNS name for this deployment. Required. Published to clients and used as a
+# telemetry attribute (spec 006). Every client database binds to it, so it must never
+# change once clients have connected.
+identifier = "org.example.xmtp"
+# Lowest libxmtp version this deployment admits, published to clients (spec 006).
+# Absent admits every client version. Only major, minor, and patch are compared.
+# min_libxmtp_version = "1.2.3"
 # Address the plaintext gRPC listener binds (ARC-002).
 listen = "0.0.0.0:5050"
 # Basic logging through the shared pipeline. CLI --log-level overrides this.
@@ -360,6 +370,22 @@ max_update_burst = 100
 # Client Ping token bucket per stream: refill rate and burst (API-107, ARC-085).
 max_ping_frames_per_second = 10
 max_ping_burst = 100
+
+# Optional JWT authentication (section 4). When the section is present it must say
+# whether it is on, so auth can never switch off by accident. `false` serves every
+# RPC without a credential and ignores the rest of the section.
+# [auth]
+# enabled = true
+# jwks_url = "https://issuer.example/.well-known/jwks.json"
+
+[mls]
+# Advisory client limits published by spec 006. The backend does not enforce them.
+# Group members a client admits, 1 to 65535.
+max_group_members = 250
+# Installations a client admits per inbox, 1 to 65535.
+max_installations_per_inbox = 10
+# Whether clients write and read the commit log on this deployment.
+commit_log_enabled = true
 ```
 
 The raw repository URL is the public schema publication target. Publish and validate it with the backend config implementation. An empty chain map supports non-SCW identities; SCW operations on an unconfigured chain return `UNAVAILABLE`. A minimal deployment therefore needs only the database URL, while SCW support also needs chain routes. The statement timeout, publish duration, and barrier wait bound work; gap correctness does not depend on their values. The relationships stated in the key comments (`max_publish_duration_ms` above `max_statement_timeout_ms`, `max_pong_wait_ms` above `keepalive_interval_ms`, `max_query_limit` at or above `default_query_limit`, `max_envelope_bytes` at or below `max_request_bytes`, and `max_update_adds` at or below `max_stream_topics`) are the size relationships ARC-100 checks at startup. Startup also checks that the permitted envelope size fits the delivery frame, transport cap, fetched-data budget, and outbound byte budget with worst-case metadata and framing.
@@ -375,6 +401,15 @@ The raw repository URL is the public schema publication target. Publish and vali
 Supported database failover must preserve acknowledged commits and fence the old primary. Promoting a replica that loses acknowledged data or restoring an old backup is an operator recovery event; durable client cursors cannot repair it. The backend does not implement a database failover manager.
 
 ## Review record
+
+Spec 006 amends this document on 2026-09-15. ARC-002 drops "No version or
+metadata endpoint is served" and names `ConfigurationService` as an additional
+unauthenticated service on the gRPC port. ARC-098's bounded service set gains it.
+Section 8 gains `server.identifier`, `server.min_libxmtp_version`, `auth.enabled`,
+and the `[mls]` block. Spec 006 words the addition as "the sixth service on the
+port"; the port in fact carries five application services plus health, so
+`ConfigurationService` is the seventh registrant. The wording above names the
+service rather than a count.
 
 The [approved stream-state plan](https://plan.ref.tools/JWa4T7fSmGBi69R2) removes Get and retires ARC-067 on 2026-09-10. Registration visibility uses the existing replica-served QueryNewest route.
 

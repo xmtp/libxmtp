@@ -31,10 +31,14 @@ A string of the form `env:NAME` reads the environment variable `NAME` at startup
 A missing variable fails startup. Keep secrets in environment variables. Resolved
 values never appear in errors or logs.
 
-A minimal file needs only the database URL:
+A minimal file needs the deployment identifier and the database URL:
 
 ```toml
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[server]
+# Change this to a name you own.
+identifier = "org.example.xmtp"
+
 [database]
 url = "env:XMTP_DATABASE_URL"
 ```
@@ -43,27 +47,48 @@ The JSON schema at that URL validates the file in editors that support Taplo.
 
 ### `[server]`
 
-| Key                     | Type                                             | Default        | Purpose                                                                          |
-| ----------------------- | ------------------------------------------------ | -------------- | -------------------------------------------------------------------------------- |
-| `listen`                | socket address                                   | `0.0.0.0:5050` | Address the plaintext gRPC listener binds.                                       |
-| `log_level`             | `off`, `error`, `warn`, `info`, `debug`, `trace` | `info`         | Global log level. The `--log-level` flag overrides it.                           |
-| `log_format`            | `text`, `json`                                   | `text`         | Log output format.                                                               |
-| `request_logger`        | boolean                                          | `true`         | Emit one INFO event when each gRPC response finishes or is cancelled.            |
-| `max_drain_duration_ms` | integer                                          | `10000`        | How long shutdown waits for in-flight unary requests. Open streams fail at once. |
+| Key                     | Type                                             | Default        | Purpose                                                                               |
+| ----------------------- | ------------------------------------------------ | -------------- | ------------------------------------------------------------------------------------- |
+| `identifier`            | string                                           | none, required | Stable name for this deployment. 1 to 256 bytes, no whitespace or control characters. |
+| `min_libxmtp_version`   | semantic version                                 | unset          | Lowest libxmtp version a client may use. Unset admits every version.                  |
+| `listen`                | socket address                                   | `0.0.0.0:5050` | Address the plaintext gRPC listener binds.                                            |
+| `log_level`             | `off`, `error`, `warn`, `info`, `debug`, `trace` | `info`         | Global log level. The `--log-level` flag overrides it.                                |
+| `log_format`            | `text`, `json`                                   | `text`         | Log output format.                                                                    |
+| `request_logger`        | boolean                                          | `true`         | Emit one INFO event when each gRPC response finishes or is cancelled.                 |
+| `max_drain_duration_ms` | integer                                          | `10000`        | How long shutdown waits for in-flight unary requests. Open streams fail at once.      |
+
+The convention for `identifier` is a reverse-DNS name you control, such as
+`org.example.xmtp`. Change the example to your own name before you deploy.
+
+:::caution
+Never change `identifier` after clients have connected. Every client database is
+bound to the identifier it first saw. A client that reaches a backend publishing
+a different identifier stops with a backend-mismatch error and cannot recover
+without a new database. Move a deployment between hosts, ports, and URLs freely;
+keep the identifier the same.
+:::
+
+`min_libxmtp_version` is compared on major, minor, and patch only, so a
+prerelease tag does not change the verdict. A client below the minimum refuses to
+build, and a running client that learns of a raised minimum stops. The backend
+publishes the minimum; it does not yet reject requests by version.
 
 ### `[telemetry]`
 
-| Key                   | Type                           | Default        | Purpose                                                                                            |
-| --------------------- | ------------------------------ | -------------- | -------------------------------------------------------------------------------------------------- |
-| `metrics_listen`      | socket address or empty string | `0.0.0.0:9464` | Separate Prometheus listener. An empty string disables it.                                         |
-| `otlp_endpoint`       | HTTP or HTTPS URL              | unset          | OTLP gRPC endpoint. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT`. No endpoint disables OTLP export. |
-| `otlp_logs`           | boolean                        | `false`        | Export logs through OTLP when an endpoint is set.                                                  |
-| `service_name`        | string                         | `xmtp-backend` | Non-empty telemetry service name.                                                                  |
-| `sample_ratio`        | number from 0 to 1             | `1.0`          | Trace sampling ratio. Backend metrics do not depend on it.                                         |
-| `resource_attributes` | map of strings                 | `{}`           | Extra resource attributes. `service.name` and `service.version` are reserved.                      |
+| Key                   | Type                           | Default        | Purpose                                                                                                   |
+| --------------------- | ------------------------------ | -------------- | --------------------------------------------------------------------------------------------------------- |
+| `metrics_listen`      | socket address or empty string | `0.0.0.0:9464` | Separate Prometheus listener. An empty string disables it.                                                |
+| `otlp_endpoint`       | HTTP or HTTPS URL              | unset          | OTLP gRPC endpoint. Falls back to `OTEL_EXPORTER_OTLP_ENDPOINT`. No endpoint disables OTLP export.        |
+| `otlp_logs`           | boolean                        | `false`        | Export logs through OTLP when an endpoint is set.                                                         |
+| `service_name`        | string                         | `xmtp-backend` | Non-empty telemetry service name.                                                                         |
+| `sample_ratio`        | number from 0 to 1             | `1.0`          | Trace sampling ratio. Backend metrics do not depend on it.                                                |
+| `resource_attributes` | map of strings                 | `{}`           | Extra resource attributes. `service.name`, `service.version`, and `xmtp.backend.identifier` are reserved. |
 
 Keep the metrics listener private. Resource attributes are exported as supplied.
-Never put secrets in them.
+Never put secrets in them. The backend exports `server.identifier` as the
+`xmtp.backend.identifier` resource attribute and includes it on every request
+completion log and every authentication rejection log, so one log stream can
+carry several deployments.
 
 ### `[database]`
 
@@ -115,21 +140,28 @@ rows are not pruned or hidden at read time.
 
 ### `[auth]`
 
-Omit this section to disable caller authentication. To enable JWT authentication,
-set exactly one key source: `jwks_url` or a non-empty `keys` array. An empty
-`[auth]` section fails startup. Requests then require a valid bearer token,
-except for gRPC health and CORS preflight. Streams are checked when they open.
+Omit this section to disable caller authentication. When the section is present it
+must say `enabled = true` or `enabled = false`; a section without it fails startup,
+so authentication can never switch off by accident. To enable JWT authentication,
+set `enabled = true` and exactly one key source: `jwks_url` or a non-empty `keys`
+array. An otherwise empty enabled `[auth]` section fails startup. Requests then
+require a valid bearer token, except for gRPC health, `ConfigurationService`, and
+CORS preflight. Streams are checked when they open.
 
-| Key                      | Type                  | Default | Purpose                                                                                                                                           |
-| ------------------------ | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jwks_url`               | URL                   | unset   | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                     |
-| `keys`                   | array of key tables   | unset   | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`. |
-| `audiences`              | array of strings      | unset   | Require a matching audience when set. Must not be empty.                                                                                          |
-| `issuers`                | array of strings      | unset   | Require a matching issuer when set. Must not be empty.                                                                                            |
-| `required_scopes`        | array of strings      | `[]`    | Require every listed scope.                                                                                                                       |
-| `leeway_seconds`         | integer from 0 to 300 | `60`    | Allow this clock tolerance when validating token times.                                                                                           |
-| `jwks_refresh_seconds`   | positive integer      | `300`   | Interval between signing-key refreshes, before jitter.                                                                                            |
-| `jwks_max_stale_seconds` | positive integer      | `3600`  | Maximum time since a successful key fetch before the backend drains and exits.                                                                    |
+With `enabled = false` the backend serves every RPC without a credential check,
+ignores every other key in the section, and loads no keys and fetches no JWKS.
+
+| Key                      | Type                  | Default        | Purpose                                                                                                                                           |
+| ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `enabled`                | boolean               | none, required | Whether this section applies. `false` serves without authentication.                                                                              |
+| `jwks_url`               | URL                   | unset          | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                     |
+| `keys`                   | array of key tables   | unset          | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`. |
+| `audiences`              | array of strings      | unset          | Require a matching audience when set. Must not be empty.                                                                                          |
+| `issuers`                | array of strings      | unset          | Require a matching issuer when set. Must not be empty.                                                                                            |
+| `required_scopes`        | array of strings      | `[]`           | Require every listed scope.                                                                                                                       |
+| `leeway_seconds`         | integer from 0 to 300 | `60`           | Allow this clock tolerance when validating token times.                                                                                           |
+| `jwks_refresh_seconds`   | positive integer      | `300`          | Interval between signing-key refreshes, before jitter.                                                                                            |
+| `jwks_max_stale_seconds` | positive integer      | `3600`         | Maximum time since a successful key fetch before the backend drains and exits.                                                                    |
 
 Supported key algorithms are `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, and
 `EdDSA`. The stale-key budget must cover the refresh interval, up to 10% jitter
@@ -139,6 +171,7 @@ For example, supply your key-set URL and expected token claims:
 
 ```toml
 [auth]
+enabled = true
 jwks_url = "env:XMTP_JWKS_URL"
 audiences = ["xmtp"]
 issuers = ["https://auth.example.com"]
@@ -171,7 +204,34 @@ Every structural limit is one named key. See [Limits](/reference/limits/) for th
 what each one constrains. Lowering a limit here can require clients to send
 smaller batches. Startup rejects inconsistent pairs: `max_query_limit` must be at
 least `default_query_limit`, `max_envelope_bytes` at most `max_request_bytes`, and
-`max_update_adds` at most `max_stream_topics`.
+`max_update_adds` at most `max_stream_topics`. `max_request_bytes` and
+`max_response_bytes` must each stay at or below the fixed 25 MiB transport
+ceiling.
+
+### `[mls]`
+
+Group policy the backend publishes to clients. The backend does not enforce
+these values; clients read them and apply them locally.
+
+| Key                           | Type                | Default | Purpose                                                           |
+| ----------------------------- | ------------------- | ------- | ----------------------------------------------------------------- |
+| `max_group_members`           | integer, 1 to 65535 | `250`   | Largest group a client will create or grow. Advisory.             |
+| `max_installations_per_inbox` | integer, 1 to 65535 | `10`    | Installations a client keeps for one inbox. Advisory.             |
+| `commit_log_enabled`          | boolean             | `true`  | Whether clients write and read the commit log on this deployment. |
+
+## Published configuration
+
+Port `5050` also serves `xmtp.backend.v1.ConfigurationService/GetConfiguration`.
+The call needs no credential, so a client can learn what a deployment requires
+before it holds one. The response is built once at startup and does not change
+while the process runs. It carries the identifier, the backend version, the
+minimum client version, a summary of `[auth]`, the retention periods, the
+published limits, the `[mls]` policy, and the configured chain ids.
+
+It never carries the JWKS URL, chain RPC URLs, public key material, clock
+leeway, refresh timing, or any database, telemetry, or listener setting. The
+encoded response must stay under 64 KiB; a very long chain, key, audience,
+issuer, or scope list fails startup.
 
 ## Run it locally
 

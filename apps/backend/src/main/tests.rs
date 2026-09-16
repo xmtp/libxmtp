@@ -150,7 +150,9 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     }
     let database = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://xmtp:xmtp@localhost:55432/xmtp_backend".into());
-    let disabled = format!("[database]\nurl = {database:?}\n[telemetry]\nmetrics_listen = ''\n");
+    let disabled = format!(
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = ''\n"
+    );
     let mut process = Process::start(&disabled, None);
     assert!(process.child.wait()?.success(), "{}", process.output());
     for level in [
@@ -167,7 +169,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
         // the local stack, which would make this test depend on `just backend up`.
         let metrics = address();
         let mut config = format!(
-            "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\nmax_drain_duration_ms = {DRAIN_MS}\n"
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\nmax_drain_duration_ms = {DRAIN_MS}\n"
         );
         if matches!(level, "warn" | "error") {
             config.push_str(&format!("log_level = {level:?}\n"));
@@ -247,7 +249,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
     let blocked_database = TcpListener::bind("127.0.0.1:0")?;
     let metrics = address();
     let config = format!(
-        "[database]\nurl = 'postgres://xmtp:xmtp@{}/xmtp_backend'\n[telemetry]\nmetrics_listen = {metrics:?}\n",
+        "[database]\nurl = 'postgres://xmtp:xmtp@{}/xmtp_backend'\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = {metrics:?}\n",
         blocked_database.local_addr()?
     );
     let process = Process::start(&config, None);
@@ -260,7 +262,7 @@ async fn startup_preserves_metrics_export_and_shutdown_across_log_settings() {
 
     let occupied = TcpListener::bind("127.0.0.1:0")?;
     let config = format!(
-        "[database]\nurl = {database:?}\n[telemetry]\nmetrics_listen = '{}'\n",
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\n[telemetry]\nmetrics_listen = '{}'\n",
         occupied.local_addr()?
     );
     let mut process = Process::start(&config, None);
@@ -280,7 +282,7 @@ async fn failed_jwks_startup_exits_before_binding_the_rpc_listener() {
     let metrics = address();
     let jwks = address();
     let config = format!(
-        "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\njwks_url = 'http://{jwks}/private-url-sentinel'\n"
+        "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\n[auth]\nenabled = true\njwks_url = 'http://{jwks}/private-url-sentinel'\n"
     );
     let mut process = Process::start(&config, None);
     assert!(!process.child.wait()?.success());
@@ -302,7 +304,7 @@ async fn inline_sources_start_and_serve() {
         let grpc = address();
         let metrics = address();
         let config = format!(
-            "[database]\nurl = {database:?}\n[server]\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\nresource_attributes = {{ secret = 'env:XMTP_STARTUP_TEST_SECRET' }}\n"
+            "[database]\nurl = {database:?}\n[server]\nidentifier = 'org.xmtp.test'\nlisten = {grpc:?}\n[telemetry]\nmetrics_listen = {metrics:?}\nresource_attributes = {{ secret = 'env:XMTP_STARTUP_TEST_SECRET' }}\n"
         );
         let mut process = if from_env {
             Process::start_with_args("", None, Some(&[]), Some(&config))

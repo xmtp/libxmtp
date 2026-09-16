@@ -46,21 +46,22 @@ async fn success_preserves_request_body_headers_and_extensions() {
     claims["scope"] = serde_json::json!("xmtp publish");
     let authorization = format!("Bearer {}", mint(&claims, &key));
     let expected = authorization.clone();
-    let service = AuthLayer(verifier(config)).layer(service_fn(move |request: Request<Body>| {
-        let expected = expected.clone();
-        async move {
-            assert_eq!(request.uri().path(), "/xmtp.backend.v1.QueryService/Query");
-            assert_eq!(request.headers()["authorization"], expected);
-            assert_eq!(request.extensions().get::<u32>(), Some(&42));
-            let context = request.extensions().get::<AuthContext>().unwrap();
-            assert_eq!(context.sub.as_deref(), Some("caller"));
-            assert_eq!(
-                context.scopes,
-                std::collections::BTreeSet::from(["xmtp".into(), "publish".into()])
-            );
-            Ok::<_, Infallible>(Response::new(request.into_body()))
-        }
-    }));
+    let service =
+        AuthLayer::for_test(verifier(config)).layer(service_fn(move |request: Request<Body>| {
+            let expected = expected.clone();
+            async move {
+                assert_eq!(request.uri().path(), "/xmtp.backend.v1.QueryService/Query");
+                assert_eq!(request.headers()["authorization"], expected);
+                assert_eq!(request.extensions().get::<u32>(), Some(&42));
+                let context = request.extensions().get::<AuthContext>().unwrap();
+                assert_eq!(context.sub.as_deref(), Some("caller"));
+                assert_eq!(
+                    context.scopes,
+                    std::collections::BTreeSet::from(["xmtp".into(), "publish".into()])
+                );
+                Ok::<_, Infallible>(Response::new(request.into_body()))
+            }
+        }));
     let mut request = Request::post("/xmtp.backend.v1.QueryService/Query")
         .header("authorization", authorization)
         .body(Body::new(http_body_util::Full::new(
@@ -75,19 +76,27 @@ async fn success_preserves_request_body_headers_and_extensions() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn path_gate_ignores_method_and_content_type_and_exempts_only_health() {
+async fn path_gate_ignores_method_and_content_type_and_exempts_only_health_and_configuration() {
     let verifier = verifier(TestKey::es256().auth_config());
-    for path in ["/xmtp.backend.v1.QueryService/Query", "/unknown", "/"] {
+    // Neighbouring names must not be admitted by a prefix that is too short.
+    for path in [
+        "/xmtp.backend.v1.QueryService/Query",
+        "/xmtp.backend.v1.ConfigurationServiceExtra/GetConfiguration",
+        "/xmtp.backend.v1.NotificationService/Register",
+        "/unknown",
+        "/",
+    ] {
         for method in [http::Method::POST, http::Method::GET] {
-            let service =
-                AuthLayer(verifier.clone()).layer(service_fn(|_: Request<Body>| async move {
+            let service = AuthLayer::for_test(verifier.clone()).layer(service_fn(
+                |_: Request<Body>| async move {
                     Ok::<_, Infallible>(
                         Response::builder()
                             .header("handler-reached", "true")
                             .body(Body::empty())
                             .unwrap(),
                     )
-                }));
+                },
+            ));
             let response = service
                 .oneshot(
                     Request::builder()
@@ -101,14 +110,27 @@ async fn path_gate_ignores_method_and_content_type_and_exempts_only_health() {
             assert!(!response.headers().contains_key("handler-reached"));
         }
     }
-    let service = AuthLayer(verifier).layer(service_fn(|request: Request<Body>| async move {
-        assert!(request.extensions().get::<AuthContext>().is_none());
-        Ok::<_, Infallible>(Response::new(Body::empty()))
-    }));
-    let response = service
-        .oneshot(Request::post("/grpc.health.v1.Health/Check").body(Body::empty())?)
-        .await?;
-    assert!(!response.headers().contains_key("grpc-status"));
+    // Exactly two prefixes are exempt, and an exempt call carries no context.
+    assert_eq!(
+        super::UNAUTHENTICATED_PREFIXES,
+        ["/grpc.health.v1.", "/xmtp.backend.v1.ConfigurationService/"]
+    );
+    for path in [
+        "/grpc.health.v1.Health/Check",
+        "/grpc.health.v1.Health/Watch",
+        "/xmtp.backend.v1.ConfigurationService/GetConfiguration",
+    ] {
+        let service = AuthLayer::for_test(verifier.clone()).layer(service_fn(
+            |request: Request<Body>| async move {
+                assert!(request.extensions().get::<AuthContext>().is_none());
+                Ok::<_, Infallible>(Response::new(Body::empty()))
+            },
+        ));
+        let response = service
+            .oneshot(Request::post(path).body(Body::empty())?)
+            .await?;
+        assert!(!response.headers().contains_key("grpc-status"));
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -132,9 +154,10 @@ async fn required_scopes_apply_to_every_path_including_unknown_ones() {
     ] {
         let mut claims = valid_claims();
         claims["scope"] = serde_json::json!(scope);
-        let service = AuthLayer(verifier.clone()).layer(service_fn(|_: Request<Body>| async {
-            Ok::<_, Infallible>(tonic::Status::ok("").into_http())
-        }));
+        let service =
+            AuthLayer::for_test(verifier.clone()).layer(service_fn(|_: Request<Body>| async {
+                Ok::<_, Infallible>(tonic::Status::ok("").into_http())
+            }));
         let response = service
             .oneshot(
                 Request::post(path)

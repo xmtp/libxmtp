@@ -32,4 +32,22 @@ impl Authentication {
             last_success: xmtp_common::time::Instant::now(),
         })
     }
+
+    /// The public identity of every key loaded at startup, as `(kid, alg)`
+    /// pairs. Published settings name the key set that was loaded; a later
+    /// JWKS refresh does not change what was announced.
+    pub fn published_keys(&self) -> Vec<(String, String)> {
+        self.verifier
+            .keys
+            .0
+            .load()
+            .iter()
+            .map(|key| {
+                (
+                    key.kid.clone().unwrap_or_default(),
+                    crate::config::auth::algorithm_name(key.alg).to_owned(),
+                )
+            })
+            .collect()
+    }
 }

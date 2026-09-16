@@ -72,8 +72,8 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
                     .unwrap(),
             )
         });
-        let mut service = GrpcTelemetryLayer(true)
-            .layer(GrpcStatusLayer.layer(AuthLayer(verifier.clone()).layer(inner)));
+        let mut service = GrpcTelemetryLayer::for_test(true)
+            .layer(GrpcStatusLayer.layer(AuthLayer::for_test(verifier.clone()).layer(inner)));
         let mut request = Request::post("/xmtp.backend.v1.QueryService/Query")
             .header("content-type", "application/grpc")
             .header("x-request-id", SENTINEL)

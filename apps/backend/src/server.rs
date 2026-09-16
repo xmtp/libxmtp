@@ -1,6 +1,7 @@
 use crate::{
     Backend,
     api::{
+        configuration_service_server::ConfigurationServiceServer,
         identity_service_server::IdentityServiceServer,
         notification_service_server::NotificationServiceServer,
         publish_service_server::PublishServiceServer, query_service_server::QueryServiceServer,
@@ -44,7 +45,9 @@ pub async fn initialize(
     config.validate()?;
     xmtp_cryptography::install_crypto_provider();
     let push_senders = crate::push::channel::Senders::new(&config.push)?;
-    let auth = match &config.auth {
+    // A disabled section loads no keys and fetches no JWKS. Only an enabled
+    // one reaches key material at all.
+    let auth = match config.auth.as_ref().filter(|auth| auth.is_enabled()) {
         Some(auth) => Some(std::sync::Arc::new(
             crate::auth::Authentication::initialize(auth).await?,
         )),
@@ -84,6 +87,16 @@ pub async fn initialize(
     }
     backend.streams = Some(streams);
     backend.auth = auth;
+    // The key set is known only now, so the published settings are completed
+    // here and then never change. The size bound is re-checked because a JWKS
+    // key set is not visible to configuration validation.
+    if let Some(auth) = &backend.auth {
+        let response = backend
+            .config
+            .configuration_response(&auth.published_keys());
+        crate::config::validate_configuration_size(&response)?;
+        backend.configuration = Arc::new(response);
+    }
     Ok(backend)
 }
 
@@ -108,7 +121,12 @@ pub async fn serve(
     listener: TcpListener,
     shutdown: impl Future<Output = ()> + Send + 'static,
 ) -> Result<(), ServeError> {
-    if backend.config.auth.is_some() != backend.auth.is_some() {
+    let expects_auth = backend
+        .config
+        .auth
+        .as_ref()
+        .is_some_and(crate::config::auth::AuthConfig::is_enabled);
+    if expects_auth != backend.auth.is_some() {
         return Err(ServeError::AuthNotInitialized);
     }
     let limits = &backend.config.limits;
@@ -127,6 +145,9 @@ pub async fn serve(
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let notification = NotificationServiceServer::new(backend.clone())
+        .max_decoding_message_size(receive)
+        .max_encoding_message_size(send);
+    let configuration = ConfigurationServiceServer::new(backend.clone())
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
     let (reporter, health) = tonic_health::server::health_reporter();
@@ -171,25 +192,28 @@ pub async fn serve(
     let shutdown = async {
         tokio::select! { biased; _ = stale => {}, _ = shutdown => {} }
     };
-    let auth_layer = tower::ServiceBuilder::new().option_layer(
-        backend
-            .auth
-            .as_ref()
-            .map(|auth| auth::AuthLayer(auth.verifier.clone())),
-    );
+    let identifier: Arc<str> = Arc::from(backend.config.server.identifier());
+    let auth_layer = tower::ServiceBuilder::new().option_layer(backend.auth.as_ref().map(|auth| {
+        auth::AuthLayer {
+            verifier: auth.verifier.clone(),
+            identifier: identifier.clone(),
+        }
+    }));
     let (stop, stopped) = tokio::sync::oneshot::channel();
     let serving = Server::builder()
         .accept_http1(true)
         .max_concurrent_streams(limits.max_http2_streams as u32)
         .layer(cors)
-        .layer(telemetry::GrpcTelemetryLayer(
-            backend.config.server.request_logger,
-        ))
+        .layer(telemetry::GrpcTelemetryLayer {
+            enabled: backend.config.server.request_logger,
+            identifier: identifier.clone(),
+        })
         .layer(GrpcWebLayer::new())
         .layer(telemetry::GrpcStatusLayer)
         .layer(auth_layer)
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
+        .add_service(configuration)
         .add_service(query)
         .add_service(publish)
         .add_service(identity)
@@ -246,6 +270,7 @@ async fn report_health(
     crate::telemetry::ready(status == tonic_health::ServingStatus::Serving);
     for service in [
         "",
+        ConfigurationServiceServer::<Backend>::NAME,
         QueryServiceServer::<Backend>::NAME,
         PublishServiceServer::<Backend>::NAME,
         IdentityServiceServer::<Backend>::NAME,

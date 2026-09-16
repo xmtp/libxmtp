@@ -69,6 +69,11 @@ databaseSecret:
   name: xmtp-database
   key: url
 config: |
+  [server]
+  # Change this to a reverse-DNS name you own. Never change it again once
+  # clients have connected: every client database is bound to it.
+  identifier = "org.example.xmtp"
+
   [database]
   url = "env:XMTP_DATABASE_URL"
 resources:

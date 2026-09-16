@@ -31,6 +31,9 @@ Use a scratch directory outside the repository. Save this as `config.toml`:
 ```toml title="config.toml"
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
 [server]
+# Change this to a reverse-DNS name you own. Never change it again once
+# clients have connected: every client database is bound to it.
+identifier = "org.example.xmtp"
 listen = "[::]:5050"
 
 [database]
