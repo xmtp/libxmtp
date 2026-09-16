@@ -154,9 +154,10 @@ async fn queued_leases_coalesce_during_dial_and_deliver_once() {
 async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bool) {
     let mut ledger = Ledger::<BackendBinding>::default();
     if byte_limited {
-        ledger.chunk_bytes = 2 * topic_wire_cost(&group_topic(b"a"));
+        ledger.mutate.byte_cap = 2 * topic_wire_cost(&group_topic(b"a"));
     } else {
-        ledger.chunk_cap = 2;
+        ledger.mutate.add_cap = 2;
+        ledger.mutate.remove_cap = 2;
     }
     let (_, initial) = ledger
         .prepare_adds(vec![(group_topic(b"anchor"), 0)])
@@ -230,8 +231,8 @@ async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bo
                 .collect::<Vec<_>>()
         );
         assert!(update.adds.is_empty() || update.removes.is_empty());
-        assert!(update.adds.len() + update.removes.len() <= task.ledger.chunk_cap);
-        assert!(update.encoded_len() <= task.ledger.chunk_bytes);
+        assert!(update.adds.len() + update.removes.len() <= task.ledger.mutate.add_cap);
+        assert!(update.encoded_len() <= task.ledger.mutate.byte_cap);
         server.ack_empty(id);
         task.ledger.applied(
             id,
@@ -239,6 +240,52 @@ async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bo
         );
     }
     assert!(task.ledger.pending_updates.is_empty());
+}
+
+/// CFG-064: a deployment caps adds and removes separately and may publish a
+/// smaller removes cap. A merged removes-only frame is bounded by that cap, not
+/// by the adds cap, or the backend rejects it with INVALID_ARGUMENT.
+#[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
+async fn coalescing_bounds_a_removes_prefix_by_the_removes_cap() {
+    let mut ledger = Ledger::<BackendBinding>::default();
+    ledger.mutate.add_cap = 4;
+    ledger.mutate.remove_cap = 2;
+    let (_, initial) = ledger
+        .prepare_adds(vec![(group_topic(b"anchor"), 0)])
+        .remove(0);
+    let (api, mut server) = mock_pair();
+    let wire = BidiConnection::open(&api, initial).await.unwrap();
+    let mut task = ledger_task(ledger, Outbox::default());
+    task.conn = Some(wire);
+    for name in [b"d", b"e", b"f", b"g"] {
+        task.outbox
+            .updates
+            .extend(task.ledger.prepare_removes(vec![group_topic(name)]));
+    }
+    task.flush_outbox();
+    assert!(task.outbox.is_empty());
+    let first = server.next_mutate().await;
+    server.ack_empty(first.id);
+    task.ledger
+        .applied(first.id, vec![(group_topic(b"anchor"), 0)]);
+    for expected in [[b"d", b"e"], [b"f", b"g"]] {
+        let update = server.next_mutate().await;
+        assert!(update.adds.is_empty());
+        assert_eq!(
+            update
+                .removes
+                .iter()
+                .map(|topic| topic.topic.clone())
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|name| group_topic(*name).cloned_vec())
+                .collect::<Vec<_>>(),
+            "a removes-only frame must stay within remove_cap"
+        );
+        server.ack_empty(update.id);
+        task.ledger.applied(update.id, vec![]);
+    }
 }
 
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]

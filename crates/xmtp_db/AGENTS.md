@@ -16,7 +16,8 @@ dev/nix-shell 'cargo update-schema'      # regen schema.rs after a migration
 ## Gotchas
 
 - One baseline lives in `crates/xmtp_db/migrations/`. Pre-transition databases are rejected before migrations run.
-- Older self-hosted databases without durable stream progress are also rejected. Keep a backup and create a new client database. Initialization never deletes old data.
+- Older self-hosted databases are also rejected: without durable stream progress, and without the `server_configuration` table the baseline gained for spec 006. Keep a backup and create a new client database. Initialization never deletes old data.
+- Amending the baseline needs a schema probe in `XmtpDb::init()`, not a second migration. Diesel records one version for the whole baseline, so an already-migrated database is never re-migrated, and a second migration would make every existing database fail the one-baseline check as `PreTransitionDatabase`.
 - Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply the baseline to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
 
 ## Conventions

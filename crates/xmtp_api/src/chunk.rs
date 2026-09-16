@@ -43,7 +43,13 @@ pub struct PublishUnit {
     envelopes: Vec<PublishEnvelope>,
 }
 impl PublishUnit {
-    pub fn new(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
+    /// Build a unit against the shapes one deployment published (CFG-064,
+    /// CFG-065). A unit that cannot fit in a single request is rejected here,
+    /// before any network call.
+    pub fn new_within(
+        envelopes: Vec<wire::ClientEnvelope>,
+        limits: &LimitsConfiguration,
+    ) -> Result<Self> {
         if envelopes.is_empty() {
             return Err(ApiError::InvalidRequest("empty publish unit"));
         }
@@ -51,7 +57,7 @@ impl PublishUnit {
             .into_iter()
             .map(|envelope| {
                 let parsed = xmtp_mls_validation::parse_envelope(envelope)?;
-                if parsed.canonical.bytes.len() > BACKEND_DEFAULT_MAX_ENVELOPE_BYTES {
+                if parsed.canonical.bytes.len() > limits.max_envelope_bytes {
                     return Err(ApiError::EnvelopeTooLarge);
                 }
                 Ok(PublishEnvelope {
@@ -62,13 +68,27 @@ impl PublishUnit {
             })
             .collect::<Result<Vec<_>>>()?;
         let unit = Self { envelopes };
-        let mut measure = PublishMeasure::default();
+        let mut measure = PublishMeasure::new(limits);
         measure.add(&unit);
         if !measure.fits() {
             return Err(ApiError::UnitTooLarge);
         }
         Ok(unit)
     }
+
+    pub fn single_within(
+        envelope: wire::ClientEnvelope,
+        limits: &LimitsConfiguration,
+    ) -> Result<Self> {
+        Self::new_within(vec![envelope], limits)
+    }
+
+    /// Build a unit against the compiled defaults, for a caller that holds no
+    /// snapshot. Every client path goes through `new_within`.
+    pub fn new(envelopes: Vec<wire::ClientEnvelope>) -> Result<Self> {
+        Self::new_within(envelopes, &LimitsConfiguration::default())
+    }
+
     pub fn single(envelope: wire::ClientEnvelope) -> Result<Self> {
         Self::new(vec![envelope])
     }
@@ -83,12 +103,20 @@ pub(crate) fn request(units: &[PublishUnit]) -> wire::PublishRequest {
     }
 }
 /// Measure repeated envelope fields without cloning or encoding the request.
-#[derive(Default)]
 struct PublishMeasure<'a> {
     bytes: usize,
     topics: HashSet<&'a Topic>,
+    limits: &'a LimitsConfiguration,
 }
 impl<'a> PublishMeasure<'a> {
+    fn new(limits: &'a LimitsConfiguration) -> Self {
+        Self {
+            bytes: 0,
+            topics: HashSet::new(),
+            limits,
+        }
+    }
+
     fn add(&mut self, unit: &'a PublishUnit) {
         for envelope in &unit.envelopes {
             let len = envelope.canonical.bytes.len();
@@ -98,15 +126,20 @@ impl<'a> PublishMeasure<'a> {
     }
 
     fn fits(&self) -> bool {
-        self.bytes <= BACKEND_DEFAULT_MAX_REQUEST_BYTES
-            && self.topics.len() <= BACKEND_DEFAULT_MAX_PUBLISH_TOPICS
+        self.bytes <= self.limits.max_request_bytes
+            && self.topics.len() <= self.limits.max_publish_topics
     }
 }
 
-pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
+/// Split units into requests the deployment accepts (CFG-064). A commit and
+/// its proposals are one unit and never straddle a chunk.
+pub fn chunk_publish_within<'a>(
+    units: &'a [PublishUnit],
+    limits: &LimitsConfiguration,
+) -> Result<Vec<&'a [PublishUnit]>> {
     let mut chunks = Vec::new();
     let mut start = 0;
-    let mut measure = PublishMeasure::default();
+    let mut measure = PublishMeasure::new(limits);
     for (end, unit) in units.iter().enumerate() {
         measure.add(unit);
         if !measure.fits() {
@@ -115,7 +148,7 @@ pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
             }
             chunks.push(&units[start..end]);
             start = end;
-            measure = PublishMeasure::default();
+            measure = PublishMeasure::new(limits);
             measure.add(unit);
             if !measure.fits() {
                 return Err(ApiError::UnitTooLarge);
@@ -126,6 +159,11 @@ pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
         chunks.push(&units[start..]);
     }
     Ok(chunks)
+}
+
+/// Chunk against the compiled defaults, for a caller that holds no snapshot.
+pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
+    chunk_publish_within(units, &LimitsConfiguration::default())
 }
 
 pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
@@ -198,7 +236,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     /// Publish each atomic unit and return metadata in envelope order.
     #[xmtp_common::rpc_span]
     pub async fn publish_units(&self, units: Vec<PublishUnit>) -> Result<Vec<wire::EnvelopeMeta>> {
-        let chunks = chunk_publish(&units)?
+        let chunks = chunk_publish_within(&units, self.limits())?
             .into_iter()
             .map(<[_]>::to_vec)
             .collect::<Vec<_>>();
@@ -257,7 +295,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         limits: IncomingBatchLimits,
     ) -> Result<OrderedQueryPage> {
         if limit == 0
-            || limit as usize > BACKEND_DEFAULT_MAX_QUERY_LIMIT
+            || limit as usize > self.limits().max_query_limit
             || limits.max_rows == 0
             || limits.max_bytes == 0
         {
@@ -265,7 +303,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         }
         let topics: Vec<_> = cursors.into_iter().collect();
         let mut pending: VecDeque<_> = topics
-            .chunks(BACKEND_DEFAULT_MAX_QUERY_TOPICS)
+            .chunks(self.limits().max_query_topics)
             .map(|topics| (topics.to_vec(), limit))
             .collect();
         let mut page = OrderedQueryPage {
@@ -385,13 +423,13 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         cursors: TopicCursor,
         limit: u32,
     ) -> Result<Vec<wire::ServerEnvelope>> {
-        if limit == 0 || limit as usize > BACKEND_DEFAULT_MAX_QUERY_LIMIT {
+        if limit == 0 || limit as usize > self.limits().max_query_limit {
             return Err(ApiError::InvalidRequest("query limit"));
         }
         let topics: Vec<_> = cursors.into_iter().collect();
         let results: Vec<Vec<_>> = stream::iter(
             topics
-                .chunks(BACKEND_DEFAULT_MAX_QUERY_TOPICS)
+                .chunks(self.limits().max_query_topics)
                 .map(<[_]>::to_vec)
                 .collect::<Vec<_>>()
                 .into_iter()
@@ -504,9 +542,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .into_iter()
             .collect();
         let cap = if full {
-            BACKEND_DEFAULT_MAX_NEWEST_FULL_TOPICS
+            self.limits().max_newest_full_topics
         } else {
-            BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS
+            self.limits().max_newest_metadata_topics
         };
         let results: Vec<Vec<_>> = stream::iter(
             topics
@@ -603,7 +641,8 @@ mod tests {
             PublishUnit::single(inline_welcome_envelope([1; 32]))?,
             PublishUnit::single(inline_welcome_envelope([3; 32]))?,
         ];
-        let mut measure = PublishMeasure::default();
+        let limits = LimitsConfiguration::default();
+        let mut measure = PublishMeasure::new(&limits);
         for (index, unit) in units.iter().enumerate() {
             measure.add(unit);
             assert_eq!(measure.bytes, request(&units[..=index]).encoded_len());

@@ -547,7 +547,7 @@ pub(crate) mod tests {
             .api()
             .query_all(
                 [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
-                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+                alix.context.api().limits().max_query_limit as u32,
             )
             .await?;
         let envelope = envelopes.last().unwrap();
@@ -580,7 +580,7 @@ pub(crate) mod tests {
             .api()
             .query_all(
                 [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
-                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+                alix.context.api().limits().max_query_limit as u32,
             )
             .await?;
         let mut envelope =

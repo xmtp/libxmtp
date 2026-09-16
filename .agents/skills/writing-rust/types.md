@@ -37,10 +37,15 @@ let inbox_id = input.normalize_hex();    // lowercases, strips 0x. Never hand-ro
 `xmtp_configuration` holds every value shared by more than one crate. A
 constant used by one module stays in that module. Every number has a name.
 
-- `common/{api,backend,db,metadata,mls,scw,streams,tracing}.rs`: one value for
-  every build. Add a file plus a `mod` and `pub use` line for a new area.
-- `prod/` and `test/`: same symbol names, different values (`MAX_PAGE_SIZE` is
-  100 and 20). `test/` replaces `prod/` under `cfg(any(test, feature = "test-utils"))`.
+- `common/{api,backend,db,metadata,mls,scw,server,streams,tracing}.rs`: one
+  value for every build. Add a file plus a `mod` and `pub use` line for a new
+  area.
+- `prod/` and `test/`: same symbol names, different values
+  (`KEYS_EXPIRATION_INTERVAL_NS` is a day and three seconds). `test/` replaces
+  `prod/` under `cfg(any(test, feature = "test-utils"))`.
+- `common/server.rs` is the exception to "every number has a name": it holds
+  the values one backend deployment publishes at run time (spec 006). Read them
+  through `ConfigProvider`, never from the database.
 - A value that differs per worktree is a function, not a constant:
   `backend_test_url()`, `backend_test_toxic_url()`, `DockerUrls::anvil()` read
   the environment and fall back to a `*_DEFAULT`. Wasm bakes the value in at

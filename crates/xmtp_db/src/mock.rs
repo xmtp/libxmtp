@@ -695,6 +695,23 @@ mock! {
 
     }
 
+    impl QueryServerConfiguration for DbQuery {
+        fn server_configuration(&self) -> Result<Option<crate::server_configuration::StoredServerConfiguration>, StorageError>;
+
+        fn store_server_configuration(
+            &self,
+            identifier: &str,
+            backend_url: &str,
+            response: &[u8],
+            fetched_at_ns: i64,
+        ) -> Result<(), StorageError>;
+
+        fn record_server_configuration_conflict(
+            &self,
+            conflicting_identifier: &str,
+        ) -> Result<(), StorageError>;
+    }
+
     impl QueryAssociationStateCache for DbQuery {
         fn write_to_cache(
             &self,

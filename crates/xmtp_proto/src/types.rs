@@ -8,6 +8,7 @@ mod group_message;
 mod ids;
 mod incoming_event;
 mod message_metadata;
+mod server_configuration;
 mod topic;
 mod topic_cursor;
 mod welcome_message;

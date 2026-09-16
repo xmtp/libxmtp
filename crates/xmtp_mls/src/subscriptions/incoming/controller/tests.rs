@@ -1553,7 +1553,10 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     let envelopes = bo
         .context
         .api()
-        .query_all([(topic.clone(), before.received)].into(), 100)
+        .query_all(
+            [(topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
         .await?;
     assert_eq!(envelopes.len(), 1);
     let target = Cursor(
@@ -1669,7 +1672,10 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     let rows = bo
         .context
         .api()
-        .query_all([(topic.clone(), target)].into(), 100)
+        .query_all(
+            [(topic.clone(), target)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
         .await?;
     assert_eq!(rows.len(), 2);
     let (_, commit_cursor, _) = xmtp_api_backend::envelope::metadata(

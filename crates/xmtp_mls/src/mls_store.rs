@@ -190,7 +190,7 @@ where
             .api()
             .query_ordered_page(
                 cursors,
-                rows.min(xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u64) as u32,
+                rows.min(self.context.api().limits().max_query_limit as u64) as u32,
                 IncomingBatchLimits {
                     max_rows: usize::try_from(rows).unwrap_or(usize::MAX),
                     max_bytes: usize::try_from(bytes).unwrap_or(usize::MAX),

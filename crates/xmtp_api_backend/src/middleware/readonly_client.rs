@@ -34,6 +34,10 @@ where
         self.inner.host()
     }
 
+    fn has_credential_source(&self) -> bool {
+        self.inner.has_credential_source()
+    }
+
     async fn request(
         &self,
         request: http::request::Builder,

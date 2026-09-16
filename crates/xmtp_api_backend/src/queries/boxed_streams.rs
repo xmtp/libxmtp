@@ -36,6 +36,23 @@ impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         self.inner.get_inbox_ids(request).await
     }
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error> {
+        self.inner.get_configuration(request).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        self.inner.backend_url()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        self.inner.has_credential_source()
+    }
+
+    fn set_limits(&self, limits: std::sync::Arc<xmtp_configuration::LimitsConfiguration>) {
+        self.inner.set_limits(limits)
+    }
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
@@ -131,6 +148,10 @@ xmtp_common::if_native! {
 
         fn host(&self) -> &str {
             self.inner.host()
+        }
+
+        fn bidi_limits(&self) -> std::sync::Arc<xmtp_configuration::LimitsConfiguration> {
+            self.inner.bidi_limits()
         }
 
         async fn subscribe_bidi(

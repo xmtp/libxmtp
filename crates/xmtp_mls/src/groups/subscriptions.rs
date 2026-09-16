@@ -106,7 +106,7 @@ where
     Context::ApiClient: XmtpMlsStreams + 'static,
     Context::Db: 'static,
 {
-    let cancel = context.cancellation_token().clone();
+    let cancel = crate::subscriptions::watchdog::StreamCancel::new(&context);
     let groups: Vec<GroupId> = active_conversations.collect();
     // Reopening reads saved D. A dropped, unacknowledged item remains available.
     spawn_watchdog_stream(
@@ -253,7 +253,7 @@ pub(crate) mod tests {
                     xmtp_proto::types::Topic::new_group_message(group.group_id),
                     xmtp_proto::types::Cursor(0),
                 )]),
-                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+                alix.context.api().limits().max_query_limit as u32,
             )
             .await?;
         let envelope = envelopes.last().unwrap();

@@ -3,6 +3,7 @@ use crate::GroupCommitLock;
 use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
 use crate::groups::change_callbacks::UnstableChangeCallbacks;
+use crate::server_configuration::ServerConfigurationHandle;
 use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
@@ -47,6 +48,9 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     #[cfg(test)]
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
+    /// What this deployment published about itself, resolved once at build
+    /// (spec 006 CFG-030), plus the latch a refresh may set.
+    pub(crate) server_configuration: ServerConfigurationHandle,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
@@ -126,6 +130,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock,
             version_info: self.version_info,
+            server_configuration: self.server_configuration,
             local_events: self.local_events,
             delivery_owner: self.delivery_owner,
             worker_events: self.worker_events,
@@ -257,6 +262,8 @@ where
     }
 
     fn version_info(&self) -> &VersionInfo;
+    /// The configuration snapshot every consumer in spec 006 section 6.4 reads.
+    fn server_configuration(&self) -> &ServerConfigurationHandle;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
     /// This context's default-consumer token; the database is the ownership authority.
@@ -351,6 +358,10 @@ where
 
     fn version_info(&self) -> &VersionInfo {
         &self.version_info
+    }
+
+    fn server_configuration(&self) -> &ServerConfigurationHandle {
+        &self.server_configuration
     }
 
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
@@ -465,6 +476,10 @@ where
 
     fn version_info(&self) -> &VersionInfo {
         <T as XmtpSharedContext>::version_info(self)
+    }
+
+    fn server_configuration(&self) -> &ServerConfigurationHandle {
+        <T as XmtpSharedContext>::server_configuration(self)
     }
 
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {

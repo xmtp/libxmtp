@@ -88,6 +88,12 @@ impl XmtpBackendClient for StalledApi {
     ) -> Result<wire::GetInboxIdsResponse, Self::Error> {
         self.inner.get_inbox_ids(request).await
     }
+    async fn get_configuration(
+        &self,
+        request: wire::GetConfigurationRequest,
+    ) -> Result<wire::GetConfigurationResponse, Self::Error> {
+        self.inner.get_configuration(request).await
+    }
 
     async fn verify_smart_contract_wallet_signatures(
         &self,

@@ -1,3 +1,4 @@
+use crate::endpoints::backend::GET_CONFIGURATION_PATH;
 use arc_swap::ArcSwap;
 use prost::bytes::Bytes;
 use std::sync::Arc;
@@ -272,6 +273,12 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
+    /// CFG-062: this middleware exists only when a callback or a handle was
+    /// configured, so its presence in the stack is the credential source.
+    fn has_credential_source(&self) -> bool {
+        true
+    }
+
     fn host(&self) -> &str {
         self.inner.host()
     }
@@ -282,6 +289,12 @@ impl<C: Client> Client for AuthMiddleware<C> {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError> {
+        // CFG-045: the configuration read carries no credential and never
+        // invokes the app's callback. A client asks what the deployment
+        // requires before it can know whether it needs one.
+        if path.path() == GET_CONFIGURATION_PATH {
+            return self.inner.request(request, path, body).await;
+        }
         let (parts, ()) = request.body(())?.into_parts();
         let (credential, generation) = self.get_credential().await?;
         let result = self

@@ -160,8 +160,14 @@ impl PreparedAttempt {
     }
 
     /// Reconstruct a request from saved envelopes without advancing a sender ratchet.
-    pub(super) fn publish_unit(&self) -> Result<PublishUnit, GroupError> {
-        Ok(PublishUnit::new(self.decode_envelopes()?)?)
+    ///
+    /// CFG-065: measured against the deployment's shapes, like every other
+    /// publish, so a lowered envelope limit is caught before the network call.
+    pub(super) fn publish_unit(
+        &self,
+        limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Result<PublishUnit, GroupError> {
+        Ok(PublishUnit::new_within(self.decode_envelopes()?, limits)?)
     }
 
     /// Recover a prepared own proposal when its exact payload reaches ordered receipt.

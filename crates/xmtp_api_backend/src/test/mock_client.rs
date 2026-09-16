@@ -13,6 +13,7 @@ async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, ApiC
 async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ApiClientError>;
 async fn query_newest(&self, request: QueryNewestRequest) -> Result<QueryNewestResponse, ApiClientError>;
 async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, ApiClientError>;
+async fn get_configuration(&self, request: GetConfigurationRequest) -> Result<GetConfigurationResponse, ApiClientError>;
 async fn verify_smart_contract_wallet_signatures(&self, request: VerifySmartContractWalletSignaturesRequest) -> Result<VerifySmartContractWalletSignaturesResponse, ApiClientError>;
 async fn register(&self, request: RegisterRequest) -> Result<RecipientState, ApiClientError>;
 async fn unregister(&self, request: UnregisterRequest) -> Result<UnregisterResponse, ApiClientError>;

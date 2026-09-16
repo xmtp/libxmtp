@@ -394,6 +394,11 @@ impl LibXMTPVersion {
             .map(Self)
             .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))
     }
+
+    /// The parsed form. Spec 006 compares a published minimum against this.
+    pub fn semver(&self) -> &semver::Version {
+        &self.0
+    }
 }
 
 impl std::fmt::Display for LibXMTPVersion {

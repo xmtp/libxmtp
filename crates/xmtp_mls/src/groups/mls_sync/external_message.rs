@@ -354,6 +354,7 @@ where
                     staged_commit,
                     &validated_commit,
                     cursor.0 as i64,
+                    self.context.server_configuration().commit_log_enabled(),
                 )?;
 
                 Self::mark_readd_requests_as_responded(

@@ -26,6 +26,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// until ordered processing resolves it.
     #[xmtp_common::mls_span]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
+        // CFG-051 and CFG-061: nothing this client prepared is published once
+        // it has latched. The intent stays queued for a client that can.
+        self.context.server_configuration().check()?;
         let mut sent = HashSet::new();
         let mut rejected_request = None;
         let upper_id = self
@@ -132,7 +135,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let receipts = self
                     .context
                     .api()
-                    .send_group_messages(vec![attempt.publish_unit()?])
+                    .send_group_messages(vec![attempt.publish_unit(self.context.api().limits())?])
                     .await?;
                 self.record_publish_receipts(&intent, &attempt, receipts)?;
             }
@@ -295,7 +298,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     rejection: None,
                 };
                 // Validate size and shape before any ratchet writes can commit.
-                attempt.publish_unit()?;
+                attempt.publish_unit(self.context.api().limits())?;
                 let encoded = xmtp_db::db_serialize(&attempt)?;
                 if !db.compare_and_set_prepared_envelopes(intent.id, None, Some(&encoded))? {
                     return Err(OutgoingPreparationError::StateChanged.into());

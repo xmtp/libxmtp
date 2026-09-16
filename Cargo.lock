@@ -12106,6 +12106,8 @@ name = "xmtp_configuration"
 version = "1.12.0-dev"
 dependencies = [
  "openmls",
+ "semver 1.0.28",
+ "thiserror 2.0.19",
  "xmtp_common",
  "xmtp_cryptography",
 ]

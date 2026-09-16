@@ -627,9 +627,12 @@ async fn test_validate_dm_group() {
     ));
 
     // Test case 5: Non-empty admin list
-    let non_empty_admin_list =
-        build_mutable_metadata_extension_default(creator_inbox_id, GroupMetadataOptions::default())
-            .unwrap();
+    let non_empty_admin_list = build_mutable_metadata_extension_default(
+        creator_inbox_id,
+        GroupMetadataOptions::default(),
+        xmtp_configuration::ENABLE_COMMIT_LOG,
+    )
+    .unwrap();
     let non_empty_admin_list_group = TestMlsGroup::create_test_dm_group(
         client.context.clone(),
         dm_target_inbox_id.clone(),

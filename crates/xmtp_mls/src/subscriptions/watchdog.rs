@@ -352,6 +352,73 @@ where
     }
 }
 
+/// Why a subscription stopped, alongside the token that stops it.
+///
+/// An ordinary close (the client shutting down) ends a stream silently, exactly
+/// as it always has. A close caused by a latched configuration failure —
+/// another deployment answering (CFG-051), or a minimum version this build no
+/// longer meets (CFG-061) — delivers that typed error to the callback first, so
+/// the app learns why its streams went away rather than seeing a bare close.
+#[derive(Clone, Default)]
+pub(crate) struct StreamCancel {
+    token: CancellationToken,
+    configuration: Option<crate::server_configuration::ServerConfigurationHandle>,
+}
+
+impl From<CancellationToken> for StreamCancel {
+    /// A token with no client behind it: cancellation is always an ordinary
+    /// close. Used by the watchdog's own unit tests.
+    fn from(token: CancellationToken) -> Self {
+        Self {
+            token,
+            configuration: None,
+        }
+    }
+}
+
+impl StreamCancel {
+    pub(crate) fn new(context: &impl crate::context::XmtpSharedContext) -> Self {
+        Self {
+            token: context.cancellation_token().clone(),
+            configuration: Some(context.server_configuration().clone()),
+        }
+    }
+
+    pub(crate) fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+        self.token.cancelled()
+    }
+
+    /// The reason this close carries, if the client latched one (CFG-051,
+    /// CFG-061). Returned as the latch rather than the error because
+    /// `SubscribeError` is not `Clone` and the reason is reported twice: once
+    /// to the callback, once as the handle's result.
+    fn fatal(&self) -> Option<crate::server_configuration::ConfigurationLatch> {
+        self.configuration.as_ref()?.latched()
+    }
+}
+
+/// The result a subscription loop ends with, once its loop has left.
+///
+/// An ordinary close — the inner stream ending, or the client shutting down —
+/// is `Ok(())`. A cancellation the client latched a reason for (CFG-051,
+/// CFG-061) reports that typed error to the callback and returns it as the
+/// handle's result, so the app learns why its streams went away instead of
+/// seeing a bare close. Every callback subscription ends through this, so none
+/// of them can drift into swallowing a latched failure.
+pub(crate) fn close_reason<T>(
+    cancel: &StreamCancel,
+    cancelled: bool,
+    callback: &mut impl FnMut(Result<T, SubscribeError>),
+) -> Result<(), SubscribeError> {
+    let Some(latch) = cancelled.then(|| cancel.fatal()).flatten() else {
+        return Ok(());
+    };
+    let reported =
+        || SubscribeError::Configuration(Box::new(crate::client::ClientError::from(&latch)));
+    callback(Err(reported()));
+    Err(reported())
+}
+
 /// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
 /// readiness signaled once the first underlying stream is established.
 ///
@@ -361,7 +428,7 @@ where
 /// fallback awaits [`run_watchdog_stream`] inside its own already-spawned task — same
 /// runner, same semantics, no second spawn.)
 pub(crate) fn spawn_watchdog_stream<T, S, Fut, Sub, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     subscribe: Sub,
     callback: Cb,
@@ -407,7 +474,7 @@ where
 /// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
 /// (clean end, cancellation, or startup error).
 pub(crate) async fn run_watchdog_stream<T, S, Fut, Sub, Ready, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     mut subscribe: Sub,
     ready: Ready,
@@ -461,7 +528,9 @@ where
         };
         // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
         if cancelled || !stale {
-            break 'reconnect Ok(());
+            // CFG-051 and CFG-061: a latched client closes its streams *with*
+            // the reason, so the app sees the typed error and not a bare close.
+            break 'reconnect close_reason(&cancel, cancelled, &mut callback);
         }
         tracing::debug!(stream = label, "stream went stale; reconnecting");
 
@@ -474,7 +543,11 @@ where
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
                     tokio::select! {
-                        _ = cancel.cancelled() => break 'reconnect Ok(()),
+                        // CFG-051 and CFG-061: a latch that lands mid-reconnect
+                        // closes this stream with the reason too, not silently.
+                        _ = cancel.cancelled() => {
+                            break 'reconnect close_reason(&cancel, true, &mut callback);
+                        }
                         _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
                     }
                 }
@@ -483,7 +556,8 @@ where
         // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
         // only a tight loop is paced. `next` buffers during the wait.
         tokio::select! {
-            _ = cancel.cancelled() => break 'reconnect Ok(()),
+            // Same during the throttle wait: the latch is the close reason.
+            _ = cancel.cancelled() => break 'reconnect close_reason(&cancel, true, &mut callback),
             _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
         }
         attempt_started = Instant::now();
@@ -658,6 +732,85 @@ mod tests {
         // Well past any real timeout: a disabled watchdog must still be waiting, never stale.
         let polled = xmtp_common::time::timeout(Duration::from_millis(100), watchdog.next()).await;
         assert!(polled.is_err(), "disabled watchdog should never trip");
+    }
+
+    /// CFG-051 and CFG-061: a latch that lands while the stream is between
+    /// subscriptions — retrying a failed `subscribe()`, or waiting out the
+    /// reconnect throttle — closes it with the reason, not as a clean end.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_latch_during_reconnect_closes_with_the_reason() {
+        use crate::server_configuration::{ConfigurationLatch, ServerConfigurationHandle};
+        use std::sync::atomic::AtomicUsize;
+
+        for fail_resubscribe in [true, false] {
+            let configuration = ServerConfigurationHandle::default();
+            configuration.latch(ConfigurationLatch::ClientVersionTooOld {
+                client: "1.0.0".to_string(),
+                minimum: "9999.0.0".to_string(),
+            });
+            let token = CancellationToken::new();
+            let cancel = StreamCancel {
+                token: token.clone(),
+                configuration: Some(configuration),
+            };
+
+            let calls = Arc::new(AtomicUsize::new(0));
+            let subscribe = {
+                let calls = calls.clone();
+                let token = token.clone();
+                move || {
+                    let first = calls.fetch_add(1, Ordering::Relaxed) == 0;
+                    let token = token.clone();
+                    async move {
+                        // Both subscriptions share one concrete stream type: a
+                        // boxed one would need `Send`, which `SubscribeError`
+                        // does not have on wasm.
+                        if first {
+                            // One stale trip sends the loop down the reconnect path.
+                            return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
+                                .chain(stream::pending()));
+                        }
+                        // The refresh worker latches and cancels while we are here.
+                        token.cancel();
+                        if fail_resubscribe {
+                            // Cancelled while retrying a failed subscription.
+                            Err(SubscribeError::GroupMessageNotFound)
+                        } else {
+                            // Cancelled during the reconnect throttle.
+                            Ok(stream::iter(Vec::<Result<u8, SubscribeError>>::new())
+                                .chain(stream::pending()))
+                        }
+                    }
+                }
+            };
+
+            let reported = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+            let sink = reported.clone();
+            let closed = run_watchdog_stream(
+                cancel,
+                "test",
+                subscribe,
+                || {},
+                move |item: Result<u8, SubscribeError>| {
+                    if let Err(error) = item {
+                        sink.lock().push(error.to_string());
+                    }
+                },
+                || {},
+            )
+            .await
+            .expect_err("a latched cancellation must not close cleanly");
+
+            assert!(
+                closed.to_string().contains("9999.0.0"),
+                "the handle must report the latch, got {closed}"
+            );
+            let reported = reported.lock().clone();
+            assert!(
+                reported.iter().any(|error| error.contains("9999.0.0")),
+                "the callback must see the latch, got {reported:?}"
+            );
+        }
     }
 
     /// Env parsing: present + valid values win, an explicit `0` is honored, and

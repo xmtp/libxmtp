@@ -3,10 +3,6 @@ use crate::{
 };
 use futures::{StreamExt, TryStreamExt, stream};
 use std::collections::HashMap;
-use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
-    BACKEND_DEFAULT_MAX_SCW_SIGNATURES,
-};
 use xmtp_proto::{
     api::grpc_status,
     api_client::XmtpBackendClient,
@@ -28,11 +24,14 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         &self,
         update: U,
     ) -> Result<Cursor> {
-        let unit = PublishUnit::single(wire::ClientEnvelope {
-            payload: Some(wire::client_envelope::Payload::IdentityUpdate(
-                update.into(),
-            )),
-        })?;
+        let unit = PublishUnit::single_within(
+            wire::ClientEnvelope {
+                payload: Some(wire::client_envelope::Payload::IdentityUpdate(
+                    update.into(),
+                )),
+            },
+            self.limits(),
+        )?;
         match self.publish_units(vec![unit]).await {
             Ok(metas) => metas
                 .into_iter()
@@ -70,7 +69,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             result.entry(filter.inbox_id).or_insert_with(Vec::new);
         }
         for envelope in self
-            .query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
+            .query_all(cursors, self.limits().max_query_limit as u32)
             .await?
         {
             let update = xmtp_api_backend::envelope::decode_identity_update(envelope)?;
@@ -94,7 +93,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             return Err(ApiError::InvalidResponse("unspecified identifier kind"));
         }
         let requests: Vec<_> = identifiers
-            .chunks(BACKEND_DEFAULT_MAX_LOOKUP_IDENTIFIERS)
+            .chunks(self.limits().max_lookup_identifiers)
             .map(<[_]>::to_vec)
             .collect();
         let mut chunks: Vec<_> = stream::iter(requests.into_iter().enumerate().map(
@@ -143,7 +142,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     ) -> Result<wire::VerifySmartContractWalletSignaturesResponse> {
         let requests: Vec<_> = request
             .signatures
-            .chunks(BACKEND_DEFAULT_MAX_SCW_SIGNATURES)
+            .chunks(self.limits().max_scw_signatures)
             .map(<[_]>::to_vec)
             .collect();
         let mut chunks: Vec<_> = stream::iter(requests.into_iter().enumerate().map(

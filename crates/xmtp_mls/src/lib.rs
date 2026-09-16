@@ -12,6 +12,7 @@ mod intents;
 pub mod messages;
 pub mod mls_store;
 mod mutex_registry;
+pub mod server_configuration;
 mod state_tx;
 pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;

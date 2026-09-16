@@ -1,3 +1,4 @@
+DROP TABLE IF EXISTS "server_configuration";
 DROP INDEX IF EXISTS "idx_group_messages_expire_at_ns";
 DROP INDEX IF EXISTS "idx_remote_commit_log_group_id";
 DROP INDEX IF EXISTS "idx_local_commit_log_group_id";

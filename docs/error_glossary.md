@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **10 crates** with **396 total error codes**.
+**38 error types** across **10 crates** with **403 total error codes**.
 
 ## mobile
 
@@ -336,6 +336,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `SignatureRequestError::UnknownSigner` | Unknown signer. Signer not recognized for this request. Not retryable. |
 | `SignatureRequestError::MissingSigner` | Missing signer. Required signature was not provided. Not retryable. |
 | `SignatureRequestError::BlockNumber` | Unable to get block number. Block number not returned after successful SCW verification. May be retryable. |
+| `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published (CFG-069, CFG-070). Not retryable. |
 
 ### VerifierError <sub>enum</sub>
 
@@ -412,6 +413,12 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `ClientError::Conversion` | Conversion Error Data type failed to convert. Not retryable. |
 | `ClientError::RegistrationNotVisible` | Registration not visible. Registration has no publish cursor or is not visible before the timeout. Not retryable. |
 | `ClientError::AlreadyClosed` | Client is closed. Operation was attempted on a client that has been shut down via `Client::close`. Not retryable — build a new client instead. |
+| `ClientError::ConfigurationUnavailable` | Server configuration unavailable. The backend did not serve its configuration, or the answer could not be stored. A backend older than spec 006 answers `UNIMPLEMENTED`; there is no compatibility shim. Retryable exactly when the wrapped failure is: an unreachable backend is worth another attempt, `UNIMPLEMENTED` is not. |
+| `ClientError::ConfigurationInvalid` | Server configuration invalid. The backend published a configuration this client cannot use: a missing or malformed identifier, a minimum version that does not parse, or a chain that is not a CAIP-2 identifier. Not retryable. |
+| `ClientError::BackendMismatch` | Backend mismatch. This database is bound to one backend deployment and a different one answered. Not retryable — use a database created for the backend this app now points at. |
+| `ClientError::ClientVersionTooOld` | Client version too old. The backend requires a newer libxmtp than this build. Not retryable — ship an updated client. |
+| `ClientError::AuthRequired` | Authentication required. The backend requires a credential and none was configured. Not retryable — supply an auth callback or handle before building. |
+| `ClientError::ChainNotAccepted` | Chain not accepted. The backend does not verify smart contract wallet signatures on this chain. Not retryable — use a chain the deployment accepts. |
 
 ### DeviceSyncError <sub>enum</sub>
 

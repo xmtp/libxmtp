@@ -86,6 +86,7 @@ pub enum FfiWorkerKind {
     KeyPackageCleaner,
     CommitLog,
     TaskRunner,
+    ConfigurationRefresh,
 }
 
 impl From<FfiWorkerKind> for WorkerKind {
@@ -96,6 +97,7 @@ impl From<FfiWorkerKind> for WorkerKind {
             FfiWorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
             FfiWorkerKind::CommitLog => Self::CommitLog,
             FfiWorkerKind::TaskRunner => Self::TaskRunner,
+            FfiWorkerKind::ConfigurationRefresh => Self::ConfigurationRefresh,
         }
     }
 }
@@ -108,6 +110,7 @@ impl From<WorkerKind> for FfiWorkerKind {
             WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
             WorkerKind::CommitLog => Self::CommitLog,
             WorkerKind::TaskRunner => Self::TaskRunner,
+            WorkerKind::ConfigurationRefresh => Self::ConfigurationRefresh,
         }
     }
 }

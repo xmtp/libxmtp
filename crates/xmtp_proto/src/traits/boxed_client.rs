@@ -51,6 +51,10 @@ impl Client for ArcClient {
         self.0.as_ref().host()
     }
 
+    fn has_credential_source(&self) -> bool {
+        self.0.as_ref().has_credential_source()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -97,6 +101,10 @@ where
 {
     fn host(&self) -> &str {
         self.inner.host()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        self.inner.has_credential_source()
     }
 
     async fn request(

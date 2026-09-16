@@ -1,7 +1,6 @@
 use crate::{ApiClientWrapper, ApiError, PublishUnit, Result, dyn_err};
 use std::collections::HashMap;
 use xmtp_api_backend::envelope::*;
-use xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT;
 use xmtp_proto::{
     api_client::{XmtpBackendClient, XmtpMlsStreams},
     backend_v1 as wire,
@@ -41,7 +40,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<GroupMessage>> {
-        self.query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
+        self.query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
             .map(|envelope| decode_group_message(envelope).map_err(Into::into))
@@ -82,7 +81,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<WelcomeMessage>> {
-        self.query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
+        self.query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
             .map(|envelope| decode_welcome_message(envelope).map_err(Into::into))
@@ -90,13 +89,16 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     }
     #[xmtp_common::rpc_span]
     pub async fn upload_key_package(&self, key_package: Vec<u8>) -> Result<wire::EnvelopeMeta> {
-        self.publish_units(vec![PublishUnit::single(wire::ClientEnvelope {
-            payload: Some(wire::client_envelope::Payload::KeyPackage(
-                wire::KeyPackage {
-                    key_package_tls_serialized: key_package,
-                },
-            )),
-        })?])
+        self.publish_units(vec![PublishUnit::single_within(
+            wire::ClientEnvelope {
+                payload: Some(wire::client_envelope::Payload::KeyPackage(
+                    wire::KeyPackage {
+                        key_package_tls_serialized: key_package,
+                    },
+                )),
+            },
+            self.limits(),
+        )?])
         .await?
         .into_iter()
         .next()
@@ -136,9 +138,12 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .iter()
             .cloned()
             .map(|message| {
-                PublishUnit::single(wire::ClientEnvelope {
-                    payload: Some(wire::client_envelope::Payload::WelcomeMessage(message)),
-                })
+                PublishUnit::single_within(
+                    wire::ClientEnvelope {
+                        payload: Some(wire::client_envelope::Payload::WelcomeMessage(message)),
+                    },
+                    self.limits(),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         self.publish_units(units).await
@@ -158,9 +163,12 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         let units = entries
             .into_iter()
             .map(|entry| {
-                PublishUnit::single(wire::ClientEnvelope {
-                    payload: Some(wire::client_envelope::Payload::CommitLogEntry(entry)),
-                })
+                PublishUnit::single_within(
+                    wire::ClientEnvelope {
+                        payload: Some(wire::client_envelope::Payload::CommitLogEntry(entry)),
+                    },
+                    self.limits(),
+                )
             })
             .collect::<Result<Vec<_>>>()?;
         self.publish_units(units).await
@@ -170,7 +178,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         &self,
         cursors: TopicCursor,
     ) -> Result<Vec<xmtp_proto::types::CommitLogEntry>> {
-        self.query_all(cursors, BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32)
+        self.query_all(cursors, self.limits().max_query_limit as u32)
             .await?
             .into_iter()
             .map(|envelope| decode_commit_log_entry(envelope).map_err(Into::into))
