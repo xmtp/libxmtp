@@ -92,14 +92,22 @@ pub(crate) fn policy_set_from_registry(
     for field in GroupMutableMetadata::supported_fields() {
         let id = metadata_field_to_component_id(field.as_str())
             .ok_or_else(|| ComponentSourceError::UnknownMetadataField(field.to_string()))?;
+        // Fail closed, never fail hard. An unrecognized or malformed stored
+        // policy (an empty And/Any condition, or a base value from a newer
+        // client) must degrade to deny for that one field, exactly as the
+        // sibling `metadata_policy_to_permissions` and
+        // `metadata_policy_to_membership` converters do.
+        //
+        // Returning `Err` here would propagate through
+        // `policy_set_from_registry` into `ValidatedCommit::from_staged_commit`
+        // as `CommitValidationError::installed_state`, which is NOT in
+        // `is_safe_rejection` — so the commit head would stay pending and
+        // every member would wedge on the group permanently, rather than
+        // rejecting one commit. A single bad registry entry must not be able
+        // to brick a group.
         let policy = component_permissions(&registry, id)
             .and_then(|permissions| permissions.update_policy)
-            .map(MetadataPolicies::try_from)
-            .transpose()
-            .map_err(|error| ComponentSourceError::MalformedComponentValue {
-                component_id: id,
-                reason: format!("invalid metadata policy: {error}"),
-            })?
+            .and_then(|stored| MetadataPolicies::try_from(stored).ok())
             .unwrap_or_else(MetadataPolicies::deny);
         metadata_policies.insert(field.to_string(), policy);
     }
@@ -128,4 +136,57 @@ pub(crate) fn policy_set_from_registry(
             .unwrap_or_else(PermissionsPolicies::deny),
         PermissionsPolicies::allow_if_actor_super_admin(),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::groups::group_permissions::PolicyError;
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
+    use xmtp_mls_common::{
+        app_data::migration::synthesize_registry_from_policy_set,
+        group_mutable_metadata::MetadataField,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::metadata_policy::AndCondition;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_policy_set_from_registry_denies_malformed_metadata_policy() {
+        let mut expected = PolicySet::default();
+        let mut registry = synthesize_registry_from_policy_set(&expected.to_proto()?)?;
+        let malformed = MetadataPolicyProto {
+            kind: Some(MetadataPolicyKindProto::AndCondition(AndCondition {
+                policies: vec![],
+            })),
+        };
+        assert!(matches!(
+            MetadataPolicies::try_from(malformed.clone()),
+            Err(PolicyError::InvalidMetadataPolicy)
+        ));
+
+        // GROUP_NAME accepts stored policies that the policy converter rejects.
+        let mut metadata = registry.get(&ComponentId::GROUP_NAME)??;
+        metadata.permissions.as_mut()?.update_policy = Some(malformed);
+        registry.set(ComponentId::GROUP_NAME, metadata)?;
+
+        let mut dictionary = AppDataDictionary::new();
+        assert!(
+            dictionary
+                .insert(
+                    ComponentId::COMPONENT_REGISTRY.as_u16(),
+                    registry.to_bytes()?
+                )
+                .is_none()
+        );
+        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )])?;
+
+        let permissions = policy_set_from_registry(&extensions)?;
+        expected.update_metadata_policy.insert(
+            MetadataField::GroupName.to_string(),
+            MetadataPolicies::deny(),
+        );
+        // All other metadata, membership, and admin policies must stay intact.
+        assert_eq!(permissions.policies, expected);
+    }
 }
