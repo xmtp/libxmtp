@@ -267,7 +267,10 @@ impl AuthCallback for StaticKey {
 #[xmtp_common::test(unwrap_try = true)]
 async fn ephemeral_api_key_admits_unary_and_stream() {
     const KEY: &str = "ephemeral-api-key-0123456789abcdefghijklmnopq";
-    let backend = EphemeralBackend::start(&format!("[auth.api_keys]\nci = '{KEY}'")).await?;
+    let backend = EphemeralBackend::start(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nci = '{KEY}'"
+    ))
+    .await?;
     let callback = Arc::new(StaticKey(KEY.to_owned(), AtomicUsize::new(0)));
     tester!(alix, backend: &backend, auth: callback.clone());
     let group = alix.create_group(None, None)?;
@@ -305,7 +308,10 @@ async fn ephemeral_api_key_admits_unary_and_stream() {
 async fn ephemeral_api_key_mismatch_is_unauthenticated() {
     const KEY: &str = "ephemeral-api-key-0123456789abcdefghijklmnopq";
     const WRONG_KEY: &str = "different-api-key-0123456789abcdefghijklmnopq";
-    let backend = EphemeralBackend::start(&format!("[auth.api_keys]\nci = '{KEY}'")).await?;
+    let backend = EphemeralBackend::start(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nci = '{KEY}'"
+    ))
+    .await?;
     let valid_callback = Arc::new(StaticKey(KEY.to_owned(), AtomicUsize::new(0)));
     tester!(alix, backend: &backend, auth: valid_callback, disable_workers);
     let group = alix.create_group(None, None)?;
