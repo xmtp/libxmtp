@@ -131,6 +131,21 @@ impl TestKey {
     }
 }
 
+/// Generate a fresh 43-character printable ASCII API key.
+pub fn api_key_value() -> String {
+    URL_SAFE_NO_PAD.encode(xmtp_common::rand_array::<32>())
+}
+
+/// Configure one named API key without a JWT key source.
+pub fn api_key(name: &str) -> (String, AuthConfig) {
+    let value = api_key_value();
+    let config = AuthConfig {
+        api_keys: [(name.to_owned(), value.clone())].into(),
+        ..AuthConfig::default()
+    };
+    (value, config)
+}
+
 pub fn mint(claims: &impl Serialize, key: &TestKey) -> String {
     let mut header = Header::new(key.alg);
     header.kid = Some(key.kid.clone());

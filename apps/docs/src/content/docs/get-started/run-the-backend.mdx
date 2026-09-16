@@ -115,21 +115,23 @@ rows are not pruned or hidden at read time.
 
 ### `[auth]`
 
-Omit this section to disable caller authentication. To enable JWT authentication,
-set exactly one key source: `jwks_url` or a non-empty `keys` array. An empty
+Omit this section to disable caller authentication. To enable caller authentication,
+set at least one mechanism: `api_keys`, `jwks_url`, or a non-empty `keys` array.
+Do not set both `jwks_url` and `keys`. An empty
 `[auth]` section fails startup. Requests then require a valid bearer token,
 except for gRPC health and CORS preflight. Streams are checked when they open.
 
-| Key                      | Type                  | Default | Purpose                                                                                                                                           |
-| ------------------------ | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jwks_url`               | URL                   | unset   | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                     |
-| `keys`                   | array of key tables   | unset   | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`. |
-| `audiences`              | array of strings      | unset   | Require a matching audience when set. Must not be empty.                                                                                          |
-| `issuers`                | array of strings      | unset   | Require a matching issuer when set. Must not be empty.                                                                                            |
-| `required_scopes`        | array of strings      | `[]`    | Require every listed scope.                                                                                                                       |
-| `leeway_seconds`         | integer from 0 to 300 | `60`    | Allow this clock tolerance when validating token times.                                                                                           |
-| `jwks_refresh_seconds`   | positive integer      | `300`   | Interval between signing-key refreshes, before jitter.                                                                                            |
-| `jwks_max_stale_seconds` | positive integer      | `3600`  | Maximum time since a successful key fetch before the backend drains and exits.                                                                    |
+| Key                      | Type                  | Default | Purpose                                                                                                                                                                                                       |
+| ------------------------ | --------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jwks_url`               | URL                   | unset   | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                                                                                 |
+| `keys`                   | array of key tables   | unset   | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`.                                                             |
+| `api_keys`               | map of name to string | unset   | Named static API keys. Names must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. Values must be 32 to 8192 bytes of printable ASCII without whitespace. Values must be unique across names. Set at most 256 keys. |
+| `audiences`              | array of strings      | unset   | Require a matching audience when set. Must not be empty.                                                                                                                                                      |
+| `issuers`                | array of strings      | unset   | Require a matching issuer when set. Must not be empty.                                                                                                                                                        |
+| `required_scopes`        | array of strings      | `[]`    | Require every listed scope.                                                                                                                                                                                   |
+| `leeway_seconds`         | integer from 0 to 300 | `60`    | Allow this clock tolerance when validating token times.                                                                                                                                                       |
+| `jwks_refresh_seconds`   | positive integer      | `300`   | Interval between signing-key refreshes, before jitter.                                                                                                                                                        |
+| `jwks_max_stale_seconds` | positive integer      | `3600`  | Maximum time since a successful key fetch before the backend drains and exits.                                                                                                                                |
 
 Supported key algorithms are `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, and
 `EdDSA`. The stale-key budget must cover the refresh interval, up to 10% jitter
