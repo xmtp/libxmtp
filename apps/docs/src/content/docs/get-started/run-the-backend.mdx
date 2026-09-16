@@ -159,7 +159,10 @@ except for gRPC health, `ConfigurationService`, and CORS preflight. Streams are
 checked when they open.
 
 With `enabled = false` the backend serves every RPC without a credential check,
-ignores every other key in the section, and loads no keys and fetches no JWKS.
+validates no other key in the section, loads no keys, and fetches no JWKS.
+Environment references are resolved for the whole document before any section is
+validated, so an `env:` value naming a variable that is not set still fails
+startup, even in a disabled section.
 
 | Key                      | Type                  | Default        | Purpose                                                                                                                                                                                                       |
 | ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
