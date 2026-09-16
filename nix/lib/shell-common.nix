@@ -33,6 +33,7 @@
   inferno,
   gh,
   jq,
+  rtk,
   curl,
   git-cliff,
   toxiproxy,
@@ -113,6 +114,9 @@ in
   # Firefox compiles from scratch on everything but x86_64 (unreliable build)
   ++ lib.optionals stdenv.isDarwin [ google-chrome ]
   ++ lib.optionals stdenv.isLinux [ chromium ];
+
+  # Agent command filters. Keep these out of build derivations.
+  agentTools = [ rtk ];
 
   # Cargo workflow tools
   cargoTools = [

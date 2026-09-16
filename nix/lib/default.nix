@@ -49,6 +49,7 @@ let
     # Prebuilt binary — nixpkgs' swiftformat needs the Swift toolchain, which
     # is broken/uncached on Linux in current nixpkgs.
     swiftformat = host.callPackage ./packages/swiftformat.nix { };
+    rtk = host.callPackage ./packages/rtk.nix { };
     xmtp = {
       inherit ffi-uniffi-bindgen;
       filesets = host.callPackage ./filesets.nix { };

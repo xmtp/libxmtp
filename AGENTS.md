@@ -55,7 +55,9 @@ just web-chat check     # build browser SDK and typecheck web-chat.
 just web-chat lint      # lint web-chat TypeScript.
 just web-chat build     # build browser SDK and web-chat.
 just web-chat test      # test web-chat against the worktree backend.
-just outline <file>     # signature outline of a source file. No bodies.
+just outline <paths...> # compact declarations and line ranges.
+just show <file> <name>  # source of a named symbol.
+just agent-test         # helper and navigation tests; no language server.
 just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
 just ci-failures <job>  # why one job failed. Filtered, not the raw log.
 just ci-annotations <check>  # file and line annotations for a check run.
@@ -84,8 +86,16 @@ and port block, so run `just backend status` for the checkout you are in. See th
   configuration knob should name the caller that needs a non-default value. If
   new surface turns out to be needed mid-implementation, note it in the plan and
   keep going.
-- Read a file's outline before reading the file: `just outline <path>`. Reading
-  whole files repeatedly is the largest single source of wasted context.
+- Before a broad source read, use `just outline <path>`. Use `just show <file>
+  <name>` for a named symbol, or read the required range. Skip outlines for tiny
+  files and exact-range reads. Outlines can be incomplete; use `rg` when a symbol
+  is absent. Use Serena for Rust references and type information.
+- Use the existing Just recipes for builds and tests. The Codex hook enables
+  compact output inside supported recipes. Without the hook, set `XMTP_RTK=1`
+  explicitly. Do not wrap these recipes in `rtk just` or a generic output filter.
+  If a diagnostic is missing, follow any recovery hint or repeat the same recipe
+  with `XMTP_RTK=0`. Keep its original arguments and environment. Nextest filtering
+  additionally requires `XMTP_RTK_NEXTEST=1`; it is off by default.
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
 

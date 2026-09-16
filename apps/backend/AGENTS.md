@@ -69,6 +69,9 @@ Use `just backend test --lib service::publish::tests` for one module, or append
 a function-name filter. Tests live beside their owning modules; shared fixtures
 live in `src/test_support.rs`. The recipe defaults to four test threads to bound
 local database connections; `RUST_TEST_THREADS` overrides that value.
+Agent calls can use `XMTP_RTK=1` for compact test output. Use `XMTP_RTK=0` for
+raw diagnostics; the command, test settings, and exit status stay the same.
+CI always uses raw output.
 Never silently skip database tests when the database is unavailable.
 Use the shared `TestDatabase` guard for disposable databases. Its cleanup survives
 assertion failures and test-runtime teardown; do not add success-only cleanup.

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Use the same locked Python environment as the other agent tools.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck disable=SC2016
+exec "$repo_root/dev/nix-shell" --shell rust --command bash -euc '
+  export UV_PROJECT_ENVIRONMENT="$1/.cache/agents/venv"
+  export UV_PYTHON_DOWNLOADS=never
+  exec uv run --frozen --no-dev --project "$1/dev/agents" \
+    --python "$(command -v python3.11)" ast-outline "${@:2}"
+' ast-outline "$repo_root" "$@"

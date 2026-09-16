@@ -17,7 +17,13 @@ def rewrite(payload, root):
         return {}
     updated = dict(tool_input)
     updated["command"] = "exec " + shlex.join(
-        [str(root / "dev/nix-shell"), "--command", "bash", "-c", command]
+        [
+            str(root / "dev/nix-shell"),
+            "--command",
+            "bash",
+            "-c",
+            'export XMTP_RTK="${XMTP_RTK-1}"; ' + command,
+        ]
     )
     return {
         "hookSpecificOutput": {

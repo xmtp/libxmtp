@@ -12,15 +12,15 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
 set shell := ["./dev/nix-shell"]
 
-# Test the agent shell wrapper and hook without starting a language server.
+# Test agent helpers in their locked environment without starting a language server.
 agent-test:
-    python3 -m unittest discover -s dev/agents -p 'test_*.py' -v
+    UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
 
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # CI overrides to "cargo llvm-cov nextest --no-fail-fast --no-report" for coverage
 
-cargo_test := env("CARGO_TEST_CMD", "cargo nextest run")
+cargo_test := env("CARGO_TEST_CMD", "dev/agent-run cargo nextest run")
 
 # Ports and URLs differ per worktree. dev/worktree-env writes dev/docker/.env;
 # `_env` loads it so the Rust suites reach this worktree's own stack.
@@ -39,12 +39,12 @@ check target="workspace" *args="":
 
 [private]
 _check-workspace:
-    cargo check --locked
+    dev/agent-run cargo check --locked
 
 [private]
 _check-crate +crates:
     args=""; for c in {{ crates }}; do args="$args -p $c"; done; \
-    cargo check --locked $args
+    dev/agent-run cargo check --locked $args
 
 # --- LINT ---
 
@@ -54,7 +54,7 @@ lint-proto:
     buf lint proto
 
 lint-rust:
-    cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
+    dev/agent-run cargo clippy --locked --all-features --all-targets --no-deps -- -Dwarnings
     cargo fmt --check
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
@@ -145,20 +145,17 @@ clean-incremental days="14":
 # --- AGENT HELPERS ---
 # Compact output for agents. See .agents/skills/check-ci.
 
-# Signature outline of a source file: declarations and line numbers, no bodies.
-# Rust by default; Kotlin, Swift, and TypeScript/JavaScript by extension. A file
-# with no declarations prints nothing and succeeds.
+# Compact declarations and line ranges. Arguments are passed without shell expansion.
 [script("bash")]
-outline file:
-    set -euo pipefail
-    case "{{ file }}" in
-      *.kt|*.kts) pat='^\s{0,8}((public|private|internal|protected|open|abstract|override|suspend|data|sealed|inline|inner|companion|enum|annotation|operator|infix)\s+)*(fun|class|object|interface|typealias|constructor)\b' ;;
-      *.swift) pat='^\s{0,8}((public|private|internal|fileprivate|open|static|final|override|mutating|convenience|required|indirect|nonisolated)\s+)*(func|class|struct|enum|protocol|extension|actor|init|typealias|subscript)\b' ;;
-      *.ts|*.tsx|*.js|*.mjs|*.cjs) pat='^((export\s+)?(default\s+)?(declare\s+)?(abstract\s+)?(async\s+)?(function\*?|class|interface|enum|namespace)\b|(export\s+)?(declare\s+)?type\s+[A-Za-z_$][\w$]*\s*(<[^>]*>)?\s*=|(export\s+)?(declare\s+)?(const|let|var)\s+[A-Za-z_$][\w$]*|\s{2}((public|private|protected|static|readonly|abstract|override|async|get|set)\s+)*[A-Za-z_$#][\w$]*\s*(<[^>]*>)?\s*\([^;]*$)' ;;
-      *) pat='^\s{0,8}(pub(\([^)]*\))?\s+)?(async\s+)?(unsafe\s+)?(fn|struct|enum|impl|trait|mod|type)\b' ;;
-    esac
-    # Control-flow statements at two-space indent look like TS class members; drop them.
-    rg -n "$pat" "{{ file }}" | rg -v '^[0-9]+:\s+(if|for|while|switch|return|catch|throw|await|else|do|try)\b' || test $? -eq 1
+[positional-arguments]
+outline +paths:
+    exec dev/ast-outline --no-docs --no-fields --no-attrs "$@"
+
+# Read one or more symbol bodies by name.
+[script("bash")]
+[positional-arguments]
+show file +symbols:
+    exec dev/ast-outline show "$@"
 
 # CI status for a PR: failures first, then a one-line summary.
 [script("bash")]

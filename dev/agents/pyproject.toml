@@ -3,6 +3,7 @@ name = "libxmtp-agent-tools"
 version = "0.1.0"
 requires-python = ">=3.11,<3.12"
 dependencies = [
+  "ast-outline==1.9.0",
   "httpx>=0.28,<0.29",
   "mcp>=1.28,<2",
   "psutil>=7,<8",
