@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BACKEND_HOST: backend-dev.xmtp.to
+
 concurrency:
   group: fly-backend-dev
   cancel-in-progress: false
@@ -17,7 +20,7 @@ jobs:
     timeout-minutes: 20
     environment:
       name: backend-dev
-      url: https://backend-dev.xmtp.to
+      url: https://${{ env.BACKEND_HOST }}
     steps:
       - uses: actions/checkout@v6
       - name: Check for a newer commit
@@ -69,7 +72,7 @@ jobs:
           for attempt in $(seq 1 6); do
             if docker run --rm \
               ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.57@sha256:f77f1257805ecb57f1f0c36c5825d3c2e47aa81cce87128675e768463ed6487a \
-              -addr=backend-dev.xmtp.to:443 -tls -connect-timeout=10s -rpc-timeout=10s; then
+              -addr="$BACKEND_HOST:443" -tls -connect-timeout=10s -rpc-timeout=10s; then
               exit 0
             fi
             sleep 5
