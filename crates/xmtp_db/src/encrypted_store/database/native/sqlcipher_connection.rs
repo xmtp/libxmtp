@@ -641,4 +641,30 @@ mod tests {
                 .is_err()
         );
     }
+
+    /// Spec 006 CFG-044: the baseline gained `server_configuration`. Diesel
+    /// records one version for the whole baseline, so a database from an
+    /// earlier self-hosted build is never re-migrated. Initialization must
+    /// reject it here rather than let the configuration queries meet
+    /// "no such table: server_configuration" at client build.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejects_a_database_missing_the_server_configuration_table() {
+        use crate::encrypted_store::EmbeddedMigrationsExt;
+        use crate::{ConnectionExt, StorageError, TestDb, XmtpDb, XmtpTestDb};
+        use diesel::sql_types::Text;
+
+        let database = TestDb::create_database(None).await;
+        let connection = database.conn();
+        connection.raw_query(|conn| {
+            conn.batch_execute(
+                "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, received_sequence_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(entity_id, entity_kind));",
+            )?;
+            diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
+                .bind::<Text, _>(crate::MIGRATIONS.final_migration())
+                .execute(conn)?;
+            Ok(())
+        })?;
+        let result = EncryptedMessageStore::new(database);
+        assert!(matches!(result, Err(StorageError::OldStreamDatabase)));
+    }
 }

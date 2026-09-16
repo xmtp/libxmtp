@@ -326,6 +326,18 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     if current_format.is_none() {
                         return Ok(Err(StorageError::OldStreamDatabase));
                     }
+                    // Spec 006 CFG-044: the baseline gained `server_configuration`.
+                    // Diesel records one version for the whole baseline, so a
+                    // database created by an earlier self-hosted build is never
+                    // re-migrated and would meet the configuration queries with
+                    // "no such table". Reject it here, with the same instruction
+                    // every other baseline change gives, instead of failing later.
+                    let has_configuration = sql_query(
+                        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'server_configuration'",
+                    ).get_result::<MigrationTable>(conn).optional()?;
+                    if has_configuration.is_none() {
+                        return Ok(Err(StorageError::OldStreamDatabase));
+                    }
                 }
             }
             conn.run_pending_migrations(MIGRATIONS)
