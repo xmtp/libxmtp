@@ -1,0 +1,15 @@
+.root:hover {
+  background-color: light-dark(
+    var(--mantine-color-dark-light-hover),
+    var(--mantine-color-dark-6)
+  );
+  cursor: pointer;
+}
+
+.root:focus {
+  border-color: var(--mantine-color-blue-outline);
+}
+
+.reaction {
+  cursor: pointer;
+}

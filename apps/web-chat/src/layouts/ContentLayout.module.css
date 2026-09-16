@@ -1,0 +1,182 @@
+:root {
+  --content-aside-width: 260px;
+  --content-header-padding: var(--mantine-spacing-md);
+  --content-header-button-height: rem(36px);
+  --content-header-border-width: 1px;
+  --content-header-height: calc(
+    var(--content-header-padding) * 2 + var(--content-header-button-height) +
+      calc(var(--content-header-border-width) * 2)
+  );
+  --content-header-border-color: var(--mantine-color-default-border);
+  --content-gradient-color-light: var(--mantine-color-gray-0);
+  --content-gradient-color-dark: var(--mantine-color-dark-7);
+}
+
+.root {
+  position: relative;
+  z-index: 20;
+  flex-grow: 1;
+}
+
+.header {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 10;
+  padding: var(--content-header-padding);
+  height: var(--content-header-height);
+  background-color: var(--mantine-color-body);
+  border: var(--content-header-border-width) solid transparent;
+}
+
+.header.withBorders {
+  border-top-left-radius: var(--mantine-radius-md);
+  border-top-right-radius: var(--mantine-radius-md);
+  border-color: var(--content-header-border-color);
+}
+
+.headerActions {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.content {
+  position: relative;
+  z-index: 10;
+  min-height: 0;
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--mantine-color-body);
+  --gradient-color: light-dark(
+    var(--content-gradient-color-light),
+    var(--content-gradient-color-dark)
+  );
+  border-left: var(--content-header-border-width) solid transparent;
+  border-right: var(--content-header-border-width) solid transparent;
+}
+
+.content.withBorders {
+  border-left-color: var(--content-header-border-color);
+  border-right-color: var(--content-header-border-color);
+}
+
+.content.noFooter.withBorders {
+  border-bottom-left-radius: var(--mantine-radius-md);
+  border-bottom-right-radius: var(--mantine-radius-md);
+  border-bottom: var(--content-header-border-width) solid
+    var(--content-header-border-color);
+}
+
+.contentScrollFade::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(to top, transparent, var(--gradient-color) 20px);
+  pointer-events: none;
+  z-index: 1;
+  border-radius: var(--mantine-radius-md) var(--mantine-radius-md) 0 0;
+}
+
+.contentScrollFade::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 20px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    var(--gradient-color) 20px
+  );
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 0 0 var(--mantine-radius-md) var(--mantine-radius-md);
+}
+
+.scrollArea {
+  flex-grow: 1;
+}
+
+.aside {
+  position: absolute;
+  top: 0;
+  bottom: var(--mantine-spacing-md);
+  right: 0;
+  width: var(--content-aside-width);
+  z-index: 1;
+  background-color: var(--mantine-color-body);
+  transition:
+    right 0.1s ease-out,
+    bottom 0.1s ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.showAside {
+  right: calc(var(--content-aside-width) * -1 + 1px);
+}
+
+.footer {
+  position: relative;
+  flex-shrink: 0;
+  z-index: 10;
+  background-color: var(--mantine-color-body);
+  border: var(--content-header-border-width) solid transparent;
+}
+
+.footer.withBorders {
+  border-bottom-left-radius: var(--mantine-radius-md);
+  border-bottom-right-radius: var(--mantine-radius-md);
+  border-color: var(--content-header-border-color);
+}
+
+@media screen and (max-width: 1280px) {
+  .aside {
+    right: 0;
+    bottom: 0;
+    transition-duration: 0s;
+  }
+
+  .aside.showAside {
+    z-index: 30;
+  }
+}
+
+@media screen and (max-width: 1080px) {
+  .header.withBorders {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+
+  .content.withBorders {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+
+  .content.noFooter.withBorders {
+    border-bottom: none;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .footer.withBorders {
+    border-left: none;
+    border-right: none;
+    border-radius: 0;
+  }
+
+  .aside {
+    right: calc(var(--content-aside-width) * -1 + 1px);
+    transition-duration: 0.1s;
+  }
+
+  .showAside {
+    right: 0;
+  }
+}

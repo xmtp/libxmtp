@@ -128,7 +128,7 @@ export default defineConfig({
         },
         {
           label: "Tools",
-          items: guidePages("tools", "cli"),
+          items: guidePages("tools", "cli web-chat"),
           collapsed: true,
         },
         {

@@ -6,6 +6,7 @@ mod wasm 'bindings/wasm/wasm.just'
 mod js 'sdks/js/js.just'
 mod docs 'apps/docs/docs.just'
 mod cli 'apps/cli/cli.just'
+mod web-chat 'apps/web-chat/web-chat.just'
 
 export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 
