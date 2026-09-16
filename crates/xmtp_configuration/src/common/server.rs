@@ -90,15 +90,15 @@ fn within_range(field: &'static str, value: u64) -> Result<(), ServerConfigurati
     Ok(())
 }
 
-/// A CAIP-2 identifier is `namespace:reference`, both non-empty and free of
-/// separators. The client only needs the shape; the verifier owns the routes.
+/// A CAIP-2 identifier is `namespace:reference`, where the namespace is three
+/// to eight lowercase characters and the reference is one to thirty-two. The
+/// client only needs the shape; the verifier owns the routes.
 pub fn is_caip2_chain_id(chain: &str) -> bool {
     let Some((namespace, reference)) = chain.split_once(':') else {
         return false;
     };
-    !namespace.is_empty()
+    (3..=8).contains(&namespace.len())
         && !reference.is_empty()
-        && namespace.len() <= 8
         && reference.len() <= 32
         && namespace
             .chars()

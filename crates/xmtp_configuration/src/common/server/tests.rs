@@ -33,7 +33,20 @@ fn caip2_shape_accepts_known_namespaces_and_rejects_malformed_entries() {
     ] {
         assert!(is_caip2_chain_id(good), "{good:?} must be accepted");
     }
-    for bad in ["", "eip155", ":1", "eip155:", "EIP155:1", "eip155:1:2", "1"] {
+    // The namespace grammar is three to eight characters, so a shorter one is
+    // not a chain this deployment could verify on, whatever it looks like.
+    for bad in [
+        "",
+        "eip155",
+        ":1",
+        "eip155:",
+        "EIP155:1",
+        "eip155:1:2",
+        "1",
+        "x:1",
+        "ab:1",
+        "toolongns:1",
+    ] {
         assert!(!is_caip2_chain_id(bad), "{bad:?} must be rejected");
     }
 }
