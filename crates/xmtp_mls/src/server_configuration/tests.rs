@@ -589,6 +589,58 @@ max_group_members = 23
         backend.stop().await?;
     }
 
+    // CFG-051 and CFG-082: an explicit refresh that meets a different
+    // deployment closes the open streams too. The worker cancels after its
+    // turn; the refresh has to cancel on its own way out, or a database known
+    // to belong elsewhere keeps serving its subscriptions.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn an_explicit_refresh_that_meets_another_deployment_cancels_the_client() {
+        let backend = EphemeralBackend::start(DISTINCT).await?;
+
+        let owner = generate_local_wallet();
+        let store = TestDb::create_ephemeral_store().await;
+        let client = Client::builder(identity_setup(&owner))
+            .store(store.clone())
+            .api_client_with_streams(Arc::new(api_at(backend.url())))
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_disable_workers(true)
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                |_| {},
+            )))
+            .default_mls_store()
+            .unwrap()
+            .build()
+            .await?;
+        assert!(!client.context.cancellation_token().is_cancelled());
+
+        // A copy this database was bound to by an earlier, different deployment.
+        store.db().store_server_configuration(
+            "org.example.elsewhere",
+            backend.url(),
+            &[],
+            xmtp_common::time::now_ns(),
+        )?;
+
+        let error = client.refresh_server_configuration().await.unwrap_err();
+        assert!(
+            matches!(error, crate::client::ClientError::BackendMismatch { .. }),
+            "expected a mismatch error, got {error}"
+        );
+
+        // CFG-051: latched, and the context cancelled so every open stream closes.
+        let latch = client.context.server_configuration().latched().unwrap();
+        assert!(
+            matches!(
+                latch,
+                crate::server_configuration::ConfigurationLatch::BackendMismatch { .. }
+            ),
+            "expected a mismatch latch, got {latch:?}"
+        );
+        assert!(client.context.cancellation_token().is_cancelled());
+
+        backend.stop().await?;
+    }
+
     // CFG-045 and CFG-107: the configuration read is unauthenticated, so a
     // client with an auth callback never invokes it for this call.
     #[xmtp_common::test(unwrap_try = true)]

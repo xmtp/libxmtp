@@ -45,6 +45,14 @@ pub const CONFIGURATION_REFRESH_BACKOFF: [std::time::Duration; 2] = [
 /// governs what it accepts and what a client will store.
 pub const MAX_SERVER_IDENTIFIER_BYTES: usize = 256;
 
+/// Largest published numeric value, `2^53 - 1`.
+///
+/// Spec 006 §7 maps every `uint64` to a JavaScript `number`, which holds
+/// integers exactly only up to this value. A deployment that publishes more
+/// would reach a JavaScript app rounded, so the client refuses it (CFG-044)
+/// rather than reading a number the deployment never published.
+pub const MAX_PUBLISHED_VALUE: u64 = 9_007_199_254_740_991;
+
 /// Why a published configuration cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServerConfigurationError {
@@ -56,6 +64,8 @@ pub enum ServerConfigurationError {
     MinimumVersion { version: String },
     #[error("{chain:?} is not a CAIP-2 chain identifier")]
     Chain { chain: String },
+    #[error("{field} is {value}, above the {MAX_PUBLISHED_VALUE} an SDK integer holds exactly")]
+    Magnitude { field: &'static str, value: u64 },
 }
 
 /// Check the shape of an operator identifier. The backend refuses to start
@@ -68,6 +78,14 @@ pub fn validate_server_identifier(identifier: &str) -> Result<(), ServerConfigur
             .any(|c| c.is_whitespace() || c.is_control())
     {
         return Err(ServerConfigurationError::Identifier);
+    }
+    Ok(())
+}
+
+/// Refuse one published number an SDK integer could not carry exactly.
+fn within_range(field: &'static str, value: u64) -> Result<(), ServerConfigurationError> {
+    if value > MAX_PUBLISHED_VALUE {
+        return Err(ServerConfigurationError::Magnitude { field, value });
     }
     Ok(())
 }
@@ -279,7 +297,8 @@ pub struct ServerConfiguration {
 
 impl ServerConfiguration {
     /// Apply the rules of CFG-044: the identifier must be well formed, any
-    /// minimum version must parse, and every chain must be CAIP-2.
+    /// minimum version must parse, every chain must be CAIP-2, and every
+    /// numeric value must survive the trip to an SDK integer intact.
     pub fn validate(&self) -> Result<(), ServerConfigurationError> {
         validate_server_identifier(&self.identifier)?;
         self.minimum_version()?;
@@ -290,6 +309,45 @@ impl ServerConfiguration {
                 });
             }
         }
+        self.validate_magnitudes()
+    }
+
+    /// §7: every `uint64` reaches JavaScript as a `number`, so a value above
+    /// `MAX_PUBLISHED_VALUE` would arrive rounded. Refusing it here is what
+    /// makes that mapping exact for every SDK. The four `uint32` rates cannot
+    /// reach the bound, so they need no check.
+    fn validate_magnitudes(&self) -> Result<(), ServerConfigurationError> {
+        within_range(
+            "group_message_seconds",
+            self.retention.group_message_seconds,
+        )?;
+        within_range("welcome_seconds", self.retention.welcome_seconds)?;
+        within_range("key_package_seconds", self.retention.key_package_seconds)?;
+
+        macro_rules! bounded {
+            ($owner:ident: $($field:ident),+ $(,)?) => {
+                $(within_range(stringify!($field), self.$owner.$field as u64)?;)+
+            };
+        }
+        bounded!(
+            limits: max_envelope_bytes,
+            max_request_bytes,
+            max_response_bytes,
+            max_publish_topics,
+            max_query_topics,
+            max_query_limit,
+            default_query_limit,
+            max_newest_metadata_topics,
+            max_newest_full_topics,
+            max_update_adds,
+            max_update_removes,
+            max_stream_topics,
+            max_static_topics,
+            max_lookup_identifiers,
+            max_scw_signatures,
+            max_identity_entries,
+        );
+        bounded!(mls: max_group_members, max_installations_per_inbox);
         Ok(())
     }
 
