@@ -151,26 +151,28 @@ rows are not pruned or hidden at read time.
 
 Omit this section to disable caller authentication. When the section is present it
 must say `enabled = true` or `enabled = false`; a section without it fails startup,
-so authentication can never switch off by accident. To enable JWT authentication,
-set `enabled = true` and exactly one key source: `jwks_url` or a non-empty `keys`
-array. An otherwise empty enabled `[auth]` section fails startup. Requests then
-require a valid bearer token, except for gRPC health, `ConfigurationService`, and
-CORS preflight. Streams are checked when they open.
+so authentication can never switch off by accident. To enable caller authentication,
+set `enabled = true` and at least one mechanism: `api_keys`, `jwks_url`, or a
+non-empty `keys` array. Do not set both `jwks_url` and `keys`. An otherwise empty
+enabled `[auth]` section fails startup. Requests then require a valid bearer token,
+except for gRPC health, `ConfigurationService`, and CORS preflight. Streams are
+checked when they open.
 
 With `enabled = false` the backend serves every RPC without a credential check,
 ignores every other key in the section, and loads no keys and fetches no JWKS.
 
-| Key                      | Type                  | Default        | Purpose                                                                                                                                           |
-| ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `enabled`                | boolean               | none, required | Whether this section applies. `false` serves without authentication.                                                                              |
-| `jwks_url`               | URL                   | unset          | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                     |
-| `keys`                   | array of key tables   | unset          | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`. |
-| `audiences`              | array of strings      | unset          | Require a matching audience when set. Must not be empty.                                                                                          |
-| `issuers`                | array of strings      | unset          | Require a matching issuer when set. Must not be empty.                                                                                            |
-| `required_scopes`        | array of strings      | `[]`           | Require every listed scope.                                                                                                                       |
-| `leeway_seconds`         | integer from 0 to 300 | `60`           | Allow this clock tolerance when validating token times.                                                                                           |
-| `jwks_refresh_seconds`   | positive integer      | `300`          | Interval between signing-key refreshes, before jitter.                                                                                            |
-| `jwks_max_stale_seconds` | positive integer      | `3600`         | Maximum time since a successful key fetch before the backend drains and exits.                                                                    |
+| Key                      | Type                  | Default        | Purpose                                                                                                                                                                                                      |
+| ------------------------ | --------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `enabled`                | boolean               | none, required | Whether this section applies. `false` serves without authentication.                                                                                                                                         |
+| `jwks_url`               | URL                   | unset          | Fetch public signing keys over HTTPS. HTTP is allowed only on loopback hosts.                                                                                                                                 |
+| `keys`                   | array of key tables   | unset          | Inline public signing keys. Each key needs a unique, non-empty `kid` of at most 256 bytes, an `alg`, and a PEM SubjectPublicKeyInfo `public_key`.                                                             |
+| `api_keys`               | map of name to string | unset          | Named static API keys. Names must match `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. Values must be 32 to 8192 bytes of printable ASCII without whitespace. Values must be unique across names. Set at most 256 keys. |
+| `audiences`              | array of strings      | unset          | Require a matching audience when set. Must not be empty.                                                                                                                                                     |
+| `issuers`                | array of strings      | unset          | Require a matching issuer when set. Must not be empty.                                                                                                                                                       |
+| `required_scopes`        | array of strings      | `[]`           | Require every listed scope.                                                                                                                                                                                  |
+| `leeway_seconds`         | integer from 0 to 300 | `60`           | Allow this clock tolerance when validating token times.                                                                                                                                                      |
+| `jwks_refresh_seconds`   | positive integer      | `300`          | Interval between signing-key refreshes, before jitter.                                                                                                                                                       |
+| `jwks_max_stale_seconds` | positive integer      | `3600`         | Maximum time since a successful key fetch before the backend drains and exits.                                                                                                                                |
 
 Supported key algorithms are `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, and
 `EdDSA`. The stale-key budget must cover the refresh interval, up to 10% jitter
@@ -186,6 +188,29 @@ audiences = ["xmtp"]
 issuers = ["https://auth.example.com"]
 required_scopes = ["xmtp:access"]
 ```
+
+To use only API keys, set a name for each secret value:
+
+```toml
+[auth.api_keys]
+worker = "env:XMTP_WORKER_API_KEY"
+```
+
+To accept API keys and JWTs, set both mechanisms:
+
+```toml
+[auth]
+jwks_url = "env:XMTP_JWKS_URL"
+audiences = ["xmtp"]
+issuers = ["https://auth.example.com"]
+required_scopes = ["xmtp:access"]
+
+[auth.api_keys]
+worker = "env:XMTP_WORKER_API_KEY"
+```
+
+The backend checks API keys before JWTs. An API key match uses the key name as
+the principal. Scope, audience, and issuer checks apply only to JWTs.
 
 Caller quotas are not implemented. A valid token does not prove group membership.
 
@@ -302,11 +327,43 @@ calls keep working and only subscriptions break.
 
 ## Security
 
-Optional JWT authentication is available. Configure [`[auth]`](#auth) to require
-valid bearer tokens. Caller quotas are not implemented. A valid token does not
+Optional API key and JWT authentication is available. Configure [`[auth]`](#auth)
+to require valid bearer credentials. Caller quotas are not implemented. A valid token does not
 prove group membership.
 
 Without `[auth]`, the service is unauthenticated. Do not expose an unauthenticated
 service to untrusted traffic. Put it on a private network, or behind a trusted
 load balancer that restricts access. Public application traffic must use TLS.
 See the [deployment overview](/deploy/overview/) for shared deployment requirements.
+
+### Use an API key from a client
+
+Pass the key value through the client auth callback. Add `Bearer` and one space
+before the key value. The middleware does not add this prefix. The header name defaults to
+`authorization` when `name` is omitted.
+
+This JavaScript example uses the Node bindings:
+
+```javascript
+import { AuthCallback, BackendBuilder } from "@xmtp/node-bindings";
+
+const builder = new BackendBuilder("https://backend.example.com");
+builder.authCallback(
+  new AuthCallback(async () => ({
+    value: "Bearer <key>",
+    expiresAtSeconds: 4102444800,
+  })),
+);
+const backend = await builder.build();
+```
+
+Replace `<key>` with your secret value. The example expiry is January 1, 2100.
+This expiry controls the client credential cache, not the lifetime of the server key.
+In Swift, return the same credential shape from the auth callback: the bearer value
+and an expiry in Unix seconds, with no header name.
+In Android, return the same credential shape from the auth callback: the bearer value
+and an expiry in Unix seconds, with no header name.
+
+Never log key values. To rotate a key, add the new key under a new name and restart
+the backend. Change clients to use the new key. Remove the old key and restart
+the backend again.
