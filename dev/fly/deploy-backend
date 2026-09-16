@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/backend"
+image="${1:?Pass ghcr.io/xmtp/backend:sha-FULL_COMMIT}"
+if [[ ! "$image" =~ ^ghcr\.io/xmtp/backend:sha-[0-9a-f]{40}$ ]]; then
+  echo "Expected an immutable backend commit image." >&2
+  exit 1
+fi
+: "${XMTP_BACKEND_DEV_API_KEY:?Set XMTP_BACKEND_DEV_API_KEY}"
+if [[ ! "$XMTP_BACKEND_DEV_API_KEY" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "Generate the key with xdbg generate-api-key." >&2
+  exit 1
+fi
+flyctl config validate --strict
+printf 'XMTP_BACKEND_DEV_API_KEY=%s\n' "$XMTP_BACKEND_DEV_API_KEY" |
+  flyctl secrets import --stage --app xmtp-backend-dev
+flyctl deploy --image "$image" --ha=false --strategy rolling --yes

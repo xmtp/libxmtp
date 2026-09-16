@@ -1,0 +1,40 @@
+server:
+  http_listen_address: "::"
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "[::]:4317"
+        http:
+          endpoint: "[::]:4318"
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+metrics_generator:
+  processor:
+    service_graphs: {}
+    span_metrics: {}
+  storage:
+    path: /var/tempo/generator
+    remote_write:
+      - url: http://xmtp-backend-dev-prometheus.internal:9090/api/v1/write
+        send_exemplars: true
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]
+    compaction:
+      block_retention: 72h
+
+usage_report:
+  reporting_enabled: false

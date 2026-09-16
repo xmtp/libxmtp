@@ -9,13 +9,16 @@ just check crate xdbg
 dev/nix-shell 'cargo clippy --locked -p xdbg --all-targets -- -D warnings'
 just test crate xdbg
 dev/nix-shell 'cargo run -p xdbg -- --help'
+dev/nix-shell 'cargo run -p xdbg -- generate-api-key'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 generate --entity identity --amount 5'
 dev/nix-shell 'cargo run -p xdbg -- --url http://127.0.0.1:5050 query all-key-packages'
 ```
 
 ## Backend options
 
-- `--url` (or `-u`) is required. There is no default URL.
+- `--url` (or `-u`) is required for app commands. There is no default URL.
+- `generate-api-key` needs no URL. It prints only a 256-bit random key as hex,
+  then exits before logging, metrics, or local storage starts.
 - The URL hash selects the storage directory. Each URL has separate local state.
 - Backend selection, gateway, payer, perf, migration, and decentralization options are removed.
 - The migration test scenarios and the generation read-own-writes option are removed.

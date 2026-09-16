@@ -1,0 +1,5 @@
+global:
+  scrape_interval: 15s
+
+# Backend metrics stay in Fly's managed metrics service.
+scrape_configs: []

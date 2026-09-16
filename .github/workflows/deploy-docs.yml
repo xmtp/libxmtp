@@ -250,3 +250,7 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+      - name: Check the published custom domain
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-delay 10 \
+            --retry-all-errors --output /dev/null https://self-hosted-docs.xmtp.to/
