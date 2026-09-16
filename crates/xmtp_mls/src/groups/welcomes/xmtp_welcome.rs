@@ -423,6 +423,7 @@ where
             staged_welcome,
             &added_by_inbox_id,
             &added_by_installation_id,
+            context.server_configuration().commit_log_enabled(),
         )?;
         let dm_members = metadata.dm_members;
         let conversation_type = metadata.conversation_type;

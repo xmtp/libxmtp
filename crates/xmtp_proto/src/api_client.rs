@@ -1,9 +1,10 @@
 use crate::api::IsConnectedCheck;
 pub use crate::backend_v1::{
-    GetInboxIdsRequest, GetInboxIdsResponse, PublishRequest, PublishResponse, QueryNewestRequest,
-    QueryNewestResponse, QueryRequest, QueryResponse, RecipientState, RegisterRequest,
-    ServerEnvelope, UnregisterRequest, UnregisterResponse, UpdateSubscriptionsRequest,
-    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
+    GetConfigurationRequest, GetConfigurationResponse, GetInboxIdsRequest, GetInboxIdsResponse,
+    PublishRequest, PublishResponse, QueryNewestRequest, QueryNewestResponse, QueryRequest,
+    QueryResponse, RecipientState, RegisterRequest, ServerEnvelope, UnregisterRequest,
+    UnregisterResponse, UpdateSubscriptionsRequest, VerifySmartContractWalletSignaturesRequest,
+    VerifySmartContractWalletSignaturesResponse,
 };
 use crate::types::{
     GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
@@ -92,6 +93,40 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
         &self,
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error>;
+    /// Read what this deployment publishes about itself. Served without a
+    /// credential, so it is the one call a client can make before it knows
+    /// whether the deployment requires one.
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error>;
+
+    /// The backend URL this client sends to, when the transport knows it.
+    ///
+    /// The stored configuration row records the URL its copy came from, and
+    /// `build` compares the two (CFG-042, CFG-055). A transport that cannot
+    /// name a URL — a test double, for instance — returns `None`, and the
+    /// comparison is skipped.
+    fn backend_url(&self) -> Option<&str> {
+        None
+    }
+
+    /// Whether a credential source — an auth callback or an auth handle — was
+    /// configured on this transport (CFG-062). A transport with no auth
+    /// middleware reports `false` and `build` refuses a deployment that
+    /// requires authentication. Defaults to `true` so a test double, which has
+    /// no transport stack to ask, is never the thing that refuses a build.
+    fn has_credential_source(&self) -> bool {
+        true
+    }
+
+    /// Install the shapes the deployment publishes (CFG-064), so the stream and
+    /// metadata chunking that happens below `ApiClientWrapper` uses them too.
+    /// Called once, by `build`, before any stream opens. A transport with
+    /// nothing to chunk ignores it.
+    fn set_limits(&self, limits: std::sync::Arc<xmtp_configuration::LimitsConfiguration>) {
+        let _ = limits;
+    }
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
@@ -155,6 +190,15 @@ xmtp_common::if_native! {
             + MaybeSend;
 
         type Error: RetryableError + 'static;
+
+        /// The frame shapes this deployment accepts (CFG-064), as installed by
+        /// [`XmtpBackendClient::set_limits`]. The bidi ledger chunks interest
+        /// updates below `ApiClientWrapper`, so it cannot read the wrapper's
+        /// copy and asks the transport instead. A transport that was never told
+        /// reports the compiled defaults.
+        fn bidi_limits(&self) -> std::sync::Arc<xmtp_configuration::LimitsConfiguration> {
+            std::sync::Arc::default()
+        }
 
         /// Return the URL used for bidi connections. Combine it with the API
         /// client's Arc identity when selecting a shared connection.

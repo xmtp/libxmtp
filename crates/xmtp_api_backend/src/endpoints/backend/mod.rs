@@ -6,6 +6,8 @@ mod query_newest;
 pub use query_newest::QueryNewest;
 mod get_inbox_ids;
 pub use get_inbox_ids::GetInboxIds;
+mod get_configuration;
+pub use get_configuration::{GET_CONFIGURATION_PATH, GetConfiguration};
 mod verify_smart_contract_wallet_signatures;
 pub use verify_smart_contract_wallet_signatures::VerifySmartContractWalletSignatures;
 mod subscribe_static;
@@ -40,6 +42,10 @@ mod tests {
             (
                 GetInboxIds(Default::default()).grpc_endpoint(),
                 "/xmtp.backend.v1.IdentityService/GetInboxIds",
+            ),
+            (
+                GetConfiguration(Default::default()).grpc_endpoint(),
+                "/xmtp.backend.v1.ConfigurationService/GetConfiguration",
             ),
             (
                 VerifySmartContractWalletSignatures(Default::default()).grpc_endpoint(),

@@ -5,6 +5,7 @@ mod metadata;
 mod mls;
 mod notifications;
 mod scw;
+mod server;
 mod streams;
 mod tracing;
 
@@ -15,5 +16,6 @@ pub use metadata::*;
 pub use mls::*;
 pub use notifications::*;
 pub use scw::*;
+pub use server::*;
 pub use streams::*;
 pub use tracing::*;

@@ -391,3 +391,19 @@ CREATE INDEX idx_local_commit_log_group_id ON local_commit_log(group_id);
 CREATE INDEX idx_remote_commit_log_group_id ON remote_commit_log(group_id);
 
 CREATE INDEX idx_group_messages_expire_at_ns ON group_messages(expire_at_ns) WHERE expire_at_ns IS NOT NULL;
+
+-- What the backend this database is bound to published about itself, and the
+-- URL that copy came from. One row: the client holds one snapshot. See
+-- docs/specs/006_server_configuration.md section 6.2.
+CREATE TABLE server_configuration (
+    id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0),
+    -- The deployment's stable name. The binding is on this, not on the URL.
+    identifier TEXT NOT NULL,
+    -- The backend URL the copy was fetched from.
+    backend_url TEXT NOT NULL,
+    -- The serialized GetConfigurationResponse, stored whole.
+    response BLOB NOT NULL,
+    fetched_at_ns BIGINT NOT NULL,
+    -- Set once, by the conflict path only. A refresh never writes this column.
+    conflicting_identifier TEXT
+);

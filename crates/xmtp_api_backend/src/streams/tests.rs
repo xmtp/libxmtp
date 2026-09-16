@@ -7,6 +7,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use xmtp_common::RetryableError;
+use xmtp_configuration::BACKEND_DEFAULT_MAX_STATIC_TOPICS;
 use xmtp_mls_validation::{
     parse_envelope,
     test_utils::{INSTALLATION_ID, inline_welcome_envelope},

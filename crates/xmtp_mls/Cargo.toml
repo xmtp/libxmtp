@@ -164,6 +164,7 @@ xmtp_content_types = { path = "../xmtp_content_types", features = [
 ] }
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils-anvil"] }
+xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
 xmtp_proto = { workspace = true, features = ["test-utils-network"] }
 # Required for traced_test! macro
 tracing-subscriber.workspace = true

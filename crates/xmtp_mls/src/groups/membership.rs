@@ -36,7 +36,15 @@ where
 
         // get current number of users in group
         let member_count = self.members().await?.len();
-        if member_count + inbox_id_map.len() > MAX_GROUP_SIZE {
+        // CFG-066: the deployment sets the ceiling, checked before the commit
+        // is built and before anything is published.
+        let max_members = self
+            .context
+            .server_configuration()
+            .configuration()
+            .mls
+            .max_group_members;
+        if member_count + inbox_id_map.len() > max_members {
             return Err(GroupError::UserLimitExceeded);
         }
 

@@ -111,6 +111,7 @@ where
                 envelope.sequence_id(),
                 envelope.message.epoch(),
                 error,
+                self.context.server_configuration().commit_log_enabled(),
             )?;
         }
         if let Some(intent) = db.find_group_intent_by_payload_hash(&envelope.payload_hash)?

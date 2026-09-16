@@ -78,6 +78,11 @@ where
     C::SubscribeStream: 'static,
 {
     let key = (api.host().to_owned(), api.api_client_identity());
+    // CFG-064: interest-update frames are chunked here, below
+    // `ApiClientWrapper`, so the caps come from the transport's own copy of the
+    // snapshot. Whoever creates the transport donates them along with the API
+    // client, and a transport that was never told keeps the compiled defaults.
+    let mutate = xmtp_api_backend::MutateLimits::from_limits(&api.bidi_limits());
     let mut wires = SHARED_WIRES.lock();
     // A transport created while the app is backgrounded is born suspended —
     // its first lease parks instead of dialing (see [`SharedWires`]).
@@ -93,7 +98,7 @@ where
                 suspended = born_suspended,
                 "bidi: initializing the shared transport for a destination"
             );
-            BidiTransport::new(
+            BidiTransport::new_within(
                 move |initial| {
                     let api = api.clone();
                     async move {
@@ -103,6 +108,7 @@ where
                     }
                 },
                 born_suspended,
+                mutate,
             )
         })
         .clone()

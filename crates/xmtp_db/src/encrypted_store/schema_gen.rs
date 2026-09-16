@@ -246,6 +246,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    server_configuration (id) {
+        id -> Integer,
+        identifier -> Text,
+        backend_url -> Text,
+        response -> Binary,
+        fetched_at_ns -> BigInt,
+        conflicting_identifier -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     tasks (id) {
         id -> Integer,
         originating_message_sequence_id -> BigInt,
@@ -312,6 +323,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     readd_status,
     refresh_state,
     remote_commit_log,
+    server_configuration,
     tasks,
     user_preferences,
 );

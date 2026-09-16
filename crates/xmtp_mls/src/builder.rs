@@ -2,12 +2,13 @@
 use crate::GroupCommitLock;
 use crate::{
     StorageError, XmtpApi,
-    client::{Client, DeviceSync},
+    client::{Client, ClientError, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::change_callbacks::UnstableChangeCallbacks,
     identity::{Identity, IdentityStrategy},
     identity_updates::load_identity_updates,
     mutex_registry::MutexRegistry,
+    server_configuration::ServerConfigurationHandle,
     utils::{VersionInfo, cleanup_duplicate_updates},
     worker::{WorkerRunner, tasks::TaskWorker},
     worker::{device_sync::worker::SyncWorker, disappearing_messages::DisappearingMessagesWorker},
@@ -98,6 +99,9 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) store: Option<Db>,
     pub(crate) identity_strategy: IdentityStrategy,
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+    /// Whether the app supplied its own verifier, which CFG-069 exempts from
+    /// the chain check.
+    pub(crate) custom_scw_verifier: bool,
     pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
     /// Unstable: group-change callbacks the host registered at construction.
@@ -111,6 +115,10 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) mls_storage: Option<S>,
     pub(crate) disable_workers: bool,
     pub(crate) worker_config: crate::worker::WorkerConfig,
+    /// CFG-033: a snapshot supplied by the caller. When present the client
+    /// never fetches, stores, refreshes, or checks the identifier. Rust tests
+    /// only; not exposed through the bindings.
+    pub(crate) config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -171,6 +179,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: None,
             store: None,
             scw_verifier: None,
+            custom_scw_verifier: false,
             device_sync_worker_mode: DeviceSyncMode::Enabled,
             fork_recovery_opts: None,
             change_callbacks: UnstableChangeCallbacks::default(),
@@ -182,6 +191,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: None,
             disable_workers: false,
             worker_config: crate::worker::WorkerConfig::default(),
+            config_provider: None,
         }
     }
 }
@@ -203,6 +213,7 @@ where
             store: Some(client.context.store.clone()),
             identity_strategy: IdentityStrategy::CachedOnly,
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
+            custom_scw_verifier: false,
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             change_callbacks: client.context.change_callbacks.clone(),
@@ -214,6 +225,7 @@ where
             mls_storage: Some(client.context.mls_storage.clone()),
             disable_workers: false,
             worker_config: client.context.worker_config.clone(),
+            config_provider: None,
         }
     }
 }
@@ -285,6 +297,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut store,
             identity_strategy,
             mut scw_verifier,
+            custom_scw_verifier,
 
             device_sync_worker_mode,
             fork_recovery_opts,
@@ -297,6 +310,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut mls_storage,
             disable_workers,
             worker_config,
+            config_provider,
             ..
         } = self;
 
@@ -322,15 +336,63 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "mls_storage",
             })?;
 
-        let api_client = ApiClientWrapper::new(api_client, Retry::default());
+        let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
         let conn = store.db();
-        let identity = if let Some(identity) = identity {
+
+        // Spec 006 §6.2: the configuration is resolved before any identity
+        // work, so a deployment that refuses this client refuses it before the
+        // database gains an identity. A caller-supplied provider (CFG-033)
+        // short-circuits every network and database path here, which is what
+        // keeps `build_offline` free of a pending future.
+        let has_config_provider = config_provider.is_some();
+        let server_configuration = match config_provider {
+            Some(provider) => ServerConfigurationHandle::new(provider),
+            None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
+        };
+
+        let server_configuration = server_configuration.with_chain_restriction(custom_scw_verifier);
+
+        // CFG-060: a deployment that requires a newer client refuses this build,
+        // whether the snapshot came from the backend or from a provider.
+        crate::server_configuration::check_minimum_version(
+            server_configuration.configuration(),
+            version_info.pkg_semver().semver(),
+        )?;
+
+        // CFG-062: a deployment that requires a credential refuses a client
+        // that has no way to produce one.
+        let configuration = server_configuration.configuration();
+        if configuration.auth.enabled && !api_client.has_credential_source() {
+            return Err(ClientBuilderError::ClientError(ClientError::AuthRequired {
+                required_scopes: configuration.auth.required_scopes.clone(),
+            }));
+        }
+
+        // CFG-064 and CFG-065: install the snapshot before any request is made,
+        // so even the identity work below chunks and pre-validates against the
+        // shapes this deployment publishes. The transport is told separately,
+        // because stream and interest-update chunking happens below the
+        // wrapper and never sees the wrapper's copy.
+        let snapshot = Arc::new(configuration.clone());
+        api_client
+            .api_client
+            .set_limits(Arc::new(snapshot.limits.clone()));
+        api_client.set_configuration(snapshot);
+
+        let mut identity = if let Some(identity) = identity {
             identity
         } else {
             identity_strategy
                 .initialize_identity(&api_client, &mls_storage, &scw_verifier)
                 .await?
         };
+
+        // CFG-069 and CFG-070: the registration request is handed to the app to
+        // sign, so bind it to the chains the deployment accepts before it
+        // leaves the client.
+        if let Some(request) = identity.signature_request.as_mut() {
+            server_configuration.restrict(request);
+        }
 
         debug!(
             inbox_id = identity.inbox_id(),
@@ -359,6 +421,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 crate::worker::WorkerKind::DisappearingMessages,
                 crate::worker::WorkerKind::CommitLog,
                 crate::worker::WorkerKind::TaskRunner,
+                crate::worker::WorkerKind::ConfigurationRefresh,
             ] {
                 worker_config.enabled.insert(kind, false);
             }
@@ -385,6 +448,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store,
             api_client,
             version_info,
+            server_configuration,
             scw_verifier: Arc::new(scw_verifier),
             mutexes: MutexRegistry::new(),
             #[cfg(test)]
@@ -432,14 +496,28 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     );
             }
             // Enable CommitLogWorker based on configuration
+            // CFG-068: the deployment decides whether the commit log runs,
+            // falling back to the compiled default when it says nothing.
             if enabled(WorkerKind::CommitLog)
-                && xmtp_configuration::ENABLE_COMMIT_LOG
+                && context
+                    .server_configuration()
+                    .configuration()
+                    .mls
+                    .commit_log_enabled()
                 && !disable_commit_log_worker
             {
                 workers.register_new_worker::<
                 crate::groups::commit_log::CommitLogWorker<ContextParts<ApiClient, S, Db>>,
                 _,
                 >(context.clone());
+            }
+            // CFG-046: only a client that reads its configuration refreshes it.
+            // A caller-supplied provider (CFG-033) owns its own values.
+            if enabled(WorkerKind::ConfigurationRefresh) && !has_config_provider {
+                workers
+                    .register_new_worker::<crate::server_configuration::worker::ConfigurationWorker<
+                        ContextParts<ApiClient, S, Db>,
+                    >, _>(context.clone());
             }
             if enabled(WorkerKind::TaskRunner) {
                 workers.register_new_worker::<TaskWorker<ContextParts<ApiClient, S, Db>>, _>(
@@ -534,6 +612,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
@@ -545,6 +624,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         }
     }
 
@@ -563,6 +643,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
@@ -582,6 +663,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             store: self.store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         })
     }
 
@@ -592,6 +674,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
             change_callbacks: self.change_callbacks,
@@ -603,6 +686,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: Some(mls_storage),
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         }
     }
 
@@ -639,6 +723,19 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
+    /// Supply the server configuration instead of reading it (CFG-033).
+    ///
+    /// With a provider in place the client never fetches, stores, refreshes, or
+    /// checks the deployment identifier. Rust callers only — the bindings do
+    /// not expose this.
+    pub fn config_provider(
+        mut self,
+        provider: Arc<dyn xmtp_configuration::ConfigProvider>,
+    ) -> Self {
+        self.config_provider = Some(provider);
+        self
+    }
+
     /// Attach a query-only API client. Receipt uses ordered Query pages.
     /// Standard streaming clients use `api_client_with_streams` at construction.
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
@@ -647,6 +744,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
@@ -659,6 +757,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         }
     }
 
@@ -772,6 +871,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
             store: self.store,
 
             device_sync_worker_mode: self.device_sync_worker_mode,
@@ -785,6 +885,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         })
     }
 
@@ -797,6 +898,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity: self.identity,
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Box::new(verifier)),
+            custom_scw_verifier: true,
             store: self.store,
 
             device_sync_worker_mode: self.device_sync_worker_mode,
@@ -810,6 +912,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         }
     }
 
@@ -832,6 +935,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
                 as Box<dyn SmartContractSignatureVerifier>),
+            custom_scw_verifier: self.custom_scw_verifier,
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,
             fork_recovery_opts: self.fork_recovery_opts,
@@ -844,6 +948,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
+            config_provider: self.config_provider,
         })
     }
 }

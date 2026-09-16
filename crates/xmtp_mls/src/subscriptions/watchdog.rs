@@ -352,6 +352,51 @@ where
     }
 }
 
+/// Why a subscription stopped, alongside the token that stops it.
+///
+/// An ordinary close (the client shutting down) ends a stream silently, exactly
+/// as it always has. A close caused by a latched configuration failure —
+/// another deployment answering (CFG-051), or a minimum version this build no
+/// longer meets (CFG-061) — delivers that typed error to the callback first, so
+/// the app learns why its streams went away rather than seeing a bare close.
+#[derive(Clone, Default)]
+pub(crate) struct StreamCancel {
+    token: CancellationToken,
+    configuration: Option<crate::server_configuration::ServerConfigurationHandle>,
+}
+
+impl From<CancellationToken> for StreamCancel {
+    /// A token with no client behind it: cancellation is always an ordinary
+    /// close. Used by the watchdog's own unit tests.
+    fn from(token: CancellationToken) -> Self {
+        Self {
+            token,
+            configuration: None,
+        }
+    }
+}
+
+impl StreamCancel {
+    pub(crate) fn new(context: &impl crate::context::XmtpSharedContext) -> Self {
+        Self {
+            token: context.cancellation_token().clone(),
+            configuration: Some(context.server_configuration().clone()),
+        }
+    }
+
+    fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+        self.token.cancelled()
+    }
+
+    /// The reason this close carries, if the client latched one (CFG-051,
+    /// CFG-061). Returned as the latch rather than the error because
+    /// `SubscribeError` is not `Clone` and the reason is reported twice: once
+    /// to the callback, once as the handle's result.
+    fn fatal(&self) -> Option<crate::server_configuration::ConfigurationLatch> {
+        self.configuration.as_ref()?.latched()
+    }
+}
+
 /// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
 /// readiness signaled once the first underlying stream is established.
 ///
@@ -361,7 +406,7 @@ where
 /// fallback awaits [`run_watchdog_stream`] inside its own already-spawned task — same
 /// runner, same semantics, no second spawn.)
 pub(crate) fn spawn_watchdog_stream<T, S, Fut, Sub, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     subscribe: Sub,
     callback: Cb,
@@ -407,7 +452,7 @@ where
 /// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
 /// (clean end, cancellation, or startup error).
 pub(crate) async fn run_watchdog_stream<T, S, Fut, Sub, Ready, Cb, Close>(
-    cancel: CancellationToken,
+    cancel: StreamCancel,
     label: &'static str,
     mut subscribe: Sub,
     ready: Ready,
@@ -461,7 +506,20 @@ where
         };
         // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
         if cancelled || !stale {
-            break 'reconnect Ok(());
+            // CFG-051 and CFG-061: a latched client closes its streams *with*
+            // the reason, so the app sees the typed error and not a bare close.
+            break 'reconnect match cancelled.then(|| cancel.fatal()).flatten() {
+                Some(latch) => {
+                    let reported = |latch: &_| {
+                        SubscribeError::Configuration(Box::new(crate::client::ClientError::from(
+                            latch,
+                        )))
+                    };
+                    callback(Err(reported(&latch)));
+                    Err(reported(&latch))
+                }
+                None => Ok(()),
+            };
         }
         tracing::debug!(stream = label, "stream went stale; reconnecting");
 

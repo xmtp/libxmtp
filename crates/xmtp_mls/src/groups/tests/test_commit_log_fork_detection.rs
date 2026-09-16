@@ -983,6 +983,7 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
         staged_commit,
         &validated_commit,
         commit_sequence_id,
+        xmtp_configuration::ENABLE_COMMIT_LOG,
     );
 
     assert!(

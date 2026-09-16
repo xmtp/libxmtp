@@ -199,6 +199,55 @@ pub enum ClientError {
     /// `Client::close`. Not retryable — build a new client instead.
     #[error("client is closed")]
     AlreadyClosed,
+    /// Server configuration unavailable.
+    ///
+    /// The backend did not serve its configuration, or the answer could not be
+    /// stored. A backend older than spec 006 answers `UNIMPLEMENTED`; there is
+    /// no compatibility shim. Not retryable — build again once the backend is
+    /// reachable.
+    #[error("server configuration unavailable: {0}")]
+    ConfigurationUnavailable(#[source] Box<crate::server_configuration::ConfigurationFetchError>),
+    /// Server configuration invalid.
+    ///
+    /// The backend published a configuration this client cannot use: a missing
+    /// or malformed identifier, a minimum version that does not parse, or a
+    /// chain that is not a CAIP-2 identifier. Not retryable.
+    #[error("server configuration invalid: {0}")]
+    ConfigurationInvalid(#[from] xmtp_configuration::ServerConfigurationError),
+    /// Backend mismatch.
+    ///
+    /// This database is bound to one backend deployment and a different one
+    /// answered. Not retryable — use a database created for the backend this
+    /// app now points at.
+    #[error("this database is bound to backend {stored}, but {received} answered")]
+    BackendMismatch { stored: String, received: String },
+    /// Client version too old.
+    ///
+    /// The backend requires a newer libxmtp than this build. Not retryable —
+    /// ship an updated client.
+    #[error("client version {client} is below the {minimum} this backend requires")]
+    ClientVersionTooOld { client: String, minimum: String },
+    /// Authentication required.
+    ///
+    /// The backend requires a credential and none was configured. Not
+    /// retryable — supply an auth callback or handle before building.
+    #[error(
+        "this backend requires authentication; required scopes: [{}]",
+        required_scopes.join(", ")
+    )]
+    AuthRequired { required_scopes: Vec<String> },
+    /// Chain not accepted.
+    ///
+    /// The backend does not verify smart contract wallet signatures on this
+    /// chain. Not retryable — use a chain the deployment accepts.
+    #[error(
+        "this backend does not accept smart contract wallet signatures on {chain}; accepted: [{}]",
+        accepted.join(", ")
+    )]
+    ChainNotAccepted {
+        chain: String,
+        accepted: Vec<String>,
+    },
 }
 
 impl ClientError {
@@ -394,6 +443,50 @@ impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
 {
+    /// What this deployment published about itself, as resolved at build
+    /// (CFG-030, CFG-080). A refresh rewrites the stored copy; it never changes
+    /// this value.
+    pub fn server_configuration(&self) -> &xmtp_configuration::ServerConfiguration {
+        self.context.server_configuration().configuration()
+    }
+
+    /// Fetch the deployment configuration now and rewrite the stored copy
+    /// (CFG-082).
+    ///
+    /// Applies the same validation (CFG-044), storage (CFG-048), and identifier
+    /// binding (CFG-051) the refresh worker applies. The snapshot this client is
+    /// holding is unchanged: a new value takes effect at the next build.
+    pub async fn refresh_server_configuration(
+        &self,
+    ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
+        let handle = self.context.server_configuration();
+        let db = self.context.db();
+        let fetched =
+            crate::server_configuration::fetch_and_store(self.context.api(), &db, handle).await?;
+        if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
+            crate::server_configuration::check_minimum_version(
+                &fetched,
+                self.context.version_info().pkg_semver().semver(),
+            )
+        {
+            tracing::error!(
+                %client,
+                %minimum,
+                "the backend now requires a newer libxmtp than this client"
+            );
+            // CFG-061: the copy is stored either way, and the client stops.
+            let error = handle.latch(
+                crate::server_configuration::ConfigurationLatch::ClientVersionTooOld {
+                    client,
+                    minimum,
+                },
+            );
+            self.context.cancellation_token().cancel();
+            return Err(error);
+        }
+        Ok(fetched)
+    }
+
     /// Retrieves the client's installation public key, sometimes also called `installation_id`
     pub fn installation_public_key(&self) -> InstallationId {
         self.context.installation_id()
@@ -653,6 +746,10 @@ where
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
     fn ensure_identity_ready(&self) -> Result<(), ClientError> {
+        // CFG-051 and CFG-061: once latched, every later call fails with the
+        // reason. This is the gate every client-level operation already passes
+        // through, so the check costs nothing extra.
+        self.context.server_configuration().check()?;
         if !self.identity().is_ready() {
             tracing::warn!(
                 inbox_id = %self.inbox_id(),
@@ -1017,6 +1114,8 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
+        // CFG-051 and CFG-061: registration is a network call like any other.
+        self.context.server_configuration().check()?;
 
         // Handle crash recovery - if already registered, just mark ready and return
         let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;

@@ -21,6 +21,23 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         (**self).get_inbox_ids(request).await
     }
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error> {
+        (**self).get_configuration(request).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        (**self).backend_url()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
+    }
+
+    fn set_limits(&self, limits: std::sync::Arc<xmtp_configuration::LimitsConfiguration>) {
+        (**self).set_limits(limits)
+    }
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
@@ -110,6 +127,23 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         (**self).get_inbox_ids(request).await
+    }
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error> {
+        (**self).get_configuration(request).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        (**self).backend_url()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
+    }
+
+    fn set_limits(&self, limits: std::sync::Arc<xmtp_configuration::LimitsConfiguration>) {
+        (**self).set_limits(limits)
     }
     async fn verify_smart_contract_wallet_signatures(
         &self,
@@ -201,6 +235,23 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         (**self).get_inbox_ids(request).await
     }
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error> {
+        (**self).get_configuration(request).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        (**self).backend_url()
+    }
+
+    fn has_credential_source(&self) -> bool {
+        (**self).has_credential_source()
+    }
+
+    fn set_limits(&self, limits: std::sync::Arc<xmtp_configuration::LimitsConfiguration>) {
+        (**self).set_limits(limits)
+    }
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,
@@ -287,6 +338,10 @@ xmtp_common::if_native! {
             (**self).host()
         }
 
+        fn bidi_limits(&self) -> std::sync::Arc<xmtp_configuration::LimitsConfiguration> {
+            (**self).bidi_limits()
+        }
+
         async fn subscribe_bidi(
             &self,
             requests: futures::stream::BoxStream<'static, crate::backend_v1::SubscribeRequest>,
@@ -305,6 +360,10 @@ xmtp_common::if_native! {
 
         fn host(&self) -> &str {
             (**self).host()
+        }
+
+        fn bidi_limits(&self) -> std::sync::Arc<xmtp_configuration::LimitsConfiguration> {
+            (**self).bidi_limits()
         }
 
         async fn subscribe_bidi(

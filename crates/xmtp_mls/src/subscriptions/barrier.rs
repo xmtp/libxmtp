@@ -326,7 +326,7 @@ async fn capture_targets<C: XmtpSharedContext>(
     topics.sort_by_key(Topic::cloned_vec);
     topics.dedup();
     let chunks: Vec<_> = topics
-        .chunks(xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_TOPICS)
+        .chunks(context.api().limits().max_query_topics)
         .map(<[Topic]>::to_vec)
         .collect();
     let results = stream::iter(chunks)

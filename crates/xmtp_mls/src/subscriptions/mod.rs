@@ -257,6 +257,14 @@ pub enum SubscribeError {
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
     Enriched(#[from] EnrichMessageError),
+    /// The client latched a fatal configuration failure.
+    ///
+    /// Either this database is bound to a different deployment (CFG-051) or the
+    /// deployment now requires a newer client (CFG-061). Every open stream is
+    /// closed with it and every later call fails with it. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Configuration(Box<crate::client::ClientError>),
     /// Stream liveness watchdog tripped.
     ///
     /// No activity arrived within the idle timeout, so the stream was terminated to force
@@ -302,6 +310,7 @@ impl RetryableError for SubscribeError {
             Conversion(c) => retryable!(c),
             Envelope(c) => retryable!(c),
             Enriched(c) => retryable!(c),
+            Configuration(_) => false,
             StreamStale => true,
         }
     }
@@ -323,7 +332,8 @@ impl crate::worker::NeedsDbReconnect for SubscribeError {
             #[cfg(not(target_arch = "wasm32"))]
             Transport(_) => false,
             GroupMessageNotFound | ReceiveGroup(_) | Decode(_) | NotFound(_) | ApiClient(_)
-            | BoxError(_) | Conversion(_) | Envelope(_) | Enriched(_) | StreamStale => false,
+            | BoxError(_) | Conversion(_) | Envelope(_) | Enriched(_) | Configuration(_)
+            | StreamStale => false,
         }
     }
 }
@@ -415,7 +425,7 @@ where
         on_close: impl FnOnce() + MaybeSend + 'static,
         include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let cancel = client.context.cancellation_token().clone();
+        let cancel = watchdog::StreamCancel::new(&client.context);
         // Re-subscribing recreates the underlying `LocalEvents` broadcast receiver, which
         // has no replay; the watchdog runner establishes the new subscription *before* its
         // reconnect wait, so the new receiver is attached while we pause. Network welcomes
@@ -477,7 +487,7 @@ where
         callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
         on_close: impl FnOnce() + MaybeSend + 'static,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
-        let cancel = context.cancellation_token().clone();
+        let cancel = watchdog::StreamCancel::new(&context);
         watchdog::spawn_watchdog_stream(
             cancel,
             "stream_all_messages",
@@ -693,7 +703,7 @@ pub(crate) mod tests {
                     Cursor(0),
                 )]
                 .into(),
-                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+                bo.context.api().limits().max_query_limit as u32,
             )
             .await?;
         assert!(!envelopes.is_empty(), "Should have at least one welcome");

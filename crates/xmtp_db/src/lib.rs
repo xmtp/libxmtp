@@ -64,6 +64,7 @@ pub mod prelude {
     pub use super::readd_status::QueryReaddStatus;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
+    pub use super::server_configuration::QueryServerConfiguration;
     pub use super::tasks::QueryTasks;
     pub use super::traits::*;
 }

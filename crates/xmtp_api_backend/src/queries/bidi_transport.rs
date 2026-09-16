@@ -66,6 +66,40 @@ pub(crate) const MAX_MUTATE_BYTES: usize =
 /// Conservative protobuf overhead per topic, including cursor and length fields.
 const PER_ENTRY_OVERHEAD: usize = 64;
 
+/// The interest-update frame shapes one deployment accepts (CFG-064). Adds and
+/// removes have separate caps because the backend enforces them separately.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MutateLimits {
+    pub add_cap: usize,
+    pub remove_cap: usize,
+    pub byte_cap: usize,
+}
+
+impl Default for MutateLimits {
+    fn default() -> Self {
+        Self {
+            add_cap: MAX_MUTATE_TOPICS,
+            remove_cap: xmtp_configuration::BACKEND_DEFAULT_MAX_UPDATE_REMOVES,
+            byte_cap: MAX_MUTATE_BYTES,
+        }
+    }
+}
+
+impl MutateLimits {
+    /// Take the caps a deployment published, leaving the same room for the
+    /// request wrapper the compiled default leaves.
+    pub fn from_limits(limits: &xmtp_configuration::LimitsConfiguration) -> Self {
+        Self {
+            add_cap: limits.max_update_adds.max(1),
+            remove_cap: limits.max_update_removes.max(1),
+            byte_cap: limits
+                .max_request_bytes
+                .saturating_sub(PER_ENTRY_OVERHEAD)
+                .max(1),
+        }
+    }
+}
+
 fn topic_wire_cost(topic: &Topic) -> usize {
     1 + topic.identifier().len() + PER_ENTRY_OVERHEAD
 }
@@ -373,12 +407,17 @@ where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
         Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
     {
-        Self::spawn(
-            opener,
-            initially_suspended,
-            MAX_MUTATE_TOPICS,
-            MAX_MUTATE_BYTES,
-        )
+        Self::spawn(opener, initially_suspended, MutateLimits::default())
+    }
+
+    /// Open lazily, chunking interest updates to what the deployment published
+    /// (CFG-064).
+    pub fn new_within<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
+    where
+        O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
+        Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
+    {
+        Self::spawn(opener, initially_suspended, mutate)
     }
 
     #[cfg(test)]
@@ -392,15 +431,18 @@ where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
         Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
     {
-        Self::spawn(opener, initially_suspended, chunk_cap, chunk_bytes)
+        Self::spawn(
+            opener,
+            initially_suspended,
+            MutateLimits {
+                add_cap: chunk_cap,
+                remove_cap: chunk_cap,
+                byte_cap: chunk_bytes,
+            },
+        )
     }
 
-    fn spawn<O, Fut>(
-        opener: O,
-        initially_suspended: bool,
-        chunk_cap: usize,
-        chunk_bytes: usize,
-    ) -> Self
+    fn spawn<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
         Fut: Future<Output = Result<Connection<B>, OpenError>> + MaybeSend + 'static,
@@ -418,8 +460,7 @@ where
                 cmds_rx,
                 cmds.clone().downgrade(),
                 initially_suspended,
-                chunk_cap,
-                chunk_bytes,
+                mutate,
             ),
         );
         Self { cmds }
@@ -610,8 +651,7 @@ where
     failed_incoming: HashSet<LeaseId>,
     next_lease: u64,
     next_update: u64,
-    chunk_cap: usize,
-    chunk_bytes: usize,
+    mutate: MutateLimits,
 }
 
 impl<B: TransportBinding> Default for Ledger<B>
@@ -630,8 +670,7 @@ where
             failed_incoming: HashSet::new(),
             next_lease: 0,
             next_update: 0,
-            chunk_cap: MAX_MUTATE_TOPICS,
-            chunk_bytes: MAX_MUTATE_BYTES,
+            mutate: MutateLimits::default(),
         }
     }
 }
@@ -893,9 +932,12 @@ where
 
     /// Record acknowledgements before the updates enter the connection queue.
     fn prepare_adds(&mut self, adds: Vec<(Topic, B::Cursor)>) -> Vec<(u64, B::Mutate)> {
-        let chunks = chunk_by_budget(adds, self.chunk_cap, self.chunk_bytes, |(topic, _)| {
-            topic_wire_cost(topic)
-        });
+        let chunks = chunk_by_budget(
+            adds,
+            self.mutate.add_cap,
+            self.mutate.byte_cap,
+            |(topic, _)| topic_wire_cost(topic),
+        );
         chunks
             .into_iter()
             .map(|adds| {
@@ -929,21 +971,26 @@ where
     }
 
     fn prepare_removes(&mut self, removes: Vec<Topic>) -> Vec<(u64, B::Mutate)> {
-        chunk_by_budget(removes, self.chunk_cap, self.chunk_bytes, topic_wire_cost)
-            .into_iter()
-            .map(|removes| {
-                let id = self.next_update_id();
-                let update = B::build_mutate([], removes.clone(), id);
-                self.pending_updates.insert(
-                    id,
-                    PendingUpdate {
-                        adds: vec![],
-                        removes,
-                    },
-                );
-                (id, update)
-            })
-            .collect()
+        chunk_by_budget(
+            removes,
+            self.mutate.remove_cap,
+            self.mutate.byte_cap,
+            topic_wire_cost,
+        )
+        .into_iter()
+        .map(|removes| {
+            let id = self.next_update_id();
+            let update = B::build_mutate([], removes.clone(), id);
+            self.pending_updates.insert(
+                id,
+                PendingUpdate {
+                    adds: vec![],
+                    removes,
+                },
+            );
+            (id, update)
+        })
+        .collect()
     }
 
     /// Join an active registration, or remove it before requesting older data.
@@ -1176,8 +1223,7 @@ async fn run_ledger<B: TransportBinding>(
     cmds: mpsc::UnboundedReceiver<Cmd<B>>,
     lease_cmds: mpsc::WeakUnboundedSender<Cmd<B>>,
     initially_suspended: bool,
-    chunk_cap: usize,
-    chunk_bytes: usize,
+    mutate: MutateLimits,
 ) where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
@@ -1187,8 +1233,7 @@ async fn run_ledger<B: TransportBinding>(
         cmds,
         lease_cmds,
         ledger: Ledger {
-            chunk_cap,
-            chunk_bytes,
+            mutate,
             ..Ledger::default()
         },
         conn: None,
@@ -1852,8 +1897,8 @@ where
                 .chain(next.removes.iter())
                 .collect();
             let next_bytes: usize = next_topics.iter().map(|topic| topic_wire_cost(topic)).sum();
-            if topics.len() + next_topics.len() > self.ledger.chunk_cap
-                || bytes + next_bytes > self.ledger.chunk_bytes
+            if topics.len() + next_topics.len() > self.ledger.mutate.add_cap
+                || bytes + next_bytes > self.ledger.mutate.byte_cap
                 || next_topics.iter().any(|topic| topics.contains(topic))
             {
                 break;

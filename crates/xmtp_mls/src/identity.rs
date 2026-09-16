@@ -23,9 +23,7 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
-use xmtp_configuration::{
-    CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS, MAX_INSTALLATIONS_PER_INBOX,
-};
+use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
@@ -471,12 +469,15 @@ impl Identity {
                 IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
             })?;
 
+            // CFG-067: the deployment sets the ceiling; the wrapper carries the
+            // snapshot resolved before any identity work ran.
+            let max_installations = api_client.configuration().mls.max_installations_per_inbox;
             let current_installation_count = state.installation_ids().len();
-            if current_installation_count >= MAX_INSTALLATIONS_PER_INBOX {
+            if current_installation_count >= max_installations {
                 return Err(IdentityError::TooManyInstallations {
                     inbox_id: associated_inbox_id.clone(),
                     count: current_installation_count,
-                    max: MAX_INSTALLATIONS_PER_INBOX,
+                    max: max_installations,
                 });
             }
 

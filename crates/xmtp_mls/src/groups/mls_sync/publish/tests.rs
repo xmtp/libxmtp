@@ -376,7 +376,7 @@ async fn lost_publish_reply_retries_exact_prepared_envelopes() {
     group
         .context
         .api()
-        .send_group_messages(vec![attempt.publish_unit()?])
+        .send_group_messages(vec![attempt.publish_unit(group.context.api().limits())?])
         .await?;
     let group_id = group.group_id;
     let snapshot = std::sync::Arc::new(alix.db_snapshot());
@@ -397,7 +397,7 @@ async fn lost_publish_reply_retries_exact_prepared_envelopes() {
         .api()
         .query_all(
             [(Topic::new_group_message(group.group_id), Cursor(0))].into(),
-            xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            group.context.api().limits().max_query_limit as u32,
         )
         .await?;
     let occurrences = rows
@@ -440,7 +440,9 @@ async fn late_publish_reply_cannot_update_replacement_attempt() {
     let receipts = group
         .context
         .api()
-        .send_group_messages(vec![old_attempt.publish_unit()?])
+        .send_group_messages(vec![
+            old_attempt.publish_unit(group.context.api().limits())?,
+        ])
         .await?;
 
     // Model ordered supersession while the first publish reply is delayed.
@@ -589,7 +591,11 @@ async fn welcome_followup_retries_exact_bytes_after_restart() {
     assert!(!group.receive().await?.is_errored());
     let prepared = group.prepare_required_welcomes(intent.id)?.unwrap();
     let welcomes = prepared.welcomes.as_ref().unwrap();
-    group.context.api().publish_units(welcomes.units()?).await?;
+    group
+        .context
+        .api()
+        .publish_units(welcomes.units(group.context.api().limits())?)
+        .await?;
 
     let group_id = group.group_id;
     let snapshot = std::sync::Arc::new(alix.db_snapshot());

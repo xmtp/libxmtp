@@ -29,6 +29,7 @@ pub fn context() -> NewMockContext {
         #[cfg(test)]
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
+        server_configuration: Default::default(),
         local_events,
         worker_events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),

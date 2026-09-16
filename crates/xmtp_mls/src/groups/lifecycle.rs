@@ -840,8 +840,12 @@ where
             conversation_type,
             oneshot_message,
         )?;
-        let mutable_metadata =
-            build_mutable_metadata_extension_default(creator_inbox_id, opts.clone())?;
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
+        let mutable_metadata = build_mutable_metadata_extension_default(
+            creator_inbox_id,
+            opts.clone(),
+            commit_log_enabled,
+        )?;
         let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
         let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
         let group_config = build_group_config(
@@ -870,9 +874,15 @@ where
                     context.identity(),
                     &group_config,
                     GroupId::try_from(existing_group_id)?,
+                    commit_log_enabled,
                 )?
             } else {
-                OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+                OpenMlsGroup::from_creation_logged(
+                    &provider,
+                    context.identity(),
+                    &group_config,
+                    commit_log_enabled,
+                )?
             };
 
             let group_id: GroupId = mls_group.group_id().try_into()?;
@@ -913,10 +923,12 @@ where
     ) -> Result<Self, GroupError> {
         let protected_metadata =
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
         let mutable_metadata = build_dm_mutable_metadata_extension_default(
             context.inbox_id(),
             &dm_target_inbox_id,
             opts.clone(),
+            commit_log_enabled,
         )?;
         let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
         let mutable_permissions = PolicySet::new_dm();
@@ -945,9 +957,15 @@ where
                     context.identity(),
                     &group_config,
                     GroupId::try_from(group_id)?,
+                    commit_log_enabled,
                 )?
             } else {
-                OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?
+                OpenMlsGroup::from_creation_logged(
+                    &provider,
+                    context.identity(),
+                    &group_config,
+                    commit_log_enabled,
+                )?
             };
 
             let group_id: GroupId = mls_group.group_id().try_into()?;

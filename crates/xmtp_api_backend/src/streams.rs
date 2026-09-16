@@ -12,10 +12,7 @@ use xmtp_common::{
     BoxDynStream,
     time::{Duration, timeout},
 };
-use xmtp_configuration::{
-    BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS,
-    BACKEND_DEFAULT_MAX_STATIC_TOPICS,
-};
+use xmtp_configuration::BACKEND_DEFAULT_KEEPALIVE_INTERVAL_MS;
 use xmtp_proto::{
     api::{ApiClientError, Client, QueryStreamExt},
     api_client::{XmtpBackendClient, XmtpMlsStreams},
@@ -35,7 +32,7 @@ impl<C: Client> BackendClient<C> {
     ) -> Result<TopicCursor, ApiClientError> {
         let mut cursors: TopicCursor = topics.into_iter().map(|topic| (topic, Cursor(0))).collect();
         let topics: Vec<_> = cursors.keys().cloned().collect();
-        for chunk in topics.chunks(BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS) {
+        for chunk in topics.chunks(self.limits().max_newest_metadata_topics) {
             let response = self
                 .query_newest(wire::QueryNewestRequest {
                     topics: chunk
@@ -77,7 +74,7 @@ impl<C: Client> BackendClient<C> {
             .map(|(topic, cursor)| (topic.clone(), *cursor))
             .collect();
         let mut streams = Vec::new();
-        for chunk in topics.chunks(BACKEND_DEFAULT_MAX_STATIC_TOPICS) {
+        for chunk in topics.chunks(self.limits().max_static_topics) {
             let stream = SubscribeStatic(wire::SubscribeStaticRequest {
                 topics: chunk
                     .iter()

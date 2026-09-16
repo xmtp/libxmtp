@@ -228,6 +228,10 @@ where
             .worker_config(self.worker_config.clone().unwrap_or_default())
             .unstable_change_callbacks(self.change_callbacks.clone());
 
+        if let Some(provider) = self.config_provider.clone() {
+            client = client.config_provider(provider);
+        }
+
         if self.triggers {
             client = client.enable_sqlite_triggers();
         }
@@ -440,6 +444,10 @@ where
     pub disable_workers: bool,
     pub worker_config: Option<crate::worker::WorkerConfig>,
     pub change_callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
+    /// A caller-supplied snapshot (CFG-033). With one in place the client never
+    /// fetches, stores, refreshes, or checks the identifier, so a test can name
+    /// any value §6.4 acts on without standing a backend up for it.
+    pub config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
 }
 
 #[derive(Clone)]
@@ -501,6 +509,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             disable_workers: false,
             worker_config: None,
             change_callbacks: Default::default(),
+            config_provider: None,
         }
     }
 }
@@ -536,6 +545,7 @@ where
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             change_callbacks: self.change_callbacks,
+            config_provider: self.config_provider,
         }
     }
 
@@ -629,6 +639,26 @@ where
     pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
         self.worker_config = Some(cfg);
         self
+    }
+
+    /// Build against a fixed snapshot (CFG-033).
+    pub fn config_provider(
+        mut self,
+        provider: Arc<dyn xmtp_configuration::ConfigProvider>,
+    ) -> Self {
+        self.config_provider = Some(provider);
+        self
+    }
+
+    /// Build against a snapshot that differs from the compiled defaults only in
+    /// the fields `edit` touches (CFG-033, CFG-100).
+    pub fn configured(
+        self,
+        edit: impl FnOnce(&mut xmtp_configuration::ServerConfiguration),
+    ) -> Self {
+        self.config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            edit,
+        )))
     }
 
     pub fn change_callbacks(

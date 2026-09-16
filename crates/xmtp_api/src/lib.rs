@@ -1,5 +1,6 @@
 #![warn(clippy::unwrap_used)]
 
+pub mod configuration;
 pub mod identity;
 pub mod mls;
 mod notification;
@@ -114,6 +115,11 @@ pub struct ApiClientWrapper<ApiClient> {
     pub api_client: ApiClient,
     pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
+    /// What the deployment published about the shapes it accepts (CFG-064).
+    /// The compiled defaults until a client resolves a snapshot and installs
+    /// it, which is what keeps a bare wrapper — a test double, the static
+    /// fetch of CFG-081 — chunking exactly as it did before this existed.
+    pub(crate) configuration: Arc<xmtp_configuration::ServerConfiguration>,
 }
 
 impl<ApiClient> ApiClientWrapper<ApiClient> {
@@ -122,6 +128,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
             api_client,
             retry_strategy: retry_strategy.into(),
             inbox_id: None,
+            configuration: Arc::default(),
         }
     }
 
@@ -133,7 +140,27 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
             api_client: f(self.api_client),
             retry_strategy: self.retry_strategy,
             inbox_id: self.inbox_id,
+            configuration: self.configuration,
         }
+    }
+
+    /// Chunk and pre-validate every later request against this snapshot
+    /// (CFG-064, CFG-065). Called once, by `build`, before the client runs.
+    pub fn set_configuration(
+        &mut self,
+        configuration: Arc<xmtp_configuration::ServerConfiguration>,
+    ) {
+        self.configuration = configuration;
+    }
+
+    /// What this wrapper chunks and pre-validates against.
+    pub fn configuration(&self) -> &xmtp_configuration::ServerConfiguration {
+        &self.configuration
+    }
+
+    /// The request shapes the deployment accepts.
+    pub fn limits(&self) -> &xmtp_configuration::LimitsConfiguration {
+        &self.configuration.limits
     }
 
     /// Attach an InboxId to this API Client Wrapper.

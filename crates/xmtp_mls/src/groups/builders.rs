@@ -58,9 +58,11 @@ pub(crate) fn build_mutable_permissions_extension(
 pub fn build_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     opts: GroupMetadataOptions,
+    commit_log_enabled: bool,
 ) -> Result<Extension, GroupError> {
     let mut commit_log_signer = None;
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
+    // CFG-068: no signer is minted for a deployment that keeps no commit log.
+    if commit_log_enabled {
         // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
@@ -80,9 +82,11 @@ pub fn build_dm_mutable_metadata_extension_default(
     creator_inbox_id: &str,
     dm_target_inbox_id: &str,
     opts: DMMetadataOptions,
+    commit_log_enabled: bool,
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
-    if xmtp_configuration::ENABLE_COMMIT_LOG {
+    // CFG-068: no signer is minted for a deployment that keeps no commit log.
+    if commit_log_enabled {
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
     let mutable_metadata: Vec<u8> = GroupMutableMetadata::new_dm_default(

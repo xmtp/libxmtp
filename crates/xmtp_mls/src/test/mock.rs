@@ -77,6 +77,7 @@ impl Clone for NewMockContext {
             #[cfg(test)]
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
+            server_configuration: self.server_configuration.clone(),
             local_events: self.local_events.clone(),
             worker_events: self.worker_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
@@ -143,6 +144,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn version_info(&self) -> &VersionInfo {
         &self.version_info
+    }
+
+    fn server_configuration(&self) -> &crate::server_configuration::ServerConfigurationHandle {
+        &self.server_configuration
     }
 
     fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {

@@ -154,9 +154,10 @@ async fn queued_leases_coalesce_during_dial_and_deliver_once() {
 async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bool) {
     let mut ledger = Ledger::<BackendBinding>::default();
     if byte_limited {
-        ledger.chunk_bytes = 2 * topic_wire_cost(&group_topic(b"a"));
+        ledger.mutate.byte_cap = 2 * topic_wire_cost(&group_topic(b"a"));
     } else {
-        ledger.chunk_cap = 2;
+        ledger.mutate.add_cap = 2;
+        ledger.mutate.remove_cap = 2;
     }
     let (_, initial) = ledger
         .prepare_adds(vec![(group_topic(b"anchor"), 0)])
@@ -230,8 +231,8 @@ async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bo
                 .collect::<Vec<_>>()
         );
         assert!(update.adds.is_empty() || update.removes.is_empty());
-        assert!(update.adds.len() + update.removes.len() <= task.ledger.chunk_cap);
-        assert!(update.encoded_len() <= task.ledger.chunk_bytes);
+        assert!(update.adds.len() + update.removes.len() <= task.ledger.mutate.add_cap);
+        assert!(update.encoded_len() <= task.ledger.mutate.byte_cap);
         server.ack_empty(id);
         task.ledger.applied(
             id,

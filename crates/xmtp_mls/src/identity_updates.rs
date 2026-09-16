@@ -322,6 +322,12 @@ where
             )
             .await?;
 
+        // CFG-069 and CFG-070: the app fills this request in, so bind it to
+        // the chains the deployment accepts before it leaves the client.
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+
         Ok(signature_request)
     }
 
@@ -356,6 +362,12 @@ where
             )
             .await?;
 
+        // CFG-069 and CFG-070: the app fills this request in, so bind it to
+        // the chains the deployment accepts before it leaves the client.
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+
         Ok(signature_request)
     }
 
@@ -381,7 +393,11 @@ where
             )
         }
 
-        Ok(builder.build())
+        let mut signature_request = builder.build();
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+        Ok(signature_request)
     }
 
     /// Revoke the given installations from the association state for the client's inbox
@@ -429,7 +445,11 @@ where
         let member_identifier: MemberIdentifier =
             current_state.recovery_identifier().clone().into();
         builder = builder.change_recovery_address(member_identifier, new_recovery_identifier);
-        Ok(builder.build())
+        let mut signature_request = builder.build();
+        self.context
+            .server_configuration()
+            .restrict(&mut signature_request);
+        Ok(signature_request)
     }
 
     /**
@@ -442,6 +462,8 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
+        // CFG-051 and CFG-061: a latched client publishes no identity update.
+        self.context.server_configuration().check()?;
         let inbox_id = signature_request.inbox_id().to_string();
 
         apply_signature_request_with_verifier(
@@ -1521,7 +1543,7 @@ mod conflict_tests {
                     Cursor(0),
                 )]
                 .into(),
-                xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+                alix.context.api().limits().max_query_limit as u32,
             )
             .await
             .unwrap();

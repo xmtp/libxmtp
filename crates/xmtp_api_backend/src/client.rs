@@ -1,4 +1,7 @@
 use crate::endpoints::backend;
+use arc_swap::ArcSwap;
+use std::sync::Arc;
+use xmtp_configuration::LimitsConfiguration;
 use xmtp_proto::{
     api::{ApiClientError, Client, Query},
     api_client::XmtpBackendClient,
@@ -9,13 +12,25 @@ use xmtp_proto::{
 #[derive(Clone, Debug)]
 pub struct BackendClient<C> {
     pub(crate) client: C,
+    /// The shapes this deployment accepts (CFG-064). Swapped in once, by
+    /// `build`, after the configuration is read and before any stream opens.
+    /// The compiled defaults until then, which is what every transport built
+    /// without a client keeps.
+    pub(crate) limits: Arc<ArcSwap<LimitsConfiguration>>,
 }
 impl<C> BackendClient<C> {
     pub fn new(client: C) -> Self {
-        Self { client }
+        Self {
+            client,
+            limits: Arc::new(ArcSwap::from_pointee(LimitsConfiguration::default())),
+        }
     }
     pub fn inner(&self) -> &C {
         &self.client
+    }
+    /// What this transport chunks its streams and metadata reads to.
+    pub(crate) fn limits(&self) -> arc_swap::Guard<Arc<LimitsConfiguration>> {
+        self.limits.load()
     }
 }
 #[xmtp_common::async_trait]
@@ -38,6 +53,23 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
         request: GetInboxIdsRequest,
     ) -> Result<GetInboxIdsResponse, Self::Error> {
         backend::GetInboxIds(request).query(&self.client).await
+    }
+    async fn get_configuration(
+        &self,
+        request: GetConfigurationRequest,
+    ) -> Result<GetConfigurationResponse, Self::Error> {
+        backend::GetConfiguration(request).query(&self.client).await
+    }
+    fn backend_url(&self) -> Option<&str> {
+        Some(self.client.host())
+    }
+
+    fn has_credential_source(&self) -> bool {
+        self.client.has_credential_source()
+    }
+
+    fn set_limits(&self, limits: Arc<LimitsConfiguration>) {
+        self.limits.store(limits);
     }
     async fn verify_smart_contract_wallet_signatures(
         &self,

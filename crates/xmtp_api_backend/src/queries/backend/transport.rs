@@ -24,6 +24,10 @@ where
         self.client.host()
     }
 
+    fn bidi_limits(&self) -> std::sync::Arc<xmtp_configuration::LimitsConfiguration> {
+        self.limits.load_full()
+    }
+
     // Spans the open handshake (not the stream's lifetime) as `rpc.subscribe_bidi`.
     // Bidi is consumed directly by `xmtp_mls` with no `xmtp_api` wrapper in front,
     // so this transport impl is the RPC boundary — the same layer the other

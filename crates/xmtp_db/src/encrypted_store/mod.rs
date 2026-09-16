@@ -37,6 +37,7 @@ pub mod refresh_state;
 pub mod remote_commit_log;
 pub mod schema;
 mod schema_gen;
+pub mod server_configuration;
 pub mod store;
 pub mod stream_storage;
 pub mod tasks;

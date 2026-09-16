@@ -421,6 +421,7 @@ where
         opts: Option<DMMetadataOptions>,
     ) -> Result<Self, GroupError> {
         let provider = context.mls_provider();
+        let commit_log_enabled = context.server_configuration().commit_log_enabled();
 
         let protected_metadata = custom_protected_metadata.unwrap_or_else(|| {
             build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())
@@ -431,6 +432,7 @@ where
                 context.inbox_id(),
                 &dm_target_inbox_id,
                 opts.unwrap_or_default(),
+                commit_log_enabled,
             )
             .unwrap()
         });
@@ -447,8 +449,12 @@ where
             mutable_permission_extension,
         )?;
 
-        let mls_group =
-            OpenMlsGroup::from_creation_logged(&provider, context.identity(), &group_config)?;
+        let mls_group = OpenMlsGroup::from_creation_logged(
+            &provider,
+            context.identity(),
+            &group_config,
+            commit_log_enabled,
+        )?;
         let group_id: GroupId = mls_group.group_id().try_into()?;
         let stored_group = StoredGroup::builder()
             .id(group_id)

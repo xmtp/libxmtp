@@ -18,7 +18,10 @@ pub(crate) struct PreparedWelcomes {
 
 impl PreparedWelcomes {
     /// Reconstruct the saved batch without generating new keys or ciphertext.
-    pub(super) fn units(&self) -> Result<Vec<PublishUnit>, GroupError> {
+    pub(super) fn units(
+        &self,
+        limits: &xmtp_configuration::LimitsConfiguration,
+    ) -> Result<Vec<PublishUnit>, GroupError> {
         if self.envelopes.is_empty() {
             return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
         }
@@ -29,7 +32,7 @@ impl PreparedWelcomes {
                 if !matches!(envelope.payload, Some(Payload::WelcomeMessage(_))) {
                     return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
                 }
-                Ok(PublishUnit::single(envelope)?)
+                Ok(PublishUnit::single_within(envelope, limits)?)
             })
             .collect()
     }
@@ -65,7 +68,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .as_ref()
                 .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
             // All crypto and durable state writes finished before this request.
-            let receipts = self.context.api().publish_units(welcomes.units()?).await?;
+            let receipts = self
+                .context
+                .api()
+                .publish_units(welcomes.units(self.context.api().limits())?)
+                .await?;
             self.record_welcome_receipts(id, &attempt, receipts)?;
         }
         Ok(())
@@ -103,7 +110,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 if welcomes.commit_sequence_id != commit_sequence_id {
                     return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
                 }
-                welcomes.units()?;
+                welcomes.units(self.context.api().limits())?;
                 if let Some(receipts) = &welcomes.receipts {
                     if receipts.len() != welcomes.envelopes.len() {
                         return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
@@ -121,7 +128,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 envelopes: envelopes.iter().map(Message::encode_to_vec).collect(),
                 receipts: None,
             };
-            welcomes.units()?;
+            welcomes.units(self.context.api().limits())?;
             attempt.welcomes = Some(welcomes);
             let replacement = xmtp_db::db_serialize(&attempt)?;
             if !db.compare_and_set_prepared_envelopes(id, Some(&encoded), Some(&replacement))? {

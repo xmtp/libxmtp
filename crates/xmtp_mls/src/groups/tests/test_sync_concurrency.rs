@@ -26,7 +26,10 @@ async fn process_messages_abort_on_retryable_error() {
     let envelopes = bo
         .context
         .api()
-        .query_all([(wire_topic.clone(), before.received)].into(), 100)
+        .query_all(
+            [(wire_topic.clone(), before.received)].into(),
+            bo.context.api().limits().max_query_limit as u32,
+        )
         .await?;
     assert_eq!(envelopes.len(), 2);
     bo.mls_store().admit_incoming_batch(
@@ -114,7 +117,10 @@ async fn skip_already_processed_messages() {
         let envelopes = bo
             .context
             .api()
-            .query_all([(wire_topic.clone(), Cursor(0))].into(), 100)
+            .query_all(
+                [(wire_topic.clone(), Cursor(0))].into(),
+                bo.context.api().limits().max_query_limit as u32,
+            )
             .await?;
         let batch = OrderedEnvelopeBatch {
             topic: wire_topic.clone(),
@@ -496,7 +502,7 @@ async fn can_stream_out_of_order_without_forking() {
                 Cursor(0),
             )]
             .into(),
-            xmtp_configuration::BACKEND_DEFAULT_MAX_QUERY_LIMIT as u32,
+            group_a.context.api().limits().max_query_limit as u32,
         )
         .await
         .unwrap()
