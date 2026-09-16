@@ -305,9 +305,7 @@ public final class Client {
 							.waitForRegistrationVisible?.toFfi()
 					)
 				} catch {
-					throw ClientError.creationError(
-						"Failed to sign the message: \(error.localizedDescription)"
-					)
+					throw Client.signingFailure(error)
 				}
 			} else {
 				// add log messages here for logging 1) dbDirectory, 2) number of files in dbDirectory, 3) dbPath
@@ -549,6 +547,22 @@ public final class Client {
 		return (ffiClient, dbURL)
 	}
 
+	/// The error a failed signing round trip should surface.
+	///
+	/// A signature the deployment refuses because of its configuration — a smart
+	/// contract wallet chain outside ``ServerConfiguration/smartContractWalletChains``
+	/// (spec 006 CFG-069, CFG-070), or a client the deployment has since latched —
+	/// keeps its distinct type, so an app can `catch is ChainNotAcceptedError`.
+	/// Anything else stays the generic creation failure it has always been.
+	static func signingFailure(_ error: Error) -> Error {
+		if let configurationError = error.serverConfigurationError {
+			return configurationError
+		}
+		return ClientError.creationError(
+			"Failed to sign the message: \(error.localizedDescription)"
+		)
+	}
+
 	private static func handleSignature(
 		for signatureRequest: FfiSignatureRequest, signingKey: SigningKey
 	) async throws {
@@ -652,9 +666,7 @@ public final class Client {
 				api: apiClient, signatureRequest: signatureRequest
 			)
 		} catch {
-			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
-			)
+			throw Client.signingFailure(error)
 		}
 	}
 
@@ -850,9 +862,7 @@ public final class Client {
 					signatureRequest: signatureRequest
 				)
 			} catch {
-				throw ClientError.creationError(
-					"Failed to sign the message: \(error.localizedDescription)"
-				)
+				throw Client.signingFailure(error)
 			}
 		} else {
 			throw ClientError.creationError(
@@ -876,9 +886,7 @@ public final class Client {
 				signatureRequest: signatureRequest
 			)
 		} catch {
-			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
-			)
+			throw Client.signingFailure(error)
 		}
 	}
 
@@ -896,9 +904,7 @@ public final class Client {
 				signatureRequest: signatureRequest
 			)
 		} catch {
-			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
-			)
+			throw Client.signingFailure(error)
 		}
 	}
 
@@ -918,9 +924,7 @@ public final class Client {
 				signatureRequest: signatureRequest
 			)
 		} catch {
-			throw ClientError.creationError(
-				"Failed to sign the message: \(error.localizedDescription)"
-			)
+			throw Client.signingFailure(error)
 		}
 	}
 

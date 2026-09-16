@@ -691,12 +691,17 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
     switch (signer.type) {
       case "SCW":
-        await signatureRequest.addScwSignature(
-          identifier,
-          signature,
-          signer.getChainId(),
-          signer.getBlockNumber?.(),
-        );
+        // Same chain restriction as the instance path: the deployment's
+        // accepted chains reject any other one here, before the network call
+        // (spec 006 CFG-069, CFG-070).
+        await signatureRequest
+          .addScwSignature(
+            identifier,
+            signature,
+            signer.getChainId(),
+            signer.getBlockNumber?.(),
+          )
+          .catch(throwServerConfigurationError);
         break;
       case "EOA":
         await signatureRequest.addEcdsaSignature(signature);

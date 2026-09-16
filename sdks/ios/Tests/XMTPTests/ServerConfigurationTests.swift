@@ -178,4 +178,25 @@ final class ServerConfigurationTests: XCTestCase {
 		struct OrdinaryError: Error {}
 		XCTAssertNil(OrdinaryError().serverConfigurationError)
 	}
+
+	/// CFG-069 and CFG-070: a chain the deployment refuses reaches the app as
+	/// ``ChainNotAcceptedError`` from every signing path — `create`,
+	/// `addAccount`, `removeAccount` and both `revokeInstallations` — not as a
+	/// generic creation failure. No backend.
+	func testKeepsTheConfigurationErrorOnASigningFailure() throws {
+		let rejected = Client.signingFailure(
+			FfiError.ChainNotAccepted(message: "[ClientError::ChainNotAccepted] eip155:8453")
+		)
+		let typed = try XCTUnwrap(rejected as? ChainNotAcceptedError)
+		XCTAssertEqual(typed.message, "[ClientError::ChainNotAccepted] eip155:8453")
+
+		// Anything else stays the creation failure it has always been.
+		struct OrdinaryError: Error {}
+		let ordinary = try XCTUnwrap(
+			Client.signingFailure(OrdinaryError()) as? ClientError
+		)
+		guard case .creationError = ordinary else {
+			return XCTFail("an ordinary signing failure must stay a creation error")
+		}
+	}
 }
