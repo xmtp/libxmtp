@@ -189,6 +189,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
+          # Internal links are checked against the built site. Canonical URLs
+          # must not depend on the live site's deployment or certificate.
           args: >-
             --no-progress
             --max-retries 2
@@ -196,6 +198,7 @@ jobs:
             --scheme http
             --root-dir '${{ github.workspace }}/apps/docs/_site'
             --exclude '^https://docs\.xmtp\.org/.*'
+            --exclude '^https://self-hosted-docs\.xmtp\.to/.*'
             --exclude '^https://github\.com/xmtp/libxmtp/edit/.*'
             --exclude '^http://collector:4317/?$'
             'apps/docs/_site/*.html'
