@@ -27,10 +27,23 @@ test("trace metrics use private Prometheus without a Fly app label", () => {
 test("backend queries are restricted to the development app", () => {
   for (const panel of rendered.panels) {
     for (const target of panel.targets ?? []) {
-      for (const match of (target.expr ?? "").matchAll(/\b(?:xmtp_|grpc_)[a-zA-Z0-9_]+(\{[^}]*\})?/g)) {
+      for (const match of (target.expr ?? "").matchAll(/\b(?:xmtp_|grpc_server_)[a-zA-Z0-9_]+(\{[^}]*\})?/g)) {
         assert.match(match[1], /app="xmtp-backend-dev"/);
       }
       assert.doesNotMatch(target.expr ?? "", /job="backend"/);
     }
   }
+});
+
+test("Fly filters preserve PromQL grouping labels", () => {
+  let grpcGroups = 0;
+  for (const [index, panel] of source.panels.entries()) {
+    for (const [targetIndex, target] of (panel.targets ?? []).entries()) {
+      const groups = (expr) => (expr ?? "").match(/\b(?:by|without)\s*\([^)]*\)/g) ?? [];
+      const original = groups(target.expr);
+      grpcGroups += original.filter((group) => /grpc_/.test(group)).length;
+      assert.deepEqual(groups(rendered.panels[index].targets[targetIndex].expr), original);
+    }
+  }
+  assert.ok(grpcGroups > 0, "The shared dashboard must exercise gRPC grouping labels");
 });
