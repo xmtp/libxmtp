@@ -144,6 +144,18 @@ WARM_START=$(date +%s)
 warm_elapsed() { echo $(( ($(date +%s) - WARM_START) / 60 )); }
 stage() { echo "=== [$(warm_elapsed)m] $* ==="; }
 
+# Seconds a step may take: whichever is smaller, the caller's own cap in
+# minutes or what is left before WARM_DEADLINE_MIN. Every capped step goes
+# through this, so no combination of steps can overrun the recipe timeout.
+# Negative means there is no budget left and the step must be skipped.
+WARM_DEADLINE_MIN=50
+warm_remaining() {
+  local want_min="$1" left
+  left=$(( WARM_START + WARM_DEADLINE_MIN * 60 - $(date +%s) ))
+  [ "$left" -lt 0 ] && left=0
+  if [ "$left" -gt $(( want_min * 60 )) ]; then echo $(( want_min * 60 )); else echo "$left"; fi
+}
+
 warm_failed=0
 
 # Run a warm step as the murmur user and report how long it took.
@@ -180,8 +192,19 @@ if git clone --depth 1 --branch self-hosted \
   #
   # The `rust` shell is what .envrc selects and what backend.just defaults to;
   # `default` is what `dev/nix-shell` picks with no NIX_DEVSHELL set.
+  # Cap each shell against the budget that is actually left, not a fixed 20m.
+  # Two fixed 20m caps plus the later steps' caps total more than the 1h
+  # recipe ceiling, so a slow pair of shells could run the bake out of time
+  # before the guards below ever apply. `warm_remaining` keeps every step
+  # inside one shared deadline.
   for shell in default rust; do
-    warm_step "$shell dev shell" 20m \
+    limit=$(warm_remaining 20)
+    if [ "$limit" -le 0 ]; then
+      stage "SKIPPING $shell dev shell warm: no budget left"
+      warm_failed=1
+      continue
+    fi
+    warm_step "$shell dev shell" "${limit}s" \
       "nix build '.#devShells.x86_64-linux.$shell' --out-link '$GCROOTS/shell-$shell'" \
       || warm_failed=1
   done
@@ -195,12 +218,15 @@ if git clone --depth 1 --branch self-hosted \
   # Build it outside any devshell, per the note in backend.just: a devshell
   # puts a newer glibc on the library path and breaks the git that Nix uses
   # to fetch git dependencies.
-  if [ "$(warm_elapsed)" -lt 35 ]; then
-    warm_step "backend musl image" 15m \
+  backend_limit=$(warm_remaining 15)
+  # Needs a useful slice of time to be worth starting; a 2-minute stub would
+  # just burn budget and time out anyway.
+  if [ "$backend_limit" -ge 300 ]; then
+    warm_step "backend musl image" "${backend_limit}s" \
       "nix build .#backend-image-x86_64-unknown-linux-musl --out-link '$GCROOTS/backend-image'" \
       || true  # Not a bake failure: the image is still valid without this.
   else
-    stage "SKIPPING backend image warm: $(warm_elapsed)m already elapsed"
+    stage "SKIPPING backend image warm: $(warm_elapsed)m elapsed, not enough budget"
     echo "    Budget reserved for finishing the bake. Agents will build the" >&2
     echo "    backend image on their first \`just backend up\`." >&2
   fi
@@ -230,11 +256,10 @@ if git clone --depth 1 --branch self-hosted \
   # One timeout covers the whole group. Serial pulls with a timeout each could
   # add 30 minutes on top of the shell and backend steps, run the bake past
   # the 1h platform ceiling, and produce no image at all.
-  IMAGE_BUDGET=$((WARM_START + 55 * 60 - $(date +%s)))
+  IMAGE_BUDGET=$(warm_remaining 10)
   if [ "$IMAGE_BUDGET" -le 0 ]; then
     echo "NOTE: out of budget; skipping the image pulls" >&2
   else
-    [ "$IMAGE_BUDGET" -gt 600 ] && IMAGE_BUDGET=600
     timeout "${IMAGE_BUDGET}s" docker compose -f "$WARM_DIR/dev/docker/compose.yml" \
       pull --policy missing --ignore-pull-failures --quiet \
       || echo "WARNING: could not pre-pull every compose image" >&2
