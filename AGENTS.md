@@ -55,7 +55,7 @@ just web-chat check     # build browser SDK and typecheck web-chat.
 just web-chat lint      # lint web-chat TypeScript.
 just web-chat build     # build browser SDK and web-chat.
 just web-chat test      # test web-chat against the worktree backend.
-just outline <paths...> # compact declarations and line ranges.
+just outline <paths...> # declarations and line ranges; upstream defaults.
 just show <file> <name>  # source of a named symbol.
 just agent-test         # helper and navigation tests; no language server.
 just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
@@ -90,6 +90,7 @@ and port block, so run `just backend status` for the checkout you are in. See th
   <name>` for a named symbol, or read the required range. Skip outlines for tiny
   files and exact-range reads. Outlines can be incomplete; use `rg` when a symbol
   is absent. Use Serena for Rust references and type information.
+  For smaller output, use `just outline --no-docs --no-fields --no-attrs <path>`.
 - Use the existing Just recipes for builds and tests. The Codex hook enables
   compact output inside supported recipes. Without the hook, set `XMTP_RTK=1`
   explicitly. Do not wrap these recipes in `rtk just` or a generic output filter.

@@ -26,7 +26,7 @@ class OutlineTests(unittest.TestCase):
 
     def outline(self, path):
         return subprocess.check_output(
-            [self.cli, "--no-docs", "--no-fields", "--no-attrs", str(path)],
+            [self.cli, str(path)],
             text=True,
         )
 
@@ -82,6 +82,26 @@ class OutlineTests(unittest.TestCase):
             [self.cli, "show", str(path), "absent"], text=True
         )
         self.assertIn("symbol not found", result)
+
+    def test_just_uses_upstream_defaults_and_accepts_compact_flags(self):
+        path = self.fixture(
+            "details.rs",
+            "/// Connection settings.\n#[derive(Debug)]\npub struct Settings {\n    pub endpoint: String,\n}\n",
+        )
+        result = subprocess.check_output(
+            ["just", "outline", str(path)], cwd=ROOT, text=True
+        )
+        self.assertEqual(result, self.outline(path))
+        for detail in ("Connection settings", "derive(Debug)", "endpoint"):
+            self.assertIn(detail, result)
+        compact = subprocess.check_output(
+            ["just", "outline", "--no-docs", "--no-fields", "--no-attrs", str(path)],
+            cwd=ROOT,
+            text=True,
+        )
+        for detail in ("Connection settings", "derive(Debug)", "endpoint"):
+            self.assertNotIn(detail, compact)
+        self.assertIn("Settings", compact)
 
     def test_just_preserves_paths_and_multiple_arguments(self):
         paths = [

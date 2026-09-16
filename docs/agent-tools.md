@@ -46,7 +46,7 @@ dev/nix-shell 'just outline crates/xmtp_mls/src/client.rs'
 dev/nix-shell 'just show sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt create'
 ```
 
-`just outline` accepts one or more paths and prints compact declarations with
+`just outline` accepts one or more paths and prints declarations with
 line ranges. `just show` accepts a file and one or more symbol names. Use a
 qualified name when a short name is ambiguous; nesting is significant. For
 example, Kotlin companion methods are under `Client.Companion`.
@@ -54,8 +54,9 @@ example, Kotlin companion methods are under `Client.Companion`.
 The `dev/ast-outline` launcher runs ast-outline 1.9.0 with Nix-provided Python in
 the locked agent environment. Its first call can download dependencies. Both
 navigation recipes preserve argument boundaries, including paths with spaces.
-The outline recipe disables documentation, fields, and attributes to limit
-output. Use the launcher directly for other upstream options or JSON output.
+The outline recipe uses upstream defaults, including documentation, fields,
+and attributes. Pass `--no-docs --no-fields --no-attrs` when smaller output is
+useful. Use the launcher directly for other upstream options or JSON output.
 
 Outlines are syntax-based and can miss macro-generated code or declarations in
 files with parse errors. An absent symbol is not proof that it does not exist.

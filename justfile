@@ -145,11 +145,11 @@ clean-incremental days="14":
 # --- AGENT HELPERS ---
 # Compact output for agents. See .agents/skills/check-ci.
 
-# Compact declarations and line ranges. Arguments are passed without shell expansion.
+# Declarations and line ranges. Arguments are passed without shell expansion.
 [script("bash")]
 [positional-arguments]
 outline +paths:
-    exec dev/ast-outline --no-docs --no-fields --no-attrs "$@"
+    exec dev/ast-outline "$@"
 
 # Read one or more symbol bodies by name.
 [script("bash")]
