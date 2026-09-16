@@ -40,7 +40,10 @@ mismatch or a raised minimum version.
 - Read it with `client.server_configuration()`. Read a deployment's without a
   client or database with `server_configuration::fetch_server_configuration`.
 - `handle.check()?` is the latch gate. It is already on the client-level,
-  group-sync, and publish paths; do not add a second one.
+  group-sync, and publish paths, and on the two client entry points that reach
+  the network outside them (`can_message`, `rotate_and_upload_key_package`);
+  do not add a second one. A new `pub` client method that calls the API without
+  passing through `ensure_identity_ready` needs its own gate.
 - A test that needs a specific snapshot passes `tester!(alix, config_provider: …)`
   with a `xmtp_configuration::StaticConfigProvider`. That short-circuits the
   fetch, the store, the refresh, and the identifier binding, so no backend has

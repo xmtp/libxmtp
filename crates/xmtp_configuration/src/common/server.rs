@@ -187,6 +187,49 @@ impl Default for LimitsConfiguration {
     }
 }
 
+impl LimitsConfiguration {
+    /// The same snapshot with every zero replaced by the compiled default.
+    ///
+    /// CFG-031 already applies this rule to what arrives on the wire, so no
+    /// published configuration can carry a zero. A snapshot built in Rust and
+    /// handed in through a `ConfigProvider` (CFG-033) skips that conversion,
+    /// and a zero chunk dimension would panic the transport that slices its
+    /// work into chunks of it (CFG-064). Applying the wire rule once more,
+    /// where the transport reads the value, means it never can.
+    pub fn without_zeroes(&self) -> Self {
+        let default = Self::default();
+        macro_rules! or_default {
+            ($($field:ident),+ $(,)?) => {
+                Self {
+                    $($field: if self.$field == 0 { default.$field } else { self.$field }),+
+                }
+            };
+        }
+        or_default!(
+            max_envelope_bytes,
+            max_request_bytes,
+            max_response_bytes,
+            max_publish_topics,
+            max_query_topics,
+            max_query_limit,
+            default_query_limit,
+            max_newest_metadata_topics,
+            max_newest_full_topics,
+            max_update_adds,
+            max_update_removes,
+            max_stream_topics,
+            max_static_topics,
+            max_lookup_identifiers,
+            max_scw_signatures,
+            max_identity_entries,
+            max_update_frames_per_second,
+            max_update_burst,
+            max_ping_frames_per_second,
+            max_ping_burst,
+        )
+    }
+}
+
 /// Advisory group shapes. The backend publishes them and does not enforce them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MlsConfiguration {

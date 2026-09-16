@@ -69,7 +69,10 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
     }
 
     fn set_limits(&self, limits: Arc<LimitsConfiguration>) {
-        self.limits.store(limits);
+        // A zero here would panic `chunks(0)` in `streams.rs`. CFG-031 keeps
+        // zeroes off the wire; this keeps them out of a snapshot an app built
+        // in Rust and supplied through a `ConfigProvider`.
+        self.limits.store(Arc::new(limits.without_zeroes()));
     }
     async fn verify_smart_contract_wallet_signatures(
         &self,

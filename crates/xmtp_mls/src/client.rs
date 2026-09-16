@@ -1242,6 +1242,10 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
+        // CFG-051 and CFG-061: a latched client publishes nothing. This one
+        // reaches `Identity` directly instead of going through a group or the
+        // publish path, so it carries its own gate.
+        self.ensure_identity_ready()?;
         self.identity()
             .rotate_and_upload_key_package(
                 self.context.api(),
@@ -1385,6 +1389,10 @@ where
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<HashMap<Identifier, bool>, ClientError> {
+        // CFG-051 and CFG-061: a latched client issues no request. The latch
+        // alone, not `ensure_identity_ready`, because this answers before the
+        // caller has registered an identity.
+        self.context.server_configuration().check()?;
         let requests = account_identifiers.iter().map(Into::into).collect();
 
         let results = self.context.api().get_inbox_ids(requests).await?;

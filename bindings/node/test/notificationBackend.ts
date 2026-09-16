@@ -20,6 +20,9 @@ export async function notificationBackend() {
   const inboxRequest = root.lookupType('xmtp.backend.v1.GetInboxIdsRequest')
   const inboxResponse = root.lookupType('xmtp.backend.v1.GetInboxIdsResponse')
   const queryResponse = root.lookupType('xmtp.backend.v1.QueryResponse')
+  const configurationResponse = root.lookupType(
+    'xmtp.backend.v1.GetConfigurationResponse'
+  )
   const registrations: Array<{
     apns?: { token: string }
     fcm?: { token: string }
@@ -41,6 +44,21 @@ export async function notificationBackend() {
         payload = Buffer.from(
           queryResponse
             .encode(queryResponse.fromObject({ continuation: {} }))
+            .finish()
+        )
+      }
+      // Spec 006 CFG-040: `build` resolves the deployment's configuration
+      // before any identity work, so this fake has to publish an identifier.
+      // Every other field is left at zero, which CFG-031 reads as "not
+      // provided" and fills from the client's compiled defaults.
+      if (String(headers[':path']).endsWith('/GetConfiguration')) {
+        payload = Buffer.from(
+          configurationResponse
+            .encode(
+              configurationResponse.fromObject({
+                identifier: 'test.notification.backend',
+              })
+            )
             .finish()
         )
       }

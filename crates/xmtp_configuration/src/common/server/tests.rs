@@ -153,3 +153,50 @@ fn providers_return_the_value_they_were_built_with() {
         "org.example.stored"
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn zero_limits_fall_back_to_the_compiled_defaults() {
+    // A snapshot an app built in Rust never passes through the CFG-031 wire
+    // conversion, so it can carry a zero the transport would divide by.
+    let supplied = LimitsConfiguration {
+        max_static_topics: 0,
+        max_newest_metadata_topics: 0,
+        max_query_topics: 9,
+        ..Default::default()
+    };
+    let sanitized = supplied.without_zeroes();
+    assert_eq!(
+        sanitized.max_static_topics,
+        BACKEND_DEFAULT_MAX_STATIC_TOPICS
+    );
+    assert_eq!(
+        sanitized.max_newest_metadata_topics,
+        BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS
+    );
+    // A value the app did supply is kept.
+    assert_eq!(sanitized.max_query_topics, 9);
+    // An all-zero snapshot comes back as the compiled defaults, whole.
+    let empty = LimitsConfiguration {
+        max_envelope_bytes: 0,
+        max_request_bytes: 0,
+        max_response_bytes: 0,
+        max_publish_topics: 0,
+        max_query_topics: 0,
+        max_query_limit: 0,
+        default_query_limit: 0,
+        max_newest_metadata_topics: 0,
+        max_newest_full_topics: 0,
+        max_update_adds: 0,
+        max_update_removes: 0,
+        max_stream_topics: 0,
+        max_static_topics: 0,
+        max_lookup_identifiers: 0,
+        max_scw_signatures: 0,
+        max_identity_entries: 0,
+        max_update_frames_per_second: 0,
+        max_update_burst: 0,
+        max_ping_frames_per_second: 0,
+        max_ping_burst: 0,
+    };
+    assert_eq!(empty.without_zeroes(), LimitsConfiguration::default());
+}
