@@ -48,13 +48,14 @@ This creates a `.env` file with:
 
 ### Environment Variables
 
-| Variable                 | Description                                           | Required              |
-| ------------------------ | ----------------------------------------------------- | --------------------- |
-| `XMTP_WALLET_KEY`        | Ethereum private key (hex, with or without 0x prefix) | Yes\*                 |
-| `XMTP_DB_ENCRYPTION_KEY` | 32-byte encryption key (hex)                          | Yes\*                 |
-| `XMTP_BACKEND_URL`       | Backend URL including `http://` or `https://`         | Yes                   |
-| `XMTP_ENV`               | Database label only                                   | No (default: `local`) |
-| `XMTP_DB_PATH`           | Custom database file path                             | No                    |
+| Variable                 | Description                                           | Required                   |
+| ------------------------ | ----------------------------------------------------- | -------------------------- |
+| `XMTP_WALLET_KEY`        | Ethereum private key (hex, with or without 0x prefix) | Yes\*                      |
+| `XMTP_DB_ENCRYPTION_KEY` | 32-byte encryption key (hex)                          | Yes\*                      |
+| `XMTP_BACKEND_URL`       | Backend URL including `http://` or `https://`         | Yes                        |
+| `XMTP_API_KEY`           | Backend API key, sent as a bearer token               | For authenticated backends |
+| `XMTP_ENV`               | Database label only                                   | No (default: `local`)      |
+| `XMTP_DB_PATH`           | Custom database file path                             | No                         |
 
 \*Required for commands that need a client. If missing, the CLI will suggest running `init` to generate them.
 

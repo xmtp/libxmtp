@@ -1729,6 +1729,7 @@ __metadata:
     "@oclif/plugin-not-found": "npm:^3.2.74"
     "@oclif/plugin-warn-if-update-available": "npm:^3.1.55"
     "@types/node": "npm:^24.10.9"
+    "@xmtp/node-bindings": "portal:../../bindings/node"
     "@xmtp/node-sdk": "portal:../../sdks/js/node-sdk"
     eslint: "npm:^9.39.2"
     execa: "npm:^9.6.1"
@@ -1753,16 +1754,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@xmtp/node-bindings@npm:1.8.0":
-  version: 1.8.0
-  resolution: "@xmtp/node-bindings@npm:1.8.0"
-  checksum: 10c0/88ca58d46590b8a47f165998a4463a979eaeda30f30cb1a367bd7b675a6685d0ec2cb731fc2a32a06fac13da413179237305dbe35d54a8272c5ad94d0586d05f
-  languageName: node
-  linkType: hard
-
-"@xmtp/node-bindings@portal:../../../bindings/node::locator=%40xmtp%2Fnode-sdk%40portal%3A..%2F..%2Fsdks%2Fjs%2Fnode-sdk%3A%3Alocator%3D%2540xmtp%252Fcli%2540workspace%253A.":
+"@xmtp/node-bindings@portal:../../bindings/node::locator=%40xmtp%2Fcli%40workspace%3A.":
   version: 0.0.0-use.local
-  resolution: "@xmtp/node-bindings@portal:../../../bindings/node::locator=%40xmtp%2Fnode-sdk%40portal%3A..%2F..%2Fsdks%2Fjs%2Fnode-sdk%3A%3Alocator%3D%2540xmtp%252Fcli%2540workspace%253A."
+  resolution: "@xmtp/node-bindings@portal:../../bindings/node::locator=%40xmtp%2Fcli%40workspace%3A."
   languageName: node
   linkType: soft
 

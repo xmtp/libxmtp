@@ -70,7 +70,7 @@ This command requires:
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RevokeInstallations);
     const config = this.getConfig();
-    const networkOptions = this.networkOptions();
+    const networkOptions = await this.networkOptions();
 
     if (!config.walletKey) {
       this.error(

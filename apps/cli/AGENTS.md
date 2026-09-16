@@ -2,6 +2,8 @@
 
 Standalone Yarn 4 project for `@xmtp/cli`, linked to the in-tree Node SDK with
 `portal:../../sdks/js/node-sdk`.
+Resolve `@xmtp/node-bindings` to the local bindings for both the CLI and SDK.
+They must share one native module instance for authenticated backends.
 
 ## Commands
 
@@ -19,6 +21,7 @@ dependency installs `sdks/js`, stages Node bindings, and builds
 
 ## Backend configuration
 
+- Use `XMTP_API_KEY` for a static backend bearer token. Do not put keys in argv.
 - Commands that create a client or contact a backend require `--backend-url`
   or `XMTP_BACKEND_URL`.
 - `--env` and `XMTP_ENV` are database labels only. They do not select a

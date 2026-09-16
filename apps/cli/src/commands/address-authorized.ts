@@ -52,7 +52,7 @@ This is useful for:
     const isAuthorized = await Client.isAddressAuthorized(
       args.inboxId,
       args.address.toLowerCase(),
-      this.networkOptions(),
+      await this.networkOptions(),
     );
 
     this.output({

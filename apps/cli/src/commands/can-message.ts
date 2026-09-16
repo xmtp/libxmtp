@@ -52,7 +52,7 @@ XMTP messages (true/false).`;
 
     const results = await Client.canMessage(
       identifierObjects,
-      this.networkOptions(),
+      await this.networkOptions(),
     );
 
     const output = identifiers.map((id) => ({

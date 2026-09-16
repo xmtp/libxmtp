@@ -6,6 +6,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BACKEND_HOST: backend-dev.xmtp.to
+
 concurrency:
   group: fly-backend-dev
   cancel-in-progress: false
@@ -17,7 +20,7 @@ jobs:
     timeout-minutes: 20
     environment:
       name: backend-dev
-      url: https://backend-dev.xmtp.to
+      url: https://${{ env.BACKEND_HOST }}
     steps:
       - uses: actions/checkout@v6
       - name: Check for a newer commit
@@ -65,4 +68,14 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
         run: |
           flyctl checks list --app xmtp-backend-dev
-          flyctl ssh console --app xmtp-backend-dev --command '/bin/grpc-health-probe -addr=127.0.0.1:5050'
+          # Probe the client-facing TLS endpoint without Fly SSH permissions.
+          for attempt in $(seq 1 6); do
+            if docker run --rm \
+              ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.57@sha256:f77f1257805ecb57f1f0c36c5825d3c2e47aa81cce87128675e768463ed6487a \
+              -addr="$BACKEND_HOST:443" -tls -connect-timeout=10s -rpc-timeout=10s; then
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Public backend gRPC health check failed."
+          exit 1
