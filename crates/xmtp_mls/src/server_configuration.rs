@@ -104,9 +104,29 @@ impl Default for ServerConfigurationHandle {
 }
 
 impl ServerConfigurationHandle {
+    /// Hold one snapshot, with no zero left in its limits.
+    ///
+    /// CFG-031 replaces a zero on the wire with the compiled default, but a
+    /// snapshot an app builds in Rust and hands in through a `ConfigProvider`
+    /// (CFG-033) never passes through that conversion, and a zero dimension
+    /// would panic the `chunks(limit)` calls in `xmtp_api` (CFG-064). Every
+    /// snapshot reaches a client through this constructor, so sanitizing here
+    /// is what keeps the zero out of all three readers at once: this handle,
+    /// the wrapper that chunks with it, and the transport.
     pub fn new(provider: Arc<dyn ConfigProvider>) -> Self {
+        let sanitized = {
+            let supplied = provider.server_configuration();
+            let limits = supplied.limits.without_zeroes();
+            (limits != supplied.limits).then(|| ServerConfiguration {
+                limits,
+                ..supplied.clone()
+            })
+        };
         Self {
-            provider,
+            provider: match sanitized {
+                Some(configuration) => Arc::new(StoredConfigProvider::new(configuration)),
+                None => provider,
+            },
             latch: Arc::default(),
             restricted_chains: None,
         }

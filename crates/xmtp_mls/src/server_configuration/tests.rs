@@ -166,6 +166,35 @@ fn the_handle_binds_a_request_to_the_snapshot_chains() {
     assert_eq!(unbound.accepted_chains(), None);
 }
 
+// CFG-031, CFG-033 and CFG-064: a snapshot an app built in Rust can carry a
+// zero the wire conversion would have replaced. The handle sanitizes it once,
+// so the wrapper that chunks with these values and the app that reads them
+// back both see the compiled default rather than a `chunks(0)` panic.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_zero_limit_from_a_provider_never_reaches_a_consumer() {
+    use xmtp_configuration::{BACKEND_DEFAULT_MAX_QUERY_TOPICS, StaticConfigProvider};
+
+    let handle =
+        ServerConfigurationHandle::new(Arc::new(StaticConfigProvider::edited(|configuration| {
+            configuration.identifier = "org.example.zeroed".to_owned();
+            configuration.limits.max_query_topics = 0;
+            configuration.limits.max_lookup_identifiers = 0;
+        })));
+
+    let limits = &handle.configuration().limits;
+    assert_eq!(limits.max_query_topics, BACKEND_DEFAULT_MAX_QUERY_TOPICS);
+    assert!(limits.max_lookup_identifiers > 0);
+    // Only the zeroes moved.
+    assert_eq!(handle.configuration().identifier, "org.example.zeroed");
+
+    // A snapshot with no zero in it is held as supplied.
+    let handle =
+        ServerConfigurationHandle::new(Arc::new(StaticConfigProvider::edited(|configuration| {
+            configuration.limits.max_query_topics = 3
+        })));
+    assert_eq!(handle.configuration().limits.max_query_topics, 3);
+}
+
 /// CFG-100: every field §6.4 acts on, given a non-default value, and every
 /// other §5.2 field, given one too, so the round-trip assertion is real.
 #[cfg(test)]
