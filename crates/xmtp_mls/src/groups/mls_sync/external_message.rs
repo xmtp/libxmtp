@@ -113,7 +113,7 @@ where
         }
         let migrated = crate::groups::app_data::is_migrated_group(group);
         let policies = if migrated {
-            crate::groups::app_data::policy::membership_policy_set_from_registry(group)
+            crate::groups::app_data::policy::policy_set_from_registry(group.extensions())
                 .map_err(CommitValidationError::installed_state)?
         } else {
             extract_group_permissions(group).map_err(CommitValidationError::installed_state)?
