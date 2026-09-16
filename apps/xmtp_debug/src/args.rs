@@ -45,6 +45,8 @@ pub struct AppOpts {
 
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Print a random API key without connecting to a backend.
+    GenerateApiKey,
     Generate(Generate),
     Modify(Modify),
     Inspect(Inspect),
@@ -361,17 +363,22 @@ pub struct LogOptions {
 pub struct BackendOpts {
     /// Required self-hosted backend URL.
     #[arg(short, long)]
-    pub url: url::Url,
+    pub url: Option<url::Url>,
 }
 
 impl BackendOpts {
+    /// The backend URL, checked before any network command runs.
+    pub fn url(&self) -> &url::Url {
+        self.url.as_ref().expect("backend URL was validated")
+    }
+
     pub fn hash(&self) -> u64 {
-        xxh3::xxh3_64(self.url.as_str().as_bytes())
+        xxh3::xxh3_64(self.url().as_str().as_bytes())
     }
 
     pub fn connect(&self) -> eyre::Result<crate::DbgClientApi> {
         Ok(MessageBackendBuilder::default()
-            .host(self.url.as_str())
+            .host(self.url().as_str())
             .build()?)
     }
 }
@@ -390,7 +397,7 @@ impl From<BackendOpts> for u64 {
 
 impl From<BackendOpts> for url::Url {
     fn from(value: BackendOpts) -> Self {
-        value.url
+        value.url.expect("backend URL was validated")
     }
 }
 

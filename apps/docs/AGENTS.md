@@ -56,7 +56,10 @@ from-scratch Rust cross-compile. A pull request builds the site and the Rust
 reference, and composes without the native references; the workflow sets
 `DOCS_SKIP_NATIVE_REFERENCES=1` so `compose.mjs` and `check-site.mjs` do not
 require them.
-DNS cutover is a separate task.
+The deployment domain is `self-hosted-docs.xmtp.to`. GitHub Pages uses the
+repository Pages setting for this domain; the workflow does not read `CNAME`.
+Cloudflare holds a DNS-only CNAME to `xmtp.github.io`. Enable HTTPS after the
+GitHub certificate is issued. See `dev/fly/README.md` for deployment setup.
 
 ## TypeScript examples
 

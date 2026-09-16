@@ -1,0 +1,19 @@
+#:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[server]
+identifier = "org.xmtp.backend.dev"
+listen = "[::]:5050"
+log_format = "json"
+
+[database]
+url = "env:XMTP_DATABASE_URL"
+
+[auth]
+enabled = true
+
+[auth.api_keys]
+development = "env:XMTP_BACKEND_DEV_API_KEY"
+
+[telemetry]
+metrics_listen = "0.0.0.0:9464"
+otlp_endpoint = "http://xmtp-backend-dev-tempo.internal:4317"
+sample_ratio = 1.0

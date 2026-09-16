@@ -259,6 +259,7 @@ impl App {
 
         if let Some(cmd) = cmd {
             match cmd {
+                GenerateApiKey => unreachable!("handled before app initialization"),
                 Generate(g) => generate::Generate::new(g).run().await,
                 Send(s) => send::Send::new(s)?.run().await,
                 Inspect(i) => inspect::Inspect::new(i)?.run().await,

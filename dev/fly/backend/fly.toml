@@ -1,0 +1,43 @@
+app = "xmtp-backend-dev"
+primary_region = "sjc"
+kill_signal = "SIGTERM"
+kill_timeout = "30s"
+
+# The deploy command supplies the immutable commit image with --image.
+[processes]
+app = "--config-file /config.toml"
+
+[[files]]
+guest_path = "/config.toml"
+local_path = "config.toml"
+
+[http_service]
+internal_port = 5050
+force_https = true
+auto_stop_machines = "off"
+auto_start_machines = true
+min_machines_running = 1
+processes = ["app"]
+
+[http_service.http_options]
+h2_backend = true
+
+[http_service.tls_options]
+alpn = ["h2", "http/1.1"]
+
+[checks.ready]
+type = "tcp"
+port = 5050
+interval = "15s"
+timeout = "5s"
+grace_period = "120s"
+processes = ["app"]
+
+[metrics]
+port = 9464
+path = "/metrics"
+
+[[vm]]
+cpu_kind = "shared"
+cpus = 1
+memory = "512mb"

@@ -6,7 +6,7 @@ mod constants;
 mod logger;
 mod metrics;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 use color_eyre::eyre::{Result, eyre};
 
 use std::sync::{Arc, OnceLock};
@@ -40,6 +40,22 @@ async fn main() -> Result<()> {
     color_eyre::install()?;
 
     let opts = config()?;
+    if matches!(opts.cmd, Some(args::Commands::GenerateApiKey)) {
+        const API_KEY_BYTES: usize = 32;
+        println!(
+            "{}",
+            hex::encode(xmtp_common::rand_array::<API_KEY_BYTES>())
+        );
+        return Ok(());
+    }
+    if opts.backend.url.is_none() && !opts.version {
+        AppOpts::command()
+            .error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "--url is required",
+            )
+            .exit();
+    }
     let mut logger = logger::Logger::from(&opts.log);
     logger.init()?;
     metrics::init_metrics(opts.metrics);

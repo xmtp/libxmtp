@@ -3,6 +3,13 @@
 Read `.agents/skills/working-with-nix/SKILL.md` before changing derivations.
 Check an affected output with `nix build --no-link .#<output>`; run `just lint-config`.
 
+On macOS, keep the compiler, linker, and SDK from the same toolchain. The local
+and iOS shells select Xcode through `ios-env.nix` and use its native linker.
+Do not hard-code an Xcode version or use Nix's linker with the system SDK.
+The focused Rust shell uses the Nix toolchain and does not need system Xcode.
+Run `dev/nix-shell 'bash dev/check-apple-toolchain'` in the local shell and
+`NIX_DEVSHELL=rust dev/nix-shell 'bash dev/check-apple-toolchain'` for the Nix SDK.
+
 ## Build isolation
 
 - Cargo resolves every workspace member before applying package selection. Crane's `mkDummySrc` input needs each member's target sources, not just its manifest. Keep dependency-cache inputs narrow after dummy generation.

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/../.."
+node dev/fly/render-dashboard.mjs
+flyctl deploy dev/fly/prometheus --ha=false --strategy immediate --yes
+flyctl deploy dev/fly/tempo --ha=false --strategy immediate --yes
+flyctl deploy dev/fly/grafana --ha=false --strategy immediate --yes

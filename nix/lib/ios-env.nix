@@ -147,6 +147,12 @@ let
     export IPHONEOS_DEPLOYMENT_TARGET="14"
     _XCODE_CLANG="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang"
     _XCODE_CLANGXX="$_XCODE_DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang++"
+    # Keep the host compiler and linker with the selected Xcode SDK. Nix's
+    # older linker cannot always read SDK stubs from a newer Xcode release.
+    # Target-specific variables preserve the Android and Wasm compilers.
+    export CC_aarch64_apple_darwin="$_XCODE_CLANG"
+    export CXX_aarch64_apple_darwin="$_XCODE_CLANGXX"
+    export CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$_XCODE_CLANG"
     _IOS_SDK="$_XCODE_DEV/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS.sdk"
     _IOS_SIM_SDK="$_XCODE_DEV/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator.sdk"
     export CC_aarch64_apple_ios="$_XCODE_CLANG"

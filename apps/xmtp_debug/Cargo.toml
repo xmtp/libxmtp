@@ -80,6 +80,9 @@ xmtp_mls_common.workspace = true
 xmtp_proto.workspace = true
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
 
+[dev-dependencies]
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
 [features]
 default = ["deserialize-paths"]
 # Forward bincode field-path debug to xmtp_db. Runtime-gated on `openmls_kv` target enabled.
