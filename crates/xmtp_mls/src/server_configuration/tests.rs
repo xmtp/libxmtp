@@ -493,6 +493,19 @@ max_group_members = 23
         let error = client.create_group(None, None).unwrap_err().to_string();
         assert!(error.contains("9999.0.0"), "unexpected error: {error}");
 
+        // CFG-061 covers every later call, including the two client entry
+        // points that reach the network without going through a group: a
+        // latched client neither looks an identifier up nor publishes a key
+        // package.
+        let error = client.can_message(&[]).await.unwrap_err().to_string();
+        assert!(error.contains("9999.0.0"), "unexpected error: {error}");
+        let error = client
+            .rotate_and_upload_key_package()
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("9999.0.0"), "unexpected error: {error}");
+
         backend.stop().await?;
     }
 
