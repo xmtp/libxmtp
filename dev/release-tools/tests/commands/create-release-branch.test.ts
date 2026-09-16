@@ -64,6 +64,11 @@ describe("create-release-branch", () => {
       path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
       `{\n  "name": "@xmtp/browser-sdk",\n  "version": "7.0.0"\n}\n`,
     );
+    fs.mkdirSync(path.join(tmpDir, "apps/cli"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "apps/cli/package.json"),
+      `{\n  "name": "@xmtp/cli",\n  "version": "0.3.0"\n}\n`,
+    );
 
     // Create release notes directory
     fs.mkdirSync(path.join(tmpDir, "docs/release-notes"), { recursive: true });
@@ -312,6 +317,35 @@ describe("create-release-branch", () => {
     expect(commitMsg).toBe(
       "chore: create release 1.1.0 (node-sdk 6.1.0, browser-sdk 7.0.1)",
     );
+  });
+
+  it("creates branch with a CLI bump", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+
+    handler({
+      repoRoot: tmpDir,
+      version: "1.1.0",
+      base: "HEAD",
+      ios: "none",
+      android: "none",
+      nodeSdk: "none",
+      browserSdk: "none",
+      agentSdk: "none",
+      cli: "minor",
+      node: false,
+      wasm: false,
+      $0: "test",
+      _: [],
+    });
+
+    const cliPackageJson = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "apps/cli/package.json"), "utf-8"),
+    );
+    expect(cliPackageJson.version).toBe("0.4.0");
+    expect(
+      fs.existsSync(path.join(tmpDir, "docs/release-notes/cli/0.4.0.md")),
+    ).toBe(true);
   });
 
   it("creates branch with --node flag", async () => {

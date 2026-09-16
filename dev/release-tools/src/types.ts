@@ -6,6 +6,7 @@ export enum Sdk {
   BrowserSdk = "browser-sdk",
   NodeSdk = "node-sdk",
   AgentSdk = "agent-sdk",
+  Cli = "cli",
   Libxmtp = "libxmtp",
 }
 

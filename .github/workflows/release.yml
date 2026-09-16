@@ -44,6 +44,11 @@ on:
         required: false
         type: boolean
         default: false
+      cli:
+        description: "Release CLI"
+        required: false
+        type: boolean
+        default: false
       no-merge:
         description: "Skip merging the release PR to main (only applies to final releases)"
         required: false
@@ -71,6 +76,7 @@ jobs:
       node-sdk: ${{ steps.resolve.outputs.node-sdk }}
       browser-sdk: ${{ steps.resolve.outputs.browser-sdk }}
       agent-sdk: ${{ steps.resolve.outputs.agent-sdk }}
+      cli: ${{ steps.resolve.outputs.cli }}
       dry-run: ${{ steps.resolve.outputs.dry-run }}
       skip: ${{ steps.skip-check.outputs.skip }}
     steps:
@@ -86,6 +92,7 @@ jobs:
           INPUT_NODE_SDK: ${{ inputs.node-sdk }}
           INPUT_BROWSER_SDK: ${{ inputs.browser-sdk }}
           INPUT_AGENT_SDK: ${{ inputs.agent-sdk }}
+          INPUT_CLI: ${{ inputs.cli }}
           INPUT_DRY_RUN: ${{ inputs.dry-run }}
         run: |
           if [ "$EVENT_NAME" = "schedule" ]; then
@@ -96,6 +103,7 @@ jobs:
             echo "node-sdk=true" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=false" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=true" >> "$GITHUB_OUTPUT"
+            echo "cli=true" >> "$GITHUB_OUTPUT"
             echo "dry-run=false" >> "$GITHUB_OUTPUT"
           else
             echo "release-type=$INPUT_RELEASE_TYPE" >> "$GITHUB_OUTPUT"
@@ -105,6 +113,7 @@ jobs:
             echo "node-sdk=$INPUT_NODE_SDK" >> "$GITHUB_OUTPUT"
             echo "browser-sdk=$INPUT_BROWSER_SDK" >> "$GITHUB_OUTPUT"
             echo "agent-sdk=$INPUT_AGENT_SDK" >> "$GITHUB_OUTPUT"
+            echo "cli=$INPUT_CLI" >> "$GITHUB_OUTPUT"
             echo "dry-run=${INPUT_DRY_RUN:-false}" >> "$GITHUB_OUTPUT"
           fi
       - name: Reject deferred browser SDK release
@@ -292,6 +301,27 @@ jobs:
       dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
     secrets: inherit
 
+  # Depends on release-node-sdk so the published CLI pins the node-sdk version
+  # shipped by this run, falling back to npm latest when node-sdk is skipped.
+  release-cli:
+    needs: [validate, plan, release-node-sdk]
+    if: >-
+      !cancelled() && !contains(needs.*.result, 'failure')
+      && needs.validate.outputs.cli == 'true' && needs.validate.outputs.skip != 'true'
+      && (needs.validate.outputs.release-type != 'nightly'
+          || (needs.plan.outputs.gate-skip != 'true' && needs.plan.outputs.nothing-pending != 'true'))
+    uses: ./.github/workflows/release-cli.yml
+    with:
+      release-type: ${{ needs.validate.outputs.release-type }}
+      rc-number: ${{ inputs.rc-number }}
+      ref: ${{ needs.validate.outputs.ref }}
+      timestamp: ${{ needs.validate.outputs.timestamp }}
+      node-sdk-version: ${{ needs.release-node-sdk.outputs.version }}
+      pending-version: ${{ needs.plan.outputs.version }}
+      pending-kind: ${{ needs.plan.outputs.kind }}
+      dry-run: ${{ needs.validate.outputs.dry-run == 'true' }}
+    secrets: inherit
+
   # Dev releases only: open (or update) a version-bump PR in each xmtplabs
   # consumer repo for the SDKs this run published. All logic lives in the
   # updatecli manifests under dev/updatecli/; this job only mints a token per
@@ -376,7 +406,7 @@ jobs:
     # and delete the release branch even though the release-* jobs were skipped
     # (skipped ≠ failure, so the !contains(failure) check alone lets it through).
     if: needs.validate.outputs.release-type == 'final' && !inputs.no-merge && !cancelled() && !contains(needs.*.result, 'failure') && needs.validate.outputs.dry-run != 'true'
-    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk]
+    needs: [validate, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -415,7 +445,7 @@ jobs:
   # Do NOT drop any of the three; they jointly make non-nightly run and nightly
   # block-on-not-green / block-on-error.
   hub:
-    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk]
+    needs: [validate, plan, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli]
     if: >-
       needs.validate.outputs.release-type == 'nightly'
       && needs.plan.outputs.gate-skip != 'true'
@@ -516,6 +546,7 @@ jobs:
           NODE_VERSION: ${{ needs.release-node-sdk.outputs.binding-version }}
           WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
+          CLI_VERSION: ${{ needs.release-cli.outputs.version }}
         run: |
           set -euo pipefail
           BODY=$(cat <<EOF
@@ -530,6 +561,7 @@ jobs:
           | Node | ${NODE_VERSION:-—} |
           | WASM | ${WASM_VERSION:-—} |
           | Agent | ${AGENT_VERSION:-—} |
+          | CLI | ${CLI_VERSION:-—} |
 
           See per-SDK release notes under \`docs/release-notes/\`.
           EOF
@@ -556,7 +588,7 @@ jobs:
           fi
 
   notify:
-    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, merge-pr]
+    needs: [validate, plan, hub, release-ios, release-android, release-node-sdk, release-browser-sdk, release-agent-sdk, release-cli, merge-pr]
     if: always() && needs.validate.outputs.skip != 'true'
     runs-on: ubuntu-latest
     steps:
@@ -573,6 +605,8 @@ jobs:
           WASM_VERSION: ${{ needs.release-browser-sdk.outputs.binding-version }}
           AGENT_RESULT: ${{ needs.release-agent-sdk.result }}
           AGENT_VERSION: ${{ needs.release-agent-sdk.outputs.version }}
+          CLI_RESULT: ${{ needs.release-cli.result }}
+          CLI_VERSION: ${{ needs.release-cli.outputs.version }}
           RELEASE_TYPE: ${{ needs.validate.outputs.release-type }}
         run: |
           MSG="${RELEASE_TYPE^} Release:"
@@ -590,6 +624,9 @@ jobs:
           fi
           if [ -n "$AGENT_VERSION" ] || [ "$AGENT_RESULT" != "skipped" ]; then
             MSG="$MSG Agent ${AGENT_VERSION:-failed} (${AGENT_RESULT})"
+          fi
+          if [ -n "$CLI_VERSION" ] || [ "$CLI_RESULT" != "skipped" ]; then
+            MSG="$MSG CLI ${CLI_VERSION:-failed} (${CLI_RESULT})"
           fi
           echo "message=$MSG" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/slack-notify
