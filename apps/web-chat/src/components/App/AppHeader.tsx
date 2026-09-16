@@ -1,0 +1,110 @@
+import {
+  Badge,
+  Box,
+  Burger,
+  Button,
+  Flex,
+  Group,
+  Menu,
+  Text,
+} from "@mantine/core";
+import type { Client } from "@xmtp/browser-sdk";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router";
+import { AppMenu } from "@/components/App/AppMenu";
+import { backendHost } from "@/helpers/backend";
+import { shortAddress } from "@/helpers/strings";
+import { useSettings } from "@/hooks/useSettings";
+import { IconChevronDown } from "@/icons/IconChevronDown";
+import classes from "./AppHeader.module.css";
+
+const GlowingCircle = () => {
+  return (
+    <Box
+      w={6}
+      h={6}
+      bg="green.6"
+      style={{
+        borderRadius: "50%",
+        boxShadow: "0px 0px 2px 2px var(--mantine-color-green-9)",
+      }}
+    />
+  );
+};
+
+export type AppHeaderProps = {
+  client: Client;
+  opened?: boolean;
+  toggle?: () => void;
+};
+
+export const AppHeader: React.FC<AppHeaderProps> = ({
+  client,
+  opened,
+  toggle,
+}) => {
+  const navigate = useNavigate();
+  const { backendUrl } = useSettings();
+  const [accountIdentifier, setAccountIdentifier] = useState<string | null>(
+    null,
+  );
+
+  useEffect(() => {
+    setAccountIdentifier(
+      client.accountIdentifier?.identifier.toLowerCase() ?? null,
+    );
+  }, [client.accountIdentifier]);
+
+  const handleClick = () => {
+    void navigate("/identity");
+  };
+
+  const handleDisconnect = useCallback(() => {
+    void navigate("/disconnect");
+  }, [navigate]);
+
+  return (
+    <Flex align="center" justify="space-between">
+      <Flex align="center" gap="md" className={classes.header}>
+        <div className={classes.burger}>
+          <Burger opened={opened} onClick={toggle} size="sm" />
+        </div>
+        <Flex align="center" flex={1}>
+          <Button
+            variant="default"
+            aria-label={accountIdentifier || ""}
+            className={classes.button}
+            onClick={handleClick}
+          >
+            {accountIdentifier ? shortAddress(accountIdentifier) : "..."}
+          </Button>
+        </Flex>
+      </Flex>
+      <Group align="center" gap="xs">
+        <Menu shadow="md" position="bottom-end">
+          <Menu.Target>
+            <Badge
+              size="lg"
+              radius="md"
+              variant="default"
+              p={0}
+              style={{ cursor: "pointer" }}
+            >
+              <Group align="center" gap="xs" px="sm">
+                <GlowingCircle />
+                <Text size="xs" fw={700}>
+                  {backendHost(backendUrl)}
+                </Text>
+                <IconChevronDown size={14} />
+              </Group>
+            </Badge>
+          </Menu.Target>
+          <Menu.Dropdown miw={200}>
+            <Menu.Item onClick={handleDisconnect}>Disconnect</Menu.Item>
+          </Menu.Dropdown>
+        </Menu>
+        <AppMenu />
+      </Group>
+    </Flex>
+  );
+};

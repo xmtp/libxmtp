@@ -1,0 +1,16 @@
+.button {
+  background-color: light-dark(
+    var(--mantine-color-gray-0),
+    var(--mantine-color-dark-8)
+  );
+}
+
+.burger {
+  display: none;
+}
+
+@media screen and (max-width: 1080px) {
+  .burger {
+    display: block;
+  }
+}

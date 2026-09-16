@@ -1,0 +1,33 @@
+---
+title: XMTP web chat
+description: Connect a browser client to a self-hosted XMTP backend and inspect conversations.
+---
+
+xmtp.chat is a browser-based developer tool for connecting identities, creating
+conversations, sending messages, and inspecting XMTP state against a selected
+backend.
+
+## Run locally
+
+Start the worktree backend, install dependencies, and launch the app:
+
+```bash
+dev/nix-shell 'just backend up'
+dev/nix-shell 'just web-chat install'
+dev/nix-shell 'just web-chat dev'
+```
+
+The development recipe loads this worktree's `XMTP_BACKEND_URL` automatically.
+You can also enter another `http://` or `https://` backend URL in the app before
+connecting.
+
+## Switch backends
+
+Open the app with a `backend` query parameter to request a backend change:
+
+```text
+?backend=http://127.0.0.1:5150
+```
+
+The app asks for confirmation before disconnecting and switching. Local browser
+databases are separated by a label derived from each backend origin.

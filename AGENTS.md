@@ -50,6 +50,11 @@ just cli install        # install standalone CLI dependencies.
 just cli check          # build linked Node SDK and typecheck CLI.
 just cli lint           # lint CLI TypeScript.
 just cli test           # test CLI against the worktree backend.
+just web-chat install   # install standalone web-chat dependencies.
+just web-chat check     # build browser SDK and typecheck web-chat.
+just web-chat lint      # lint web-chat TypeScript.
+just web-chat build     # build browser SDK and web-chat.
+just web-chat test      # test web-chat against the worktree backend.
 just outline <file>     # signature outline of a source file. No bodies.
 just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
 just ci-failures <job>  # why one job failed. Filtered, not the raw log.
