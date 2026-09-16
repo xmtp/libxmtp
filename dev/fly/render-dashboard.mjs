@@ -19,8 +19,9 @@ function adapt(value) {
     result.datasource = { type: "prometheus", uid: "trace-metrics" };
   }
   if (typeof result.expr === "string") {
+    // Match metric prefixes, not grouping labels such as grpc_method or grpc_code.
     result.expr = result.expr.replace(
-      /\b((?:xmtp_|grpc_)[a-zA-Z0-9_]+)(\{[^}]*\})?/g,
+      /\b((?:xmtp_|grpc_server_)[a-zA-Z0-9_]+)(\{[^}]*\})?/g,
       (_, metric, labels) =>
         `${metric}{app="xmtp-backend-dev"${labels && labels !== "{}" ? `,${labels.slice(1, -1)}` : ""}}`,
     );
