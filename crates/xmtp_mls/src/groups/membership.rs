@@ -34,20 +34,8 @@ where
             .filter_map(|(inbox, identifier)| inbox.map(|inbox| (identifier, inbox)))
             .collect();
 
-        // get current number of users in group
-        let member_count = self.members().await?.len();
-        // CFG-066: the deployment sets the ceiling, checked before the commit
-        // is built and before anything is published.
-        let max_members = self
-            .context
-            .server_configuration()
-            .configuration()
-            .mls
-            .max_group_members;
-        if member_count + inbox_id_map.len() > max_members {
-            return Err(GroupError::UserLimitExceeded);
-        }
-
+        // CFG-066 is enforced in `add_members`, the one method both entry
+        // points reach.
         if inbox_id_map.len() != account_identifiers.len() {
             let found_addresses: HashSet<&Identifier> = inbox_id_map.keys().collect();
             let to_add_hashset = HashSet::from_iter(account_identifiers.iter());
@@ -93,6 +81,32 @@ where
         if intent_data.is_empty() {
             tracing::warn!("Member already added");
             return ok_result;
+        }
+
+        // CFG-066: the deployment sets the ceiling, checked here — the one
+        // method both entry points reach — before the commit is built and
+        // before anything is published. The count comes from the group's own
+        // membership extension unioned with the inboxes this commit would add,
+        // not from `members()`: that helper skips an inbox still at sequence id
+        // zero, which is exactly where a just-created group's creator sits.
+        let max_members = self
+            .context
+            .server_configuration()
+            .configuration()
+            .mls
+            .max_group_members;
+        let existing = self.with_group_snapshot(|group| {
+            Ok(super::validated_commit::extract_group_membership(
+                group.extensions(),
+            )?)
+        })?;
+        let resulting: HashSet<&str> = existing
+            .inbox_ids()
+            .into_iter()
+            .chain(intent_data.membership_updates.keys().map(String::as_str))
+            .collect();
+        if resulting.len() > max_members {
+            return Err(GroupError::UserLimitExceeded);
         }
 
         let intent = QueueIntent::update_group_membership()

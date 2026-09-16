@@ -80,9 +80,34 @@ async fn a_lowered_group_member_limit_refuses_the_addition() {
         "a refused addition must not reach the commit"
     );
 
-    // The same addition against a deployment that publishes room for two.
+    // Room for two counts the creator, who sits at sequence id zero until the
+    // first commit and so is invisible to `members()`. Two invitees would make
+    // three, and are refused; one fits exactly.
     crate::tester!(dana, config_provider: provider(|c| c.mls.max_group_members = 2));
     let group = dana.create_group(None, None)?;
+    let error = group.add_members_by_identity(&invitees).await.unwrap_err();
+    assert!(
+        matches!(error, GroupError::UserLimitExceeded),
+        "the creator must count against the ceiling, got {error}"
+    );
+    group.add_members_by_identity(&invitees[..1]).await?;
+    assert_eq!(group.members().await?.len(), 2);
+
+    // The inbox-id API enforces the same ceiling: it is the method both entry
+    // points reach, so it cannot be used to step over the limit.
+    let error = group
+        .add_members(&[caro.inbox_id()])
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("limit"),
+        "the direct inbox-id API must enforce the ceiling too, got {error}"
+    );
+
+    // A deployment with room for three admits both.
+    crate::tester!(eve, config_provider: provider(|c| c.mls.max_group_members = 3));
+    let group = eve.create_group(None, None)?;
     group.add_members_by_identity(&invitees).await?;
     assert_eq!(group.members().await?.len(), 3);
 }
@@ -258,6 +283,7 @@ async fn a_provider_snapshot_requiring_a_newer_client_refuses_the_build() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_latched_client_fails_every_later_call() {
     use crate::context::XmtpSharedContext;
+    use xmtp_common::StreamHandle;
 
     crate::tester!(alix, config_provider: provider(|_| {}));
     let group = alix.create_group(None, None)?;
@@ -297,7 +323,35 @@ async fn a_latched_client_fails_every_later_call() {
 
     // The streams a latch closes are closed by cancelling the context token.
     // The refresh worker does that; here the assertion is that cancelling is
-    // all it takes, and that the latch survives to explain why.
+    // all it takes, that a callback stream reports the reason rather than
+    // closing silently, and that the latch survives to explain why.
+    let reported = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+    let sink = reported.clone();
+    let mut handle = crate::Client::stream_consent_with_callback(
+        Arc::new((*alix).clone()),
+        move |update| {
+            if let Err(error) = update {
+                sink.lock().push(error.to_string());
+            }
+        },
+        || {},
+    );
+    handle.wait_for_ready().await;
+
     alix.context.cancellation_token().cancel();
     assert!(alix.context.server_configuration().check().is_err());
+
+    let closed = handle
+        .join()
+        .await?
+        .expect_err("a latched client must close its streams with the reason");
+    assert!(
+        closed.to_string().contains("9999.0.0"),
+        "a closing stream must report the latch, got {closed}"
+    );
+    let reported = reported.lock().clone();
+    assert!(
+        reported.iter().any(|error| error.contains("9999.0.0")),
+        "the callback must see the latch, got {reported:?}"
+    );
 }

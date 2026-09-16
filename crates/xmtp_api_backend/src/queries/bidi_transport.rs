@@ -1873,6 +1873,16 @@ where
         if !adds_only && !removes_only {
             return None;
         }
+        // CFG-064: the deployment caps adds and removes separately, so the
+        // merged frame is bounded by the cap for the kind it carries. Merging a
+        // removes-only prefix up to `add_cap` would build a frame the backend
+        // rejects with INVALID_ARGUMENT wherever a deployment publishes a
+        // smaller `max_update_removes`.
+        let topic_cap = if adds_only {
+            self.ledger.mutate.add_cap
+        } else {
+            self.ledger.mutate.remove_cap
+        };
         let mut topics: HashSet<_> = first
             .adds
             .iter()
@@ -1897,7 +1907,7 @@ where
                 .chain(next.removes.iter())
                 .collect();
             let next_bytes: usize = next_topics.iter().map(|topic| topic_wire_cost(topic)).sum();
-            if topics.len() + next_topics.len() > self.ledger.mutate.add_cap
+            if topics.len() + next_topics.len() > topic_cap
                 || bytes + next_bytes > self.ledger.mutate.byte_cap
                 || next_topics.iter().any(|topic| topics.contains(topic))
             {

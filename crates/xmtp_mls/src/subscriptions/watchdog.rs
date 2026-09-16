@@ -384,7 +384,7 @@ impl StreamCancel {
         }
     }
 
-    fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
+    pub(crate) fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
         self.token.cancelled()
     }
 
@@ -395,6 +395,28 @@ impl StreamCancel {
     fn fatal(&self) -> Option<crate::server_configuration::ConfigurationLatch> {
         self.configuration.as_ref()?.latched()
     }
+}
+
+/// The result a subscription loop ends with, once its loop has left.
+///
+/// An ordinary close — the inner stream ending, or the client shutting down —
+/// is `Ok(())`. A cancellation the client latched a reason for (CFG-051,
+/// CFG-061) reports that typed error to the callback and returns it as the
+/// handle's result, so the app learns why its streams went away instead of
+/// seeing a bare close. Every callback subscription ends through this, so none
+/// of them can drift into swallowing a latched failure.
+pub(crate) fn close_reason<T>(
+    cancel: &StreamCancel,
+    cancelled: bool,
+    callback: &mut impl FnMut(Result<T, SubscribeError>),
+) -> Result<(), SubscribeError> {
+    let Some(latch) = cancelled.then(|| cancel.fatal()).flatten() else {
+        return Ok(());
+    };
+    let reported =
+        || SubscribeError::Configuration(Box::new(crate::client::ClientError::from(&latch)));
+    callback(Err(reported()));
+    Err(reported())
 }
 
 /// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
@@ -508,18 +530,7 @@ where
         if cancelled || !stale {
             // CFG-051 and CFG-061: a latched client closes its streams *with*
             // the reason, so the app sees the typed error and not a bare close.
-            break 'reconnect match cancelled.then(|| cancel.fatal()).flatten() {
-                Some(latch) => {
-                    let reported = |latch: &_| {
-                        SubscribeError::Configuration(Box::new(crate::client::ClientError::from(
-                            latch,
-                        )))
-                    };
-                    callback(Err(reported(&latch)));
-                    Err(reported(&latch))
-                }
-                None => Ok(()),
-            };
+            break 'reconnect close_reason(&cancel, cancelled, &mut callback);
         }
         tracing::debug!(stream = label, "stream went stale; reconnecting");
 

@@ -513,24 +513,27 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                let cancel = client.context.cancellation_token().clone();
+                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // and this stream closes with it rather than silently.
+                let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
                 let stream = receiver.stream_consent_updates();
 
                 futures::pin_mut!(stream);
                 let _ = tx.send(());
-                loop {
+                let cancelled = loop {
                     tokio::select! {
-                        _ = cancel.cancelled() => break,
+                        _ = cancel.cancelled() => break true,
                         next = stream.next() => match next {
                             Some(message) => callback(message),
-                            None => break,
+                            None => break false,
                         }
                     }
-                }
+                };
                 tracing::debug!("`stream_consent` stream ended, dropping stream");
+                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
                 on_close();
-                Ok::<_, SubscribeError>(())
+                result
             }),
         )
     }
@@ -545,24 +548,27 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                let cancel = client.context.cancellation_token().clone();
+                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // and this stream closes with it rather than silently.
+                let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
                 let stream = receiver.stream_preference_updates();
 
                 futures::pin_mut!(stream);
                 let _ = tx.send(());
-                loop {
+                let cancelled = loop {
                     tokio::select! {
-                        _ = cancel.cancelled() => break,
+                        _ = cancel.cancelled() => break true,
                         next = stream.next() => match next {
                             Some(message) => callback(message),
-                            None => break,
+                            None => break false,
                         }
                     }
-                }
+                };
                 tracing::debug!("`stream_preferences` stream ended, dropping stream");
+                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
                 on_close();
-                Ok::<_, SubscribeError>(())
+                result
             }),
         )
     }
@@ -577,24 +583,27 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                let cancel = client.context.cancellation_token().clone();
+                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // and this stream closes with it rather than silently.
+                let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
                 let stream = receiver.stream_message_deletions();
 
                 futures::pin_mut!(stream);
                 let _ = tx.send(());
-                loop {
+                let cancelled = loop {
                     tokio::select! {
-                        _ = cancel.cancelled() => break,
+                        _ = cancel.cancelled() => break true,
                         next = stream.next() => match next {
                             Some(message) => callback(message),
-                            None => break,
+                            None => break false,
                         }
                     }
-                }
+                };
                 tracing::debug!("`stream_message_deletions` stream ended, dropping stream");
+                let result = watchdog::close_reason(&cancel, cancelled, &mut callback);
                 on_close();
-                Ok::<_, SubscribeError>(())
+                result
             }),
         )
     }
