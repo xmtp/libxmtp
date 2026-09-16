@@ -12031,6 +12031,7 @@ dependencies = [
  "rsa",
  "rustls",
  "schemars 1.2.1",
+ "semver 1.0.28",
  "serde",
  "serde_json",
  "sha2 0.10.9",

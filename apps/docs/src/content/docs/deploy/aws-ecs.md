@@ -46,6 +46,11 @@ Create a working directory outside the repository. Save this as `config.toml`:
 
 ```toml
 #:schema https://raw.githubusercontent.com/xmtp/libxmtp/self-hosted/docs/schemas/backend-v1.json
+[server]
+# Change this to a reverse-DNS name you own. Never change it again once
+# clients have connected: every client database is bound to it.
+identifier = "org.example.xmtp"
+
 [database]
 url = "env:XMTP_DATABASE_URL"
 ```

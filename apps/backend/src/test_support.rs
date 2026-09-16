@@ -20,6 +20,10 @@ use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractS
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
+/// Every backend needs an identifier. A fixture that does not care about the
+/// value gets this one, so no test has to repeat it.
+pub const DEFAULT_TEST_IDENTIFIER: &str = "org.xmtp.test";
+
 pub struct TestServer {
     running: RunningServer,
     database: TestDatabase,
@@ -70,6 +74,13 @@ impl TestServer {
             }
         }
         database.insert("url".into(), "postgres://localhost/ephemeral".into());
+        let server = value
+            .entry("server")
+            .or_insert_with(|| toml::Value::Table(Default::default()));
+        let server = server.as_table_mut().ok_or("server must be a table")?;
+        server
+            .entry("identifier")
+            .or_insert_with(|| DEFAULT_TEST_IDENTIFIER.into());
         let mut config = Config::load_str(&toml::to_string(&value)?)?;
         Self::start(
             move |defaults| {
@@ -93,8 +104,10 @@ impl TestServer {
         verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
     ) -> TestResult<Self> {
         let database = TestDatabase::new()?;
-        let mut config: Config =
-            toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+        let mut config: Config = toml::from_str(&format!(
+            "[database]\nurl = {:?}\n[server]\nidentifier = {DEFAULT_TEST_IDENTIFIER:?}",
+            database.url()
+        ))?;
         change(&mut config);
         let mut backend = server::initialize(config).await?;
         if let Some(verifier) = verifier {
@@ -152,6 +165,12 @@ impl RunningServer {
             stop: Some(stop),
             task: Some(task),
         })
+    }
+
+    pub fn configuration(
+        &self,
+    ) -> api::configuration_service_client::ConfigurationServiceClient<Channel> {
+        api::configuration_service_client::ConfigurationServiceClient::new(self.channel.clone())
     }
 
     pub fn query(&self) -> api::query_service_client::QueryServiceClient<Channel> {

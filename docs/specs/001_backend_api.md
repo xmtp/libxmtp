@@ -208,6 +208,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 
 - API-130: Application checks reject requests above a structural or byte limit with `INVALID_ARGUMENT`, unless a more specific rule states otherwise. Tonic size-limit errors pass through unchanged: `OUT_OF_RANGE` for encoded or decoded message-size limits, and `RESOURCE_EXHAUSTED` for decompression-size limits. Transport rejections do not require application error details. Stream token-bucket exhaustion uses `RESOURCE_EXHAUSTED`.
 - API-131: Every limit is one named configuration value. No limit is a literal in code.
+- API-135: The limits in this table are published to clients by spec 006. `max_request_bytes` and `max_response_bytes` are capped at 25 MiB by configuration validation, so the table value is a ceiling an operator cannot raise. The keepalive interval is not published here: spec 004 STR-001 keeps it in `Started`.
 - API-132: The backend must advertise at most 100 concurrent HTTP/2 streams per connection. A client that exceeds it queues locally; the backend does not fail the request.
 - API-133: Rate limits are Phase 6 work. Until then the backend applies no per-caller rate limit.
 - API-134: An encoded response above 25 MiB must eventually fail. Tonic size-limit errors pass through as specified in API-130; an application response-size check may return `RESOURCE_EXHAUSTED`. A successful response must not omit results to fit the byte limit or advance cursors past unsent rows. No byte-based pagination or new size-error detail is required. Oversized publish responses may fail after commit (API-037).
@@ -247,7 +248,7 @@ The static adapter serves clients that cannot send bidirectional requests.
 
 - API-160: The backend serves gRPC and gRPC-Web on one port.
 - API-161: The backend accepts the `x-app-version` and `x-libxmtp-version` headers and an authorization header on every call, including streams. Phase 6 defines their use.
-- API-162: The backend serves the standard gRPC health service. It serves no version or metadata endpoint in v1.
+- API-162: The backend serves the standard gRPC health service and `ConfigurationService`. Both are unauthenticated. Spec 006 states the configuration RPC and what it publishes.
 - API-163: Envelopes are unsigned. The transport is trusted. Phase 6 authenticates the caller, not the envelope.
 - API-164: There is no version wrapper on frames or payloads. The package name is the version.
 - API-165: The public endpoint uses HTTPS. The deployment must pass gRPC-Web requests, CORS preflight, authorization/version headers, and status details. Streaming responses must not be buffered by the proxy. The backend plaintext port is a trusted internal endpoint.
@@ -257,7 +258,6 @@ The static adapter serves clients that cannot send bidirectional requests.
 - Authentication, authorization, and per-caller rate limits (Phase 6). The per-stream protocol buckets in API-107 are included now.
 - Retention behavior beyond `expiry_ns` on every row (Phase 5).
 - Device-sync history storage. The history server stays a separate service. A later phase may fold it into the backend.
-- A version or metadata endpoint for SDK gating. Decided 2026-09-04: left out of v1.
 
 ## Review log
 
@@ -273,3 +273,4 @@ Current streaming contract: [single-client proposal](https://plan.ref.tools/BbNc
 | 2026-09-04 | [Architecture review approved with comments](https://plan.ref.tools/xWi9jEu8VHmuLI0W). Keep replicas, database-clock timestamps, existing validation behavior, SCW caching, and per-stream token buckets. Use simple oversized-response errors. Add exact identity-history snapshots, duplicate-input rules, atomic duplicate outcomes, stream transitions, retention exemptions, and explicit client work. |
 | 2026-09-04 | Added `Get` to the query service (section 7.1, API-085 to API-088): one envelope by sequence id, `NOT_FOUND` when absent, replica-served (API-018, error table). |
 | 2026-09-10 | The [approved stream-state plan](https://plan.ref.tools/JWa4T7fSmGBi69R2) removes Get and retires API-085 through API-088. API-089 replaces registration visibility checks with a metadata-only serving-head read on the exact identity topic. |
+| 2026-09-15 | Spec 006 reverses the 2026-09-04 decision to serve no version or metadata endpoint. API-162 now names `ConfigurationService` alongside the health service, section 14 drops the metadata-endpoint bullet, and API-135 records that section 11 is published to clients. |

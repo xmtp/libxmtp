@@ -24,6 +24,11 @@ const DEFAULT_JWKS_MAX_STALE_SECONDS: u64 = 3600;
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthConfig {
+    /// Check a credential on every RPC except the unauthenticated health and
+    /// configuration services. Required whenever `[auth]` is present; false
+    /// leaves every other field in this section unread.
+    #[schemars(schema_with = "enabled_schema")]
+    pub enabled: Option<bool>,
     /// Fetch signing keys from HTTPS, or HTTP on a loopback host.
     #[schemars(schema_with = "jwks_url_schema")]
     pub jwks_url: Option<String>,
@@ -62,6 +67,7 @@ pub struct AuthKeyConfig {
 impl Default for AuthConfig {
     fn default() -> Self {
         Self {
+            enabled: None,
             jwks_url: None,
             keys: None,
             api_keys: BTreeMap::new(),
@@ -76,9 +82,26 @@ impl Default for AuthConfig {
 }
 
 impl AuthConfig {
+    /// Whether this deployment checks credentials. Only valid after validation.
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(false)
+    }
+
     /// Reject invalid key sources, keys, RPC names, and timer relationships.
     /// Key errors identify the entry but never include the key value.
+    ///
+    /// A disabled section is checked no further: an operator who turns
+    /// credentials off should not have to keep a key source valid.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        let Some(enabled) = self.enabled else {
+            return Err(invalid(
+                "auth.enabled",
+                "must be set when the [auth] section is present",
+            ));
+        };
+        if !enabled {
+            return Ok(());
+        }
         match (&self.jwks_url, &self.keys) {
             (Some(_), Some(_)) => {
                 return Err(invalid(
@@ -197,6 +220,7 @@ impl AuthConfig {
 impl std::fmt::Debug for AuthConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthConfig")
+            .field("enabled", &self.is_enabled())
             .field(
                 "mode",
                 &if self.jwks_url.is_some() {
@@ -209,6 +233,22 @@ impl std::fmt::Debug for AuthConfig {
             .field("api_key_count", &self.api_keys.len())
             .field("required_scopes", &self.required_scopes)
             .finish()
+    }
+}
+
+/// The published name of a loaded key's algorithm. The inverse of `algorithm`,
+/// so a JWKS key set is announced with the same spelling an operator would
+/// write inline.
+pub(crate) fn algorithm_name(algorithm: Algorithm) -> &'static str {
+    match algorithm {
+        Algorithm::RS256 => "RS256",
+        Algorithm::RS384 => "RS384",
+        Algorithm::RS512 => "RS512",
+        Algorithm::ES256 => "ES256",
+        Algorithm::ES384 => "ES384",
+        Algorithm::EdDSA => "EdDSA",
+        // Every other algorithm is rejected before a key is built.
+        _ => "",
     }
 }
 
@@ -244,6 +284,9 @@ pub(crate) fn is_loopback(url: &url::Url) -> bool {
         Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
         _ => false,
     }
+}
+fn enabled_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"type": "boolean"})
 }
 fn public_key_schema(_: &mut SchemaGenerator) -> Schema {
     schema::with_environment(

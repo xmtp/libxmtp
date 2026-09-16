@@ -9,14 +9,37 @@ use std::{
 use tonic::body::Body;
 use tower::{Layer, Service};
 
+/// Paths served without a credential, whatever the auth settings are. Health
+/// lets an orchestrator probe the process; configuration lets a client learn
+/// what this deployment requires before it holds a credential. No other method
+/// joins this list.
+pub(super) const UNAUTHENTICATED_PREFIXES: [&str; 2] =
+    ["/grpc.health.v1.", "/xmtp.backend.v1.ConfigurationService/"];
+
 #[derive(Clone)]
-pub(super) struct AuthLayer(pub Arc<Verifier>);
+pub(super) struct AuthLayer {
+    pub verifier: Arc<Verifier>,
+    /// Named on every rejection so one log stream can carry several deployments.
+    pub identifier: Arc<str>,
+}
+#[cfg(test)]
+impl AuthLayer {
+    /// A layer with a fixed identifier, for tests that only vary the verifier.
+    pub(super) fn for_test(verifier: Arc<Verifier>) -> Self {
+        Self {
+            verifier,
+            identifier: Arc::from("org.xmtp.test"),
+        }
+    }
+}
+
 impl<S> Layer<S> for AuthLayer {
     type Service = Auth<S>;
     fn layer(&self, inner: S) -> Self::Service {
         Auth {
             inner,
-            verifier: self.0.clone(),
+            verifier: self.verifier.clone(),
+            identifier: self.identifier.clone(),
         }
     }
 }
@@ -24,6 +47,7 @@ impl<S> Layer<S> for AuthLayer {
 pub(super) struct Auth<S> {
     inner: S,
     verifier: Arc<Verifier>,
+    identifier: Arc<str>,
 }
 impl<S> Service<Request<Body>> for Auth<S>
 where
@@ -37,11 +61,16 @@ where
         self.inner.poll_ready(cx)
     }
 
-    /// Admit health paths without a token. Every other path requires authentication,
-    /// regardless of its HTTP method or content type. Streams are checked only here.
+    /// Admit the unauthenticated prefixes without a token. Every other path
+    /// requires authentication, regardless of its HTTP method or content type.
+    /// Streams are checked only here.
     /// Record API key names on the request span, but never JWT subjects.
     fn call(&mut self, mut request: Request<Body>) -> Self::Future {
-        if !request.uri().path().starts_with("/grpc.health.v1.") {
+        let path = request.uri().path();
+        if !UNAUTHENTICATED_PREFIXES
+            .iter()
+            .any(|prefix| path.starts_with(prefix))
+        {
             match self.verifier.verify(request.headers()) {
                 Ok(context) => {
                     if let crate::auth::AuthContext::ApiKey { name } = &context {
@@ -57,6 +86,7 @@ where
                         .unwrap_or_else(uuid::Uuid::new_v4);
                     tracing::debug!(
                         ?request_id,
+                        identifier = %self.identifier,
                         reason = reason.label(),
                         "authentication rejected"
                     );

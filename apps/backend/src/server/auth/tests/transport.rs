@@ -187,3 +187,30 @@ async fn configured_auth_cannot_serve_without_initialized_keys() {
     ));
     server.stop().await?;
 }
+
+/// An auth section that says it is off checks no credential and reaches no key
+/// source. The JWKS URL below is unroutable, so a fetch at startup would fail
+/// the server rather than serve a query.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_disabled_auth_section_serves_every_rpc_without_a_credential() {
+    let server = TestServer::from_toml(
+        "[auth]
+enabled = false
+jwks_url = 'http://127.0.0.1:1/unreachable-jwks'
+audiences = ['never-checked']
+required_scopes = ['never-checked']
+",
+    )
+    .await?;
+    assert!(server.backend.auth.is_none());
+    // The request reaches the handler, so whatever it answers, it is not a
+    // credential rejection.
+    if let Err(status) = server.query().query(api::QueryRequest::default()).await {
+        assert_ne!(status.code(), tonic::Code::Unauthenticated);
+    }
+    server
+        .configuration()
+        .get_configuration(api::GetConfigurationRequest {})
+        .await?;
+    server.stop().await?;
+}

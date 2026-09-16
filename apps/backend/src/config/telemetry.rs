@@ -8,6 +8,9 @@ const DEFAULT_SERVICE_NAME: &str = "xmtp-backend";
 const SAMPLE_ALL: f64 = 1.0;
 const SAMPLE_NONE: f64 = 0.0;
 const ENDPOINT_ENV: &str = "OTEL_EXPORTER_OTLP_ENDPOINT";
+/// The deployment identity the backend attaches to every exported signal.
+/// Reserved the same way `service.name` is: the backend owns its value.
+pub(crate) const IDENTIFIER_ATTRIBUTE: &str = "xmtp.backend.identifier";
 
 /// Metrics and optional OTLP export. Endpoint values are never included in errors.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
@@ -59,11 +62,11 @@ impl TelemetryConfig {
         if self.service_name.trim().is_empty() {
             return Err(invalid("telemetry.service_name", "must not be empty"));
         }
-        for key in ["service.name", "service.version"] {
+        for key in ["service.name", "service.version", IDENTIFIER_ATTRIBUTE] {
             if self.resource_attributes.contains_key(key) {
                 return Err(invalid(
                     "telemetry.resource_attributes",
-                    "service.name and service.version are reserved",
+                    "service.name, service.version, and xmtp.backend.identifier are reserved",
                 ));
             }
         }
@@ -74,18 +77,23 @@ impl TelemetryConfig {
     }
 
     /// Resolve the one implicit environment fallback before any exporter is built.
-    pub fn logging_config(&self) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
+    /// `identifier` names the deployment every exported signal belongs to.
+    pub fn logging_config(
+        &self,
+        identifier: &str,
+    ) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
         let fallback = match std::env::var(ENDPOINT_ENV) {
             Ok(value) => Some(value),
             Err(std::env::VarError::NotPresent) => None,
             Err(_) if self.otlp_endpoint.is_some() => None,
             Err(_) => return Err(invalid(ENDPOINT_ENV, "must be a valid URL")),
         };
-        self.with_endpoint_fallback(fallback)
+        self.with_endpoint_fallback(identifier, fallback)
     }
 
     pub(super) fn with_endpoint_fallback(
         &self,
+        identifier: &str,
         fallback: Option<String>,
     ) -> Result<Option<xmtp_logging::TelemetryConfig>, ConfigError> {
         self.validate()?;
@@ -97,12 +105,14 @@ impl TelemetryConfig {
             },
         };
         validate_endpoint(&endpoint, field)?;
+        let mut resource_attributes = self.resource_attributes.clone();
+        resource_attributes.insert(IDENTIFIER_ATTRIBUTE.to_owned(), identifier.to_owned());
         Ok(Some(xmtp_logging::TelemetryConfig {
             endpoint: Some(endpoint),
             service_name: Some(self.service_name.clone()),
             sample_ratio: self.sample_ratio,
             logs: self.otlp_logs,
-            resource_attributes: self.resource_attributes.clone().into_iter().collect(),
+            resource_attributes: resource_attributes.into_iter().collect(),
         }))
     }
 }

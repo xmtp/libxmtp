@@ -26,7 +26,7 @@ Set these keys in the backend TOML file. Unknown keys fail startup.
 | `telemetry.otlp_logs` | `false` | Export correlated logs when an endpoint is set. |
 | `telemetry.service_name` | `"xmtp-backend"` | Exported service name. Must not be empty. |
 | `telemetry.sample_ratio` | `1.0` | Root trace sample ratio, from zero through one. Must be finite. Parent sampling is preserved. |
-| `telemetry.resource_attributes` | `{}` | Extra string attributes. `service.name` and `service.version` are reserved. |
+| `telemetry.resource_attributes` | `{}` | Extra string attributes. `service.name`, `service.version`, and `xmtp.backend.identifier` are reserved. |
 | `server.log_format` | `"text"` | Stdout format: `text` or `json`. |
 
 The explicit endpoint takes precedence over the environment fallback. An invalid
@@ -35,7 +35,9 @@ The stack sets `OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317` for the backend.
 Tempo accepts traces; use a log collector if you enable OTLP logs.
 
 `resource_attributes` are exported verbatim. Secrets never belong there.
-The pipeline adds `service.version` from the build. Trace propagation uses W3C
+The pipeline adds `service.version` from the build and `xmtp.backend.identifier`
+from `server.identifier`, which also appears on every request completion log and
+every auth rejection log so one stream can carry several deployments. Trace propagation uses W3C
 `traceparent` and `tracestate`. Do not add request data to labels or span fields.
 
 `server.log_level` defaults to `info`; `--log-level` overrides it.
@@ -114,9 +116,10 @@ Auth rejection reasons are `missing`, `malformed`, `unsupported_alg`, `untrusted
 `expired`, `not_yet_valid`, `audience`, `issuer`, and `scope`. JWKS refresh results
 are `ok` and `error`. These labels never contain token data or key IDs. Each
 rejected request also records its gRPC status. Auth rejection logs use DEBUG and
-contain only the request ID and reason. A JWKS fetch failure logs the host only.
+contain only the request ID, the backend identifier, and the reason. A JWKS fetch failure logs the host only.
 
-With no `[auth]` section, authentication is disabled. With auth enabled, health
+With no `[auth]` section, or with `auth.enabled = false`, authentication is
+disabled and no key is loaded. With auth enabled, health, `ConfigurationService`,
 and CORS preflight remain public. Each other request needs a bearer JWT. Streams
 are checked when they open. Inline keys are parsed at startup. JWKS startup uses
 three attempts, one second apart. Refresh failures keep the last successful key

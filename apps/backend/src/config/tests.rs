@@ -7,17 +7,20 @@ fn logging_defaults_and_overrides_are_typed() {
     assert!(config.server.request_logger);
     for level in ["off", "error", "warn", "info", "debug", "trace"] {
         let config: Config = toml::from_str(&format!(
-            "{MINIMAL}\n[server]\nlog_level = '{level}'\nrequest_logger = false"
+            "{MINIMAL}log_level = '{level}'\nrequest_logger = false"
         ))?;
         let shared: xmtp_logging::Level = config.server.log_level.into();
         assert_eq!(shared.as_str(), level);
         assert!(!config.server.request_logger);
     }
-    assert!(
-        toml::from_str::<Config>(&format!("{MINIMAL}\n[server]\nlog_level = 'verbose'")).is_err()
-    );
+    assert!(toml::from_str::<Config>(&format!("{MINIMAL}log_level = 'verbose'")).is_err());
 }
-const MINIMAL: &str = "[database]\nurl = 'postgres://localhost/xmtp'\n";
+/// A configuration that starts. The `[server]` section comes last and is left
+/// open, so a test appends its own server keys directly and any other section
+/// with its own header.
+const MINIMAL: &str =
+    "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n";
+const IDENTIFIER: &str = "org.xmtp.test";
 const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
 const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;
 
@@ -440,37 +443,46 @@ fn telemetry_defaults_endpoint_precedence_and_export_options() {
     let config: Config = toml::from_str(MINIMAL)?;
     assert_eq!(config.telemetry.metrics_listen, "0.0.0.0:9464");
     assert_eq!(config.server.log_format, LogFormat::Text);
-    assert!(config.telemetry.with_endpoint_fallback(None)?.is_none());
+    assert!(
+        config
+            .telemetry
+            .with_endpoint_fallback(IDENTIFIER, None)?
+            .is_none()
+    );
     let fallback = config
         .telemetry
-        .with_endpoint_fallback(Some("http://tempo:4317".into()))?
+        .with_endpoint_fallback(IDENTIFIER, Some("http://tempo:4317".into()))?
         .unwrap();
     assert_eq!(fallback.endpoint.as_deref(), Some("http://tempo:4317"));
     assert_eq!(fallback.service_name.as_deref(), Some("xmtp-backend"));
     assert!(!fallback.logs);
     let config: Config = toml::from_str(&format!(
-        "{MINIMAL}\n[server]\nlog_format = 'json'\n[telemetry]\nmetrics_listen = ''\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
+        "{MINIMAL}log_format = 'json'\n[telemetry]\nmetrics_listen = ''\notlp_endpoint = 'http://collector:4317'\notlp_logs = true\nservice_name = 'custom'\nsample_ratio = 0.25\nresource_attributes = {{ 'deployment.environment' = 'test' }}"
     ))?;
     config.validate()?;
     assert_eq!(config.server.log_format, LogFormat::Json);
     let logging = config
         .telemetry
-        .with_endpoint_fallback(Some("malformed-fallback-secret".into()))?
+        .with_endpoint_fallback(IDENTIFIER, Some("malformed-fallback-secret".into()))?
         .unwrap();
     assert_eq!(logging.endpoint.as_deref(), Some("http://collector:4317"));
     assert_eq!(logging.service_name.as_deref(), Some("custom"));
     assert!(logging.logs);
     assert_eq!(logging.sample_ratio, 0.25);
+    // The identifier is added to every export, alongside whatever the operator set.
     assert_eq!(
         logging.resource_attributes,
-        vec![("deployment.environment".into(), "test".into())]
+        vec![
+            ("deployment.environment".into(), "test".into()),
+            ("xmtp.backend.identifier".into(), IDENTIFIER.into())
+        ]
     );
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_contents() {
     assert!(toml::from_str::<Config>(&format!("{MINIMAL}\n[telemetry]\nunknown = true")).is_err());
-    for key in ["service.name", "service.version"] {
+    for key in ["service.name", "service.version", "xmtp.backend.identifier"] {
         let config: Config = toml::from_str(&format!(
             "{MINIMAL}\n[telemetry.resource_attributes]\n'{key}' = 'override'"
         ))?;
@@ -492,7 +504,7 @@ fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_conten
         config.telemetry.otlp_endpoint = None;
         let error = config
             .telemetry
-            .with_endpoint_fallback(Some(endpoint.into()))
+            .with_endpoint_fallback(IDENTIFIER, Some(endpoint.into()))
             .unwrap_err()
             .to_string();
         assert!(error.contains("OTEL_EXPORTER_OTLP_ENDPOINT"));
@@ -545,4 +557,171 @@ fn malformed_inline_configuration_omits_document_contents() {
     let error = Config::load_str("secret-inline-sentinel = [").unwrap_err();
     assert!(matches!(error, ConfigError::Parse));
     assert!(!format!("{error} {error:?}").contains("secret-inline-sentinel"));
+}
+
+/// A deployment that does not name itself cannot be bound to by a client
+/// database, so an unnamed or malformed identifier stops the process.
+#[xmtp_common::test(unwrap_try = true)]
+fn the_identifier_is_required_and_shaped() {
+    let missing: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'\n")?;
+    let error = missing.validate().unwrap_err();
+    assert!(matches!(
+        error,
+        ConfigError::Invalid {
+            field: "server.identifier",
+            ..
+        }
+    ));
+    for identifier in [
+        String::new(),
+        "a".repeat(MAX_IDENTIFIER_BYTES + 1),
+        // A single multi-byte character can also push a short name over the
+        // byte bound, which is what the rule counts.
+        "é".repeat(MAX_IDENTIFIER_BYTES / 2 + 1),
+        "org.xmtp has a space".into(),
+        "org.xmtp\u{0}dev".into(),
+        "org.xmtp\ndev".into(),
+    ] {
+        let mut config: Config = toml::from_str(MINIMAL)?;
+        config.server.identifier = Some(identifier.clone());
+        assert!(
+            matches!(
+                config.validate(),
+                Err(ConfigError::Invalid {
+                    field: "server.identifier",
+                    ..
+                })
+            ),
+            "{identifier:?} must be rejected"
+        );
+    }
+    // The documented convention is accepted at the byte bound.
+    let mut config: Config = toml::from_str(MINIMAL)?;
+    config.server.identifier = Some("a".repeat(MAX_IDENTIFIER_BYTES));
+    config.validate()?;
+}
+
+/// An existing file that gained `[auth]` before this rule must state its
+/// intent, so auth can never switch off by accident. A section that says it is
+/// off is not checked any further and loads no key material.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_auth_section_must_state_whether_it_is_enabled() {
+    let config: Config = toml::from_str(&format!(
+        "{MINIMAL}\n[auth]\njwks_url = 'https://issuer.example/keys'\n"
+    ))?;
+    assert!(matches!(
+        config.validate().unwrap_err(),
+        ConfigError::Invalid {
+            field: "auth.enabled",
+            ..
+        }
+    ));
+    // Disabled auth ignores every other field, including ones that would fail
+    // their own checks, and publishes an empty summary.
+    let config: Config = toml::from_str(&format!(
+        "{MINIMAL}\n[auth]\nenabled = false\naudiences = []\nissuers = []\n"
+    ))?;
+    config.validate()?;
+    assert!(!config.auth.as_ref()?.is_enabled());
+    assert_eq!(
+        config.configuration_response(&[]).auth,
+        Some(api::AuthConfiguration::default())
+    );
+    // Ignoring a field is not the same as never reading it: environment
+    // references resolve for the whole document before any section is
+    // validated, so a missing variable in a disabled section still fails.
+    let error = Config::load_str(&format!(
+        "{MINIMAL}\n[auth]\nenabled = false\njwks_url = 'env:XMTP_AUTH_DISABLED_MISSING'\n"
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&error, ConfigError::Environment { name } if name == "XMTP_AUTH_DISABLED_MISSING")
+    );
+}
+
+/// An operator states a minimum client version as a semantic version, or
+/// states none and admits every client version.
+#[xmtp_common::test(unwrap_try = true)]
+fn the_minimum_client_version_is_optional_and_semantic() {
+    for version in ["1", "1.2", "v1.2.3", "latest", "1.2.3.4", ""] {
+        let mut config: Config = toml::from_str(MINIMAL)?;
+        config.server.min_libxmtp_version = Some(version.into());
+        assert!(
+            matches!(
+                config.validate(),
+                Err(ConfigError::Invalid {
+                    field: "server.min_libxmtp_version",
+                    ..
+                })
+            ),
+            "{version:?} must be rejected"
+        );
+    }
+    let config: Config = toml::from_str(MINIMAL)?;
+    config.validate()?;
+    assert!(
+        config
+            .configuration_response(&[])
+            .min_libxmtp_version
+            .is_empty()
+    );
+    let mut config: Config = toml::from_str(MINIMAL)?;
+    config.server.min_libxmtp_version = Some("1.2.3-beta.1".into());
+    config.validate()?;
+    assert_eq!(
+        config.configuration_response(&[]).min_libxmtp_version,
+        "1.2.3-beta.1"
+    );
+}
+
+/// The transport ceiling is fixed, so a budget above it would promise a client
+/// something the transport cannot carry.
+#[xmtp_common::test(unwrap_try = true)]
+fn request_and_response_budgets_stop_at_the_transport_ceiling() {
+    for field in ["limits.max_request_bytes", "limits.max_response_bytes"] {
+        let mut config: Config = toml::from_str(MINIMAL)?;
+        match field {
+            "limits.max_request_bytes" => config.limits.max_request_bytes = MAX_TRANSPORT_BYTES,
+            _ => config.limits.max_response_bytes = MAX_TRANSPORT_BYTES,
+        }
+        config.validate()?;
+        match field {
+            "limits.max_request_bytes" => config.limits.max_request_bytes += 1,
+            _ => config.limits.max_response_bytes += 1,
+        }
+        let error = config.validate().unwrap_err();
+        assert!(
+            matches!(&error, ConfigError::Invalid { field: named, .. } if *named == field),
+            "{field} must be named, got {error}"
+        );
+    }
+}
+
+/// The auth lists, the key list, and the chain list have no individual bound,
+/// so the assembled response is what is measured.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_oversized_published_response_stops_startup() {
+    let mut config: Config = toml::from_str(MINIMAL)?;
+    let chains = |config: &mut Config, count: u64| {
+        config.chains = (0..count)
+            .map(|index| (format!("eip155:{index}"), "https://rpc.example".into()))
+            .collect();
+    };
+    chains(&mut config, 1_000);
+    config.validate()?;
+    chains(&mut config, 10_000);
+    let error = config.validate().unwrap_err();
+    assert!(matches!(
+        &error,
+        ConfigError::Invalid {
+            field: "configuration response",
+            ..
+        }
+    ));
+    // The bound is on the encoded response, not on any one list.
+    assert!(
+        prost::Message::encoded_len(&config.configuration_response(&[]))
+            > MAX_CONFIGURATION_RESPONSE_BYTES,
+        "the fixture must exceed the bound"
+    );
 }

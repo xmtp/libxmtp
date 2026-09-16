@@ -32,14 +32,32 @@ mod tests;
 pub(crate) struct RequestId(pub uuid::Uuid);
 
 #[derive(Clone)]
-pub(crate) struct GrpcTelemetryLayer(pub bool);
+pub(crate) struct GrpcTelemetryLayer {
+    /// Emit one completion log per request.
+    pub enabled: bool,
+    /// Names the deployment on every completion log, so one log stream can
+    /// carry more than one backend.
+    pub identifier: Arc<str>,
+}
+
+#[cfg(test)]
+impl GrpcTelemetryLayer {
+    /// A layer with a fixed identifier, for tests that only vary the logger.
+    pub(crate) fn for_test(enabled: bool) -> Self {
+        Self {
+            enabled,
+            identifier: Arc::from("org.xmtp.test"),
+        }
+    }
+}
 
 impl<S> Layer<S> for GrpcTelemetryLayer {
     type Service = GrpcTelemetry<S>;
     fn layer(&self, inner: S) -> Self::Service {
         GrpcTelemetry {
             inner,
-            enabled: self.0,
+            enabled: self.enabled,
+            identifier: self.identifier.clone(),
         }
     }
 }
@@ -48,6 +66,7 @@ impl<S> Layer<S> for GrpcTelemetryLayer {
 pub(crate) struct GrpcTelemetry<S> {
     inner: S,
     enabled: bool,
+    identifier: Arc<str>,
 }
 
 struct RequestLog {
@@ -62,6 +81,7 @@ struct RequestLog {
     labels: RpcLabels,
     status: StatusSlot,
     trace_id: Option<String>,
+    identifier: Arc<str>,
 }
 
 /// Own completion exactly once, independently of the input body's lifetime.
@@ -91,12 +111,14 @@ impl Drop for Completion {
             let grpc_code = telemetry::grpc_code(code);
             // Separate call sites omit trace_id completely when no context exists.
             if let Some(trace_id) = &state.trace_id {
-                tracing::info!(request_id = %state.id, method = %state.method,
+                tracing::info!(request_id = %state.id, identifier = %state.identifier,
+                    method = %state.method,
                     duration_ms = elapsed.as_millis() as u64,
                     request_size_bytes = request_bytes, response_size_bytes = response_bytes,
                     grpc_code, trace_id, "gRPC request completed");
             } else {
-                tracing::info!(request_id = %state.id, method = %state.method,
+                tracing::info!(request_id = %state.id, identifier = %state.identifier,
+                    method = %state.method,
                     duration_ms = elapsed.as_millis() as u64,
                     request_size_bytes = request_bytes, response_size_bytes = response_bytes,
                     grpc_code, "gRPC request completed");
@@ -161,6 +183,7 @@ where
             labels,
             status: status.clone(),
             trace_id,
+            identifier: self.identifier.clone(),
         });
         let completion = Completion {
             state: state.clone(),

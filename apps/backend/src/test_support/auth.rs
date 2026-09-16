@@ -125,6 +125,7 @@ impl TestKey {
     }
     pub fn auth_config(&self) -> AuthConfig {
         AuthConfig {
+            enabled: Some(true),
             keys: Some(vec![self.config()]),
             ..AuthConfig::default()
         }
@@ -140,6 +141,7 @@ pub fn api_key_value() -> String {
 pub fn api_key(name: &str) -> (String, AuthConfig) {
     let value = api_key_value();
     let config = AuthConfig {
+        enabled: Some(true),
         api_keys: [(name.to_owned(), value.clone())].into(),
         ..AuthConfig::default()
     };
@@ -275,6 +277,7 @@ impl JwksServer {
     }
     pub fn config(&self) -> AuthConfig {
         AuthConfig {
+            enabled: Some(true),
             jwks_url: Some(self.url.clone()),
             ..AuthConfig::default()
         }

@@ -2,6 +2,8 @@
 
 use std::{collections::BTreeMap, fs, net::SocketAddr, path::Path};
 
+use crate::api;
+
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -42,6 +44,14 @@ pub(crate) const ENVELOPE_METADATA_AND_FRAMING_BYTES: usize =
     MAX_METADATA_BYTES + 4 * MAX_NESTED_FIELD_OVERHEAD + GRPC_HEADER_BYTES;
 const MAX_RETENTION_SECONDS: u64 = i64::MAX as u64 / NS_IN_SEC as u64;
 const MAX_DATABASE_TIMEOUT_MS: u64 = i32::MAX as u64;
+/// Longest operator identifier, in bytes.
+pub const MAX_IDENTIFIER_BYTES: usize = 256;
+/// Fixed transport ceiling. Neither request nor response budget may exceed it.
+pub const MAX_TRANSPORT_BYTES: usize = 25 * 1024 * 1024;
+/// Advisory MLS group shapes are published as `uint32` and bounded here.
+pub const MAX_MLS_LIMIT: u32 = u16::MAX as u32;
+/// The published configuration must stay small enough for one cheap response.
+pub const MAX_CONFIGURATION_RESPONSE_BYTES: usize = 64 * 1024;
 
 const DEFAULT_LISTEN: &str = "0.0.0.0:5050";
 const DEFAULT_DRAIN_DURATION_MS: u64 = 10_000;
@@ -119,6 +129,8 @@ pub struct Config {
     pub validation: ValidationConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
+    #[serde(default)]
+    pub mls: MlsConfig,
 }
 
 impl Config {
@@ -180,6 +192,11 @@ impl Config {
         self.validation.validate()?;
         self.validate_chains()?;
         self.limits.validate()?;
+        self.mls.validate()?;
+        // Inline signing keys are the only key source known before startup. A
+        // JWKS deployment re-checks the assembled response once its key set
+        // has been fetched.
+        validate_configuration_size(&self.configuration_response(&[]))?;
         Ok(())
     }
 
@@ -195,6 +212,95 @@ impl Config {
             non_empty_url(url, "chains", UrlKind::Http)?;
         }
         Ok(())
+    }
+
+    /// Build the configuration published to clients. It is assembled once at
+    /// startup and never changes while the process runs.
+    ///
+    /// `jwks_keys` carries the `(kid, alg)` pairs of the key set fetched at
+    /// startup; it is empty for an inline-key or credential-free deployment,
+    /// where the keys come from the configuration itself. Nothing secret
+    /// belongs here: no JWKS URL, no key material, no chain RPC URL, and no
+    /// database, telemetry, or listener setting.
+    pub fn configuration_response(
+        &self,
+        jwks_keys: &[(String, String)],
+    ) -> api::GetConfigurationResponse {
+        let limits = &self.limits;
+        // Published limits are narrower wire types than the configured ones.
+        // Saturating keeps an out-of-range configured value bounded rather
+        // than wrapping it into a smaller, wrong promise.
+        let count = |value: usize| u32::try_from(value).unwrap_or(u32::MAX);
+        api::GetConfigurationResponse {
+            identifier: self.server.identifier().to_owned(),
+            server_version: env!("CARGO_PKG_VERSION").to_owned(),
+            min_libxmtp_version: self.server.min_libxmtp_version.clone().unwrap_or_default(),
+            auth: Some(self.auth_configuration(jwks_keys)),
+            retention: Some(api::RetentionConfiguration {
+                group_message_seconds: self.retention.group_message_seconds,
+                welcome_seconds: self.retention.welcome_seconds,
+                key_package_seconds: self.retention.key_package_seconds,
+            }),
+            limits: Some(api::LimitsConfiguration {
+                max_envelope_bytes: limits.max_envelope_bytes as u64,
+                max_request_bytes: limits.max_request_bytes as u64,
+                max_response_bytes: limits.max_response_bytes as u64,
+                max_publish_topics: count(limits.max_publish_topics),
+                max_query_topics: count(limits.max_query_topics),
+                max_query_limit: count(limits.max_query_limit),
+                default_query_limit: count(limits.default_query_limit),
+                max_newest_metadata_topics: count(limits.max_newest_metadata_topics),
+                max_newest_full_topics: count(limits.max_newest_full_topics),
+                max_update_adds: count(limits.max_update_adds),
+                max_update_removes: count(limits.max_update_removes),
+                max_stream_topics: count(limits.max_stream_topics),
+                max_static_topics: count(limits.max_static_topics),
+                max_lookup_identifiers: count(limits.max_lookup_identifiers),
+                max_scw_signatures: count(limits.max_scw_signatures),
+                max_identity_entries: count(limits.max_identity_entries),
+                max_update_frames_per_second: limits.max_update_frames_per_second,
+                max_update_burst: limits.max_update_burst,
+                max_ping_frames_per_second: limits.max_ping_frames_per_second,
+                max_ping_burst: limits.max_ping_burst,
+            }),
+            mls: Some(api::MlsConfiguration {
+                max_group_members: self.mls.max_group_members,
+                max_installations_per_inbox: self.mls.max_installations_per_inbox,
+                commit_log_enabled: Some(self.mls.commit_log_enabled),
+            }),
+            smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
+        }
+    }
+
+    /// Publish what a client needs to hold a credential, and nothing else.
+    /// A credential-free deployment publishes an otherwise empty section.
+    fn auth_configuration(&self, jwks_keys: &[(String, String)]) -> api::AuthConfiguration {
+        let Some(auth) = self.auth.as_ref().filter(|auth| auth.is_enabled()) else {
+            return api::AuthConfiguration::default();
+        };
+        let keys = match &auth.keys {
+            Some(keys) => keys
+                .iter()
+                .map(|key| api::auth_configuration::SigningKey {
+                    kid: key.kid.clone(),
+                    alg: key.alg.clone(),
+                })
+                .collect(),
+            None => jwks_keys
+                .iter()
+                .map(|(kid, alg)| api::auth_configuration::SigningKey {
+                    kid: kid.clone(),
+                    alg: alg.clone(),
+                })
+                .collect(),
+        };
+        api::AuthConfiguration {
+            enabled: true,
+            keys,
+            audiences: auth.audiences.clone().unwrap_or_default(),
+            issuers: auth.issuers.clone().unwrap_or_default(),
+            required_scopes: auth.required_scopes.clone(),
+        }
     }
 
     /// Return the JSON schema published for Taplo configuration files.
@@ -225,6 +331,7 @@ impl std::fmt::Debug for Config {
             )
             .field("validation", &self.validation)
             .field("limits", &self.limits)
+            .field("mls", &self.mls)
             .finish()
     }
 }
@@ -276,6 +383,21 @@ fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
     ConfigError::Invalid { field, reason }
 }
 
+/// Keep the published configuration inside one small response. An oversized
+/// one is a configuration mistake, not a runtime condition, so it stops
+/// startup rather than failing every client that asks for it.
+pub(crate) fn validate_configuration_size(
+    response: &api::GetConfigurationResponse,
+) -> Result<(), ConfigError> {
+    if prost::Message::encoded_len(response) > MAX_CONFIGURATION_RESPONSE_BYTES {
+        return Err(invalid(
+            "configuration response",
+            "must not exceed 64 KiB once encoded",
+        ));
+    }
+    Ok(())
+}
+
 fn positive<T>(value: T, field: &'static str) -> Result<(), ConfigError>
 where
     T: PartialEq + PartialOrd + Default,
@@ -307,8 +429,39 @@ fn non_empty_url(value: &str, field: &'static str, kind: UrlKind) -> Result<(), 
 }
 
 impl ServerConfig {
-    /// Require a numeric bind address and a positive shutdown budget.
+    /// The identifier every client binds to. Only valid after validation.
+    pub fn identifier(&self) -> &str {
+        self.identifier.as_deref().unwrap_or_default()
+    }
+
+    /// Require a numeric bind address and a positive shutdown budget, plus the
+    /// deployment identity clients bind to.
     fn validate(&self) -> Result<(), ConfigError> {
+        let Some(identifier) = self.identifier.as_deref() else {
+            return Err(invalid(
+                "server.identifier",
+                "must be set to a stable name for this deployment",
+            ));
+        };
+        if identifier.is_empty()
+            || identifier.len() > MAX_IDENTIFIER_BYTES
+            || identifier
+                .chars()
+                .any(|character| character.is_whitespace() || character.is_control())
+        {
+            return Err(invalid(
+                "server.identifier",
+                "must be 1 to 256 bytes with no whitespace or control characters",
+            ));
+        }
+        if let Some(version) = self.min_libxmtp_version.as_deref()
+            && semver::Version::parse(version).is_err()
+        {
+            return Err(invalid(
+                "server.min_libxmtp_version",
+                "must be a semantic version",
+            ));
+        }
         if self.listen.parse::<SocketAddr>().is_err() {
             return Err(invalid("server.listen", "must be a socket address"));
         }
@@ -438,9 +591,60 @@ impl ValidationConfig {
     }
 }
 
+/// Advisory group shapes published to clients. The backend enforces none of
+/// them; a client applies them before it builds a commit.
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct MlsConfig {
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    pub max_group_members: u32,
+    #[schemars(schema_with = "schema::positive_integer::<{ MAX_MLS_LIMIT as u64 }>")]
+    pub max_installations_per_inbox: u32,
+    /// Publish and read the remote commit log. False switches both off for
+    /// every client of this deployment.
+    pub commit_log_enabled: bool,
+}
+
+impl Default for MlsConfig {
+    fn default() -> Self {
+        Self {
+            max_group_members: xmtp_configuration::MAX_GROUP_SIZE as u32,
+            max_installations_per_inbox: xmtp_configuration::MAX_INSTALLATIONS_PER_INBOX as u32,
+            commit_log_enabled: xmtp_configuration::ENABLE_COMMIT_LOG,
+        }
+    }
+}
+
+impl MlsConfig {
+    fn validate(&self) -> Result<(), ConfigError> {
+        for (field, value) in [
+            ("mls.max_group_members", self.max_group_members),
+            (
+                "mls.max_installations_per_inbox",
+                self.max_installations_per_inbox,
+            ),
+        ] {
+            positive(value, field)?;
+            if value > MAX_MLS_LIMIT {
+                return Err(invalid(field, "must not exceed 65535"));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {
+    /// Stable operator-chosen name for this deployment, by convention reverse
+    /// DNS such as `org.xmtp.dev`. Clients bind to it on first connect, so it
+    /// must never change once clients have connected. Required.
+    #[schemars(schema_with = "schema::identifier")]
+    pub identifier: Option<String>,
+    /// Oldest libxmtp version this deployment accepts. Absent publishes no
+    /// minimum. Prerelease tags are ignored when clients compare.
+    #[schemars(schema_with = "schema::optional_semver")]
+    pub min_libxmtp_version: Option<String>,
     #[schemars(schema_with = "schema::socket_address")]
     pub listen: String,
     /// Global backend log level. Request summaries and mutations use INFO.
@@ -457,6 +661,8 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
+            identifier: None,
+            min_libxmtp_version: None,
             listen: DEFAULT_LISTEN.to_owned(),
             log_level: LogLevel::Info,
             log_format: LogFormat::Text,
@@ -686,6 +892,16 @@ impl LimitsConfig {
         positive(self.max_envelope_bytes, "limits.max_envelope_bytes")?;
         positive(self.max_request_bytes, "limits.max_request_bytes")?;
         positive(self.max_response_bytes, "limits.max_response_bytes")?;
+        // The transport ceiling is fixed. A larger configured budget would
+        // promise clients a request the transport refuses to carry.
+        for (field, value) in [
+            ("limits.max_request_bytes", self.max_request_bytes),
+            ("limits.max_response_bytes", self.max_response_bytes),
+        ] {
+            if value > MAX_TRANSPORT_BYTES {
+                return Err(invalid(field, "must not exceed the 25 MiB transport limit"));
+            }
+        }
         self.validate_envelope_fit()?;
         positive(self.max_update_adds, "limits.max_update_adds")?;
         positive(self.max_update_removes, "limits.max_update_removes")?;

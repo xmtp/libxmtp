@@ -31,7 +31,7 @@ async fn completion_counts_consumed_frames_and_uses_its_own_request_id() {
         Ok(Frame::trailers(http::HeaderMap::new())),
     ]));
     let mut service =
-        GrpcTelemetryLayer(true).layer(service_fn(|request: Request<Body>| async move {
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|request: Request<Body>| async move {
             let id = request.extensions().get::<RequestId>().unwrap().0;
             assert_eq!(request.into_body().collect().await?.to_bytes().len(), 12);
             Ok::<_, tonic::Status>(
@@ -72,7 +72,7 @@ async fn streaming_completion_waits_for_body_drop_and_counts_later_input() {
         tokio_stream::wrappers::ReceiverStream::new(receiver),
     ));
     let mut service =
-        GrpcTelemetryLayer(true).layer(service_fn(|request: Request<Body>| async move {
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|request: Request<Body>| async move {
             Ok::<_, Infallible>(Response::new(request.into_body()))
         }));
     let response =
@@ -103,7 +103,7 @@ async fn streaming_completion_waits_for_body_drop_and_counts_later_input() {
 async fn future_errors_and_cancellation_each_complete_once_before_headers() {
     let capture = LogCapture::new(Level::Info);
     let mut failing =
-        GrpcTelemetryLayer(true).layer(service_fn(|request: Request<Body>| async move {
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|request: Request<Body>| async move {
             request.into_body().collect().await.unwrap();
             Err::<Response<Body>, _>(io::Error::other("failed before headers"))
         }));
@@ -117,7 +117,7 @@ async fn future_errors_and_cancellation_each_complete_once_before_headers() {
     assert_eq!(events(&capture)[0]["response_size_bytes"], 0);
 
     let mut canceled =
-        GrpcTelemetryLayer(true).layer(service_fn(|request: Request<Body>| async move {
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|request: Request<Body>| async move {
             request.into_body().collect().await.unwrap();
             std::future::pending::<Result<Response<Body>, Infallible>>().await
         }));
@@ -139,13 +139,14 @@ async fn future_errors_and_cancellation_each_complete_once_before_headers() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn response_body_failure_does_not_log_again_when_dropped() {
     let capture = LogCapture::new(Level::Info);
-    let mut service = GrpcTelemetryLayer(true).layer(service_fn(|_: Request<Body>| async move {
-        let body = StreamBody::new(stream::iter(vec![
-            Ok(Frame::data(Bytes::from_static(b"partial"))),
-            Err::<Frame<Bytes>, _>(tonic::Status::internal("body failed")),
-        ]));
-        Ok::<_, Infallible>(Response::new(Body::new(body)))
-    }));
+    let mut service =
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|_: Request<Body>| async move {
+            let body = StreamBody::new(stream::iter(vec![
+                Ok(Frame::data(Bytes::from_static(b"partial"))),
+                Err::<Frame<Bytes>, _>(tonic::Status::internal("body failed")),
+            ]));
+            Ok::<_, Infallible>(Response::new(Body::new(body)))
+        }));
     let response = tracing::dispatcher::with_default(&capture.dispatch(), || {
         service.call(request(Body::empty()))
     })
@@ -172,10 +173,11 @@ async fn disabled_logger_warn_level_and_preflight_emit_no_completion() {
         (true, Level::Info, Method::OPTIONS),
     ] {
         let capture = LogCapture::new(level);
-        let mut service =
-            GrpcTelemetryLayer(enabled).layer(service_fn(|request: Request<Body>| async move {
+        let mut service = GrpcTelemetryLayer::for_test(enabled).layer(service_fn(
+            |request: Request<Body>| async move {
                 Ok::<_, Infallible>(Response::new(request.into_body()))
-            }));
+            },
+        ));
         let mut request = request(Body::new(Full::new(Bytes::from_static(b"input"))));
         *request.method_mut() = method;
         let response =
@@ -207,7 +209,7 @@ async fn grpc_web_counts_encoded_http_bytes_before_protocol_conversion() {
                 .unwrap(),
         )
     });
-    let mut service = GrpcTelemetryLayer(true)
+    let mut service = GrpcTelemetryLayer::for_test(true)
         .layer(tonic_web::GrpcWebLayer::new().layer(GrpcStatusLayer.layer(inner)));
     // The fixture is the base64 representation of an empty five-byte gRPC frame.
     let request = Request::post("/xmtp.backend.v1.QueryService/Query")
@@ -259,7 +261,7 @@ async fn native_updates_log_actual_changes_with_the_request_correlation() {
         let inner = api::subscription_service_server::SubscriptionServiceServer::new(
             server.backend.clone(),
         );
-        let mut service = GrpcTelemetryLayer(enabled).layer(inner);
+        let mut service = GrpcTelemetryLayer::for_test(enabled).layer(inner);
         let response =
             tracing::dispatcher::with_default(&capture.dispatch(), || service.call(request))
                 .await?;
@@ -361,7 +363,7 @@ async fn compressed_native_request_logs_compressed_body_size() {
     let inner = api::query_service_server::QueryServiceServer::new(server.backend.clone())
         .accept_compressed(CompressionEncoding::Gzip)
         .send_compressed(CompressionEncoding::Gzip);
-    let mut service = GrpcTelemetryLayer(true).layer(inner);
+    let mut service = GrpcTelemetryLayer::for_test(true).layer(inner);
     let capture = LogCapture::new(Level::Info);
     let mut request = request(Body::new(Full::new(encoded)));
     request
@@ -489,7 +491,7 @@ fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
                             .unwrap(),
                     )
                 });
-                let mut service = GrpcTelemetryLayer(true)
+                let mut service = GrpcTelemetryLayer::for_test(true)
                     .layer(tonic_web::GrpcWebLayer::new().layer(GrpcStatusLayer.layer(inner)));
                 let request = Request::post(path)
                     .version(if content_type == "application/grpc" {
@@ -560,7 +562,8 @@ fn dropping_a_body_records_cancelled_once_even_when_logging_is_disabled() {
                     stream::pending::<Result<Frame<Bytes>, Infallible>>(),
                 ))))
             });
-            let mut service = GrpcTelemetryLayer(false).layer(GrpcStatusLayer.layer(inner));
+            let mut service =
+                GrpcTelemetryLayer::for_test(false).layer(GrpcStatusLayer.layer(inner));
             let response = tracing::dispatcher::with_default(&capture.dispatch(), || {
                 service.call(request(Body::empty()))
             })
@@ -607,7 +610,8 @@ fn health_and_preflight_are_excluded_and_unknown_paths_share_one_label_set() {
                         .unwrap(),
                 )
             });
-            let mut service = GrpcTelemetryLayer(true).layer(GrpcStatusLayer.layer(inner));
+            let mut service =
+                GrpcTelemetryLayer::for_test(true).layer(GrpcStatusLayer.layer(inner));
             for method in [Method::POST, Method::OPTIONS] {
                 let request = Request::builder()
                     .method(method)
@@ -703,7 +707,8 @@ fn incoming_trace_parent_and_server_attributes_are_preserved_with_optional_expor
                                 .unwrap(),
                         )
                     });
-                    let mut service = GrpcTelemetryLayer(false).layer(GrpcStatusLayer.layer(inner));
+                    let mut service =
+                        GrpcTelemetryLayer::for_test(false).layer(GrpcStatusLayer.layer(inner));
                     let mut request = request(Body::empty());
                     request.headers_mut().insert(
                         "traceparent",
@@ -758,14 +763,15 @@ fn incoming_trace_parent_and_server_attributes_are_preserved_with_optional_expor
     }
     let capture = LogCapture::new(Level::Info);
     propagation::install();
-    let mut service = GrpcTelemetryLayer(true).layer(service_fn(|_: Request<Body>| async {
-        Ok::<_, Infallible>(
-            Response::builder()
-                .header("grpc-status", "0")
-                .body(Body::empty())
-                .unwrap(),
-        )
-    }));
+    let mut service =
+        GrpcTelemetryLayer::for_test(true).layer(service_fn(|_: Request<Body>| async {
+            Ok::<_, Infallible>(
+                Response::builder()
+                    .header("grpc-status", "0")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+        }));
     let mut request = request(Body::empty());
     request.headers_mut().insert(
         "traceparent",

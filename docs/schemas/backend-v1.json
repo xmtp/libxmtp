@@ -18,6 +18,8 @@
     "server": {
       "$ref": "#/$defs/ServerConfig",
       "default": {
+        "identifier": null,
+        "min_libxmtp_version": null,
         "listen": "0.0.0.0:5050",
         "log_level": "info",
         "log_format": "text",
@@ -125,6 +127,14 @@
         "max_ping_frames_per_second": 10,
         "max_ping_burst": 100
       }
+    },
+    "mls": {
+      "$ref": "#/$defs/MlsConfig",
+      "default": {
+        "max_group_members": 250,
+        "max_installations_per_inbox": 10,
+        "commit_log_enabled": true
+      }
     }
   },
   "additionalProperties": false,
@@ -135,6 +145,11 @@
     "AuthConfig": {
       "type": "object",
       "properties": {
+        "enabled": {
+          "description": "Check a credential on every RPC except the unauthenticated health and\nconfiguration services. Required whenever `[auth]` is present; false\nleaves every other field in this section unread.",
+          "type": "boolean",
+          "default": null
+        },
         "jwks_url": {
           "description": "Fetch signing keys from HTTPS, or HTTP on a loopback host.",
           "anyOf": [
@@ -287,6 +302,50 @@
     "ServerConfig": {
       "type": "object",
       "properties": {
+        "identifier": {
+          "description": "Stable operator-chosen name for this deployment, by convention reverse\nDNS such as `org.xmtp.dev`. Clients bind to it on first connect, so it\nmust never change once clients have connected. Required.",
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256,
+                  "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f]+$(?![\\s\\S])"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "min_libxmtp_version": {
+          "description": "Oldest libxmtp version this deployment accepts. Absent publishes no\nminimum. Prerelease tags are ignored when clients compare.",
+          "anyOf": [
+            {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?$(?![\\s\\S])"
+                },
+                {
+                  "type": "string",
+                  "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+                }
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "listen": {
           "anyOf": [
             {
@@ -427,7 +486,8 @@
             "not": {
               "enum": [
                 "service.name",
-                "service.version"
+                "service.version",
+                "xmtp.backend.identifier"
               ]
             }
           },
@@ -857,6 +917,30 @@
           "minimum": 1,
           "maximum": 4294967295,
           "default": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "MlsConfig": {
+      "description": "Advisory group shapes published to clients. The backend enforces none of\nthem; a client applies them before it builds a commit.",
+      "type": "object",
+      "properties": {
+        "max_group_members": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 250
+        },
+        "max_installations_per_inbox": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 10
+        },
+        "commit_log_enabled": {
+          "description": "Publish and read the remote commit log. False switches both off for\nevery client of this deployment.",
+          "type": "boolean",
+          "default": true
         }
       },
       "additionalProperties": false

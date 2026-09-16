@@ -8,7 +8,7 @@ fn loaded(auth: &str) -> Result<Config, ConfigError> {
     let path = std::env::temp_dir().join(format!("auth-config-{}.toml", uuid::Uuid::new_v4()));
     std::fs::write(
         &path,
-        format!("[database]\nurl = 'postgres://localhost/xmtp'\n{auth}"),
+        format!("[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n{auth}"),
     )
     .unwrap();
     let result = Config::load(&path);
@@ -19,7 +19,7 @@ fn loaded(auth: &str) -> Result<Config, ConfigError> {
 #[xmtp_common::test(unwrap_try = true)]
 fn absent_auth_and_timing_defaults_preserve_opt_in_behavior() {
     assert!(loaded("")?.auth.is_none());
-    let auth = loaded("[auth]\njwks_url = 'https://issuer.example/keys'")?
+    let auth = loaded("[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'")?
         .auth
         .unwrap();
     assert_eq!(
@@ -36,23 +36,23 @@ fn absent_auth_and_timing_defaults_preserve_opt_in_behavior() {
         ("jwks_max_stale_seconds", 310),
     ] {
         let error = loaded(&format!(
-            "[auth]\njwks_url = 'https://issuer.example/keys'\n{field} = {value}"
+            "[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\n{field} = {value}"
         ))
         .unwrap_err()
         .to_string();
         assert!(error.contains(field), "{error}");
     }
     loaded(
-        "[auth]\njwks_url = 'https://issuer.example/keys'\nleeway_seconds = 300\njwks_refresh_seconds = 1\njwks_max_stale_seconds = 12",
+        "[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\nleeway_seconds = 300\njwks_refresh_seconds = 1\njwks_max_stale_seconds = 12",
     )?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 fn key_sources_and_claim_lists_are_validated_at_load() {
     for auth in [
-        "[auth]",
-        "[auth]\nkeys = []",
-        "[auth]\nkeys = []\njwks_url = 'https://issuer.example/keys'",
+        "[auth]\nenabled = true",
+        "[auth]\nenabled = true\nkeys = []",
+        "[auth]\nenabled = true\nkeys = []\njwks_url = 'https://issuer.example/keys'",
     ] {
         assert!(loaded(auth).unwrap_err().to_string().contains("keys"));
     }
@@ -61,11 +61,11 @@ fn key_sources_and_claim_lists_are_validated_at_load() {
     for (field, auth) in [
         (
             "auth.audiences",
-            "[auth]\njwks_url = 'https://issuer.example/keys'\naudiences = []",
+            "[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\naudiences = []",
         ),
         (
             "auth.issuers",
-            "[auth]\njwks_url = 'https://issuer.example/keys'\nissuers = []",
+            "[auth]\nenabled = true\njwks_url = 'https://issuer.example/keys'\nissuers = []",
         ),
     ] {
         let error = loaded(auth).unwrap_err().to_string();
@@ -81,6 +81,7 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         config,
         TestKey::es256().auth_config(),
         AuthConfig {
+            enabled: Some(true),
             jwks_url: Some("https://issuer.example/keys".into()),
             ..AuthConfig::default()
         },
@@ -89,7 +90,10 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
         assert_eq!(config.auth.unwrap().api_keys["Team.Bot"], value);
     }
-    for source in ["[auth]", "[auth.api_keys]"] {
+    for source in [
+        "[auth]\nenabled = true",
+        "[auth]\nenabled = true\n[auth.api_keys]",
+    ] {
         let error = loaded(source).unwrap_err().to_string();
         assert!(error.contains("auth"), "{error}");
         assert!(error.contains("set api_keys, jwks_url, or keys"), "{error}");
@@ -124,6 +128,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         "ébot",
     ] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [(name.to_owned(), value.clone())].into(),
             ..AuthConfig::default()
         };
@@ -146,6 +151,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         format!("{value}é"),
     ] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [("test-bot".into(), value.clone())].into(),
             ..AuthConfig::default()
         };
@@ -160,6 +166,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
     }
     for value in ["!".repeat(MIN_API_KEY_BYTES), "~".repeat(MAX_API_KEY_BYTES)] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [(format!("9._-{}", "a".repeat(60)), value)].into(),
             ..AuthConfig::default()
         };
@@ -226,10 +233,12 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
         return;
     }
     let value = std::env::var(VARIABLE)?;
-    let config = loaded(&format!("[auth.api_keys]\nbot = 'env:{VARIABLE}'"))?;
+    let config = loaded(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'"
+    ))?;
     assert_eq!(config.auth.unwrap().api_keys["bot"], value);
     let error = loaded(&format!(
-        "[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
     ))
     .unwrap_err();
     for message in [error.to_string(), format!("{error:?}")] {
@@ -261,7 +270,10 @@ fn keys_are_parsed_as_spki_for_the_exact_algorithm_at_load() {
     }
     let mut key = key.config();
     key.public_key = "private-key-sentinel".into();
-    let source = format!("[auth]\nkeys = [{}]", toml::Value::try_from(&key)?);
+    let source = format!(
+        "[auth]\nenabled = true\nkeys = [{}]",
+        toml::Value::try_from(&key)?
+    );
     let error = loaded(&source).unwrap_err().to_string();
     assert!(error.contains("auth.keys[0]"));
     assert!(!error.contains(&key.kid));
@@ -291,9 +303,10 @@ fn missing_duplicate_and_overlong_key_ids_fail_with_entry_context() {
             .to_string()
             .contains("auth.keys[1]")
     );
-    let error = loaded("[auth]\nkeys = [{ alg = 'ES256', public_key = 'sentinel' }]")
-        .unwrap_err()
-        .to_string();
+    let error =
+        loaded("[auth]\nenabled = true\nkeys = [{ alg = 'ES256', public_key = 'sentinel' }]")
+            .unwrap_err()
+            .to_string();
     assert!(error.contains("auth.keys[0]"));
     assert!(!error.contains("sentinel"));
 }
@@ -306,7 +319,7 @@ fn jwks_transport_and_debug_do_not_disclose_the_url_or_key() {
         "file:///secret",
         "http://127.0.0.1.example/secret",
     ] {
-        let error = loaded(&format!("[auth]\njwks_url = '{url}'"))
+        let error = loaded(&format!("[auth]\nenabled = true\njwks_url = '{url}'"))
             .unwrap_err()
             .to_string();
         assert!(error.contains("auth.jwks_url"));
@@ -318,7 +331,7 @@ fn jwks_transport_and_debug_do_not_disclose_the_url_or_key() {
         "http://localhost:1234/secret",
         "http://[::1]:1234/secret",
     ] {
-        let config = loaded(&format!("[auth]\njwks_url = '{url}'"))?;
+        let config = loaded(&format!("[auth]\nenabled = true\njwks_url = '{url}'"))?;
         assert!(!format!("{config:?}").contains("secret"));
     }
     let config = TestKey::es256().auth_config();
@@ -351,13 +364,13 @@ fn environment_values_resolve_in_both_auth_key_sources() {
         return;
     }
     let config = loaded(
-        "[auth]\nkeys = [{ kid = 'test', alg = 'ES256', public_key = 'env:XMTP_AUTH_TEST_KEY' }]",
+        "[auth]\nenabled = true\nkeys = [{ kid = 'test', alg = 'ES256', public_key = 'env:XMTP_AUTH_TEST_KEY' }]",
     )?;
     assert_eq!(
         config.auth.unwrap().keys.unwrap()[0].public_key,
         std::env::var("XMTP_AUTH_TEST_KEY")?
     );
-    let config = loaded("[auth]\njwks_url = 'env:XMTP_AUTH_TEST_URL'")?;
+    let config = loaded("[auth]\nenabled = true\njwks_url = 'env:XMTP_AUTH_TEST_URL'")?;
     assert_eq!(
         config.auth.unwrap().jwks_url.unwrap(),
         std::env::var("XMTP_AUTH_TEST_URL")?
@@ -427,7 +440,7 @@ fn resolved_key_values_are_absent_from_validation_errors() {
         ("ES256", "public_key must be SubjectPublicKeyInfo for alg"),
     ] {
         let error = Config::load_str(&format!(
-            "[database]\nurl = 'postgres://localhost/xmtp'\n[auth]\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
+            "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'\n[auth]\nenabled = true\nkeys = [{{ kid = 'env:XMTP_KID_SECRET', alg = '{alg}', public_key = 'env:XMTP_KID_SECRET' }}]"
         )).unwrap_err();
         for message in [error.to_string(), format!("{error:?}")] {
             assert!(!message.contains(SENTINEL), "{message}");

@@ -1,3 +1,4 @@
+mod configuration;
 mod conversion;
 mod error;
 mod identity;
@@ -18,6 +19,9 @@ pub struct Backend {
     pub(crate) auth: Option<Arc<crate::auth::Authentication>>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
     pub(crate) push: Option<Arc<crate::push::PushHub>>,
+    /// The published deployment settings, built once from the validated
+    /// configuration and returned unchanged for the life of the process.
+    pub(crate) configuration: Arc<crate::api::GetConfigurationResponse>,
 }
 
 impl Backend {
@@ -30,6 +34,9 @@ impl Backend {
         config: Config,
         verifier: CachedSmartContractSignatureVerifier,
     ) -> Self {
+        // A JWKS deployment replaces this in `server::initialize` once its key
+        // set has been fetched. Every other deployment publishes it as built.
+        let configuration = Arc::new(config.configuration_response(&[]));
         Self {
             store: Arc::new(store),
             config: Arc::new(config),
@@ -37,6 +44,7 @@ impl Backend {
             streams: None,
             push: None,
             auth: None,
+            configuration,
         }
     }
 }

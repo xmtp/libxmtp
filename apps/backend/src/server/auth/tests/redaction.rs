@@ -40,8 +40,8 @@ async fn request_span_records_only_api_key_names_as_principals() {
             assert_eq!(request.extensions().get::<AuthContext>(), Some(&expected));
             async { Ok::<_, Infallible>(tonic::Status::ok("").into_http()) }
         });
-        let mut service = GrpcTelemetryLayer(true)
-            .layer(GrpcStatusLayer.layer(AuthLayer(verifier.clone()).layer(inner)));
+        let mut service = GrpcTelemetryLayer::for_test(true)
+            .layer(GrpcStatusLayer.layer(AuthLayer::for_test(verifier.clone()).layer(inner)));
         let request = Request::post("/xmtp.backend.v1.QueryService/Query")
             .header("content-type", "application/grpc")
             .header("authorization", format!("Bearer {token}"))
@@ -146,8 +146,8 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
                     .unwrap(),
             )
         });
-        let mut service = GrpcTelemetryLayer(true)
-            .layer(GrpcStatusLayer.layer(AuthLayer(verifier.clone()).layer(inner)));
+        let mut service = GrpcTelemetryLayer::for_test(true)
+            .layer(GrpcStatusLayer.layer(AuthLayer::for_test(verifier.clone()).layer(inner)));
         let mut request = Request::post("/xmtp.backend.v1.QueryService/Query")
             .header("content-type", "application/grpc")
             .header("x-request-id", SENTINEL)

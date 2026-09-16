@@ -407,8 +407,89 @@ message VerifySmartContractWalletSignaturesResponse {
 }
 
 // ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+message GetConfigurationRequest {}
+
+// Admission settings a client needs before it holds a credential. Never
+// includes a JWKS URL, key material, leeway, or refresh timing.
+message AuthConfiguration {
+  // Public identity of one accepted signing key. Never the key itself.
+  message SigningKey {
+    string kid = 1;
+    string alg = 2;
+  }
+
+  bool enabled = 1;
+  repeated SigningKey keys = 2;
+  repeated string audiences = 3;
+  repeated string issuers = 4;
+  repeated string required_scopes = 5;
+}
+
+message RetentionConfiguration {
+  uint64 group_message_seconds = 1;
+  uint64 welcome_seconds = 2;
+  uint64 key_package_seconds = 3;
+}
+
+// Request shapes the backend accepts. A client chunks its work to these values.
+message LimitsConfiguration {
+  uint64 max_envelope_bytes = 1;
+  uint64 max_request_bytes = 2;
+  uint64 max_response_bytes = 3;
+  uint32 max_publish_topics = 4;
+  uint32 max_query_topics = 5;
+  uint32 max_query_limit = 6;
+  uint32 default_query_limit = 7;
+  uint32 max_newest_metadata_topics = 8;
+  uint32 max_newest_full_topics = 9;
+  uint32 max_update_adds = 10;
+  uint32 max_update_removes = 11;
+  uint32 max_stream_topics = 12;
+  uint32 max_static_topics = 13;
+  uint32 max_lookup_identifiers = 14;
+  uint32 max_scw_signatures = 15;
+  uint32 max_identity_entries = 16;
+  uint32 max_update_frames_per_second = 17;
+  uint32 max_update_burst = 18;
+  uint32 max_ping_frames_per_second = 19;
+  uint32 max_ping_burst = 20;
+}
+
+// Advisory group shapes. The backend does not enforce these values.
+message MlsConfiguration {
+  uint32 max_group_members = 1;
+  uint32 max_installations_per_inbox = 2;
+  // Absent means the client keeps its compiled default.
+  optional bool commit_log_enabled = 3;
+}
+
+message GetConfigurationResponse {
+  // Stable operator-chosen name for this deployment. Never changes once
+  // clients have connected.
+  string identifier = 1;
+  string server_version = 2;
+  // Empty when the operator published no minimum.
+  string min_libxmtp_version = 3;
+  AuthConfiguration auth = 4;
+  RetentionConfiguration retention = 5;
+  LimitsConfiguration limits = 6;
+  MlsConfiguration mls = 7;
+  // CAIP-2 chain ids this backend verifies smart contract wallet signatures on.
+  repeated string smart_contract_wallet_chains = 8;
+}
+
+// ---------------------------------------------------------------------------
 // Services
 // ---------------------------------------------------------------------------
+
+// Read-only deployment settings. Served without a credential whatever
+// auth.enabled is, so a client can discover what the backend requires.
+service ConfigurationService {
+  rpc GetConfiguration(GetConfigurationRequest) returns (GetConfigurationResponse) {}
+}
 
 service QueryService {
   // Envelopes across up to 1000 topics, each from its own cursor.

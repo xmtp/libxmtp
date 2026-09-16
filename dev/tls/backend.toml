@@ -1,4 +1,6 @@
 [server]
+# Validation stack only. A real deployment uses a name it owns.
+identifier = "org.xmtp.tls-check"
 listen = "[::]:5050"
 
 [database]

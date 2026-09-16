@@ -97,7 +97,11 @@ async fn aborted_transaction_is_replaced_before_pool_reuse() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn startup_rejects_retention_that_overflows_the_database_clock() {
     let database = TestDatabase::new()?;
-    let mut config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
+    let mut config: Config = toml::from_str(&format!(
+        "[database]\nurl = {:?}\n[server]\nidentifier = {:?}",
+        database.url(),
+        crate::test_support::DEFAULT_TEST_IDENTIFIER
+    ))?;
     config.retention.welcome_seconds = (i64::MAX / xmtp_common::NS_IN_SEC) as u64;
     config.validate()?;
     let error = crate::server::initialize(config)

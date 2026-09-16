@@ -109,5 +109,29 @@ pub(super) fn optional_http_url(_: &mut SchemaGenerator) -> Schema {
 }
 
 pub(super) fn resource_attributes(_: &mut SchemaGenerator) -> Schema {
-    json_schema!({"type": "object", "propertyNames": {"not": {"enum": ["service.name", "service.version"]}}, "additionalProperties": {"type": "string"}})
+    json_schema!({"type": "object", "propertyNames": {"not": {"enum": ["service.name", "service.version", super::telemetry::IDENTIFIER_ATTRIBUTE]}}, "additionalProperties": {"type": "string"}})
+}
+
+/// Reject whitespace and C0/C1 control characters, matching the runtime check.
+/// The runtime bound is in bytes; `maxLength` here counts characters, so a
+/// multi-byte identifier is checked exactly once, at startup.
+pub(super) fn identifier(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({"anyOf": [with_environment(json_schema!({
+        "type": "string",
+        "minLength": 1,
+        "maxLength": super::MAX_IDENTIFIER_BYTES,
+        "pattern": "^[^\\s\\x00-\\x1f\\x7f-\\x9f]+$(?![\\s\\S])"
+    })), {"type": "null"}]})
+}
+
+/// The published semantic version grammar. Clients compare major, minor, and
+/// patch only, but the value must still parse in full.
+pub(super) fn optional_semver(_: &mut SchemaGenerator) -> Schema {
+    let core = "(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)";
+    let prerelease = "(?:-(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?";
+    let build = "(?:\\+[0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*)?";
+    json_schema!({"anyOf": [with_environment(json_schema!({
+        "type": "string",
+        "pattern": format!("^{core}{prerelease}{build}$(?![\\s\\S])")
+    })), {"type": "null"}]})
 }
