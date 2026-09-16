@@ -300,7 +300,12 @@ if git clone --depth 1 --branch self-hosted \
   if [ "$IMAGE_BUDGET" -le 0 ]; then
     echo "NOTE: out of budget; skipping the image pulls" >&2
   else
-    timeout "${IMAGE_BUDGET}s" docker compose -f "$WARM_DIR/dev/docker/compose.yml" \
+    # Both stacks an agent can start: the main one, and the separate TLS stack
+    # behind `just backend tls-check`. Passing both files to one `pull` keeps
+    # them under the single budget above.
+    timeout "${IMAGE_BUDGET}s" docker compose \
+      -f "$WARM_DIR/dev/docker/compose.yml" \
+      -f "$WARM_DIR/dev/tls/compose.yml" \
       pull --policy missing --ignore-pull-failures --quiet \
       || echo "WARNING: could not pre-pull every compose image" >&2
   fi
