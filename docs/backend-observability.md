@@ -41,7 +41,9 @@ every auth rejection log so one stream can carry several deployments. Trace prop
 `traceparent` and `tracestate`. Do not add request data to labels or span fields.
 
 `server.log_level` defaults to `info`; `--log-level` overrides it.
-`server.request_logger` defaults to `true`. These stdout controls do not suppress
+`server.request_logger` defaults to `true`. Health Check, Watch, and List never
+emit request completion logs, including failures and cancelled streams.
+These stdout controls do not suppress
 operation metrics or trace export. Shutdown bounds export flush to five seconds
 after request drain.
 

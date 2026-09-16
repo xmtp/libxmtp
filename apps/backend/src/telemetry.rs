@@ -274,7 +274,7 @@ pub(crate) struct RpcLabels {
     pub service: &'static str,
     pub method: &'static str,
     kind: &'static str,
-    health: bool,
+    pub(crate) health: bool,
 }
 impl RpcLabels {
     pub(crate) fn from_path(path: &str) -> Self {

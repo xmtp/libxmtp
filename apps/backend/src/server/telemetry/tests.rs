@@ -189,6 +189,49 @@ async fn disabled_logger_warn_level_and_preflight_emit_no_completion() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn health_requests_never_log_completion_with_logger_enabled() {
+    for method in ["Check", "Watch", "List"] {
+        for content_type in ["application/grpc", "application/grpc-web+proto"] {
+            for status in ["0", "5", "13"] {
+                for cancelled in [false, true] {
+                    let capture = LogCapture::new(Level::Trace);
+                    let mut service = GrpcTelemetryLayer::for_test(true).layer(service_fn(
+                        move |_: Request<Body>| async move {
+                            Ok::<_, Infallible>(
+                                Response::builder()
+                                    .header("grpc-status", status)
+                                    .body(Body::new(Full::new(Bytes::from_static(b"response"))))
+                                    .unwrap(),
+                            )
+                        },
+                    ));
+                    let request = Request::post(format!("/grpc.health.v1.Health/{method}"))
+                        .header(CONTENT_TYPE, content_type)
+                        .body(Body::empty())?;
+                    let response = tracing::dispatcher::with_default(&capture.dispatch(), || {
+                        service.call(request)
+                    })
+                    .await?;
+                    assert_eq!(response.headers()["grpc-status"], status);
+                    if cancelled {
+                        drop(response);
+                    } else {
+                        assert_eq!(
+                            response.into_body().collect().await?.to_bytes(),
+                            Bytes::from_static(b"response")
+                        );
+                    }
+                    assert!(
+                        capture.output().is_empty(),
+                        "{method} {content_type} {status}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn grpc_web_counts_encoded_http_bytes_before_protocol_conversion() {
     let capture = LogCapture::new(Level::Info);
     let inner = service_fn(|request: Request<Body>| async move {
@@ -624,9 +667,6 @@ fn health_and_preflight_are_excluded_and_unknown_paths_share_one_label_set() {
                 })
                 .await
                 .unwrap();
-                if response.headers().contains_key("x-request-id") {
-                    assert_eq!(events(&capture).len(), 1);
-                }
                 response.into_body().collect().await.unwrap();
             }
             assert!(
@@ -635,8 +675,7 @@ fn health_and_preflight_are_excluded_and_unknown_paths_share_one_label_set() {
                     .lines()
                     .all(|line| !line.starts_with("grpc_server_"))
             );
-            assert_eq!(events(&capture).len(), 1);
-            assert_eq!(events(&capture)[0]["grpc_code"], "OK");
+            assert!(events(&capture).is_empty());
             service.enabled = false;
             for index in 0..UNKNOWN_PATHS {
                 let request = Request::post(format!("/scanner-{index}/method-{index}"))
