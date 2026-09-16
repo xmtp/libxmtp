@@ -104,7 +104,9 @@ for these tests.
 
 Basic logs use `xmtp_logging`. Set `server.log_level` (default `info`) or override
 with `--log-level`. `server.request_logger` defaults to true and logs completion,
-including stream termination. Never log payloads, topic values, or auth headers.
+including stream termination. Health Check, Watch, and List do not emit request
+logs, even when the request logger is enabled. Never log payloads, topic values,
+or auth headers.
 
 `server.log_format` selects `text` (default) or `json`. `[telemetry]` sets the
 metrics listener, OTLP endpoint, log export, service name, sample ratio, and

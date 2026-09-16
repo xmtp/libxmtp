@@ -33,7 +33,7 @@ pub(crate) struct RequestId(pub uuid::Uuid);
 
 #[derive(Clone)]
 pub(crate) struct GrpcTelemetryLayer {
-    /// Emit one completion log per request.
+    /// Emit one completion log per request, except health checks.
     pub enabled: bool,
     /// Names the deployment on every completion log, so one log stream can
     /// carry more than one backend.
@@ -179,7 +179,7 @@ where
             response_bytes: AtomicU64::new(0),
             dispatch: dispatch.clone(),
             span: span.clone(),
-            enabled: self.enabled,
+            enabled: self.enabled && !labels.health,
             labels,
             status: status.clone(),
             trace_id,
