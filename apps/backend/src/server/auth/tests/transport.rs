@@ -47,35 +47,36 @@ async fn raw_http2_cannot_bypass_auth_with_a_non_grpc_content_type_or_unknown_pa
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn health_and_cors_preflight_remain_public_with_auth_enabled() {
-    let server =
-        TestServer::new(|config| config.auth = Some(TestKey::es256().auth_config())).await?;
-    let health = HealthClient::new(server.channel.clone())
-        .check(HealthCheckRequest {
-            service: String::new(),
-        })
-        .await?
-        .into_inner();
-    assert_eq!(health.status(), ServingStatus::Serving);
-    let response = xmtp_common::http::client()?
-        .request(
-            reqwest::Method::OPTIONS,
-            format!("{}/xmtp.backend.v1.QueryService/Query", server.url),
-        )
-        .header("origin", "https://app.example")
-        .header("access-control-request-method", "POST")
-        .header(
-            "access-control-request-headers",
-            "authorization,content-type",
-        )
-        .send()
-        .await?;
-    assert!(response.status().is_success());
-    assert!(!response.headers().contains_key("grpc-status"));
-    assert_eq!(
-        response.headers()["access-control-allow-headers"],
-        "authorization,content-type"
-    );
-    server.stop().await?;
+    for auth in [TestKey::es256().auth_config(), api_key("operator").1] {
+        let server = TestServer::new(|config| config.auth = Some(auth)).await?;
+        let health = HealthClient::new(server.channel.clone())
+            .check(HealthCheckRequest {
+                service: String::new(),
+            })
+            .await?
+            .into_inner();
+        assert_eq!(health.status(), ServingStatus::Serving);
+        let response = xmtp_common::http::client()?
+            .request(
+                reqwest::Method::OPTIONS,
+                format!("{}/xmtp.backend.v1.QueryService/Query", server.url),
+            )
+            .header("origin", "https://app.example")
+            .header("access-control-request-method", "POST")
+            .header(
+                "access-control-request-headers",
+                "authorization,content-type",
+            )
+            .send()
+            .await?;
+        assert!(response.status().is_success());
+        assert!(!response.headers().contains_key("grpc-status"));
+        assert_eq!(
+            response.headers()["access-control-allow-headers"],
+            "authorization,content-type"
+        );
+        server.stop().await?;
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -128,6 +129,46 @@ async fn authenticated_native_and_web_responses_match_auth_disabled_service() {
     assert!(web.stream.message().await?.is_none());
     drop(web);
     protected.stop().await?;
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn configured_keys_only_serve_without_jwt_keys() {
+    let (value, auth) = api_key("operator");
+    let server = TestServer::new(|_| {}).await?;
+    let mut config = (*server.backend.config).clone();
+    config.auth = Some(auth);
+    let mut protected = RunningServer::new(config).await?;
+    let mut request = tonic::Request::new(api::QueryRequest::default());
+    request
+        .metadata_mut()
+        .insert("authorization", format!("Bearer {value}").parse()?);
+    protected.query().query(request).await?;
+    let mut request = tonic::Request::new(api::QueryRequest::default());
+    request.metadata_mut().insert(
+        "authorization",
+        format!("Bearer {}", mint(&valid_claims(), &TestKey::es256())).parse()?,
+    );
+    let status = protected.query().query(request).await.unwrap_err();
+    assert_eq!(status.code(), tonic::Code::Unauthenticated);
+    assert_eq!(status.message(), crate::auth::verify::UNTRUSTED);
+    protected.stop().await?;
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn api_keys_and_jwts_both_admit_unary_requests() {
+    let (value, mut auth) = api_key("operator");
+    let key = TestKey::es256();
+    auth.keys = Some(vec![key.config()]);
+    let server = TestServer::new(|config| config.auth = Some(auth)).await?;
+    for token in [value, mint(&valid_claims(), &key)] {
+        let mut request = tonic::Request::new(api::QueryRequest::default());
+        request
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {token}").parse()?);
+        server.query().query(request).await?;
+    }
     server.stop().await?;
 }
 
