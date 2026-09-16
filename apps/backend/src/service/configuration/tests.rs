@@ -207,3 +207,53 @@ async fn the_response_never_carries_a_url_or_key_material() {
     assert!(!encoded.contains("postgres"));
     server.stop().await?;
 }
+
+/// A deployment may publish a response budget smaller than its own
+/// configuration response. The startup check bounds this one response at 64
+/// KiB; `limits.max_response_bytes` bounds the envelopes clients read, and a
+/// small one must not make the configuration itself undeliverable.
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_small_response_budget_still_delivers_the_configuration() {
+    // The smallest response budget a one-byte envelope allows.
+    const BUDGET: usize = 1 + crate::config::ENVELOPE_METADATA_AND_FRAMING_BYTES;
+    let server = TestServer::from_toml(
+        "[limits]
+max_envelope_bytes = 1
+max_request_bytes = 257
+max_response_bytes = 257
+[chains]
+'eip155:1' = 'https://one.example.com'
+'eip155:10' = 'https://ten.example.com'
+'eip155:56' = 'https://fifty-six.example.com'
+'eip155:100' = 'https://one-hundred.example.com'
+'eip155:137' = 'https://one-three-seven.example.com'
+'eip155:250' = 'https://two-fifty.example.com'
+'eip155:8453' = 'https://base.example.com'
+'eip155:42161' = 'https://arbitrum.example.com'
+'eip155:43114' = 'https://avalanche.example.com'
+'eip155:59144' = 'https://linea.example.com'
+'eip155:81457' = 'https://blast.example.com'
+'eip155:534352' = 'https://scroll.example.com'
+'eip155:7777777' = 'https://zora.example.com'
+'eip155:11155111' = 'https://sepolia.example.com'
+'eip155:84532' = 'https://base-sepolia.example.com'
+'eip155:421614' = 'https://arbitrum-sepolia.example.com'
+",
+    )
+    .await?;
+    let published = server
+        .configuration()
+        .get_configuration(api::GetConfigurationRequest {})
+        .await?
+        .into_inner();
+    assert_eq!(published.smart_contract_wallet_chains.len(), 16);
+    // The call above only means something while the response is larger than the
+    // budget the deployment published for everything else.
+    let encoded = prost::Message::encoded_len(&published);
+    assert!(
+        encoded > BUDGET,
+        "this deployment's configuration response is {encoded} bytes, so it no \
+         longer exercises a response budget smaller than itself"
+    );
+    server.stop().await?;
+}

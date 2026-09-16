@@ -66,12 +66,21 @@ bound to the identifier it first saw. A client that reaches a backend publishing
 a different identifier stops with a backend-mismatch error and cannot recover
 without a new database. Move a deployment between hosts, ports, and URLs freely;
 keep the identifier the same.
+
+The check lives in the client library. A client older than the release that
+added configuration support never reads the identifier, so it keeps running
+against a renamed deployment until it is upgraded.
 :::
 
 `min_libxmtp_version` is compared on major, minor, and patch only, so a
 prerelease tag does not change the verdict. A client below the minimum refuses to
-build, and a running client that learns of a raised minimum stops. The backend
-publishes the minimum; it does not yet reject requests by version.
+build, and a running client that learns of a raised minimum stops.
+
+Both are client-side checks, made by a client that reads this deployment's
+published configuration. The backend only publishes the minimum: it does not
+reject requests by version, so raising the minimum does not stop a client that
+predates configuration support, or one that reached the backend before the
+change and has not refreshed.
 
 ### `[telemetry]`
 

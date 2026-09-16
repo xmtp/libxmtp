@@ -7,7 +7,7 @@ use crate::{
         publish_service_server::PublishServiceServer, query_service_server::QueryServiceServer,
         subscription_service_server::SubscriptionServiceServer,
     },
-    config::Config,
+    config::{Config, MAX_CONFIGURATION_RESPONSE_BYTES},
     db::Store,
 };
 use std::{
@@ -147,9 +147,13 @@ pub async fn serve(
     let notification = NotificationServiceServer::new(backend.clone())
         .max_decoding_message_size(receive)
         .max_encoding_message_size(send);
+    // The one response this service sends is bounded by the startup check in
+    // `validate_configuration_size`, not by the deployment's response budget.
+    // A deployment free to publish a small `max_response_bytes` would otherwise
+    // be unable to deliver a configuration its own validation accepted.
     let configuration = ConfigurationServiceServer::new(backend.clone())
         .max_decoding_message_size(receive)
-        .max_encoding_message_size(send);
+        .max_encoding_message_size(MAX_CONFIGURATION_RESPONSE_BYTES);
     let (reporter, health) = tonic_health::server::health_reporter();
     report_health(&reporter, tonic_health::ServingStatus::Serving).await;
     let cors = CorsLayer::new()
