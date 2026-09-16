@@ -627,6 +627,16 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
         config.configuration_response(&[]).auth,
         Some(api::AuthConfiguration::default())
     );
+    // Ignoring a field is not the same as never reading it: environment
+    // references resolve for the whole document before any section is
+    // validated, so a missing variable in a disabled section still fails.
+    let error = Config::load_str(&format!(
+        "{MINIMAL}\n[auth]\nenabled = false\njwks_url = 'env:XMTP_AUTH_DISABLED_MISSING'\n"
+    ))
+    .unwrap_err();
+    assert!(
+        matches!(&error, ConfigError::Environment { name } if name == "XMTP_AUTH_DISABLED_MISSING")
+    );
 }
 
 /// An operator states a minimum client version as a semantic version, or
