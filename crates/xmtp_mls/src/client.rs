@@ -466,7 +466,23 @@ where
         let handle = self.context.server_configuration();
         let db = self.context.db();
         let fetched =
-            crate::server_configuration::fetch_and_store(self.context.api(), &db, handle).await?;
+            match crate::server_configuration::fetch_and_store(self.context.api(), &db, handle)
+                .await
+            {
+                Ok(fetched) => fetched,
+                Err(error) => {
+                    // CFG-051: a latch closes every open stream, and cancelling
+                    // is what closes them. The worker cancels after its turn;
+                    // an explicit refresh has to do it here, because the latch
+                    // it sets — a different deployment identifier — otherwise
+                    // leaves the streams and workers of a database known to
+                    // belong elsewhere still running.
+                    if handle.latched().is_some() {
+                        self.context.cancellation_token().cancel();
+                    }
+                    return Err(error);
+                }
+            };
         if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
             crate::server_configuration::check_minimum_version(
                 &fetched,

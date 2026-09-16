@@ -93,6 +93,59 @@ fn validation_names_the_field_that_failed() {
     );
 }
 
+// §7 and CFG-044: a `uint64` above `2^53 - 1` cannot reach a JavaScript app
+// intact, so the client refuses the configuration instead of reading a rounded
+// value. The bound itself is acceptable.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_value_a_javascript_number_would_round_is_refused() {
+    let mut configuration = ServerConfiguration {
+        identifier: "org.example.xmtp".to_owned(),
+        ..Default::default()
+    };
+    configuration.retention.group_message_seconds = MAX_PUBLISHED_VALUE;
+    configuration.validate()?;
+
+    configuration.retention.group_message_seconds = MAX_PUBLISHED_VALUE + 1;
+    assert_eq!(
+        configuration.validate(),
+        Err(ServerConfigurationError::Magnitude {
+            field: "group_message_seconds",
+            value: MAX_PUBLISHED_VALUE + 1,
+        })
+    );
+    // The rounding this prevents: the first `f64` that is not itself.
+    assert_ne!(
+        (MAX_PUBLISHED_VALUE + 2) as f64 as u64,
+        MAX_PUBLISHED_VALUE + 2
+    );
+
+    configuration.retention.group_message_seconds = 1;
+    // Every limit and every MLS value is covered, not just retention.
+    #[cfg(target_pointer_width = "64")]
+    {
+        configuration.limits.max_query_limit = MAX_PUBLISHED_VALUE as usize + 1;
+        assert_eq!(
+            configuration.validate(),
+            Err(ServerConfigurationError::Magnitude {
+                field: "max_query_limit",
+                value: MAX_PUBLISHED_VALUE + 1,
+            })
+        );
+        configuration.limits.max_query_limit = 1;
+
+        configuration.mls.max_group_members = MAX_PUBLISHED_VALUE as usize + 1;
+        assert_eq!(
+            configuration.validate(),
+            Err(ServerConfigurationError::Magnitude {
+                field: "max_group_members",
+                value: MAX_PUBLISHED_VALUE + 1,
+            })
+        );
+        configuration.mls.max_group_members = 1;
+    }
+    configuration.validate()?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn an_absent_minimum_admits_every_client_version() {
     let configuration = ServerConfiguration {
