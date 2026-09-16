@@ -176,7 +176,8 @@ impl From<&xmtp_configuration::ServerConfiguration> for FfiServerConfiguration {
 
 /// Widen a published count for the foreign side (§7).
 ///
-/// CFG-007 keeps every published value far below 2^53, so a 64-bit target never
+/// Validation keeps every published value at or below
+/// `xmtp_configuration::MAX_PUBLISHED_VALUE` (CFG-044), so a 64-bit target never
 /// loses a bit here and no target this binding builds for has a `usize` wider
 /// than 64 bits.
 fn widen(value: usize) -> u64 {

@@ -11,6 +11,10 @@
 //! those as `BigInt`, so each mirror field below is an `f64` instead. `f64`
 //! holds every published value exactly, needs no fallible cast from `usize`,
 //! and `tsify` types it as `number`.
+//!
+//! "Every published value is below 2^53" is not an assumption here: a value
+//! above `xmtp_configuration::MAX_PUBLISHED_VALUE` fails validation before a
+//! snapshot is ever built (CFG-044), so no `as f64` below can round.
 
 use crate::ErrorWrapper;
 use crate::client::Client;
@@ -148,8 +152,10 @@ impl From<&xmtp_configuration::LimitsConfiguration> for LimitsConfiguration {
 pub struct MlsConfiguration {
   pub max_group_members: f64,
   pub max_installations_per_inbox: f64,
-  /// `null` means the deployment published nothing and the client keeps its
-  /// compiled default. `false` is distinct from `null`.
+  /// Absent — the property is omitted, so JavaScript reads `undefined` — means
+  /// the deployment published nothing and the client keeps its compiled
+  /// default. `false` is distinct from absent. The TypeScript type is
+  /// `commitLogEnabled?: boolean`, which says exactly that.
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub commit_log_enabled: Option<bool>,
@@ -307,9 +313,11 @@ mod tests {
       limits.max_ping_frames_per_second,
       limits.max_ping_burst,
     ] {
-      // §7: every published value is a JavaScript number below 2^53.
+      // §7: every published value is a JavaScript number no larger than
+      // `MAX_PUBLISHED_VALUE`, which validation enforces (CFG-044), so the
+      // `f64` an app reads is the value the deployment published.
       assert!(limit > 0.0);
-      assert!(limit < 9_007_199_254_740_992.0);
+      assert!(limit <= xmtp_configuration::MAX_PUBLISHED_VALUE as f64);
     }
 
     let mls = &configuration.mls;
