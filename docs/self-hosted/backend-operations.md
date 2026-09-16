@@ -287,9 +287,9 @@ must reconnect to another instance with their safe topic cursors. A dropped
 response does not establish whether a publish committed.
 Shutdown marks both aggregate health and every named RPC service `NOT_SERVING`.
 
-Optional JWT authentication is available through the `[auth]` config section.
+Optional API key and JWT authentication is available through the `[auth]` config section.
 See the [authentication configuration](../../apps/docs/src/content/docs/get-started/run-the-backend.mdx#auth)
-to require valid bearer tokens. Caller quotas are not implemented. A valid token
+to require valid bearer credentials. Caller quotas are not implemented. A valid token
 does not prove group membership. Without `[auth]`, the service is unauthenticated.
 Do not expose an unauthenticated service to untrusted traffic.
 

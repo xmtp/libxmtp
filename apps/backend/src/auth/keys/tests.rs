@@ -4,6 +4,13 @@ use jsonwebtoken::decode;
 use serde_json::json;
 
 #[xmtp_common::test(unwrap_try = true)]
+fn absent_inline_signing_keys_load_an_empty_set() {
+    let (_, config) = crate::test_support::auth::api_key("operator");
+    assert!(config.keys.is_none());
+    assert!(inline(&config)?.is_empty());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn every_key_requires_exp_and_each_configured_audience_and_issuer() {
     let es = TestKey::es256();
     let ed = TestKey::eddsa();

@@ -1,11 +1,13 @@
-//! One signature check per request. Verification never performs network IO.
+//! API key admission or one signature check per request. No network IO.
 use super::keys::{KeySet, select};
 use crate::config::auth::{AuthConfig, MAX_KID_BYTES, algorithm};
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use jsonwebtoken::{decode, decode_header, errors::ErrorKind};
 use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use std::{collections::BTreeSet, sync::Arc};
+use subtle::{Choice, ConditionallySelectable, ConstantTimeEq};
 
 pub(crate) const MAX_TOKEN_BYTES: usize = 8 * 1024;
 pub(crate) const MISSING: &str = "missing bearer token";
@@ -19,9 +21,14 @@ pub(crate) const ISSUER: &str = "token issuer is not allowed";
 pub(crate) const SCOPE: &str = "token is missing a required scope";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AuthContext {
-    pub sub: Option<String>,
-    pub scopes: BTreeSet<String>,
+pub enum AuthContext {
+    Jwt {
+        sub: Option<String>,
+        scopes: BTreeSet<String>,
+    },
+    ApiKey {
+        name: String,
+    },
 }
 #[derive(Deserialize)]
 pub(crate) struct Claims {
@@ -89,13 +96,26 @@ impl Rejection {
 pub(crate) struct Verifier {
     pub keys: Arc<KeySet>,
     config: AuthConfig,
+    api_keys: Vec<(String, [u8; 32])>,
+    jwt_configured: bool,
 }
 impl Verifier {
     pub fn new(keys: Arc<KeySet>, config: AuthConfig) -> Self {
-        Self { keys, config }
+        let api_keys = config
+            .api_keys
+            .iter()
+            .map(|(name, value)| (name.clone(), Sha256::digest(value.as_bytes()).into()))
+            .collect();
+        let jwt_configured = config.jwks_url.is_some() || config.keys.is_some();
+        Self {
+            keys,
+            config,
+            api_keys,
+            jwt_configured,
+        }
     }
 
-    /// Check the bearer token and select exactly one trusted signing key.
+    /// Match an API key first, or select exactly one trusted JWT signing key.
     /// Claims are checked only after the signature succeeds. No token data is logged.
     pub fn verify(&self, headers: &http::HeaderMap) -> Result<AuthContext, Rejection> {
         let header = headers
@@ -109,6 +129,22 @@ impl Verifier {
         }
         if token.len() > MAX_TOKEN_BYTES {
             return Err(Rejection::Malformed);
+        }
+        let digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let mut matched = Choice::from(0);
+        let mut matched_index = 0_u64;
+        for (index, (_, expected)) in self.api_keys.iter().enumerate() {
+            let equal = digest.ct_eq(expected);
+            matched |= equal;
+            matched_index = u64::conditional_select(&matched_index, &(index as u64), equal);
+        }
+        if bool::from(matched) {
+            return Ok(AuthContext::ApiKey {
+                name: self.api_keys[matched_index as usize].0.clone(),
+            });
+        }
+        if !self.jwt_configured {
+            return Err(Rejection::Untrusted);
         }
         let encoded_header = token.split('.').next().ok_or(Rejection::Malformed)?;
         let header_bytes = URL_SAFE_NO_PAD
@@ -231,7 +267,7 @@ impl Verifier {
         {
             return Err(Rejection::Scope);
         }
-        Ok(AuthContext {
+        Ok(AuthContext::Jwt {
             sub: claims.sub,
             scopes,
         })

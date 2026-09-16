@@ -5,7 +5,7 @@ use crate::{
         keys::{KeySet, inline},
     },
     config::auth::AuthConfig,
-    test_support::auth::{TestKey, mint, valid_claims},
+    test_support::auth::{TestKey, api_key, api_key_value, mint, valid_claims},
 };
 use http_body_util::BodyExt;
 use std::convert::Infallible;
@@ -53,10 +53,12 @@ async fn success_preserves_request_body_headers_and_extensions() {
             assert_eq!(request.headers()["authorization"], expected);
             assert_eq!(request.extensions().get::<u32>(), Some(&42));
             let context = request.extensions().get::<AuthContext>().unwrap();
-            assert_eq!(context.sub.as_deref(), Some("caller"));
             assert_eq!(
-                context.scopes,
-                std::collections::BTreeSet::from(["xmtp".into(), "publish".into()])
+                context,
+                &AuthContext::Jwt {
+                    sub: Some("caller".into()),
+                    scopes: std::collections::BTreeSet::from(["xmtp".into(), "publish".into()]),
+                }
             );
             Ok::<_, Infallible>(Response::new(request.into_body()))
         }

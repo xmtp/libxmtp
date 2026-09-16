@@ -136,16 +136,34 @@ This is round-robin fairness among ready catch-up topics, not a fixed latency or
 - ARC-092: Preserve existing validation behavior, including group-message trailing bytes and the absence of an added ciphersuite allow-list. Spec 003 records what checks do and do not run.
 - ARC-093: Fold identity history for each publish without an association-state cache. Historical signature conversion can call chain RPC; only the state fold itself is pure CPU work. Keep the separate SCW signature-verdict cache defined in spec 003.
 
-### Optional JWT authentication
+### Optional authentication
 
-Authentication is disabled when the configuration has no auth section. When
-enabled, every request except health requires a bearer JWT. Admission uses the
-request path, regardless of HTTP method or content type. CORS preflight is
-answered before admission. Every authenticated path requires the configured
-scopes, including unknown paths. Missing scopes return PERMISSION_DENIED. Missing or invalid tokens return UNAUTHENTICATED. Accepted
-claims are available in request extensions. Streams are checked only at open.
+Authentication is disabled when the configuration has no auth section. The
+auth section must configure at least one mechanism: named API keys, a JWT
+signing-key source, or both. An auth section with neither fails startup.
+When enabled, every request except health requires a bearer credential.
+Admission uses the request path, regardless of HTTP method or content type.
+CORS preflight is answered before admission. Streams are checked only at open.
+The accepted principal is available in request extensions: the key name for
+an API key, or the accepted claims for a JWT.
 
-Configure exactly one signing-key source: inline PEM SubjectPublicKeyInfo keys
+API keys are a map from name to secret value. Names match
+`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. Values are 32 to 8192 bytes of printable
+ASCII without whitespace, unique across names, and at most 256 keys are
+allowed. The bearer value is compared against every configured key with a
+constant-time digest comparison before any JWT processing. A match admits the
+request with that key's name and applies no scope, audience, or issuer check.
+A miss falls through to JWT verification when a JWT source is configured,
+and otherwise returns UNAUTHENTICATED with the untrusted reason. Rejection
+reasons and messages are the same set as for JWTs. Key values never appear in
+logs, errors, metrics, traces, or debug output. Key names may appear as a
+request span attribute.
+
+For JWTs, every authenticated path requires the configured scopes, including
+unknown paths. Missing scopes return PERMISSION_DENIED. Missing or invalid
+tokens return UNAUTHENTICATED.
+
+Configure at most one signing-key source: inline PEM SubjectPublicKeyInfo keys
 or a JWKS URL. Only RS256, RS384, RS512, ES256, ES384, and EdDSA are supported.
 Inline keys must match their declared algorithm. Each key has separate claim
 validation. Tokens require exp. Configured audiences and issuers require aud
