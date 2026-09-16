@@ -6,8 +6,13 @@ On macOS, keep the compiler, linker, and SDK from the same toolchain. The local
 and iOS shells select Xcode through `ios-env.nix` and use its native linker.
 Do not hard-code an Xcode version or use Nix's linker with the system SDK.
 The focused Rust shell uses the Nix toolchain and does not need system Xcode.
+It must replace native compiler and linker overrides from an outer local or iOS
+shell. Otherwise, Xcode's linker uses Nix's SDK without its library search paths.
 Run `dev/nix-shell 'bash dev/check-apple-toolchain'` in the local shell and
 `NIX_DEVSHELL=rust dev/nix-shell 'bash dev/check-apple-toolchain'` for the Nix SDK.
+Also check a shell transition with
+`dev/nix-shell 'dev/nix-shell --shell rust "bash dev/check-apple-toolchain"'`.
+The check links `iconv`; a basic libc link does not detect mixed toolchains.
 
 ## Build isolation
 
