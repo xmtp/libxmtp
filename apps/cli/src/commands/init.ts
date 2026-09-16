@@ -3,7 +3,7 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command, Errors, Flags } from "@oclif/core";
 import { generatePrivateKey } from "viem/accounts";
-import { parseBackendUrl } from "../utils/backend.js";
+import { parseBackendUrl, parseEnvironmentLabel } from "../utils/backend.js";
 import { DEFAULT_ENV_PATH } from "../utils/config.js";
 
 export default class Init extends Command {
@@ -78,6 +78,7 @@ print keys to the console instead.`;
   async run(): Promise<void> {
     const { flags } = await this.parse(Init);
     parseBackendUrl(flags["backend-url"]);
+    parseEnvironmentLabel(flags.env);
 
     // Generate keys
     const walletKey = generatePrivateKey();

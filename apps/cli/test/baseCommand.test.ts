@@ -1,4 +1,7 @@
+import { access, readFile, writeFile } from "node:fs/promises";
+import { Errors } from "@oclif/core";
 import { describe, expect, it } from "vitest";
+import { formatStorageErrorMessage } from "../src/baseCommand.js";
 import { createTestIdentity, runCommand } from "./helpers.js";
 
 function identityFlags() {
@@ -59,4 +62,24 @@ describe("network configuration", () => {
       expect(result.stderr).toContain("Environment label must be non-empty");
     },
   );
+});
+
+describe("storage errors", () => {
+  it.each([
+    "StorageError::PreTransitionDatabase",
+    "StorageError::OldStreamDatabase",
+  ])("includes the preserved database path for %s", async (code) => {
+    const { dbPath } = createTestIdentity();
+    const contents = "database fixture";
+    await writeFile(dbPath, contents);
+    const sdkMessage = `[${code}] This database format is not supported`;
+    const message = formatStorageErrorMessage(new Error(sdkMessage), dbPath);
+    const cliError = new Errors.CLIError(message);
+
+    expect(message).toContain(sdkMessage);
+    expect(message).toContain(`Database path: ${dbPath}`);
+    expect(cliError.oclif.exit ?? 1).not.toBe(0);
+    await expect(access(dbPath)).resolves.toBeUndefined();
+    await expect(readFile(dbPath, "utf-8")).resolves.toBe(contents);
+  });
 });

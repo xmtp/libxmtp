@@ -3,7 +3,7 @@ import { createInterface } from "node:readline";
 import { Command, Errors, Flags } from "@oclif/core";
 import type { Client, NetworkOptions } from "@xmtp/node-sdk";
 import { createClient } from "./utils/client.js";
-import { parseBackendUrl } from "./utils/backend.js";
+import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
 import { formatHuman, isTTY, jsonStringify } from "./utils/output.js";
 
@@ -171,18 +171,7 @@ export class BaseCommand extends Command {
     }
     parseBackendUrl(config.backendUrl);
 
-    const label = config.env ?? "local";
-    if (
-      label.length === 0 ||
-      label === "." ||
-      label === ".." ||
-      label.includes("/") ||
-      label.includes("\\")
-    ) {
-      this.error(
-        'Environment label must be non-empty, must not be "." or "..", and must not contain "/" or "\\".',
-      );
-    }
+    const label = parseEnvironmentLabel(config.env ?? "local");
 
     return {
       backendUrl: config.backendUrl,
@@ -259,11 +248,7 @@ export class BaseCommand extends Command {
 
     // Wrap non-CLI errors (e.g., SDK errors) with showHelp for
     // helpful command usage display alongside the error message
-    const code = (error as Error & { code?: string }).code;
-    const message =
-      code === "StorageError::PreTransitionDatabase" && this.#config.dbPath
-        ? `${error.message}\nDatabase path: ${this.#config.dbPath}`
-        : error.message;
+    const message = formatStorageErrorMessage(error, this.#config.dbPath);
     const cliError = new Errors.CLIError(message);
     const errorWithHelp = cliError as Error & {
       showHelp?: boolean;
@@ -273,4 +258,26 @@ export class BaseCommand extends Command {
     errorWithHelp.parse = { input: { argv: this.argv } };
     throw errorWithHelp;
   }
+}
+
+const UNSUPPORTED_DATABASE_CODES = [
+  "StorageError::PreTransitionDatabase",
+  "StorageError::OldStreamDatabase",
+] as const;
+
+export function formatStorageErrorMessage(
+  error: Error & { code?: string },
+  dbPath?: string,
+): string {
+  if (!dbPath) {
+    return error.message;
+  }
+
+  const isUnsupportedDatabase = UNSUPPORTED_DATABASE_CODES.some(
+    (code) => error.message.startsWith(`[${code}]`) || error.code === code,
+  );
+
+  return isUnsupportedDatabase
+    ? `${error.message}\nDatabase path: ${dbPath}`
+    : error.message;
 }
