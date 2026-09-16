@@ -186,6 +186,9 @@ pub(crate) fn confirm<Context: XmtpSharedContext>(
         if record.push_generation != generation {
             return Ok(Continue((true, false)));
         }
+        if !adds.is_empty() || !removes.is_empty() {
+            record.push_suppressed = None;
+        }
         let uploaded = db.uploaded_topics()?;
         if response.channel != config.channel_id() {
             tracing::warn!("notification channel differs from the local configuration");

@@ -56,6 +56,7 @@ impl Webhook {
         let url = format!("https://push.invalid:{}/hook", address.port());
         let sender = Arc::new(HttpSender {
             allow_private: true,
+            allowed_domains: None,
             resolver: Arc::new(FixedResolver {
                 addresses: vec![address],
                 calls: AtomicUsize::new(0),
@@ -204,6 +205,24 @@ async fn invalid_delivery_urls_and_missing_signing_keys_send_no_request() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn send_time_domain_allowlist_rechecks_registered_destinations() {
+    let mut webhook = Webhook::start(vec![204, 204]).await?;
+    let delivery = delivery(webhook.url.clone());
+
+    Arc::get_mut(&mut webhook.sender)?.allowed_domains = Some(vec![]);
+    assert_eq!(webhook.sender.send(&delivery).await, Outcome::Delivered);
+    webhook.requests.recv().await?;
+
+    Arc::get_mut(&mut webhook.sender)?.allowed_domains = Some(vec!["*.INVALID".into()]);
+    assert_eq!(webhook.sender.send(&delivery).await, Outcome::Delivered);
+    webhook.requests.recv().await?;
+
+    Arc::get_mut(&mut webhook.sender)?.allowed_domains = Some(vec!["other.invalid".into()]);
+    assert_eq!(webhook.sender.send(&delivery).await, Outcome::Rejected);
+    assert!(webhook.requests.try_recv().is_err());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn empty_dns_answer_is_transient_and_private_ip_literals_are_rejected() {
     let resolver = Arc::new(FixedResolver {
         addresses: Vec::new(),
@@ -211,6 +230,7 @@ async fn empty_dns_answer_is_transient_and_private_ip_literals_are_rejected() {
     });
     let sender = HttpSender {
         allow_private: false,
+        allowed_domains: None,
         resolver: resolver.clone(),
         trusted_root: None,
     };
@@ -261,6 +281,7 @@ async fn send_time_dns_rejects_private_addresses_and_checks_every_answer() {
     });
     let sender = HttpSender {
         allow_private: false,
+        allowed_domains: None,
         resolver: resolver.clone(),
         trusted_root: None,
     };
@@ -291,6 +312,7 @@ impl Resolver for StalledResolver {
 async fn one_deadline_includes_stalled_dns() {
     let sender = HttpSender {
         allow_private: true,
+        allowed_domains: None,
         resolver: Arc::new(StalledResolver),
         trusted_root: None,
     };
