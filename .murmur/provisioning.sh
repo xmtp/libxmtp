@@ -129,6 +129,7 @@ echo "=== Warm the Nix store and the Docker images ==="
 # the image warm. See .murmur/nightly-rebake.md.
 WARM_DIR=/tmp/libxmtp-warm
 GCROOTS=/nix/var/nix/gcroots/libxmtp-warm
+GH_STACK_VERSION=v0.1.1
 rm -rf "$WARM_DIR"
 # The warm steps build as `murmur`, and creating the --out-link symlink needs
 # write permission on this directory. Root's `mkdir` leaves it 0755 root-owned,
@@ -208,6 +209,20 @@ if git clone --depth 1 --branch self-hosted \
       "nix build '.#devShells.x86_64-linux.$shell' --out-link '$GCROOTS/shell-$shell'" \
       || warm_failed=1
   done
+
+  # GitHub CLI extensions live in the user's home directory, not in the Nix
+  # store. Install gh-stack as murmur so every agent can use it through the
+  # repo shell. Pin the release so an image rebuild cannot change the CLI.
+  gh_stack_limit=$(warm_remaining 5)
+  if [ "$gh_stack_limit" -le 0 ]; then
+    echo "ERROR: no time remains to install gh-stack" >&2
+    exit 1
+  fi
+  if ! warm_step "gh-stack $GH_STACK_VERSION" "${gh_stack_limit}s" \
+    "./dev/nix-shell 'gh extension install github/gh-stack --pin $GH_STACK_VERSION --force' && ./dev/nix-shell 'gh stack --version'"; then
+    echo "ERROR: gh-stack is part of the agent toolchain and must be installed" >&2
+    exit 1
+  fi
 
   # `just backend up` depends on `just backend image`, which cross-compiles the
   # backend for musl. This is the single most expensive cold-start cost.

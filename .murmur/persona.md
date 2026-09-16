@@ -30,6 +30,10 @@ outside the Nix shell, and a bare invocation either fails or picks up the wrong
 toolchain. Anything that is not a `just` recipe goes through the wrapper:
 
     dev/nix-shell 'cargo tree -p xmtp_mls'
+    dev/nix-shell 'gh stack --version'
+
+The image installs the pinned `github/gh-stack` extension for the `murmur`
+user. Run `gh stack` through `dev/nix-shell`, like the other Nix tools.
 
 Each shell you get is fresh, so prefix every such call. Prefer an existing
 `just` recipe over a hand-rolled cargo line.
