@@ -1,7 +1,7 @@
 # Fly development deployment
 
-Use `bash dev/fly/deploy-backend IMAGE` and `bash dev/fly/deploy-observability`
-from the repository root. These commands change live Fly resources.
+Use `bash dev/fly/deploy-backend IMAGE` and `bash dev/fly/deploy-observability`.
+These commands change live Fly resources.
 
 Run `node dev/fly/render-dashboard.mjs` before building the Grafana image.
 The generated dashboard is ignored. Its source is the shared Docker dashboard.

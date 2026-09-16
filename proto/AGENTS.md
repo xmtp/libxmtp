@@ -5,9 +5,9 @@ Authoritative XMTP wire schemas. Rust code is generated in Cargo `OUT_DIR` by `c
 ## Commands
 
 ```bash
-dev/nix-shell 'buf lint proto'
-dev/nix-shell 'cargo check -p xmtp_proto'
-dev/nix-shell 'cargo check -p xmtp_proto --target wasm32-unknown-unknown'
+just lint-proto
+just check crate xmtp_proto
+dev/nix-shell 'dev/agent-run cargo check -p xmtp_proto --target wasm32-unknown-unknown'
 ```
 
 ## Rules

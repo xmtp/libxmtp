@@ -114,6 +114,7 @@ mkShell (
       # Wasm, cargo, CI, proto, lint tools
       ++ shellCommon.wasmTools
       ++ shellCommon.cargoTools
+      ++ shellCommon.agentTools
       ++ shellCommon.cargoCiTools
       ++ shellCommon.protoTools
       ++ shellCommon.lintTools

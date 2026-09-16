@@ -3,10 +3,9 @@
 Backend client, endpoints, decoders, middleware, and static streams.
 
 ```bash
-dev/nix-shell 'cargo check -p xmtp_api_backend'
-dev/nix-shell 'cargo test -p xmtp_api_backend'
-dev/nix-shell 'cargo nextest run --profile ci -p xmtp_api_backend endpoint_paths_match_backend_services'
-dev/nix-shell 'cargo clippy -p xmtp_api_backend --all-targets -- -D warnings'
+just check crate xmtp_api_backend
+just test crate xmtp_api_backend
+just test workspace -p xmtp_api_backend endpoint_paths_match_backend_services
 ```
 
 `BackendClient<C>` implements the backend unary trait. `MessageBackendBuilder`
@@ -30,4 +29,4 @@ Unary and server-stream calls replay once after a current credential is rejected
 Bidi opens return the auth error and leave reopen policy to the transport.
 Three consecutive failures block requests for 60 seconds. The next request
 runs one probe. Unit tests use a shorter cool-down in `middleware/auth.rs`.
-Run auth tests with `dev/nix-shell 'cargo nextest run --profile ci -p xmtp_api_backend middleware::auth'`.
+Run auth tests with `just test workspace -p xmtp_api_backend middleware::auth`.

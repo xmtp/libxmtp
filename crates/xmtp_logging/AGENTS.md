@@ -6,10 +6,9 @@ Production logging. Tracing layers, Sentry backend.
 
 ```bash
 just check crate xmtp_logging
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_logging
 just test workspace -p xmtp_logging --ignore-default-filter plain_text_hides_sentry_fields   # one test
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_logging -E 'test(/layers::/)'"   # one module
+just test workspace -p xmtp_logging layers::   # one module
 ```
 
 ## Gotchas

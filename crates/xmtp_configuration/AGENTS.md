@@ -6,9 +6,8 @@ Constants and tunables. URLs, limits, timeouts.
 
 ```bash
 just check crate xmtp_configuration
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_configuration
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_configuration -E 'test(/common::/)'"   # one module
+just test workspace -p xmtp_configuration common::   # one module
 ```
 
 ## Gotchas

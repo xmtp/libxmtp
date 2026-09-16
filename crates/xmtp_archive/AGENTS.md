@@ -6,10 +6,9 @@ Archive import and export.
 
 ```bash
 just check crate xmtp_archive
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_archive
 just test workspace -p xmtp_archive --ignore-default-filter test_generic_array_ext   # one test
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_archive -E 'test(/util::/)'"   # one module
+just test workspace -p xmtp_archive util::   # one module
 ```
 
 ## Gotchas

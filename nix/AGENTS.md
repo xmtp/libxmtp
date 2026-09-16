@@ -1,6 +1,5 @@
 # Nix
 
-Read `.agents/skills/working-with-nix/SKILL.md` before changing derivations.
 Check an affected output with `nix build --no-link .#<output>`; run `just lint-config`.
 
 On macOS, keep the compiler, linker, and SDK from the same toolchain. The local

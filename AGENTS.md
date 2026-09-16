@@ -11,6 +11,13 @@ Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `s
   `writing-rust` (conventions and shared helpers), `writing-rust-tests`,
   `working-with-nix`, `working-with-worktrees`, `check-ci`.
 
+## Instruction scope
+
+This file owns shared workflow rules. Directory `AGENTS.md` files add local
+commands, constraints, and exceptions. Read the files along the path to the
+code you change. Do not copy parent rules into a child file; keep shared rules
+in the nearest common parent.
+
 ## Commands
 
 The project Codex configuration wraps shell commands in Nix when its hook is
@@ -23,42 +30,33 @@ Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix
 
 `just` is not on your PATH outside the Nix shell, and each shell you get is
 fresh. Prefix every call: `dev/nix-shell 'just lint'`, not `just lint`.
-Prefer a `just` recipe over a hand-rolled `cargo` line.
+Prefer a `just` recipe over a hand-rolled `cargo` line. Unless stated otherwise,
+commands in all `AGENTS.md` files run from the repository root. Bare `just ...`
+examples are shorthand for `dev/nix-shell 'just ...'`, including in directory
+files. For Cargo build/check/clippy/test options without a recipe, use
+`dev/nix-shell 'dev/agent-run cargo <command> ...'`.
 
 ```bash
 # Run each one as dev/nix-shell 'just <recipe> [args]'.
-just                    # list all recipes
-just backend up         # docker services. Most tests need them.
-just backend build      # self-hosted service through Nix. No database needed.
-just backend db-up      # disposable PostgreSQL 18 primary and replica.
-just backend status     # this worktree's Compose project, slot, ports, and URLs.
-just backend release    # stop this worktree's stack and free its port slot.
-just backend sql-prepare # migrate test DB and refresh checked SQL metadata.
-just backend sql-check  # verify checked SQL metadata against test DB.
-just backend test       # backend unit and RPC/storage tests.
-just check              # cargo check. default-members only.
-just test               # workspace tests. default-members only.
-just lint               # rust + config + markdown. Run before commit.
-just lint-markdown      # excludes generated glossary and JS/CLI release changelogs.
-just lint-proto         # Buf checks the local proto/ schemas.
-just validation         # isolated shared validation checks and native/wasm tests.
-just docs build         # Starlight site. Run just docs install first.
-just docs lint          # site code and Markdown.
-just docs format-check  # site formatting.
-just docs test          # site build-tool tests.
-just cli install        # install standalone CLI dependencies.
-just cli check          # build linked Node SDK and typecheck CLI.
-just cli lint           # lint CLI TypeScript.
-just cli test           # test CLI against the worktree backend.
-just web-chat install   # install standalone web-chat dependencies.
-just web-chat check     # build browser SDK and typecheck web-chat.
-just web-chat lint      # lint web-chat TypeScript.
-just web-chat build     # build browser SDK and web-chat.
-just web-chat test      # test web-chat against the worktree backend.
-just outline <file>     # signature outline of a source file. No bodies.
-just ci-status <pr>     # failing CI jobs for a PR, then a one-line summary.
-just ci-failures <job>  # why one job failed. Filtered, not the raw log.
-just ci-annotations <check>  # file and line annotations for a check run.
+just                    # list recipes, including package-specific modules
+just check              # cargo check; default-members only
+just check crate <name> # focused crate check
+just test               # nextest; default-members and the ci profile
+just test crate <name>  # focused crate tests
+just test workspace -p <name> <args> # forward nextest options and test filters
+just lint               # Rust, config, Markdown, and proto; run before commit
+just lint-rust          # Clippy, rustfmt, and Hakari
+just lint-config        # configuration and source formatting checks
+just lint-markdown      # excludes generated glossary and release changelogs
+just lint-proto         # Buf checks the local proto/ schemas
+just backend up         # shared services; most integration tests need them
+just backend status     # this worktree's identity, ports, and URLs
+just outline <paths...> # declarations and line ranges; upstream defaults
+just show <file> <name> # source of a named symbol
+just agent-test         # helper and navigation tests; no language server
+just ci-status <pr>     # failures, then a CI summary
+just ci-failures <job>  # filtered failure diagnostics
+just ci-annotations <check> # file and line annotations
 ```
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
@@ -75,8 +73,9 @@ and port block, so run `just backend status` for the checkout you are in. See th
 
 ## Rules
 
-- Tests use `#[xmtp_common::test(unwrap_try = true)]`. Never `#[test]`.
-- Every package has an `AGENTS.md`. Read it before working there. Update it when its commands change.
+- Rust tests use `#[xmtp_common::test(unwrap_try = true)]`, not `#[test]`, unless
+  the package documents an exception to avoid a dependency cycle.
+- Update the relevant directory `AGENTS.md` when its commands change.
 - `CLAUDE.md` is only a pointer (`@AGENTS.md`). Content goes in `AGENTS.md`.
 - Public API surface belongs in the plan. When a change adds or alters a type
   exposed through `bindings/*` or `sdks/*`, describe that surface in the Ref plan
@@ -84,27 +83,26 @@ and port block, so run `just backend status` for the checkout you are in. See th
   configuration knob should name the caller that needs a non-default value. If
   new surface turns out to be needed mid-implementation, note it in the plan and
   keep going.
-- Read a file's outline before reading the file: `just outline <path>`. Reading
-  whole files repeatedly is the largest single source of wasted context.
+- Before a broad source read, use `just outline <path>`. Use `just show <file>
+  <name>` for a named symbol, or read the required range. Skip outlines for tiny
+  files and exact-range reads. Outlines can be incomplete; use `rg` when a symbol
+  is absent. Use Serena for Rust references and type information.
+  For smaller output, use `just outline --no-docs --no-fields --no-attrs <path>`.
+- Use the existing Just recipes for builds and tests. The Codex hook enables
+  compact output inside supported recipes. Without the hook, set `XMTP_RTK=1`
+  explicitly. Do not wrap these recipes in `rtk just` or a generic output filter.
+  If a diagnostic is missing, follow any recovery hint or repeat the same recipe
+  with `XMTP_RTK=0`. Keep its original arguments and environment. Nextest filtering
+  additionally requires `XMTP_RTK_NEXTEST=1`; it is off by default.
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
 
-## Ephemeral test backends
+## Test environment
 
 `just test` needs `just backend up db replica` and the shared backend services.
 It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
 The database URL defaults to this worktree's database; the main checkout uses
 `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`. Run `just backend status`.
-Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
-`tester!(alix, backend: &backend)` with optional `auth: callback`.
-This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.
-The backend exports its fixtures through `xmtp_backend/test-utils`. Its own
-`cargo test` still uses the existing dev-dependencies.
-
-Use the shared backend on port 5050 by default. Use an ephemeral backend only
-when a test needs a specific configuration. Nextest runs each test in its own
-process, so tests cannot share an ephemeral backend. Each such test pays for
-a database create, a migration, and a listener bind.
-
-Run `dev/check-ephemeral-backend` to check dependency boundaries and the test
-recipe environment. The Rust workspace CI job runs this check.
+Use the shared backend by default. Use an ephemeral backend only when a test
+needs a specific configuration. The helper and its limits are documented in
+`crates/xmtp_mls/AGENTS.md`.

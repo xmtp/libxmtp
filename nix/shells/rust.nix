@@ -55,6 +55,7 @@ mkShell {
     ]
     ++ shellCommon.wasmTools
     ++ shellCommon.cargoTools
+    ++ shellCommon.agentTools
     ++ shellCommon.cargoCiTools
     ++ shellCommon.protoTools
     ++ shellCommon.lintTools

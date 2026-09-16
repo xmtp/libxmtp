@@ -177,6 +177,31 @@ class NixWrapperTests(unittest.TestCase):
         )
         self.assertIn("updatedInput", json.loads(result.stdout)["hookSpecificOutput"])
 
+    def test_hook_compact_default_and_explicit_bypass(self):
+        for value, expected in ((None, "1"), ("0", "0"), ("", "")):
+            with self.subTest(value=value):
+                self.env.pop("XMTP_RTK", None)
+                if value is not None:
+                    self.env["XMTP_RTK"] = value
+                response = rewrite(
+                    {
+                        "tool_name": "Bash",
+                        "cwd": str(self.root),
+                        "tool_input": {"command": 'printf "%s" "$XMTP_RTK"'},
+                    },
+                    self.root,
+                )
+                command = response["hookSpecificOutput"]["updatedInput"]["command"]
+                result = subprocess.run(
+                    ["bash", "-c", command],
+                    cwd=self.root,
+                    env=self.env,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, expected)
+
 
 if __name__ == "__main__":
     unittest.main()

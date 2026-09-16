@@ -10,6 +10,8 @@ enter Nix. The Serena runtime uses the Python and uv versions from Nix.
 
 The hook runs shell commands with `bash -c` through `dev/nix-shell`. Use Bash
 syntax for hooked commands. It does not add `errexit` or `nounset` to them.
+It defaults `XMTP_RTK` to `1` for supported command filters. An explicit value,
+including an empty value or `0`, takes precedence.
 It preserves the command text,
 working directory, exit status, and permission checks. Commands outside this
 worktree are not wrapped. This does not change the sandbox or approval policy.
@@ -34,6 +36,71 @@ override module shell selection. The wrapper reuses a nested environment only
 when the worktree, shell selection, and shell inputs match. It enters Nix again
 after a relevant input changes. It does not infer reuse from `IN_NIX_SHELL` or
 from a direnv environment. Separate top-level commands still enter Nix.
+
+## Code navigation
+
+Use these recipes inside `dev/nix-shell`:
+
+```sh
+dev/nix-shell 'just outline crates/xmtp_mls/src/client.rs'
+dev/nix-shell 'just show sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt create'
+```
+
+`just outline` accepts one or more paths and prints declarations with
+line ranges. `just show` accepts a file and one or more symbol names. Use a
+qualified name when a short name is ambiguous; nesting is significant. For
+example, Kotlin companion methods are under `Client.Companion`.
+
+The `dev/ast-outline` launcher runs ast-outline 1.9.0 with Nix-provided Python in
+the locked agent environment. Its first call can download dependencies. Both
+navigation recipes preserve argument boundaries, including paths with spaces.
+The outline recipe uses upstream defaults, including documentation, fields,
+and attributes. Pass `--no-docs --no-fields --no-attrs` when smaller output is
+useful. Use the launcher directly for other upstream options or JSON output.
+
+Outlines are syntax-based and can miss macro-generated code or declarations in
+files with parse errors. An absent symbol is not proof that it does not exist.
+Use `rg` and focused source reads when needed. Some ast-outline user errors,
+including missing symbols, print a note and return zero: inspect output as well
+as status. Do not apply a second RTK filter to outlines or symbol source.
+
+## Compact command output
+
+The default and Rust Nix shells provide RTK 0.49.0. `dev/agent-run` applies its
+dedicated Cargo filters inside selected recipes when `XMTP_RTK=1`. The Codex
+hook sets this default; other agents can opt in explicitly:
+
+```sh
+XMTP_RTK=1 dev/nix-shell 'just check'
+XMTP_RTK=1 dev/nix-shell 'just backend test --lib config'
+XMTP_RTK=0 dev/nix-shell 'just check'
+```
+
+The runner supports Cargo build, check, Clippy, and test. It does not enter Nix
+itself; direct use must remain inside `dev/nix-shell`. Root check/lint recipes
+and backend tests use it. Nix package builds retain their original execution.
+When `CI` is nonempty, RTK is missing, or compact output is not enabled, the
+original command runs. Metadata, coverage, structured-output options, help,
+test listing, and uncaptured output run raw. Custom `CARGO_TEST_CMD` values are
+unchanged. No CI workflow needs an RTK installation or setting.
+
+Nextest filtering is off by default. To try it, set both `XMTP_RTK=1` and
+`XMTP_RTK_NEXTEST=1`. RTK 0.49.0 can hide short errors before a Nextest run starts.
+The runner preserves failure status and prints a recovery instruction even
+when RTK prints no diagnostic. This extra opt-in does not apply to CI.
+
+Follow a printed RTK recovery hint first. If needed and safe, repeat the same
+recipe with `XMTP_RTK=0`, preserving its arguments and environment. The runner
+never retries automatically. Do not weaken a check or remove a tool option to
+make filtering work. Global RTK recall settings are not changed by this repo.
+
+Use `rtk gain --project` to inspect estimated savings. Do not use `rtk just`,
+`rtk test just ...`, or a generic output pipeline around these recipes: those
+do not apply the dedicated child-command filters and can hide useful output.
+
+Run `dev/nix-shell 'just agent-test'` to verify routing, hook behavior, and
+navigation against the locked dependencies. These tests do not start Serena or
+backend services.
 
 ## Rust navigation
 
