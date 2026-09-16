@@ -5,6 +5,7 @@ import {
   Backend,
   BackupElementSelectionOption,
   fetchInboxStatesByInboxIds,
+  fetchServerConfiguration as fetchServerConfigurationBinding,
   IdentifierKind,
   isAddressAuthorized as isAddressAuthorizedBinding,
   isInstallationAuthorized as isInstallationAuthorizedBinding,
@@ -15,6 +16,7 @@ import {
   type GroupSyncSummary,
   type Identifier,
   type Client as NodeClient,
+  type ServerConfiguration,
   type SignatureRequestHandle,
 } from "@xmtp/node-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
@@ -28,6 +30,7 @@ import {
   type NotificationConfig,
   type NotificationState,
 } from "@/Notifications";
+import { throwServerConfigurationError } from "@/ServerConfiguration";
 import type {
   ClientOptions,
   DistributiveOmit,
@@ -54,6 +57,18 @@ const resolveBackend = async (
   }
   return createBackend(optionsOrBackend);
 };
+
+/**
+ * Read a backend URL and app version from a bare URL, network options, or an
+ * existing backend. `fetchServerConfiguration` builds no backend of its own,
+ * so it needs the two values rather than a `Backend`.
+ */
+const resolveEndpoint = (
+  target: string | NetworkOptions | Backend,
+): { backendUrl: string; appVersion?: string } =>
+  typeof target === "string"
+    ? { backendUrl: target }
+    : { backendUrl: target.backendUrl, appVersion: target.appVersion };
 
 const createEphemeralIdentifier = (): Identifier => ({
   identifier: `0x${randomBytes(20).toString("hex")}`,
@@ -111,7 +126,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     }
 
     this.#identifier = identifier;
-    const { client, env } = await createClient(identifier, this.#options);
+    // A build resolves the deployment configuration before any identity work,
+    // so its six failures (spec 006 CFG-041, CFG-044, CFG-052, CFG-060,
+    // CFG-062) surface here and are raised as their own types (CFG-083).
+    const { client, env } = await createClient(identifier, this.#options).catch(
+      throwServerConfigurationError,
+    );
     this.#client = client;
     this.#env = env;
     const conversations = this.#client.conversations();
@@ -353,12 +373,17 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
     switch (finalSigner.type) {
       case "SCW":
-        await signatureRequest.addScwSignature(
-          identifier,
-          signature,
-          finalSigner.getChainId(),
-          finalSigner.getBlockNumber?.(),
-        );
+        // The deployment publishes the chains it verifies on, so a signature
+        // for any other chain is rejected here, before any network call
+        // (spec 006 CFG-069, CFG-070).
+        await signatureRequest
+          .addScwSignature(
+            identifier,
+            signature,
+            finalSigner.getChainId(),
+            finalSigner.getBlockNumber?.(),
+          )
+          .catch(throwServerConfigurationError);
         break;
       case "EOA":
         await signatureRequest.addEcdsaSignature(signature);
@@ -1025,5 +1050,72 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       if (!this.#client) throw new ClientNotInitializedError();
       return toNotificationState(this.#client.notificationState());
     });
+  }
+
+  /**
+   * What the deployment published about itself, as this client resolved it
+   * when it was built (spec 006 CFG-030, CFG-080).
+   *
+   * Reads memory and makes no backend request. The value never changes for the
+   * life of the client: a background refresh rewrites the stored copy, and a
+   * new value takes effect at the next build.
+   *
+   * @throws {ClientNotInitializedError} if the client is not initialized
+   */
+  serverConfiguration(): ServerConfiguration {
+    if (!this.#client) {
+      throw new ClientNotInitializedError();
+    }
+
+    return this.#client.serverConfiguration();
+  }
+
+  /**
+   * Fetch the deployment configuration now, rewrite the stored copy, and
+   * return what was fetched (spec 006 CFG-082).
+   *
+   * The snapshot this client holds is unchanged; use it to observe a change an
+   * operator has made without restarting.
+   *
+   * @throws {ClientNotInitializedError} if the client is not initialized
+   * @throws {ConfigurationUnavailableError} if the deployment did not answer
+   * @throws {ConfigurationInvalidError} if it published an unusable configuration
+   * @throws {BackendMismatchError} if it published a different identifier
+   * @throws {ClientVersionTooOldError} if it now requires a newer libxmtp
+   */
+  async refreshServerConfiguration(): Promise<ServerConfiguration> {
+    if (!this.#client) {
+      throw new ClientNotInitializedError();
+    }
+
+    return this.#client
+      .refreshServerConfiguration()
+      .catch(throwServerConfigurationError);
+  }
+
+  /**
+   * Read what a deployment publishes about itself with no database, no client,
+   * and no credential (spec 006 CFG-081, CFG-045).
+   *
+   * Lets an app learn `auth.enabled`, `auth.requiredScopes`, and the accepted
+   * smart contract wallet chains before it decides how to build a client.
+   * Nothing is stored and no identifier binding is applied.
+   *
+   * @param target - A backend URL, network options, or an existing backend
+   * @throws {ConfigurationUnavailableError} if the deployment did not answer
+   * @throws {ConfigurationInvalidError} if it published an unusable configuration
+   */
+  static async fetchServerConfiguration(
+    target: string | NetworkOptions | Backend,
+  ): Promise<ServerConfiguration> {
+    const { backendUrl, appVersion } = resolveEndpoint(target);
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Validate options from JavaScript callers.
+    if (!backendUrl?.trim()) {
+      throw new Error("backendUrl is required");
+    }
+
+    return fetchServerConfigurationBinding(backendUrl, appVersion).catch(
+      throwServerConfigurationError,
+    );
   }
 }

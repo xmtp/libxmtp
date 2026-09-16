@@ -265,13 +265,23 @@ public final class Client {
 		buildOffline: Bool = false,
 		inMemory: Bool = false
 	) async throws -> Client {
-		let (libxmtpClient, dbPath) = try await initFFiClient(
-			accountIdentifier: publicIdentity,
-			options: options,
-			inboxId: inboxId,
-			buildOffline: buildOffline,
-			inMemory: inMemory
-		)
+		let libxmtpClient: FfiXmtpClient
+		let dbPath: String
+		do {
+			// Build reads the stored server configuration and can fail with
+			// ConfigurationUnavailable, ConfigurationInvalid, BackendMismatch,
+			// ClientVersionTooOld or AuthRequired (spec 006 CFG-041, CFG-044,
+			// CFG-052, CFG-060, CFG-062). Surface each as its distinct type.
+			(libxmtpClient, dbPath) = try await initFFiClient(
+				accountIdentifier: publicIdentity,
+				options: options,
+				inboxId: inboxId,
+				buildOffline: buildOffline,
+				inMemory: inMemory
+			)
+		} catch {
+			throw mapServerConfigurationError(error)
+		}
 
 		let client = try Client(
 			ffiClient: libxmtpClient,
@@ -1198,6 +1208,60 @@ public final class Client {
 			visibilityConfirmationOptions: visibilityConfirmationOptions?
 				.toFfi()
 		)
+	}
+}
+
+// MARK: - Server configuration (spec 006 §7)
+
+public extension Client {
+	/// The server configuration this client was built with (CFG-080).
+	///
+	/// The snapshot is read once at build and held for the life of the client,
+	/// so this makes no backend request and never fails. Use
+	/// ``refreshServerConfiguration()`` to see what the deployment publishes
+	/// now.
+	func serverConfiguration() -> ServerConfiguration {
+		ServerConfiguration(ffiClient.serverConfiguration())
+	}
+
+	/// Fetch the deployment's configuration now and return it (CFG-082).
+	///
+	/// The fetch is validated and the stored copy is rewritten, but this
+	/// client's snapshot is unchanged: ``serverConfiguration()`` keeps
+	/// returning the values it was built with until the next build.
+	///
+	/// Throws ``ConfigurationInvalidError`` when the answer cannot be used and
+	/// ``BackendMismatchError`` when a different backend answered.
+	func refreshServerConfiguration() async throws -> ServerConfiguration {
+		do {
+			return try await ServerConfiguration(
+				ffiClient.refreshServerConfiguration()
+			)
+		} catch {
+			throw mapServerConfigurationError(error)
+		}
+	}
+
+	/// Read one deployment's configuration with no database, no client and no
+	/// credential (CFG-081).
+	///
+	/// Call this before deciding how to build a client, to learn whether the
+	/// deployment requires authentication (``AuthConfiguration/enabled`` and
+	/// ``AuthConfiguration/requiredScopes``) and which chains it accepts
+	/// (``ServerConfiguration/smartContractWalletChains``). Nothing is stored
+	/// and no identifier binding is applied.
+	static func fetchServerConfiguration(
+		url: String, appVersion: String? = nil
+	) async throws -> ServerConfiguration {
+		do {
+			return try await ServerConfiguration(
+				fetchFfiServerConfiguration(
+					backendUrl: url, appVersion: appVersion
+				)
+			)
+		} catch {
+			throw mapServerConfigurationError(error)
+		}
 	}
 }
 

@@ -17,6 +17,10 @@ public extension Error {
 		switch error {
 		case let .Error(message):
 			return getStreamFailureDetails(errorMessage: message)
+		default:
+			// The spec 006 configuration cases never carry the stream-failure
+			// detail suffix. Read them as `serverConfigurationError` instead.
+			return nil
 		}
 	}
 }

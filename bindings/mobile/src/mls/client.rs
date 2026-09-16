@@ -6,6 +6,7 @@ use crate::fork_recovery::FfiForkRecoveryOpts;
 use crate::identity::FfiIdentifier;
 use crate::logger::init_logger;
 use crate::message::FfiDecodedMessage;
+use crate::server_configuration::FfiServerConfiguration;
 use crate::worker::{FfiDeviceSyncMode, FfiSyncWorker};
 use crate::worker_config::FfiWorkerConfig;
 use crate::{FfiError, GenericError};
@@ -813,6 +814,28 @@ impl FfiXmtpClient {
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn sync_preferences(&self) -> Result<FfiGroupSyncSummary, FfiError> {
         self.sync_all_device_sync_groups().await
+    }
+
+    /// What this deployment published about itself, as resolved at build
+    /// (CFG-030, CFG-080).
+    ///
+    /// The snapshot is fixed for the life of the client. A refresh rewrites the
+    /// stored copy and never changes this value.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub fn server_configuration(&self) -> FfiServerConfiguration {
+        self.inner_client.server_configuration().into()
+    }
+
+    /// Fetch the deployment configuration now, rewrite the stored copy, and
+    /// return what the backend answered (CFG-082).
+    ///
+    /// Applies the same validation, storage, and identifier binding the refresh
+    /// worker applies. The snapshot [`FfiXmtpClient::server_configuration`]
+    /// returns is unchanged: a new value takes effect at the next build.
+    #[tracing::instrument(level = "debug", skip_all)]
+    pub async fn refresh_server_configuration(&self) -> Result<FfiServerConfiguration, FfiError> {
+        let configuration = self.inner_client.refresh_server_configuration().await?;
+        Ok((&configuration).into())
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

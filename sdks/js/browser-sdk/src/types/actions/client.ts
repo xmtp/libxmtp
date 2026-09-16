@@ -4,6 +4,7 @@ import type {
   GroupSyncSummary,
   Identifier,
   KeyPackageStatus,
+  ServerConfiguration,
 } from "@xmtp/wasm-bindings";
 import type {
   ClientOptions,
@@ -23,6 +24,12 @@ export type ClientAction =
         installationId: string;
         installationIdBytes: Uint8Array;
         libxmtpVersion: string;
+        /**
+         * The snapshot the core resolved at build. A worker action cannot be
+         * synchronous, so the snapshot travels with the init result and the
+         * main thread answers `serverConfiguration()` from it (CFG-080).
+         */
+        serverConfiguration: ServerConfiguration;
       };
       data: {
         identifier: Identifier;
@@ -269,5 +276,11 @@ export type ClientAction =
       action: "client.syncAllDeviceSyncGroups";
       id: string;
       result: GroupSyncSummary;
+      data: undefined;
+    }
+  | {
+      action: "client.refreshServerConfiguration";
+      id: string;
+      result: ServerConfiguration;
       data: undefined;
     };

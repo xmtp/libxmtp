@@ -20,6 +20,7 @@ mod inbox_state;
 mod notifications;
 pub mod options;
 mod registration_visible;
+pub mod server_configuration;
 mod signatures;
 mod stats;
 

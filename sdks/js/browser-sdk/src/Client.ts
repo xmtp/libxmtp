@@ -8,6 +8,7 @@ import {
   type ArchiveOptions,
   type GroupSyncSummary,
   type Identifier,
+  type ServerConfiguration,
 } from "@xmtp/wasm-bindings";
 import { CodecRegistry } from "@/CodecRegistry";
 import { Conversations } from "@/Conversations";
@@ -24,12 +25,15 @@ import { createBackend } from "@/utils/createBackend";
 import { createClient as createLowLevelClient } from "@/utils/createClient";
 import {
   AccountAlreadyAssociatedError,
+  ClientNotInitializedError,
   InboxReassignError,
   SignerUnavailableError,
+  toServerConfigurationError,
 } from "@/utils/errors";
 import { getInboxIdForIdentifier } from "@/utils/inboxId";
 import { inboxStateFromInboxIds as utilsInboxStateFromInboxIds } from "@/utils/inboxState";
 import { revokeInstallations as utilsRevokeInstallations } from "@/utils/installations";
+import { fetchServerConfiguration as utilsFetchServerConfiguration } from "@/utils/serverConfiguration";
 import { toSafeSigner, type SafeSigner, type Signer } from "@/utils/signer";
 import { uuid } from "@/utils/uuid";
 import { WorkerBridge } from "@/utils/WorkerBridge";
@@ -84,6 +88,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #options?: ClientOptions;
   #closePromise?: Promise<void>;
   #preferences: Preferences;
+  #serverConfiguration?: ServerConfiguration;
   #signer?: Signer;
   #worker: WorkerBridge<ClientWorkerAction>;
 
@@ -138,10 +143,19 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * @param identifier - The identifier to initialize the client with
    */
   async init(identifier: Identifier) {
-    const result = await this.#worker.action("client.init", {
-      identifier,
-      options: this.#options,
-    });
+    let result;
+    try {
+      result = await this.#worker.action("client.init", {
+        identifier,
+        options: this.#options,
+      });
+    } catch (error) {
+      // A build resolves the server configuration first, so its failures are
+      // the typed ones of spec 006 (CFG-083).
+      const typedError = toServerConfigurationError(error);
+      if (typedError) throw typedError;
+      throw error;
+    }
     this.#appVersion = result.appVersion;
     this.#env = result.env;
     this.#identifier = identifier;
@@ -149,6 +163,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     this.#installationId = result.installationId;
     this.#installationIdBytes = result.installationIdBytes;
     this.#libxmtpVersion = result.libxmtpVersion;
+    this.#serverConfiguration = result.serverConfiguration;
     this.#isReady = true;
   }
 
@@ -926,5 +941,55 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    */
   async syncAllDeviceSyncGroups(): Promise<GroupSyncSummary> {
     return this.#worker.action("client.syncAllDeviceSyncGroups");
+  }
+
+  /**
+   * Gets what the backend published about itself, as resolved when this client
+   * was built (CFG-080)
+   *
+   * A worker action cannot be synchronous, so the snapshot is captured from the
+   * init result and answered from the main thread. A refresh rewrites the
+   * stored copy; it never changes this value.
+   *
+   * @throws {ClientNotInitializedError} if the client is not initialized
+   * @returns The configuration snapshot this client holds
+   */
+  serverConfiguration(): ServerConfiguration {
+    if (!this.#serverConfiguration) {
+      throw new ClientNotInitializedError();
+    }
+    return this.#serverConfiguration;
+  }
+
+  /**
+   * Fetches the backend configuration now and rewrites the stored copy
+   * (CFG-082)
+   *
+   * The snapshot this client holds is unchanged; a new value takes effect at
+   * the next build.
+   *
+   * @returns The configuration that was fetched
+   */
+  async refreshServerConfiguration(): Promise<ServerConfiguration> {
+    try {
+      return await this.#worker.action("client.refreshServerConfiguration");
+    } catch (error) {
+      const typedError = toServerConfigurationError(error);
+      if (typedError) throw typedError;
+      throw error;
+    }
+  }
+
+  /**
+   * Reads a backend's configuration with no database, no client, and no
+   * credential (CFG-081)
+   *
+   * @param optionsOrUrl - The backend URL, or network options carrying it
+   * @returns The configuration the backend publishes
+   */
+  static async fetchServerConfiguration(
+    optionsOrUrl: NetworkOptions | string,
+  ): Promise<ServerConfiguration> {
+    return utilsFetchServerConfiguration(optionsOrUrl);
   }
 }
