@@ -155,6 +155,19 @@ Health and deployment configuration RPCs do not need authentication. Application
 RPCs require the key as a bearer token. Verify both rejected and accepted calls
 after a key change. Check the XMTP dashboard for metrics and traces after traffic.
 
+For a live CLI smoke test, set `XMTP_BACKEND_DEV_API_KEY` in the root `.env`, then
+run from the repository root:
+
+```sh
+dev/nix-shell 'just cli build'
+dev/nix-shell 'node dev/fly/smoke-cli.mjs'
+```
+
+The script creates two identities, sends three messages in each direction, and
+checks that both databases contain all six messages with matching IDs, text, and
+senders. It removes its temporary identities, databases, and SQLite sidecars on
+exit. Test messages remain on the live backend. The key is not printed.
+
 Redeploy a previous immutable image to recover from a binary regression only
 when its database schema is compatible. Do not assume binary rollback reverses
 migrations. Use Managed Postgres backups to recover database state. Restore

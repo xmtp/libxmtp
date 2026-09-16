@@ -13,3 +13,7 @@ directory. Private apps must not have public services or public IP addresses.
 
 Keep all services in `sjc`. Preserve the server identifier, database, and volumes.
 Use Fly secrets for credentials. Do not print secret values in deployment logs.
+
+Run `dev/nix-shell 'node dev/fly/smoke-cli.mjs'` after building the CLI.
+It reads `XMTP_BACKEND_DEV_API_KEY` from the root `.env`, sends test messages to
+the live backend, and removes its temporary identities and databases on exit.

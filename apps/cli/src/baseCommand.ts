@@ -1,7 +1,8 @@
 import { env } from "node:process";
 import { createInterface } from "node:readline";
 import { Command, Errors, Flags } from "@oclif/core";
-import type { Client, NetworkOptions } from "@xmtp/node-sdk";
+import { AuthHandle, BackendBuilder } from "@xmtp/node-bindings";
+import type { Backend, Client, NetworkOptions } from "@xmtp/node-sdk";
 import { createClient } from "./utils/client.js";
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
@@ -162,7 +163,7 @@ export class BaseCommand extends Command {
     return this.#config;
   }
 
-  networkOptions(): NetworkOptions {
+  async networkOptions(): Promise<NetworkOptions | Backend> {
     const config = this.getConfig();
     if (!config.backendUrl) {
       this.error(
@@ -173,16 +174,29 @@ export class BaseCommand extends Command {
 
     const label = parseEnvironmentLabel(config.env ?? "local");
 
-    return {
+    const options = {
       backendUrl: config.backendUrl,
       env: label,
       appVersion: config.appVersion,
     };
+    const apiKey = config.apiKey;
+    if (!apiKey) return options;
+
+    const builder = new BackendBuilder(options.backendUrl).setEnv(label);
+    if (options.appVersion) builder.setAppVersion(options.appVersion);
+    const auth = new AuthHandle();
+    await auth.set({
+      value: `Bearer ${apiKey}`,
+      // Static API keys do not expire during this CLI process.
+      expiresAtSeconds: Number.MAX_SAFE_INTEGER,
+    });
+    builder.authHandle(auth);
+    return builder.build();
   }
 
   async initClient(): Promise<Client> {
     const config = this.getConfig();
-    const client = await createClient(config, this.networkOptions());
+    const client = await createClient(config, await this.networkOptions());
     this.#client = client;
 
     if (this.verbose) {

@@ -47,14 +47,18 @@ application instance using your identity.`;
     const clientOptions = {
       env: client.env,
       backendUrl:
-        options && "backendUrl" in options ? options.backendUrl : undefined,
+        options && "backend" in options
+          ? options.backend.backendUrl
+          : options?.backendUrl,
       dbPath: options?.dbPath,
       loggingLevel: options?.loggingLevel,
       structuredLogging: options?.structuredLogging,
       disableAutoRegister: options?.disableAutoRegister,
       disableDeviceSync: options?.disableDeviceSync,
       appVersion:
-        options && "backendUrl" in options ? options.appVersion : undefined,
+        options && "backend" in options
+          ? options.backend.appVersion
+          : options?.appVersion,
       nonce: options?.nonce,
     };
 

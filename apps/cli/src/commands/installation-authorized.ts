@@ -59,7 +59,7 @@ The installation ID should be provided as a hex-encoded string.`;
     const isAuthorized = await Client.isInstallationAuthorized(
       args.inboxId,
       installationBytes,
-      this.networkOptions(),
+      await this.networkOptions(),
     );
 
     this.output({

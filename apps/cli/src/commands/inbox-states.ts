@@ -58,7 +58,7 @@ Use this command to inspect the state of any inbox on the network.`;
 
     const states = await Client.fetchInboxStates(
       inboxIds,
-      this.networkOptions(),
+      await this.networkOptions(),
     );
 
     if (this.jsonOutput) {

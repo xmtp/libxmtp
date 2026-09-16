@@ -19,6 +19,7 @@ export type XmtpConfig = {
   dbEncryptionKey?: string;
   dbPath?: string;
   backendUrl?: string;
+  apiKey?: string;
   env?: string;
   logLevel?: (typeof VALID_LOG_LEVELS)[number];
   structuredLogging?: boolean;
@@ -58,6 +59,7 @@ export function loadConfig(envFile?: string): XmtpConfig {
     dbEncryptionKey: env.XMTP_DB_ENCRYPTION_KEY,
     dbPath: env.XMTP_DB_PATH,
     backendUrl: env.XMTP_BACKEND_URL,
+    apiKey: env.XMTP_API_KEY,
     env: env.XMTP_ENV,
     logLevel: parseLogLevel(env.XMTP_LOG_LEVEL),
     structuredLogging:
@@ -82,6 +84,7 @@ export function mergeConfig(
       fileConfig.dbPath ??
       (backendUrl ? defaultDbPath(backendUrl) : undefined),
     backendUrl,
+    apiKey: flags.apiKey ?? fileConfig.apiKey,
     env: flags.env ?? fileConfig.env ?? defaults?.env,
     logLevel: flags.logLevel ?? fileConfig.logLevel,
     structuredLogging: flags.structuredLogging ?? fileConfig.structuredLogging,

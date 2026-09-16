@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+import { Backend } from "@xmtp/node-bindings";
 import {
   Client,
   IdentifierKind,
@@ -68,7 +69,7 @@ export function hexToBytes(value: string): Uint8Array {
 
 export async function createClient(
   config: XmtpConfig,
-  networkOptions: NetworkOptions,
+  networkOptions: NetworkOptions | Backend,
 ): Promise<Client> {
   if (!config.walletKey) {
     throw new Error(
@@ -89,7 +90,9 @@ export async function createClient(
   }
 
   const client = await Client.create(signer, {
-    ...networkOptions,
+    ...(networkOptions instanceof Backend
+      ? { backend: networkOptions }
+      : networkOptions),
     dbEncryptionKey: hexToBytes(config.dbEncryptionKey),
     dbPath: config.dbPath ?? undefined,
     loggingLevel: parseLogLevel(config.logLevel),
