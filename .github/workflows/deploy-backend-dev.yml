@@ -31,8 +31,10 @@ jobs:
           else
             echo "Skip superseded commit $GITHUB_SHA"
           fi
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
         if: steps.current.outputs.deploy == 'true'
+        with:
+          version: "0.4.104"
       - name: Require the deployment API key
         if: steps.current.outputs.deploy == 'true'
         env:
@@ -42,10 +44,8 @@ jobs:
             echo "::error::Set XMTP_BACKEND_DEV_API_KEY using xdbg generate-api-key."
             exit 1
           fi
-      - uses: actions/setup-node@v4
+      - uses: ./.github/actions/setup-node
         if: steps.current.outputs.deploy == 'true'
-        with:
-          node-version: "22"
       - name: Deploy private observability services
         if: steps.current.outputs.deploy == 'true'
         env:
