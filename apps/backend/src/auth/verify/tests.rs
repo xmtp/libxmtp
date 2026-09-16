@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     auth::keys,
-    test_support::auth::{TestKey, mint, mint_with_header, valid_claims},
+    test_support::auth::{TestKey, api_key, api_key_value, mint, mint_with_header, valid_claims},
 };
 use jsonwebtoken::{Algorithm, Header};
 use serde_json::json;
@@ -16,6 +16,100 @@ fn headers(token: &str) -> http::HeaderMap {
     let mut headers = http::HeaderMap::new();
     headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
     headers
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn configured_api_key_returns_its_name_for_every_bearer_case() {
+    let (value, config) = api_key("operator");
+    let verifier = verifier(config);
+    for scheme in ["bearer", "BEARER", "Bearer"] {
+        let mut headers = headers(&value);
+        headers.insert("authorization", format!("{scheme} {value}").parse()?);
+        assert_eq!(
+            verifier.verify(&headers)?,
+            AuthContext::ApiKey {
+                name: "operator".into(),
+            }
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_miss_without_jwt_source_is_untrusted() {
+    let (_, config) = api_key("operator");
+    let verifier = verifier(config);
+    for token in [api_key_value(), mint(&valid_claims(), &TestKey::es256())] {
+        assert_eq!(verifier.verify(&headers(&token)), Err(Rejection::Untrusted));
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_miss_with_jwt_source_preserves_jwt_verification() {
+    let (_, mut config) = api_key("operator");
+    let key = TestKey::es256();
+    config.keys = Some(vec![key.config()]);
+    let verifier = verifier(config);
+    assert!(matches!(
+        verifier.verify(&headers(&mint(&valid_claims(), &key)))?,
+        AuthContext::Jwt { .. }
+    ));
+    assert_eq!(
+        verifier.verify(&headers("not.a.jwt")),
+        Err(Rejection::Malformed)
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn configured_jwt_shaped_value_is_admitted_as_an_api_key() {
+    let key = TestKey::es256();
+    let value = mint(&valid_claims(), &key);
+    let mut config = key.auth_config();
+    config.api_keys.insert("jwt-shaped".into(), value.clone());
+    assert_eq!(
+        verifier(config).verify(&headers(&value))?,
+        AuthContext::ApiKey {
+            name: "jwt-shaped".into(),
+        }
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_admission_does_not_apply_jwt_claim_checks() {
+    let (value, mut config) = api_key("operator");
+    config.required_scopes = vec!["required".into()];
+    config.audiences = Some(vec!["backend".into()]);
+    config.issuers = Some(vec!["issuer".into()]);
+    assert_eq!(
+        verifier(config).verify(&headers(&value))?,
+        AuthContext::ApiKey {
+            name: "operator".into(),
+        }
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn oversized_bearer_is_malformed_even_when_it_matches_a_configured_key() {
+    let (_, mut config) = api_key("operator");
+    let value = "a".repeat(MAX_TOKEN_BYTES + 1);
+    config.api_keys.insert("operator".into(), value.clone());
+    assert_eq!(
+        verifier(config).verify(&headers(&value)),
+        Err(Rejection::Malformed)
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn each_configured_api_key_returns_only_its_own_name() {
+    let (last_value, mut config) = api_key("zulu");
+    let first_value = api_key_value();
+    config.api_keys.insert("alpha".into(), first_value.clone());
+    let verifier = verifier(config);
+    for (name, value) in [("alpha", first_value), ("zulu", last_value)] {
+        assert_eq!(
+            verifier.verify(&headers(&value))?,
+            AuthContext::ApiKey { name: name.into() }
+        );
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -218,10 +312,12 @@ fn scopes_accept_strings_or_string_arrays_and_require_every_configured_scope() {
         claims["scope"] = scope;
         claims["sub"] = json!("caller");
         let context = verifier.verify(&headers(&mint(&claims, &key)))?;
-        assert_eq!(context.sub.as_deref(), Some("caller"));
         assert_eq!(
-            context.scopes,
-            BTreeSet::from(["xmtp".into(), "publish".into()])
+            context,
+            AuthContext::Jwt {
+                sub: Some("caller".into()),
+                scopes: BTreeSet::from(["xmtp".into(), "publish".into()]),
+            }
         );
     }
     // A token holding only one of the two required scopes is rejected.

@@ -64,6 +64,7 @@ where
     /// Admit the unauthenticated prefixes without a token. Every other path
     /// requires authentication, regardless of its HTTP method or content type.
     /// Streams are checked only here.
+    /// Record API key names on the request span, but never JWT subjects.
     fn call(&mut self, mut request: Request<Body>) -> Self::Future {
         let path = request.uri().path();
         if !UNAUTHENTICATED_PREFIXES
@@ -72,6 +73,9 @@ where
         {
             match self.verifier.verify(request.headers()) {
                 Ok(context) => {
+                    if let crate::auth::AuthContext::ApiKey { name } = &context {
+                        tracing::Span::current().record("auth.principal", name.as_str());
+                    }
                     request.extensions_mut().insert(context);
                 }
                 Err(reason) => {

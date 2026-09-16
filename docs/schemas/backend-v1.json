@@ -173,7 +173,7 @@
           "default": null
         },
         "keys": {
-          "description": "Inline public signing keys. Exactly one key source must be set.",
+          "description": "Inline public signing keys. Cannot be combined with jwks_url.",
           "type": [
             "array",
             "null"
@@ -182,6 +182,29 @@
             "$ref": "#/$defs/AuthKeyConfig"
           },
           "default": null
+        },
+        "api_keys": {
+          "description": "Named static API keys. Values can be supplied with env:NAME.",
+          "type": "object",
+          "maxProperties": 256,
+          "propertyNames": {
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$(?![\\s\\S])"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 8192,
+                "pattern": "^[!-~]+$(?![\\s\\S])"
+              },
+              {
+                "type": "string",
+                "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"
+              }
+            ]
+          },
+          "default": {}
         },
         "audiences": {
           "description": "Require an audience that matches one of these values when set.",

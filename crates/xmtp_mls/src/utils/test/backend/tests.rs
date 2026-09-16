@@ -1,6 +1,6 @@
 use super::EphemeralBackend;
 use crate::{context::XmtpSharedContext, groups::send_message_opts::SendMessageOpts, tester};
-use futures::FutureExt;
+use futures::{FutureExt, StreamExt};
 use std::{
     panic::AssertUnwindSafe,
     sync::{
@@ -8,11 +8,17 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use xmtp_api_backend::{AuthCallback, Credential};
+use xmtp_api_backend::{AuthCallback, Credential, MessageBackendBuilder};
 use xmtp_backend::{config::ConfigError, test_support::TestDatabase};
 use xmtp_common::{
     BoxDynError,
     time::{Duration, Instant},
+};
+use xmtp_mls_validation::test_utils::{GroupMessageKind, group_message_envelope};
+use xmtp_proto::{
+    api::{ApiClientError, AuthError},
+    api_client::XmtpBackendClient,
+    backend_v1::PublishRequest,
 };
 
 fn database_name(backend: &EphemeralBackend) -> String {
@@ -243,6 +249,95 @@ impl AuthCallback for Callback {
             i64::MAX,
         ))
     }
+}
+
+struct StaticKey(String, AtomicUsize);
+#[xmtp_common::async_trait]
+impl AuthCallback for StaticKey {
+    async fn on_auth_required(&self) -> Result<Credential, BoxDynError> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        Ok(Credential::new(
+            None,
+            format!("Bearer {}", self.0).parse()?,
+            i64::MAX,
+        ))
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ephemeral_api_key_admits_unary_and_stream() {
+    const KEY: &str = "ephemeral-api-key-0123456789abcdefghijklmnopq";
+    let backend = EphemeralBackend::start(&format!("[auth.api_keys]\nci = '{KEY}'")).await?;
+    let callback = Arc::new(StaticKey(KEY.to_owned(), AtomicUsize::new(0)));
+    tester!(alix, backend: &backend, auth: callback.clone());
+    let group = alix.create_group(None, None)?;
+    group
+        .send_message(b"authenticated unary", SendMessageOpts::default())
+        .await?;
+    let messages = alix
+        .context
+        .api()
+        .query_group_messages(group.group_id)
+        .await?;
+    assert!(!messages.is_empty());
+
+    let mut stream = alix
+        .context
+        .api()
+        .subscribe_group_messages(&[&group.group_id])
+        .await?;
+    group
+        .send_message(b"authenticated stream", SendMessageOpts::default())
+        .await?;
+    let message = xmtp_common::time::timeout(Duration::from_secs(20), stream.next()).await???;
+    assert_eq!(message.group_id, group.group_id);
+    assert!(message.sequence_id() > messages.last()?.sequence_id());
+    let queried = alix
+        .context
+        .api()
+        .query_group_messages(group.group_id)
+        .await?;
+    assert_eq!(message.payload_hash, queried.last()?.payload_hash);
+    assert_eq!(callback.1.load(Ordering::SeqCst), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ephemeral_api_key_mismatch_is_unauthenticated() {
+    const KEY: &str = "ephemeral-api-key-0123456789abcdefghijklmnopq";
+    const WRONG_KEY: &str = "different-api-key-0123456789abcdefghijklmnopq";
+    let backend = EphemeralBackend::start(&format!("[auth.api_keys]\nci = '{KEY}'")).await?;
+    let valid_callback = Arc::new(StaticKey(KEY.to_owned(), AtomicUsize::new(0)));
+    tester!(alix, backend: &backend, auth: valid_callback, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let callback = Arc::new(StaticKey(WRONG_KEY.to_owned(), AtomicUsize::new(0)));
+    let client = MessageBackendBuilder::new()
+        .host(backend.url())
+        .maybe_auth_callback(Some(callback.clone()))
+        .build()?;
+    assert_eq!(callback.1.load(Ordering::SeqCst), 0);
+
+    let error = client
+        .publish(PublishRequest {
+            envelopes: vec![group_message_envelope(
+                group.group_id,
+                GroupMessageKind::Application,
+                b"rejected message",
+            )],
+        })
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        ApiClientError::Auth(AuthError::CredentialRejected { retryable: true })
+    ));
+    assert_eq!(callback.1.load(Ordering::SeqCst), 2);
+    assert!(
+        alix.context
+            .api()
+            .query_group_messages(group.group_id)
+            .await?
+            .is_empty()
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

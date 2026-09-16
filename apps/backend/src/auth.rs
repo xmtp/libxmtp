@@ -1,4 +1,4 @@
-//! JWT verification and bounded signing-key refresh.
+//! API key and JWT verification with bounded signing-key refresh.
 pub(crate) mod jwks;
 pub(crate) mod keys;
 pub(crate) mod verify;
