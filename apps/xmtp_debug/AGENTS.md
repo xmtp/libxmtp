@@ -6,7 +6,7 @@ CLI to generate identities, groups, and messages against the self-hosted backend
 
 ```bash
 just check crate xdbg
-dev/nix-shell 'cargo clippy --locked -p xdbg --all-targets -- -D warnings'
+dev/nix-shell 'dev/agent-run cargo clippy --locked -p xdbg --all-targets -- -D warnings'
 just test crate xdbg
 dev/nix-shell 'cargo run -p xdbg -- --help'
 dev/nix-shell 'cargo run -p xdbg -- generate-api-key'

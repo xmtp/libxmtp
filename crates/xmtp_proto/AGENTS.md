@@ -6,11 +6,9 @@ Generated protobuf types and gRPC stubs.
 
 ```bash
 just check crate xmtp_proto
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_proto
 just test workspace -p xmtp_proto --ignore-default-filter test_is_commit   # one test
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_proto -E 'test(/types::/)'"   # one module
-dev/nix-shell 'buf lint proto'          # lint owned protobuf sources
+just test workspace -p xmtp_proto types::   # one module
 ```
 
 ## Gotchas

@@ -13,8 +13,7 @@ Standalone Yarn 4 project for xmtp.chat, linked to the in-tree browser SDK with
 - `just web-chat test`: build the linked SDK and run browser tests.
 - `just web-chat dev`: build the linked SDK and start Vite with worktree backend settings.
 
-Run every command through `dev/nix-shell`, for example
-`dev/nix-shell 'just web-chat test'`. Tests require `just backend up`.
+Tests require `just backend up`.
 
 ## Backend configuration
 

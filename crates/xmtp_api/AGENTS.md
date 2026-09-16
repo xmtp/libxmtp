@@ -3,16 +3,15 @@
 Backend API wrapper. It owns retries, request limits, paging, and result maps.
 
 ```bash
-dev/nix-shell 'cargo test -p xmtp_api'
-dev/nix-shell 'cargo clippy -p xmtp_api --all-targets -- -D warnings'
+just check crate xmtp_api
+just test crate xmtp_api
 ```
 
-The real RPC test needs the backend at `http://localhost:5050` and PostgreSQL.
-Set `XMTP_BACKEND_URL` to use another test instance.
+The real RPC test needs the worktree backend and PostgreSQL.
 Use `just backend up` for the Docker stack and its reduced query row limit.
 Use `just backend db-up`, `just backend build`, and `just backend run` to run
 outside Docker. Mock tests use `MockBackendClient`.
-Run one test with `dev/nix-shell 'cargo nextest run --profile ci -p xmtp_api read_topic_boundaries'`.
+Run one test with `just test workspace -p xmtp_api read_topic_boundaries`.
 
 Keep each commit and its proposals in one `PublishUnit`. The unit retains
 canonical bytes and cannot be split. Request limits come from the snapshot the

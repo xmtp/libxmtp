@@ -13,8 +13,7 @@ Standalone Yarn 4 project for `@xmtp/cli`, linked to the in-tree Node SDK with
 - `just cli test`: build the linked SDK and run all tests.
 - `just cli test-ci --shard N/2`: run a CI test shard.
 
-Run every command through `dev/nix-shell`, for example
-`dev/nix-shell 'just cli test'`. Tests require `just backend up`. The `sdk`
+Tests require `just backend up`. The `sdk`
 dependency installs `sdks/js`, stages Node bindings, and builds
 `@xmtp/node-sdk` before checks that need its `dist` output.
 

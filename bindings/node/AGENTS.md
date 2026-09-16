@@ -10,8 +10,8 @@ just node lint                          # prettier
 dev/nix-shell 'cd bindings/node && yarn lint'   # clippy + rustfmt
 just node test                          # install + build with test-utils + vitest
 just node test-ci                       # what CI runs (Nix build)
-dev/nix-shell 'cd bindings/node && yarn vitest run test/inboxId.test.ts'           # one file
-dev/nix-shell 'cd bindings/node && yarn vitest run -t "should generate an inbox id"'   # one test
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd bindings/node && yarn vitest run test/inboxId.test.ts' # one file
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd bindings/node && yarn vitest run -t "should generate an inbox id"' # one test
 ```
 
 ## Gotchas
@@ -48,4 +48,4 @@ Auth callback bridges return only `auth callback failed` on failure. Never retai
 or log callback error text or credential values. The middleware owns retryability.
 
 Run the error conversion test without a Node runtime:
-`dev/nix-shell 'cargo nextest run --profile ci -p bindings_node --features napi/dyn-symbols,napi/noop auth_codes_reach_node_errors'`.
+`just test workspace -p bindings_node --features napi/dyn-symbols,napi/noop auth_codes_reach_node_errors`.

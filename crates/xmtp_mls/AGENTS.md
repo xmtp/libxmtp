@@ -6,18 +6,16 @@ Core client. Groups, messages, sync, streams.
 
 ```bash
 just check crate xmtp_mls
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_mls                # needs `just backend up` (anvil)
-dev/nix-shell "cargo nextest run -p xmtp_mls --profile ci -E 'test(test_valid_deletion_by_sender)'"
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_mls -E 'test(/messages::/)'"   # one module
+just test workspace -p xmtp_mls test_valid_deletion_by_sender
+just test workspace -p xmtp_mls messages::   # one module
 ```
 
 ## Gotchas
 
 - Needs `just backend up`.
 - Tests use one backend client. Native callback streams use backend bidi streams.
-- Use the `ci` nextest profile for the backend suite. `--ignore-default-filter` includes tests excluded by the default filter.
-- Set `XMTP_BACKEND_URL=http://127.0.0.1:5050` if localhost selects IPv6.
+- `--ignore-default-filter` includes tests excluded by the default filter.
 - Proxy tests share one backend proxy. Run them in a separate nextest invocation
   with `--test-threads 1`; do not run another proxy test process at the same time.
 - Reproduce bidi fuzz failures with the logged `XMTP_BIDI_FUZZ_SEED`. Keep the
@@ -54,17 +52,13 @@ mismatch or a raised minimum version.
 
 ## Ephemeral test backends
 
-`just test` needs `just backend up db replica` and the shared backend services.
-It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
-The database URL defaults to this worktree's database; `just backend status`
-prints it. The main checkout uses `postgres://xmtp:xmtp@localhost:55432/xmtp_backend`.
 Native `xmtp_mls` tests can use `EphemeralBackend::start(toml)` and
 `tester!(alix, backend: &backend)` with optional `auth: callback`.
 This helper is available only under `cfg(test)`, not `xmtp_mls/test-utils`.
-The backend exports its fixtures through `xmtp_backend/test-utils`. Its own
-`cargo test` still uses the existing dev-dependencies.
+Import backend fixtures through `xmtp_backend/test-utils`.
 
-Use the shared backend on port 5050 by default. Use an ephemeral backend only
-when a test needs a specific configuration. Nextest runs each test in its own
-process, so tests cannot share an ephemeral backend. Each such test pays for
-a database create, a migration, and a listener bind.
+Nextest runs each test in its own process, so tests cannot share an ephemeral
+backend. Each such test pays for a database create, a migration, and a listener bind.
+
+Run `dev/check-ephemeral-backend` after changes to fixture dependency boundaries
+or the test recipe environment. The Rust workspace CI job runs this check.

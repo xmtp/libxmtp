@@ -17,19 +17,20 @@ just js check                           # typecheck all
 just js build
 just js lint                            # eslint
 just js test                            # needs `just backend up`
-just js test-node-sdk-ci                 # native SDK tests
-just js test-browser-sdk-ci              # Playwright SDK tests
-just js test-agent-sdk-ci                # agent SDK tests
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run test'      # one SDK
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/browser-sdk run test'   # playwright
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk run build && yarn workspace @xmtp/agent-sdk run test'
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run test/createBackend.test.ts'   # one file
-NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should create a backend with an explicit URL"'   # one test
 ```
+
+## Shared SDK rules
+
+- Require `backendUrl` for client creation. Do not select a URL from `env`.
+- Use `env` only as the label in the default database file name.
+- Keep the API-client cache key as `<backendUrl>|<appVersion>`.
+- Keep file archive export and import tests.
+
+Native streams stay open during retryable network faults and resume in order.
 
 ## Gotchas
 
-- Tests require `XMTP_BACKEND_URL`. The `just js` recipes export this worktree's value; `http://127.0.0.1:5050` is the main checkout's. Run `just backend status` to see it.
+- Tests require `XMTP_BACKEND_URL`. The `just js` recipes load this worktree's value.
 - Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
 - Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.
@@ -45,7 +46,6 @@ NIX_DEVSHELL=js dev/nix-shell 'cd sdks/js/node-sdk && yarn vitest run -t "should
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
 - `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.
 - `getStreamFailureDetails(error)` reads typed barrier, catch-up, and published-but-unconfirmed details. It preserves all topic obligations. Sequence values are `bigint`. A null target means that target capture did not complete.
-- Await the Browser SDK client's `close()` before a whole-database restore. Close releases the database owner before it stops the worker.
 
 The pure delivery-boundary tests do not need a backend or generated bindings:
 

@@ -6,7 +6,6 @@ Proc macros. `#[xmtp_common::test]`, builders, error codes, spans.
 
 ```bash
 just check crate xmtp_macro
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_macro
 ```
 

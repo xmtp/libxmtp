@@ -6,10 +6,9 @@ Storage. Diesel over encrypted SQLite (SQLCipher).
 
 ```bash
 just check crate xmtp_db
-just lint-rust                          # workspace-wide. No per-crate lint.
 just test crate xmtp_db
 just test workspace -p xmtp_db --ignore-default-filter test_it_stores_group   # one test
-dev/nix-shell "cargo nextest run --profile ci -p xmtp_db -E 'test(/encrypted_store::group::/)'"   # one module
+just test workspace -p xmtp_db encrypted_store::group::   # one module
 dev/nix-shell 'cargo update-schema'      # regen schema.rs after a migration
 ```
 
