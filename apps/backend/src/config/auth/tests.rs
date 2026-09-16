@@ -81,6 +81,7 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         config,
         TestKey::es256().auth_config(),
         AuthConfig {
+            enabled: Some(true),
             jwks_url: Some("https://issuer.example/keys".into()),
             ..AuthConfig::default()
         },
@@ -89,7 +90,10 @@ fn api_keys_load_alone_or_alongside_one_jwt_source() {
         let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
         assert_eq!(config.auth.unwrap().api_keys["Team.Bot"], value);
     }
-    for source in ["[auth]", "[auth.api_keys]"] {
+    for source in [
+        "[auth]\nenabled = true",
+        "[auth]\nenabled = true\n[auth.api_keys]",
+    ] {
         let error = loaded(source).unwrap_err().to_string();
         assert!(error.contains("auth"), "{error}");
         assert!(error.contains("set api_keys, jwks_url, or keys"), "{error}");
@@ -124,6 +128,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         "ébot",
     ] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [(name.to_owned(), value.clone())].into(),
             ..AuthConfig::default()
         };
@@ -146,6 +151,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
         format!("{value}é"),
     ] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [("test-bot".into(), value.clone())].into(),
             ..AuthConfig::default()
         };
@@ -160,6 +166,7 @@ fn api_key_names_and_values_are_validated_without_disclosing_values() {
     }
     for value in ["!".repeat(MIN_API_KEY_BYTES), "~".repeat(MAX_API_KEY_BYTES)] {
         let auth = AuthConfig {
+            enabled: Some(true),
             api_keys: [(format!("9._-{}", "a".repeat(60)), value)].into(),
             ..AuthConfig::default()
         };
@@ -226,10 +233,12 @@ fn api_key_environment_values_resolve_and_missing_variables_fail() {
         return;
     }
     let value = std::env::var(VARIABLE)?;
-    let config = loaded(&format!("[auth.api_keys]\nbot = 'env:{VARIABLE}'"))?;
+    let config = loaded(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'"
+    ))?;
     assert_eq!(config.auth.unwrap().api_keys["bot"], value);
     let error = loaded(&format!(
-        "[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
     ))
     .unwrap_err();
     for message in [error.to_string(), format!("{error:?}")] {

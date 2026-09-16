@@ -141,6 +141,7 @@ pub fn api_key_value() -> String {
 pub fn api_key(name: &str) -> (String, AuthConfig) {
     let value = api_key_value();
     let config = AuthConfig {
+        enabled: Some(true),
         api_keys: [(name.to_owned(), value.clone())].into(),
         ..AuthConfig::default()
     };
