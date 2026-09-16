@@ -13,12 +13,15 @@ import uniffi.xmtpv3.FfiSigningKeyDescription
 
 /**
  * Spec 006 §7 maps every published `uint64` to [Long] and every `uint32` to
- * [Int]. This pins the mapping field by field, with a distinct value per field
+ * [UInt]. This pins the mapping field by field, with a distinct value per field
  * so a crossed wire fails, and pins the failure mode of a value that does not
  * fit: an explicit [XMTPException], never a silent wrap to a negative number.
  */
 class ServerConfigurationMappingTest {
-    private fun ffiLimits(maxEnvelopeBytes: ULong = 1uL): FfiLimitsConfiguration =
+    private fun ffiLimits(
+        maxEnvelopeBytes: ULong = 1uL,
+        maxUpdateFramesPerSecond: UInt = 17u,
+    ): FfiLimitsConfiguration =
         FfiLimitsConfiguration(
             maxEnvelopeBytes = maxEnvelopeBytes,
             maxRequestBytes = 2uL,
@@ -36,7 +39,7 @@ class ServerConfigurationMappingTest {
             maxLookupIdentifiers = 14uL,
             maxScwSignatures = 15uL,
             maxIdentityEntries = 16uL,
-            maxUpdateFramesPerSecond = 17u,
+            maxUpdateFramesPerSecond = maxUpdateFramesPerSecond,
             maxUpdateBurst = 18u,
             maxPingFramesPerSecond = 19u,
             maxPingBurst = 20u,
@@ -110,10 +113,10 @@ class ServerConfigurationMappingTest {
                 maxLookupIdentifiers = 14L,
                 maxScwSignatures = 15L,
                 maxIdentityEntries = 16L,
-                maxUpdateFramesPerSecond = 17,
-                maxUpdateBurst = 18,
-                maxPingFramesPerSecond = 19,
-                maxPingBurst = 20,
+                maxUpdateFramesPerSecond = 17u,
+                maxUpdateBurst = 18u,
+                maxPingFramesPerSecond = 19u,
+                maxPingBurst = 20u,
             ),
             configuration.limits,
         )
@@ -140,6 +143,21 @@ class ServerConfigurationMappingTest {
             )
 
         assertNull(configuration.mls.commitLogEnabled)
+    }
+
+    /**
+     * A rate is a `uint32` on the wire, so any value up to 2^32 - 1 is one a
+     * deployment may publish. Reading it must return the configuration, not
+     * throw for a value a signed `Int` could not have held.
+     */
+    @Test
+    fun fromFfi_keepsARateAboveTheSignedIntegerRange() {
+        val fast = Int.MAX_VALUE.toUInt() + 1u
+
+        val configuration =
+            ServerConfiguration.fromFfi(ffiConfiguration(limits = ffiLimits(maxUpdateFramesPerSecond = fast)))
+
+        assertEquals(fast, configuration.limits.maxUpdateFramesPerSecond)
     }
 
     @Test

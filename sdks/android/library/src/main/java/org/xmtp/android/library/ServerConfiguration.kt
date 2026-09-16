@@ -107,10 +107,15 @@ data class LimitsConfiguration(
     val maxLookupIdentifiers: Long,
     val maxScwSignatures: Long,
     val maxIdentityEntries: Long,
-    val maxUpdateFramesPerSecond: Int,
-    val maxUpdateBurst: Int,
-    val maxPingFramesPerSecond: Int,
-    val maxPingBurst: Int,
+    /**
+     * The four rates the wire publishes as `uint32` stay unsigned, because a
+     * deployment may publish any value a `uint32` holds and a signed [Int]
+     * would have to reject the top half of that range.
+     */
+    val maxUpdateFramesPerSecond: UInt,
+    val maxUpdateBurst: UInt,
+    val maxPingFramesPerSecond: UInt,
+    val maxPingBurst: UInt,
 ) {
     internal companion object {
         internal fun fromFfi(limits: FfiLimitsConfiguration): LimitsConfiguration =
@@ -131,11 +136,10 @@ data class LimitsConfiguration(
                 maxLookupIdentifiers = limits.maxLookupIdentifiers.published("limits.maxLookupIdentifiers"),
                 maxScwSignatures = limits.maxScwSignatures.published("limits.maxScwSignatures"),
                 maxIdentityEntries = limits.maxIdentityEntries.published("limits.maxIdentityEntries"),
-                maxUpdateFramesPerSecond =
-                    limits.maxUpdateFramesPerSecond.published("limits.maxUpdateFramesPerSecond"),
-                maxUpdateBurst = limits.maxUpdateBurst.published("limits.maxUpdateBurst"),
-                maxPingFramesPerSecond = limits.maxPingFramesPerSecond.published("limits.maxPingFramesPerSecond"),
-                maxPingBurst = limits.maxPingBurst.published("limits.maxPingBurst"),
+                maxUpdateFramesPerSecond = limits.maxUpdateFramesPerSecond,
+                maxUpdateBurst = limits.maxUpdateBurst,
+                maxPingFramesPerSecond = limits.maxPingFramesPerSecond,
+                maxPingBurst = limits.maxPingBurst,
             )
     }
 }
@@ -173,7 +177,9 @@ data class MlsConfiguration(
  *
  * Counts the wire publishes as `uint64` are [Long] here, per spec 006 §7. Every
  * published value is far below 2^53, so the narrowing is lossless; a value that
- * would not fit throws [XMTPException] rather than wrapping silently.
+ * would not fit throws [XMTPException] rather than wrapping silently. The four
+ * `uint32` rates in [LimitsConfiguration] stay [UInt], which holds every value
+ * that wire type can carry.
  */
 data class ServerConfiguration(
     /** Stable operator-chosen name. Empty only before a first fetch succeeds. */
@@ -218,12 +224,4 @@ internal fun ULong.published(field: String): Long {
         throw XMTPException("Server configuration $field is $this, which does not fit in a Long")
     }
     return toLong()
-}
-
-/** Narrow a published `uint32` to [Int], on the same terms as [published]. */
-internal fun UInt.published(field: String): Int {
-    if (this > Int.MAX_VALUE.toUInt()) {
-        throw XMTPException("Server configuration $field is $this, which does not fit in an Int")
-    }
-    return toInt()
 }

@@ -66,10 +66,10 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
         assertTrue(limits.maxLookupIdentifiers > 0L)
         assertTrue(limits.maxScwSignatures > 0L)
         assertTrue(limits.maxIdentityEntries > 0L)
-        assertTrue(limits.maxUpdateFramesPerSecond > 0)
-        assertTrue(limits.maxUpdateBurst > 0)
-        assertTrue(limits.maxPingFramesPerSecond > 0)
-        assertTrue(limits.maxPingBurst > 0)
+        assertTrue(limits.maxUpdateFramesPerSecond > 0u)
+        assertTrue(limits.maxUpdateBurst > 0u)
+        assertTrue(limits.maxPingFramesPerSecond > 0u)
+        assertTrue(limits.maxPingBurst > 0u)
 
         val mls = configuration.mls
         assertTrue(mls.maxGroupMembers > 0L)
