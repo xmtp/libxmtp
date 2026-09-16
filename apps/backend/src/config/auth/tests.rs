@@ -1,5 +1,8 @@
 use super::*;
-use crate::{config::Config, test_support::auth::TestKey};
+use crate::{
+    config::Config,
+    test_support::auth::{TestKey, api_key, api_key_value},
+};
 
 fn loaded(auth: &str) -> Result<Config, ConfigError> {
     let path = std::env::temp_dir().join(format!("auth-config-{}.toml", uuid::Uuid::new_v4()));
@@ -67,6 +70,180 @@ fn key_sources_and_claim_lists_are_validated_at_load() {
     ] {
         let error = loaded(auth).unwrap_err().to_string();
         assert!(error.contains(field), "{error}");
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_keys_load_alone_or_alongside_one_jwt_source() {
+    let (value, config) = api_key("Team.Bot");
+    assert_eq!(value.len(), 43);
+    for mut auth in [
+        config,
+        TestKey::es256().auth_config(),
+        AuthConfig {
+            enabled: Some(true),
+            jwks_url: Some("https://issuer.example/keys".into()),
+            ..AuthConfig::default()
+        },
+    ] {
+        auth.api_keys.insert("Team.Bot".into(), value.clone());
+        let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
+        assert_eq!(config.auth.unwrap().api_keys["Team.Bot"], value);
+    }
+    for source in [
+        "[auth]\nenabled = true",
+        "[auth]\nenabled = true\n[auth.api_keys]",
+    ] {
+        let error = loaded(source).unwrap_err().to_string();
+        assert!(error.contains("auth"), "{error}");
+        assert!(error.contains("set api_keys, jwks_url, or keys"), "{error}");
+    }
+    let mut auth = TestKey::es256().auth_config();
+    auth.jwks_url = Some("https://issuer.example/keys".into());
+    auth.api_keys.insert("bot".into(), value.clone());
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("auth.jwks_url/auth.keys"), "{error}");
+    assert!(error.contains("set exactly one key source"), "{error}");
+    auth.jwks_url = None;
+    auth.keys = Some(Vec::new());
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("auth.keys"), "{error}");
+    assert!(error.contains("must not be empty"), "{error}");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_names_and_values_are_validated_without_disclosing_values() {
+    let value = api_key_value();
+    for name in [
+        "",
+        "-bot",
+        ".bot",
+        &"a".repeat(65),
+        "team bot",
+        "team/bot",
+        "ébot",
+    ] {
+        let auth = AuthConfig {
+            enabled: Some(true),
+            api_keys: [(name.to_owned(), value.clone())].into(),
+            ..AuthConfig::default()
+        };
+        let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+        assert!(
+            matches!(&error, ConfigError::Auth { field, .. } if field == &format!("auth.api_keys.{name}"))
+        );
+        for message in [error.to_string(), format!("{error:?}")] {
+            assert!(message.contains(name), "{message}");
+            assert!(!message.contains(&value), "{message}");
+        }
+    }
+    for value in [
+        "a".repeat(MIN_API_KEY_BYTES - 1),
+        "a".repeat(MAX_API_KEY_BYTES + 1),
+        format!("{value} "),
+        format!("{value}\t"),
+        format!("{value}\n"),
+        format!("{value}\x7f"),
+        format!("{value}é"),
+    ] {
+        let auth = AuthConfig {
+            enabled: Some(true),
+            api_keys: [("test-bot".into(), value.clone())].into(),
+            ..AuthConfig::default()
+        };
+        let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+        assert!(
+            matches!(&error, ConfigError::Auth { field, .. } if field == "auth.api_keys.test-bot")
+        );
+        for message in [error.to_string(), format!("{error:?}")] {
+            assert!(message.contains("test-bot"), "{message}");
+            assert!(!message.contains(&value), "{message}");
+        }
+    }
+    for value in ["!".repeat(MIN_API_KEY_BYTES), "~".repeat(MAX_API_KEY_BYTES)] {
+        let auth = AuthConfig {
+            enabled: Some(true),
+            api_keys: [(format!("9._-{}", "a".repeat(60)), value)].into(),
+            ..AuthConfig::default()
+        };
+        loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_values_are_unique_and_key_count_is_bounded() {
+    let (value, mut auth) = api_key("first");
+    auth.api_keys.insert("second".into(), value.clone());
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+    assert!(
+        matches!(&error, ConfigError::Auth { field, .. } if field == "auth.api_keys.first/second")
+    );
+    for message in [error.to_string(), format!("{error:?}")] {
+        assert!(message.contains("first"), "{message}");
+        assert!(message.contains("second"), "{message}");
+        assert!(!message.contains(&value), "{message}");
+    }
+    auth.api_keys = (0..MAX_API_KEYS)
+        .map(|index| (format!("bot-{index}"), format!("{value}-{index}")))
+        .collect();
+    loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
+    auth.api_keys.insert("overflow".into(), value);
+    let error = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?).unwrap_err();
+    assert!(
+        matches!(&error, ConfigError::Auth { field, reason } if field == "auth.api_keys" && reason.contains("256"))
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_debug_reports_only_the_count() {
+    let (value, auth) = api_key("debug-bot");
+    let config = loaded(&toml::to_string(&BTreeMap::from([("auth", &auth)]))?)?;
+    let debug = format!("{config:?}");
+    assert!(debug.contains("api_key_count: 1"));
+    assert!(!debug.contains("debug-bot"));
+    assert!(!debug.contains(&value));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn api_key_environment_values_resolve_and_missing_variables_fail() {
+    const CHILD: &str = "XMTP_API_KEY_CONFIG_CHILD";
+    const VARIABLE: &str = "XMTP_API_KEY_CONFIG_VALUE";
+    const MISSING: &str = "XMTP_API_KEY_CONFIG_MISSING";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args([
+                "--exact",
+                "config::auth::tests::api_key_environment_values_resolve_and_missing_variables_fail",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env(VARIABLE, api_key_value())
+            .env_remove(MISSING)
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let value = std::env::var(VARIABLE)?;
+    let config = loaded(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'"
+    ))?;
+    assert_eq!(config.auth.unwrap().api_keys["bot"], value);
+    let error = loaded(&format!(
+        "[auth]\nenabled = true\n[auth.api_keys]\nbot = 'env:{VARIABLE}'\nmissing = 'env:{MISSING}'"
+    ))
+    .unwrap_err();
+    for message in [error.to_string(), format!("{error:?}")] {
+        assert!(message.contains(MISSING), "{message}");
+        assert!(!message.contains(&value), "{message}");
     }
 }
 
@@ -209,6 +386,7 @@ fn schema_describes_all_auth_fields_and_environment_references() {
     for field in [
         "jwks_url",
         "keys",
+        "api_keys",
         "audiences",
         "issuers",
         "required_scopes",
@@ -219,6 +397,15 @@ fn schema_describes_all_auth_fields_and_environment_references() {
         assert!(fields.contains_key(field), "{field}");
     }
     assert!(fields["jwks_url"].to_string().contains("env:"));
+    assert!(
+        fields["api_keys"]["additionalProperties"]["anyOf"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["pattern"]
+                .as_str()
+                .is_some_and(|pattern| pattern.starts_with("^env:")))
+    );
     assert!(
         schema["$defs"]["AuthKeyConfig"]["properties"]["public_key"]
             .to_string()

@@ -1,12 +1,17 @@
-//! Optional JWT admission settings. Public keys and URLs stay out of diagnostics.
+//! Optional caller authentication settings. Key values and URLs stay out of diagnostics.
 use super::{ConfigError, invalid, schema};
 use jsonwebtoken::Algorithm;
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use xmtp_common::time::{Duration, Instant};
 
 pub const MAX_KID_BYTES: usize = 256;
+pub(crate) const MAX_API_KEYS: usize = 256;
+pub(crate) const MIN_API_KEY_BYTES: usize = 32;
+// Equals crate::auth::verify::MAX_TOKEN_BYTES: a longer key could never be presented.
+pub(crate) const MAX_API_KEY_BYTES: usize = 8192;
+const MAX_API_KEY_NAME_BYTES: usize = 64;
 pub const MAX_LEEWAY_SECONDS: u64 = 300;
 pub const MIN_JWKS_REFRESH_SECONDS: u64 = 1;
 /// The refresh loop adds up to `period / JITTER_DIVISOR` to each wait.
@@ -27,8 +32,11 @@ pub struct AuthConfig {
     /// Fetch signing keys from HTTPS, or HTTP on a loopback host.
     #[schemars(schema_with = "jwks_url_schema")]
     pub jwks_url: Option<String>,
-    /// Inline public signing keys. Exactly one key source must be set.
+    /// Inline public signing keys. Cannot be combined with jwks_url.
     pub keys: Option<Vec<AuthKeyConfig>>,
+    /// Named static API keys. Values can be supplied with env:NAME.
+    #[schemars(schema_with = "api_keys_schema")]
+    pub api_keys: BTreeMap<String, String>,
     /// Require an audience that matches one of these values when set.
     pub audiences: Option<Vec<String>>,
     /// Require an issuer that matches one of these values when set.
@@ -62,6 +70,7 @@ impl Default for AuthConfig {
             enabled: None,
             jwks_url: None,
             keys: None,
+            api_keys: BTreeMap::new(),
             audiences: None,
             issuers: None,
             required_scopes: Vec::new(),
@@ -79,7 +88,7 @@ impl AuthConfig {
     }
 
     /// Reject invalid key sources, keys, RPC names, and timer relationships.
-    /// Key errors identify the entry but never include the public key text.
+    /// Key errors identify the entry but never include the key value.
     ///
     /// A disabled section is checked no further: an operator who turns
     /// credentials off should not have to keep a key source valid.
@@ -94,16 +103,55 @@ impl AuthConfig {
             return Ok(());
         }
         match (&self.jwks_url, &self.keys) {
-            (Some(_), Some(_)) | (None, None) => {
+            (Some(_), Some(_)) => {
                 return Err(invalid(
                     "auth.jwks_url/auth.keys",
                     "set exactly one key source",
                 ));
             }
+            (None, None) if self.api_keys.is_empty() => {
+                return Err(invalid("auth", "set api_keys, jwks_url, or keys"));
+            }
             (_, Some(keys)) if keys.is_empty() => {
                 return Err(invalid("auth.keys", "must not be empty"));
             }
             _ => {}
+        }
+        for (name, value) in &self.api_keys {
+            let error = |reason| ConfigError::Auth {
+                field: format!("auth.api_keys.{name}"),
+                reason,
+            };
+            if name.is_empty()
+                || name.len() > MAX_API_KEY_NAME_BYTES
+                || !name.as_bytes()[0].is_ascii_alphanumeric()
+                || !name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+            {
+                return Err(error("name must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"));
+            }
+            if !(MIN_API_KEY_BYTES..=MAX_API_KEY_BYTES).contains(&value.len()) {
+                return Err(error("value must be 32 to 8192 bytes"));
+            }
+            if !value.bytes().all(|byte| (0x21..=0x7e).contains(&byte)) {
+                return Err(error("value must be printable ASCII without whitespace"));
+            }
+        }
+        if self.api_keys.len() > MAX_API_KEYS {
+            return Err(ConfigError::Auth {
+                field: "auth.api_keys".into(),
+                reason: "must not exceed 256 keys",
+            });
+        }
+        let mut names_by_value = BTreeMap::new();
+        for (name, value) in &self.api_keys {
+            if let Some(previous) = names_by_value.insert(value, name) {
+                return Err(ConfigError::Auth {
+                    field: format!("auth.api_keys.{previous}/{name}"),
+                    reason: "values must be unique across names",
+                });
+            }
         }
         // An empty list would turn its claim into a requirement that nothing
         // can satisfy, so every token would be rejected by a config that looks
@@ -182,6 +230,7 @@ impl std::fmt::Debug for AuthConfig {
                 },
             )
             .field("key_count", &self.keys.as_ref().map_or(0, Vec::len))
+            .field("api_key_count", &self.api_keys.len())
             .field("required_scopes", &self.required_scopes)
             .finish()
     }
@@ -246,6 +295,19 @@ fn public_key_schema(_: &mut SchemaGenerator) -> Schema {
 }
 fn jwks_url_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"anyOf": [schema::with_environment(json_schema!({"type": "string", "format": "uri", "pattern": "^https?://"})), {"type": "null"}]})
+}
+fn api_keys_schema(_: &mut SchemaGenerator) -> Schema {
+    json_schema!({
+        "type": "object",
+        "maxProperties": MAX_API_KEYS,
+        "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$(?![\\s\\S])"},
+        "additionalProperties": schema::with_environment(json_schema!({
+            "type": "string",
+            "minLength": MIN_API_KEY_BYTES,
+            "maxLength": MAX_API_KEY_BYTES,
+            "pattern": "^[!-~]+$(?![\\s\\S])"
+        }))
+    })
 }
 fn algorithm_schema(_: &mut SchemaGenerator) -> Schema {
     json_schema!({"type": "string", "enum": ["RS256", "RS384", "RS512", "ES256", "ES384", "EdDSA"]})

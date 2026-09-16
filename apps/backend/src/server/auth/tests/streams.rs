@@ -15,6 +15,75 @@ fn authorized<T>(body: T, token: &str) -> tonic::Request<T> {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn api_key_only_admits_native_and_web_subscription_opens() {
+    let (value, auth) = api_key("subscriber");
+    let server = TestServer::new(|config| config.auth = Some(auth)).await?;
+    let topic = test_support::topic(xmtp_proto::types::TopicKind::WelcomeMessagesV1, &[75; 32]);
+    let query = test_support::query_topic(topic, 0);
+    let mut client =
+        api::subscription_service_client::SubscriptionServiceClient::new(server.channel.clone());
+    let mut native = client
+        .subscribe(authorized(
+            futures::stream::pending::<api::SubscribeRequest>(),
+            &value,
+        ))
+        .await?
+        .into_inner();
+    assert!(matches!(
+        native.message().await?.unwrap().response,
+        Some(api::subscribe_response::Response::Started(_))
+    ));
+    let mut native_static = client
+        .subscribe_static(authorized(
+            api::SubscribeStaticRequest {
+                topics: vec![query.clone()],
+            },
+            &value,
+        ))
+        .await?
+        .into_inner();
+    assert!(matches!(
+        native_static.message().await?.unwrap().response,
+        Some(api::subscribe_static_response::Response::Started(_))
+    ));
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {value}").parse()?);
+    let web_client = xmtp_common::http::client_builder()
+        .default_headers(headers)
+        .build()?;
+    let mut web: grpc_web::WebStream<api::SubscribeResponse> = grpc_web::open(
+        &web_client,
+        &server.url,
+        "/xmtp.backend.v1.SubscriptionService/Subscribe",
+        api::SubscribeRequest {
+            request: Some(api::subscribe_request::Request::Ping(api::Ping {
+                nonce: 1,
+            })),
+        },
+    )
+    .await?;
+    assert!(matches!(
+        web.stream.message().await?.unwrap().response,
+        Some(api::subscribe_response::Response::Started(_))
+    ));
+    let mut web_static: grpc_web::WebStream<api::SubscribeStaticResponse> = grpc_web::open(
+        &web_client,
+        &server.url,
+        "/xmtp.backend.v1.SubscriptionService/SubscribeStatic",
+        api::SubscribeStaticRequest {
+            topics: vec![query],
+        },
+    )
+    .await?;
+    assert!(matches!(
+        web_static.stream.message().await?.unwrap().response,
+        Some(api::subscribe_static_response::Response::Started(_))
+    ));
+    drop((native, native_static, web, web_static));
+    server.stop().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn native_and_web_subscription_opens_require_the_configured_scopes() {
     let key = TestKey::es256();
     let mut auth = key.auth_config();

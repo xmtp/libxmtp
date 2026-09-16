@@ -153,7 +153,8 @@ where
         let span = tracing::info_span!("grpc_request", request_id = %id,
             otel.kind = "server", otel.name = %format_args!("{}/{}", labels.service, labels.method),
             rpc.system = "grpc", rpc.service = labels.service, rpc.method = labels.method,
-            rpc.grpc.status_code = tracing::field::Empty);
+            rpc.grpc.status_code = tracing::field::Empty,
+            auth.principal = tracing::field::Empty);
         let incoming = propagation::extract(request.headers());
         let mut trace_id = incoming
             .as_ref()

@@ -8,6 +8,70 @@ use crate::{
 use jsonwebtoken::{Algorithm, EncodingKey, Header};
 use serde_json::json;
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn request_span_records_only_api_key_names_as_principals() {
+    let (value, mut config) = api_key("operator");
+    let key = TestKey::es256();
+    config.keys = Some(vec![key.config()]);
+    let verifier = verifier(config);
+    let mut claims = valid_claims();
+    claims["sub"] = json!("private-jwt-subject");
+    for (token, expected) in [
+        (
+            value,
+            AuthContext::ApiKey {
+                name: "operator".into(),
+            },
+        ),
+        (
+            mint(&claims, &key),
+            AuthContext::Jwt {
+                sub: Some("private-jwt-subject".into()),
+                scopes: Default::default(),
+            },
+        ),
+    ] {
+        let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Info);
+        let principal = match &expected {
+            AuthContext::ApiKey { name } => json!(name),
+            AuthContext::Jwt { .. } => serde_json::Value::Null,
+        };
+        let inner = service_fn(move |request: Request<Body>| {
+            assert_eq!(request.extensions().get::<AuthContext>(), Some(&expected));
+            async { Ok::<_, Infallible>(tonic::Status::ok("").into_http()) }
+        });
+        let mut service = GrpcTelemetryLayer::for_test(true)
+            .layer(GrpcStatusLayer.layer(AuthLayer::for_test(verifier.clone()).layer(inner)));
+        let request = Request::post("/xmtp.backend.v1.QueryService/Query")
+            .header("content-type", "application/grpc")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::empty())?;
+        let response =
+            tracing::dispatcher::with_default(&capture.dispatch(), || service.call(request))
+                .await?;
+        assert_eq!(response.headers()["grpc-status"], "0");
+        response.into_body().collect().await?;
+        let output = capture.output();
+        let events: Vec<serde_json::Value> = output
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let completion = events
+            .iter()
+            .find(|event| event["message"] == "gRPC request completed")
+            .expect("request completion event");
+        let span = completion["spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|span| span["name"] == "grpc_request")
+            .expect("request span");
+        assert_eq!(span["auth.principal"], principal);
+        assert!(!output.contains(&token));
+        assert!(!output.contains("private-jwt-subject"));
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true, disable_logging = true)]
 async fn every_rejection_is_counted_once_without_disclosing_token_data() {
     let Some((metrics, address)) = metrics::isolated_http(
@@ -25,6 +89,9 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
     config.required_scopes = vec!["required".into()];
     config.audiences = Some(vec!["backend".into()]);
     config.issuers = Some(vec!["issuer".into()]);
+    let (value, api_config) = api_key("operator");
+    config.api_keys = api_config.api_keys;
+    let wrong_value = api_key_value();
     let server = TestServer::new(|defaults| defaults.auth = Some(config.clone())).await?;
     let verifier = verifier(config);
     // One direct layer call and both wire transports for three RPC paths.
@@ -37,6 +104,7 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
         (None, Rejection::Missing),
         (Some(format!("Basic {SENTINEL}")), Rejection::Bearer),
         (Some(format!("Bearer {SENTINEL}")), Rejection::Malformed),
+        (Some(format!("Bearer {wrong_value}")), Rejection::Malformed),
         (
             Some(format!(
                 "Bearer {}",
@@ -62,7 +130,13 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
         cases.push((Some(bearer(&claims, &key)), reason));
     }
     let mut expected = std::collections::BTreeMap::new();
-    let mut forbidden = vec![SENTINEL.to_owned(), key.kid.clone(), other.kid.clone()];
+    let mut forbidden = vec![
+        SENTINEL.to_owned(),
+        key.kid.clone(),
+        other.kid.clone(),
+        value,
+        wrong_value,
+    ];
     for (header, reason) in &cases {
         let inner = service_fn(|_: Request<Body>| async {
             Ok::<_, Infallible>(
@@ -165,6 +239,7 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
             count as f64
         );
     }
+    let mut reasons = std::collections::BTreeSet::new();
     for line in output
         .lines()
         .filter(|line| line.starts_with("xmtp_auth_rejections_total{"))
@@ -172,7 +247,28 @@ async fn every_rejection_is_counted_once_without_disclosing_token_data() {
         let labels = line.split_once('{').unwrap().1.split_once('}').unwrap().0;
         assert!(labels.starts_with("reason="));
         assert!(!labels.contains(','));
+        reasons.insert(
+            labels
+                .strip_prefix("reason=\"")
+                .unwrap()
+                .strip_suffix('"')
+                .unwrap(),
+        );
     }
+    assert_eq!(
+        reasons,
+        std::collections::BTreeSet::from([
+            "missing",
+            "malformed",
+            "unsupported_alg",
+            "untrusted",
+            "expired",
+            "not_yet_valid",
+            "audience",
+            "issuer",
+            "scope",
+        ])
+    );
     assert_eq!(
         metrics::value(
             &metrics,
