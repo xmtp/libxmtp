@@ -119,8 +119,12 @@ async fn test_group_mutable_data() {
         MetadataField::AppData,
     ] {
         assert_eq!(
-            group_mutable_metadata.attributes.get(&field.to_string()),
-            None
+            group_mutable_metadata
+                .attributes
+                .get(&field.to_string())
+                .map(String::as_str),
+            Some(""),
+            "an unset bounded-string field reads as an empty string"
         );
     }
 
@@ -140,8 +144,12 @@ async fn test_group_mutable_data() {
         MetadataField::AppData,
     ] {
         assert_eq!(
-            group_mutable_metadata.attributes.get(&field.to_string()),
-            None
+            group_mutable_metadata
+                .attributes
+                .get(&field.to_string())
+                .map(String::as_str),
+            Some(""),
+            "an unset bounded-string field reads as an empty string"
         );
     }
 
@@ -256,8 +264,10 @@ async fn test_update_group_image_url_square() {
     assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupImageUrlSquare.to_string()),
-        None
+            .get(&MetadataField::GroupImageUrlSquare.to_string())
+            .map(String::as_str),
+        Some(""),
+        "an unset bounded-string field reads as an empty string"
     );
 
     // Update group name
@@ -346,8 +356,10 @@ async fn test_group_mutable_data_group_permissions() {
     assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupName.to_string()),
-        None
+            .get(&MetadataField::GroupName.to_string())
+            .map(String::as_str),
+        Some(""),
+        "an unset bounded-string field reads as an empty string"
     );
 
     // Add bola to the group
@@ -364,8 +376,10 @@ async fn test_group_mutable_data_group_permissions() {
     assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupName.to_string()),
-        None
+            .get(&MetadataField::GroupName.to_string())
+            .map(String::as_str),
+        Some(""),
+        "an unset bounded-string field reads as an empty string"
     );
 
     // Update group name

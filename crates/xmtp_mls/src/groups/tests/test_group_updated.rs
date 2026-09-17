@@ -408,3 +408,42 @@ async fn test_group_updated_admin_changes() {
     );
     assert_no_admin_changes(&member_only_msg);
 }
+
+/// Regression: the first update of a bounded-string metadata field on a
+/// group created with no metadata options must report `old_value =
+/// Some("")`, not `None`.
+///
+/// Dictionary-native creation omits a component that was never set, which
+/// is correct on the wire. The legacy metadata map that the commit diff
+/// reads from has no way to express "absent", so it defaults these four
+/// fields to an empty string. Without that default the SDKs surfaced
+/// `undefined` instead of `""` for `metadataFieldChanges[0].oldValue`,
+/// which is the exact shape asserted by the `Group.test.ts` suites in
+/// both the browser and node SDKs.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_first_metadata_update_reports_empty_old_value() {
+    tester!(alix);
+
+    // No metadata options: every bounded-string component is absent
+    // from the freshly created group's dictionary.
+    let group = alix.create_group(None, Default::default())?;
+
+    group.update_group_name("foo".to_string()).await?;
+
+    let update = get_last_message(&group);
+    assert_eq!(
+        update.metadata_field_changes.len(),
+        1,
+        "one metadata update must produce exactly one change, got {:?}",
+        update.metadata_field_changes
+    );
+
+    let change = &update.metadata_field_changes[0];
+    assert_eq!(change.field_name, "group_name");
+    assert_eq!(
+        change.old_value.as_deref(),
+        Some(""),
+        "an unset bounded-string field must report an empty old value, not None"
+    );
+    assert_eq!(change.new_value.as_deref(), Some("foo"));
+}
