@@ -471,38 +471,58 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
     ));
 }
 
-#[rstest::rstest]
-#[case::name(ComponentId::GROUP_NAME, MAX_GROUP_NAME_LENGTH)]
-#[case::description(ComponentId::GROUP_DESCRIPTION, MAX_GROUP_DESCRIPTION_LENGTH)]
-#[case::image_url(ComponentId::GROUP_IMAGE_URL, MAX_GROUP_IMAGE_URL_LENGTH)]
-#[case::app_data(ComponentId::APP_DATA, MAX_APP_DATA_LENGTH)]
+/// The cases run in a loop instead of `#[rstest]` `#[case]` attributes on
+/// purpose. This test is sync and is compiled into the wasm32 test binary, and
+/// the wasm derivation sets `RSTEST_TIMEOUT`. With that variable set, `rstest`
+/// wraps a sync case in `execute_with_timeout_sync`, which calls
+/// `std::thread::spawn`. Thread spawning is unsupported on wasm32, so the whole
+/// test binary aborts — this exact combination broke the "Run WASM tests" CI
+/// step. Keep the loop; do not convert this back to `#[rstest]`.
 #[xmtp_common::test(unwrap_try = true)]
-fn receiver_rejects_overlong_metadata_app_data_update(
-    #[case] component_id: ComponentId,
-    #[case] max_length: usize,
-) {
-    let registry = registry_with(
-        component_id,
-        allow(),
-        allow(),
-        allow(),
-        ComponentType::String,
-    );
-    let operation = AppDataUpdateOperation::Update(vec![b'x'; max_length + 1].into());
+fn receiver_rejects_overlong_metadata_app_data_update() {
+    let cases: [(&str, ComponentId, usize); 4] = [
+        ("name", ComponentId::GROUP_NAME, MAX_GROUP_NAME_LENGTH),
+        (
+            "description",
+            ComponentId::GROUP_DESCRIPTION,
+            MAX_GROUP_DESCRIPTION_LENGTH,
+        ),
+        (
+            "image_url",
+            ComponentId::GROUP_IMAGE_URL,
+            MAX_GROUP_IMAGE_URL_LENGTH,
+        ),
+        ("app_data", ComponentId::APP_DATA, MAX_APP_DATA_LENGTH),
+    ];
 
-    let err = validate_one_app_data_update_with_old_value(
-        component_id,
-        &operation,
-        member(),
-        "inbox_member",
-        &registry,
-        None,
-    )
-    .unwrap_err();
-    assert!(matches!(
-        err,
-        CommitValidationError::InsufficientPermissions
-    ));
+    for (case_name, component_id, max_length) in cases {
+        let registry = registry_with(
+            component_id,
+            allow(),
+            allow(),
+            allow(),
+            ComponentType::String,
+        );
+        let operation = AppDataUpdateOperation::Update(vec![b'x'; max_length + 1].into());
+
+        let result = validate_one_app_data_update_with_old_value(
+            component_id,
+            &operation,
+            member(),
+            "inbox_member",
+            &registry,
+            None,
+        );
+        let err = result.expect_err(&format!(
+            "case {case_name} ({component_id:?}, max {max_length}): an overlong \
+             value was accepted, expected InsufficientPermissions"
+        ));
+        assert!(
+            matches!(err, CommitValidationError::InsufficientPermissions),
+            "case {case_name} ({component_id:?}, max {max_length}): expected \
+             InsufficientPermissions, got {err:?}"
+        );
+    }
 }
 
 // ------------------------------------------------------------------------
