@@ -698,11 +698,11 @@ class Checker:
     def check_requirement_text(self, rel: str, req: Requirement) -> None:
         where = f"{rel}:{req.line}"
         words = req.title.split()
-        if not 2 <= len(words) <= 5:
+        if not 2 <= len(words) <= 7:
             self.error(
                 where,
                 "SPEC-036",
-                f"{req.id} title has {len(words)} words; use two to five",
+                f"{req.id} title has {len(words)} words; use two to seven",
             )
 
         # A keyword inside a code span is named, not used: the format spec has
@@ -744,6 +744,25 @@ class Checker:
                 )
             else:
                 req.should = actor_ok
+
+        # SPEC-034: one obligation per requirement. A checker cannot count
+        # obligations, but "... MUST x and MUST y" is the shape authors reach
+        # for when they are about to write two, so warn on it.
+        # Two obligations usually show up as a second actor taking a second
+        # MUST: "the client MUST x, and the backend MUST y". A second MUST that
+        # continues the same actor's sentence is one obligation stated in parts.
+        second_actor = re.search(
+            r"\bMUST(?: NOT)?\b.*?\b(?:and|then)\b\s+"
+            r"(?:the|a|an)\s+\w+(?:\s+\w+)?\s+MUST(?: NOT)?\b",
+            spoken,
+        )
+        if second_actor:
+            self.warn(
+                where,
+                "SPEC-034",
+                f"{req.id} gives a second actor its own MUST; check that it "
+                "states one obligation",
+            )
 
         sentences = [s for s in re.split(r"(?<=[.!?]) +", text.strip()) if s]
         if len(sentences) > MAX_SENTENCES:

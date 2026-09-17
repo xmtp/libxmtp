@@ -70,6 +70,8 @@ A spec is small because every requirement earns its place. The test below counte
 - **SPEC-021 Violation is harm.** A requirement MUST be one whose violation is observable as harm: data loss, wrong ordering, a security or privacy breach, an interoperability failure across versions, or a wrong user-visible result.
 - **SPEC-022 It survives a different implementation.** A requirement MUST hold under a materially different implementation of the same capability.
 - **SPEC-023 It is testable.** A requirement MUST be one for which a scenario, a property check, or a repeatable manual analysis distinguishes compliance from violation.
+- **SPEC-088 No belief requirements.** A requirement MUST bind an observable act, and MUST NOT bind what an actor treats something as, concludes, considers, or assumes.
+  Why: "a client MUST NOT treat acceptance as proof of membership" reads like a security property, but nothing distinguishes a client that holds the wrong belief and still performs every check. State the check.
 - **SPEC-024 It is not already stated.** Before allocating an identifier, the author MUST search the index for the same obligation and reference the existing identifier instead of restating it.
 - **SPEC-028 State the general invariant.** A requirement MUST state the smallest invariant that covers its case, and MUST NOT state one example of a rule the spec already makes. A specific value MUST appear only when that value itself is the promise.
   Why: "the payload `hello` survives" and "the payload `goodbye` survives" are two test cases for one invariant. Admitting examples as requirements is how a spec reaches a thousand bullets that say one thing.
@@ -84,7 +86,7 @@ A spec is small because every requirement earns its place. The test below counte
 
 A requirement is one bullet. It reads as a sentence, not as a form. The sentence keeps the EARS shape, because putting the condition first is what makes a requirement testable, and uses MUST and MUST NOT, because every engineer and every agent already reads those words as binding.
 
-Specs are written in waves, so one will often need an obligation another has not stated yet. The author writes `?PREFIX` where the identifier will go, says in prose what the missing obligation should say, and carries on. The marker is a visible debt: the checker reports every one, and the pull request that approves the owning spec has to pay them.
+Specs are written in waves, so one will often need an obligation another has not stated yet. The author writes `?PREFIX` where the identifier will go, says in the section's prose what the missing obligation should require, and carries on. The explanation goes in the prose rather than inside the requirement, because a requirement item has room for one `Why:` line and nothing else. The marker is a visible debt: the checker reports every one, and the pull request that approves the owning spec has to pay them.
 
 | EARS pattern | Shape | Example |
 | --- | --- | --- |
@@ -104,7 +106,7 @@ Specs are written in waves, so one will often need an obligation another has not
 - **SPEC-034 Bullet form.** A requirement MUST be a list item of the form `- **PREFIX-NNN Title.** Sentence.` with one obligation, the condition first, then the actor, then the keyword. The item MUST NOT contain a blank line.
   Why: a blank line does not end a Markdown list item, so text after it still belongs to the requirement while reading as separate prose. An obligation must not be able to hide there.
 - **SPEC-035 Normative keywords.** An obligation MUST use MUST or MUST NOT, and explicit freedom MUST use MAY. A requirement MUST use `SHOULD` only for an app or an operator, which the system cannot enforce, and MUST NOT use `SHALL`. Trigger words are lowercase.
-- **SPEC-036 Requirement title.** A requirement MUST have a title of two to five words, ending with a period inside the bold span.
+- **SPEC-036 Requirement title.** A requirement MUST have a title of two to seven words, ending with a period inside the bold span.
 - **SPEC-037 Length and rationale.** A requirement MUST be at most three sentences. A requirement MAY be followed by one indented line that begins with `Why:` when the section prose does not make the reason evident.
 - **SPEC-038 Naming the actor.** A requirement MUST name its actor with a term from `specs/GLOSSARY.md`, or with a process actor this document defines in its Terms. A new system actor MUST be added to the glossary, not defined in a spec.
 - **SPEC-039 Exact values once.** A wire field, topic byte, published limit, error code, or persisted format MUST be stated exactly once, in the spec that owns it. Other specs MUST reference it by identifier.
@@ -113,8 +115,10 @@ Specs are written in waves, so one will often need an obligation another has not
 - **SPEC-072 Every obligation has an owner.** A behavioural constraint MUST be stated by a requirement. A definition, table, or type block MUST NOT introduce an obligation that no requirement states.
   Why: content that binds without an identifier cannot be amended, evidenced, or reviewed as a contract.
 - **SPEC-073 Pointing at a block.** A requirement that makes a table or a type block binding MUST name it, and the block MUST appear in the same spec.
+- **SPEC-087 Value tables bind by ownership.** A table whose cells are only the exact values a spec owns under SPEC-039, such as wire identifiers or error codes, MUST be normative without a requirement pointing at it, and MUST NOT state behaviour.
+  Why: the alternative is a requirement whose whole job is to make a table binding, which adds ceremony a reader gains nothing from. A cell that says what an actor does is behaviour and still needs its own requirement.
 - **SPEC-042 Reference, do not restate.** A spec MUST reference another spec's obligation by identifier, or by section when no single identifier fits, and MUST NOT restate it.
-- **SPEC-078 Unwritten references.** Where the obligation a spec needs to reference is not written yet, the author MUST write `?PREFIX` naming the spec expected to own it, and MUST state in prose what that obligation is expected to say.
+- **SPEC-078 Unwritten references.** Where the obligation a spec needs to reference is not written yet, the author MUST write `?PREFIX` naming the spec expected to own it, and the enclosing section's prose MUST say what that obligation is expected to require.
   Why: the alternatives are worse. Inventing a number creates a reference that resolves to the wrong requirement once the number is allocated, and omitting the reference loses the dependency entirely.
 - **SPEC-079 Resolving them.** A spec MUST NOT be approved while it contains a `?PREFIX` marker whose owning spec is approved, and the PR that approves a spec MUST replace every marker naming it in another spec.
   Why: a marker is a debt against a spec that does not exist. Once it does, the debt is due, and nothing else will force it.

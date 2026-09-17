@@ -28,7 +28,7 @@ Condition first, then the actor, then the keyword. That is the EARS clause order
 
 - MUST and MUST NOT state obligations; MAY states freedom. Never `SHALL`.
 - `SHOULD` only for an app or an operator, which the system cannot enforce. Those need no test.
-- A two-to-five-word title, at most three sentences, and `Why:` only when the prose does not already give the reason.
+- A two-to-seven-word title, at most three sentences, and `Why:` only when the prose does not already give the reason.
 
 ## Writing
 
@@ -37,7 +37,7 @@ Condition first, then the actor, then the keyword. That is the EARS clause order
 - Allocate the next unused number. Never renumber, never reuse; check `git log -S` when in doubt. An id carried forward from a superseded document, or moved here by a split, goes in the `owns` frontmatter key.
 - A protobuf message is inlined verbatim with its field numbers, which are normative. A structure that never reaches the wire is a WebIDL dictionary. A format defined elsewhere, such as an MLS object in TLS encoding, is referenced, never reproduced (SPEC §3.1).
 - An exact wire, limit, or error value goes in the spec that owns it. Others reference the ID.
-- When the obligation you need is not written yet, write `?PREFIX` where the id will go and say in prose what it should require. Never invent a number: it will resolve to the wrong requirement once that number is allocated. The checker lists every marker, and the PR approving that spec has to replace them.
+- When the obligation you need is not written yet, write `?PREFIX` where the id will go and say in the section's prose what it should require, not inside the requirement item. Never invent a number: it will resolve to the wrong requirement once that number is allocated. The checker lists every marker, and the PR approving that spec has to replace them.
 - No file names, no phases, no status prose, no platform choices. Mechanism detail belongs in a design note or module README.
 
 ## Amending

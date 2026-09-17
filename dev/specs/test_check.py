@@ -1001,3 +1001,49 @@ class SecondReviewRegressions(unittest.TestCase):
                 "- **JOIN-001 Proof check.** The client MUST verify it as ?NOPE requires.\n",
             )
             self.assertIn("SPEC-078", rules(run(tmp), "error"))
+
+    def test_second_actor_with_its_own_must_warns(self):
+        """SPEC-034 is unenforceable exactly; this is the shape that signals two."""
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                (
+                    "- **JOIN-001 Stale welcome.** The client MUST discard it, "
+                    "and the backend MUST reject it.\n"
+                ),
+            )
+            checker = run(tmp)
+            self.assertIn("SPEC-034", rules(checker, "warning"))
+            self.assertNotIn("SPEC-034", rules(checker, "error"))
+
+    def test_one_actor_with_clauses_is_quiet(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                (
+                    "- **JOIN-001 Stale welcome.** The client MUST discard it and "
+                    "MUST NOT report it.\n"
+                ),
+            )
+            self.assertNotIn("SPEC-034", rules(run(tmp), "warning"))
+
+    def test_condition_with_and_is_quiet(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                (
+                    "- **JOIN-001 Stale welcome.** When a Welcome is late and "
+                    "unreadable, the client MUST discard it.\n"
+                ),
+            )
+            self.assertNotIn("SPEC-034", rules(run(tmp), "warning"))
+
+    def test_value_table_needs_no_wrapper_requirement(self):
+        """SPEC-087: a table of owned values binds without a pointing requirement."""
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                extra="\n| Extension | Identifier |\n| --- | --- |\n| Wrapper | `0xff03` |\n",
+            )
+            self.assertEqual(rules(run(tmp), "error"), [])
