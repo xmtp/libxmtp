@@ -55,11 +55,16 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
             return Ok(group);
         };
 
-        // Otherwise, return the stitched DM
+        // Otherwise, return the stitched DM.
+        // Break ties on `id` to match the winner `find_groups` and
+        // `conversation_list` pick. Duplicate DMs that hold no message share a
+        // null `last_message_ns`, so without the tie-break the database is free
+        // to return either one and the stitched group can disagree with the
+        // conversation list.
         self.raw_query(|conn| {
             groups::table
                 .filter(groups::dm_id.eq(dm_id))
-                .order_by(groups::last_message_ns.desc())
+                .order_by((groups::last_message_ns.desc(), groups::id.desc()))
                 .first::<StoredGroup>(conn)
                 .optional()
         })
@@ -69,10 +74,12 @@ impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     where
         M: std::fmt::Display,
     {
+        // Ordered like `fetch_stitched`, so looking a DM up by its members and
+        // stitching it by id select the same group.
         let query = dsl::groups
             .filter(dsl::dm_id.eq(Some(members.to_string())))
             .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
-            .order_by(dsl::last_message_ns.desc());
+            .order_by((dsl::last_message_ns.desc(), dsl::id.desc()));
 
         self.raw_query(|conn| query.first(conn).optional())
     }

@@ -1,6 +1,10 @@
 //! Receiving envelopes and storing transcript messages.
 
 use super::*;
+use xmtp_db::group_message::SortBy;
+
+/// Rows read per page when scanning a DM's group updates for duplicates.
+const PAGE_SIZE: i64 = 100;
 
 impl<Context> MlsGroup<Context>
 where
@@ -165,31 +169,63 @@ where
 
         let mut deduper = GroupUpdateDeduper::default();
         let mut inserted_after_ns = None;
-        let mut msgs;
+        // Grows while a page holds a single `inserted_at_ns`, so that a tie
+        // group larger than one page still fits and the cursor can advance.
+        let mut limit = PAGE_SIZE;
         loop {
             // DMs are stitched, so we don't want to have the same
             // group updates from multiple DMs being saved to the database.
-            msgs = self.find_messages_v2_with_conn(
+            //
+            // Sort by the same column the cursor advances on. The default sort
+            // is `SentAt`, which does not agree with an `inserted_at_ns`
+            // cursor: the last row by sent time need not hold the largest
+            // `inserted_at_ns`, so the cursor could stall and repeat a page
+            // forever.
+            let msgs = self.find_messages_v2_with_conn(
                 &MsgQueryArgs {
                     content_types: Some(vec![ContentType::GroupUpdated]),
                     inserted_after_ns,
-                    limit: Some(100),
+                    limit: Some(limit),
+                    sort_by: Some(SortBy::InsertedAt),
                     ..Default::default()
                 },
                 storage.db(),
             )?;
 
-            let Some(msg) = msgs.last() else {
-                break;
-            };
-            inserted_after_ns = Some(msg.metadata.inserted_at_ns);
+            let full_page = msgs.len() >= limit as usize;
+            let last_value = msgs.last().map(|msg| msg.metadata.inserted_at_ns);
 
-            for msg in msgs {
-                let MessageBody::GroupUpdated(update) = msg.content else {
+            // The cursor filter is a strict `>` on `inserted_at_ns`, which the
+            // database records at millisecond granularity, so rows written in
+            // the same millisecond share a value. On a full page the final
+            // value may continue past the page edge, so hold those rows back
+            // and let the next page re-read them in full. A short page reached
+            // the end of the scan and keeps every row.
+            let cutoff = last_value.filter(|_| full_page);
+            let consumed = msgs
+                .iter()
+                .filter(|msg| Some(msg.metadata.inserted_at_ns) != cutoff);
+
+            let mut highest_consumed = None;
+            for msg in consumed {
+                highest_consumed = Some(msg.metadata.inserted_at_ns);
+                let MessageBody::GroupUpdated(update) = &msg.content else {
                     continue;
                 };
 
-                deduper.consume(&update);
+                deduper.consume(update);
+            }
+
+            match highest_consumed {
+                // Resume just above the last value read in full.
+                Some(value) => {
+                    inserted_after_ns = Some(value);
+                    limit = PAGE_SIZE;
+                }
+                // A full page of one repeated value: nothing could be retired,
+                // so re-read it larger rather than stall.
+                None if full_page => limit = limit.saturating_mul(2),
+                None => break,
             }
         }
 

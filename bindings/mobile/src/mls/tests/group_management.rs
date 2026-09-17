@@ -1169,6 +1169,17 @@ async fn test_set_disappearing_messages_when_creating_group() {
     assert_eq!(alix_messages.len(), 1);
 }
 
+/// Race ten registrations for one wallet against each other.
+///
+/// The backend admits exactly one `CreateInbox`: it takes the identity lock and
+/// compares the history head it validated against with the stored watermark,
+/// so every later writer is aborted. The client turns that abort into a reload
+/// and a bounded retry, and a reloaded update can legitimately be accepted as a
+/// further association. So the number of calls that return `Ok` is a timing
+/// detail, not a guarantee — asserting on it made this test flaky.
+///
+/// Assert the invariant the system does promise instead: one inbox, created
+/// once, holding one installation per registration that succeeded.
 #[tokio::test(flavor = "multi_thread", worker_threads = 10)]
 async fn rapidfire_duplicate_create() {
     let wallet = generate_local_wallet();
@@ -1179,15 +1190,25 @@ async fn rapidfire_duplicate_create() {
 
     let results = join_all(futs).await;
 
-    let mut num_okay = 0;
-    for result in results {
-        if result.is_ok() {
-            num_okay += 1;
-        }
+    let clients: Vec<_> = results.into_iter().flatten().collect();
+    assert!(
+        !clients.is_empty(),
+        "at least one registration must win the race"
+    );
+
+    // Every winner registered against the same inbox.
+    let inbox_id = clients[0].inbox_id();
+    for client in &clients {
+        assert_eq!(client.inbox_id(), inbox_id);
     }
 
-    // Only one client should get to sign up
-    assert_eq!(num_okay, 1);
+    let state = clients[0].inbox_state(true).await.unwrap();
+    assert_eq!(state.inbox_id, inbox_id);
+    // One wallet created the inbox, so it stays the sole account identity. A
+    // second admitted `CreateInbox` would show up here as a second identity.
+    assert_eq!(state.account_identities.len(), 1);
+    // Losers did not leave installations behind, and winners all kept theirs.
+    assert_eq!(state.installations.len(), clients.len());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
