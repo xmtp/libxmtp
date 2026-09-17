@@ -4,12 +4,20 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         EnableProposalsOptions,
-        intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
+        intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         send_message_opts::SendMessageOpts,
     },
     tester,
 };
 use xmtp_db::{group_intent::IntentKind, prelude::*};
+use xmtp_mls_common::app_data::{
+    component_id::ComponentId,
+    components::metadata_attributes::{
+        AppDataComponent, GroupDescriptionComponent, GroupImageUrlComponent, GroupNameComponent,
+        MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+        MAX_GROUP_NAME_LENGTH,
+    },
+};
 
 // =============================================================================
 // Batched Proposal Tests
@@ -656,6 +664,133 @@ async fn test_update_group_name_via_app_data_update() {
             .map(String::as_str),
         Some("AppData Group Name")
     );
+}
+
+/// A raw AppData intent bypasses `update_group_name`'s friendly length
+/// check. The receiver still rejects it through the component invariant.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
+    use crate::groups::intents::AppDataUpdateIntentData;
+
+    tester!(alix);
+    tester!(bo);
+
+    for (component_id, max_length) in [
+        (ComponentId::GROUP_NAME, MAX_GROUP_NAME_LENGTH),
+        (ComponentId::GROUP_DESCRIPTION, MAX_GROUP_DESCRIPTION_LENGTH),
+        (ComponentId::GROUP_IMAGE_URL, MAX_GROUP_IMAGE_URL_LENGTH),
+        (ComponentId::APP_DATA, MAX_APP_DATA_LENGTH),
+    ] {
+        let alix_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        let bo_group = bo.sync_welcomes().await?.first()?.clone();
+        alix_group
+            .enable_proposals(EnableProposalsOptions::test_default())
+            .await?;
+        bo_group.sync().await?;
+        let before = match component_id {
+            ComponentId::GROUP_NAME => bo_group.read_single_component::<GroupNameComponent>()?,
+            ComponentId::GROUP_DESCRIPTION => {
+                bo_group.read_single_component::<GroupDescriptionComponent>()?
+            }
+            ComponentId::GROUP_IMAGE_URL => {
+                bo_group.read_single_component::<GroupImageUrlComponent>()?
+            }
+            ComponentId::APP_DATA => bo_group.read_single_component::<AppDataComponent>()?,
+            _ => unreachable!(),
+        };
+
+        let data: Vec<u8> =
+            AppDataUpdateIntentData::new(component_id.as_u16(), vec![b'x'; max_length + 1]).into();
+        let intent = QueueIntent::app_data_update()
+            .data(data)
+            .queue(&alix_group)?;
+        let result = alix_group.sync_until_intent_resolved(intent.id).await;
+        assert!(
+            result.is_err(),
+            "{component_id} must reject an overlong raw intent"
+        );
+
+        // Safe rejections can return a successful sync summary, so the
+        // durable terminal-rejection record is the receiver-side proof.
+        let _ = bo_group.sync().await;
+        let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+        let rejection = bo
+            .context
+            .db()
+            .read_last_rejection(&topic)?
+            .unwrap_or_else(|| panic!("receiver did not reject overlong {component_id}"));
+        assert_eq!(
+            bo.context.db().topic_progress(&topic)?.processed,
+            rejection.sequence_id,
+            "receiver did not durably advance past rejected {component_id}"
+        );
+        let after = match component_id {
+            ComponentId::GROUP_NAME => bo_group.read_single_component::<GroupNameComponent>()?,
+            ComponentId::GROUP_DESCRIPTION => {
+                bo_group.read_single_component::<GroupDescriptionComponent>()?
+            }
+            ComponentId::GROUP_IMAGE_URL => {
+                bo_group.read_single_component::<GroupImageUrlComponent>()?
+            }
+            ComponentId::APP_DATA => bo_group.read_single_component::<AppDataComponent>()?,
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            after, before,
+            "receiver state changed after rejected {component_id}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent() {
+    use crate::groups::intents::AppDataUpdateIntentData;
+    use tls_codec::Serialize as _;
+    use xmtp_mls_common::tls_set::TlsSetDelta;
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    let payload = TlsSetDelta::new()
+        .remove(xmtp_mls_common::inbox_id::InboxId::from_hex(
+            alix.inbox_id(),
+        )?)
+        .tls_serialize_detached()?;
+    let data: Vec<u8> =
+        AppDataUpdateIntentData::new(ComponentId::SUPER_ADMIN_LIST.as_u16(), payload).into();
+    let intent = QueueIntent::app_data_update()
+        .data(data)
+        .queue(&alix_group)?;
+    let result = alix_group.sync_until_intent_resolved(intent.id).await;
+    assert!(result.is_err(), "last super-admin removal must be rejected");
+
+    // A safe receiver rejection can produce an `Ok` sync summary; require
+    // the durable record rather than relying on that return value.
+    let _ = bo_group.sync().await;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let rejection = bo
+        .context
+        .db()
+        .read_last_rejection(&topic)?
+        .expect("receiver did not reject last-super-admin removal");
+    assert_eq!(
+        bo.context.db().topic_progress(&topic)?.processed,
+        rejection.sequence_id,
+        "receiver did not durably advance past last-super-admin removal"
+    );
+    let super_admins = bo_group.super_admin_list()?;
+    assert_eq!(super_admins, vec![alix.inbox_id().to_string()]);
 }
 
 /// `update_group_description` on a `proposals_enabled` group should also
@@ -1359,6 +1494,11 @@ async fn test_permission_update_via_app_data_path_after_migration() {
             .as_ref()
             .and_then(|p| p.kind.as_ref())
             .unwrap_or_else(|| panic!("{label} GROUP_NAME missing update_policy.kind"));
+        let insert_kind = perms
+            .insert_policy
+            .as_ref()
+            .and_then(|p| p.kind.as_ref())
+            .unwrap_or_else(|| panic!("{label} GROUP_NAME missing insert_policy.kind"));
         match update_kind {
             MetadataPolicyKind::Base(base) => assert_eq!(
                 *base,
@@ -1366,6 +1506,14 @@ async fn test_permission_update_via_app_data_path_after_migration() {
                 "{label} GROUP_NAME update_policy not tightened, got base={base}"
             ),
             other => panic!("{label} GROUP_NAME update_policy unexpected variant: {other:?}"),
+        }
+        match insert_kind {
+            MetadataPolicyKind::Base(base) => assert_eq!(
+                *base,
+                MetadataBasePolicy::AllowIfAdmin as i32,
+                "{label} GROUP_NAME insert_policy not tightened, got base={base}"
+            ),
+            other => panic!("{label} GROUP_NAME insert_policy unexpected variant: {other:?}"),
         }
     }
 }

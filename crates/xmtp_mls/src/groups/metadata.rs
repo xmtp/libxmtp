@@ -288,6 +288,14 @@ where
             return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
         }
 
+        if matches!(
+            permission_update_type,
+            PermissionUpdateType::AddAdmin | PermissionUpdateType::RemoveAdmin
+        ) && permission_policy == PermissionPolicyOption::Allow
+        {
+            return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
+        }
+
         let intent_data: Vec<u8> = UpdatePermissionIntentData::new(
             permission_update_type,
             permission_policy,

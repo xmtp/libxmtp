@@ -106,6 +106,65 @@ where
             )?;
         }
         if envelope.is_commit() {
+            if matches!(
+                error,
+                GroupMessageProcessingError::CommitValidation(
+                    CommitValidationError::InsufficientPermissions
+                )
+            ) {
+                // The trial rolled back, including proposal removal. A rejected
+                // combination must not remain available for the next commit.
+                // Remove only app-data proposals from this rejected commit.
+                let own_intent = db.find_group_intent_by_payload_hash(&envelope.payload_hash)?;
+                let staged_commit = if let Some(bytes) = own_intent
+                    .as_ref()
+                    .filter(|intent| intent.group_id == self.group_id)
+                    .and_then(|intent| intent.staged_commit.as_ref())
+                {
+                    decode_staged_commit(bytes)?
+                } else {
+                    let processed = crate::groups::app_data::process_message_with_app_data(
+                        group,
+                        &XmtpOpenMlsProviderRef::new(storage),
+                        envelope.message.clone(),
+                        self.context.version_info().pkg_semver(),
+                    )
+                    .map_err(GroupMessageProcessingError::from_app_data_processing)?;
+                    match processed.into_content() {
+                        ProcessedMessageContent::StagedCommitMessage(commit) => *commit,
+                        _ => {
+                            return Err(GroupMessageProcessingError::UnexpectedProcessedContent(
+                                "Rejected commit did not produce staged state",
+                            ));
+                        }
+                    }
+                };
+                // A commit can carry a stored proposal inline. Match its
+                // authenticated sender and payload as well as its reference.
+                // All matching proposals must be resubmitted after rejection.
+                let rejected_refs: Vec<_> = group
+                    .pending_proposals()
+                    .filter(|pending| {
+                        matches!(
+                            pending.proposal(),
+                            openmls::prelude::Proposal::AppDataUpdate(_)
+                        ) && staged_commit.queued_proposals().any(|committed| {
+                            committed.proposal_reference_ref() == pending.proposal_reference_ref()
+                                || (committed.sender() == pending.sender()
+                                    && committed.proposal() == pending.proposal())
+                        })
+                    })
+                    .map(|proposal| proposal.proposal_reference_ref().clone())
+                    .collect();
+                for reference in rejected_refs {
+                    match group.remove_pending_proposal(storage, &reference) {
+                        Ok(()) | Err(openmls::group::RemoveProposalError::ProposalNotFound) => {}
+                        Err(openmls::group::RemoveProposalError::Storage(error)) => {
+                            return Err(error.into());
+                        }
+                    }
+                }
+            }
             group.mark_failed_commit_logged(
                 &XmtpOpenMlsProviderRef::new(storage),
                 envelope.sequence_id(),

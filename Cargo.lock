@@ -12399,6 +12399,7 @@ dependencies = [
  "serde",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
+ "tracing",
  "wasm-bindgen-test",
  "xmtp_common",
  "xmtp_configuration",

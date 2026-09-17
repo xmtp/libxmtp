@@ -551,19 +551,18 @@ impl ValidatedCommit {
 
         // On migrated groups the legacy `GROUP_PERMISSIONS_EXTENSION_ID`
         // is gone — membership policy lives in the AppData
-        // dictionary's COMPONENT_REGISTRY entry under
-        // `GROUP_MEMBERSHIP`. Per-component AppDataUpdate enforcement
+        // dictionary's `GROUP_ACTION_POLICIES` declaration; metadata update
+        // policies remain in the COMPONENT_REGISTRY. Per-component AppDataUpdate enforcement
         // runs separately in
         // `validate_app_data_update_proposals_in_commit`, but the
         // legacy code paths here (extract_permissions_changed +
         // standalone Add/Remove proposer permission checks) still
         // need a `GroupMutablePermissions` instance to evaluate
-        // against. We derive the membership-affecting bits from the
-        // registry so post-bootstrap commits enforce the same policy
+        // against. We reconstruct the membership-affecting bits from the
+        // action declaration so post-bootstrap commits enforce the same policy
         // a pre-bootstrap GCE-extension lookup would.
         let group_permissions: GroupMutablePermissions = if is_migrated {
-            super::app_data::policy::policy_set_from_registry(openmls_group.extensions())
-                .map_err(CommitValidationError::installed_state)?
+            super::group_permissions::policy_set_from_dictionary(openmls_group.extensions())
         } else {
             GroupMutablePermissions::try_from(extensions)
                 .map_err(CommitValidationError::installed_state)?
@@ -647,39 +646,43 @@ impl ValidatedCommit {
             )
         };
 
-        // Enforce character limits for specific metadata fields
-        for field_change in &metadata_validation_info.metadata_field_changes {
-            if let Some(new_value) = &field_change.new_value {
-                match field_change.field_name.as_str() {
-                    val if val == MetadataField::Description.as_str()
-                        && new_value.len() > MAX_GROUP_DESCRIPTION_LENGTH =>
-                    {
-                        return Err(CommitValidationError::TooManyCharacters {
-                            length: MAX_GROUP_DESCRIPTION_LENGTH,
-                        });
+        // Legacy metadata extensions carry these values directly. Migrated
+        // groups enforce the same bounds through component invariants, which
+        // validate the receiver-side AppData post-state.
+        if !is_migrated {
+            for field_change in &metadata_validation_info.metadata_field_changes {
+                if let Some(new_value) = &field_change.new_value {
+                    match field_change.field_name.as_str() {
+                        val if val == MetadataField::Description.as_str()
+                            && new_value.len() > MAX_GROUP_DESCRIPTION_LENGTH =>
+                        {
+                            return Err(CommitValidationError::TooManyCharacters {
+                                length: MAX_GROUP_DESCRIPTION_LENGTH,
+                            });
+                        }
+                        val if val == MetadataField::GroupName.as_str()
+                            && new_value.len() > MAX_GROUP_NAME_LENGTH =>
+                        {
+                            return Err(CommitValidationError::TooManyCharacters {
+                                length: MAX_GROUP_NAME_LENGTH,
+                            });
+                        }
+                        val if val == MetadataField::GroupImageUrlSquare.as_str()
+                            && new_value.len() > MAX_GROUP_IMAGE_URL_LENGTH =>
+                        {
+                            return Err(CommitValidationError::TooManyCharacters {
+                                length: MAX_GROUP_IMAGE_URL_LENGTH,
+                            });
+                        }
+                        val if val == MetadataField::AppData.as_str()
+                            && new_value.len() > MAX_APP_DATA_LENGTH =>
+                        {
+                            return Err(CommitValidationError::TooManyCharacters {
+                                length: MAX_APP_DATA_LENGTH,
+                            });
+                        }
+                        _ => {}
                     }
-                    val if val == MetadataField::GroupName.as_str()
-                        && new_value.len() > MAX_GROUP_NAME_LENGTH =>
-                    {
-                        return Err(CommitValidationError::TooManyCharacters {
-                            length: MAX_GROUP_NAME_LENGTH,
-                        });
-                    }
-                    val if val == MetadataField::GroupImageUrlSquare.as_str()
-                        && new_value.len() > MAX_GROUP_IMAGE_URL_LENGTH =>
-                    {
-                        return Err(CommitValidationError::TooManyCharacters {
-                            length: MAX_GROUP_IMAGE_URL_LENGTH,
-                        });
-                    }
-                    val if val == MetadataField::AppData.as_str()
-                        && new_value.len() > MAX_APP_DATA_LENGTH =>
-                    {
-                        return Err(CommitValidationError::TooManyCharacters {
-                            length: MAX_APP_DATA_LENGTH,
-                        });
-                    }
-                    _ => {}
                 }
             }
         }
@@ -1622,18 +1625,55 @@ pub(super) fn validate_one_app_data_update_with_old_value(
             );
             return Err(CommitValidationError::InsufficientPermissions);
         }
+    }
 
-        // Layer 2: per-component invariants. Only available for known
-        // components — unknown ids have nothing to invoke. Skipping
-        // the invariant is the cost of forward compatibility (see
-        // module-level docstring).
-        if let Some(component) = component
-            && let Err(e) = component.validate_invariant(&cc, registry)
-        {
+    // Layer 2: component-local invariants. Run once per proposal with
+    // the complete pre- and post-operation values. Collection policies
+    // above still run per mutation, but an invariant such as “a non-empty
+    // super-admin list cannot become empty” is a transition property and
+    // cannot be determined from an individual delta mutation.
+    //
+    // Only known components have this hook. Unknown ids use the
+    // type-aware compatibility path and therefore cannot add invariants
+    // beyond their registry policy.
+    if let Some(component) = component {
+        let post_value = match operation {
+            openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => component
+                .apply_update_payload(payload.as_slice(), old_value)
+                .map_err(|e| {
+                    tracing::warn!(
+                        proposer_inbox_id,
+                        component_id = %component_id,
+                        error = %e,
+                        "AppDataUpdate proposal rejected: failed to compute post-state"
+                    );
+                    CommitValidationError::InsufficientPermissions
+                })?,
+            openmls::messages::proposals::AppDataUpdateOperation::Remove => Vec::new(),
+        };
+        let invariant_change = ComponentChange::builder()
+            .component_id(component_id)
+            .op(match operation {
+                openmls::messages::proposals::AppDataUpdateOperation::Update(_) => {
+                    xmtp_mls_common::app_data::component_registry::ComponentOp::Update
+                }
+                openmls::messages::proposals::AppDataUpdateOperation::Remove => {
+                    xmtp_mls_common::app_data::component_registry::ComponentOp::Delete
+                }
+            })
+            .actor(actor)
+            .maybe_old_value(old_value)
+            .maybe_new_value(match operation {
+                openmls::messages::proposals::AppDataUpdateOperation::Update(_) => {
+                    Some(post_value.as_slice())
+                }
+                openmls::messages::proposals::AppDataUpdateOperation::Remove => None,
+            })
+            .build();
+        if let Err(e) = component.validate_invariant(&invariant_change, registry) {
             tracing::warn!(
                 proposer_inbox_id,
                 component_id = %component_id,
-                op = %change.op,
                 error = %e,
                 "AppDataUpdate proposal rejected: component invariant violated"
             );
@@ -1706,9 +1746,11 @@ fn validate_app_data_update_proposals_in_commit(
     mutable_metadata: &GroupMutableMetadata,
     preloaded_registry: Option<&xmtp_mls_common::app_data::component_registry::ComponentRegistry>,
 ) -> Result<(), CommitValidationError> {
-    use super::app_data::load_component_registry;
+    use super::app_data::{component_source::read_from_app_data_dict, load_component_registry};
     use std::collections::HashMap;
-    use xmtp_mls_common::app_data::{component_id::ComponentId, validation::ActorAuthority};
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, registry_table::lookup_component, validation::ActorAuthority,
+    };
 
     // Peek first: the common case is zero AppDataUpdate proposals, in
     // which case we skip the registry load and the per-proposer work
@@ -1744,9 +1786,14 @@ fn validate_app_data_update_proposals_in_commit(
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
     // re-walk the admin lists and re-parse the credential for every one.
     let mut participants: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
+    // Keep post-operation snapshots for known components as proposals are
+    // processed. A commit can contain more than one delta for a collection;
+    // each later invariant must observe the preceding proposal's result.
+    let mut component_post_states: HashMap<ComponentId, Option<Vec<u8>>> = HashMap::new();
 
     for queued in proposals {
         let app_data = queued.app_data_update_proposal();
+        let component_id = ComponentId::from(app_data.component_id());
         let proposer_leaf = app_data_update_proposer_leaf(queued.sender())?;
         let proposer = match participants.get(proposer_leaf) {
             Some(cached) => cached,
@@ -1761,14 +1808,34 @@ fn validate_app_data_update_proposals_in_commit(
             }
         };
 
-        validate_one_app_data_update(
-            ComponentId::from(app_data.component_id()),
+        let old_value = component_post_states
+            .entry(component_id)
+            .or_insert_with(|| read_from_app_data_dict(component_id, openmls_group))
+            .clone();
+        validate_one_app_data_update_with_old_value(
+            component_id,
             app_data.operation(),
             ActorAuthority::from(proposer),
             &proposer.inbox_id,
             registry,
-            openmls_group,
+            old_value.as_deref(),
         )?;
+
+        // Unknown components do not have a per-id invariant. Known component
+        // codecs compute the exact post-state for the next proposal in this
+        // commit, so transition invariants cannot be bypassed by splitting a
+        // destructive delta into sequential proposals.
+        if let Some(component) = lookup_component(component_id) {
+            let post_value = match app_data.operation() {
+                openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => Some(
+                    component
+                        .apply_update_payload(payload.as_slice(), old_value.as_deref())
+                        .map_err(|_| CommitValidationError::InsufficientPermissions)?,
+                ),
+                openmls::messages::proposals::AppDataUpdateOperation::Remove => None,
+            };
+            component_post_states.insert(component_id, post_value);
+        }
     }
 
     Ok(())

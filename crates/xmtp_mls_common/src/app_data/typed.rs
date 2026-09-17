@@ -125,7 +125,9 @@ pub trait Component: Send + Sync + 'static {
     ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError>;
 
     /// Optional component-local invariant check that runs *after*
-    /// `validate_component_write`'s policy verdict. Default is no-op
+    /// `validate_component_write`'s policy verdict. The change carries
+    /// the complete pre- and post-operation values, so collection
+    /// components can validate transition properties. Default is no-op
     /// — components with no extra invariants don't override.
     fn validate_invariant(
         _change: &ComponentChange<'_>,

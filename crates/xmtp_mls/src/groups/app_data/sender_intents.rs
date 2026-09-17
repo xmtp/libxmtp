@@ -26,14 +26,20 @@ use xmtp_mls_common::{
     tls_set::{TlsSetDelta, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    MetadataPolicy as MetadataPolicyProto,
+    GroupActionPolicies, MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
-use super::{load_component_registry, stage_app_data_propose_and_commit};
+use super::{
+    load_component_registry, stage_app_data_proposals_and_commit, stage_app_data_propose_and_commit,
+};
 use crate::groups::{
     AdminListActionType, GroupError,
+    error::MetadataPermissionsError,
+    group_permissions::{
+        MembershipPolicies, MembershipPolicy, PermissionsPolicies, PermissionsPolicy,
+    },
     intents::{
         AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdatePermissionIntentData,
@@ -114,12 +120,8 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
 }
 
 /// Stage the `AppDataUpdate` commit for an `UpdatePermission` intent on
-/// a migrated group. The commit only mutates the affected
-/// `COMPONENT_REGISTRY` entry's policy field — custom-component
-/// entries survive untouched. `PolicyOption::Allow` is permitted
-/// here because the underlying `COMPONENT_REGISTRY` mutation is
-/// hardcoded super-admin-only by the dispatch layer's permission
-/// check.
+/// a migrated group. Action policies and their registry mirrors change
+/// in the same commit. Metadata changes update both insert and update policies.
 pub(crate) fn apply_update_permission_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -127,6 +129,13 @@ pub(crate) fn apply_update_permission_app_data_intent(
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
+    if matches!(
+        intent_data.update_type,
+        PermissionUpdateType::AddAdmin | PermissionUpdateType::RemoveAdmin
+    ) && intent_data.policy_option == PermissionPolicyOption::Allow
+    {
+        return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
+    }
     let base = match intent_data.policy_option {
         PermissionPolicyOption::Allow => MetadataBasePolicy::Allow,
         PermissionPolicyOption::Deny => MetadataBasePolicy::Deny,
@@ -182,7 +191,10 @@ pub(crate) fn apply_update_permission_app_data_intent(
     })?;
     match op {
         ComponentOp::Insert => perms.insert_policy = Some(new_policy),
-        ComponentOp::Update => perms.update_policy = Some(new_policy),
+        ComponentOp::Update => {
+            perms.insert_policy = Some(new_policy.clone());
+            perms.update_policy = Some(new_policy);
+        }
         ComponentOp::Delete => perms.delete_policy = Some(new_policy),
     }
     metadata.permissions = Some(perms);
@@ -193,16 +205,63 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
+    let mut updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
+    if intent_data.update_type != PermissionUpdateType::UpdateMetadata {
+        let id = ComponentId::GROUP_ACTION_POLICIES;
+        let bytes = openmls_group
+            .extensions()
+            .app_data_dictionary()
+            .and_then(|extension| extension.dictionary().get(&id.as_u16()))
+            .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
+                component_id: id,
+                reason: "action policies are missing".into(),
+            })?;
+        let mut actions = GroupActionPolicies::decode(bytes).map_err(|error| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: id,
+                reason: format!("action policies decode: {error}"),
+            }
+        })?;
+        match intent_data.update_type {
+            PermissionUpdateType::AddMember => {
+                actions.add_member = Some(
+                    MembershipPolicies::from(intent_data.policy_option)
+                        .to_proto()
+                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
+                )
+            }
+            PermissionUpdateType::RemoveMember => {
+                actions.remove_member = Some(
+                    MembershipPolicies::from(intent_data.policy_option)
+                        .to_proto()
+                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
+                )
+            }
+            PermissionUpdateType::AddAdmin => {
+                actions.add_admin = Some(
+                    PermissionsPolicies::from(intent_data.policy_option)
+                        .to_proto()
+                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
+                )
+            }
+            PermissionUpdateType::RemoveAdmin => {
+                actions.remove_admin = Some(
+                    PermissionsPolicies::from(intent_data.policy_option)
+                        .to_proto()
+                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
+                )
+            }
+            PermissionUpdateType::UpdateMetadata => unreachable!(),
+        }
+        updates.push((id, actions.encode_to_vec()));
+    }
+
+    let ((proposal_messages, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                ComponentId::COMPONENT_REGISTRY,
-                payload,
+            Ok(stage_app_data_proposals_and_commit(
+                group, provider, &signer, updates,
             )?)
         },
     )?;
@@ -212,11 +271,13 @@ pub(crate) fn apply_update_permission_app_data_intent(
         welcome.is_none(),
         "UpdatePermission via AppDataUpdate must not produce a welcome"
     );
+    let mut payloads_to_publish = proposal_messages
+        .iter()
+        .map(Serialize::tls_serialize_detached)
+        .collect::<Result<Vec<_>, _>>()?;
+    payloads_to_publish.push(commit.tls_serialize_detached()?);
     Ok(PublishIntentData {
-        payloads_to_publish: vec![
-            proposal_msg.tls_serialize_detached()?,
-            commit.tls_serialize_detached()?,
-        ],
+        payloads_to_publish,
         staged_commit,
         post_commit_action: None,
         should_send_push_notification,

@@ -18,7 +18,7 @@ use crate::{
     app_data::{
         component_id::ComponentId,
         component_registry::ComponentOp,
-        typed::{Component, ComponentTypedError, ExpandedComponentChange},
+        typed::{Component, ComponentInvariantError, ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
     tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
@@ -197,12 +197,86 @@ macro_rules! inbox_id_set_component {
 }
 
 inbox_id_set_component!(AdminListComponent, ComponentId::ADMIN_LIST);
-inbox_id_set_component!(SuperAdminListComponent, ComponentId::SUPER_ADMIN_LIST);
+
+pub struct SuperAdminListComponent;
+
+impl Component for SuperAdminListComponent {
+    const ID: ComponentId = ComponentId::SUPER_ADMIN_LIST;
+    const COMPONENT_TYPE: ComponentType = ComponentType::TlsSetInboxId;
+    type Value = TlsSet<InboxId>;
+    type Mutation = TlsSetDelta<InboxId>;
+
+    fn decode_value(bytes: &[u8]) -> Result<Self::Value, ComponentTypedError> {
+        TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(Into::into)
+    }
+
+    fn encode_value(value: &Self::Value) -> Result<Vec<u8>, ComponentTypedError> {
+        value.tls_serialize_detached().map_err(Into::into)
+    }
+
+    fn encode_mutation(mutation: &Self::Mutation) -> Result<Vec<u8>, ComponentTypedError> {
+        mutation.tls_serialize_detached().map_err(Into::into)
+    }
+
+    fn apply_update_payload(
+        payload: &[u8],
+        prior: Option<&[u8]>,
+    ) -> Result<Vec<u8>, ComponentTypedError> {
+        apply_inbox_id_set_delta(payload, prior)
+    }
+
+    fn expand_to_changes(
+        op: &AppDataUpdateOperation,
+        prior: Option<&[u8]>,
+    ) -> Result<Vec<ExpandedComponentChange>, ComponentTypedError> {
+        expand_inbox_id_set_changes(op, prior)
+    }
+
+    fn validate_invariant(
+        change: &crate::app_data::validation::ComponentChange<'_>,
+        _registry: &crate::app_data::component_registry::ComponentRegistry,
+    ) -> Result<(), ComponentInvariantError> {
+        // Registry policies can only inspect the actor. They cannot express
+        // this transition predicate over the resulting set. An empty set is
+        // valid at creation for a DM, but an existing non-empty set must not
+        // transition to empty or the group would have no super-admin.
+        let prior = match change.old_value {
+            Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes).map_err(|_| {
+                ComponentInvariantError::Violation {
+                    component_id: Self::ID,
+                    reason: "pre-state is not a valid inbox-id set".into(),
+                }
+            })?,
+            None => return Ok(()),
+        };
+        if prior.is_empty() {
+            return Ok(());
+        }
+        let post_is_empty = match change.new_value {
+            Some(bytes) => TlsSet::<InboxId>::tls_deserialize_exact(bytes)
+                .map_err(|_| ComponentInvariantError::Violation {
+                    component_id: Self::ID,
+                    reason: "post-state is not a valid inbox-id set".into(),
+                })?
+                .is_empty(),
+            None => true,
+        };
+        if post_is_empty {
+            return Err(ComponentInvariantError::Violation {
+                component_id: Self::ID,
+                reason: "a non-empty super-admin list cannot transition to empty".into(),
+            });
+        }
+        Ok(())
+    }
+}
+
 inbox_id_set_component!(DmMembersComponent, ComponentId::DM_MEMBERS);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::{component_registry::ComponentRegistry, validation::ActorAuthority};
 
     fn fixture_inbox_id(seed: u8) -> InboxId {
         let mut bytes = [0u8; 32];
@@ -275,6 +349,45 @@ mod tests {
         let new = SuperAdminListComponent::decode_value(&new_bytes).unwrap();
         assert_eq!(new.len(), 1);
         assert!(new.contains(&fixture_inbox_id(2)));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn super_admin_list_rejects_transition_from_non_empty_to_empty() {
+        let id = fixture_inbox_id(1);
+        let mut prior = TlsSet::<InboxId>::new();
+        prior.insert(id)?;
+        let prior = SuperAdminListComponent::encode_value(&prior)?;
+        let post = SuperAdminListComponent::encode_value(&TlsSet::new())?;
+        let change = crate::app_data::validation::ComponentChange::builder()
+            .component_id(ComponentId::SUPER_ADMIN_LIST)
+            .op(ComponentOp::Update)
+            .actor(ActorAuthority {
+                is_admin: true,
+                is_super_admin: true,
+            })
+            .old_value(&prior)
+            .new_value(&post)
+            .build();
+
+        let err = SuperAdminListComponent::validate_invariant(&change, &ComponentRegistry::new())
+            .unwrap_err();
+        assert!(matches!(err, ComponentInvariantError::Violation { .. }));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn super_admin_list_allows_empty_creation_state() {
+        let empty = SuperAdminListComponent::encode_value(&TlsSet::<InboxId>::new())?;
+        let change = crate::app_data::validation::ComponentChange::builder()
+            .component_id(ComponentId::SUPER_ADMIN_LIST)
+            .op(ComponentOp::Insert)
+            .actor(ActorAuthority {
+                is_admin: true,
+                is_super_admin: true,
+            })
+            .new_value(&empty)
+            .build();
+
+        SuperAdminListComponent::validate_invariant(&change, &ComponentRegistry::new())?;
     }
 
     #[xmtp_common::test(unwrap_try = true)]

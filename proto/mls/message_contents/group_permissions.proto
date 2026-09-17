@@ -21,6 +21,18 @@ message PolicySet {
   PermissionsUpdatePolicy update_permissions_policy = 6;
 }
 
+// The action policies declared in the AppData dictionary.
+//
+// Unlike PolicySet, this message does not include metadata policies. Metadata
+// policy records remain in the component registry.
+message GroupActionPolicies {
+  MembershipPolicy add_member = 1;
+  MembershipPolicy remove_member = 2;
+  PermissionsUpdatePolicy add_admin = 3;
+  PermissionsUpdatePolicy remove_admin = 4;
+  PermissionsUpdatePolicy update_permissions = 5;
+}
+
 // A policy that governs adding/removing members or installations
 message MembershipPolicy {
   // Base policy

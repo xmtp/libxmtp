@@ -362,8 +362,8 @@ impl ComponentRegistry {
     ///   `delete_policy`) set to `Some`
     ///
     /// Constrained components (e.g. `ADMIN_LIST`) additionally require each
-    /// policy to be the base policy `AllowIfAdmin` (admin or super admin) or
-    /// `AllowIfSuperAdmin` (super admin only). Combinator policies
+    /// policy to be the base policy `Deny`, `AllowIfAdmin` (admin or super
+    /// admin), or `AllowIfSuperAdmin` (super admin only). Combinator policies
     /// (`AndCondition` / `AnyCondition`) are rejected for constrained
     /// components.
     fn validate_metadata(
@@ -384,24 +384,31 @@ impl ComponentRegistry {
                 .as_ref()
                 .ok_or(ComponentRegistryError::MissingPolicyField(*id, op))?;
 
-            if id.is_constrained() && !Self::is_admin_or_super_admin_policy(p) {
+            if id.is_constrained() && !Self::is_admin_or_super_admin_or_deny_policy(p) {
                 return Err(ComponentRegistryError::ConstrainedPolicyViolation(*id));
             }
         }
         Ok(())
     }
 
-    /// Returns true if the policy is the base policy `AllowIfAdmin`
-    /// (admin or super admin) or `AllowIfSuperAdmin` (super admin only).
+    /// Returns true if the policy is the base policy `Deny`,
+    /// `AllowIfAdmin` (admin or super admin), or `AllowIfSuperAdmin`
+    /// (super admin only).
     ///
     /// All variants are matched explicitly with no catch-all so that adding a
     /// new `MetadataPolicyKind` variant in the proto forces a compile error
     /// here, requiring an explicit decision about how it interacts with
     /// constrained components.
-    fn is_admin_or_super_admin_policy(policy: &MetadataPolicyProto) -> bool {
+    fn is_admin_or_super_admin_or_deny_policy(policy: &MetadataPolicyProto) -> bool {
         match &policy.kind {
             Some(MetadataPolicyKind::Base(base)) => {
-                *base == MetadataBasePolicy::AllowIfAdmin as i32
+                // XIP-81 §2.2.1 lists only AllowIfAdmin and
+                // AllowIfSuperAdmin for ADMIN_LIST. The shipped constraint
+                // also accepts Deny because PolicySet::new_dm() uses Deny
+                // for its admin slots; without it, the DM preset cannot be
+                // synthesized into the dictionary.
+                *base == MetadataBasePolicy::Deny as i32
+                    || *base == MetadataBasePolicy::AllowIfAdmin as i32
                     || *base == MetadataBasePolicy::AllowIfSuperAdmin as i32
             }
             // Combinator policies are explicitly rejected for constrained
@@ -530,7 +537,7 @@ mod tests {
         assert!(result.is_err());
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_reject_hardcoded_set() {
         // Hardcoded components must NEVER have a registry entry. Their
         // permissions are enforced in code by `validate_component_write`,
@@ -545,10 +552,14 @@ mod tests {
             reg.set(ComponentId::SUPER_ADMIN_LIST, sample_meta()),
             Err(ComponentRegistryError::HardcodedComponent(_))
         ));
+        assert!(matches!(
+            reg.set(ComponentId::GROUP_ACTION_POLICIES, sample_meta()),
+            Err(ComponentRegistryError::HardcodedComponent(_))
+        ));
         assert!(reg.is_empty());
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_reject_hardcoded_remove() {
         // Even though hardcoded entries should never be in the registry, the
         // remove path still rejects them for defense in depth.
@@ -559,6 +570,10 @@ mod tests {
         ));
         assert!(matches!(
             reg.remove(&ComponentId::SUPER_ADMIN_LIST),
+            Err(ComponentRegistryError::HardcodedComponent(_))
+        ));
+        assert!(matches!(
+            reg.remove(&ComponentId::GROUP_ACTION_POLICIES),
             Err(ComponentRegistryError::HardcodedComponent(_))
         ));
     }
@@ -613,8 +628,8 @@ mod tests {
         ));
     }
 
-    #[xmtp_common::test]
-    fn test_admin_list_rejects_deny_policy() {
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_admin_list_accepts_deny_policy() {
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(
             component_permissions()
@@ -624,10 +639,7 @@ mod tests {
                 .call(),
             ComponentType::Bytes,
         );
-        assert!(matches!(
-            reg.set(ComponentId::ADMIN_LIST, meta),
-            Err(ComponentRegistryError::ConstrainedPolicyViolation(_))
-        ));
+        assert!(reg.set(ComponentId::ADMIN_LIST, meta).is_ok());
     }
 
     #[xmtp_common::test]
@@ -652,7 +664,8 @@ mod tests {
         // Combinator policies must be rejected for constrained components
         // even when every leaf is admin-only — it's the wrapper itself that's
         // disallowed, not the contents. Locks in the explicit rejection in
-        // `is_admin_or_super_admin_policy` so a future refactor of that match
+        // `is_admin_or_super_admin_or_deny_policy` so a future refactor of
+        // that match
         // can't silently let combinators through.
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(

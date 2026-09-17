@@ -22,6 +22,7 @@
 use crate::app_data::{
     component_id::ComponentId,
     components::{
+        action_policies::GroupActionPoliciesComponent,
         inbox_id_set::{AdminListComponent, DmMembersComponent, SuperAdminListComponent},
         metadata_attributes::{
             AppDataComponent, CommitLogSignerComponent, GroupDescriptionComponent,
@@ -40,6 +41,14 @@ use crate::app_data::{
 /// compile time. Tests further pin specific lookup expectations.
 ///
 /// # Change control
+///
+/// Registry policy expresses **authority** only: every policy variant is a
+/// predicate over the actor. A component whose correctness depends on a
+/// predicate over its resulting value, or on a bound on that value, cannot be
+/// expressed in the registry and MUST implement
+/// [`Component::validate_invariant`](crate::app_data::typed::Component::validate_invariant).
+/// Prefer a registry rule whenever it can express the requirement. Add an
+/// invariant only when it cannot, and record that justification at the impl.
 ///
 /// Component-id ranges in play (mirror of [`lookup_component`] below):
 ///
@@ -143,6 +152,10 @@ pub static WELL_KNOWN: &[(ComponentId, &'static dyn ErasedComponent)] = &[
         &MinSupportedProtocolVersionComponent,
     ),
     (ComponentId::COMMIT_LOG_SIGNER, &CommitLogSignerComponent),
+    (
+        ComponentId::GROUP_ACTION_POLICIES,
+        &GroupActionPoliciesComponent,
+    ),
     (ComponentId::DM_MEMBERS, &DmMembersComponent),
 ];
 
@@ -224,6 +237,7 @@ mod tests {
                 ComponentType::String,
             ),
             (ComponentId::COMMIT_LOG_SIGNER, ComponentType::Bytes),
+            (ComponentId::GROUP_ACTION_POLICIES, ComponentType::Bytes),
             (ComponentId::DM_MEMBERS, ComponentType::TlsSetInboxId),
         ];
         for (id, expected_type) in cases {
@@ -263,9 +277,8 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn well_known_count_matches_plan() {
-        // 13 well-known impls per docs/plans/2026-04-10-app-data-migration-plan.md:
-        // 8 Bytes/String + 3 TlsSet<InboxId> + 2 TlsMap.
-        assert_eq!(WELL_KNOWN.len(), 13);
+        // 14 well-known impls: 9 Bytes/String + 3 TlsSet<InboxId> + 2 TlsMap.
+        assert_eq!(WELL_KNOWN.len(), 14);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -509,23 +509,11 @@ pub(in crate::groups) fn validate_dm_group(
     // Note: we don't validate mutable metadata permissions, because they don't affect group membership
     let is_migrated = app_data::is_migrated_extensions(mls_group.extensions());
     let permissions = if is_migrated {
-        app_data::policy::policy_set_from_registry(mls_group.extensions())?
+        group_permissions::policy_set_from_dictionary(mls_group.extensions())
     } else {
         extract_group_permissions(mls_group)?
     };
-    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
-    if is_migrated {
-        // The registry requires privileged ADMIN_LIST policies and enforces
-        // registry updates as super-admin-only. Empty admin lists above make
-        // these policies deny all actors in a DM.
-        use group_permissions::PermissionsPolicies;
-        expected_permissions.policies.add_admin_policy =
-            PermissionsPolicies::allow_if_actor_super_admin();
-        expected_permissions.policies.remove_admin_policy =
-            PermissionsPolicies::allow_if_actor_super_admin();
-        expected_permissions.policies.update_permissions_policy =
-            PermissionsPolicies::allow_if_actor_super_admin();
-    }
+    let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
 
     if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
         || permissions.policies.remove_member_policy

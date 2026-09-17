@@ -82,6 +82,8 @@ impl ComponentId {
     pub const APP_DATA: Self = Self(0x8009);
     pub const MIN_SUPPORTED_PROTOCOL_VERSION: Self = Self(0x800A);
     pub const COMMIT_LOG_SIGNER: Self = Self(0x800B);
+    /// The declared policies for membership and administrator actions. Super admin only.
+    pub const GROUP_ACTION_POLICIES: Self = Self(0x800C);
 
     // === Well-Known Immutable XMTP Component IDs (counting down from 0xBFFF) ===
 
@@ -134,7 +136,9 @@ impl ComponentId {
     /// Returns true if this is one of the hardcoded components whose
     /// permissions are enforced in code rather than the component registry.
     pub const fn is_hardcoded(self) -> bool {
-        self.0 == Self::COMPONENT_REGISTRY.0 || self.0 == Self::SUPER_ADMIN_LIST.0
+        self.0 == Self::COMPONENT_REGISTRY.0
+            || self.0 == Self::SUPER_ADMIN_LIST.0
+            || self.0 == Self::GROUP_ACTION_POLICIES.0
     }
 
     /// Returns true if this component has constrained permission values.
@@ -246,6 +250,9 @@ mod tests {
         assert!(!ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.is_immutable());
         assert!(ComponentId::COMMIT_LOG_SIGNER.is_xmtp_range());
         assert!(!ComponentId::COMMIT_LOG_SIGNER.is_immutable());
+        assert!(ComponentId::GROUP_ACTION_POLICIES.is_xmtp_range());
+        assert!(!ComponentId::GROUP_ACTION_POLICIES.is_immutable());
+        assert!(ComponentId::GROUP_ACTION_POLICIES.is_hardcoded());
 
         // Immutable XMTP
         assert!(ComponentId::CONVERSATION_TYPE.is_immutable());
@@ -263,11 +270,13 @@ mod tests {
         assert!(ComponentId::new(0x8003).is_xmtp_range());
         assert!(!ComponentId::new(0x8003).is_immutable());
 
-        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A and 0x800B.
+        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A through 0x800C.
         assert!(ComponentId::new(0x800A).is_xmtp_range());
         assert!(!ComponentId::new(0x800A).is_immutable());
         assert!(ComponentId::new(0x800B).is_xmtp_range());
         assert!(!ComponentId::new(0x800B).is_immutable());
+        assert!(ComponentId::new(0x800C).is_xmtp_range());
+        assert!(!ComponentId::new(0x800C).is_immutable());
 
         // XMTP immutable boundary
         assert!(!ComponentId::new(0xBDFF).is_immutable());
@@ -340,6 +349,7 @@ mod tests {
             ComponentId::GROUP_NAME,
             ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
             ComponentId::COMMIT_LOG_SIGNER,
+            ComponentId::GROUP_ACTION_POLICIES,
             ComponentId::CONVERSATION_TYPE,
             ComponentId::DM_MEMBERS,
             ComponentId::ONESHOT_MESSAGE,
