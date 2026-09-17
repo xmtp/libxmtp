@@ -103,8 +103,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          SHA=$(git rev-parse --short=7 HEAD)
-          TAG="libxmtp-ios-${SHA}"
+          SOURCE_SHA=$(git rev-parse HEAD)
+          TAG="libxmtp-ios-${SOURCE_SHA:0:7}"
           ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFI.zip"
           DYNAMIC_ARTIFACT_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/LibXMTPSwiftFFIDynamic.zip"
 
@@ -113,6 +113,7 @@ jobs:
             gh release upload "$TAG" LibXMTPSwiftFFI.zip LibXMTPSwiftFFIDynamic.zip --clobber
           else
             gh release create "$TAG" \
+              --target "$SOURCE_SHA" \
               --title "iOS $VERSION - libxmtp binaries" \
               --notes "Intermediate artifact release for iOS SDK $VERSION" \
               --prerelease \
