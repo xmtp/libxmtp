@@ -1,4 +1,12 @@
+---
+prefix: API
+status: legacy
+---
 # 001: Backend API
+
+> **Being replaced.** This document is superseded by `API` (backend API contract) in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `API-nnn` identifiers in new code.
 
 Status: approved with the owner decisions recorded in the review log.
 

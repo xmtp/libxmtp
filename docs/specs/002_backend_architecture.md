@@ -1,4 +1,12 @@
+---
+prefix: ARC
+status: legacy
+---
 # 002: Backend Architecture
+
+> **Being replaced.** This document is superseded by `API`, `OPS`, and `AUTH` in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `ARC-nnn` identifiers in new code.
 
 Status: approved on 2026-09-04, with the owner decisions in the review record.
 
