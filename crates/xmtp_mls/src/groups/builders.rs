@@ -491,7 +491,14 @@ pub(in crate::groups) fn validate_dm_group(
     }
 
     // Validate mutable metadata
-    let mutable_metadata: GroupMutableMetadata = mls_group.try_into()?;
+    let mutable_metadata =
+        app_data::component_source::extract_group_mutable_metadata_capability_aware(mls_group)
+            .map_err(|error| match error {
+                app_data::component_source::ComponentSourceError::GroupMutableMetadata(inner) => {
+                    MetadataPermissionsError::Mutable(inner)
+                }
+                other => MetadataPermissionsError::ComponentSource(other),
+            })?;
 
     // Check if the admin list and super admin list are empty
     if !mutable_metadata.admin_list.is_empty() || !mutable_metadata.super_admin_list.is_empty() {
@@ -500,16 +507,33 @@ pub(in crate::groups) fn validate_dm_group(
 
     // Validate permissions so no one adds us to a dm that they can unexpectedly add another member to
     // Note: we don't validate mutable metadata permissions, because they don't affect group membership
-    let permissions = extract_group_permissions(mls_group)?;
-    let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+    let is_migrated = app_data::is_migrated_extensions(mls_group.extensions());
+    let permissions = if is_migrated {
+        app_data::policy::policy_set_from_registry(mls_group.extensions())?
+    } else {
+        extract_group_permissions(mls_group)?
+    };
+    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+    if is_migrated {
+        // The registry requires privileged ADMIN_LIST policies and enforces
+        // registry updates as super-admin-only. Empty admin lists above make
+        // these policies deny all actors in a DM.
+        use group_permissions::PermissionsPolicies;
+        expected_permissions.policies.add_admin_policy =
+            PermissionsPolicies::allow_if_actor_super_admin();
+        expected_permissions.policies.remove_admin_policy =
+            PermissionsPolicies::allow_if_actor_super_admin();
+        expected_permissions.policies.update_permissions_policy =
+            PermissionsPolicies::allow_if_actor_super_admin();
+    }
 
     if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
-        && permissions.policies.remove_member_policy
+        || permissions.policies.remove_member_policy
             != expected_permissions.policies.remove_member_policy
-        && permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
-        && permissions.policies.remove_admin_policy
+        || permissions.policies.add_admin_policy != expected_permissions.policies.add_admin_policy
+        || permissions.policies.remove_admin_policy
             != expected_permissions.policies.remove_admin_policy
-        && permissions.policies.update_permissions_policy
+        || permissions.policies.update_permissions_policy
             != expected_permissions.policies.update_permissions_policy
     {
         return Err(DmValidationError::InvalidPermissions.into());

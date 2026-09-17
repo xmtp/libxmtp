@@ -99,3 +99,135 @@ async fn test_group_update_dedupes() {
     dm.update_conversation_message_disappear_from_ns(1).await?;
     assert_eq!(updates().len(), 4);
 }
+
+fn dictionary_native_dm(
+    context: &impl XmtpSharedContext,
+    added_by_inbox: &str,
+    allow_add_member: bool,
+) -> openmls::group::MlsGroup {
+    use crate::groups::group_permissions::{PermissionsPolicies, PolicySet};
+    use openmls::{
+        extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension, Extensions},
+        prelude::{Capabilities, CredentialWithKey, ExtensionType, MlsGroupCreateConfig},
+    };
+    use tls_codec::Serialize;
+    use xmtp_mls_common::{
+        app_data::{component_id::ComponentId, migration::synthesize_registry_from_policy_set},
+        inbox_id::InboxId,
+        tls_set::TlsSet,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{Kind, MetadataBasePolicy},
+    };
+
+    // Build the registry directly. DM bootstrap synthesis is a separate task.
+    let mut policies = PolicySet::new_dm();
+    policies.add_admin_policy = PermissionsPolicies::allow_if_actor_super_admin();
+    policies.remove_admin_policy = PermissionsPolicies::allow_if_actor_super_admin();
+    policies.update_permissions_policy = PermissionsPolicies::allow_if_actor_super_admin();
+    let mut registry = synthesize_registry_from_policy_set(&policies.to_proto().unwrap()).unwrap();
+    let policy = |base| {
+        Some(MetadataPolicy {
+            kind: Some(Kind::Base(base as i32)),
+        })
+    };
+    if allow_add_member {
+        let mut membership = registry
+            .get(&ComponentId::GROUP_MEMBERSHIP)
+            .unwrap()
+            .unwrap();
+        membership.permissions.as_mut().unwrap().insert_policy = policy(MetadataBasePolicy::Allow);
+        registry
+            .set(ComponentId::GROUP_MEMBERSHIP, membership)
+            .unwrap();
+    }
+    let creator = InboxId::from_hex(added_by_inbox).unwrap();
+    let recipient = InboxId::from_hex(context.inbox_id()).unwrap();
+    let mut dictionary = AppDataDictionary::new();
+    for (id, bytes) in [
+        (
+            ComponentId::COMPONENT_REGISTRY,
+            registry.to_bytes().unwrap(),
+        ),
+        (
+            ComponentId::CONVERSATION_TYPE,
+            (xmtp_proto::types::ConversationType::Dm as i32)
+                .to_be_bytes()
+                .to_vec(),
+        ),
+        (
+            ComponentId::CREATOR_INBOX_ID,
+            creator.tls_serialize_detached().unwrap(),
+        ),
+        (
+            ComponentId::DM_MEMBERS,
+            TlsSet::from_keys([creator, recipient])
+                .tls_serialize_detached()
+                .unwrap(),
+        ),
+        (
+            ComponentId::ADMIN_LIST,
+            TlsSet::<InboxId>::new().tls_serialize_detached().unwrap(),
+        ),
+        (
+            ComponentId::SUPER_ADMIN_LIST,
+            TlsSet::<InboxId>::new().tls_serialize_detached().unwrap(),
+        ),
+    ] {
+        assert!(dictionary.insert(id.as_u16(), bytes).is_none());
+    }
+    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+        AppDataDictionaryExtension::new(dictionary),
+    )])
+    .unwrap();
+    let config = MlsGroupCreateConfig::builder()
+        .with_group_context_extensions(extensions)
+        .capabilities(Capabilities::new(
+            None,
+            None,
+            Some(&[ExtensionType::AppDataDictionary]),
+            None,
+            None,
+        ))
+        .ciphersuite(xmtp_cryptography::configuration::CIPHERSUITE)
+        .build();
+    let identity = context.identity();
+    openmls::group::MlsGroup::new(
+        &context.mls_provider(),
+        &identity.installation_keys,
+        &config,
+        CredentialWithKey {
+            credential: identity.credential(),
+            signature_key: identity.installation_keys.public_slice().into(),
+        },
+    )
+    .unwrap()
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_dictionary_native_dm_accepts_valid_permissions() {
+    tester!(alix);
+    let added_by = hex::encode([0x42; 32]);
+    let group = dictionary_native_dm(&alix.context, &added_by, false);
+    crate::groups::validate_dm_group(&alix.context, &group, &added_by)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_dictionary_native_dm_rejects_add_member_policy_alone() {
+    use crate::groups::{DmValidationError, MetadataPermissionsError};
+
+    tester!(alix);
+    let added_by = hex::encode([0x42; 32]);
+    let group = dictionary_native_dm(&alix.context, &added_by, true);
+    let result = crate::groups::validate_dm_group(&alix.context, &group, &added_by);
+    assert!(
+        matches!(
+            result,
+            Err(MetadataPermissionsError::DmValidation(
+                DmValidationError::InvalidPermissions
+            ))
+        ),
+        "unexpected validation result: {result:?}"
+    );
+}

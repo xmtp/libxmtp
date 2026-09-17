@@ -1,32 +1,19 @@
-//! Translate the AppData `COMPONENT_REGISTRY`'s membership policies into
-//! the legacy [`GroupMutablePermissions`] shape so the receive-side
-//! validator and standalone-proposal validator can evaluate Add /
-//! Remove proposals on migrated groups against the same policy that
-//! `validate_app_data_update_proposals_in_commit` enforces for the
-//! companion `AppDataUpdate(GROUP_MEMBERSHIP)` proposal.
-//!
-//! The mapping is:
-//! - `GROUP_MEMBERSHIP.insert_policy` → `add_member_policy`
-//! - `GROUP_MEMBERSHIP.delete_policy` → `remove_member_policy`
-//!
-//! Other slots on the synthesized `PolicySet` (metadata field updates,
-//! admin add/remove, permissions update) are structural placeholders
-//! filled with the conservative "super admin only" policy. The
-//! AppDataUpdate proposal validator is the authoritative gate for
-//! those component writes; the slots here only exist because the
-//! legacy GCE-shaped callers expect a populated `PolicySet` for
-//! sanity checks unrelated to the per-component policy lookup.
+//! Read group policies from the AppData component registry.
 
-use openmls::group::MlsGroup as OpenMlsGroup;
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use openmls::{extensions::Extensions, group::GroupContext};
+use xmtp_mls_common::{
+    app_data::{component_id::ComponentId, component_registry::ComponentRegistry},
+    group_mutable_metadata::GroupMutableMetadata,
+};
 use xmtp_proto::xmtp::mls::message_contents::{
-    MetadataPolicy as MetadataPolicyProto, metadata_policy::Kind as MetadataPolicyKindProto,
+    ComponentPermissions, MetadataPolicy as MetadataPolicyProto,
+    metadata_policy::Kind as MetadataPolicyKindProto,
     metadata_policy::MetadataBasePolicy as MetadataBasePolicyProto,
 };
 
-use super::component_source::ComponentSourceError;
+use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
 use crate::groups::group_permissions::{
-    GroupMutablePermissions, MembershipPolicies, PermissionsPolicies, PolicySet,
+    GroupMutablePermissions, MembershipPolicies, MetadataPolicies, PermissionsPolicies, PolicySet,
 };
 
 /// Translate a wire-form `MetadataPolicy` into a `MembershipPolicies`.
@@ -58,83 +45,148 @@ fn metadata_policy_to_membership(p: &MetadataPolicyProto) -> MembershipPolicies 
     }
 }
 
-/// Build a `GroupMutablePermissions` whose `add_member_policy` /
-/// `remove_member_policy` reflect the registry's `GROUP_MEMBERSHIP`
-/// policies. Other slots are structural placeholders — the
-/// AppDataUpdate validation path is the authoritative gate for
-/// non-membership components.
-pub(crate) fn membership_policy_set_from_registry(
-    mls_group: &OpenMlsGroup,
-) -> Result<GroupMutablePermissions, ComponentSourceError> {
-    let registry = super::load_component_registry(mls_group)?;
-
-    let (add_policy, remove_policy) = match registry.get(&ComponentId::GROUP_MEMBERSHIP) {
-        Ok(Some(meta)) => match meta.permissions {
-            Some(perms) => {
-                let add = match perms.insert_policy.as_ref() {
-                    Some(p) => metadata_policy_to_membership(p),
-                    None => {
-                        tracing::warn!(
-                            "GROUP_MEMBERSHIP registry entry missing insert_policy; \
-                             falling back to deny-add membership policy"
-                        );
-                        MembershipPolicies::deny()
-                    }
-                };
-                let remove = match perms.delete_policy.as_ref() {
-                    Some(p) => metadata_policy_to_membership(p),
-                    None => {
-                        tracing::warn!(
-                            "GROUP_MEMBERSHIP registry entry missing delete_policy; \
-                             falling back to deny-remove membership policy"
-                        );
-                        MembershipPolicies::deny()
-                    }
-                };
-                (add, remove)
+/// ADMIN_LIST permits only admin or super-admin policies. Treat any other
+/// policy as Deny, as the registry validator does for unsupported entries.
+fn metadata_policy_to_permissions(policy: &MetadataPolicyProto) -> PermissionsPolicies {
+    match policy.kind.as_ref() {
+        Some(MetadataPolicyKindProto::Base(base)) => match MetadataBasePolicyProto::try_from(*base)
+        {
+            Ok(MetadataBasePolicyProto::AllowIfAdmin) => {
+                PermissionsPolicies::allow_if_actor_admin()
             }
-            None => {
-                tracing::warn!(
-                    "GROUP_MEMBERSHIP registry entry has no permissions block; \
-                     falling back to deny-all membership policy"
-                );
-                (MembershipPolicies::deny(), MembershipPolicies::deny())
+            Ok(MetadataBasePolicyProto::AllowIfSuperAdmin) => {
+                PermissionsPolicies::allow_if_actor_super_admin()
             }
+            _ => PermissionsPolicies::deny(),
         },
-        // Missing GROUP_MEMBERSHIP entry — the dict is partially
-        // populated or we're racing the bootstrap. Production groups
-        // always carry this entry post-bootstrap, so a miss here is
-        // worth a breadcrumb rather than surfacing only as a
-        // downstream `InsufficientPermissions`.
-        Ok(None) => {
-            tracing::warn!(
-                "no GROUP_MEMBERSHIP entry in component registry; \
-                 falling back to deny-all membership policy"
-            );
-            (MembershipPolicies::deny(), MembershipPolicies::deny())
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = ?e,
-                "GROUP_MEMBERSHIP registry decode failed; falling back to deny-all membership policy"
-            );
-            (MembershipPolicies::deny(), MembershipPolicies::deny())
-        }
-    };
+        _ => PermissionsPolicies::deny(),
+    }
+}
 
-    // Non-membership slots are structural placeholders, filled with
-    // super-admin-only. Metadata field updates, admin add/remove, and
-    // permissions update are all gated per-component by
-    // `validate_app_data_update_proposals_in_commit` when a real
-    // change comes through; legacy callers only consult these slots
-    // for sanity checks unrelated to the per-component permission
-    // policy.
+fn component_permissions(
+    registry: &ComponentRegistry,
+    id: ComponentId,
+) -> Option<ComponentPermissions> {
+    match registry.get(&id) {
+        Ok(Some(metadata)) => metadata.permissions,
+        Ok(None) => {
+            tracing::warn!(component_id = %id, "component registry entry is missing; deny access");
+            None
+        }
+        Err(error) => {
+            tracing::warn!(component_id = %id, ?error, "component registry entry is invalid; deny access");
+            None
+        }
+    }
+}
+
+/// Reconstruct the complete policy set. Callers use the legacy extension
+/// instead when the group has no migration marker.
+pub(crate) fn policy_set_from_registry(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMutablePermissions, ComponentSourceError> {
+    let registry = super::load_component_registry_from_extensions(extensions)?;
+    let membership = component_permissions(&registry, ComponentId::GROUP_MEMBERSHIP);
+    let admins = component_permissions(&registry, ComponentId::ADMIN_LIST);
+    let mut metadata_policies = std::collections::HashMap::new();
+    for field in GroupMutableMetadata::supported_fields() {
+        let id = metadata_field_to_component_id(field.as_str())
+            .ok_or_else(|| ComponentSourceError::UnknownMetadataField(field.to_string()))?;
+        // Fail closed, never fail hard. An unrecognized or malformed stored
+        // policy (an empty And/Any condition, or a base value from a newer
+        // client) must degrade to deny for that one field, exactly as the
+        // sibling `metadata_policy_to_permissions` and
+        // `metadata_policy_to_membership` converters do.
+        //
+        // Returning `Err` here would propagate through
+        // `policy_set_from_registry` into `ValidatedCommit::from_staged_commit`
+        // as `CommitValidationError::installed_state`, which is NOT in
+        // `is_safe_rejection` — so the commit head would stay pending and
+        // every member would wedge on the group permanently, rather than
+        // rejecting one commit. A single bad registry entry must not be able
+        // to brick a group.
+        let policy = component_permissions(&registry, id)
+            .and_then(|permissions| permissions.update_policy)
+            .and_then(|stored| MetadataPolicies::try_from(stored).ok())
+            .unwrap_or_else(MetadataPolicies::deny);
+        metadata_policies.insert(field.to_string(), policy);
+    }
+
     Ok(GroupMutablePermissions::new(PolicySet::new(
-        add_policy,
-        remove_policy,
-        std::collections::HashMap::new(),
-        PermissionsPolicies::allow_if_actor_super_admin(),
-        PermissionsPolicies::allow_if_actor_super_admin(),
+        membership
+            .as_ref()
+            .and_then(|p| p.insert_policy.as_ref())
+            .map(metadata_policy_to_membership)
+            .unwrap_or_else(MembershipPolicies::deny),
+        membership
+            .as_ref()
+            .and_then(|p| p.delete_policy.as_ref())
+            .map(metadata_policy_to_membership)
+            .unwrap_or_else(MembershipPolicies::deny),
+        metadata_policies,
+        admins
+            .as_ref()
+            .and_then(|p| p.insert_policy.as_ref())
+            .map(metadata_policy_to_permissions)
+            .unwrap_or_else(PermissionsPolicies::deny),
+        admins
+            .as_ref()
+            .and_then(|p| p.delete_policy.as_ref())
+            .map(metadata_policy_to_permissions)
+            .unwrap_or_else(PermissionsPolicies::deny),
         PermissionsPolicies::allow_if_actor_super_admin(),
     )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::groups::group_permissions::PolicyError;
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
+    use xmtp_mls_common::{
+        app_data::migration::synthesize_registry_from_policy_set,
+        group_mutable_metadata::MetadataField,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::metadata_policy::AndCondition;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_policy_set_from_registry_denies_malformed_metadata_policy() {
+        let mut expected = PolicySet::default();
+        let mut registry = synthesize_registry_from_policy_set(&expected.to_proto()?)?;
+        let malformed = MetadataPolicyProto {
+            kind: Some(MetadataPolicyKindProto::AndCondition(AndCondition {
+                policies: vec![],
+            })),
+        };
+        assert!(matches!(
+            MetadataPolicies::try_from(malformed.clone()),
+            Err(PolicyError::InvalidMetadataPolicy)
+        ));
+
+        // GROUP_NAME accepts stored policies that the policy converter rejects.
+        let mut metadata = registry.get(&ComponentId::GROUP_NAME)??;
+        metadata.permissions.as_mut()?.update_policy = Some(malformed);
+        registry.set(ComponentId::GROUP_NAME, metadata)?;
+
+        let mut dictionary = AppDataDictionary::new();
+        assert!(
+            dictionary
+                .insert(
+                    ComponentId::COMPONENT_REGISTRY.as_u16(),
+                    registry.to_bytes()?
+                )
+                .is_none()
+        );
+        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )])?;
+
+        let permissions = policy_set_from_registry(&extensions)?;
+        expected.update_metadata_policy.insert(
+            MetadataField::GroupName.to_string(),
+            MetadataPolicies::deny(),
+        );
+        // All other metadata, membership, and admin policies must stay intact.
+        assert_eq!(permissions.policies, expected);
+    }
 }

@@ -1005,3 +1005,45 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
         "Permission change by non-super-admin should be rejected"
     );
 }
+
+#[rstest::rstest]
+#[case::default(
+    crate::groups::group_permissions::PreconfiguredPolicies::Default,
+    false
+)]
+#[case::admins_only(
+    crate::groups::group_permissions::PreconfiguredPolicies::AdminsOnly,
+    false
+)]
+#[case::custom_admins(crate::groups::group_permissions::PreconfiguredPolicies::Default, true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_dictionary_native_permissions_presets(
+    #[case] preset: crate::groups::group_permissions::PreconfiguredPolicies,
+    #[case] custom_admins: bool,
+) {
+    use crate::groups::group_permissions::PreconfiguredPolicies;
+
+    tester!(alix);
+    let mut expected = preset.to_policy_set();
+    if custom_admins {
+        use crate::groups::group_permissions::PermissionsPolicies;
+        expected.add_admin_policy = PermissionsPolicies::allow_if_actor_admin();
+        expected.remove_admin_policy = PermissionsPolicies::allow_if_actor_admin();
+    }
+    let group = alix.create_group(Some(expected.clone()), None).unwrap();
+    assert_eq!(group.permissions().unwrap().policies, expected);
+    group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await
+        .unwrap();
+    let actual = group.permissions().unwrap().policies;
+    assert_eq!(actual, expected);
+    if custom_admins {
+        assert!(PreconfiguredPolicies::from_policy_set(&actual).is_err());
+    } else {
+        assert_eq!(
+            PreconfiguredPolicies::from_policy_set(&actual).unwrap(),
+            preset
+        );
+    }
+}

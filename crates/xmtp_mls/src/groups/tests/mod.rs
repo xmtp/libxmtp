@@ -44,7 +44,7 @@ use xmtp_db::XmtpOpenMlsProviderRef;
 use xmtp_id::InboxOwner;
 use xmtp_proto::types::{Cursor, Topic};
 
-use super::group_permissions::PolicySet;
+use super::group_permissions::{MembershipPolicies, PolicySet};
 use crate::context::XmtpSharedContext;
 use crate::groups::intents::QueueIntent;
 use crate::groups::{DmValidationError, GroupLeaveValidationError, MetadataPermissionsError};
@@ -546,7 +546,7 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
     tester!(client);
     let added_by_inbox = "added_by_inbox_id";
@@ -683,6 +683,36 @@ async fn test_validate_dm_group() {
             MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
         ))
     ));
+
+    // Test case 8: A legacy DM with only the add-member policy changed is invalid.
+    let mut single_slot_invalid_permissions = PolicySet::new_dm();
+    single_slot_invalid_permissions.add_member_policy = MembershipPolicies::allow();
+    let single_slot_invalid_permissions_group = TestMlsGroup::create_test_dm_group(
+        client.context.clone(),
+        dm_target_inbox_id,
+        None,
+        None,
+        None,
+        Some(single_slot_invalid_permissions),
+        None,
+    )
+    .unwrap();
+    let result = single_slot_invalid_permissions_group.load_mls_group_with_lock(
+        client.context.mls_storage(),
+        |mls_group| {
+            assert!(mls_group.extensions().app_data_dictionary().is_none());
+            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+        },
+    );
+    assert!(
+        matches!(
+            result,
+            Err(GroupError::MetadataPermissionsError(
+                MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+            ))
+        ),
+        "unexpected validation result: {result:?}"
+    );
 }
 
 #[xmtp_common::test]

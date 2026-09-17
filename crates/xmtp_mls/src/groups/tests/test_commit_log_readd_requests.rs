@@ -464,3 +464,128 @@ async fn test_request_readd_with_allowlisted_groups() {
             .unwrap()
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_dictionary_native_readd_succeeds() {
+    use crate::groups::EnableProposalsOptions;
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo.sync_all_welcomes_and_groups(None).await?;
+    caro.sync_all_welcomes_and_groups(None).await?;
+    let bo_group = bo.group(&group.group_id)?;
+    let caro_group = caro.group(&group.group_id)?;
+    let before = group.epoch_authenticator().await?;
+    group
+        .readd_installations(vec![bo.context.installation_id().to_vec()])
+        .await?;
+    assert_ne!(group.epoch_authenticator().await?, before);
+    caro_group.sync().await?;
+    assert_eq!(
+        caro_group.epoch_authenticator().await?,
+        group.epoch_authenticator().await?
+    );
+    bo_group.sync_with_conn().await?;
+    bo.sync_welcomes().await?;
+    assert_eq!(
+        bo_group.epoch_authenticator().await?,
+        group.epoch_authenticator().await?
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_dictionary_native_readd_records_failed_installations() {
+    use crate::groups::{
+        EnableProposalsOptions, GroupError,
+        group_membership::MembershipDiffWithKeyPackages,
+        intents::ReaddInstallationsIntentData,
+        mls_sync::{
+            decode_staged_commit, update_group_membership::apply_readd_installations_intent,
+        },
+    };
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, migration::decode_group_membership_dict,
+    };
+    use xmtp_mls_common::inbox_id::InboxId;
+    use xmtp_proto::xmtp::mls::message_contents::group_membership_entry::Version;
+
+    tester!(alix);
+    tester!(bo);
+    tester!(caro);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
+        .await?;
+    group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+
+    // Supply failed fetch results directly. Each commit must keep prior failures.
+    for failed in [&bo, &caro] {
+        let installation = failed.context.installation_id().to_vec();
+        crate::state_tx::state_write(alix.context.mls_storage(), |tx| {
+            tx.with_group(group.group_id, |mls_group, storage| {
+                let publish = apply_readd_installations_intent(
+                    storage,
+                    mls_group,
+                    ReaddInstallationsIntentData::new(vec![installation.clone()]),
+                    MembershipDiffWithKeyPackages::new(
+                        vec![],
+                        vec![],
+                        Default::default(),
+                        vec![installation.clone()],
+                    ),
+                    &alix.identity().installation_keys,
+                )?
+                .unwrap();
+                mls_group.merge_staged_commit(
+                    &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                    decode_staged_commit(publish.staged_commit.as_deref().unwrap())?,
+                )?;
+                Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(()))
+            })
+        })?;
+    }
+    group.load_mls_group_with_lock(alix.context.mls_storage(), |mls_group| {
+        assert!(
+            !mls_group
+                .extensions()
+                .iter()
+                .any(|extension| extension.extension_type()
+                    == openmls::extensions::ExtensionType::Unknown(
+                        xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID
+                    ))
+        );
+        let dictionary = mls_group
+            .extensions()
+            .app_data_dictionary()
+            .unwrap()
+            .dictionary();
+        let entries = decode_group_membership_dict(
+            dictionary
+                .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+                .unwrap(),
+        )
+        .unwrap();
+        for failed in [&bo, &caro] {
+            let entry = entries
+                .get(&InboxId::from_hex(failed.inbox_id()).unwrap())
+                .unwrap();
+            let Some(Version::V1(value)) = &entry.version else {
+                panic!("expected V1 membership entry")
+            };
+            assert_eq!(
+                value.failed_installations,
+                vec![failed.context.installation_id().to_vec()]
+            );
+        }
+        assert_eq!(mls_group.members().count(), 1);
+        Ok(())
+    })?;
+}

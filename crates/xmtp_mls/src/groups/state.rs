@@ -324,11 +324,14 @@ where
 
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let ctx = self.load_group_context()?;
-        let permissions: GroupMutablePermissions = ctx
-            .extensions()
-            .try_into()
-            .map_err(MetadataPermissionsError::from)?;
-        Ok(permissions)
+        if self::app_data::is_migrated_extensions(ctx.extensions()) {
+            self::app_data::policy::policy_set_from_registry(ctx.extensions())
+                .map_err(|error| MetadataPermissionsError::from(error).into())
+        } else {
+            ctx.extensions()
+                .try_into()
+                .map_err(|error| MetadataPermissionsError::from(error).into())
+        }
     }
 
     /// Capability-aware single-component read.

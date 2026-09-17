@@ -562,7 +562,7 @@ impl ValidatedCommit {
         // registry so post-bootstrap commits enforce the same policy
         // a pre-bootstrap GCE-extension lookup would.
         let group_permissions: GroupMutablePermissions = if is_migrated {
-            super::app_data::policy::membership_policy_set_from_registry(openmls_group)
+            super::app_data::policy::policy_set_from_registry(openmls_group.extensions())
                 .map_err(CommitValidationError::installed_state)?
         } else {
             GroupMutablePermissions::try_from(extensions)
