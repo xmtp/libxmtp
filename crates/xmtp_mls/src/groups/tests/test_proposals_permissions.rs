@@ -1082,6 +1082,333 @@ async fn test_non_super_admin_app_data_action_policies_change_rejected() {
     );
 }
 
+/// A super admin can queue a raw action-policy replacement that bypasses the
+/// sender's paired registry update. The receiver must reject the commit so the
+/// declaration cannot differ from the policy that enforces admin-list writes.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receiver_rejects_raw_action_policy_registry_divergence() {
+    use crate::groups::intents::{
+        AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType, QueueIntent,
+    };
+    use prost::Message as _;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
+    use xmtp_proto::xmtp::mls::message_contents::{
+        PermissionsUpdatePolicy,
+        permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
+    };
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    let before_permissions = bo_group.permissions()?;
+    let before_epoch = bo_group.epoch().await?;
+    let before_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after bootstrap")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    let payload = alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let bytes = mls_group
+                .extensions()
+                .app_data_dictionary()
+                .and_then(|dictionary| {
+                    dictionary
+                        .dictionary()
+                        .get(&ComponentId::GROUP_ACTION_POLICIES.as_u16())
+                })
+                .expect("action policies are present after bootstrap");
+            let mut actions =
+                xmtp_proto::xmtp::mls::message_contents::GroupActionPolicies::decode(bytes)?;
+            actions.add_admin = Some(PermissionsUpdatePolicy {
+                kind: Some(PermissionsPolicyKind::Base(
+                    PermissionsBasePolicy::Deny as i32,
+                )),
+            });
+            Ok::<_, crate::groups::GroupError>(actions.encode_to_vec())
+        })
+        .await?;
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
+            payload,
+        )))
+        .queue(&alix_group)?;
+
+    assert!(
+        alix_group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .is_err(),
+        "a raw action-policy write that diverges from ADMIN_LIST must be rejected"
+    );
+
+    // A safe rejection can return a successful summary. The terminal record
+    // proves that the receiver advanced past the rejected commit.
+    let _ = bo_group.sync().await;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    let rejection = bo
+        .context
+        .db()
+        .read_last_rejection(&topic)?
+        .expect("receiver did not reject divergent action policies");
+    assert_eq!(
+        bo.context.db().topic_progress(&topic)?.processed,
+        rejection.sequence_id
+    );
+    assert_eq!(bo_group.epoch().await?, before_epoch);
+    assert_eq!(bo_group.permissions()?, before_permissions);
+    let after_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after rejection")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    assert_eq!(after_dictionary, before_dictionary);
+
+    // A later valid paired update must still commit. This proves the safe
+    // rejection did not leave the group at a pending commit head.
+    alix_group
+        .update_permission_policy(
+            PermissionUpdateType::AddAdmin,
+            PermissionPolicyOption::SuperAdminOnly,
+            None,
+        )
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, before_epoch + 1);
+}
+
+/// A raw registry mutation must not relax the constrained `ADMIN_LIST` entry.
+/// The shared constrained-component check rejects it before publication.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
+    use crate::groups::{
+        app_data::load_component_registry,
+        intents::{AppDataUpdateIntentData, QueueIntent},
+    };
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+            typed::Component,
+        },
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    };
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    let before_permissions = bo_group.permissions()?;
+    let before_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after bootstrap")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    let payload = alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let registry = load_component_registry(&mls_group)?;
+            let mut metadata = registry
+                .get(&ComponentId::ADMIN_LIST)?
+                .expect("ADMIN_LIST is registered after bootstrap");
+            metadata
+                .permissions
+                .as_mut()
+                .expect("ADMIN_LIST has permissions")
+                .insert_policy = Some(MetadataPolicy {
+                kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Allow as i32)),
+            });
+            let delta = TlsMapDelta::new().update(
+                ComponentId::ADMIN_LIST,
+                VLBytes::new(metadata.encode_to_vec()),
+            );
+            <ComponentRegistryComponent as Component>::encode_mutation(&delta)
+                .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))
+        })
+        .await?;
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            payload,
+        )))
+        .queue(&alix_group)?;
+
+    assert!(
+        alix_group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .is_err(),
+        "a raw ADMIN_LIST Allow policy must be rejected"
+    );
+    bo_group.sync().await?;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    // The constrained-component check rejects this payload before publication.
+    assert!(bo.context.db().read_last_rejection(&topic)?.is_none());
+    assert_eq!(bo_group.permissions()?, before_permissions);
+    let after_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after rejection")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    assert_eq!(after_dictionary, before_dictionary);
+}
+
+/// `AllowIfAdmin` is structurally valid for `ADMIN_LIST`, but it still cannot
+/// diverge from the super-admin-only `add_admin` declaration in 0x800C.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receiver_rejects_raw_registry_action_policy_divergence() {
+    use crate::groups::{
+        app_data::load_component_registry,
+        intents::{AppDataUpdateIntentData, QueueIntent},
+    };
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+            typed::Component,
+        },
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    };
+
+    tester!(alix);
+    tester!(bo);
+
+    let alix_group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.first()?.clone();
+    alix_group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    bo_group.sync().await?;
+
+    let before_permissions = bo_group.permissions()?;
+    let before_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after bootstrap")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    let payload = alix_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            let registry = load_component_registry(&mls_group)?;
+            let mut metadata = registry
+                .get(&ComponentId::ADMIN_LIST)?
+                .expect("ADMIN_LIST is registered after bootstrap");
+            metadata
+                .permissions
+                .as_mut()
+                .expect("ADMIN_LIST has permissions")
+                .insert_policy = Some(MetadataPolicy {
+                kind: Some(MetadataPolicyKind::Base(
+                    MetadataBasePolicy::AllowIfAdmin as i32,
+                )),
+            });
+            let delta = TlsMapDelta::new().update(
+                ComponentId::ADMIN_LIST,
+                VLBytes::new(metadata.encode_to_vec()),
+            );
+            <ComponentRegistryComponent as Component>::encode_mutation(&delta)
+                .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))
+        })
+        .await?;
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            payload,
+        )))
+        .queue(&alix_group)?;
+
+    assert!(
+        alix_group
+            .sync_until_intent_resolved(intent.id)
+            .await
+            .is_err(),
+        "a raw ADMIN_LIST policy that disagrees with 0x800C must be rejected"
+    );
+    let _ = bo_group.sync().await;
+    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
+    assert!(
+        bo.context.db().read_last_rejection(&topic)?.is_some(),
+        "receiver did not terminally reject an ADMIN_LIST/0x800C mismatch"
+    );
+    assert_eq!(bo_group.permissions()?, before_permissions);
+    let after_dictionary = bo_group
+        .load_mls_group_with_lock_async(async |mls_group| {
+            Ok::<_, crate::groups::GroupError>(
+                mls_group
+                    .extensions()
+                    .app_data_dictionary()
+                    .expect("app-data dictionary is present after rejection")
+                    .dictionary()
+                    .clone(),
+            )
+        })
+        .await?;
+    assert_eq!(after_dictionary, before_dictionary);
+}
+
 /// Each removal below is valid against the committed two-super-admin state,
 /// but the pair must be rejected when one commit would leave no super admin.
 /// This exercises receiver validation over the proposal batch, rather than the
@@ -1382,19 +1709,26 @@ async fn test_allow_admin_permission_updates_rejected_before_queueing() {
 #[rstest::rstest]
 #[case::default(
     crate::groups::group_permissions::PreconfiguredPolicies::Default,
-    false
+    false,
+    crate::groups::intents::PermissionPolicyOption::Allow
 )]
 #[case::admins_only(
     crate::groups::group_permissions::PreconfiguredPolicies::AdminsOnly,
-    false
+    false,
+    crate::groups::intents::PermissionPolicyOption::AdminOnly
 )]
-#[case::custom_admins(crate::groups::group_permissions::PreconfiguredPolicies::Default, true)]
+#[case::custom_admins(
+    crate::groups::group_permissions::PreconfiguredPolicies::Default,
+    true,
+    crate::groups::intents::PermissionPolicyOption::Allow
+)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_permissions_presets(
     #[case] preset: crate::groups::group_permissions::PreconfiguredPolicies,
     #[case] custom_admins: bool,
+    #[case] add_member_policy: crate::groups::intents::PermissionPolicyOption,
 ) {
-    use crate::groups::group_permissions::PreconfiguredPolicies;
+    use crate::groups::{group_permissions::PreconfiguredPolicies, intents::PermissionUpdateType};
 
     tester!(alix);
     let mut expected = preset.to_policy_set();
@@ -1407,6 +1741,21 @@ async fn test_dictionary_native_permissions_presets(
     assert_eq!(group.permissions().unwrap().policies, expected);
     group
         .enable_proposals(EnableProposalsOptions::test_default())
+        .await
+        .unwrap();
+    group
+        .update_permission_policy(
+            PermissionUpdateType::AddMember,
+            crate::groups::intents::PermissionPolicyOption::Deny,
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        PreconfiguredPolicies::from_policy_set(&group.permissions().unwrap().policies).is_err()
+    );
+    group
+        .update_permission_policy(PermissionUpdateType::AddMember, add_member_policy, None)
         .await
         .unwrap();
     let actual = group.permissions().unwrap().policies;

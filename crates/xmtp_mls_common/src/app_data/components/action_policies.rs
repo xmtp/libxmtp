@@ -11,6 +11,9 @@ use xmtp_proto::xmtp::mls::message_contents::{ComponentType, GroupActionPolicies
 use crate::app_data::{
     component_id::ComponentId,
     component_registry::ComponentOp,
+    migration::{
+        MigrationError, admin_list_policy_to_metadata_policy, membership_policy_to_metadata_policy,
+    },
     typed::{Component, ComponentInvariantError, ComponentTypedError, ExpandedComponentChange},
 };
 
@@ -60,19 +63,62 @@ impl Component for GroupActionPoliciesComponent {
 
     fn validate_invariant(
         change: &crate::app_data::validation::ComponentChange<'_>,
-        _registry: &crate::app_data::component_registry::ComponentRegistry,
+        registry: &crate::app_data::component_registry::ComponentRegistry,
     ) -> Result<(), ComponentInvariantError> {
-        // Registry policy can only check the actor. It cannot ensure that the
-        // resulting Bytes value has the declared GroupActionPolicies shape.
-        // Decode without re-encoding so valid protobuf bytes, including
-        // combinators, remain byte-exact in the dictionary.
-        if let Some(bytes) = change.new_value {
-            GroupActionPolicies::decode(bytes).map_err(|error| {
-                ComponentInvariantError::Violation {
-                    component_id: Self::ID,
-                    reason: format!("not a valid GroupActionPolicies value: {error}"),
-                }
-            })?;
+        let violation = |reason| ComponentInvariantError::Violation {
+            component_id: Self::ID,
+            reason,
+        };
+        let bytes = change
+            .new_value
+            .ok_or_else(|| violation("group action policies cannot be absent".to_string()))?;
+        let policies = GroupActionPolicies::decode(bytes).map_err(|error| {
+            violation(format!("not a valid GroupActionPolicies value: {error}"))
+        })?;
+        // The caller supplies the final registry and declaration for the commit.
+        // Use the same conversion as bootstrap and permission-update synthesis.
+        for (id, insert, delete) in [
+            (
+                ComponentId::GROUP_MEMBERSHIP,
+                policies
+                    .add_member
+                    .as_ref()
+                    .ok_or(MigrationError::MissingPolicyField("add_member"))
+                    .and_then(membership_policy_to_metadata_policy),
+                policies
+                    .remove_member
+                    .as_ref()
+                    .ok_or(MigrationError::MissingPolicyField("remove_member"))
+                    .and_then(membership_policy_to_metadata_policy),
+            ),
+            (
+                ComponentId::ADMIN_LIST,
+                policies
+                    .add_admin
+                    .as_ref()
+                    .ok_or(MigrationError::MissingPolicyField("add_admin"))
+                    .and_then(admin_list_policy_to_metadata_policy),
+                policies
+                    .remove_admin
+                    .as_ref()
+                    .ok_or(MigrationError::MissingPolicyField("remove_admin"))
+                    .and_then(admin_list_policy_to_metadata_policy),
+            ),
+        ] {
+            let insert = insert.map_err(|error| violation(error.to_string()))?;
+            let delete = delete.map_err(|error| violation(error.to_string()))?;
+            let permissions = registry
+                .get(&id)
+                .map_err(|error| violation(error.to_string()))?
+                .and_then(|metadata| metadata.permissions)
+                .ok_or_else(|| violation(format!("missing registry permissions for {id}")))?;
+            if permissions.insert_policy.as_ref() != Some(&insert)
+                || permissions.delete_policy.as_ref() != Some(&delete)
+            {
+                return Err(violation(format!(
+                    "group action policies disagree with registry permissions for {id}"
+                )));
+            }
         }
         Ok(())
     }
@@ -82,12 +128,15 @@ impl Component for GroupActionPoliciesComponent {
 mod tests {
     use super::*;
     use xmtp_proto::xmtp::mls::message_contents::{
-        GroupActionPolicies, MembershipPolicy,
+        ComponentPermissions, ComponentType, GroupActionPolicies, MembershipPolicy, MetadataPolicy,
+        PermissionsUpdatePolicy,
         membership_policy::{AndCondition, BasePolicy, Kind as MembershipPolicyKind},
+        metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+        permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
     };
 
     use crate::app_data::{
-        component_registry::ComponentRegistry,
+        component_registry::{ComponentOp, ComponentRegistry, new_component_metadata},
         validation::{ActorAuthority, ComponentChange},
     };
 
@@ -112,16 +161,126 @@ mod tests {
             GroupActionPoliciesComponent::apply_update_payload(&encoded, None)?,
             value
         );
-        let change = ComponentChange::builder()
+    }
+
+    fn membership_policy(base: BasePolicy) -> MembershipPolicy {
+        MembershipPolicy {
+            kind: Some(MembershipPolicyKind::Base(base as i32)),
+        }
+    }
+
+    fn permissions_policy(base: PermissionsBasePolicy) -> PermissionsUpdatePolicy {
+        PermissionsUpdatePolicy {
+            kind: Some(PermissionsPolicyKind::Base(base as i32)),
+        }
+    }
+
+    fn metadata_policy(base: MetadataBasePolicy) -> MetadataPolicy {
+        MetadataPolicy {
+            kind: Some(MetadataPolicyKind::Base(base as i32)),
+        }
+    }
+
+    fn matching_fixture() -> (GroupActionPolicies, ComponentRegistry) {
+        let actions = GroupActionPolicies {
+            add_member: Some(membership_policy(BasePolicy::AllowIfAdminOrSuperAdmin)),
+            remove_member: Some(membership_policy(BasePolicy::AllowIfSuperAdmin)),
+            add_admin: Some(permissions_policy(PermissionsBasePolicy::AllowIfAdmin)),
+            remove_admin: Some(permissions_policy(PermissionsBasePolicy::AllowIfSuperAdmin)),
+            update_permissions: Some(permissions_policy(PermissionsBasePolicy::AllowIfSuperAdmin)),
+        };
+        let mut registry = ComponentRegistry::new();
+        registry
+            .set(
+                ComponentId::GROUP_MEMBERSHIP,
+                new_component_metadata(
+                    ComponentPermissions {
+                        insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfAdmin)),
+                        update_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfAdmin)),
+                        delete_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
+                    },
+                    ComponentType::TlsMapInboxIdBytes,
+                ),
+            )
+            .unwrap();
+        registry
+            .set(
+                ComponentId::ADMIN_LIST,
+                new_component_metadata(
+                    ComponentPermissions {
+                        insert_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfAdmin)),
+                        update_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfAdmin)),
+                        delete_policy: Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin)),
+                    },
+                    ComponentType::TlsSetInboxId,
+                ),
+            )
+            .unwrap();
+        (actions, registry)
+    }
+
+    fn action_change(value: &[u8]) -> ComponentChange<'_> {
+        ComponentChange::builder()
             .component_id(ComponentId::GROUP_ACTION_POLICIES)
             .op(ComponentOp::Update)
             .actor(ActorAuthority {
                 is_admin: true,
                 is_super_admin: true,
             })
-            .new_value(&encoded)
-            .build();
-        GroupActionPoliciesComponent::validate_invariant(&change, &ComponentRegistry::new())?;
+            .new_value(value)
+            .build()
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_registry_policy_mismatches_and_accepts_matching_policies() {
+        let (actions, registry) = matching_fixture();
+
+        GroupActionPoliciesComponent::validate_invariant(
+            &action_change(&actions.encode_to_vec()),
+            &registry,
+        )?;
+
+        let cases = [
+            (
+                "membership insert",
+                GroupActionPolicies {
+                    add_member: Some(membership_policy(BasePolicy::Allow)),
+                    ..actions.clone()
+                },
+            ),
+            (
+                "membership delete",
+                GroupActionPolicies {
+                    remove_member: Some(membership_policy(BasePolicy::Allow)),
+                    ..actions.clone()
+                },
+            ),
+            (
+                "admin insert",
+                GroupActionPolicies {
+                    add_admin: Some(permissions_policy(PermissionsBasePolicy::Deny)),
+                    ..actions.clone()
+                },
+            ),
+            (
+                "admin delete",
+                GroupActionPolicies {
+                    remove_admin: Some(permissions_policy(PermissionsBasePolicy::AllowIfAdmin)),
+                    ..actions
+                },
+            ),
+        ];
+        for (name, mismatched) in cases {
+            let error = GroupActionPoliciesComponent::validate_invariant(
+                &action_change(&mismatched.encode_to_vec()),
+                &registry,
+            )
+            .unwrap_err();
+            assert!(
+                matches!(error, ComponentInvariantError::Violation { .. }),
+                "{name}: {error:?}"
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -2,6 +2,7 @@
 //!
 //! The dictionary is received state. Bad container bytes deny all policies
 //! in that container. Invalid policy syntax denies only the affected field.
+//! Permission updates remain super-admin-only, independent of stored policies.
 
 use openmls::{extensions::Extensions, group::GroupContext};
 use prost::Message as _;
@@ -107,9 +108,10 @@ fn action_policies_from_dictionary(
 
 /// Reconstruct a legacy [`PolicySet`] from the dictionary.
 ///
-/// The five action policies are declared by `GROUP_ACTION_POLICIES`. Metadata
-/// update policies stay in their well-known registry entries. Missing or
-/// invalid policies become `Deny` for that field.
+/// Membership and admin policies are declared by `GROUP_ACTION_POLICIES`.
+/// Permission updates are always super-admin-only. Metadata update policies
+/// stay in their registry entries. Missing or invalid stored policies become
+/// `Deny` for that field.
 ///
 /// Fail closed, never fail hard: a conversion error can reach
 /// `CommitValidationError::installed_state` in `xmtp_mls`. That error is not
@@ -167,12 +169,13 @@ pub fn policy_set_from_dictionary(extensions: &Extensions<GroupContext>) -> Poli
                 .filter(valid_permissions)
                 .unwrap_or_else(deny_permissions),
         ),
-        update_permissions_policy: Some(
-            action_policies
-                .and_then(|policies| policies.update_permissions)
-                .filter(valid_permissions)
-                .unwrap_or_else(deny_permissions),
-        ),
+        // Registry and action-policy writes are always super-admin-only.
+        // The stored legacy field does not control this permission.
+        update_permissions_policy: Some(PermissionsUpdatePolicy {
+            kind: Some(PermissionsPolicyKind::Base(
+                PermissionsBasePolicy::AllowIfSuperAdmin as i32,
+            )),
+        }),
     }
 }
 
@@ -196,7 +199,45 @@ mod tests {
             update_metadata_policy,
             add_admin_policy: Some(deny_permissions()),
             remove_admin_policy: Some(deny_permissions()),
-            update_permissions_policy: Some(deny_permissions()),
+            update_permissions_policy: Some(PermissionsUpdatePolicy {
+                kind: Some(PermissionsPolicyKind::Base(
+                    PermissionsBasePolicy::AllowIfSuperAdmin as i32,
+                )),
+            }),
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn update_permissions_reports_enforced_super_admin_policy() {
+        for stored in [
+            None,
+            Some(deny_permissions()),
+            Some(PermissionsUpdatePolicy {
+                kind: Some(PermissionsPolicyKind::Base(
+                    PermissionsBasePolicy::AllowIfAdmin as i32,
+                )),
+            }),
+        ] {
+            let mut dictionary = AppDataDictionary::new();
+            dictionary.insert(
+                ComponentId::GROUP_ACTION_POLICIES.as_u16(),
+                GroupActionPolicies {
+                    update_permissions: stored,
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+            );
+            let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dictionary),
+            )])?;
+            assert_eq!(
+                policy_set_from_dictionary(&extensions).update_permissions_policy,
+                Some(PermissionsUpdatePolicy {
+                    kind: Some(PermissionsPolicyKind::Base(
+                        PermissionsBasePolicy::AllowIfSuperAdmin as i32
+                    ))
+                })
+            );
         }
     }
 
@@ -287,14 +328,17 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn missing_dictionary_denies_every_policy() {
+    fn missing_dictionary_denies_stored_policies() {
         let extensions = Extensions::from_vec(vec![])?;
         let policies = policy_set_from_dictionary(&extensions);
         assert_eq!(policies.add_member_policy, Some(deny_membership()));
         assert_eq!(policies.remove_member_policy, Some(deny_membership()));
         assert_eq!(policies.add_admin_policy, Some(deny_permissions()));
         assert_eq!(policies.remove_admin_policy, Some(deny_permissions()));
-        assert_eq!(policies.update_permissions_policy, Some(deny_permissions()));
+        assert_eq!(
+            policies.update_permissions_policy,
+            policy_set_with_denies().update_permissions_policy
+        );
         assert!(
             policies
                 .update_metadata_policy

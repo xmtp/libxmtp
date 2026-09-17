@@ -1828,11 +1828,23 @@ pub(crate) mod tests {
         for policy_set in [
             PreconfiguredPolicies::Default.to_policy_set(),
             PreconfiguredPolicies::AdminsOnly.to_policy_set(),
-            PolicySet::new_dm(),
         ] {
             let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&policy_set));
             assert_eq!(reconstructed.policies, policy_set);
         }
+
+        // A legacy DM stores Deny, but the dictionary reader reports the
+        // enforced super-admin-only policy. DMs have empty admin lists, so
+        // no actor can satisfy that reported policy.
+        let legacy_dm = PolicySet::new_dm();
+        assert_eq!(
+            legacy_dm.update_permissions_policy,
+            PermissionsPolicies::deny()
+        );
+        let mut expected_dm = legacy_dm.clone();
+        expected_dm.update_permissions_policy = PermissionsPolicies::allow_if_actor_super_admin();
+        let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&legacy_dm));
+        assert_eq!(reconstructed.policies, expected_dm);
 
         for preset in [
             PreconfiguredPolicies::Default,

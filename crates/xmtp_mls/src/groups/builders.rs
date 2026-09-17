@@ -513,7 +513,13 @@ pub(in crate::groups) fn validate_dm_group(
     } else {
         extract_group_permissions(mls_group)?
     };
-    let expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+    let mut expected_permissions = GroupMutablePermissions::new(PolicySet::new_dm());
+    if is_migrated {
+        // Dictionary permission updates are always super-admin-only. The empty
+        // super-admin list checked above makes this equivalent to Deny for a DM.
+        expected_permissions.policies.update_permissions_policy =
+            group_permissions::PermissionsPolicies::allow_if_actor_super_admin();
+    }
 
     if permissions.policies.add_member_policy != expected_permissions.policies.add_member_policy
         || permissions.policies.remove_member_policy

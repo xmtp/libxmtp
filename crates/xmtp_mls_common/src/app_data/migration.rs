@@ -424,7 +424,7 @@ fn metadata_policy(base: MetadataBasePolicy) -> MetadataPolicyProto {
 /// Only deny, admin, or super-admin base policies are allowed: combinators
 /// or any other base value would silently break the constrained-component
 /// check in [`ComponentRegistry::validate_metadata`].
-fn admin_list_policy_to_metadata_policy(
+pub(super) fn admin_list_policy_to_metadata_policy(
     p: &PermissionsUpdatePolicyProto,
 ) -> Result<MetadataPolicyProto, MigrationError> {
     match &p.kind {
@@ -450,7 +450,7 @@ fn admin_list_policy_to_metadata_policy(
 /// Combinators map recursively so the registry preserves their legacy
 /// meaning. Unknown base values fail loud rather than silently collapsing
 /// to Deny.
-fn membership_policy_to_metadata_policy(
+pub(super) fn membership_policy_to_metadata_policy(
     p: &MembershipPolicyProto,
 ) -> Result<MetadataPolicyProto, MigrationError> {
     match &p.kind {
@@ -574,10 +574,10 @@ pub fn synthesize_canonical_subset_from_extensions(
         expected_registry.insert(id, meta);
     }
 
-    // GROUP_ACTION_POLICIES is the canonical declaration of the five
-    // non-metadata action policies. It is hardcoded and therefore has no
-    // registry entry. Keep the stored proto policy messages verbatim so
-    // combinators retain their exact wire representation.
+    // GROUP_ACTION_POLICIES declares membership and admin-list policies.
+    // It also preserves the legacy update_permissions field, but permission
+    // updates remain super-admin-only. This hardcoded component has no registry
+    // entry. Keep policy messages verbatim, including their combinators.
     strict.insert(
         ComponentId::GROUP_ACTION_POLICIES,
         (
