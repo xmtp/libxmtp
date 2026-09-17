@@ -10,7 +10,7 @@ Read `specs/SPEC-spec-format.md`. Review with a clean context, on a different mo
 ## Checks, in order
 
 1. `dev/nix-shell 'just spec-check'` passes. Report what it warns about; the checker catches form, not meaning.
-2. **Format.** Section order; one obligation per bullet; condition then actor then MUST or MUST NOT; a two-to-five-word title; at most three sentences; `SHOULD` only for an app or an operator; no `SHALL`; no file, module, or crate names; no phases; no platform choices.
+2. **Format.** Section order; one obligation per bullet; condition then actor then MUST or MUST NOT; a two-to-seven-word title; at most three sentences; `SHOULD` only for an app or an operator; no `SHALL`; no file, module, or crate names; no phases; no platform choices.
 3. **Admission.** For each requirement, ask the five questions in SPEC §2. Name every requirement that fails, and which question it fails. Watch for the common failures: a tunable with no measurement behind it, an internal data layout, a restatement of what the code happens to do, a requirement about tests, and one example of an invariant the spec already states.
 4. **Rationale.** Every section's prose says why the mechanism exists. A requirement whose reason is not evident from that prose needs `Why:`.
 5. **Duplication.** The obligation is not already stated in another spec (`just spec-index`). An exact value appears in exactly one spec.
