@@ -6,6 +6,8 @@
 //! functions stage the inline `AppDataUpdate` commit and return the
 //! resulting `PublishIntentData`.
 
+use std::collections::BTreeMap;
+
 use openmls::{group::MlsGroup as OpenMlsGroup, prelude::tls_codec::Serialize};
 use openmls_traits::signatures::Signer;
 use prost::Message;
@@ -13,7 +15,7 @@ use tls_codec::VLBytes;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
-        component_registry::ComponentOp,
+        component_registry::{ComponentOp, ComponentRegistry},
         components::{
             inbox_id_set::{AdminListComponent, SuperAdminListComponent},
             tls_map_components::ComponentRegistryComponent,
@@ -32,7 +34,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
 use super::{
-    load_component_registry, stage_app_data_proposals_and_commit, stage_app_data_propose_and_commit,
+    pending_app_data_updates, stage_app_data_proposals_and_commit,
+    stage_app_data_propose_and_commit,
 };
 use crate::groups::{
     AdminListActionType, GroupError,
@@ -168,7 +171,33 @@ pub(crate) fn apply_update_permission_app_data_intent(
         }
     };
 
-    let registry = load_component_registry(openmls_group)?;
+    // The commit includes pending proposals from all members. Read their
+    // accumulated state before replacing a whole registry entry, so an edit
+    // to one policy field cannot undo a pending edit to another field.
+    let pending: BTreeMap<_, _> = pending_app_data_updates(openmls_group)?
+        .into_iter()
+        .flatten()
+        .collect();
+    let read = |id: ComponentId| {
+        match pending.get(&id.as_u16()) {
+            Some(value) => value.as_deref(),
+            None => openmls_group
+                .extensions()
+                .app_data_dictionary()
+                .and_then(|extension| extension.dictionary().get(&id.as_u16())),
+        }
+        .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
+            component_id: id,
+            reason: "component is missing from pending state".into(),
+        })
+    };
+    let registry =
+        ComponentRegistry::from_bytes(read(ComponentId::COMPONENT_REGISTRY)?).map_err(|error| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("registry decode: {error}"),
+            }
+        })?;
     let mut metadata = registry
         .get(&target)
         .map_err(|e| {
@@ -208,14 +237,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let mut updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
     if intent_data.update_type != PermissionUpdateType::UpdateMetadata {
         let id = ComponentId::GROUP_ACTION_POLICIES;
-        let bytes = openmls_group
-            .extensions()
-            .app_data_dictionary()
-            .and_then(|extension| extension.dictionary().get(&id.as_u16()))
-            .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
-                component_id: id,
-                reason: "action policies are missing".into(),
-            })?;
+        let bytes = read(id)?;
         let mut actions = GroupActionPolicies::decode(bytes).map_err(|error| {
             ComponentSourceError::MalformedComponentValue {
                 component_id: id,
