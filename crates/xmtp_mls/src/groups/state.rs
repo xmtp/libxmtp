@@ -322,10 +322,17 @@ where
         })
     }
 
+    /// Returns the legacy permissions projection for this group.
+    ///
+    /// In a migrated group, this includes metadata update policies and the
+    /// four registry action policies. It does not expose metadata insert or
+    /// delete policies, `GROUP_MEMBERSHIP` update policy, or custom and
+    /// external components. Permission-update enforcement remains hardcoded;
+    /// its reported value is always super-admin-only.
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let ctx = self.load_group_context()?;
         if self::app_data::is_migrated_extensions(ctx.extensions()) {
-            self::app_data::policy::policy_set_from_registry(ctx.extensions())
+            self::group_permissions::policy_set_from_dictionary(ctx.extensions())
                 .map_err(|error| MetadataPermissionsError::from(error).into())
         } else {
             ctx.extensions()

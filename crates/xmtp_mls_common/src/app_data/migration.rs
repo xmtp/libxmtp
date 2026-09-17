@@ -16,7 +16,10 @@ use xmtp_proto::xmtp::mls::message_contents::{
     MetadataPolicy as MetadataPolicyProto, PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
     PolicySet as PolicySetProto,
     membership_policy::{BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
-    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    metadata_policy::{
+        AndCondition as MetadataAndCondition, AnyCondition as MetadataAnyCondition,
+        Kind as MetadataPolicyKind, MetadataBasePolicy,
+    },
     permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
 };
 
@@ -45,17 +48,11 @@ pub enum MigrationError {
     #[error("update_metadata_policy references unknown metadata field: {0}")]
     UnknownMetadataField(String),
 
-    /// `add_admin_policy`/`remove_admin_policy` wasn't admin- or
-    /// super-admin-gated; the constrained-component `MetadataPolicy`
+    /// `add_admin_policy`/`remove_admin_policy` wasn't deny-, admin-,
+    /// or super-admin-gated; the constrained-component `MetadataPolicy`
     /// shape can't represent it.
-    #[error("ADMIN_LIST admin policy is not admin-or-super-admin (got base={0:?})")]
+    #[error("ADMIN_LIST admin policy is not deny, admin, or super-admin (got base={0:?})")]
     NonConstrainedAdminPolicy(Option<i32>),
-
-    /// `update_permissions_policy` must be `AllowIfSuperAdmin` —
-    /// `COMPONENT_REGISTRY` is hardcoded super-admin-only on the
-    /// receiver, so any other value would silently disagree.
-    #[error("update_permissions_policy must be AllowIfSuperAdmin (got {0:?})")]
-    UpdatePermissionsNotSuperAdmin(Option<i32>),
 
     #[error("component registry error: {0}")]
     Registry(#[from] ComponentRegistryError),
@@ -167,8 +164,8 @@ pub enum MigrationError {
 ///   [`metadata_field_registry_mapping`] — disappearing-message
 ///   timestamps are bytes (BE-u64), the rest are utf-8 strings.
 /// - `ADMIN_LIST` is constrained: insert/update from `add_admin_policy`,
-///   delete from `remove_admin_policy`. All must be admin-or-
-///   super-admin (synthesis rejects otherwise).
+///   delete from `remove_admin_policy`. All must be deny-, admin-, or
+///   super-admin-gated (synthesis rejects otherwise).
 /// - `SUPER_ADMIN_LIST` and `COMPONENT_REGISTRY` are hardcoded
 ///   super-admin-only and not written to the registry.
 /// - `GROUP_MEMBERSHIP` mirrors `add_member_policy`/`remove_member_policy`
@@ -209,18 +206,12 @@ fn build_registry(
         .remove_admin_policy
         .as_ref()
         .ok_or(MigrationError::MissingPolicyField("remove_admin_policy"))?;
-    let update_permissions =
-        policy_set
-            .update_permissions_policy
-            .as_ref()
-            .ok_or(MigrationError::MissingPolicyField(
-                "update_permissions_policy",
-            ))?;
-
-    // update_permissions_policy MUST be super-admin-only. Any other
-    // value would be silently ignored because COMPONENT_REGISTRY's
-    // permissions are enforced in code (hardcoded super-admin-only).
-    validate_update_permissions_is_super_admin(update_permissions)?;
+    policy_set
+        .update_permissions_policy
+        .as_ref()
+        .ok_or(MigrationError::MissingPolicyField(
+            "update_permissions_policy",
+        ))?;
 
     // Fail fast on unknown `update_metadata_policy` keys before doing
     // any work — silently dropping them would lose permission
@@ -380,7 +371,8 @@ fn build_registry(
 /// with the static dispatch table at
 /// [`super::registry_table::WELL_KNOWN`] — pinned by the unit test
 /// `metadata_field_mapping_agrees_with_dispatch_table` below.
-fn metadata_field_registry_mapping() -> &'static [(MetadataField, ComponentId, ComponentType)] {
+pub(crate) fn metadata_field_registry_mapping()
+-> &'static [(MetadataField, ComponentId, ComponentType)] {
     &[
         (
             MetadataField::GroupName,
@@ -429,10 +421,10 @@ fn metadata_policy(base: MetadataBasePolicy) -> MetadataPolicyProto {
 /// Convert a legacy `add_admin_policy` / `remove_admin_policy` (typed
 /// as `PermissionsUpdatePolicy` on the wire) into the `MetadataPolicy`
 /// that gates `ADMIN_LIST` insert/update/delete on the new side.
-/// Only admin- or super-admin base policies are allowed: combinators
-/// or any other base value would silently break the constrained-
-/// component check in [`ComponentRegistry::validate_metadata`].
-fn admin_list_policy_to_metadata_policy(
+/// Only deny, admin, or super-admin base policies are allowed: combinators
+/// or any other base value would silently break the constrained-component
+/// check in [`ComponentRegistry::validate_metadata`].
+pub(super) fn admin_list_policy_to_metadata_policy(
     p: &PermissionsUpdatePolicyProto,
 ) -> Result<MetadataPolicyProto, MigrationError> {
     match &p.kind {
@@ -443,6 +435,7 @@ fn admin_list_policy_to_metadata_policy(
             Ok(PermissionsBasePolicy::AllowIfSuperAdmin) => {
                 Ok(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin))
             }
+            Ok(PermissionsBasePolicy::Deny) => Ok(metadata_policy(MetadataBasePolicy::Deny)),
             _ => Err(MigrationError::NonConstrainedAdminPolicy(Some(*base))),
         },
         Some(PermissionsPolicyKind::AndCondition(_))
@@ -454,9 +447,10 @@ fn admin_list_policy_to_metadata_policy(
 /// Convert a legacy `MembershipPolicy` to a `MetadataPolicy`.
 /// `AllowIfAdminOrSuperAdmin` collapses to `AllowIfAdmin` because
 /// `MetadataPolicy::AllowIfAdmin` already means "admin or super admin".
-/// Combinators and unknown base values fail loud rather than silently
-/// collapsing to Deny.
-fn membership_policy_to_metadata_policy(
+/// Combinators map recursively so the registry preserves their legacy
+/// meaning. Unknown base values fail loud rather than silently collapsing
+/// to Deny.
+pub(super) fn membership_policy_to_metadata_policy(
     p: &MembershipPolicyProto,
 ) -> Result<MetadataPolicyProto, MigrationError> {
     match &p.kind {
@@ -474,21 +468,29 @@ fn membership_policy_to_metadata_policy(
             };
             Ok(metadata_policy(mapped))
         }
-        Some(MembershipPolicyKind::AndCondition(_))
-        | Some(MembershipPolicyKind::AnyCondition(_))
-        | None => Err(MigrationError::UnknownMembershipPolicy(None)),
-    }
-}
-
-fn validate_update_permissions_is_super_admin(
-    p: &PermissionsUpdatePolicyProto,
-) -> Result<(), MigrationError> {
-    match &p.kind {
-        Some(PermissionsPolicyKind::Base(base)) => match PermissionsBasePolicy::try_from(*base) {
-            Ok(PermissionsBasePolicy::AllowIfSuperAdmin) => Ok(()),
-            _ => Err(MigrationError::UpdatePermissionsNotSuperAdmin(Some(*base))),
-        },
-        _ => Err(MigrationError::UpdatePermissionsNotSuperAdmin(None)),
+        Some(MembershipPolicyKind::AndCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AndCondition(MetadataAndCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
+        Some(MembershipPolicyKind::AnyCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
+        _ => Err(MigrationError::UnknownMembershipPolicy(None)),
     }
 }
 
@@ -705,6 +707,19 @@ pub fn synthesize_canonical_subset_from_extensions(
 fn synthesize_registry_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<ComponentRegistry, MigrationError> {
+    let policy_set = extract_legacy_policy_set(extensions)?;
+
+    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
+    build_registry(
+        &policy_set,
+        legacy_metadata.dm_members.is_some(),
+        legacy_metadata.oneshot_message.is_some(),
+    )
+}
+
+fn extract_legacy_policy_set(
+    extensions: &Extensions<GroupContext>,
+) -> Result<PolicySetProto, MigrationError> {
     let policy_set_bytes = find_unknown_extension(
         extensions,
         xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID,
@@ -717,16 +732,9 @@ fn synthesize_registry_from_extensions(
             policy_set_bytes.as_slice(),
         )
         .map_err(MigrationError::GroupPermissionsDecode)?;
-    let policy_set = permissions_proto
+    permissions_proto
         .policies
-        .ok_or(MigrationError::MissingPolicyField("policies"))?;
-
-    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
-    build_registry(
-        &policy_set,
-        legacy_metadata.dm_members.is_some(),
-        legacy_metadata.oneshot_message.is_some(),
-    )
+        .ok_or(MigrationError::MissingPolicyField("policies"))
 }
 
 fn find_unknown_extension(extensions: &Extensions<GroupContext>, id: u16) -> Option<&Vec<u8>> {
@@ -1002,6 +1010,11 @@ mod tests {
             )),
         }
     }
+    fn deny_perms() -> PermissionsUpdatePolicyProto {
+        PermissionsUpdatePolicyProto {
+            kind: Some(PermissionsKind::Base(PermissionsBasePolicy::Deny as i32)),
+        }
+    }
     fn allow_membership() -> MembershipPolicyProto {
         MembershipPolicyProto {
             kind: Some(MembershipKind::Base(MembershipBase::Allow as i32)),
@@ -1131,17 +1144,6 @@ mod tests {
     }
 
     #[test]
-    fn synthesis_rejects_non_super_admin_update_permissions() {
-        let mut ps = minimal_default_policy_set();
-        ps.update_permissions_policy = Some(admin_only_perms());
-        let err = synthesize_registry_from_policy_set(&ps).unwrap_err();
-        assert!(matches!(
-            err,
-            MigrationError::UpdatePermissionsNotSuperAdmin(_)
-        ));
-    }
-
-    #[test]
     fn synthesis_admin_list_super_admin_only() {
         let mut ps = minimal_default_policy_set();
         ps.add_admin_policy = Some(super_admin_only_perms());
@@ -1156,6 +1158,28 @@ mod tests {
                     MetadataBasePolicy::AllowIfSuperAdmin as i32
                 ))
             }
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn synthesis_admin_list_preserves_deny_policy() {
+        let mut ps = minimal_default_policy_set();
+        ps.add_admin_policy = Some(deny_perms());
+        ps.remove_admin_policy = Some(deny_perms());
+
+        let registry = synthesize_registry_from_policy_set(&ps)?;
+        let permissions = registry
+            .get(&ComponentId::ADMIN_LIST)?
+            .expect("ADMIN_LIST is registered")
+            .permissions
+            .expect("ADMIN_LIST has permissions");
+        assert_eq!(
+            permissions.insert_policy,
+            Some(metadata_policy(MetadataBasePolicy::Deny))
+        );
+        assert_eq!(
+            permissions.delete_policy,
+            Some(metadata_policy(MetadataBasePolicy::Deny))
         );
     }
 
@@ -1215,19 +1239,36 @@ mod tests {
         assert_eq!(a.to_bytes().unwrap(), b.to_bytes().unwrap());
     }
 
-    #[test]
-    fn membership_policy_rejects_combinator() {
+    #[xmtp_common::test(unwrap_try = true)]
+    fn membership_policy_preserves_combinator_recursively() {
         use xmtp_proto::xmtp::mls::message_contents::{
             MembershipPolicy as MembershipPolicyProto,
             membership_policy::{AndCondition as AndCondProto, Kind as MembershipKind},
         };
         let combinator = MembershipPolicyProto {
             kind: Some(MembershipKind::AndCondition(AndCondProto {
-                policies: vec![],
+                policies: vec![MembershipPolicyProto {
+                    kind: Some(MembershipKind::AnyCondition(
+                        xmtp_proto::xmtp::mls::message_contents::membership_policy::AnyCondition {
+                            policies: vec![allow_membership()],
+                        },
+                    )),
+                }],
             })),
         };
-        let err = membership_policy_to_metadata_policy(&combinator).unwrap_err();
-        assert!(matches!(err, MigrationError::UnknownMembershipPolicy(None)));
+        let translated = membership_policy_to_metadata_policy(&combinator).unwrap();
+        assert_eq!(
+            translated,
+            MetadataPolicyProto {
+                kind: Some(MetadataKind::AndCondition(MetadataAndCondition {
+                    policies: vec![MetadataPolicyProto {
+                        kind: Some(MetadataKind::AnyCondition(MetadataAnyCondition {
+                            policies: vec![allow_metadata()],
+                        })),
+                    }],
+                })),
+            }
+        );
     }
 
     #[test]
@@ -1846,7 +1887,7 @@ mod tests {
     /// `validate_bootstrap_commit`), and the old expectation code must
     /// keep validating bootstraps produced by older senders. Do NOT
     /// simply re-pin the hex to make the test pass.
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn golden_bootstrap_synthesis_group() {
         let exts = build_test_extensions(
             golden_gmm(),
@@ -1898,7 +1939,7 @@ mod tests {
     /// DM + oneshot variant of [`golden_bootstrap_synthesis_group`] —
     /// covers the optional strict seeds (DM_MEMBERS, ONESHOT_MESSAGE)
     /// the plain-group vector can't. Same freeze rules apply.
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn golden_bootstrap_synthesis_dm_with_oneshot() {
         let dm_members = crate::group_metadata::DmMembers {
             member_one_inbox_id: hex_inbox(0x22),

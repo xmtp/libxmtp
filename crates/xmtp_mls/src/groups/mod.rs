@@ -135,10 +135,10 @@ use xmtp_proto::{
     },
 };
 
-const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
-const MAX_GROUP_NAME_LENGTH: usize = 100;
-const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
-const MAX_APP_DATA_LENGTH: usize = 8192;
+use xmtp_mls_common::app_data::components::metadata_attributes::{
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
+};
 const DEFAULT_IDEMPOTENCY_KEY_BYTES: usize = 16;
 
 /// An LibXMTP MlsGroup

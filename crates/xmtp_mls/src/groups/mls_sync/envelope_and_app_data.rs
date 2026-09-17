@@ -106,6 +106,104 @@ where
             )?;
         }
         if envelope.is_commit() {
+            if matches!(
+                error,
+                GroupMessageProcessingError::CommitValidation(
+                    CommitValidationError::InsufficientPermissions
+                )
+            ) {
+                // The trial rolled back, including proposal removal. A rejected
+                // combination must not remain available for the next commit.
+                // A rejected commit can also contain valid concurrent app-data
+                // proposals. They are evicted with the rejected combination,
+                // so their authors must re-queue them.
+                let own_intent = db.find_group_intent_by_payload_hash(&envelope.payload_hash)?;
+                let staged_commit = if let Some(bytes) = own_intent
+                    .as_ref()
+                    .filter(|intent| intent.group_id == self.group_id)
+                    .and_then(|intent| intent.staged_commit.as_ref())
+                {
+                    match decode_staged_commit(bytes) {
+                        Ok(commit) => Some(commit),
+                        Err(error) => {
+                            tracing::warn!(
+                                group_id = %self.group_id.short_hex(),
+                                sequence_id = envelope.sequence_id(),
+                                error = ?error,
+                                "failed to decode rejected staged commit; skipping proposal cleanup",
+                            );
+                            None
+                        }
+                    }
+                } else {
+                    match crate::groups::app_data::process_message_with_app_data(
+                        group,
+                        &XmtpOpenMlsProviderRef::new(storage),
+                        envelope.message.clone(),
+                        self.context.version_info().pkg_semver(),
+                    ) {
+                        Ok(processed) => match processed.into_content() {
+                            ProcessedMessageContent::StagedCommitMessage(commit) => Some(*commit),
+                            _ => {
+                                tracing::warn!(
+                                    group_id = %self.group_id.short_hex(),
+                                    sequence_id = envelope.sequence_id(),
+                                    "rejected commit did not produce staged state; skipping proposal cleanup",
+                                );
+                                None
+                            }
+                        },
+                        Err(error) => {
+                            tracing::warn!(
+                                group_id = %self.group_id.short_hex(),
+                                sequence_id = envelope.sequence_id(),
+                                error = ?error,
+                                "failed to process rejected commit with app data; skipping proposal cleanup",
+                            );
+                            None
+                        }
+                    }
+                };
+                if let Some(staged_commit) = staged_commit {
+                    // A commit can carry a stored proposal inline. Match its
+                    // authenticated sender and payload as well as its reference.
+                    let rejected_refs: Vec<_> = group
+                        .pending_proposals()
+                        .filter(|pending| {
+                            matches!(
+                                pending.proposal(),
+                                openmls::prelude::Proposal::AppDataUpdate(_)
+                            ) && staged_commit.queued_proposals().any(|committed| {
+                                committed.proposal_reference_ref()
+                                    == pending.proposal_reference_ref()
+                                    || (committed.sender() == pending.sender()
+                                        && committed.proposal() == pending.proposal())
+                            })
+                        })
+                        .map(|proposal| proposal.proposal_reference_ref().clone())
+                        .collect();
+                    if !rejected_refs.is_empty() {
+                        tracing::warn!(
+                            group_id = %self.group_id.short_hex(),
+                            sequence_id = envelope.sequence_id(),
+                            proposal_refs = ?rejected_refs
+                                .iter()
+                                .map(|reference| reference.as_slice().short_hex())
+                                .collect::<Vec<_>>(),
+                            "evicting app-data proposals from rejected commit; authors must re-queue them",
+                        );
+                    }
+                    for reference in rejected_refs {
+                        match group.remove_pending_proposal(storage, &reference) {
+                            Ok(()) | Err(openmls::group::RemoveProposalError::ProposalNotFound) => {
+                            }
+                            Err(openmls::group::RemoveProposalError::Storage(error)) => {
+                                return Err(error.into());
+                            }
+                        }
+                    }
+                }
+            }
             group.mark_failed_commit_logged(
                 &XmtpOpenMlsProviderRef::new(storage),
                 envelope.sequence_id(),

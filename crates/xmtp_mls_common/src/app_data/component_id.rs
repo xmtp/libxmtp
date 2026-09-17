@@ -68,6 +68,9 @@ impl ComponentId {
     pub const COMPONENT_REGISTRY: Self = Self(0x8000);
     /// The super admin list. Super admin only.
     pub const SUPER_ADMIN_LIST: Self = Self(0x8001);
+    // === Constrained Component IDs ===
+    // Stored policies are limited to Deny, AllowIfAdmin, or AllowIfSuperAdmin.
+
     /// The admin list. Configurable: super admin only or admin/super admin.
     pub const ADMIN_LIST: Self = Self(0x8002);
 
@@ -263,7 +266,7 @@ mod tests {
         assert!(ComponentId::new(0x8003).is_xmtp_range());
         assert!(!ComponentId::new(0x8003).is_immutable());
 
-        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A and 0x800B.
+        // The newest mutable XMTP IDs sit just past APP_DATA at 0x800A through 0x800B.
         assert!(ComponentId::new(0x800A).is_xmtp_range());
         assert!(!ComponentId::new(0x800A).is_immutable());
         assert!(ComponentId::new(0x800B).is_xmtp_range());

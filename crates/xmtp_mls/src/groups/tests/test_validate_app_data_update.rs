@@ -15,9 +15,13 @@ use tls_codec::Serialize as _;
 use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_mls_common::app_data::component_permissions::component_permissions;
 use xmtp_mls_common::app_data::component_registry::{ComponentRegistry, new_component_metadata};
+use xmtp_mls_common::app_data::components::metadata_attributes::{
+    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
+    MAX_GROUP_NAME_LENGTH,
+};
 use xmtp_mls_common::app_data::validation::ActorAuthority;
 use xmtp_mls_common::inbox_id::InboxId;
-use xmtp_mls_common::tls_set::{TlsKeyHash, TlsSetDelta};
+use xmtp_mls_common::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -332,12 +336,11 @@ fn unknown_collection_component_maps_to_insufficient_permissions() {
     );
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn remove_by_hash_miss_does_not_short_circuit_policy() {
     // RemoveByHash against an empty prior set surfaces `value: None`
-    // from the expansion. Per-change policy still runs — super_admin
-    // on SUPER_ADMIN_LIST passes regardless of value, so the
-    // validator must return Ok.
+    // from expansion. The actor has authority, but the delta cannot
+    // produce a valid post-state because the removed entry is absent.
     let delta: TlsSetDelta<InboxId> =
         TlsSetDelta::new().remove_by_hash(TlsKeyHash::of(&fake_inbox(0x55)).unwrap());
     let op = AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into());
@@ -351,10 +354,13 @@ fn remove_by_hash_miss_does_not_short_circuit_policy() {
         &reg,
         None,
     );
-    assert!(result.is_ok(), "expected Ok, got {result:?}");
+    assert!(matches!(
+        result,
+        Err(CommitValidationError::InsufficientPermissions)
+    ));
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn multi_mutation_delta_all_allowed_returns_ok() {
     // Super admin inserting two new inboxes and removing one — all
     // three expanded per-element writes must pass. Cheap happy-path
@@ -365,6 +371,9 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
         .remove(fake_inbox(0x03));
     let op = AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into());
     let reg = ComponentRegistry::new();
+    let mut prior = TlsSet::new();
+    prior.insert(fake_inbox(0x03))?;
+    let prior = prior.tls_serialize_detached()?;
 
     let result = validate_one_app_data_update_with_old_value(
         ComponentId::SUPER_ADMIN_LIST,
@@ -372,9 +381,148 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
         super_admin(),
         "inbox_super",
         &reg,
-        None,
+        Some(&prior),
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
+}
+
+// ------------------------------------------------------------------------
+// validate_one_app_data_update_with_old_value — receiver invariants
+// ------------------------------------------------------------------------
+
+#[xmtp_common::test(unwrap_try = true)]
+fn receiver_rejects_last_super_admin_removal() {
+    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_common::app_data::typed::Component;
+
+    let only_super_admin = fake_inbox(0x42);
+    let mut prior = TlsSet::new();
+    prior.insert(only_super_admin)?;
+    let prior = SuperAdminListComponent::encode_value(&prior)?;
+    let delta = TlsSetDelta::new().remove(only_super_admin);
+    let operation = AppDataUpdateOperation::Update(delta.tls_serialize_detached()?.into());
+
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::SUPER_ADMIN_LIST,
+        &operation,
+        super_admin(),
+        "inbox_super",
+        &ComponentRegistry::new(),
+        Some(&prior),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        CommitValidationError::InsufficientPermissions
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
+    use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
+    use xmtp_mls_common::app_data::typed::Component;
+
+    let first = fake_inbox(0x41);
+    let second = fake_inbox(0x42);
+    let mut initial = TlsSet::new();
+    initial.insert(first)?;
+    initial.insert(second)?;
+    let initial = SuperAdminListComponent::encode_value(&initial)?;
+    let remove_first = AppDataUpdateOperation::Update(
+        TlsSetDelta::new()
+            .remove(first)
+            .tls_serialize_detached()?
+            .into(),
+    );
+    let registry = ComponentRegistry::new();
+    validate_one_app_data_update_with_old_value(
+        ComponentId::SUPER_ADMIN_LIST,
+        &remove_first,
+        super_admin(),
+        "inbox_super",
+        &registry,
+        Some(&initial),
+    )?;
+    let after_first = SuperAdminListComponent::apply_update_payload(
+        match &remove_first {
+            AppDataUpdateOperation::Update(payload) => payload.as_slice(),
+            AppDataUpdateOperation::Remove => unreachable!(),
+        },
+        Some(&initial),
+    )?;
+    let remove_second = AppDataUpdateOperation::Update(
+        TlsSetDelta::new()
+            .remove(second)
+            .tls_serialize_detached()?
+            .into(),
+    );
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::SUPER_ADMIN_LIST,
+        &remove_second,
+        super_admin(),
+        "inbox_super",
+        &registry,
+        Some(&after_first),
+    )
+    .unwrap_err();
+    assert!(matches!(
+        err,
+        CommitValidationError::InsufficientPermissions
+    ));
+}
+
+/// The cases run in a loop instead of `#[rstest]` `#[case]` attributes on
+/// purpose. This test is sync and is compiled into the wasm32 test binary, and
+/// the wasm derivation sets `RSTEST_TIMEOUT`. With that variable set, `rstest`
+/// wraps a sync case in `execute_with_timeout_sync`, which calls
+/// `std::thread::spawn`. Thread spawning is unsupported on wasm32, so the whole
+/// test binary aborts — this exact combination broke the "Run WASM tests" CI
+/// step. Keep the loop; do not convert this back to `#[rstest]`.
+#[xmtp_common::test(unwrap_try = true)]
+fn receiver_rejects_overlong_metadata_app_data_update() {
+    let cases: [(&str, ComponentId, usize); 4] = [
+        ("name", ComponentId::GROUP_NAME, MAX_GROUP_NAME_LENGTH),
+        (
+            "description",
+            ComponentId::GROUP_DESCRIPTION,
+            MAX_GROUP_DESCRIPTION_LENGTH,
+        ),
+        (
+            "image_url",
+            ComponentId::GROUP_IMAGE_URL,
+            MAX_GROUP_IMAGE_URL_LENGTH,
+        ),
+        ("app_data", ComponentId::APP_DATA, MAX_APP_DATA_LENGTH),
+    ];
+
+    for (case_name, component_id, max_length) in cases {
+        let registry = registry_with(
+            component_id,
+            allow(),
+            allow(),
+            allow(),
+            ComponentType::String,
+        );
+        let operation = AppDataUpdateOperation::Update(vec![b'x'; max_length + 1].into());
+
+        let result = validate_one_app_data_update_with_old_value(
+            component_id,
+            &operation,
+            member(),
+            "inbox_member",
+            &registry,
+            None,
+        );
+        let err = result.expect_err(&format!(
+            "case {case_name} ({component_id:?}, max {max_length}): an overlong \
+             value was accepted, expected InsufficientPermissions"
+        ));
+        assert!(
+            matches!(err, CommitValidationError::InsufficientPermissions),
+            "case {case_name} ({component_id:?}, max {max_length}): expected \
+             InsufficientPermissions, got {err:?}"
+        );
+    }
 }
 
 // ------------------------------------------------------------------------

@@ -66,6 +66,11 @@ pub enum GroupMutablePermissionsError {
     /// Invalid permission policy configuration. Not retryable.
     #[error("invalid permission policy option")]
     InvalidPermissionPolicyOption,
+    /// Invalid policy state in the component registry.
+    ///
+    /// The permission view could not be read from group state. Not retryable.
+    #[error("invalid component-registry policy state: {0}")]
+    PolicyProjection(#[from] xmtp_mls_common::app_data::policy_set::PolicyProjectionError),
 }
 
 /// Represents the mutable permissions for a group.
@@ -1197,6 +1202,18 @@ impl PolicySet {
     }
 }
 
+/// Project action policies from the validated component registry.
+pub(crate) fn policy_set_from_dictionary(
+    extensions: &Extensions<GroupContext>,
+) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
+    let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions)
+        .map_err(|error| {
+            tracing::warn!(%error, "invalid registry action policy");
+            GroupMutablePermissionsError::PolicyProjection(error)
+        })?;
+    Ok(GroupMutablePermissions::new(PolicySet::from_proto(proto)?))
+}
+
 /// Checks if a PolicySet is equivalent to the "All Members" preconfigured policy.
 ///
 /// Depending on if the client is on a newer or older version of libxmtp
@@ -1387,10 +1404,28 @@ pub(crate) mod tests {
     use std::collections::HashSet;
 
     use crate::groups::validated_commit::MutableMetadataValidationInfo;
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
     use xmtp_common::{rand_string, rand_vec};
-    use xmtp_mls_common::group_metadata::DmMembers;
+    use xmtp_mls_common::{
+        app_data::{component_id::ComponentId, migration::synthesize_registry_from_policy_set},
+        group_metadata::DmMembers,
+    };
 
     use super::*;
+
+    fn dictionary_extensions(policy_set: &PolicySet) -> Extensions<GroupContext> {
+        let proto = policy_set.to_proto().unwrap();
+        let registry = synthesize_registry_from_policy_set(&proto).unwrap();
+        let mut dictionary = AppDataDictionary::new();
+        dictionary.insert(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            registry.to_bytes().unwrap(),
+        );
+        Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )])
+        .unwrap()
+    }
 
     fn build_change(inbox_id: Option<String>, is_admin: bool, is_super_admin: bool) -> Inbox {
         Inbox {
@@ -1735,6 +1770,76 @@ pub(crate) mod tests {
                 .unwrap(),
             PreconfiguredPolicies::AdminsOnly
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dictionary_round_trip_preserves_presets_and_dm_permissions() {
+        for policy_set in [
+            PreconfiguredPolicies::Default.to_policy_set(),
+            PreconfiguredPolicies::AdminsOnly.to_policy_set(),
+        ] {
+            let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&policy_set))?;
+            assert_eq!(reconstructed.policies, policy_set);
+        }
+
+        // A legacy DM stores Deny, but the dictionary reader reports the
+        // enforced super-admin-only policy. DMs have empty admin lists, so
+        // no actor can satisfy that reported policy.
+        let legacy_dm = PolicySet::new_dm();
+        assert_eq!(
+            legacy_dm.update_permissions_policy,
+            PermissionsPolicies::deny()
+        );
+        let mut expected_dm = legacy_dm.clone();
+        expected_dm.update_permissions_policy = PermissionsPolicies::allow_if_actor_super_admin();
+        let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&legacy_dm))?;
+        assert_eq!(reconstructed.policies, expected_dm);
+
+        for preset in [
+            PreconfiguredPolicies::Default,
+            PreconfiguredPolicies::AdminsOnly,
+        ] {
+            let reconstructed =
+                policy_set_from_dictionary(&dictionary_extensions(&preset.to_policy_set()))?;
+            assert_eq!(
+                PreconfiguredPolicies::from_policy_set(&reconstructed.policies)?,
+                preset
+            );
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dictionary_reader_denies_only_malformed_metadata_field() {
+        let mut expected = PreconfiguredPolicies::Default.to_policy_set();
+        let proto = expected.to_proto()?;
+        let mut registry = synthesize_registry_from_policy_set(&proto)?;
+        let malformed = MetadataPolicyProto {
+            kind: Some(MetadataPolicyKindProto::AndCondition(
+                MetadataAndConditionProto { policies: vec![] },
+            )),
+        };
+        assert!(matches!(
+            MetadataPolicies::try_from(malformed.clone()),
+            Err(PolicyError::InvalidMetadataPolicy)
+        ));
+        let mut group_name = registry.get(&ComponentId::GROUP_NAME)?.unwrap();
+        group_name.permissions.as_mut()?.update_policy = Some(malformed);
+        registry.set(ComponentId::GROUP_NAME, group_name)?;
+
+        let mut dictionary = AppDataDictionary::new();
+        dictionary.insert(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            registry.to_bytes()?,
+        );
+        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )])?;
+
+        expected.update_metadata_policy.insert(
+            MetadataField::GroupName.to_string(),
+            MetadataPolicies::deny(),
+        );
+        assert_eq!(policy_set_from_dictionary(&extensions)?.policies, expected);
     }
 
     /// Tests that the preconfigured policy functions work as expected with new metadata fields.

@@ -480,7 +480,7 @@ pub enum MetadataPermissionsError {
     Mutable(#[from] GroupMutableMetadataError),
     #[error("Metadata error {0}")]
     GroupMetadata(#[from] GroupMetadataError),
-    #[error("Metadata update must specify a metadata field")]
+    #[error("Invalid permission update")]
     InvalidPermissionUpdate,
     #[error("cannot change metadata of DM")]
     DmGroupMetadataForbidden,

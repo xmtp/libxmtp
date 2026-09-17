@@ -6,6 +6,8 @@
 //! functions stage the inline `AppDataUpdate` commit and return the
 //! resulting `PublishIntentData`.
 
+use std::collections::BTreeMap;
+
 use openmls::{group::MlsGroup as OpenMlsGroup, prelude::tls_codec::Serialize};
 use openmls_traits::signatures::Signer;
 use prost::Message;
@@ -13,7 +15,7 @@ use tls_codec::VLBytes;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
-        component_registry::ComponentOp,
+        component_registry::{ComponentOp, ComponentRegistry},
         components::{
             inbox_id_set::{AdminListComponent, SuperAdminListComponent},
             tls_map_components::ComponentRegistryComponent,
@@ -31,9 +33,13 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
-use super::{load_component_registry, stage_app_data_propose_and_commit};
+use super::{
+    pending_app_data_updates, stage_app_data_proposals_and_commit,
+    stage_app_data_propose_and_commit,
+};
 use crate::groups::{
     AdminListActionType, GroupError,
+    error::MetadataPermissionsError,
     intents::{
         AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdatePermissionIntentData,
@@ -114,12 +120,8 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
 }
 
 /// Stage the `AppDataUpdate` commit for an `UpdatePermission` intent on
-/// a migrated group. The commit only mutates the affected
-/// `COMPONENT_REGISTRY` entry's policy field — custom-component
-/// entries survive untouched. `PolicyOption::Allow` is permitted
-/// here because the underlying `COMPONENT_REGISTRY` mutation is
-/// hardcoded super-admin-only by the dispatch layer's permission
-/// check.
+/// a migrated group. Action policies and their registry mirrors change
+/// in the same commit. Metadata changes update both insert and update policies.
 pub(crate) fn apply_update_permission_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -127,6 +129,13 @@ pub(crate) fn apply_update_permission_app_data_intent(
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
+    if matches!(
+        intent_data.update_type,
+        PermissionUpdateType::AddAdmin | PermissionUpdateType::RemoveAdmin
+    ) && intent_data.policy_option == PermissionPolicyOption::Allow
+    {
+        return Err(MetadataPermissionsError::InvalidPermissionUpdate.into());
+    }
     let base = match intent_data.policy_option {
         PermissionPolicyOption::Allow => MetadataBasePolicy::Allow,
         PermissionPolicyOption::Deny => MetadataBasePolicy::Deny,
@@ -159,7 +168,33 @@ pub(crate) fn apply_update_permission_app_data_intent(
         }
     };
 
-    let registry = load_component_registry(openmls_group)?;
+    // The commit includes pending proposals from all members. Read their
+    // accumulated state before replacing a whole registry entry, so an edit
+    // to one policy field cannot undo a pending edit to another field.
+    let pending: BTreeMap<_, _> = pending_app_data_updates(openmls_group)?
+        .into_iter()
+        .flatten()
+        .collect();
+    let read = |id: ComponentId| {
+        match pending.get(&id.as_u16()) {
+            Some(value) => value.as_deref(),
+            None => openmls_group
+                .extensions()
+                .app_data_dictionary()
+                .and_then(|extension| extension.dictionary().get(&id.as_u16())),
+        }
+        .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
+            component_id: id,
+            reason: "component is missing from pending state".into(),
+        })
+    };
+    let registry =
+        ComponentRegistry::from_bytes(read(ComponentId::COMPONENT_REGISTRY)?).map_err(|error| {
+            ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                reason: format!("registry decode: {error}"),
+            }
+        })?;
     let mut metadata = registry
         .get(&target)
         .map_err(|e| {
@@ -182,7 +217,10 @@ pub(crate) fn apply_update_permission_app_data_intent(
     })?;
     match op {
         ComponentOp::Insert => perms.insert_policy = Some(new_policy),
-        ComponentOp::Update => perms.update_policy = Some(new_policy),
+        ComponentOp::Update => {
+            perms.insert_policy = Some(new_policy.clone());
+            perms.update_policy = Some(new_policy);
+        }
         ComponentOp::Delete => perms.delete_policy = Some(new_policy),
     }
     metadata.permissions = Some(perms);
@@ -193,16 +231,14 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
+    let updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
+
+    let ((proposal_messages, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                ComponentId::COMPONENT_REGISTRY,
-                payload,
+            Ok(stage_app_data_proposals_and_commit(
+                group, provider, &signer, updates,
             )?)
         },
     )?;
@@ -212,11 +248,13 @@ pub(crate) fn apply_update_permission_app_data_intent(
         welcome.is_none(),
         "UpdatePermission via AppDataUpdate must not produce a welcome"
     );
+    let mut payloads_to_publish = proposal_messages
+        .iter()
+        .map(Serialize::tls_serialize_detached)
+        .collect::<Result<Vec<_>, _>>()?;
+    payloads_to_publish.push(commit.tls_serialize_detached()?);
     Ok(PublishIntentData {
-        payloads_to_publish: vec![
-            proposal_msg.tls_serialize_detached()?,
-            commit.tls_serialize_detached()?,
-        ],
+        payloads_to_publish,
         staged_commit,
         post_commit_action: None,
         should_send_push_notification,

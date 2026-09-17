@@ -30,8 +30,17 @@ use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 use crate::app_data::{
     component_id::ComponentId,
     component_registry::ComponentOp,
-    typed::{Component, ComponentTypedError, ExpandedComponentChange},
+    typed::{Component, ComponentInvariantError, ComponentTypedError, ExpandedComponentChange},
 };
+
+/// Maximum byte length of a group name.
+pub const MAX_GROUP_NAME_LENGTH: usize = 100;
+/// Maximum byte length of a group description.
+pub const MAX_GROUP_DESCRIPTION_LENGTH: usize = 1000;
+/// Maximum byte length of a group image URL.
+pub const MAX_GROUP_IMAGE_URL_LENGTH: usize = 2048;
+/// Maximum byte length of the opaque application-data string.
+pub const MAX_APP_DATA_LENGTH: usize = 8192;
 
 /// Apply a passthrough Update payload — no delta math, the payload is
 /// the new full value bytes.
@@ -111,7 +120,7 @@ fn require_exact_len(
 /// The macro stays internal (`macro_rules!` with no `pub` attribute) —
 /// it's a within-this-file convenience, not a public API.
 macro_rules! passthrough_string_component {
-    ($struct_name:ident, $id:expr) => {
+    ($struct_name:ident, $id:expr $(, $max_len:expr)?) => {
         pub struct $struct_name;
 
         impl Component for $struct_name {
@@ -159,6 +168,26 @@ macro_rules! passthrough_string_component {
                     let _ = decode_utf8(Self::ID, payload.as_slice())?;
                 }
                 expand_passthrough(op)
+            }
+
+            fn validate_invariant(
+                _change: &crate::app_data::validation::ComponentChange<'_>,
+                _registry: &crate::app_data::component_registry::ComponentRegistry,
+            ) -> Result<(), ComponentInvariantError> {
+                $(
+                    // Registry policies only evaluate the actor. The byte
+                    // bound is a predicate over the resulting value, so it
+                    // must be enforced by this component on every receiver.
+                    if let Some(value) = _change.new_value
+                        && value.len() > $max_len
+                    {
+                        return Err(ComponentInvariantError::Violation {
+                            component_id: Self::ID,
+                            reason: format!("value exceeds {} bytes", $max_len),
+                        });
+                    }
+                )?
+                Ok(())
             }
         }
     };
@@ -219,10 +248,22 @@ macro_rules! be_i64_component {
     };
 }
 
-passthrough_string_component!(GroupNameComponent, ComponentId::GROUP_NAME);
-passthrough_string_component!(GroupDescriptionComponent, ComponentId::GROUP_DESCRIPTION);
-passthrough_string_component!(GroupImageUrlComponent, ComponentId::GROUP_IMAGE_URL);
-passthrough_string_component!(AppDataComponent, ComponentId::APP_DATA);
+passthrough_string_component!(
+    GroupNameComponent,
+    ComponentId::GROUP_NAME,
+    MAX_GROUP_NAME_LENGTH
+);
+passthrough_string_component!(
+    GroupDescriptionComponent,
+    ComponentId::GROUP_DESCRIPTION,
+    MAX_GROUP_DESCRIPTION_LENGTH
+);
+passthrough_string_component!(
+    GroupImageUrlComponent,
+    ComponentId::GROUP_IMAGE_URL,
+    MAX_GROUP_IMAGE_URL_LENGTH
+);
+passthrough_string_component!(AppDataComponent, ComponentId::APP_DATA, MAX_APP_DATA_LENGTH);
 passthrough_string_component!(
     MinSupportedProtocolVersionComponent,
     ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION
@@ -297,6 +338,10 @@ impl Component for CommitLogSignerComponent {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app_data::{
+        component_registry::ComponentRegistry,
+        validation::{ActorAuthority, ComponentChange},
+    };
     use openmls::messages::proposals::AppDataUpdateOperation;
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -486,4 +531,50 @@ mod tests {
             ComponentType::String
         );
     }
+
+    macro_rules! bounded_component_test {
+        ($test_name:ident, $component:ty, $component_id:expr, $max_length:expr) => {
+            #[xmtp_common::test(unwrap_try = true)]
+            fn $test_name() {
+                let value = vec![b'x'; $max_length + 1];
+                let change = ComponentChange::builder()
+                    .component_id($component_id)
+                    .op(ComponentOp::Update)
+                    .actor(ActorAuthority {
+                        is_admin: true,
+                        is_super_admin: true,
+                    })
+                    .new_value(&value)
+                    .build();
+                let err = <$component>::validate_invariant(&change, &ComponentRegistry::new())
+                    .unwrap_err();
+                assert!(matches!(err, ComponentInvariantError::Violation { .. }));
+            }
+        };
+    }
+
+    bounded_component_test!(
+        group_name_rejects_overlong_post_state,
+        GroupNameComponent,
+        ComponentId::GROUP_NAME,
+        MAX_GROUP_NAME_LENGTH
+    );
+    bounded_component_test!(
+        group_description_rejects_overlong_post_state,
+        GroupDescriptionComponent,
+        ComponentId::GROUP_DESCRIPTION,
+        MAX_GROUP_DESCRIPTION_LENGTH
+    );
+    bounded_component_test!(
+        group_image_url_rejects_overlong_post_state,
+        GroupImageUrlComponent,
+        ComponentId::GROUP_IMAGE_URL,
+        MAX_GROUP_IMAGE_URL_LENGTH
+    );
+    bounded_component_test!(
+        app_data_rejects_overlong_post_state,
+        AppDataComponent,
+        ComponentId::APP_DATA,
+        MAX_APP_DATA_LENGTH
+    );
 }

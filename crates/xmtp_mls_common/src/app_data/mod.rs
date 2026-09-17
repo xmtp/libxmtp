@@ -4,6 +4,7 @@ pub mod component_registry;
 pub mod components;
 pub mod custom;
 pub mod migration;
+pub mod policy_set;
 pub mod registry_table;
 pub mod typed;
 pub mod validation;

@@ -41,6 +41,14 @@ use crate::app_data::{
 ///
 /// # Change control
 ///
+/// Registry policy expresses **authority** only: every policy variant is a
+/// predicate over the actor. A component whose correctness depends on a
+/// predicate over its resulting value, or on a bound on that value, cannot be
+/// expressed in the registry and MUST implement
+/// [`Component::validate_invariant`](crate::app_data::typed::Component::validate_invariant).
+/// Prefer a registry rule whenever it can express the requirement. Add an
+/// invariant only when it cannot, and record that justification at the impl.
+///
 /// Component-id ranges in play (mirror of [`lookup_component`] below):
 ///
 /// | Range            | Purpose                                       |
@@ -263,8 +271,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn well_known_count_matches_plan() {
-        // 13 well-known impls per docs/plans/2026-04-10-app-data-migration-plan.md:
-        // 8 Bytes/String + 3 TlsSet<InboxId> + 2 TlsMap.
+        // 13 well-known impls: 8 Bytes/String + 3 TlsSet<InboxId> + 2 TlsMap.
         assert_eq!(WELL_KNOWN.len(), 13);
     }
 
