@@ -10,23 +10,29 @@
 //! Until the remove acknowledgement, only old holders receive queued messages.
 //! At that boundary, current interest determines the re-add cursor and holders.
 //! After the add acknowledgement, those holders receive the new registration.
-//! The delivery positions discard overlap without storing message buffers.
+//! The delivery positions discard overlap. Ordered leases retain at most one
+//! wire frame while a full receive queue pauses wire reads for the connection.
+//! This global gate affects every lease on the connection. A progressing
+//! backlog can therefore delay reads for other leases longer than the pause
+//! timeout.
 //!
 //! A connection failure keeps leases alive. Reconnect uses the current topic
 //! set and the minimum durable receipt position of its leases. Suspend releases
 //! the connection and keeps this state. Resume waits for all acknowledgements
-//! and targets. A slow lease is closed so its consumer can recover from storage.
+//! and targets. A lease with no successful handoff for the pause deadline is
+//! closed so its consumer can recover from storage.
 //!
 //! Ordered leases raise their floors only after durable receipt. A reconnect
 //! resets delivery positions to these floors so uncommitted batches replay.
 //! The consumer owns durable progress. This module does not decode MLS data
 //! or promise exactly-once callbacks across a process crash.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use prost::Message;
 use tokio::sync::{mpsc, oneshot};
 use xmtp_common::rate_limit::Bucket;
+use xmtp_common::time::Instant;
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, RetryableError};
 #[cfg(not(test))]
 use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
@@ -50,6 +56,10 @@ use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
 pub const DEFAULT_LEASE_DEPTH: usize = 64;
 /// Retry a queued update when the connection is quiet and capacity may be free.
 const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
+/// Bound a continuous stall while a consumer accepts no handoff. Thirty seconds
+/// leaves half a 60-second sync budget for recovery from durable receipts. A
+/// progressing backlog can keep the global wire gate active beyond this period.
+const INCOMING_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn update_budget() -> Bucket {
     Bucket::new(
@@ -258,7 +268,8 @@ pub enum TransportError {
     TooManyTopics,
     #[error("invalid subscription frame: {0}")]
     Protocol(&'static str),
-    #[error("incoming subscription delivery exceeds its receive limit")]
+    /// One envelope cannot fit. Reopen from durable receipt positions.
+    #[error("incoming subscription envelope exceeds its receive limit")]
     Capacity,
     /// The receive queue is full. Reopen from durable receipt positions.
     #[error("incoming subscription delivery queue is full")]
@@ -268,20 +279,16 @@ pub enum TransportError {
 }
 
 type IncomingFailure = std::sync::Arc<parking_lot::Mutex<Option<TransportError>>>;
-/// One bounded wire frame remains one queue item even when it covers many topics.
+/// One delivery fits the lease's row and byte limits, across all its topics.
 type IncomingFrame = Result<Vec<IncomingEvent>, TransportError>;
 
 impl xmtp_common::RetryableError for TransportError {
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Backpressure => true,
+            Self::Backpressure | Self::Capacity => true,
             Self::Open(e) => e.is_retryable(),
             Self::Wire(e) => e.is_retryable(),
-            Self::Closed
-            | Self::Empty
-            | Self::TooManyTopics
-            | Self::Protocol(_)
-            | Self::Capacity => false,
+            Self::Closed | Self::Empty | Self::TooManyTopics | Self::Protocol(_) => false,
         }
     }
 }
@@ -351,7 +358,7 @@ where
         &self.topics
     }
 
-    /// Read raw ordered events, including a terminal receive-capacity error.
+    /// Read raw ordered events, including a terminal receive error.
     pub async fn next_incoming(&mut self) -> Option<Result<IncomingEvent, TransportError>> {
         loop {
             if let Some(event) = self.incoming_pending.next() {
@@ -635,6 +642,100 @@ where
     events: mpsc::Sender<LeaseEvent<B>>,
     incoming: Option<(mpsc::Sender<IncomingFrame>, IncomingBatchLimits)>,
     incoming_failure: IncomingFailure,
+    incoming_pending: VecDeque<Vec<IncomingEvent>>,
+    paused_at: Option<Instant>,
+    pause_entries: u64,
+}
+
+impl<B: TransportBinding> LeaseState<B>
+where
+    B::GroupMessage: Clone,
+    B::WelcomeMessage: Clone,
+{
+    fn finish_pause(&mut self, now: Instant, reason: &'static str) {
+        if let Some(started) = self.paused_at.take() {
+            tracing::info!(
+                pause_entries = self.pause_entries,
+                pause_duration_ms = now.saturating_duration_since(started).as_millis() as u64,
+                backlog_depth = self.incoming_pending.len(),
+                reason,
+                "bidi incoming: pause ended"
+            );
+        }
+    }
+
+    /// Return true only when the consumer must reopen from durable receipts.
+    fn flush_incoming(&mut self, now: Instant) -> bool {
+        let Some((sender, _)) = &self.incoming else {
+            return false;
+        };
+        let sender = sender.clone();
+        while !self.incoming_pending.is_empty() {
+            let permit = match sender.try_reserve() {
+                Ok(permit) => permit,
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    if self.paused_at.is_some_and(|started| {
+                        now.saturating_duration_since(started) >= INCOMING_PAUSE_TIMEOUT
+                    }) {
+                        tracing::warn!(
+                            backlog_depth = self.incoming_pending.len(),
+                            "bidi incoming: pause deadline exceeded; closing lease"
+                        );
+                        *self.incoming_failure.lock() = Some(TransportError::Backpressure);
+                        self.finish_pause(now, "deadline");
+                        return true;
+                    }
+                    if self.paused_at.is_none() {
+                        self.paused_at = Some(now);
+                        self.pause_entries += 1;
+                        tracing::info!(
+                            pause_entries = self.pause_entries,
+                            backlog_depth = self.incoming_pending.len(),
+                            "bidi incoming: paused"
+                        );
+                    }
+                    return false;
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    *self.incoming_failure.lock() = Some(TransportError::Backpressure);
+                    self.finish_pause(now, "consumer_closed");
+                    return true;
+                }
+            };
+            let Some(events) = self.incoming_pending.pop_front() else {
+                unreachable!()
+            };
+            let positions: Vec<_> = events
+                .iter()
+                .filter_map(|event| {
+                    let IncomingEvent::OrderedBatch(batch) = event else {
+                        return None;
+                    };
+                    let last = batch
+                        .envelopes
+                        .last()?
+                        .meta
+                        .as_ref()?
+                        .cursor
+                        .as_ref()?
+                        .sequence_id;
+                    Some((batch.topic.clone(), last))
+                })
+                .collect();
+            // No await or fallible operation separates handoff and cursor update.
+            // Pending chunks never change delivered. Floors change only on receipt.
+            permit.send(Ok(events));
+            for (topic, last) in positions {
+                if let Some(delivered) = self.delivered.get_mut(&topic) {
+                    B::advance(delivered, last.into());
+                }
+            }
+            // A successful handoff ends the stall, even with chunks pending.
+            self.finish_pause(now, "progress");
+        }
+        self.finish_pause(now, "drained");
+        false
+    }
 }
 
 struct Ledger<B: TransportBinding>
@@ -680,6 +781,24 @@ where
     B::GroupMessage: Clone,
     B::WelcomeMessage: Clone,
 {
+    fn has_pending_incoming(&self) -> bool {
+        self.leases
+            .values()
+            .any(|lease| !lease.incoming_pending.is_empty())
+    }
+
+    fn flush_incoming(&mut self, now: Instant) -> Vec<LeaseId> {
+        self.leases
+            .iter_mut()
+            .filter_map(|(id, lease)| {
+                if !lease.incoming_pending.is_empty() {
+                    self.dirty_topics.extend(lease.floors.keys().cloned());
+                }
+                lease.flush_incoming(now).then_some(*id)
+            })
+            .collect()
+    }
+
     /// Raise reconnect floors from committed receipt, never from stream delivery.
     fn received(&mut self, id: LeaseId, cursors: TopicCursor) {
         let Some(lease) = self.leases.get_mut(&id) else {
@@ -704,10 +823,10 @@ where
 
     /// Emit the accepted read positions and fixed targets before raw data.
     fn incoming_registered(&mut self, id: LeaseId, topics: impl IntoIterator<Item = Topic>) {
-        let Some(lease) = self.leases.get(&id) else {
+        let Some(lease) = self.leases.get_mut(&id) else {
             return;
         };
-        let Some((sender, _)) = &lease.incoming else {
+        let Some(_) = &lease.incoming else {
             return;
         };
         let mut starts = TopicCursor::new();
@@ -726,12 +845,10 @@ where
             targets.insert(topic, Cursor(target));
         }
         if !starts.is_empty() {
-            // A full channel is detected before the next payload copy.
-            if sender
-                .try_send(Ok(vec![IncomingEvent::Registered { starts, targets }]))
-                .is_err()
-            {
-                *lease.incoming_failure.lock() = Some(TransportError::Backpressure);
+            lease
+                .incoming_pending
+                .push_back(vec![IncomingEvent::Registered { starts, targets }]);
+            if lease.flush_incoming(Instant::now()) {
                 self.failed_incoming.insert(id);
             }
         }
@@ -780,12 +897,11 @@ where
         }
         let mut dropped = Vec::new();
         for (id, lease) in &mut self.leases {
-            let Some((sender, limits)) = &lease.incoming else {
+            let Some((_, limits)) = &lease.incoming else {
                 continue;
             };
-            let mut selected: HashMap<Topic, Vec<&ServerEnvelope>> = HashMap::new();
-            let mut rows = 0usize;
-            let mut bytes = 0usize;
+            let mut selected = Vec::new();
+            let mut impossible = false;
             for message in messages {
                 let envelope = envelope_of(message);
                 let meta = envelope.meta.as_ref().ok_or("metadata")?;
@@ -803,13 +919,17 @@ where
                 if meta.cursor.as_ref().ok_or("cursor")?.sequence_id <= (*delivered).into() {
                     continue;
                 }
-                rows += 1;
-                bytes = bytes
-                    .checked_add(envelope.encoded_len())
-                    .ok_or("byte count")?;
-                selected.entry(topic).or_default().push(envelope);
+                // Validate every selected envelope before sending any part of the frame.
+                // A zero row budget cannot admit even one envelope either.
+                impossible |= limits.max_rows == 0 || envelope.encoded_len() > limits.max_bytes;
+                selected.push((topic, envelope));
             }
-            if rows > limits.max_rows || bytes > limits.max_bytes {
+            if impossible {
+                tracing::error!(
+                    max_rows = limits.max_rows,
+                    max_bytes = limits.max_bytes,
+                    "bidi incoming: envelope cannot fit receive limits; closing lease"
+                );
                 *lease.incoming_failure.lock() = Some(TransportError::Capacity);
                 dropped.push(*id);
                 continue;
@@ -817,31 +937,41 @@ where
             if selected.is_empty() {
                 continue;
             }
-            // Reserve one slot for the complete validated frame before copying.
-            // One frame can contain more topics than the queue has slots.
-            let Ok(permit) = sender.try_reserve() else {
-                *lease.incoming_failure.lock() = Some(TransportError::Backpressure);
-                dropped.push(*id);
-                continue;
-            };
-            let mut batches = Vec::with_capacity(selected.len());
-            for (topic, envelopes) in selected {
-                let delivered = lease.delivered.get_mut(&topic).ok_or("lease topic")?;
-                let after = Cursor((*delivered).into());
-                let last = envelopes
-                    .last()
-                    .and_then(|envelope| envelope.meta.as_ref()?.cursor.as_ref())
-                    .ok_or("cursor")?
-                    .sequence_id;
-                let batch = OrderedEnvelopeBatch {
-                    topic,
-                    after,
-                    envelopes: envelopes.into_iter().cloned().collect(),
-                };
-                batches.push(IncomingEvent::OrderedBatch(batch));
-                B::advance(delivered, last.into());
+            // The wire is gated while pending work exists. This retains at most
+            // one validated wire frame per lease, split across bounded deliveries.
+            // Project batch boundaries separately: these are NOT delivery cursors.
+            let mut projected = lease.delivered.clone();
+            for chunk in chunk_by_budget(
+                selected,
+                limits.max_rows,
+                limits.max_bytes,
+                |(_, envelope)| envelope.encoded_len(),
+            ) {
+                let mut by_topic: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+                for (topic, envelope) in chunk {
+                    by_topic.entry(topic).or_default().push(envelope.clone());
+                }
+                let mut events = Vec::with_capacity(by_topic.len());
+                for (topic, envelopes) in by_topic {
+                    let position = projected.get_mut(&topic).ok_or("lease topic")?;
+                    let after = Cursor((*position).into());
+                    let last = envelopes
+                        .last()
+                        .and_then(|envelope| envelope.meta.as_ref()?.cursor.as_ref())
+                        .ok_or("cursor")?
+                        .sequence_id;
+                    B::advance(position, last.into());
+                    events.push(IncomingEvent::OrderedBatch(OrderedEnvelopeBatch {
+                        topic,
+                        after,
+                        envelopes,
+                    }));
+                }
+                lease.incoming_pending.push_back(events);
             }
-            permit.send(Ok(batches));
+            if lease.flush_incoming(Instant::now()) {
+                dropped.push(*id);
+            }
         }
         Ok(dropped)
     }
@@ -877,6 +1007,9 @@ where
                 events,
                 incoming: None,
                 incoming_failure: IncomingFailure::default(),
+                incoming_pending: VecDeque::new(),
+                paused_at: None,
+                pause_entries: 0,
             },
         );
         id
@@ -891,6 +1024,8 @@ where
             lease.obligations.clear();
             lease.unmet = lease.floors.len();
             if lease.incoming.is_some() {
+                lease.finish_pause(Instant::now(), "wire_reset");
+                lease.incoming_pending.clear();
                 lease.delivered.clone_from(&lease.floors);
             }
         }
@@ -1080,7 +1215,14 @@ where
                 };
                 if !obligation.satisfied
                     && (target == 0
-                        || B::covers(&registration.delivered, &target_cursor)
+                        || if lease.incoming.is_some() {
+                            lease
+                                .delivered
+                                .get(&topic)
+                                .is_some_and(|position| B::covers(position, &target_cursor))
+                        } else {
+                            B::covers(&registration.delivered, &target_cursor)
+                        }
                         || lease
                             .floors
                             .get(&topic)
@@ -1111,9 +1253,10 @@ where
 
     /// Remove local interest immediately. The caller queues wire removals.
     fn deref(&mut self, id: LeaseId) -> Vec<Topic> {
-        let Some(lease) = self.leases.remove(&id) else {
+        let Some(mut lease) = self.leases.remove(&id) else {
             return vec![];
         };
+        lease.finish_pause(Instant::now(), "lease_removed");
         let mut removes = Vec::new();
         for topic in lease.floors.keys() {
             if let Some(holders) = self.by_topic.get_mut(topic) {
@@ -1201,7 +1344,9 @@ where
     }
 
     fn caught_up(&self) -> bool {
-        self.pending_updates.is_empty() && self.leases.values().all(|lease| lease.unmet == 0)
+        self.pending_updates.is_empty()
+            && !self.has_pending_incoming()
+            && self.leases.values().all(|lease| lease.unmet == 0)
     }
 }
 
@@ -1299,6 +1444,12 @@ where
                     return;
                 }
             }
+            let mut dropped = self.ledger.flush_incoming(Instant::now());
+            dropped.extend(self.ledger.recheck());
+            let removes = self.drop_leases(dropped);
+            self.retire(removes);
+            self.settle_idle_waiters();
+            self.settle_caught_up_waiters();
             self.flush_outbox();
             let flow = match self.next_step().await {
                 Step::Retry => Flow::Continue,
@@ -1338,6 +1489,34 @@ where
             return Step::Cmd(Some(cmd));
         }
         let retry_after = self.update_budget.wait().max(OUTBOX_RETRY_INTERVAL);
+        if self.ledger.has_pending_incoming() {
+            // Only the ledger writes these channels. A reservation wakes this
+            // task when a slot opens; the next loop flushes it before reading wire.
+            let pending: Vec<_> = self
+                .ledger
+                .leases
+                .values()
+                .filter(|lease| !lease.incoming_pending.is_empty())
+                .filter_map(|lease| {
+                    let (sender, _) = lease.incoming.as_ref()?;
+                    Some(Box::pin(sender.clone().reserve_owned()))
+                })
+                .collect();
+            let until_deadline = self
+                .ledger
+                .leases
+                .values()
+                .filter_map(|lease| lease.paused_at)
+                .map(|started| INCOMING_PAUSE_TIMEOUT.saturating_sub(started.elapsed()))
+                .min()
+                .unwrap_or(INCOMING_PAUSE_TIMEOUT);
+            return tokio::select! {
+                cmd = self.cmds.recv() => Step::Cmd(cmd),
+                _ = futures::future::select_all(pending) => Step::Retry,
+                _ = xmtp_common::time::sleep(until_deadline) => Step::Retry,
+                _ = xmtp_common::time::sleep(retry_after), if !self.outbox.is_empty() => Step::Retry,
+            };
+        }
         match self.conn.as_mut() {
             Some(wire) => tokio::select! {
                 cmd = self.cmds.recv() => Step::Cmd(cmd),
