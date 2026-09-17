@@ -232,7 +232,7 @@ async fn test_key_package_rotation() {
     assert!(bo_original_after_delete.is_err());
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_find_or_create_dm_by_inbox_id() {
     let user1 = generate_local_wallet();
     let user2 = generate_local_wallet();
@@ -247,14 +247,14 @@ async fn test_find_or_create_dm_by_inbox_id() {
 
     // Verify DM was created with correct properties
     let metadata = dm1.metadata().await.unwrap();
-    assert_eq!(
-        metadata.dm_members.clone().unwrap().member_one_inbox_id,
-        client1.inbox_id()
-    );
-    assert_eq!(
-        metadata.dm_members.unwrap().member_two_inbox_id,
-        client2.inbox_id()
-    );
+    let members = metadata.dm_members.unwrap();
+    let actual = [members.member_one_inbox_id, members.member_two_inbox_id];
+    let mut expected = [
+        client1.inbox_id().to_string(),
+        client2.inbox_id().to_string(),
+    ];
+    expected.sort();
+    assert_eq!(actual, expected);
 
     // Second call should find the existing DM
     let dm2 = client1
