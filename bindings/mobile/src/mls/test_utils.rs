@@ -45,7 +45,8 @@ impl LocalBuilder<PrivateKeySigner> for TesterBuilder<PrivateKeySigner> {
         client.register_identity(signature_request, None).await?;
 
         let mut worker = None;
-        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
+        if self.wait_for_init && !self.disable_workers && self.sync_mode != DeviceSyncMode::Disabled
+        {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.inner_client.context.sync_metrics();
@@ -87,7 +88,8 @@ impl LocalBuilder<PasskeyUser> for TesterBuilder<PasskeyUser> {
         client.register_identity(signature_request, None).await?;
 
         let mut worker = None;
-        if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
+        if self.wait_for_init && !self.disable_workers && self.sync_mode != DeviceSyncMode::Disabled
+        {
             while worker.is_none() {
                 xmtp_common::task::yield_now().await;
                 worker = client.inner_client.context.sync_metrics();
@@ -154,7 +156,18 @@ where
         Some(builder.sync_mode.into()),
         None,
         None,
-        None,
+        builder
+            .disable_workers
+            .then(|| crate::worker_config::FfiWorkerConfig {
+                disabled_workers: vec![
+                    crate::worker::FfiWorkerKind::DeviceSync,
+                    crate::worker::FfiWorkerKind::DisappearingMessages,
+                    crate::worker::FfiWorkerKind::CommitLog,
+                    crate::worker::FfiWorkerKind::TaskRunner,
+                    crate::worker::FfiWorkerKind::ConfigurationRefresh,
+                ],
+                ..Default::default()
+            }),
         None,
     )
     .await
