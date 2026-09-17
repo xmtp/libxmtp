@@ -21,11 +21,8 @@ use xmtp_mls_common::app_data::{
 // Batched Proposal Tests
 // =============================================================================
 
-#[rstest::rstest]
-#[case::same_member(false)]
-#[case::other_member(true)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_permission_updates_preserve_pending_fields(#[case] other_member: bool) {
+async fn test_permission_updates_preserve_pending_fields() {
     use crate::groups::{
         GroupError, UpdateAdminListType,
         app_data::sender_intents::apply_update_permission_app_data_intent,
@@ -33,100 +30,102 @@ async fn test_permission_updates_preserve_pending_fields(#[case] other_member: b
     };
     use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{Kind, MetadataBasePolicy};
 
-    tester!(alix);
-    tester!(bo);
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await
-        .unwrap();
-    let bo_groups = bo.sync_welcomes().await.unwrap();
-    let bo_group = bo_groups.first().unwrap();
-    alix_group
-        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
-        .await
-        .unwrap();
-    bo_group.sync().await.unwrap();
+    for other_member in [false, true] {
+        tester!(alix);
+        tester!(bo);
+        let alix_group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await
+            .unwrap();
+        let bo_groups = bo.sync_welcomes().await.unwrap();
+        let bo_group = bo_groups.first().unwrap();
+        alix_group
+            .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+            .await
+            .unwrap();
+        bo_group.sync().await.unwrap();
 
-    let author = if other_member { bo_group } else { &alix_group };
-    // Use the permission writer, then publish only its proposals. This models
-    // a prepared permission intent whose commit has not reached the group.
-    let mut payloads = crate::state_tx::state_write(author.context.mls_storage(), |tx| {
-        tx.with_group(author.group_id, |group, storage| {
-            let publish = apply_update_permission_app_data_intent(
-                storage,
-                group,
-                UpdatePermissionIntentData::new(
-                    PermissionUpdateType::AddMember,
-                    PermissionPolicyOption::Deny,
-                    None,
-                ),
-                &author.context.identity().installation_keys,
-                false,
+        let author = if other_member { bo_group } else { &alix_group };
+        // Use the permission writer, then publish only its proposals. This models
+        // a prepared permission intent whose commit has not reached the group.
+        let mut payloads = crate::state_tx::state_write(author.context.mls_storage(), |tx| {
+            tx.with_group(author.group_id, |group, storage| {
+                let publish = apply_update_permission_app_data_intent(
+                    storage,
+                    group,
+                    UpdatePermissionIntentData::new(
+                        PermissionUpdateType::AddMember,
+                        PermissionPolicyOption::Deny,
+                        None,
+                    ),
+                    &author.context.identity().installation_keys,
+                    false,
+                )
+                .unwrap();
+                Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(
+                    publish.payloads_to_publish,
+                ))
+            })
+        })
+        .unwrap()
+        .into_continued();
+        payloads
+            .pop()
+            .expect("permission writer must produce a commit");
+        let messages = author
+            .prepare_group_messages(
+                payloads
+                    .iter()
+                    .map(|payload| (payload.as_slice(), false))
+                    .collect(),
             )
             .unwrap();
-            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(
-                publish.payloads_to_publish,
-            ))
-        })
-    })
-    .unwrap()
-    .into_continued();
-    payloads
-        .pop()
-        .expect("permission writer must produce a commit");
-    let messages = author
-        .prepare_group_messages(
-            payloads
-                .iter()
-                .map(|payload| (payload.as_slice(), false))
-                .collect(),
-        )
-        .unwrap();
-    author
-        .context
-        .api()
-        .send_group_messages(messages)
-        .await
-        .unwrap();
-    alix_group.sync().await.unwrap();
-    let pending = alix_group
-        .with_group_snapshot(|group| Ok::<_, GroupError>(group.pending_proposals().count()))
-        .unwrap();
-    assert!(pending > 0, "the first permission update must stay pending");
-
-    alix_group
-        .update_permission_policy(
-            PermissionUpdateType::RemoveMember,
-            PermissionPolicyOption::SuperAdminOnly,
-            None,
-        )
-        .await
-        .unwrap();
-    bo_group.sync().await.unwrap();
-
-    for group in [&alix_group, bo_group] {
-        let permissions = group
-            .with_group_snapshot(|group| {
-                Ok::<_, GroupError>(
-                    crate::groups::app_data::load_component_registry(group)
-                        .unwrap()
-                        .get(&ComponentId::GROUP_MEMBERSHIP)
-                        .expect("valid membership entry")
-                        .expect("membership entry")
-                        .permissions
-                        .expect("membership permissions"),
-                )
-            })
+        author
+            .context
+            .api()
+            .send_group_messages(messages)
+            .await
             .unwrap();
-        assert_eq!(
-            permissions.insert_policy.unwrap().kind,
-            Some(Kind::Base(MetadataBasePolicy::Deny as i32)),
-            "the pending AddMember restriction must survive the RemoveMember update",
-        );
-        assert_eq!(
-            permissions.delete_policy.unwrap().kind,
-            Some(Kind::Base(MetadataBasePolicy::AllowIfSuperAdmin as i32)),
-        );
+        alix_group.sync().await.unwrap();
+        let pending = alix_group
+            .with_group_snapshot(|group| Ok::<_, GroupError>(group.pending_proposals().count()))
+            .unwrap();
+        assert!(pending > 0, "the first permission update must stay pending");
+
+        alix_group
+            .update_permission_policy(
+                PermissionUpdateType::RemoveMember,
+                PermissionPolicyOption::SuperAdminOnly,
+                None,
+            )
+            .await
+            .unwrap();
+        bo_group.sync().await.unwrap();
+
+        for group in [&alix_group, bo_group] {
+            let permissions = group
+                .with_group_snapshot(|group| {
+                    Ok::<_, GroupError>(
+                        crate::groups::app_data::load_component_registry(group)
+                            .unwrap()
+                            .get(&ComponentId::GROUP_MEMBERSHIP)
+                            .expect("valid membership entry")
+                            .expect("membership entry")
+                            .permissions
+                            .expect("membership permissions"),
+                    )
+                })
+                .unwrap();
+            assert_eq!(
+                permissions.insert_policy.unwrap().kind,
+                Some(Kind::Base(MetadataBasePolicy::Deny as i32)),
+                "the pending AddMember restriction must survive the RemoveMember update",
+            );
+            assert_eq!(
+                permissions.delete_policy.unwrap().kind,
+                Some(Kind::Base(MetadataBasePolicy::AllowIfSuperAdmin as i32)),
+            );
+        }
     }
 }
 

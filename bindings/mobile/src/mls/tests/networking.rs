@@ -139,7 +139,9 @@ async fn create_client_does_not_hit_network() {
 
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 1)]
 async fn ffi_api_stats_exposed_correctly() {
-    let tester = Tester::new().await;
+    // The commit-log worker can publish after group creation, including after
+    // statistics are cleared. Disable workers to count only foreground requests.
+    let tester = TesterBuilder::new().disable_workers().build().await;
     let client: &FfiXmtpClient = &tester.client;
 
     let bo = Tester::new().await;
@@ -157,6 +159,8 @@ async fn ffi_api_stats_exposed_correctly() {
         .list(FfiListConversationsOptions::default());
 
     let api_stats = client.api_statistics();
+    // Registration publishes the identity and key package. Group creation
+    // publishes one batch for the proposals and commit, then one Welcome batch.
     assert_eq!(api_stats.publish, 4);
     let identity_stats = client.api_identity_statistics();
     assert!(identity_stats.get_inbox_ids >= 1);

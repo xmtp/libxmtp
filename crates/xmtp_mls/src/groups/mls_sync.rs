@@ -19,7 +19,7 @@ use crate::{
         intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
         mls_ext::{CommitLogStorer, MlsGroupReload},
         mls_sync::update_group_membership::apply_readd_installations_intent,
-        validated_commit::{Inbox, MutableMetadataValidationInfo, ValidatedCommit},
+        validated_commit::{Inbox, MetadataChanges, ValidatedCommit},
     },
     identity::{IdentityError, parse_credential},
     identity_updates::{IdentityUpdates, load_identity_updates},

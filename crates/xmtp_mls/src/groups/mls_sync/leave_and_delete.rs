@@ -320,7 +320,7 @@ where
         &self,
         storage: &impl XmtpMlsStorageProvider,
         mls_group: &OpenMlsGroup,
-        metadata_info: &MutableMetadataValidationInfo,
+        metadata_info: &MetadataChanges,
     ) {
         let current_inbox_id = self.context.inbox_id().to_string();
 
