@@ -448,9 +448,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             ))
                         })?;
 
+                    let value =
+                        xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
+                            component_id,
+                            &metadata_intent.field_value,
+                        )
+                        .map_err(
+                            crate::groups::app_data::migration::BootstrapSynthesisError::from,
+                        )?;
                     let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
                         component_id,
-                        new_value: metadata_intent.field_value.as_bytes(),
+                        new_value: &value,
                     })?;
 
                     let signer = self.context.identity().installation_keys.clone();
@@ -798,6 +806,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     use crate::groups::mls_sync::update_group_membership::build_group_membership_app_data_payload;
 
                     let payload = build_group_membership_app_data_payload(
+                        &storage.db(),
+                        openmls_group,
                         &old_group_membership,
                         &new_membership,
                     )?;
@@ -828,6 +838,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }))
             }
             IntentKind::ProposeGroupContextExtensions => {
+                if crate::groups::app_data::is_migrated_group(openmls_group) {
+                    return Err(CommitValidationError::UnsupportedProposalType(
+                        ProposalType::GroupContextExtensions,
+                    )
+                    .into());
+                }
                 // No proposals_enabled guard here — ProposeGroupContextExtensions is used
                 // by enable_proposals() to bootstrap proposal support on the group.
                 //

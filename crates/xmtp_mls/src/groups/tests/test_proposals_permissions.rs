@@ -3,7 +3,6 @@
 use crate::{
     context::XmtpSharedContext,
     groups::{
-        EnableProposalsOptions,
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
     },
     tester,
@@ -51,9 +50,6 @@ async fn test_non_admin_proposal_rejected_in_admin_only_group() {
     );
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // Bo (non-admin) attempts to propose adding Caro
@@ -126,9 +122,6 @@ async fn test_admin_proposal_accepted_in_admin_only_group() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // Alix (admin) proposes to add Caro
@@ -213,9 +206,6 @@ async fn test_non_admin_commits_admin_proposals_in_admin_group() {
     );
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -343,9 +333,6 @@ async fn test_multiple_non_admin_proposers_with_admin_committer() {
     assert_eq!(initial_members.len(), 3);
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -474,9 +461,6 @@ async fn test_remove_proposal_validation_in_admin_group() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // Scenario A: Bo (non-admin) proposes removing Caro → should be rejected by Alix
@@ -571,9 +555,6 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -637,375 +618,6 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
     );
 }
 
-/// Test that GCE proposals modifying metadata are rejected when the proposer lacks permission.
-/// Scenario A: Non-admin proposes changing group name → rejected.
-/// Scenario B: Propose removing the mutable metadata extension entirely → rejected.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_non_admin_gce_metadata_proposal_rejected() {
-    use crate::groups::{
-        build_extensions_for_metadata_update, group_permissions::PreconfiguredPolicies,
-        intents::ProposeGroupContextExtensionsIntentData,
-    };
-    use openmls::prelude::tls_codec::Serialize;
-    use xmtp_mls_common::group_mutable_metadata::MetadataField;
-
-    tester!(alix);
-    tester!(bo);
-
-    // Alix creates an admin-only group and adds Bo
-    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
-    alix_group.sync().await?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
-
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // This test exercises legacy GCE-proposal validation. We don't
-    // call `enable_proposals()` here because that fires the AppData-
-    // migration bootstrap, which strips MUTABLE_METADATA from the
-    // extension set — `build_extensions_for_metadata_update` (used
-    // below) reads that extension as its starting point and would
-    // surface `Mutable(MissingExtension)` against a migrated group.
-    // The legacy GCE-validation path applies to unmigrated groups,
-    // which is the only state this test needs to cover.
-
-    // Scenario A: Bo (non-admin) proposes changing the group name via GCE
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let extensions = build_extensions_for_metadata_update(
-                &mls_group,
-                MetadataField::GroupName.to_string(),
-                "hacked".to_string(),
-            )?;
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (Bo is not admin, can't change metadata)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Non-admin metadata change proposal should be rejected"
-    );
-
-    // Scenario B: Bo proposes removing the mutable metadata extension entirely
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let mut extensions = mls_group.extensions().clone();
-            extensions.remove(openmls::extensions::ExtensionType::Unknown(
-                xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID,
-            ));
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (cannot remove mutable metadata extension)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Removing mutable metadata extension should be rejected"
-    );
-
-    // Verify group name is unchanged
-    let name = alix_group.group_name()?;
-    assert_ne!(name, "hacked", "Group name should not have changed");
-}
-
-/// Test that GCE proposals modifying admin lists are rejected when the proposer lacks permission.
-/// Scenario A: Non-admin proposes adding an admin → rejected.
-/// Scenario B: Non-super-admin proposes modifying super admin list → rejected.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_non_admin_gce_admin_list_proposal_rejected() {
-    use crate::groups::{
-        build_extensions_for_admin_lists_update,
-        group_permissions::PreconfiguredPolicies,
-        intents::{
-            AdminListActionType, ProposeGroupContextExtensionsIntentData, UpdateAdminListIntentData,
-        },
-    };
-    use openmls::prelude::tls_codec::Serialize;
-
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-
-    // Alix creates an admin-only group and adds Bo and Caro
-    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
-    alix_group.sync().await?;
-    alix_group
-        .add_members(&[bo.inbox_id(), caro.inbox_id()])
-        .await?;
-
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // Legacy-validation test: see comment in
-    // `test_non_admin_gce_metadata_proposal_rejected` for why we don't
-    // fire `enable_proposals()` here (the AppData-migration bootstrap
-    // would strip the legacy MUTABLE_METADATA extension this test's
-    // helpers depend on).
-
-    // Scenario A: Bo proposes adding Caro as admin via GCE
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let extensions = build_extensions_for_admin_lists_update(
-                &mls_group,
-                UpdateAdminListIntentData::new(
-                    AdminListActionType::Add,
-                    caro.inbox_id().to_string(),
-                ),
-            )?;
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (Bo is not super admin, can't add admins)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Non-super-admin adding admin proposal should be rejected"
-    );
-
-    // Scenario B: Bo proposes adding himself to the super admin list via GCE
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let extensions = build_extensions_for_admin_lists_update(
-                &mls_group,
-                UpdateAdminListIntentData::new(
-                    AdminListActionType::AddSuper,
-                    bo.inbox_id().to_string(),
-                ),
-            )?;
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (only super admins can modify super admin list)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Super admin list modification by non-super-admin should be rejected"
-    );
-
-    // Scenario C: Bo proposes removing Caro from the admin list via GCE
-    // First, Alix (super admin) promotes Caro to admin so there's someone to remove
-    alix_group
-        .update_admin_list(
-            crate::groups::UpdateAdminListType::Add,
-            caro.inbox_id().to_string(),
-        )
-        .await?;
-    bo_group.sync().await?;
-
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let extensions = build_extensions_for_admin_lists_update(
-                &mls_group,
-                UpdateAdminListIntentData::new(
-                    AdminListActionType::Remove,
-                    caro.inbox_id().to_string(),
-                ),
-            )?;
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (Bo is not super admin, can't remove admins)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Non-super-admin removing admin proposal should be rejected"
-    );
-}
-
-/// Test that GCE proposals changing permissions are rejected when the proposer is not a super admin.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_non_super_admin_gce_permission_change_rejected() {
-    use crate::groups::{
-        build_extensions_for_permissions_update,
-        group_permissions::PreconfiguredPolicies,
-        intents::{
-            PermissionPolicyOption, PermissionUpdateType, ProposeGroupContextExtensionsIntentData,
-            UpdatePermissionIntentData,
-        },
-    };
-    use openmls::prelude::tls_codec::Serialize;
-
-    tester!(alix);
-    tester!(bo);
-
-    // Alix creates an admin-only group and adds Bo
-    let policy_set = Some(PreconfiguredPolicies::AdminsOnly.to_policy_set());
-    let alix_group = alix.create_group(policy_set, None)?;
-    alix_group.sync().await?;
-    alix_group.add_members(&[bo.inbox_id()]).await?;
-
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // Legacy-validation test: see comment in
-    // `test_non_admin_gce_metadata_proposal_rejected` for why we don't
-    // fire `enable_proposals()` here (the AppData-migration bootstrap
-    // would strip the legacy GROUP_PERMISSIONS extension this test's
-    // helpers depend on).
-
-    // Bo (non-super-admin) proposes changing AddMember policy to Allow via GCE
-    let extensions_bytes = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let extensions = build_extensions_for_permissions_update(
-                &mls_group,
-                UpdatePermissionIntentData::new(
-                    PermissionUpdateType::AddMember,
-                    PermissionPolicyOption::Allow,
-                    None,
-                ),
-            )?;
-            Ok::<Vec<u8>, crate::groups::GroupError>(extensions.tls_serialize_detached()?)
-        })
-        .await?;
-
-    let intent_data = ProposeGroupContextExtensionsIntentData::new(extensions_bytes);
-    let intent_bytes: Vec<u8> = intent_data.into();
-    let bo_db = bo_group.context.db();
-    let propose_intent = bo_db.insert_group_intent(xmtp_db::group_intent::NewGroupIntent::new(
-        IntentKind::ProposeGroupContextExtensions,
-        bo_group.group_id,
-        intent_bytes,
-        false,
-    ))?;
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(propose_intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // Alix syncs — proposal rejected (only super admins can change permissions)
-    let _ = alix_group.sync().await;
-
-    let alix_pending = alix_group
-        .load_mls_group_with_lock_async(async |openmls_group| {
-            Ok::<usize, crate::groups::GroupError>(openmls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        alix_pending, 0,
-        "Permission change by non-super-admin should be rejected"
-    );
-}
-
 /// A raw registry mutation must not relax the constrained `ADMIN_LIST` entry.
 /// The shared constrained-component check rejects it before publication.
 #[xmtp_common::test(unwrap_try = true)]
@@ -1035,9 +647,6 @@ async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     let before_permissions = bo_group.permissions()?;
@@ -1136,9 +745,6 @@ async fn test_registry_alone_controls_action_policy_view() {
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     let payload = alix_group
@@ -1213,9 +819,6 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // Establish two committed super admins. Each raw removal below is then
@@ -1317,9 +920,6 @@ async fn test_migrated_action_permission_updates_use_registry() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     let mut expected = alix_group.permissions()?.policies;

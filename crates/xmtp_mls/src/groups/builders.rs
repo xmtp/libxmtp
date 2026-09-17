@@ -2,6 +2,7 @@
 
 use super::*;
 
+#[cfg(test)]
 pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,
     conversation_type: ConversationType,
@@ -19,6 +20,7 @@ pub(crate) fn build_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
+#[cfg(test)]
 pub(in crate::groups) fn build_dm_protected_metadata_extension(
     creator_inbox_id: &str,
     dm_inbox_id: InboxId,
@@ -43,6 +45,7 @@ pub(in crate::groups) fn build_dm_protected_metadata_extension(
     Ok(Extension::ImmutableMetadata(protected_metadata))
 }
 
+#[cfg(test)]
 pub(crate) fn build_mutable_permissions_extension(
     policies: PolicySet,
 ) -> Result<Extension, MetadataPermissionsError> {
@@ -343,6 +346,49 @@ pub fn build_extensions_for_membership_update(
 }
 
 pub(crate) fn build_group_config(
+    dictionary: openmls::extensions::AppDataDictionary,
+) -> Result<MlsGroupCreateConfig, GroupError> {
+    let required_extension_types = &[
+        ExtensionType::AppDataDictionary,
+        ExtensionType::LastResort,
+        ExtensionType::ApplicationId,
+    ];
+    let required_proposal_types = &[ProposalType::AppDataUpdate];
+    let mut supported_extensions = required_extension_types.to_vec();
+    supported_extensions.extend([
+        ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
+        ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
+    ]);
+    let capabilities = Capabilities::new(
+        None,
+        None,
+        Some(&supported_extensions),
+        Some(required_proposal_types),
+        None,
+    );
+    let extensions = Extensions::from_vec(vec![
+        Extension::AppDataDictionary(openmls::extensions::AppDataDictionaryExtension::new(
+            dictionary,
+        )),
+        Extension::RequiredCapabilities(RequiredCapabilitiesExtension::new(
+            required_extension_types,
+            required_proposal_types,
+            &[CredentialType::Basic],
+        )),
+    ])?;
+    Ok(MlsGroupCreateConfig::builder()
+        .with_group_context_extensions(extensions)
+        .capabilities(capabilities)
+        .ciphersuite(CIPHERSUITE)
+        .wire_format_policy(WireFormatPolicy::default())
+        .max_past_epochs(MAX_PAST_EPOCHS)
+        .use_ratchet_tree_extension(true)
+        .build())
+}
+
+// Legacy extension fixtures remain until the legacy reader tests are removed.
+#[cfg(test)]
+pub(crate) fn build_legacy_test_group_config(
     protected_metadata_extension: Extension,
     mutable_metadata_extension: Extension,
     group_membership_extension: Extension,

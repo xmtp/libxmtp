@@ -2,10 +2,8 @@
 
 use crate::{
     context::XmtpSharedContext,
-    groups::{
-        EnableProposalsOptions,
-        intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent},
-        send_message_opts::SendMessageOpts,
+    groups::intents::{
+        CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData, QueueIntent,
     },
     tester,
 };
@@ -155,9 +153,7 @@ async fn test_add_members_batched_when_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals on the group
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Verify proposals are enabled
@@ -205,56 +201,6 @@ async fn test_add_members_batched_when_proposals_enabled() {
     );
 }
 
-/// Test that add_members still works with the direct commit path when proposals are disabled.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_add_members_direct_commit_when_proposals_disabled() {
-    tester!(alix);
-    tester!(bo);
-    tester!(caro);
-
-    // Create group with alix + bo (proposals NOT enabled)
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // Verify proposals are NOT enabled
-    let proposals_enabled = alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&mls_group))
-        })
-        .await?;
-    assert!(!proposals_enabled, "Proposals should NOT be enabled");
-
-    // Add caro via add_members — this should use the direct commit path
-    alix_group.add_members(&[caro.inbox_id()]).await?;
-
-    // Bo syncs
-    bo_group.sync().await?;
-
-    // Caro receives welcome
-    let caro_groups = caro.sync_welcomes().await?;
-    assert_eq!(
-        caro_groups.len(),
-        1,
-        "Caro should receive exactly one welcome"
-    );
-
-    let caro_group = caro_groups.first()?;
-    caro_group.sync().await?;
-
-    // Verify all members see 3 members
-    let alix_members = alix_group.members().await?;
-    let bo_members = bo_group.members().await?;
-    let caro_members = caro_group.members().await?;
-    assert_eq!(alix_members.len(), 3, "Alix should see 3 members");
-    assert_eq!(bo_members.len(), 3, "Bo should see 3 members");
-    assert_eq!(caro_members.len(), 3, "Caro should see 3 members");
-}
-
 /// Test that commit_pending_proposals batches GCE and commit when proposals come from
 /// a different member (Bob proposes, Alice commits).
 #[xmtp_common::test(unwrap_try = true)]
@@ -273,9 +219,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Bo proposes to add Caro
@@ -373,9 +317,7 @@ async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Capture bo's sequence ID before the bump
@@ -442,9 +384,7 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Bo creates a second installation, bumping his sequence ID
@@ -517,124 +457,6 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
 // Capability Advertisement Backwards Compatibility
 // =============================================================================
 
-/// Migration gate: AppDataDictionary capability is advertised on the
-/// creator's KP unconditionally (so `all_members_support_proposals`
-/// can pass), and after the bootstrap commit it's in
-/// `RequiredCapabilities`. Replaces the older custom-extension
-/// (`PROPOSAL_SUPPORT_EXTENSION_ID`) signal with the standard MLS
-/// mechanism.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_app_data_dictionary_capability_and_required() {
-    use openmls::extensions::ExtensionType;
-
-    tester!(alix);
-    tester!(bo);
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-
-    // Pre-bootstrap: KP advertises AppDataDictionary, but it's NOT in
-    // RequiredCapabilities — unmigrated groups don't carry the dict.
-    alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let own_caps_exts = mls_group
-                .own_leaf_node()
-                .expect("group creator must have own leaf")
-                .capabilities()
-                .extensions()
-                .to_vec();
-            assert!(
-                own_caps_exts.contains(&ExtensionType::AppDataDictionary),
-                "creator KP capabilities must advertise AppDataDictionary, got: {own_caps_exts:?}",
-            );
-
-            let required = mls_group
-                .extensions()
-                .required_capabilities()
-                .expect("required_capabilities must be set")
-                .extension_types()
-                .to_vec();
-            assert!(
-                !required.contains(&ExtensionType::AppDataDictionary),
-                "Pre-bootstrap RequiredCapabilities must NOT require AppDataDictionary, got: {required:?}",
-            );
-            Ok::<(), crate::groups::GroupError>(())
-        })
-        .await?;
-
-    // Run the bootstrap commit.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-
-    // Post-bootstrap: AppDataDictionary IS in RequiredCapabilities.
-    alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let required = mls_group
-                .extensions()
-                .required_capabilities()
-                .expect("required_capabilities must be set after bootstrap")
-                .extension_types()
-                .to_vec();
-            assert!(
-                required.contains(&ExtensionType::AppDataDictionary),
-                "Post-bootstrap RequiredCapabilities MUST require AppDataDictionary, got: {required:?}",
-            );
-            Ok::<(), crate::groups::GroupError>(())
-        })
-        .await?;
-}
-
-/// Backwards-compat invariant for the `AppDataUpdate` proposal capability flip.
-///
-/// The creator advertises `AppDataUpdate` on its own leaf node (so the new
-/// commit-with-inline-AppDataUpdate-proposal path works), but the group's
-/// `RequiredCapabilities` must NOT require it. Required-but-not-universally-
-/// advertised would break OpenMLS's RequiredCapabilities check for any
-/// installation whose leaf node only advertises the legacy proposal set,
-/// stranding every unmigrated client at join time.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_app_data_update_advertised_but_not_required() {
-    use openmls::messages::proposals::ProposalType;
-
-    tester!(alix);
-    let alix_group = alix.create_group(None, None)?;
-
-    alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let own_proposals = mls_group
-                .own_leaf_node()
-                .expect("group creator must have own leaf")
-                .capabilities()
-                .proposals()
-                .to_vec();
-            assert!(
-                own_proposals.contains(&ProposalType::AppDataUpdate),
-                "creator leaf must advertise AppDataUpdate, got: {own_proposals:?}",
-            );
-
-            let required = mls_group
-                .extensions()
-                .required_capabilities()
-                .expect("required_capabilities must be set")
-                .proposal_types()
-                .to_vec();
-            assert!(
-                required.contains(&ProposalType::GroupContextExtensions),
-                "GroupContextExtensions must be required, got: {required:?}",
-            );
-            assert!(
-                !required.contains(&ProposalType::AppDataUpdate),
-                "AppDataUpdate must NOT be required — would break backwards compat \
-                 with legacy leaf nodes. got: {required:?}",
-            );
-
-            Ok::<(), crate::groups::GroupError>(())
-        })
-        .await?;
-}
-
 /// Key-package rotation preserves the `AppDataDictionary` capability
 /// advertisement. Without this property a member whose KP rotates
 /// (e.g. via the periodic 30-day rotation) would lose the capability
@@ -701,15 +523,8 @@ async fn test_key_package_rotation_preserves_app_data_dictionary_capability() {
 // AppDataUpdate Path Tests
 // =============================================================================
 //
-// These tests exercise the AppDataUpdate flow that activates after
-// `enable_proposals()` fires the bootstrap commit. They confirm that:
-// 1. `update_group_name` and friends still work end-to-end (sender → receiver)
-// 2. The capability-gated read accessors return the new value
-// 3. The legacy path is unchanged for unmigrated groups
-//
-// `TEST_REGISTRY_OVERRIDE` stays in `app_data/mod.rs` for synthetic-
-// registry unit tests but no integration test in this file needs it —
-// bootstrap writes a real `COMPONENT_REGISTRY` entry.
+// These tests exercise AppDataUpdate on dictionary-native groups. They confirm
+// that updates replicate end-to-end and read accessors return the new value.
 
 /// `update_group_name` on a group with `proposals_enabled` should:
 /// - publish a commit containing an `AppDataUpdate(GROUP_NAME)` proposal,
@@ -729,14 +544,12 @@ async fn test_update_group_name_via_app_data_update() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    // Run the real bootstrap commit so the dict carries the
-    // registry, immutable seeds, and admin lists.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+    // Creation writes the dictionary with the registry, immutable seeds,
+    // and admin lists.
+
     bo_group.sync().await?;
 
-    // Sanity check the flag actually flipped from both sides.
+    // Both peers see the dictionary-native group.
     let alix_flag = alix_group
         .load_mls_group_with_lock_async(async |g| {
             Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
@@ -798,9 +611,7 @@ async fn test_receiver_rejects_overlong_metadata_from_raw_app_data_intent() {
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
         let bo_group = bo.sync_welcomes().await?.first()?.clone();
-        alix_group
-            .enable_proposals(EnableProposalsOptions::test_default())
-            .await?;
+
         bo_group.sync().await?;
         let before = match component_id {
             ComponentId::GROUP_NAME => bo_group.read_single_component::<GroupNameComponent>()?,
@@ -870,9 +681,7 @@ async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
     let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     let payload = TlsSetDelta::new()
@@ -921,9 +730,6 @@ async fn test_update_group_description_via_app_data_update() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     alix_group
@@ -935,223 +741,6 @@ async fn test_update_group_description_via_app_data_update() {
         bo_group.group_description()?,
         "AppData Description",
         "Bo should see the new group description through the AppData path"
-    );
-}
-
-/// Disappearing-message settings MUST survive the bootstrap commit.
-///
-/// Pins the bug fixed by routing `get_message_expire_at_ns` through
-/// the capability-aware `extract_group_mutable_metadata_capability_aware`
-/// helper: before the fix, the static
-/// `extract_legacy_group_mutable_metadata` swallowed `MissingExtension`
-/// on migrated groups, so `get_message_expire_at_ns` returned `None`
-/// and every message stored post-bootstrap had `expire_at_ns = None` —
-/// no expiry, silently disabling disappearing messages.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_disappearing_settings_survive_bootstrap() {
-    use xmtp_db::group_message::MsgQueryArgs;
-    use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // Configure disappearing messages on the unmigrated group. Both
-    // `from_ns` and `in_ns` must be > 0 —
-    // `MessageDisappearingSettings::is_enabled` is the gate that flips
-    // on the expire_at_ns plumbing. `from_ns = 1` is a sentinel-low
-    // value (not a real "from" timestamp); the test only needs `> 0`
-    // to satisfy `is_enabled`.
-    const DISAPPEAR_IN_NS: i64 = 3_600_000_000_000; // 1 hour
-    let settings = MessageDisappearingSettings::new(1, DISAPPEAR_IN_NS);
-    alix_group
-        .update_conversation_message_disappearing_settings(settings)
-        .await?;
-    bo_group.sync().await?;
-
-    // Send a pre-bootstrap message. Stored expire_at_ns should be set
-    // to roughly `now_ns + DISAPPEAR_IN_NS`.
-    let pre_send_ns = xmtp_common::time::now_ns();
-    alix_group
-        .send_message(b"before-bootstrap", SendMessageOpts::default())
-        .await?;
-    bo_group.sync().await?;
-    let bo_pre_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
-    let pre_msg = bo_pre_msgs
-        .iter()
-        .find(|m| m.decrypted_message_bytes == b"before-bootstrap")
-        .expect("bo should have decrypted the pre-bootstrap message");
-    let pre_expire = pre_msg.expire_at_ns.expect(
-        "pre-bootstrap message should carry an expire_at_ns derived from disappearing settings",
-    );
-    assert!(
-        pre_expire > pre_send_ns,
-        "pre-bootstrap expire_at_ns ({pre_expire}) must be in the future of send ts ({pre_send_ns})"
-    );
-    assert!(
-        pre_expire < pre_send_ns + 2 * DISAPPEAR_IN_NS,
-        "pre-bootstrap expire_at_ns ({pre_expire}) must be within 2x the disappear window of send ts ({pre_send_ns}); \
-         catches a regression that stores `Some(now_ns())` (zero-duration) or `Some(garbage)`"
-    );
-
-    // Run the real bootstrap commit — strips the legacy GMM extension.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    bo_group.sync().await?;
-
-    // Send a post-bootstrap message. Before the capability-aware fix,
-    // `get_message_expire_at_ns` returned None here because it read
-    // the (now-absent) legacy GMM extension. After the fix, the dict
-    // overlay supplies the disappearing settings and expire_at_ns is
-    // populated.
-    let post_send_ns = xmtp_common::time::now_ns();
-    alix_group
-        .send_message(b"after-bootstrap", SendMessageOpts::default())
-        .await?;
-    bo_group.sync().await?;
-    let bo_post_msgs = bo_group.find_messages(&MsgQueryArgs::default())?;
-    let post_msg = bo_post_msgs
-        .iter()
-        .find(|m| m.decrypted_message_bytes == b"after-bootstrap")
-        .expect("bo should have decrypted the post-bootstrap message");
-    let post_expire = post_msg.expire_at_ns.expect(
-        "post-bootstrap message MUST carry an expire_at_ns — disappearing settings must survive the legacy GMM strip",
-    );
-    assert!(
-        post_expire > post_send_ns,
-        "post-bootstrap expire_at_ns ({post_expire}) must be in the future of send ts ({post_send_ns})"
-    );
-    assert!(
-        post_expire < post_send_ns + 2 * DISAPPEAR_IN_NS,
-        "post-bootstrap expire_at_ns ({post_expire}) must be within 2x the disappear window of send ts ({post_send_ns}); \
-         catches a regression that stores `Some(now_ns())` or `Some(garbage)`"
-    );
-}
-
-/// XIP §3.2: a libxmtp client running below the migrator's pkg_version
-/// MUST land in `paused_for_version` rather than fork or fail when the
-/// migrator calls `enable_proposals()`. The two-step bootstrap in
-/// `enable_proposals()` makes this work by writing
-/// MIN_SUPPORTED_PROTOCOL_VERSION to legacy GMM **before** the
-/// bootstrap commit strips that extension — old clients can still read
-/// the version-bump from the legacy GCE path, pause on it, and never
-/// process the (legacy-extension-stripping) bootstrap commit they
-/// wouldn't understand.
-///
-/// ## What this test covers and doesn't cover
-///
-/// Covered: Bo (running the SAME binary as Alix but at the older
-/// pkg_version) processes step A's legacy GCE bump, hits the
-/// version-mismatch arm of `validate_one_commit`, and lands in
-/// `paused_for_version`. He never applies step B.
-///
-/// NOT covered: a TRULY pre-AppData binary processing step B and
-/// failing because the bootstrap commit strips extensions it requires.
-/// That code path is impossible to exercise in-tree (the only client
-/// is the current binary), so the test confirms the pause hint is
-/// reachable via the legacy reader — that's the contract that lets
-/// a pre-AppData binary pause without ever opening step B.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
-    use crate::builder::ClientBuilder;
-    use crate::groups::tests::increment_patch_version;
-    use crate::utils::VersionInfo;
-    use xmtp_cryptography::utils::generate_local_wallet;
-
-    let mut alix_version = VersionInfo::default();
-    alix_version.test_update_version(
-        increment_patch_version(alix_version.pkg_version())
-            .unwrap()
-            .as_str(),
-    );
-    let alix_pkg_version = alix_version.pkg_version().to_string();
-    // Alix is on the newer version; bo is on the default (older).
-    let alix =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), alix_version).await;
-
-    tester!(bo);
-
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-
-    // Bo joins the group at his current (older) version. No min-version
-    // requirement yet, so the welcome itself doesn't pause him.
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-    assert!(
-        bo_group.paused_for_version()?.is_none(),
-        "Bo should not be paused before alix calls enable_proposals"
-    );
-    let before = bo_group.epoch_authenticator().await?;
-    let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
-    let processed = bo.context.db().topic_progress(&db_topic)?.processed;
-
-    // Alix migrates. The two-step bootstrap publishes:
-    //   1. A legacy GCE commit bumping MIN_SUPPORTED_PROTOCOL_VERSION
-    //      in the still-present legacy GMM extension.
-    //   2. The bootstrap commit (strips legacy extensions, seeds dict).
-    // Pass alix's pkg_version as the floor explicitly: the test
-    // default's "0.0.0" floor would skip the step-A pause hint that's
-    // the whole subject of this test.
-    alix_group
-        .enable_proposals(EnableProposalsOptions {
-            force: false,
-            min_version: Some(alix_pkg_version.clone()),
-        })
-        .await?;
-
-    // The version bump stays pending. Neither bootstrap commit may apply.
-    super::assert_version_sync_blocked(
-        bo_group.sync().await.unwrap_err(),
-        &xmtp_proto::types::Topic::new_group_message(bo_group.group_id),
-        processed,
-    );
-    assert_eq!(bo_group.epoch_authenticator().await?, before);
-    assert_eq!(
-        bo.context.db().topic_progress(&db_topic)?.processed,
-        processed
-    );
-
-    let paused = bo_group.paused_for_version()?;
-    assert_eq!(
-        paused.as_deref(),
-        Some(alix_pkg_version.as_str()),
-        "Bo must be paused at alix's pkg_version — the legacy GMM bump is the pause hint old clients can read"
-    );
-
-    // Bo's group must NOT show as migrated. The bootstrap commit
-    // strips legacy GMM and seeds the AppData dict; if Bo applied it
-    // he'd be migrated but unable to ever read the pause hint.
-    let bo_migrated = bo_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(bo_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(
-        !bo_migrated,
-        "Bo must not have processed the bootstrap commit — it ships after the pause-triggering legacy bump"
-    );
-
-    // Alix is at the floor version, so she runs both commits and ends
-    // up migrated as normal.
-    let alix_migrated = alix_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(
-        alix_migrated,
-        "Alix should be migrated post-enable_proposals"
     );
 }
 
@@ -1176,57 +765,6 @@ async fn test_enable_proposals_pauses_old_client_via_legacy_gmm_bump() {
 //    `crates/xmtp_mls/src/groups/app_data/component_source.rs` under
 //    `test_expand_remove_by_hash_*`; revisit if a future caller starts
 //    emitting hash-based deletes.
-/// Sanity check the legacy path: a group with `proposals_enabled = false`
-/// (the default for fresh groups) should still produce a normal GCE commit
-/// for `update_group_name`, with no AppDataUpdate involvement. Confirms
-/// that introducing the new branch hasn't accidentally affected unmigrated
-/// groups.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_update_group_name_uses_legacy_path_when_proposals_disabled() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // Sanity: proposals_enabled is false on a fresh group.
-    let flag = alix_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(
-        !flag,
-        "Fresh groups should not have proposals_enabled set by default"
-    );
-
-    alix_group
-        .update_group_name("Legacy Path Name".to_string())
-        .await?;
-    bo_group.sync().await?;
-
-    assert_eq!(bo_group.group_name()?, "Legacy Path Name");
-    assert_eq!(alix_group.group_name()?, "Legacy Path Name");
-}
-
-// `test_update_group_name_uses_legacy_path_when_registry_is_empty`
-// removed: its premise was that flipping `enable_proposals()` left
-// the AppData dictionary empty so the per-component sender gate
-// `proposals_enabled && !registry.is_empty()` would still route
-// through the legacy GCE path. With `enable_proposals()` now firing
-// the bootstrap migration end-to-end, the registry is always
-// populated post-flip and the dict always carries the seeded
-// components — the "empty registry, proposals_enabled on" state the
-// test checked is no longer reachable. The two gates the test was
-// pinning are still covered:
-//   - `proposals_enabled` defaults to false: `test_proposals_enabled_default_false`.
-//   - Pre-flip groups stay on the legacy GCE path:
-//     `test_update_group_name_uses_legacy_path_when_proposals_disabled`.
-
 /// An inline update must obey the registry policy and leave the group unchanged.
 /// The failed intent must return its exact permission cause in the sync summary.
 #[xmtp_common::test(unwrap_try = true)]
@@ -1249,11 +787,9 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    // Bootstrap and tighten GROUP_NAME's update policy to Deny so
+    // Tighten GROUP_NAME's update policy to Deny so
     // any subsequent update_group_name is rejected by the validator.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
     alix_group
         .update_permission_policy(
@@ -1301,15 +837,6 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     );
 }
 
-// After bootstrap, a group's legacy GMM extension is removed entirely —
-// so a Layer-4 "dict-wins-over-legacy" overlay test no longer fits the
-// post-migration model. The dict is now the *only* source of truth for
-// migrated groups, and `test_update_group_name_via_app_data_update`
-// already exercises the dict→read path end-to-end. The underlying
-// merge-on-conflict logic stays around as defense-in-depth for any
-// transitional state but isn't reachable through the public API once
-// `enable_proposals()` does the full bootstrap.
-
 /// Pin the intra-batch chaining invariant in
 /// [`super::super::app_data::accumulate_app_data_updates`]: when two
 /// proposals target the same `ComponentId` inside one batch, the second
@@ -1324,8 +851,8 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
 /// - Without chaining (bug): `{bob}` — the second insert's `old_value`
 ///   would be the empty pre-batch set, overwriting Alice's entry.
 ///
-/// This is the invariant the upcoming bootstrap commit (which emits
-/// many `AppDataUpdate(COMPONENT_REGISTRY, …)` in a row) relies on.
+/// Creation writes a component registry and later updates can contain
+/// several AppDataUpdate proposals in one batch.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_accumulate_app_data_updates_chains_intra_batch() {
     use crate::groups::app_data::{accumulate_app_data_updates, component_source};
@@ -1389,13 +916,10 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
 
 // =============================================================================
 // Sender-path tests for `IntentKind::UpdateAdminList` and
-// `IntentKind::UpdatePermission`. The AppDataUpdate path activates on
-// migrated groups (`is_migrated_group(...)` true). Tests use
-// `with_permissive_registry` (the `TEST_REGISTRY_OVERRIDE` helper) so
-// we can exercise the path without running a full bootstrap commit.
+// `IntentKind::UpdatePermission`. New groups use the AppDataUpdate path.
 // =============================================================================
 
-/// `update_admin_list(Add, bo)` on a migrated group should publish an
+/// `update_admin_list(Add, bo)` on a dictionary-native group should publish an
 /// `AppDataUpdate(ADMIN_LIST, Update(TlsSetDelta::insert(bo)))` proposal,
 /// apply the new admin list into the OpenMLS AppData dictionary, and
 /// surface bo as an admin to peers via `mutable_metadata().admin_list`.
@@ -1413,17 +937,13 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    // Run the real bootstrap commit. After this the dict carries
-    // the registry, the immutable seeds, and the admin lists, and
-    // the legacy XMTP extensions are gone.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+    // Creation already writes the registry, immutable seeds, and admin lists.
+
     bo_group.sync().await?;
 
     // Promote bo to admin via the host-facing API. Internally queues
     // `IntentKind::UpdateAdminList` which routes through the
-    // AppDataUpdate path on this migrated group.
+    // AppDataUpdate path on this dictionary-native group.
     alix_group
         .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
         .await?;
@@ -1452,9 +972,7 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
     }
 }
 
-/// Round-trip: add then remove. With the real bootstrap commit the
-/// immutable seeds are in the dict, so the second `update_admin_list`
-/// call's `metadata()` read works on the migrated group.
+/// Round-trip: add then remove on a dictionary-native group.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_admin_list_remove_via_app_data_path_after_migration() {
     use crate::groups::UpdateAdminListType;
@@ -1469,9 +987,6 @@ async fn test_admin_list_remove_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     alix_group
@@ -1511,9 +1026,6 @@ async fn test_super_admin_list_add_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // AddSuper targets SUPER_ADMIN_LIST per the sender's mapping.
@@ -1569,13 +1081,10 @@ async fn test_permission_update_via_app_data_path_after_migration() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     bo_group.sync().await?;
 
     // Tighten GROUP_NAME's update_policy from `Allow` (the default
-    // synthesized at bootstrap) to `AdminOnly`.
+    // written at creation) to `AdminOnly`.
     alix_group
         .update_permission_policy(
             PermissionUpdateType::UpdateMetadata,
@@ -1649,8 +1158,7 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    // Note: NO `enable_proposals()` and NO `with_permissive_registry()`.
-    // The dual-routing gate is closed; the legacy GCE path runs.
+    // New groups use the dictionary path without setup.
     alix_group
         .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
         .await?;
@@ -1659,7 +1167,7 @@ async fn test_admin_list_add_unchanged_on_unmigrated_group() {
     let alix_meta = alix_group.mutable_metadata()?;
     assert!(
         alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
-        "legacy GCE admin-list update broke, admin_list={:?}",
+        "admin-list update broke, admin_list={:?}",
         alix_meta.admin_list,
     );
     let bo_meta = bo_group.mutable_metadata()?;

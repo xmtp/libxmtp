@@ -90,14 +90,39 @@ async fn test_group_mutable_data() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert!(group_mutable_metadata.attributes.len().eq(&5));
-    assert!(
+    assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty()
+            .get(&MetadataField::MinimumSupportedProtocolVersion.to_string()),
+        Some(&xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string())
     );
+    if xmtp_configuration::ENABLE_COMMIT_LOG {
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::CommitLogSigner.to_string())
+                .map(String::len),
+            Some(64)
+        );
+    } else {
+        assert_eq!(
+            group_mutable_metadata
+                .attributes
+                .get(&MetadataField::CommitLogSigner.to_string()),
+            None
+        );
+    }
+    for field in [
+        MetadataField::GroupName,
+        MetadataField::Description,
+        MetadataField::GroupImageUrlSquare,
+        MetadataField::AppData,
+    ] {
+        assert_eq!(
+            group_mutable_metadata.attributes.get(&field.to_string()),
+            None
+        );
+    }
 
     // Add bola to the group
     amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
@@ -108,13 +133,17 @@ async fn test_group_mutable_data() {
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    assert!(
-        group_mutable_metadata
-            .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty()
-    );
+    for field in [
+        MetadataField::GroupName,
+        MetadataField::Description,
+        MetadataField::GroupImageUrlSquare,
+        MetadataField::AppData,
+    ] {
+        assert_eq!(
+            group_mutable_metadata.attributes.get(&field.to_string()),
+            None
+        );
+    }
 
     // Update group name
     amal_group
@@ -224,12 +253,11 @@ async fn test_update_group_image_url_square() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert!(
+    assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupImageUrlSquare.to_string())
-            .unwrap()
-            .is_empty()
+            .get(&MetadataField::GroupImageUrlSquare.to_string()),
+        None
     );
 
     // Update group name
@@ -315,12 +343,11 @@ async fn test_group_mutable_data_group_permissions() {
     amal_group.sync().await.unwrap();
 
     let group_mutable_metadata = amal_group.mutable_metadata().unwrap();
-    assert!(
+    assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty()
+            .get(&MetadataField::GroupName.to_string()),
+        None
     );
 
     // Add bola to the group
@@ -334,12 +361,11 @@ async fn test_group_mutable_data_group_permissions() {
     let bola_group = bola_groups.first().unwrap();
     bola_group.sync().await.unwrap();
     let group_mutable_metadata = bola_group.mutable_metadata().unwrap();
-    assert!(
+    assert_eq!(
         group_mutable_metadata
             .attributes
-            .get(&MetadataField::GroupName.to_string())
-            .unwrap()
-            .is_empty()
+            .get(&MetadataField::GroupName.to_string()),
+        None
     );
 
     // Update group name

@@ -313,18 +313,16 @@ where
 
     /// Retrieves the group name from the group's mutable metadata extension.
     pub fn group_name(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupNameComponent>()?
-            .ok_or_else(|| {
-                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
-            })
+        Ok(self
+            .read_single_component::<GroupNameComponent>()?
+            .unwrap_or_default())
     }
 
     /// Retrieves the app_data field from the group's mutable metadata extension
     pub fn app_data(&self) -> Result<String, GroupError> {
-        self.read_single_component::<AppDataComponent>()?
-            .ok_or_else(|| {
-                MetadataPermissionsError::from(GroupMutableMetadataError::MissingExtension).into()
-            })
+        Ok(self
+            .read_single_component::<AppDataComponent>()?
+            .unwrap_or_default())
     }
 
     /// Updates the description of the group.
@@ -359,12 +357,9 @@ where
     }
 
     pub fn group_description(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupDescriptionComponent>()?
-            .ok_or_else(|| {
-                GroupError::MetadataPermissionsError(
-                    GroupMutableMetadataError::MissingExtension.into(),
-                )
-            })
+        Ok(self
+            .read_single_component::<GroupDescriptionComponent>()?
+            .unwrap_or_default())
     }
 
     /// Updates the image URL (square) of the group.
@@ -401,11 +396,9 @@ where
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        self.read_single_component::<GroupImageUrlComponent>()?
-            .ok_or_else(|| {
-                MetadataPermissionsError::Mutable(GroupMutableMetadataError::MissingExtension)
-                    .into()
-            })
+        Ok(self
+            .read_single_component::<GroupImageUrlComponent>()?
+            .unwrap_or_default())
     }
 
     pub async fn update_conversation_message_disappearing_settings(

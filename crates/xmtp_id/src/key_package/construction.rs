@@ -10,8 +10,7 @@ use openmls::{
 };
 use openmls_traits::OpenMlsProvider;
 use xmtp_configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID,
-    MUTABLE_METADATA_EXTENSION_ID, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
+    CIPHERSUITE, WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID,
     WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_cryptography::{
@@ -34,7 +33,6 @@ pub enum KeyPackageConstructionError {
 pub struct KeyPackageOptions {
     pub include_post_quantum: bool,
     pub welcome_pointers: bool,
-    pub app_data_dictionary: bool,
     pub lifetime: Option<Lifetime>,
 }
 impl Default for KeyPackageOptions {
@@ -42,7 +40,6 @@ impl Default for KeyPackageOptions {
         Self {
             include_post_quantum: false,
             welcome_pointers: true,
-            app_data_dictionary: true,
             lifetime: None,
         }
     }
@@ -84,22 +81,15 @@ pub fn build_key_package(
     let application_id = Extension::ApplicationId(ApplicationIdExtension::new(inbox_id.as_bytes()));
     let leaf_node_extensions = Extensions::<LeafNode>::single(application_id)?;
 
-    let mut capability_extensions = vec![
+    let capability_extensions = vec![
         ExtensionType::LastResort,
         ExtensionType::ApplicationId,
         ExtensionType::ImmutableMetadata,
-        // Default capabilities let clients join groups that use AppDataUpdate.
+        // Clients can join groups that use AppDataUpdate.
         ExtensionType::AppDataDictionary,
-        ExtensionType::Unknown(GROUP_PERMISSIONS_EXTENSION_ID),
-        ExtensionType::Unknown(MUTABLE_METADATA_EXTENSION_ID),
-        ExtensionType::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID),
         ExtensionType::Unknown(WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID),
         ExtensionType::Unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID),
     ];
-    // Fixtures can model clients that do not support AppDataDictionary.
-    if !options.app_data_dictionary {
-        capability_extensions.retain(|e| *e != ExtensionType::AppDataDictionary);
-    }
     // Defaults preserve both proposal capabilities advertised by clients.
     let capabilities = Capabilities::new(
         None,
@@ -149,7 +139,7 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn generated_package_preserves_options_and_verifies() {
         for include_post_quantum in [false, true] {
-            for capabilities in [false, true] {
+            for welcome_pointers in [false, true] {
                 let provider = OpenMlsRustCrypto::default();
                 let key = XmtpInstallationCredential::new();
                 let generated = build_key_package(
@@ -159,8 +149,7 @@ mod tests {
                     &provider,
                     KeyPackageOptions {
                         include_post_quantum,
-                        welcome_pointers: capabilities,
-                        app_data_dictionary: capabilities,
+                        welcome_pointers,
                         lifetime: Some(Lifetime::new(3600)),
                     },
                 )?;
@@ -169,12 +158,24 @@ mod tests {
                 assert_eq!(verified.credential.inbox_id, "inbox");
                 assert_eq!(verified.installation_public_key, key.public_slice());
                 let leaf = verified.inner.leaf_node();
-                assert_eq!(
+                assert!(
                     leaf.capabilities()
                         .extensions()
-                        .contains(&ExtensionType::AppDataDictionary),
-                    capabilities
+                        .contains(&ExtensionType::AppDataDictionary)
                 );
+                for legacy_extension in [
+                    xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID,
+                    xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID,
+                    xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
+                ] {
+                    assert!(
+                        !leaf
+                            .capabilities()
+                            .extensions()
+                            .contains(&ExtensionType::Unknown(legacy_extension)),
+                        "key package advertises removed legacy extension {legacy_extension:?}",
+                    );
+                }
                 assert!(
                     leaf.capabilities()
                         .proposals()
@@ -189,7 +190,7 @@ mod tests {
                     .inner
                     .extensions()
                     .unknown(WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID);
-                assert_eq!(pointer.is_some(), capabilities);
+                assert_eq!(pointer.is_some(), welcome_pointers);
                 let wrapper = verified.wrapper_encryption()?;
                 assert_eq!(wrapper.is_some(), include_post_quantum);
                 if let Some(pair) = generated.post_quantum_keypair {

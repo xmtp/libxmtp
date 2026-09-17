@@ -12,7 +12,12 @@ use xmtp_proto::types::Topic;
 fn gm(message: &xmtp_proto::backend_v1::ServerEnvelope) -> (u64, bool) {
     let message = xmtp_api_backend::envelope::decode_group_message(message.clone())
         .expect("valid backend group message");
-    (message.cursor.0, message.is_commit())
+    // Dictionary-native groups also publish standalone proposals. Count only
+    // application content when checking delivery of the messages we sent.
+    (
+        message.cursor.0,
+        message.message.content_type() == openmls::prelude::ContentType::Application,
+    )
 }
 
 /// Concise one-line summary of a frame, for clear panic messages.
@@ -138,11 +143,11 @@ async fn bidi_reaches_applied_target_then_streams_live() {
             }
             BidiEvent::GroupMessages { messages } => {
                 for message in &messages {
-                    let (id, is_commit) = gm(message);
+                    let (id, is_application) = gm(message);
                     assert!(id > catchup_max, "per-topic delivery must increase");
                     assert!(seen.insert(id), "duplicate cursor {id} in catch-up");
                     catchup_max = id;
-                    if !is_commit {
+                    if is_application {
                         app_count += 1;
                         catchup_app += 1;
                     }
@@ -175,7 +180,7 @@ async fn bidi_reaches_applied_target_then_streams_live() {
         match next_within(&mut conn, 10).await {
             BidiEvent::GroupMessages { messages: m, .. } => {
                 for g in &m {
-                    let (id, is_commit) = gm(g);
+                    let (id, is_application) = gm(g);
                     assert!(
                         id > catchup_max,
                         "live cursor {id} must exceed catch-up max {catchup_max}"
@@ -184,7 +189,7 @@ async fn bidi_reaches_applied_target_then_streams_live() {
                         seen.insert(id),
                         "cursor {id} delivered twice (catch-up/live overlap or dup)"
                     );
-                    if !is_commit {
+                    if is_application {
                         app_count += 1;
                     }
                 }

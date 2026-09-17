@@ -371,7 +371,6 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     shared.receive().await?;
     wait_until_idle(&bo).await;
     let before = snapshot(&shared).await?;
-    let crypto_before = bo.context.mls_storage().hash_all()?;
     let database = database_path(&bo);
     let group_id = shared.group_id;
     let topic = StreamTopic::group(group_id);
@@ -391,7 +390,15 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     let admitted = snapshot(&shared).await?;
     assert_eq!(admitted.epoch, before.epoch);
     assert_eq!(admitted.processed, before.processed);
-    assert_eq!(admitted.pending, 1);
+    // The metadata update has an AppDataUpdate proposal and its commit.
+    assert_eq!(admitted.pending, 2);
+    // Dictionary-native metadata updates use a proposal by reference. Apply
+    // its ordered prefix before the child attempts the referenced commit.
+    shared.process_pending_group_head(None)?;
+    let before_commit = snapshot(&shared).await?;
+    assert_eq!(before_commit.epoch, before.epoch);
+    assert_eq!(before_commit.pending, 1);
+    let crypto_before = bo.context.mls_storage().hash_all()?;
     let pending = bo.context.db().first_pending_envelope(&topic)??;
     let directory = TempDir::new()?;
     let start = directory.path().join("start");
@@ -407,7 +414,7 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
         &start,
     )?;
     let ready = child.read_report(&child.ready).await?;
-    assert_eq!(ready.epoch, before.epoch);
+    assert_eq!(ready.epoch, before_commit.epoch);
     fs::write(&start, b"start")?;
     let uncommitted = child.read_report(&child.report).await?;
     assert_eq!(uncommitted.epoch, expected.epoch);
@@ -419,11 +426,11 @@ async fn process_death_before_state_commit_preserves_replay_and_convergence() {
     let reopened = reopen(&database).await?;
     let recovered = reopened.group(&group_id)?;
     let rolled_back = snapshot(&recovered).await?;
-    assert_eq!(rolled_back.epoch, before.epoch);
-    assert_eq!(rolled_back.authenticator, before.authenticator);
-    assert_eq!(rolled_back.processed, before.processed);
-    assert_eq!(rolled_back.received, admitted.received);
-    assert_eq!(rolled_back.pending, 1);
+    assert_eq!(rolled_back.epoch, before_commit.epoch);
+    assert_eq!(rolled_back.authenticator, before_commit.authenticator);
+    assert_eq!(rolled_back.processed, before_commit.processed);
+    assert_eq!(rolled_back.received, before_commit.received);
+    assert_eq!(rolled_back.pending, before_commit.pending);
     assert_eq!(reopened.context.mls_storage().hash_all()?, crypto_before);
     let replay = reopened.context.db().first_pending_envelope(&topic)??;
     assert_eq!(replay.sequence_id, pending.sequence_id);

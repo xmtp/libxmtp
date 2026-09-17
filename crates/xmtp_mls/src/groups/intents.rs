@@ -1302,9 +1302,9 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // No key rotation needed, because A's commit to add B already performs a rotation.
-        // Group should have a commit to add client B, followed by A's message.
-        verify_num_payloads_in_group(&group_a, 2).await;
+        // No key rotation is needed because A's commit to add B rotates the key.
+        // The Add proposal, membership AppDataUpdate proposal, commit, and message are published.
+        verify_num_payloads_in_group(&group_a, 4).await;
 
         // Client B sends a message to Client A
         let groups_b = client_b.sync_welcomes().await.unwrap();
@@ -1316,15 +1316,15 @@ pub(crate) mod tests {
             .expect("send message");
 
         // B must perform a key rotation before sending their first message.
-        // Group should have a commit to add B, A's message, B's key rotation and then B's message.
-        let payloads_a = verify_num_payloads_in_group(&group_a, 4).await;
-        let payloads_b = verify_num_payloads_in_group(&group_b, 4).await;
+        // The initial four envelopes are followed by B's key rotation and message.
+        let payloads_a = verify_num_payloads_in_group(&group_a, 6).await;
+        let payloads_b = verify_num_payloads_in_group(&group_b, 6).await;
 
         // Verify key rotation payload
         for i in 0..payloads_a.len() {
             assert_eq!(payloads_a[i].payload_hash, payloads_b[i].payload_hash);
         }
-        verify_commit_updates_leaf_node(&group_a, &payloads_a[2]);
+        verify_commit_updates_leaf_node(&group_a, &payloads_a[4]);
 
         // Client B sends another message to Client A, and Client A sends another message to Client B.
         group_b
@@ -1336,9 +1336,9 @@ pub(crate) mod tests {
             .await
             .expect("send message");
 
-        // Group should only have 2 additional messages - no more key rotations needed.
-        verify_num_payloads_in_group(&group_a, 6).await;
-        verify_num_payloads_in_group(&group_b, 6).await;
+        // Group should only have two additional messages. No more key rotations are needed.
+        verify_num_payloads_in_group(&group_a, 8).await;
+        verify_num_payloads_in_group(&group_b, 8).await;
     }
 
     async fn verify_num_payloads_in_group(

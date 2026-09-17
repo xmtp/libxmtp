@@ -452,7 +452,7 @@ where
         let mutable_permission_extension =
             build_mutable_permissions_extension(mutable_permissions)?;
 
-        let group_config = build_group_config(
+        let group_config = build_legacy_test_group_config(
             protected_metadata,
             mutable_metadata,
             group_membership,

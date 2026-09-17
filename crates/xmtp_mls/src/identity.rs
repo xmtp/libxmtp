@@ -785,14 +785,6 @@ impl Identity {
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {
     pub static ENABLE_WELCOME_POINTERS: bool;
-    /// Test-only opt-out from advertising `AppDataDictionary` in the
-    /// key package's leaf-node capabilities. Tests that simulate an
-    /// "old client without AppData support" set this to `false` for
-    /// the scope of one client build, and the resulting KP omits the
-    /// extension type from its `Capabilities`. Production has no
-    /// equivalent gate — `AppDataDictionary` is broadcast
-    /// unconditionally.
-    pub static ENABLE_APP_DATA_DICTIONARY_BROADCAST: bool;
 }
 
 #[derive(Builder, Debug)]
@@ -827,9 +819,6 @@ impl XmtpKeyPackageBuilder {
         #[cfg(any(test, feature = "test-utils"))]
         {
             options.welcome_pointers = ENABLE_WELCOME_POINTERS.try_with(|v| *v).unwrap_or(true);
-            options.app_data_dictionary = ENABLE_APP_DATA_DICTIONARY_BROADCAST
-                .try_with(|v| *v)
-                .unwrap_or(true);
             options.lifetime =
                 Some(crate::utils::test_mocks_helpers::maybe_mock_package_lifetime());
         }

@@ -1,6 +1,6 @@
 use crate::groups::validated_commit::{CommitValidationError, LibXMTPVersion};
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_parse_and_compare_basic_versions() {
     let v1_0_0 = LibXMTPVersion::parse("1.0.0").unwrap();
     let v1_0_1 = LibXMTPVersion::parse("1.0.1").unwrap();
@@ -20,7 +20,7 @@ fn test_parse_and_compare_basic_versions() {
     assert_eq!(v1_0_0, v1_0_0_dup);
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_parse_and_compare_with_suffixes() {
     let v1_0_0 = LibXMTPVersion::parse("1.0.0").unwrap();
     let v1_0_0_alpha = LibXMTPVersion::parse("1.0.0-alpha").unwrap();
@@ -44,7 +44,7 @@ fn test_parse_and_compare_with_suffixes() {
     assert!(v1_0_0_rc1 < v1_0_1_alpha);
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_parse_and_compare_zero_versions() {
     let v0_0_0 = LibXMTPVersion::parse("0.0.0").unwrap();
     let v0_0_1 = LibXMTPVersion::parse("0.0.1").unwrap();
@@ -56,7 +56,7 @@ fn test_parse_and_compare_zero_versions() {
     assert!(v0_1_0 < v1_0_0);
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_numeric_pre_release_identifiers_compare_numerically() {
     // Per semver 2.0 §11.4.1: identifiers consisting only of digits
     // are compared numerically. The hand-rolled implementation
@@ -71,7 +71,7 @@ fn test_numeric_pre_release_identifiers_compare_numerically() {
     assert!(v1_0_0_alpha_2 < v1_0_0_alpha_11);
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_multi_segment_pre_release_parses() {
     // Multi-segment pre-release identifiers like `1.0.0-alpha.1` are
     // valid semver 2.0; the hand-rolled parser rejected them because
@@ -80,7 +80,7 @@ fn test_multi_segment_pre_release_parses() {
     assert!(LibXMTPVersion::parse("1.0.0-rc.1.build.42").is_ok());
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_build_metadata_parses() {
     // Build metadata strings (`+...`) are accepted by the parser. Note
     // that the [`semver`] crate's `Ord` impl deliberately includes
@@ -97,7 +97,7 @@ fn test_build_metadata_parses() {
     assert!(LibXMTPVersion::parse("1.0.0-rc.1+build.5").is_ok());
 }
 
-#[test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_parse_invalid_format() {
     for bad in ["1.0", "1.0.0.0", "1.x.0", "a.b.c", "1..0", ""] {
         assert!(
@@ -110,14 +110,8 @@ fn test_parse_invalid_format() {
     }
 }
 
-/// `PROPOSALS_MIN_PROTOCOL_VERSION` is the default floor written by
-/// `enable_proposals` when the caller doesn't override `min_version`.
-/// The send-side clamp in `enable_proposals` refuses any
-/// `min_version > own pkg_version`, so this constant being ahead of
-/// the workspace version would brick every production call to
-/// `enable_proposals` that takes the default. Pin the invariant here
-/// so CI fails on a one-sided bump.
-#[test]
+/// Creation must not write a floor above the version of the creating client.
+#[xmtp_common::test(unwrap_try = true)]
 fn proposals_min_protocol_version_does_not_exceed_workspace_version() {
     let default_floor = LibXMTPVersion::parse(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
         .expect("PROPOSALS_MIN_PROTOCOL_VERSION must be valid semver");
@@ -126,7 +120,7 @@ fn proposals_min_protocol_version_does_not_exceed_workspace_version() {
     assert!(
         default_floor <= workspace,
         "PROPOSALS_MIN_PROTOCOL_VERSION ({}) must be <= CARGO_PKG_VERSION ({}); \
-         a higher default would trip the enable_proposals clamp",
+         a higher default would pause freshly created groups",
         xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION,
         env!("CARGO_PKG_VERSION"),
     );

@@ -215,14 +215,15 @@ async fn test_parallel_syncs() {
         .unwrap();
     assert_eq!(alix2_welcomes.len(), 1);
 
-    // Make sure that only one group message was sent
+    // The installation add emits an Add proposal, a membership AppDataUpdate proposal,
+    // and the commit that consumes both proposals.
     let group_messages = alix1
         .context
         .api()
         .query_group_messages(alix1_group.group_id)
         .await
         .unwrap();
-    assert_eq!(group_messages.len(), 1);
+    assert_eq!(group_messages.len(), 3);
 
     let alix2_group = receive_group_invite(&alix2).await;
 
@@ -487,7 +488,9 @@ async fn can_stream_out_of_order_without_forking() {
         .query_group_messages(group_b.group_id)
         .await
         .unwrap();
-    assert_eq!(messages.len(), 8);
+    // Adding B and C emits two Add proposals, one membership AppDataUpdate proposal,
+    // and their commit. The remaining eight envelopes are the messages and later commits.
+    assert_eq!(messages.len(), 12);
 
     // Get reference to last message
     let last_message = messages.last().unwrap();
@@ -601,16 +604,15 @@ async fn prepared_commit_keeps_keys_without_advancing_epoch() {
     let installation_keys = &group.context.identity().installation_keys;
     crate::state_tx::state_write(storage, |tx| {
         tx.with_group(group.group_id, |mls_group, storage| {
-            let extensions = crate::groups::build_extensions_for_metadata_update(
-                mls_group,
-                "foo".to_string(),
-                "bar".to_string(),
-            )?;
             let (_, staged_commit, epoch) = crate::groups::mls_sync::generate_prepared_commit(
                 storage,
                 mls_group,
                 |group, provider| {
-                    group.update_group_context_extensions(provider, extensions, installation_keys)
+                    group.self_update(
+                        provider,
+                        installation_keys,
+                        openmls::treesync::LeafNodeParameters::default(),
+                    )
                 },
             )?;
             assert!(staged_commit.is_some());

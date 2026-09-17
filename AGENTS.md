@@ -99,6 +99,10 @@ and port block, so run `just backend status` for the checkout you are in. See th
 
 ## Test environment
 
+The test recipes default `RUST_MIN_STACK` to 8 MiB. Debug builds of the mobile
+bindings need this stack for nested MLS proposal creation. An explicit
+`RUST_MIN_STACK` value overrides the default.
+
 `just test` needs `just backend up db replica` and the shared backend services.
 It sets `SQLX_OFFLINE=true` for compilation and `DATABASE_URL` for test runs.
 The database URL defaults to this worktree's database; the main checkout uses

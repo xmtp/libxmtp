@@ -54,6 +54,11 @@ napi-build = "2.3.2"
 # Add self as dev dependency to automatically enable the test-utils feature
 bindings_node = { path = ".", features = ["test-utils"] }
 chrono.workspace = true
+# Rust test binaries run without Node's exported N-API symbols.
+napi = { version = "3.11.0", default-features = false, features = [
+  "dyn-symbols",
+  "noop",
+] }
 toxiproxy_rust.workspace = true
 
 [package.metadata.cross.build.env]

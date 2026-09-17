@@ -23,7 +23,6 @@ mod test_network;
 mod test_prepare_message_for_later_publish;
 mod test_proposals;
 mod test_proposals_app_data;
-mod test_proposals_enablement;
 mod test_proposals_pause;
 mod test_proposals_permissions;
 mod test_self_removal;
@@ -878,3 +877,5 @@ async fn test_membership_state() {
     let bola_state = bola_group.membership_state()?;
     assert_eq!(bola_state, GroupMembershipState::Pending);
 }
+
+mod test_dictionary_creation;

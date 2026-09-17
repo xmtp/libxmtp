@@ -79,9 +79,9 @@ async fn test_app_data_callback_fires_for_remote_change() {
     );
     assert_eq!(recorded[0].group_id, group.group_id.to_vec());
     assert_eq!(recorded[0].new_value.as_deref(), Some("from alix"));
-    // The welcome carries alix's pre-add state, so bo's first *processed*
-    // change starts from the empty slot the group was created with.
-    assert_eq!(recorded[0].old_value.as_deref(), Some(""));
+    // The welcome carries alix's pre-add state. Creation omits an unset
+    // app-data component, so the first processed change has no old value.
+    assert_eq!(recorded[0].old_value.as_deref(), None);
 }
 
 /// The callback also observes changes this client made itself — an

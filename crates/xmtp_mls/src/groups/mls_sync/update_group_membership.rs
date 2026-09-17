@@ -86,28 +86,71 @@ pub(crate) fn strip_unverified_new_adds(
 /// propose-by-reference `IntentKind::ProposeMemberUpdate` flow so
 /// both emit byte-identical payloads for the same diff.
 ///
-/// One mutation per affected inbox:
-/// - `Insert(inbox_id, encode(V1 { sequence_id, failed_installations: [] }))`
-///   for inboxes added.
-/// - `Update(inbox_id, encode(V1 { ... }))` for inboxes whose
-///   `sequence_id` changed.
-/// - `Delete(inbox_id)` for inboxes removed.
-///
-/// `failed_installations` is left empty here — per the proto comment
-/// it's a sender-authoritative retry-suppression hint and the
-/// per-inbox partitioning happens at bootstrap. Steady-state membership
-/// updates intentionally don't propagate failed_installations changes
-/// over the AppData path; the worst case is a slightly noisier retry
-/// loop. Future enhancement once a clearer attribution path exists.
+/// Preserve failed installations in their owning inbox entries. Receivers use
+/// these entries to validate why an authenticated installation has no MLS leaf.
 pub(crate) fn build_group_membership_app_data_payload(
+    conn: &impl xmtp_db::DbQuery,
+    group: &OpenMlsGroup,
     old: &GroupMembership,
     new: &GroupMembership,
 ) -> Result<Vec<u8>, GroupError> {
+    use crate::groups::app_data::component_source::{
+        ComponentSourceError, read_from_app_data_dict,
+    };
+    use crate::identity_updates::{IdentityRequirement, require_association_state};
+    let old_bytes = read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, group)
+        .ok_or(GroupError::MissingSequenceId)?;
+    let prior =
+        GroupMembershipComponent::decode_value(&old_bytes).map_err(ComponentSourceError::from)?;
+    let wanted: HashSet<_> = new.failed_installations.iter().cloned().collect();
+    let mut owners: HashMap<Vec<u8>, InboxId> = HashMap::new();
+    for (inbox, bytes) in prior.iter() {
+        let value = GroupMembershipEntry::decode(bytes.as_slice())?;
+        if let Some(group_membership_entry::Version::V1(value)) = value.version {
+            for installation in value.failed_installations {
+                owners.insert(installation, *inbox);
+            }
+        }
+    }
+    if !wanted.is_empty() {
+        for (inbox, &sequence_id) in &new.members {
+            if sequence_id == 0 {
+                continue;
+            }
+            let state = require_association_state(
+                conn,
+                &IdentityRequirement {
+                    inbox_id: inbox.clone(),
+                    sequence_id,
+                },
+            )
+            .map_err(crate::groups::validated_commit::CommitValidationError::from)?;
+            let inbox = InboxId::from_hex(inbox).map_err(ComponentSourceError::from)?;
+            for installation in state.installation_ids() {
+                owners.insert(installation, inbox);
+            }
+        }
+    }
     let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
 
     // Inserts and updates: walk new.members, classify against old.
     for (inbox_id_str, &sequence_id) in new.members.iter() {
-        let entry = encode_membership_entry(sequence_id)?;
+        let inbox = InboxId::from_hex(inbox_id_str).map_err(ComponentSourceError::from)?;
+        let mut failed_installations: Vec<_> = wanted
+            .iter()
+            .filter(|installation| owners.get(*installation) == Some(&inbox))
+            .cloned()
+            .collect();
+        failed_installations.sort_unstable();
+        let entry = GroupMembershipEntry {
+            version: Some(group_membership_entry::Version::V1(
+                group_membership_entry::V1 {
+                    sequence_id,
+                    failed_installations,
+                },
+            )),
+        }
+        .encode_to_vec();
         match old.members.get(inbox_id_str) {
             None => {
                 // New inbox: Insert.
@@ -115,7 +158,11 @@ pub(crate) fn build_group_membership_app_data_payload(
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
                 delta = delta.insert(inbox_id, VLBytes::new(entry));
             }
-            Some(&old_seq) if old_seq != sequence_id => {
+            Some(_)
+                if prior
+                    .get(&inbox)
+                    .is_none_or(|value| value.as_slice() != entry.as_slice()) =>
+            {
                 // Existing inbox with bumped sequence_id: Update.
                 let inbox_id = InboxId::from_hex(inbox_id_str)
                     .map_err(|e| GroupError::ComponentSource(e.into()))?;
@@ -141,20 +188,6 @@ pub(crate) fn build_group_membership_app_data_payload(
             crate::groups::app_data::component_source::ComponentSourceError::from(e),
         )
     })
-}
-
-/// Encode a per-inbox `GroupMembershipEntry::V1` value with the given
-/// `sequence_id` and an empty `failed_installations` list.
-fn encode_membership_entry(sequence_id: u64) -> Result<Vec<u8>, GroupError> {
-    let entry = GroupMembershipEntry {
-        version: Some(group_membership_entry::Version::V1(
-            group_membership_entry::V1 {
-                sequence_id,
-                failed_installations: vec![],
-            },
-        )),
-    };
-    Ok(entry.encode_to_vec())
 }
 
 // Takes UpdateGroupMembershipIntentData and applies it to the openmls group
@@ -251,6 +284,11 @@ pub(crate) fn apply_update_group_membership_intent(
         });
         // TODO: D14N Hammer
         if !new_members_support_proposals {
+            if is_migrated {
+                return Err(GroupError::ProposalsNotSupported(
+                    "A dictionary-native group requires AppDataDictionary support".into(),
+                ));
+            }
             tracing::info!(
                 "Disabling proposals: new members don't support the AppData dictionary extension"
             );
@@ -275,6 +313,8 @@ pub(crate) fn apply_update_group_membership_intent(
         // Batched proposal path: proposals + (AppDataUpdate or GCE) + commit in one publish
         let app_data_payload = if is_migrated {
             Some(build_group_membership_app_data_payload(
+                &storage.db(),
+                openmls_group,
                 &old_group_membership,
                 &new_group_membership,
             )?)
@@ -289,6 +329,7 @@ pub(crate) fn apply_update_group_membership_intent(
             leaf_nodes_to_remove,
             new_extensions,
             app_data_payload,
+            false,
             signer,
         )?;
         let _ = downgrade_to_legacy; // marker so future logic can branch on it; currently unused
@@ -372,6 +413,7 @@ fn compute_publish_data_for_proposal_based_update(
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     new_extensions: Extensions<GroupContext>,
     app_data_membership_payload: Option<Vec<u8>>,
+    inline_membership: bool,
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
     let is_migrated_path = app_data_membership_payload.is_some();
@@ -392,7 +434,7 @@ fn compute_publish_data_for_proposal_based_update(
             let mut proposal_payloads: Vec<Vec<u8>> = Vec::new();
 
             // 1. Create Add proposals
-            for kp in &key_packages_to_add {
+            for kp in key_packages_to_add.iter().filter(|_| !inline_membership) {
                 let (msg, _) = group
                     .propose_add_member(provider, &signer, kp)
                     .map_err(GroupError::ProposeAddMember)?;
@@ -400,7 +442,7 @@ fn compute_publish_data_for_proposal_based_update(
             }
 
             // 2. Create Remove proposals
-            for &leaf_index in &leaf_nodes_to_remove {
+            for &leaf_index in leaf_nodes_to_remove.iter().filter(|_| !inline_membership) {
                 let (msg, _) = group
                     .propose_remove_member(provider, &signer, leaf_index)
                     .map_err(GroupError::ProposeRemoveMember)?;
@@ -448,6 +490,18 @@ fn compute_publish_data_for_proposal_based_update(
             let mut stage = group
                 .commit_builder()
                 .consume_proposal_store(true)
+                .propose_adds(
+                    key_packages_to_add
+                        .iter()
+                        .filter(|_| inline_membership)
+                        .cloned(),
+                )
+                .propose_removals(
+                    leaf_nodes_to_remove
+                        .iter()
+                        .filter(|_| inline_membership)
+                        .copied(),
+                )
                 .load_psks(provider.storage())
                 .map_err(CommitToPendingProposalsError::from)?;
             if let Some(Some(updates)) = app_data_updates {
@@ -575,6 +629,9 @@ pub(crate) fn apply_readd_installations_intent(
             leaf_indices_to_remove,
             extensions,
             Some(payload),
+            // A super-admin re-add must be checked as one commit. Its Remove
+            // alone is forbidden; the matching Add keeps the inbox present.
+            true,
             signer,
         )?
     } else {
@@ -652,7 +709,7 @@ mod tests {
 
     use crate::{
         groups::{
-            build_group_config, build_mutable_metadata_extension_default,
+            build_legacy_test_group_config, build_mutable_metadata_extension_default,
             build_mutable_permissions_extension, build_protected_metadata_extension,
             build_starting_group_membership_extension,
         },
@@ -683,7 +740,7 @@ mod tests {
         )?;
         let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
         let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
-        let group_config = build_group_config(
+        let group_config = build_legacy_test_group_config(
             protected_metadata,
             mutable_metadata,
             group_membership,

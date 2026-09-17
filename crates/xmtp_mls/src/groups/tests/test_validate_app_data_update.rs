@@ -123,6 +123,7 @@ fn bytes_update_allowed_when_registry_allows() {
         "inbox_alice",
         &reg,
         Some(b"old-name"),
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -147,6 +148,7 @@ fn bytes_update_accepts_none_old_value_for_first_write() {
         "inbox_alice",
         &reg,
         None,
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -168,6 +170,7 @@ fn bytes_remove_allowed_when_registry_allows_delete() {
         "inbox_alice",
         &reg,
         Some(b"y"),
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -188,6 +191,7 @@ fn bytes_update_rejected_when_registry_empty() {
         "inbox_alice",
         &reg,
         Some(b"y"),
+        None,
     )
     .unwrap_err();
     assert!(
@@ -214,6 +218,7 @@ fn bytes_update_rejected_when_policy_denies() {
         "inbox_alice",
         &reg,
         Some(b"y"),
+        None,
     )
     .unwrap_err();
     assert!(
@@ -244,6 +249,7 @@ fn admin_list_insert_rejected_for_member() {
         "inbox_member",
         &reg,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -268,6 +274,7 @@ fn super_admin_list_insert_rejected_for_admin() {
         admin(),
         "inbox_admin",
         &reg,
+        None,
         None,
     )
     .unwrap_err();
@@ -304,6 +311,7 @@ fn malformed_delta_maps_to_insufficient_permissions() {
         "inbox_super",
         &reg,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -327,6 +335,7 @@ fn unknown_collection_component_maps_to_insufficient_permissions() {
         super_admin(),
         "inbox_super",
         &reg,
+        None,
         None,
     )
     .unwrap_err();
@@ -352,6 +361,7 @@ fn remove_by_hash_miss_does_not_short_circuit_policy() {
         super_admin(),
         "inbox_super",
         &reg,
+        None,
         None,
     );
     assert!(matches!(
@@ -382,6 +392,7 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
         "inbox_super",
         &reg,
         Some(&prior),
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -409,6 +420,7 @@ fn receiver_rejects_last_super_admin_removal() {
         "inbox_super",
         &ComponentRegistry::new(),
         Some(&prior),
+        None,
     )
     .unwrap_err();
     assert!(matches!(
@@ -442,6 +454,7 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
         "inbox_super",
         &registry,
         Some(&initial),
+        None,
     )?;
     let after_first = SuperAdminListComponent::apply_update_payload(
         match &remove_first {
@@ -463,6 +476,7 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
         "inbox_super",
         &registry,
         Some(&after_first),
+        None,
     )
     .unwrap_err();
     assert!(matches!(
@@ -511,6 +525,7 @@ fn receiver_rejects_overlong_metadata_app_data_update() {
             member(),
             "inbox_member",
             &registry,
+            None,
             None,
         );
         let err = result.expect_err(&format!(
@@ -593,6 +608,7 @@ fn unknown_component_in_xmtp_range_rejected_without_registry_entry() {
         "inbox_alice",
         &reg,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -623,6 +639,7 @@ fn unknown_component_in_xmtp_range_allowed_when_registry_permits() {
         "inbox_alice",
         &reg,
         None,
+        None,
     );
     assert!(
         result.is_ok(),
@@ -650,6 +667,7 @@ fn unknown_component_in_app_range_allowed_when_registry_permits() {
         "inbox_alice",
         &reg,
         None,
+        None,
     );
     assert!(
         result.is_ok(),
@@ -676,6 +694,7 @@ fn unknown_component_in_reserved_range_rejected_with_empty_registry() {
         "inbox_alice",
         &reg,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -696,6 +715,7 @@ fn unknown_component_remove_with_no_prior_rejected_without_registry_entry() {
         super_admin(),
         "inbox_alice",
         &reg,
+        None,
         None,
     )
     .unwrap_err();
@@ -724,6 +744,7 @@ fn unknown_component_remove_allowed_when_registry_permits_delete() {
         member(),
         "inbox_alice",
         &reg,
+        None,
         None,
     );
     assert!(
@@ -761,6 +782,7 @@ fn unknown_component_update_with_malformed_prior_rejected() {
         "inbox_alice",
         &reg,
         Some(corrupt_prior),
+        None,
     )
     .unwrap_err();
     assert!(

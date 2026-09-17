@@ -13,7 +13,7 @@ use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitL
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
 use xmtp_db::{
-    MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProvider,
+    MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProviderRef,
 };
 use xmtp_proto::types::Cursor;
 
@@ -858,20 +858,38 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     let bo_group = bo.group(&alix_group.group_id)?;
     bo_group.sync().await?;
 
-    // Alix publishes an UpdateGroupMembership commit that Bo has not yet
-    // processed.
-    alix_group.add_members(&[caro.inbox_id()]).await?;
-
-    // Bo fetches the raw commit envelope from the network.
-    let messages = bo
+    // Record the current cursor, then have Alix publish an
+    // UpdateGroupMembership commit that Bo has not yet processed.
+    let cursor_before_update = bo
         .context
         .api()
         .query_group_messages(bo_group.group_id)
-        .await?;
-    let commit_envelope = messages
+        .await?
         .into_iter()
-        .max_by_key(|m| m.cursor.0)
+        .map(|message| message.cursor.0)
+        .max()
+        .unwrap_or_default();
+    alix_group.add_members(&[caro.inbox_id()]).await?;
+
+    // The dictionary-native membership update is a proposal-by-reference.
+    // Replay every proposal from this update before its commit so the copied
+    // group has the proposal store that the commit references.
+    let mut update_messages = bo
+        .context
+        .api()
+        .query_group_messages(bo_group.group_id)
+        .await?
+        .into_iter()
+        .filter(|message| message.cursor.0 > cursor_before_update)
+        .collect::<Vec<_>>();
+    update_messages.sort_by_key(|message| message.cursor.0);
+    let commit_envelope = update_messages
+        .pop()
         .expect("the add-caro commit must be on the network");
+    assert!(
+        !update_messages.is_empty(),
+        "the add-caro commit must have its proposal envelopes"
+    );
     let commit_sequence_id = commit_envelope.cursor.0 as i64;
 
     // Bo's group is at epoch E; snapshot the raw epoch-E GroupContext and
@@ -904,7 +922,22 @@ async fn test_merge_staged_commit_logged_rejects_non_advancing_authenticator()
     let mut processed_message = None;
     let result = provider.key_store().transaction(|conn| {
         let storage = conn.key_store();
-        let provider = XmtpOpenMlsProvider::new(storage);
+        let provider = XmtpOpenMlsProviderRef::new(&storage);
+        for proposal_envelope in &update_messages {
+            let proposal = process_message_with_app_data(
+                &mut group_copy,
+                &provider,
+                proposal_envelope.message.clone(),
+                bo.context.version_info().pkg_semver(),
+            )
+            .expect("processing the proposal before its commit succeeds");
+            let ProcessedMessageContent::ProposalMessage(proposal) = proposal.into_content() else {
+                panic!("the commit prefix must contain only proposals");
+            };
+            group_copy
+                .store_pending_proposal(&storage, *proposal)
+                .expect("persisting the proposal before its commit succeeds");
+        }
         processed_message = Some(process_message_with_app_data(
             &mut group_copy,
             &provider,
