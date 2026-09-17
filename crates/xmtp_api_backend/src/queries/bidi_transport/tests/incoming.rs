@@ -8,6 +8,12 @@ fn raw_group(sequence: u64) -> ServerEnvelope {
     envelope
 }
 
+fn raw_group_on(sequence: u64, group_id: &[u8]) -> ServerEnvelope {
+    let mut envelope = raw_group(sequence);
+    envelope.meta.as_mut().unwrap().topic = group_msg(sequence, group_id).meta.unwrap().topic;
+    envelope
+}
+
 fn limits() -> IncomingBatchLimits {
     IncomingBatchLimits {
         max_rows: 16,
@@ -20,6 +26,13 @@ async fn incoming(lease: &mut TopicLease<BackendBinding>) -> Result<IncomingEven
         .await
         .unwrap()
         .unwrap()
+}
+
+async fn incoming_frame(receiver: &mut mpsc::Receiver<IncomingFrame>) -> IncomingFrame {
+    xmtp_common::time::timeout(WAIT, receiver.recv())
+        .await
+        .expect("timed out waiting for an incoming frame")
+        .expect("incoming frame sender closed")
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -75,40 +88,365 @@ async fn raw_reconnect_replays_uncommitted_delivery_and_uses_received_floor() {
     resume.await??;
 }
 
-#[rstest::rstest]
-#[case::queue(limits(), true)]
-#[case::rows(IncomingBatchLimits { max_rows: 1, ..limits() }, false)]
-#[case::bytes(IncomingBatchLimits { max_bytes: 1, ..limits() }, false)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn raw_capacity_error_survives_a_full_delivery_channel(
-    #[case] limits: IncomingBatchLimits,
-    #[case] retryable: bool,
-) {
+async fn raw_full_delivery_channel_pauses_without_advancing_cursors() {
+    let first_topic = group_topic(&[7; 16]);
+    let second_topic = group_topic(&[8; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(
+        &[(first_topic.clone(), 0), (second_topic.clone(), 0)],
+        events,
+    );
+    let (sender, mut receiver) = mpsc::channel(1);
+    let limits = IncomingBatchLimits {
+        max_rows: 1,
+        ..limits()
+    };
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((sender, limits));
+    let (update, _) = ledger
+        .prepare_adds(vec![(first_topic.clone(), 0), (second_topic.clone(), 0)])
+        .remove(0);
+    ledger.applied(
+        update,
+        vec![(first_topic.clone(), 10), (second_topic.clone(), 10)],
+    );
+
+    // Registered occupies the only slot. Both envelopes must stay pending.
+    assert!(
+        ledger
+            .demux_incoming(&[raw_group(8), raw_group_on(9, &[8; 16])], |message| {
+                message
+            },)
+            .unwrap()
+            .is_empty()
+    );
+    let lease = ledger.leases.get(&id).unwrap();
+    assert_eq!(lease.delivered[&first_topic], 0);
+    assert_eq!(lease.delivered[&second_topic], 0);
+    assert!(lease.incoming_failure.lock().is_none());
+    assert!(ledger.has_pending_incoming());
+
+    // Free one slot at a time. Each flush hands off one ordered chunk, then
+    // advances only the cursor for that accepted chunk.
+    incoming_frame(&mut receiver).await.unwrap();
+    assert!(
+        ledger
+            .flush_incoming(xmtp_common::time::Instant::now())
+            .is_empty()
+    );
+    let Ok(first_events) = incoming_frame(&mut receiver).await else {
+        panic!("first queued delivery")
+    };
+    let IncomingEvent::OrderedBatch(first) = first_events.into_iter().next().unwrap() else {
+        panic!("first ordered batch")
+    };
+    assert_eq!(
+        (first.topic, first.after, first.envelopes),
+        (first_topic.clone(), Cursor(0), vec![raw_group(8)])
+    );
+    assert_eq!(ledger.leases[&id].delivered[&first_topic], 8);
+    assert_eq!(ledger.leases[&id].delivered[&second_topic], 0);
+    assert!(
+        ledger
+            .flush_incoming(xmtp_common::time::Instant::now())
+            .is_empty()
+    );
+    let Ok(second_events) = incoming_frame(&mut receiver).await else {
+        panic!("second queued delivery")
+    };
+    let IncomingEvent::OrderedBatch(second) = second_events.into_iter().next().unwrap() else {
+        panic!("second ordered batch")
+    };
+    assert_eq!(
+        (second.topic, second.after, second.envelopes),
+        (
+            second_topic.clone(),
+            Cursor(0),
+            vec![raw_group_on(9, &[8; 16])]
+        )
+    );
+    assert_eq!(ledger.leases[&id].delivered[&second_topic], 9);
+    assert!(!ledger.has_pending_incoming());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_incoming_splitter_covers_each_envelope_once_in_order() {
+    const ENVELOPES: u64 = 5;
+    const ROWS: usize = 2;
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, mut receiver) = mpsc::channel(1);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((
+        sender,
+        IncomingBatchLimits {
+            max_rows: ROWS,
+            ..limits()
+        },
+    ));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic.clone(), ENVELOPES)]);
+    incoming_frame(&mut receiver).await.unwrap(); // Registered.
+
+    let source: Vec<_> = (1..=ENVELOPES).map(raw_group).collect();
+    assert!(
+        ledger
+            .demux_incoming(&source, |message| message)
+            .unwrap()
+            .is_empty()
+    );
+    let mut received = Vec::new();
+    let mut deliveries = 0;
+    let mut after = 0;
+    while received.len() < source.len() {
+        let Ok(events) = incoming_frame(&mut receiver).await else {
+            panic!("queued delivery")
+        };
+        assert_eq!(events.len(), 1);
+        let IncomingEvent::OrderedBatch(batch) = events.into_iter().next().unwrap() else {
+            panic!("ordered batch")
+        };
+        assert!(batch.envelopes.len() <= ROWS);
+        assert_eq!(batch.after, Cursor(after));
+        after = batch
+            .envelopes
+            .last()
+            .unwrap()
+            .meta
+            .as_ref()
+            .unwrap()
+            .cursor
+            .as_ref()
+            .unwrap()
+            .sequence_id;
+        received.extend(batch.envelopes);
+        deliveries += 1;
+        ledger.flush_incoming(xmtp_common::time::Instant::now());
+    }
+    assert_eq!(deliveries, 3);
+    assert_eq!(received, source);
+    assert_eq!(ledger.leases[&id].delivered[&topic], ENVELOPES);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_incoming_byte_splitter_covers_each_envelope_once_in_order() {
+    const ENVELOPES: u64 = 3;
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, mut receiver) = mpsc::channel(1);
+    let source: Vec<_> = (1..=ENVELOPES).map(raw_group).collect();
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((
+        sender,
+        IncomingBatchLimits {
+            max_rows: ENVELOPES as usize,
+            max_bytes: source[0].encoded_len(),
+        },
+    ));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic.clone(), ENVELOPES)]);
+    incoming_frame(&mut receiver).await.unwrap(); // Registered.
+
+    assert!(
+        ledger
+            .demux_incoming(&source, |message| message)
+            .unwrap()
+            .is_empty()
+    );
+    let mut received = Vec::new();
+    while received.len() < source.len() {
+        let Ok(events) = incoming_frame(&mut receiver).await else {
+            panic!("queued delivery")
+        };
+        let IncomingEvent::OrderedBatch(batch) = events.into_iter().next().unwrap() else {
+            panic!("ordered batch")
+        };
+        assert!(batch.envelopes.len() <= 1);
+        received.extend(batch.envelopes);
+        ledger.flush_incoming(xmtp_common::time::Instant::now());
+    }
+    assert_eq!(received, source);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_single_envelope_over_the_byte_limit_fails_loudly() {
+    let topic = group_topic(&[7; 16]);
+    let envelope = raw_group(8);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, mut receiver) = mpsc::channel(1);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((
+        sender,
+        IncomingBatchLimits {
+            max_rows: 1,
+            max_bytes: envelope.encoded_len() - 1,
+        },
+    ));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic, 10)]);
+    incoming_frame(&mut receiver).await.unwrap(); // Registered.
+
+    assert_eq!(
+        ledger.demux_incoming(&[envelope], |message| message)?,
+        vec![id]
+    );
+    let failure = ledger.leases[&id].incoming_failure.lock();
+    assert!(matches!(failure.as_ref(), Some(TransportError::Capacity)));
+    assert!(failure.as_ref().unwrap().is_retryable());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_registration_pauses_when_its_delivery_channel_is_full() {
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, mut receiver) = mpsc::channel(1);
+    sender.try_send(Ok(vec![])).unwrap();
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((sender, limits()));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic.clone(), 10)]);
+
+    assert!(ledger.has_pending_incoming());
+    assert!(ledger.leases[&id].paused_at.is_some());
+    assert!(ledger.leases[&id].incoming_failure.lock().is_none());
+    incoming_frame(&mut receiver).await.unwrap();
+    assert!(
+        ledger
+            .flush_incoming(xmtp_common::time::Instant::now())
+            .is_empty()
+    );
+    assert!(matches!(
+        incoming_frame(&mut receiver).await.unwrap().as_slice(),
+        [IncomingEvent::Registered { starts, targets }]
+            if starts[&topic] == Cursor(0) && targets[&topic] == Cursor(10)
+    ));
+    assert!(!ledger.has_pending_incoming());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_transport_resumes_wire_reads_after_an_incoming_slot_frees() {
     let topic = group_topic(&[7; 16]);
     let (transport, servers) = transport();
     let mut lease = transport
-        .lease_ordered(vec![(topic.clone(), 0)], 1, limits)
-        .await
-        .unwrap();
+        .lease_ordered(
+            vec![(topic.clone(), 0)],
+            1,
+            IncomingBatchLimits {
+                max_rows: 1,
+                ..limits()
+            },
+        )
+        .await?;
     let mut server = take_server(&servers);
     let update = server.next_mutate().await;
-    server.ack(update.id, vec![(topic.clone(), 10)]);
-    // The registration occupies the only slot. The delivery must not be copied.
-    server.send(messages(vec![raw_group(8), raw_group(9)], vec![]));
-    xmtp_common::wait_for_some(|| async { lease.incoming_failure.lock().is_some().then_some(()) })
-        .await;
+    server.ack(update.id, vec![(topic, 10)]);
     assert!(matches!(
-        incoming(&mut lease).await.unwrap(),
+        incoming(&mut lease).await?,
         IncomingEvent::Registered { .. }
     ));
-    let error = incoming(&mut lease).await.unwrap_err();
-    assert_eq!(error.is_retryable(), retryable);
-    if retryable {
-        assert!(matches!(error, TransportError::Backpressure));
-    } else {
-        assert!(matches!(error, TransportError::Capacity));
-    }
-    assert!(lease.next_incoming().await.is_none());
+
+    server.send(messages(vec![raw_group(8)], vec![]));
+    server.send(messages(vec![raw_group(9)], vec![]));
+    let next_topic = group_topic(&[8; 16]);
+    let mut next = transport
+        .lease_ordered(
+            vec![(next_topic.clone(), 0)],
+            1,
+            IncomingBatchLimits {
+                max_rows: 1,
+                ..limits()
+            },
+        )
+        .await?;
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(next_topic, 10)]);
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(50), next.next_incoming())
+            .await
+            .is_err(),
+        "a full lease must gate the queued registration behind its pending frame"
+    );
+    let IncomingEvent::OrderedBatch(first) = incoming(&mut lease).await? else {
+        panic!("first batch")
+    };
+    assert_eq!(first.after, Cursor(0));
+    assert_eq!(first.envelopes, vec![raw_group(8)]);
+
+    let IncomingEvent::OrderedBatch(second) = incoming(&mut lease).await? else {
+        panic!("second batch")
+    };
+    assert_eq!(second.after, Cursor(8));
+    assert_eq!(second.envelopes, vec![raw_group(9)]);
+    assert!(matches!(
+        incoming(&mut next).await?,
+        IncomingEvent::Registered { .. }
+    ));
+    assert!(lease.incoming_failure.lock().is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_incoming_pause_timeout_drops_the_stalled_lease() {
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, _receiver) = mpsc::channel(1);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((sender, limits()));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic.clone(), 10)]);
+    assert!(
+        ledger
+            .demux_incoming(&[raw_group(8)], |message| message)
+            .unwrap()
+            .is_empty()
+    );
+
+    let paused_at = ledger.leases[&id].paused_at.unwrap();
+    assert_eq!(
+        ledger.flush_incoming(paused_at + INCOMING_PAUSE_TIMEOUT),
+        vec![id]
+    );
+    assert!(matches!(
+        ledger.leases[&id].incoming_failure.lock().as_ref(),
+        Some(TransportError::Backpressure)
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_task_wakes_at_an_incoming_pause_deadline() {
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, _receiver) = mpsc::channel(1);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((sender, limits()));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic, 10)]);
+    ledger.demux_incoming(&[raw_group(8)], |message| message)?;
+
+    let mut task = ledger_task(ledger, Outbox::default());
+    let (commands, receiver) = mpsc::unbounded_channel();
+    task.cmds = receiver;
+    task.lease_cmds = commands.downgrade();
+    task.ledger.leases.get_mut(&id).unwrap().paused_at = Some(
+        xmtp_common::time::Instant::now() - INCOMING_PAUSE_TIMEOUT + Duration::from_millis(10),
+    );
+
+    assert!(matches!(
+        xmtp_common::time::timeout(WAIT, task.next_step()).await?,
+        Step::Retry
+    ));
+    assert_eq!(
+        task.ledger
+            .flush_incoming(xmtp_common::time::Instant::now()),
+        vec![id]
+    );
+    drop(commands);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
