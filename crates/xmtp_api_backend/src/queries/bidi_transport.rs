@@ -11,13 +11,16 @@
 //! At that boundary, current interest determines the re-add cursor and holders.
 //! After the add acknowledgement, those holders receive the new registration.
 //! The delivery positions discard overlap. Ordered leases retain at most one
-//! wire frame while a full receive queue pauses wire reads.
+//! wire frame while a full receive queue pauses wire reads for the connection.
+//! This global gate affects every lease on the connection. A progressing
+//! backlog can therefore delay reads for other leases longer than the pause
+//! timeout.
 //!
 //! A connection failure keeps leases alive. Reconnect uses the current topic
 //! set and the minimum durable receipt position of its leases. Suspend releases
 //! the connection and keeps this state. Resume waits for all acknowledgements
-//! and targets. A lease that exceeds the pause deadline is closed so its
-//! consumer can recover from storage.
+//! and targets. A lease with no successful handoff for the pause deadline is
+//! closed so its consumer can recover from storage.
 //!
 //! Ordered leases raise their floors only after durable receipt. A reconnect
 //! resets delivery positions to these floors so uncommitted batches replay.
@@ -53,9 +56,9 @@ use super::bidi::{BidiBinding, Connection, Event, TryMutateError};
 pub const DEFAULT_LEASE_DEPTH: usize = 64;
 /// Retry a queued update when the connection is quiet and capacity may be free.
 const OUTBOX_RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_millis(25);
-/// Bound a continuous pause, even if the consumer makes slow progress. Thirty
-/// seconds allows burst processing but leaves half a 60-second sync budget for
-/// recovery from durable receipts. One stalled lease must not block the wire forever.
+/// Bound a continuous stall while a consumer accepts no handoff. Thirty seconds
+/// leaves half a 60-second sync budget for recovery from durable receipts. A
+/// progressing backlog can keep the global wire gate active beyond this period.
 const INCOMING_PAUSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 fn update_budget() -> Bucket {
@@ -663,18 +666,6 @@ where
 
     /// Return true only when the consumer must reopen from durable receipts.
     fn flush_incoming(&mut self, now: Instant) -> bool {
-        if self
-            .paused_at
-            .is_some_and(|started| now.saturating_duration_since(started) >= INCOMING_PAUSE_TIMEOUT)
-        {
-            tracing::warn!(
-                backlog_depth = self.incoming_pending.len(),
-                "bidi incoming: pause deadline exceeded; closing lease"
-            );
-            *self.incoming_failure.lock() = Some(TransportError::Backpressure);
-            self.finish_pause(now, "deadline");
-            return true;
-        }
         let Some((sender, _)) = &self.incoming else {
             return false;
         };
@@ -683,6 +674,17 @@ where
             let permit = match sender.try_reserve() {
                 Ok(permit) => permit,
                 Err(mpsc::error::TrySendError::Full(_)) => {
+                    if self.paused_at.is_some_and(|started| {
+                        now.saturating_duration_since(started) >= INCOMING_PAUSE_TIMEOUT
+                    }) {
+                        tracing::warn!(
+                            backlog_depth = self.incoming_pending.len(),
+                            "bidi incoming: pause deadline exceeded; closing lease"
+                        );
+                        *self.incoming_failure.lock() = Some(TransportError::Backpressure);
+                        self.finish_pause(now, "deadline");
+                        return true;
+                    }
                     if self.paused_at.is_none() {
                         self.paused_at = Some(now);
                         self.pause_entries += 1;
@@ -728,6 +730,8 @@ where
                     B::advance(delivered, last.into());
                 }
             }
+            // A successful handoff ends the stall, even with chunks pending.
+            self.finish_pause(now, "progress");
         }
         self.finish_pause(now, "drained");
         false

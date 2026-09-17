@@ -352,6 +352,46 @@ async fn raw_transport_resumes_wire_reads_after_an_incoming_slot_frees() {
 
     server.send(messages(vec![raw_group(8)], vec![]));
     server.send(messages(vec![raw_group(9)], vec![]));
+    // Keep the consumer idle until both wire frames can reach the full queue.
+    xmtp_common::time::sleep(Duration::from_millis(50)).await;
+    let IncomingEvent::OrderedBatch(first) = incoming(&mut lease).await? else {
+        panic!("first batch")
+    };
+    assert_eq!(first.after, Cursor(0));
+    assert_eq!(first.envelopes, vec![raw_group(8)]);
+
+    let IncomingEvent::OrderedBatch(second) = incoming(&mut lease).await? else {
+        panic!("second batch")
+    };
+    assert_eq!(second.after, Cursor(8));
+    assert_eq!(second.envelopes, vec![raw_group(9)]);
+    assert!(lease.incoming_failure.lock().is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_full_lease_gates_other_ordered_leases() {
+    let topic = group_topic(&[7; 16]);
+    let (transport, servers) = transport();
+    let mut lease = transport
+        .lease_ordered(
+            vec![(topic.clone(), 0)],
+            1,
+            IncomingBatchLimits {
+                max_rows: 1,
+                ..limits()
+            },
+        )
+        .await?;
+    let mut server = take_server(&servers);
+    let update = server.next_mutate().await;
+    server.ack(update.id, vec![(topic, 10)]);
+    assert!(matches!(
+        incoming(&mut lease).await?,
+        IncomingEvent::Registered { .. }
+    ));
+
+    server.send(messages(vec![raw_group(8)], vec![]));
+    server.send(messages(vec![raw_group(9)], vec![]));
     let next_topic = group_topic(&[8; 16]);
     let mut next = transport
         .lease_ordered(
@@ -371,6 +411,7 @@ async fn raw_transport_resumes_wire_reads_after_an_incoming_slot_frees() {
             .is_err(),
         "a full lease must gate the queued registration behind its pending frame"
     );
+
     let IncomingEvent::OrderedBatch(first) = incoming(&mut lease).await? else {
         panic!("first batch")
     };
@@ -415,6 +456,56 @@ async fn raw_incoming_pause_timeout_drops_the_stalled_lease() {
         ledger.leases[&id].incoming_failure.lock().as_ref(),
         Some(TransportError::Backpressure)
     ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn raw_progressing_incoming_backlog_survives_past_the_stall_deadline() {
+    const ROWS: u64 = 80;
+    let topic = group_topic(&[7; 16]);
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _event_receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(topic.clone(), 0)], events);
+    let (sender, mut receiver) = mpsc::channel(1);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((
+        sender,
+        IncomingBatchLimits {
+            max_rows: 1,
+            ..limits()
+        },
+    ));
+    let (update, _) = ledger.prepare_adds(vec![(topic.clone(), 0)]).remove(0);
+    ledger.applied(update, vec![(topic.clone(), ROWS)]);
+    let envelopes: Vec<_> = (1..=ROWS).map(raw_group).collect();
+    assert!(
+        ledger
+            .demux_incoming(&envelopes, |message| message)?
+            .is_empty()
+    );
+    let started = ledger.leases[&id].paused_at.unwrap();
+    assert!(matches!(
+        incoming_frame(&mut receiver).await?[0],
+        IncomingEvent::Registered { .. }
+    ));
+
+    for sequence in 1..=ROWS {
+        let now = started + Duration::from_secs(sequence);
+        assert!(
+            ledger.flush_incoming(now).is_empty(),
+            "progressing consumer was closed at t={sequence}s"
+        );
+        let frame = incoming_frame(&mut receiver).await?;
+        assert_eq!(frame.len(), 1);
+        let IncomingEvent::OrderedBatch(batch) = &frame[0] else {
+            panic!("expected an ordered batch")
+        };
+        assert_eq!(batch.after, Cursor(sequence - 1));
+        assert_eq!(batch.envelopes, vec![raw_group(sequence)]);
+        assert_eq!(ledger.leases[&id].delivered[&topic], sequence);
+        assert!(ledger.leases[&id].incoming_failure.lock().is_none());
+    }
+    assert!(Duration::from_secs(ROWS) > INCOMING_PAUSE_TIMEOUT * 2);
+    assert!(!ledger.has_pending_incoming());
+    assert!(ledger.leases[&id].paused_at.is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

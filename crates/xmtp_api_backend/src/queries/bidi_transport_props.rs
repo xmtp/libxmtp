@@ -3,8 +3,10 @@
 //! Each update is acknowledged before its new registrations deliver messages.
 //! Targets stay fixed. Removals cancel pending work. Re-adds start a new feed.
 //! Generated schedules combine publication, leases, partial delivery, connection
-//! failures, suspend, and resume. Both properties require the complete ordered
+//! failures, suspend, and resume. The legacy lease properties require the complete
 //! suffix above each lease floor and exactly one completion event per lease.
+//! The ordered lease property varies incoming limits and consumer drain intervals.
+//! It checks every envelope and each batch cursor across wire frames and pauses.
 
 #![allow(clippy::unwrap_used)]
 
@@ -14,6 +16,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use proptest::prelude::*;
+use prost::Message;
 use xmtp_proto::backend_v1::SubscribeRequest;
 
 use super::{
@@ -24,7 +27,7 @@ use xmtp_proto::backend_v1::subscribe_request::Update;
 use xmtp_proto::backend_v1::{
     self, CatchupTarget, ServerEnvelope, subscribe_request, subscribe_response,
 };
-use xmtp_proto::types::Topic;
+use xmtp_proto::types::{Cursor, IncomingBatchLimits, IncomingEvent, Topic};
 
 const N_TOPICS: usize = 3;
 const NO_KEEPALIVE: u32 = 3_600_000;
@@ -553,6 +556,128 @@ async fn run_schedule(ops: Vec<Op>, chunk_cap: usize, chunk_bytes: usize) {
     driver.finish_and_check().await;
 }
 
+fn ordered_group_msg(sequence: u64, topic: usize) -> ServerEnvelope {
+    let mut envelope = group_msg(sequence, topic);
+    envelope.meta.as_mut().unwrap().message_hash = Some(backend_v1::MessageHash {
+        hash: Some(backend_v1::message_hash::Hash::Sha256(vec![8; 32])),
+    });
+    envelope
+}
+
+// Each frame exceeds both generated delivery limits. Depth one and delayed
+// reads force pending chunks. Multiple frames also exercise the wire pause.
+async fn run_ordered_backlog(
+    max_rows: usize,
+    byte_rows: usize,
+    topics: Vec<usize>,
+    delays_ms: Vec<u64>,
+    floor: u64,
+) {
+    let (transport, servers) = model_transport(MAX_MUTATE_TOPICS, MAX_MUTATE_BYTES);
+    let limits = IncomingBatchLimits {
+        max_rows,
+        max_bytes: ordered_group_msg(floor + 100, 0).encoded_len() * byte_rows,
+    };
+    let subs: Vec<_> = (0..N_TOPICS)
+        .map(|topic| (Topic::new_group_message(gid(topic)), floor))
+        .collect();
+    let mut lease = transport
+        .lease_ordered(subs.clone(), 1, limits)
+        .await
+        .unwrap();
+    let mut server = servers.lock().unwrap().remove(0);
+    let update = server.next_mutate().await;
+    server.ack(update.id, subs.clone());
+    let registered = xmtp_common::time::timeout(STALL, lease.next_incoming())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    let IncomingEvent::Registered { starts, .. } = registered else {
+        panic!("ordered lease must receive registration")
+    };
+    for (topic, position) in &subs {
+        assert_eq!(starts.get(topic), Some(&Cursor(*position)));
+    }
+
+    let mut expected: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+    let mut count = 0;
+    for frame in 0..3 {
+        // Repeated topics guarantee that bypassing the splitter exceeds a
+        // batch limit even after the transport groups envelopes by topic.
+        let frame_topics = std::iter::repeat_n(frame, 8).chain(topics.iter().copied());
+        let envelopes: Vec<_> = frame_topics
+            .map(|topic| {
+                count += 1;
+                let envelope = ordered_group_msg(floor + count, topic);
+                expected
+                    .entry(Topic::new_group_message(gid(topic)))
+                    .or_default()
+                    .push(envelope.clone());
+                envelope
+            })
+            .collect();
+        server.send(messages(envelopes));
+    }
+
+    let mut positions: HashMap<_, _> = subs.into_iter().map(|(t, c)| (t, Cursor(c))).collect();
+    let mut actual: HashMap<Topic, Vec<ServerEnvelope>> = HashMap::new();
+    let mut received = 0;
+    let mut chunks = 0;
+    while received < count {
+        // Give the transport time to fill the queue before each consumer read.
+        xmtp_common::time::sleep(Duration::from_millis(delays_ms[chunks % delays_ms.len()])).await;
+        let event = xmtp_common::time::timeout(STALL, lease.next_incoming())
+            .await
+            .expect("ordered backlog stopped making progress")
+            .expect("ordered lease closed under backpressure")
+            .expect("ordered lease failed under backpressure");
+        let IncomingEvent::OrderedBatch(batch) = event else {
+            panic!("unexpected event during ordered backlog: {event:?}")
+        };
+        assert!(!batch.envelopes.is_empty());
+        assert!(
+            batch.envelopes.len() <= limits.max_rows,
+            "row limit bypassed"
+        );
+        assert!(
+            batch
+                .envelopes
+                .iter()
+                .map(Message::encoded_len)
+                .sum::<usize>()
+                <= limits.max_bytes,
+            "byte limit bypassed"
+        );
+        let position = positions.get_mut(&batch.topic).unwrap();
+        assert_eq!(
+            batch.after, *position,
+            "broken cursor chain at chunk {chunks}"
+        );
+        for envelope in &batch.envelopes {
+            let meta = envelope.meta.as_ref().unwrap();
+            assert_eq!(meta.topic.as_ref().unwrap().topic, batch.topic.cloned_vec());
+            let cursor = Cursor(meta.cursor.as_ref().unwrap().sequence_id);
+            assert!(cursor > *position, "duplicate or reordered envelope");
+            *position = cursor;
+        }
+        received += batch.envelopes.len() as u64;
+        actual
+            .entry(batch.topic)
+            .or_default()
+            .extend(batch.envelopes);
+        chunks += 1;
+    }
+    assert_eq!(actual, expected, "complete per-topic envelope suffix");
+    assert!(chunks > 3, "wire frames must cross delivery boundaries");
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(10), lease.next_incoming())
+            .await
+            .is_err(),
+        "unexpected delivery or failure after the complete backlog"
+    );
+}
+
 proptest! {
     #![proptest_config(ProptestConfig {
         cases: std::env::var("PROPTEST_CASES")
@@ -561,6 +686,21 @@ proptest! {
             .unwrap_or(32),
         ..ProptestConfig::default()
     })]
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn ordered_backlog_preserves_every_chunk_across_pauses(
+        max_rows in 1usize..=4,
+        byte_rows in 1usize..=4,
+        topics in proptest::collection::vec(0usize..N_TOPICS, 8..20),
+        delays_ms in proptest::collection::vec(1u64..=4, 2..10),
+        floor in 0u64..20,
+    ) {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .unwrap()
+            .block_on(run_ordered_backlog(max_rows, byte_rows, topics, delays_ms, floor));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn ledger_delivers_exactly_the_asked_suffix_in_order(
