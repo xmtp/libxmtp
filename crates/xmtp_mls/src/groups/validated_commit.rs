@@ -101,6 +101,8 @@ pub enum CommitValidationError {
     #[error(transparent)]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
+    GroupMutablePermissions(#[from] super::group_permissions::GroupMutablePermissionsError),
+    #[error(transparent)]
     InstallationDiff(#[from] InstallationDiffError),
     #[error("PSKs are not supported")]
     NoPSKSupport,
@@ -202,6 +204,7 @@ impl CommitValidationError {
             | Self::MissingMutableMetadata
             | Self::GroupMetadata(_)
             | Self::GroupMutableMetadata(_)
+            | Self::GroupMutablePermissions(_)
             | Self::ComponentSource(_)
             | Self::Conversion(_) => true,
             Self::Bootstrap(error) => !matches!(error,
