@@ -446,7 +446,9 @@ mod test {
         assert!(streamed_dm1.is_ok());
         assert_eq!(streamed_dm1.unwrap().group_id, dm1.group_id);
 
-        // Create a second DM with same participants — triggers duplicate logic
+        // Create a second DM with same participants — triggers duplicate logic.
+        // client2 has never synced welcomes, so its database holds no DM for
+        // this pair and it must build a second group rather than find dm1.
         let dm2 = client2
             .find_or_create_dm(client1.inbox_id().to_string(), None)
             .await
@@ -455,9 +457,11 @@ mod test {
         // Make sure it's actually a new group
         assert_ne!(dm1.group_id, dm2.group_id);
 
-        // It should NOT appear in the stream
-        let result =
-            xmtp_common::time::timeout(std::time::Duration::from_millis(100), stream.next()).await;
+        // It should NOT appear in the stream. Wait longer than the stream's
+        // database poll interval, otherwise the stream is merely being given
+        // too little time to emit and a broken filter would still pass here.
+        let wait = xmtp_configuration::ACTIVE_DATABASE_POLL_INTERVAL * 3;
+        let result = xmtp_common::time::timeout(wait, stream.next()).await;
         assert!(result.is_err(), "Duplicate DM was unexpectedly streamed");
     }
 

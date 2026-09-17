@@ -54,27 +54,38 @@ where
 
         for group in groups {
             let mut sent_after_ns = None;
-            let mut msgs;
+            // Grows while a page holds a single `sent_at_ns`, so that a tie
+            // group larger than one page still fits and the cursor can advance.
+            let mut limit = BATCH_SIZE;
             let mut originals: HashSet<u64> = HashSet::default();
 
             loop {
-                msgs = db.get_group_messages(
+                let msgs = db.get_group_messages(
                     &group.id,
                     &MsgQueryArgs {
                         content_types: Some(vec![ContentType::GroupUpdated]),
                         sent_after_ns,
-                        limit: Some(BATCH_SIZE),
+                        limit: Some(limit),
                         ..Default::default()
                     },
                 )?;
 
-                {
-                    let Some(msg) = msgs.last() else {
-                        break;
-                    };
-                    sent_after_ns = Some(msg.sent_at_ns);
-                }
+                let full_page = msgs.len() >= limit as usize;
+                let last_value = msgs.last().map(|msg| msg.sent_at_ns);
 
+                // The cursor filter is a strict `>` on `sent_at_ns`, so rows
+                // sharing the final value of a full page may continue past the
+                // page edge. Hold those back and re-read them with the next
+                // page; otherwise they are never examined and their duplicates
+                // survive the migration. A short page ends the scan and keeps
+                // every row.
+                let cutoff = last_value.filter(|_| full_page);
+                let msgs: Vec<_> = msgs
+                    .into_iter()
+                    .filter(|msg| Some(msg.sent_at_ns) != cutoff)
+                    .collect();
+
+                let highest_consumed = msgs.last().map(|msg| msg.sent_at_ns);
                 let msgs = enrich_messages(&db, &group.id, msgs)?;
 
                 for msg in msgs {
@@ -95,6 +106,18 @@ where
                     })?;
 
                     tokio::task::yield_now().await;
+                }
+
+                match highest_consumed {
+                    // Resume just above the last value read in full.
+                    Some(value) => {
+                        sent_after_ns = Some(value);
+                        limit = BATCH_SIZE;
+                    }
+                    // A full page of one repeated value: nothing could be
+                    // retired, so re-read it larger rather than stall.
+                    None if full_page => limit = limit.saturating_mul(2),
+                    None => break,
                 }
             }
 
@@ -247,5 +270,100 @@ mod tests {
             ..Default::default()
         })?;
         assert!(msgs.iter().any(|m| m.metadata.id == msg.id));
+    }
+
+    /// `sent_at_ns` has no uniqueness guarantee, and the database records
+    /// `inserted_at_ns` only to the millisecond, so a burst of updates can
+    /// share one timestamp. The paging cursor advances with a strict `>`, so a
+    /// tie group straddling the page edge used to be skipped and its
+    /// duplicates survived. Put a tie group larger than one page in front of
+    /// the migration and require that every duplicate still goes.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn test_cleanup_spans_messages_sharing_one_timestamp() {
+        tester!(alix);
+        tester!(bo);
+
+        let (dm, _) = alix.test_talk_in_dm_with(&bo).await?;
+        dm.sync().await?;
+        xmtp_common::wait_for_eq(
+            || async {
+                StoredUserPreferences::load(alix.db())
+                    .unwrap()
+                    .dm_group_updates_migrated
+            },
+            true,
+        )
+        .await?;
+        alix.db().raw_query(|conn| {
+            xmtp_db::diesel::update(xmtp_db::schema::user_preferences::table)
+                .set(xmtp_db::schema::user_preferences::dm_group_updates_migrated.eq(false))
+                .execute(conn)
+        })?;
+
+        let old_updates = dm.find_messages_v2(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        })?;
+
+        let payload = GroupUpdated {
+            added_inboxes: vec![Inbox {
+                inbox_id: "tied".to_string(),
+            }],
+            ..Default::default()
+        };
+
+        // One shared timestamp for every row, so the whole run is a single tie
+        // group that cannot fit in one page.
+        let shared_sent_at_ns = now_ns();
+        let total = (BATCH_SIZE as usize) + 25;
+        let mut encoded_payload = Vec::new();
+        GroupUpdatedCodec::encode(payload.clone())?.encode(&mut encoded_payload)?;
+
+        let mut duplicates = vec![];
+        for i in 0..total {
+            let msg = StoredGroupMessage {
+                id: sha256(&rand_vec::<12>()),
+                group_id: dm.group_id,
+                decrypted_message_bytes: encoded_payload.clone(),
+                sent_at_ns: shared_sent_at_ns,
+                kind: GroupMessageKind::MembershipChange,
+                sender_installation_id: vec![1, 2, 3],
+                sender_inbox_id: "123".to_string(),
+                delivery_status: DeliveryStatus::Published,
+                content_type: ContentType::GroupUpdated,
+                version_major: 0,
+                version_minor: 0,
+                authority_id: "unknown".to_string(),
+                reference_id: None,
+                sequence_id: i as i64 + 1,
+                envelope_hash: None,
+                expiry_ns: None,
+                expire_at_ns: None,
+                inserted_at_ns: 0,
+                should_push: true,
+                idempotency_key: String::new(),
+            };
+            msg.store(&alix.db())?;
+            if i > 0 {
+                duplicates.push(msg.id);
+            }
+        }
+
+        perform_inner(alix.db()).await?;
+
+        let msgs = dm.find_messages_v2(&MsgQueryArgs {
+            content_types: Some(vec![ContentType::GroupUpdated]),
+            ..Default::default()
+        })?;
+
+        for msg in &msgs {
+            assert!(
+                !duplicates.contains(&msg.metadata.id),
+                "a duplicate past the page boundary survived: {:?}",
+                msg.metadata.id
+            );
+        }
+        // Exactly one of the identical updates is kept.
+        assert_eq!(msgs.len(), old_updates.len() + 1);
     }
 }
