@@ -723,16 +723,9 @@ mod tests {
         assert_eq!(restored_dm.app_data()?, "legacy archive dm app data");
     }
 
-    /// Migrated (post-bootstrap) groups must survive the backup
-    /// round-trip. The bootstrap commit strips the legacy
-    /// `ImmutableMetadata` / `GroupMutableMetadata` extensions, and the
-    /// exporter used to read only those — so every migrated group was
-    /// silently omitted from the archive (`filter_map` + `?`), i.e.
-    /// conversation loss on restore. The exporter is now
-    /// capability-aware and reads the AppData dictionary on migrated
-    /// groups.
+    /// Dictionary metadata must survive archive export and import.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn test_archive_includes_migrated_groups() {
+    async fn test_archive_includes_dictionary_groups() {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
 
@@ -754,14 +747,12 @@ mod tests {
             .update_group_image_url_square("https://example.com/post-migration.png".to_string())
             .await?;
 
-        // A second, unmigrated group in the same archive pins the
-        // mixed legacy+migrated export: both read paths must produce
-        // restorable groups side by side.
-        let legacy_group = alix
+        // A second group must restore alongside the first group.
+        let second_group = alix
             .create_group_with_members(&[bo.inbox_id()], None, None)
             .await?;
-        legacy_group
-            .update_group_name("legacy name".to_string())
+        second_group
+            .update_group_name("second group name".to_string())
             .await?;
 
         let key = vec![7; 32];
@@ -791,12 +782,10 @@ mod tests {
         let restored = alix2.db().find_group(&alix_group.group_id)?;
         assert!(
             restored.is_some(),
-            "migrated group missing from restored archive — the exporter \
-             dropped it (pre-fix behavior: legacy-extension read on a \
-             migrated group)"
+            "dictionary group missing from restored archive"
         );
 
-        // Presence isn't enough: the metadata written after migration
+        // Presence is not enough: the metadata written before export
         // must round-trip through the archive, or per-field loss in
         // the exporter's dict read would go unnoticed.
         let restored_group = alix2.group(&alix_group.group_id)?;
@@ -810,8 +799,7 @@ mod tests {
             "https://example.com/post-migration.png"
         );
 
-        // The legacy group in the same archive restores alongside it.
-        let restored_legacy = alix2.group(&legacy_group.group_id)?;
-        assert_eq!(restored_legacy.group_name()?, "legacy name");
+        let restored_second = alix2.group(&second_group.group_id)?;
+        assert_eq!(restored_second.group_name()?, "second group name");
     }
 }

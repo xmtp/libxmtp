@@ -1,8 +1,7 @@
 //! Immutable requirements for outgoing MLS preparation.
 
 use super::*;
-use std::collections::{BTreeMap, HashMap};
-use xmtp_mls_common::app_data::component_id::ComponentId;
+use std::collections::HashMap;
 
 /// Immutable inputs copied under the writer before any dependency request.
 pub(super) struct PublishRequirements {
@@ -13,9 +12,7 @@ pub(super) struct PublishRequirements {
     old_membership: Option<GroupMembership>,
     new_membership: Option<GroupMembership>,
     add_inboxes: Vec<String>,
-    remove_inboxes: Vec<String>,
     readd_installations: Option<HashSet<Vec<u8>>>,
-    bootstrap_extensions: Option<Extensions<GroupContext>>,
 }
 
 impl PublishRequirements {
@@ -30,9 +27,7 @@ impl PublishRequirements {
             old_membership: None,
             new_membership: None,
             add_inboxes: Vec::new(),
-            remove_inboxes: Vec::new(),
             readd_installations: None,
-            bootstrap_extensions: None,
         };
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
@@ -47,34 +42,6 @@ impl PublishRequirements {
                 requirements.add_inboxes = data.add_inbox_ids;
                 // Proposal preparation fetches keys before applying removals.
             }
-            IntentKind::CommitPendingProposals => {
-                let membership = extract_group_membership(group.extensions())?;
-                for proposal in group.pending_proposals() {
-                    match proposal.proposal() {
-                        Proposal::Add(add) => {
-                            let credential = BasicCredential::try_from(
-                                add.key_package().leaf_node().credential().clone(),
-                            )?;
-                            let inbox_id = parse_credential(credential.identity())?;
-                            if membership.get(&inbox_id).is_none()
-                                && !requirements.add_inboxes.contains(&inbox_id)
-                            {
-                                requirements.add_inboxes.push(inbox_id);
-                            }
-                        }
-                        Proposal::Remove(remove) => {
-                            if let Some(member) = group.member_at(remove.removed()) {
-                                let credential = BasicCredential::try_from(member.credential)?;
-                                requirements
-                                    .remove_inboxes
-                                    .push(parse_credential(credential.identity())?);
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                requirements.old_membership = Some(membership);
-            }
             IntentKind::ReaddInstallations => {
                 let data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
                 requirements.readd_installations = Some(
@@ -87,11 +54,6 @@ impl PublishRequirements {
                         .map(|member| member.signature_key)
                         .collect(),
                 );
-            }
-            IntentKind::BootstrapMigration
-                if !crate::groups::app_data::is_migrated_group(group) =>
-            {
-                requirements.bootstrap_extensions = Some(group.extensions().clone());
             }
             _ => {}
         }
@@ -106,8 +68,6 @@ pub(super) struct PublishDependencies {
     pub changes: Option<MembershipDiffWithKeyPackages>,
     /// Explicit identity sequence values selected during outgoing dependency resolution.
     pub latest_sequence_ids: HashMap<String, i64>,
-    /// Canonical bootstrap values synthesized from the captured legacy extensions.
-    pub bootstrap_components: Option<BTreeMap<ComponentId, Vec<u8>>>,
     memberships: Option<(GroupMembership, GroupMembership)>,
 }
 
@@ -121,9 +81,7 @@ impl PublishDependencies {
     /// Require cached proofs for the exact membership snapshots under the writer.
     pub(super) fn validate_local(
         &self,
-        _context: &impl XmtpSharedContext,
         storage: &impl XmtpMlsStorageProvider,
-        _group_id: GroupId,
     ) -> Result<(), GroupError> {
         if let Some((old, new)) = &self.memberships {
             crate::identity_updates::get_installation_diff_local(
@@ -169,9 +127,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     .ok_or(GroupError::MissingSequenceId)?;
                 new.add(inbox_id.clone(), sequence as u64);
             }
-            for inbox_id in &requirements.remove_inboxes {
-                new.remove(inbox_id);
-            }
             if requirements.intent.kind == IntentKind::UpdateGroupMembership
                 || !requirements.add_inboxes.is_empty()
             {
@@ -205,13 +160,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 installations.clone(),
                 failed_installations,
             ));
-        }
-        if let Some(extensions) = &requirements.bootstrap_extensions {
-            dependencies.bootstrap_components = Some(
-                crate::groups::app_data::migration::synthesize_initial_component_values_from_extensions(
-                    &self.context, extensions,
-                ).await?,
-            );
         }
         Ok(dependencies)
     }

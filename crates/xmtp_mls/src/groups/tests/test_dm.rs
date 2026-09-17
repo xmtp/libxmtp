@@ -203,7 +203,6 @@ async fn test_dictionary_native_dm_accepts_valid_permissions() {
     let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
     bo.sync_welcomes().await?;
     let received = bo.group(&dm.group_id)?;
-    assert!(received.is_proposals_enabled()?);
     assert!(received.mutable_metadata()?.admin_list.is_empty());
     assert!(received.mutable_metadata()?.super_admin_list.is_empty());
     assert_eq!(received.members().await?.len(), 2);

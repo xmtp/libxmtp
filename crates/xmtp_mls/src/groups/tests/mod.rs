@@ -58,8 +58,7 @@ use crate::{
     builder::ClientBuilder,
     groups::{
         DeliveryStatus, GroupError, GroupMetadataOptions, PreconfiguredPolicies,
-        UpdateAdminListType, build_dm_protected_metadata_extension,
-        build_mutable_metadata_extension_default, build_protected_metadata_extension,
+        UpdateAdminListType,
         intents::{PermissionPolicyOption, PermissionUpdateType},
         members::{GroupMember, PermissionLevel},
         validate_dm_group,
@@ -547,171 +546,116 @@ async fn test_max_past_epochs() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
-    tester!(client);
-    let added_by_inbox = "added_by_inbox_id";
-    let creator_inbox_id = client.context.identity.inbox_id();
-    let dm_target_inbox_id = added_by_inbox.to_string();
-
-    // Test case 1: Valid DM group
-    let valid_dm_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id.clone(),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    assert!(
-        valid_dm_group
-            .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            })
-            .is_ok()
-    );
-
-    // Test case 2: Invalid conversation type
-    let invalid_protected_metadata =
-        build_protected_metadata_extension(creator_inbox_id, ConversationType::Group, None)
-            .unwrap();
-    let invalid_type_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id.clone(),
-        Some(invalid_protected_metadata),
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let err =
-        invalid_type_group.load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        });
-    assert!(matches!(
-        err,
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::InvalidConversationType)
-        ))
-    ));
-    // Test case 3: Missing DmMembers
-    // This case is not easily testable with the current structure, as DmMembers are set in the protected metadata
-
-    // Test case 4: Mismatched DM members
-    let mismatched_dm_members =
-        build_dm_protected_metadata_extension(creator_inbox_id, "wrong_inbox_id".to_string())
-            .unwrap();
-    let mismatched_dm_members_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id.clone(),
-        Some(mismatched_dm_members),
-        None,
-        None,
-        None,
-        None,
-    )
-    .unwrap();
-    let err = mismatched_dm_members_group.load_mls_group_with_lock(
-        client.context.mls_storage(),
-        |mls_group| {
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
+    use crate::groups::build_group_config;
+    use openmls::prelude::{CredentialWithKey, MlsGroup as OpenMlsGroup};
+    use tls_codec::Serialize;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId,
+            creation::{InitialGroupKind, initial_dictionary},
         },
+        inbox_id::InboxId as ComponentInboxId,
+        tls_set::TlsSet,
+    };
+
+    tester!(client);
+    let added_by_inbox = hex::encode([0x42; 32]);
+    let make_group = |policies: PolicySet, changes: Vec<(ComponentId, Option<Vec<u8>>)>| {
+        let mut dictionary = initial_dictionary(
+            InitialGroupKind::Dm {
+                target_inbox_id: &added_by_inbox,
+            },
+            &policies.to_proto().unwrap(),
+            &GroupMetadataOptions::default(),
+            client.inbox_id(),
+            None,
+        )
+        .unwrap();
+        for (id, value) in changes {
+            if let Some(value) = value {
+                dictionary.insert(id.as_u16(), value);
+            } else {
+                dictionary.remove(&id.as_u16());
+            }
+        }
+        let config = build_group_config(dictionary).unwrap();
+        let identity = client.context.identity();
+        OpenMlsGroup::new(
+            &client.context.mls_provider(),
+            &identity.installation_keys,
+            &config,
+            CredentialWithKey {
+                credential: identity.credential(),
+                signature_key: identity.installation_keys.public_slice().into(),
+            },
+        )
+        .unwrap()
+    };
+    let validate =
+        |group: &OpenMlsGroup| validate_dm_group(&client.context, group, &added_by_inbox);
+    assert!(validate(&make_group(PolicySet::new_dm(), vec![])).is_ok());
+
+    let invalid_type = make_group(
+        PolicySet::new_dm(),
+        vec![(
+            ComponentId::CONVERSATION_TYPE,
+            Some((ConversationType::Group as i32).to_be_bytes().to_vec()),
+        )],
     );
     assert!(matches!(
-        err,
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::ExpectedInboxesDoNotMatch)
+        validate(&invalid_type),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::InvalidConversationType
         ))
     ));
 
-    // Test case 5: Non-empty admin list
-    let non_empty_admin_list = build_mutable_metadata_extension_default(
-        creator_inbox_id,
-        GroupMetadataOptions::default(),
-        xmtp_configuration::ENABLE_COMMIT_LOG,
-    )
-    .unwrap();
-    let non_empty_admin_list_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id.clone(),
-        None,
-        Some(non_empty_admin_list),
-        None,
-        None,
-        None,
-    )
-    .unwrap();
+    let missing_members = make_group(PolicySet::new_dm(), vec![(ComponentId::DM_MEMBERS, None)]);
     assert!(matches!(
-        non_empty_admin_list_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(
+        validate(&missing_members),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MustHaveMembersSet
+        ))
+    ));
+
+    let wrong_members = TlsSet::from_keys([
+        ComponentInboxId::from_hex(client.inbox_id())?,
+        ComponentInboxId::from_hex(&hex::encode([0x43; 32]))?,
+    ])
+    .tls_serialize_detached()?;
+    let mismatched_members = make_group(
+        PolicySet::new_dm(),
+        vec![(ComponentId::DM_MEMBERS, Some(wrong_members))],
+    );
+    assert!(matches!(
+        validate(&mismatched_members),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::ExpectedInboxesDoNotMatch
+        ))
+    ));
+
+    for component in [ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST] {
+        let admins = TlsSet::from_keys([ComponentInboxId::from_hex(client.inbox_id())?])
+            .tls_serialize_detached()?;
+        let group = make_group(PolicySet::new_dm(), vec![(component, Some(admins))]);
+        assert!(matches!(
+            validate(&group),
+            Err(MetadataPermissionsError::DmValidation(
                 DmValidationError::MustHaveEmptyAdminAndSuperAdmin
-            )
-        ))
-    ));
+            ))
+        ));
+    }
 
-    // Test case 6: Non-empty super admin list
-    // Similar to test case 5, but with super_admin_list
-
-    // Test case 7: Invalid permissions
-    let invalid_permissions = PolicySet::default();
-    let invalid_permissions_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id.clone(),
-        None,
-        None,
-        None,
-        Some(invalid_permissions),
-        None,
-    )
-    .unwrap();
-    assert!(matches!(
-        invalid_permissions_group.load_mls_group_with_lock(
-            client.context.mls_storage(),
-            |mls_group| {
-                validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-            }
-        ),
-        Err(GroupError::MetadataPermissionsError(
-            MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
-        ))
-    ));
-
-    // Test case 8: A legacy DM with only the add-member policy changed is invalid.
     let mut single_slot_invalid_permissions = PolicySet::new_dm();
     single_slot_invalid_permissions.add_member_policy = MembershipPolicies::allow();
-    let single_slot_invalid_permissions_group = TestMlsGroup::create_test_dm_group(
-        client.context.clone(),
-        dm_target_inbox_id,
-        None,
-        None,
-        None,
-        Some(single_slot_invalid_permissions),
-        None,
-    )
-    .unwrap();
-    let result = single_slot_invalid_permissions_group.load_mls_group_with_lock(
-        client.context.mls_storage(),
-        |mls_group| {
-            assert!(mls_group.extensions().app_data_dictionary().is_none());
-            validate_dm_group(&client.context, &mls_group, added_by_inbox).map_err(Into::into)
-        },
-    );
-    assert!(
-        matches!(
-            result,
-            Err(GroupError::MetadataPermissionsError(
-                MetadataPermissionsError::DmValidation(DmValidationError::InvalidPermissions)
+    for policies in [PolicySet::default(), single_slot_invalid_permissions] {
+        let group = make_group(policies, vec![]);
+        assert!(matches!(
+            validate(&group),
+            Err(MetadataPermissionsError::DmValidation(
+                DmValidationError::InvalidPermissions
             ))
-        ),
-        "unexpected validation result: {result:?}"
-    );
+        ));
+    }
 }
 
 #[xmtp_common::test]

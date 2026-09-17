@@ -13,8 +13,7 @@
 //!
 //! The legacy GMM extension stores inbox ids as 64-character hex strings.
 //! Anything serialized through the new `AppDataUpdate` path uses the
-//! versioned [`InboxId`] newtype instead — the legacy on-the-wire format
-//! is left untouched for unmigrated groups.
+//! versioned [`InboxId`] newtype.
 //!
 //! See [`xmtp_mls_common::inbox_id`] for the full wire-format contract;
 //! the short version is `varint(version) || 32-byte payload`, with
@@ -45,10 +44,7 @@ use xmtp_mls_common::{
         registry_table::lookup_component,
         typed::ComponentTypedError,
     },
-    group_mutable_metadata::{
-        GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
-        find_mutable_metadata_extension,
-    },
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
     tls_map::TlsMapError,
     tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
@@ -190,9 +186,8 @@ impl From<ComponentTypedError> for ComponentSourceError {
 
 impl From<ComponentSourceError> for GroupMutableMetadataError {
     /// Preserve structure where possible. If the source already wraps a
-    /// `GroupMutableMetadataError` (e.g. `MissingExtension` raised by the
-    /// legacy `TryFrom<&OpenMlsGroup>` path on an unmigrated group),
-    /// unwrap and return that inner variant verbatim so callers can
+    /// `GroupMutableMetadataError`, unwrap and return that inner variant
+    /// verbatim so callers can
     /// match on `MissingExtension` / `MissingMetadataField` / etc.
     ///
     /// For every other variant, surface as `MalformedComponent` and
@@ -323,23 +318,15 @@ pub(crate) fn component_id_to_metadata_field(id: ComponentId) -> Option<Metadata
         .map(|(field, _)| *field)
 }
 
-/// Read the component's current bytes from whichever storage the group's
-/// capability flag indicates: the OpenMLS AppData dictionary when
-/// `proposals_enabled` is on, otherwise the legacy group context
-/// extensions (translated into the new app-data wire format on the fly).
+/// Read the component's current bytes from the OpenMLS AppData dictionary.
 pub(crate) fn read_component_bytes(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
-    proposals_enabled: bool,
 ) -> Result<Option<Vec<u8>>, ComponentSourceError> {
-    if proposals_enabled {
-        Ok(read_from_app_data_dict_from_extensions(id, extensions))
-    } else {
-        read_from_legacy(id, extensions)
-    }
+    Ok(read_from_app_data_dict_from_extensions(id, extensions))
 }
 
-/// Compute the post-commit value of a single component on a migrated group
+/// Compute the post-commit value of a single component
 /// by overlaying the staged commit's `AppDataUpdate` proposals on top of
 /// the pre-commit dict. Last-write-wins matches the lazy-batching apply
 /// order in [`super::accumulate_app_data_updates`]: every `Update(payload)`
@@ -355,9 +342,7 @@ pub(crate) fn read_component_bytes(
 ///
 /// Used by the commit validator to evaluate per-component invariants
 /// (notably `MIN_SUPPORTED_PROTOCOL_VERSION`) that need the post-commit
-/// view on migrated groups, where the legacy `GroupMutableMetadata`
-/// extension diff that drives the same check on unmigrated groups is
-/// unavailable.
+/// view from the AppData dictionary.
 ///
 /// # Registry semantics
 ///
@@ -374,14 +359,10 @@ pub(crate) fn read_component_bytes(
 /// not yet visible in the pre-commit registry. This matches what the
 /// receiver-side validator
 /// ([`super::validate_app_data_update_proposals_in_commit`]) enforces
-/// today and is the documented convention across the migrated commit
+/// today and is the documented convention across the commit
 /// path: registry mutations and writes that depend on those mutations
 /// MUST land in separate commits.
 ///
-/// The bootstrap commit is the only legitimate "register + write in
-/// the same commit" pattern and is routed through a dedicated
-/// validator ([`super::bootstrap_validator::validate_bootstrap_commit`])
-/// that does not flow through this function.
 pub(crate) fn read_post_commit_component_bytes(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
@@ -463,58 +444,6 @@ pub(crate) fn read_from_app_data_dict_from_extensions(
         .app_data_dictionary()
         .and_then(|ext| ext.dictionary().get(&id.as_u16()))
         .map(|bytes| bytes.to_vec())
-}
-
-/// Look up the component's bytes in the legacy group-context extensions and
-/// translate them into the new app-data wire format.
-///
-/// For `GroupMutableMetadata`-backed bytes components this returns the
-/// attribute's UTF-8 bytes. For `ADMIN_LIST` / `SUPER_ADMIN_LIST` it
-/// re-encodes the legacy `Vec<String>` of hex inbox ids as a
-/// `TlsSet<InboxId>`.
-///
-/// `GROUP_MEMBERSHIP` is intentionally unsupported here and returns
-/// [`ComponentSourceError::NotImplemented`]: unmigrated groups read
-/// membership via the dedicated `GROUP_MEMBERSHIP_EXTENSION_ID`
-/// GroupContext extension (see [`extract_group_membership`]), not as
-/// an AppData component. Migrated groups use the dict directly.
-///
-/// [`extract_group_membership`]: crate::groups::group_membership::extract_group_membership
-fn read_from_legacy(
-    id: ComponentId,
-    extensions: &Extensions<GroupContext>,
-) -> Result<Option<Vec<u8>>, ComponentSourceError> {
-    // Mutable-metadata-backed bytes components: pull the attribute out of
-    // the GMM extension. Missing extension → None; missing attribute → None.
-    if let Some(field) = component_id_to_metadata_field(id) {
-        let gmm = match find_mutable_metadata_extension(extensions) {
-            Some(bytes) => GroupMutableMetadata::try_from(bytes)?,
-            None => return Ok(None),
-        };
-        return Ok(gmm
-            .attributes
-            .get(field.as_str())
-            .map(|s| s.as_bytes().to_vec()));
-    }
-
-    match id {
-        ComponentId::ADMIN_LIST => {
-            let gmm = match find_mutable_metadata_extension(extensions) {
-                Some(bytes) => GroupMutableMetadata::try_from(bytes)?,
-                None => return Ok(None),
-            };
-            Ok(Some(encode_inbox_id_set(&gmm.admin_list)?))
-        }
-        ComponentId::SUPER_ADMIN_LIST => {
-            let gmm = match find_mutable_metadata_extension(extensions) {
-                Some(bytes) => GroupMutableMetadata::try_from(bytes)?,
-                None => return Ok(None),
-            };
-            Ok(Some(encode_inbox_id_set(&gmm.super_admin_list)?))
-        }
-        ComponentId::GROUP_MEMBERSHIP => Err(ComponentSourceError::NotImplemented(id)),
-        _ => Err(ComponentSourceError::UnknownComponent(id)),
-    }
 }
 
 /// Encode a [`ComponentMutation`] into the bytes that go inside an
@@ -693,13 +622,7 @@ fn registered_component_type(
     })
 }
 
-/// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`]
-/// read from the legacy extension. On migrated groups the dict is
-/// authoritative; for unmigrated components the legacy GMM stays as the
-/// fallback, so callers always get a complete view.
-///
-/// Gated on [`super::is_migrated_group`] (defense-in-depth) so a stray
-/// dict entry on a pre-bootstrap group can't shadow legacy GMM.
+/// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`].
 ///
 /// Wire formats (must match what the sender emits via
 /// [`encode_app_data_update_payload`] / [`apply_app_data_update_payload`]):
@@ -711,8 +634,8 @@ fn registered_component_type(
 ///
 /// This function reads metadata field entries directly from the dict and
 /// **never** loads or validates the `COMPONENT_REGISTRY` payload — it
-/// only uses [`super::is_migrated_extensions`] (key-existence check) as
-/// the gate. So a malformed `COMPONENT_REGISTRY` blob does NOT cause
+/// does not use the `COMPONENT_REGISTRY` payload as a gate. So a malformed
+/// `COMPONENT_REGISTRY` blob does NOT cause
 /// metadata reads to drop authoritative data: as long as the individual
 /// metadata field bytes (`GROUP_NAME`, `ADMIN_LIST`, …) decode
 /// correctly, they round-trip into the returned GMM. Registry corruption
@@ -730,36 +653,14 @@ pub(crate) fn merge_app_data_into_mutable_metadata(
     merge_app_data_into_mutable_metadata_from_extensions(base, mls_group.extensions())
 }
 
-/// Capability-aware [`GroupMutableMetadata`] extractor.
-///
-/// On migrated groups the legacy `GroupMutableMetadata` group context
-/// extension is stripped by the bootstrap commit, so the static
-/// [`xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata`]
-/// returns `MissingExtension` and any caller that swallows the error
-/// with `.ok()` silently defaults every metadata field (notably:
-/// disappearing-message settings and `MinimumSupportedProtocolVersion`
-/// — the latter is what gates the XIP §3 pause-on-version-bump flow).
-///
-/// This helper returns the same `GroupMutableMetadata` shape but reads
-/// from the right source per migration state:
-///
-/// - **Migrated** ([`super::is_migrated_group`] returns `true`): starts
-///   from an empty composite and overlays every field from the AppData
-///   dictionary via [`merge_app_data_into_mutable_metadata`].
-/// - **Unmigrated**: parses the legacy GMM extension via
-///   `GroupMutableMetadata::try_from(&OpenMlsGroup)`, matching the
-///   legacy static helper byte-for-byte.
+/// Extract [`GroupMutableMetadata`] from the AppData dictionary.
 pub(crate) fn extract_group_mutable_metadata_capability_aware(
     mls_group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, ComponentSourceError> {
-    if super::is_migrated_group(mls_group) {
-        let mut base =
-            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
-        merge_app_data_into_mutable_metadata(&mut base, mls_group)?;
-        Ok(base)
-    } else {
-        Ok(GroupMutableMetadata::try_from(mls_group)?)
-    }
+    let mut base =
+        GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+    merge_app_data_into_mutable_metadata(&mut base, mls_group)?;
+    Ok(base)
 }
 
 /// Same as [`extract_group_mutable_metadata_capability_aware`], but driven from
@@ -770,33 +671,20 @@ pub(crate) fn extract_group_mutable_metadata_capability_aware(
 pub(crate) fn extract_group_mutable_metadata_capability_aware_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMutableMetadata, ComponentSourceError> {
-    if super::is_migrated_extensions(extensions) {
-        let mut base =
-            GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
-        merge_app_data_into_mutable_metadata_from_extensions(&mut base, extensions)?;
-        Ok(base)
-    } else {
-        Ok(GroupMutableMetadata::try_from(extensions)?)
-    }
+    let mut base =
+        GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+    merge_app_data_into_mutable_metadata_from_extensions(&mut base, extensions)?;
+    Ok(base)
 }
 
 /// Extensions-only variant of [`merge_app_data_into_mutable_metadata`].
-/// Mirrors the [`super::is_migrated_group`] / [`super::is_migrated_extensions`]
-/// and [`super::load_component_registry`] /
-/// [`super::load_component_registry_from_extensions`] splits so unit
-/// tests can pin the merge contract without materializing an
-/// `OpenMlsGroup`.
 pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
     base: &mut GroupMutableMetadata,
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> Result<(), ComponentSourceError> {
-    if !super::is_migrated_extensions(extensions) {
-        return Ok(());
-    }
     // The merge body lives in `xmtp_mls_common` so crates below
     // `xmtp_mls` in the dependency graph (the archive exporter) can
-    // reuse it; only the (test-override-aware) migration gate above
-    // stays here. Map the per-component error back to
+    // reuse it. Map the per-component error back to
     // `MalformedComponentValue` so this function's error shape (which
     // callers and tests match on, and `component_id()` extracts from)
     // is unchanged by the move.
@@ -834,13 +722,7 @@ pub(crate) fn inbox_id_str_to_bytes(inbox_id: &str) -> Result<InboxId, Component
     InboxId::from_hex(inbox_id).map_err(Into::into)
 }
 
-/// Read the super-admin list from the AppData dictionary on a migrated
-/// group. Returns `Ok(None)` on unmigrated groups (or migrated groups
-/// that happen not to have written `SUPER_ADMIN_LIST` yet).
-///
-/// Gated on [`super::is_migrated_group`] for the same reason as
-/// [`merge_app_data_into_mutable_metadata`] — keep stray dict entries
-/// from shadowing the authoritative legacy path pre-bootstrap.
+/// Read the super-admin list from the AppData dictionary.
 pub(crate) fn read_super_admin_list_from_dict(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<Vec<String>>, ComponentSourceError> {
@@ -854,9 +736,6 @@ pub(crate) fn read_super_admin_list_from_dict(
 pub(crate) fn read_super_admin_list_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<Vec<String>>, ComponentSourceError> {
-    if !super::is_migrated_extensions(extensions) {
-        return Ok(None);
-    }
     let Some(ext) = extensions.app_data_dictionary() else {
         return Ok(None);
     };
@@ -875,9 +754,8 @@ pub(crate) fn read_super_admin_list_from_extensions(
     Ok(Some(set.iter().map(|id| id.to_hex()).collect()))
 }
 
-/// Synthesize a [`GroupMetadata`] from the AppData dictionary on a
-/// migrated group. Returns `Ok(None)` if the critical immutable seeds
-/// aren't present (unmigrated group).
+/// Synthesize a [`GroupMetadata`] from the AppData dictionary.
+/// Returns `Ok(None)` if the critical immutable seeds are absent.
 ///
 /// Encoding mirrors the sender-side synthesis in
 /// [`xmtp_mls_common::app_data::migration::synthesize_canonical_subset_for_validation`]:
@@ -909,12 +787,6 @@ pub(crate) fn read_group_metadata_from_extensions(
     use xmtp_proto::xmtp::mls::message_contents::{
         DmMembers as DmMembersProto, Inbox as InboxProto, OneshotMessage,
     };
-
-    // Gated on the unified migration predicate — see
-    // `merge_app_data_into_mutable_metadata` for the rationale.
-    if !super::is_migrated_extensions(extensions) {
-        return Ok(None);
-    }
 
     let Some(ext) = extensions.app_data_dictionary() else {
         return Ok(None);
@@ -1002,8 +874,7 @@ pub(crate) struct GroupMetadataReturn {
 }
 
 /// Read the `GROUP_MEMBERSHIP` dict entry and decode it into the
-/// legacy `GroupMembership` proto shape. Returns `Ok(None)` for
-/// unmigrated groups. Used by `extract_group_membership` on the
+/// legacy `GroupMembership` proto shape. Used by `extract_group_membership` on the
 /// receive-side validator to bridge the dict-stored membership back
 /// into the existing `GroupMembership` Rust type without rewriting
 /// every caller.
@@ -1013,15 +884,6 @@ pub(crate) fn read_group_membership_from_dict(
 {
     use xmtp_mls_common::app_data::migration::decode_group_membership_dict;
     use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
-
-    // Gate on the unified migration predicate so a stray
-    // `GROUP_MEMBERSHIP` dict entry on a pre-bootstrap group can't
-    // shadow the authoritative legacy extension. Matches the gating
-    // used by [`merge_app_data_into_mutable_metadata`] and the
-    // `mutable_metadata()` / `is_super_admin_without_lock` callers.
-    if !super::is_migrated_extensions(extensions) {
-        return Ok(None);
-    }
 
     let Some(ext) = extensions.app_data_dictionary() else {
         return Ok(None);
@@ -2090,7 +1952,7 @@ mod tests {
     }
 
     // ========================================================================
-    // Dict-reader helpers — happy path / unmigrated / malformed coverage
+    // Dict-reader helpers — happy path and malformed coverage
     // ========================================================================
     //
     // The three `read_*_from_dict` helpers execute before bootstrap is
@@ -2101,19 +1963,11 @@ mod tests {
         AppDataDictionary, AppDataDictionaryExtension, Extension as OpenMlsExtension, Extensions,
     };
 
-    /// Build a synthetic `Extensions<GroupContext>` that carries only
-    /// an `AppDataDictionary`. `migrated=true` seeds
-    /// `COMPONENT_REGISTRY` with placeholder bytes so
-    /// `is_migrated_extensions` returns true; `migrated=false` leaves
-    /// the marker absent.
+    /// Build a synthetic `Extensions<GroupContext>` with an AppData dictionary.
     fn extensions_with_entries(
-        migrated: bool,
         entries: &[(u16, Vec<u8>)],
     ) -> Extensions<openmls::group::GroupContext> {
         let mut dict = AppDataDictionary::new();
-        if migrated {
-            let _ = dict.insert(ComponentId::COMPONENT_REGISTRY.as_u16(), vec![0xCA; 4]);
-        }
         for (id, bytes) in entries {
             let _ = dict.insert(*id, bytes.clone());
         }
@@ -2126,28 +1980,10 @@ mod tests {
     // --- read_super_admin_list_from_extensions ------------------------------
 
     #[xmtp_common::test]
-    fn read_super_admin_list_unmigrated_returns_none() {
-        // No COMPONENT_REGISTRY marker => unmigrated, overlay stays off
-        // even if SUPER_ADMIN_LIST bytes happen to exist.
-        let exts = extensions_with_entries(
-            false,
-            &[(
-                ComponentId::SUPER_ADMIN_LIST.as_u16(),
-                encode_inbox_id_set(&[fake_inbox_id(0x11)]).unwrap(),
-            )],
-        );
-        assert!(
-            read_super_admin_list_from_extensions(&exts)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[xmtp_common::test]
-    fn read_super_admin_list_migrated_absent_returns_none() {
-        // Migrated group but the dict has no SUPER_ADMIN_LIST entry —
+    fn read_super_admin_list_absent_returns_none() {
+        // The dict has no SUPER_ADMIN_LIST entry —
         // `Ok(None)` rather than surfacing a malformed-value error.
-        let exts = extensions_with_entries(true, &[]);
+        let exts = extensions_with_entries(&[]);
         assert!(
             read_super_admin_list_from_extensions(&exts)
                 .unwrap()
@@ -2156,11 +1992,10 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn read_super_admin_list_migrated_happy_path() {
+    fn read_super_admin_list_happy_path() {
         let ids = vec![fake_inbox_id(0xAA), fake_inbox_id(0xBB)];
         let bytes = encode_inbox_id_set(&ids).unwrap();
-        let exts =
-            extensions_with_entries(true, &[(ComponentId::SUPER_ADMIN_LIST.as_u16(), bytes)]);
+        let exts = extensions_with_entries(&[(ComponentId::SUPER_ADMIN_LIST.as_u16(), bytes)]);
         let got = read_super_admin_list_from_extensions(&exts)
             .unwrap()
             .unwrap();
@@ -2172,13 +2007,10 @@ mod tests {
 
     #[xmtp_common::test]
     fn read_super_admin_list_malformed_bytes_surface_error() {
-        let exts = extensions_with_entries(
-            true,
-            &[(
-                ComponentId::SUPER_ADMIN_LIST.as_u16(),
-                vec![0x00, 0xDE, 0xAD],
-            )],
-        );
+        let exts = extensions_with_entries(&[(
+            ComponentId::SUPER_ADMIN_LIST.as_u16(),
+            vec![0x00, 0xDE, 0xAD],
+        )]);
         let err = read_super_admin_list_from_extensions(&exts).unwrap_err();
         assert!(matches!(
             err,
@@ -2206,32 +2038,9 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn read_group_metadata_unmigrated_returns_none() {
-        let exts = extensions_with_entries(
-            false,
-            &[
-                (
-                    ComponentId::CONVERSATION_TYPE.as_u16(),
-                    encode_conv_type_bytes(1),
-                ),
-                (
-                    ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    encode_creator_bytes(0x11),
-                ),
-            ],
-        );
-        assert!(
-            read_group_metadata_from_extensions(&exts)
-                .unwrap()
-                .is_none()
-        );
-    }
-
-    #[xmtp_common::test]
     fn read_group_metadata_missing_required_seeds_returns_none() {
-        // Migrated group but CONVERSATION_TYPE is absent — treat as
-        // "seeds not ready yet" (Ok(None)) rather than malformed.
-        let exts = extensions_with_entries(true, &[]);
+        // A missing CONVERSATION_TYPE seed is not malformed.
+        let exts = extensions_with_entries(&[]);
         assert!(
             read_group_metadata_from_extensions(&exts)
                 .unwrap()
@@ -2241,19 +2050,16 @@ mod tests {
 
     #[xmtp_common::test]
     fn read_group_metadata_happy_path_non_dm() {
-        let exts = extensions_with_entries(
-            true,
-            &[
-                (
-                    ComponentId::CONVERSATION_TYPE.as_u16(),
-                    encode_conv_type_bytes(1),
-                ),
-                (
-                    ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    encode_creator_bytes(0x11),
-                ),
-            ],
-        );
+        let exts = extensions_with_entries(&[
+            (
+                ComponentId::CONVERSATION_TYPE.as_u16(),
+                encode_conv_type_bytes(1),
+            ),
+            (
+                ComponentId::CREATOR_INBOX_ID.as_u16(),
+                encode_creator_bytes(0x11),
+            ),
+        ]);
         let got = read_group_metadata_from_extensions(&exts).unwrap().unwrap();
         assert_eq!(got.conversation_type, 1);
         assert_eq!(got.creator_inbox_id, fake_inbox_id(0x11));
@@ -2265,20 +2071,17 @@ mod tests {
     fn read_group_metadata_dm_happy_path() {
         // DM group — DM_MEMBERS decodes as TlsSet<InboxId>, re-shaped
         // to the proto's two-slot form.
-        let exts = extensions_with_entries(
-            true,
-            &[
-                (
-                    ComponentId::CONVERSATION_TYPE.as_u16(),
-                    encode_conv_type_bytes(2),
-                ),
-                (
-                    ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    encode_creator_bytes(0x22),
-                ),
-                (ComponentId::DM_MEMBERS.as_u16(), encode_dm_pair(0x22, 0x33)),
-            ],
-        );
+        let exts = extensions_with_entries(&[
+            (
+                ComponentId::CONVERSATION_TYPE.as_u16(),
+                encode_conv_type_bytes(2),
+            ),
+            (
+                ComponentId::CREATOR_INBOX_ID.as_u16(),
+                encode_creator_bytes(0x22),
+            ),
+            (ComponentId::DM_MEMBERS.as_u16(), encode_dm_pair(0x22, 0x33)),
+        ]);
         let got = read_group_metadata_from_extensions(&exts).unwrap().unwrap();
         let dm = got.dm_members.unwrap();
         assert_eq!(dm.dm_member_one.unwrap().inbox_id, fake_inbox_id(0x22));
@@ -2290,20 +2093,17 @@ mod tests {
         // A 1-element TlsSet<InboxId> is invalid for DM_MEMBERS —
         // surfaces `MalformedComponentValue`.
         let one_element = encode_inbox_id_set(&[fake_inbox_id(0x44)]).unwrap();
-        let exts = extensions_with_entries(
-            true,
-            &[
-                (
-                    ComponentId::CONVERSATION_TYPE.as_u16(),
-                    encode_conv_type_bytes(2),
-                ),
-                (
-                    ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    encode_creator_bytes(0x44),
-                ),
-                (ComponentId::DM_MEMBERS.as_u16(), one_element),
-            ],
-        );
+        let exts = extensions_with_entries(&[
+            (
+                ComponentId::CONVERSATION_TYPE.as_u16(),
+                encode_conv_type_bytes(2),
+            ),
+            (
+                ComponentId::CREATOR_INBOX_ID.as_u16(),
+                encode_creator_bytes(0x44),
+            ),
+            (ComponentId::DM_MEMBERS.as_u16(), one_element),
+        ]);
         let err = read_group_metadata_from_extensions(&exts).unwrap_err();
         assert!(matches!(
             err,
@@ -2321,19 +2121,16 @@ mod tests {
         // plus 32-byte payload, so deserialization must fail loud as
         // `MalformedComponentValue` rather than silently producing
         // a phantom inbox id.
-        let exts = extensions_with_entries(
-            true,
-            &[
-                (
-                    ComponentId::CONVERSATION_TYPE.as_u16(),
-                    encode_conv_type_bytes(1),
-                ),
-                (
-                    ComponentId::CREATOR_INBOX_ID.as_u16(),
-                    vec![0xFF, 0xFE, 0xFD],
-                ),
-            ],
-        );
+        let exts = extensions_with_entries(&[
+            (
+                ComponentId::CONVERSATION_TYPE.as_u16(),
+                encode_conv_type_bytes(1),
+            ),
+            (
+                ComponentId::CREATOR_INBOX_ID.as_u16(),
+                vec![0xFF, 0xFE, 0xFD],
+            ),
+        ]);
         let err = read_group_metadata_from_extensions(&exts).unwrap_err();
         assert!(matches!(
             err,
@@ -2345,30 +2142,6 @@ mod tests {
     }
 
     // --- read_group_membership_from_dict ------------------------------------
-
-    #[xmtp_common::test]
-    fn read_group_membership_unmigrated_returns_none() {
-        use std::collections::BTreeMap;
-        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
-        use xmtp_proto::xmtp::mls::message_contents::{
-            GroupMembershipEntry,
-            group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
-        };
-        let mut entries: BTreeMap<InboxId, GroupMembershipEntry> = BTreeMap::new();
-        entries.insert(
-            InboxId::from_bytes([0x11; INBOX_ID_BYTE_LEN]),
-            GroupMembershipEntry {
-                version: Some(Version::V1(GroupMembershipEntryV1 {
-                    sequence_id: 1,
-                    failed_installations: vec![],
-                })),
-            },
-        );
-        let bytes = encode_group_membership_dict(&entries).unwrap();
-        let exts =
-            extensions_with_entries(false, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
-        assert!(read_group_membership_from_dict(&exts).unwrap().is_none());
-    }
 
     #[xmtp_common::test]
     fn read_group_membership_happy_path_flattens_per_inbox() {
@@ -2398,8 +2171,7 @@ mod tests {
             },
         );
         let bytes = encode_group_membership_dict(&entries).unwrap();
-        let exts =
-            extensions_with_entries(true, &[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
+        let exts = extensions_with_entries(&[(ComponentId::GROUP_MEMBERSHIP.as_u16(), bytes)]);
 
         let proto = read_group_membership_from_dict(&exts).unwrap().unwrap();
         // `members` is flat <hex_inbox_id, seq>
@@ -2412,13 +2184,10 @@ mod tests {
 
     #[xmtp_common::test]
     fn read_group_membership_malformed_bytes_surface_error() {
-        let exts = extensions_with_entries(
-            true,
-            &[(
-                ComponentId::GROUP_MEMBERSHIP.as_u16(),
-                vec![0xDE, 0xAD, 0xBE, 0xEF],
-            )],
-        );
+        let exts = extensions_with_entries(&[(
+            ComponentId::GROUP_MEMBERSHIP.as_u16(),
+            vec![0xDE, 0xAD, 0xBE, 0xEF],
+        )]);
         let err = read_group_membership_from_dict(&exts).unwrap_err();
         assert!(matches!(
             err,
@@ -2436,21 +2205,13 @@ mod tests {
     //
     // These pin the call-graph invariant that a malformed
     // `COMPONENT_REGISTRY` does **not** cause `mutable_metadata()` to
-    // drop authoritative dict-backed fields. The migration-marker check
-    // (`is_migrated_extensions`) uses key existence; the merge function
-    // reads each metadata field directly from the dict; nothing on this
+    // drop authoritative dict-backed fields. The merge function reads
+    // each metadata field directly from the dict; nothing on this
     // read path calls `load_component_registry`. Registry corruption is
     // surfaced loudly on the *write* paths (sender gate in `mls_sync.rs`
     // and the commit validator in `validated_commit.rs`), where it
     // belongs.
     //
-    // Note: the existing `extensions_with_entries(migrated=true, …)`
-    // helper already seeds `COMPONENT_REGISTRY` with placeholder bytes
-    // (`vec![0xCA; 4]`) that don't decode as a valid registry, so every
-    // migrated-test in this file already exercises the malformed-
-    // registry branch implicitly. The tests below pin it explicitly so
-    // a reviewer doesn't have to chase the helper to verify.
-
     use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
     fn empty_base_gmm() -> GroupMutableMetadata {
@@ -2464,10 +2225,10 @@ mod tests {
         // is present and valid. The merge function does NOT validate
         // the registry — it reads GROUP_NAME directly — so the result
         // must contain "My Group" with no error.
-        let exts = extensions_with_entries(
-            true, // seeds COMPONENT_REGISTRY with non-decodable 0xCA bytes
-            &[(ComponentId::GROUP_NAME.as_u16(), b"My Group".to_vec())],
-        );
+        let exts = extensions_with_entries(&[
+            (ComponentId::COMPONENT_REGISTRY.as_u16(), vec![0xCA; 4]),
+            (ComponentId::GROUP_NAME.as_u16(), b"My Group".to_vec()),
+        ]);
         let mut base = empty_base_gmm();
         merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts)
             .expect("merge ignores registry parseability and reads field directly");
@@ -2480,35 +2241,14 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    fn merge_unmigrated_is_noop() {
-        // Sanity: pre-migration, the merge gate stays closed — even
-        // if a stray dict entry exists, the base GMM is left untouched
-        // so legacy GMM remains authoritative.
-        let exts = extensions_with_entries(
-            false,
-            &[(ComponentId::GROUP_NAME.as_u16(), b"Stray".to_vec())],
-        );
-        let mut base = empty_base_gmm();
-        merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts).unwrap();
-        assert!(
-            !base
-                .attributes
-                .contains_key(MetadataField::GroupName.as_str()),
-            "merge must be a no-op on unmigrated extensions"
-        );
-    }
-
-    #[xmtp_common::test]
     fn merge_with_malformed_field_surfaces_error_not_silent_loss() {
         // The other half of the invariant: when a metadata field's bytes
         // ARE malformed, the merge fails loudly with
         // `MalformedComponentValue` carrying the offending component id —
         // it never silently swallows the value. Pairs with the test
         // above to disprove "all metadata may be lost" framings.
-        let exts = extensions_with_entries(
-            true,
-            &[(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff])],
-        );
+        let exts =
+            extensions_with_entries(&[(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff])]);
         let mut base = empty_base_gmm();
         let err =
             merge_app_data_into_mutable_metadata_from_extensions(&mut base, &exts).unwrap_err();

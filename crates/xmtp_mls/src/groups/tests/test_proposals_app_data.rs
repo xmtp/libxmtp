@@ -1,4 +1,4 @@
-//! Batched proposals, sequence ids, and app-data dictionary migration.
+//! Batched proposals, sequence ids, and app-data dictionary updates.
 
 use crate::{
     context::XmtpSharedContext,
@@ -130,11 +130,11 @@ async fn test_permission_updates_preserve_pending_fields(#[case] other_member: b
     }
 }
 
-/// Test that add_members uses the batched proposal path when proposals are enabled.
-/// When proposals_enabled is true, UpdateGroupMembership should create Add proposals + GCE + commit
+/// Test that add_members uses the batched proposal path on a dictionary-native group.
+/// UpdateGroupMembership should create Add proposals + GCE + commit
 /// in a single publish, rather than a direct commit.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_add_members_batched_when_proposals_enabled() {
+async fn test_add_members_batched_on_dictionary_group() {
     tester!(alix);
     tester!(bo);
     tester!(caro);
@@ -148,17 +148,7 @@ async fn test_add_members_batched_when_proposals_enabled() {
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
 
-    // Enable proposals on the group
-
     bo_group.sync().await?;
-
-    // Verify proposals are enabled
-    let proposals_enabled = alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&mls_group))
-        })
-        .await?;
-    assert!(proposals_enabled, "Proposals should be enabled");
 
     // Add caro via add_members — this should use the batched proposal path
     alix_group.add_members(&[caro.inbox_id()]).await?;
@@ -213,8 +203,6 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
-
-    // Enable proposals
 
     bo_group.sync().await?;
 
@@ -292,12 +280,12 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
 // =============================================================================
 
 /// Test that a sequence ID bump (new installation) without any add/remove triggers a GCE update
-/// when proposals are enabled and add_missing_installations is called.
+/// on a dictionary-native group when add_missing_installations is called.
 ///
 /// This exercises the extension change detection fix: comparing the full GroupMembership
 /// (including sequence IDs) rather than just the members map keys.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
+async fn test_sequence_id_bump_triggers_gce_on_dictionary_group() {
     use crate::groups::validated_commit::extract_group_membership;
 
     tester!(alix);
@@ -311,8 +299,6 @@ async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
-
-    // Enable proposals
 
     bo_group.sync().await?;
 
@@ -363,7 +349,7 @@ async fn test_sequence_id_bump_triggers_gce_with_proposals_enabled() {
 /// This verifies that compute_publish_data_for_proposal_based_update correctly compares
 /// the full GroupMembership (including sequence IDs) when deciding whether a GCE is needed.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
+async fn test_add_member_after_sequence_id_bump_on_dictionary_group() {
     use crate::groups::validated_commit::extract_group_membership;
 
     tester!(alix);
@@ -378,8 +364,6 @@ async fn test_add_member_after_sequence_id_bump_with_proposals_enabled() {
     let bo_groups = bo.sync_welcomes().await?;
     let bo_group = bo_groups.first()?;
     bo_group.sync().await?;
-
-    // Enable proposals
 
     bo_group.sync().await?;
 
@@ -522,7 +506,7 @@ async fn test_key_package_rotation_preserves_app_data_dictionary_capability() {
 // These tests exercise AppDataUpdate on dictionary-native groups. They confirm
 // that updates replicate end-to-end and read accessors return the new value.
 
-/// `update_group_name` on a group with `proposals_enabled` should:
+/// `update_group_name` on a dictionary-native group should:
 /// - publish a commit containing an `AppDataUpdate(GROUP_NAME)` proposal,
 /// - apply the new name into the OpenMLS AppDataDictionary,
 /// - and surface it to peers through the capability-gated read accessor.
@@ -544,20 +528,6 @@ async fn test_update_group_name_via_app_data_update() {
     // and admin lists.
 
     bo_group.sync().await?;
-
-    // Both peers see the dictionary-native group.
-    let alix_flag = alix_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(alix_flag, "alix proposals_enabled should be true");
-    let bo_flag = bo_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(bo_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(bo_flag, "bo proposals_enabled should be true");
 
     alix_group
         .update_group_name("AppData Group Name".to_string())
@@ -711,7 +681,7 @@ async fn test_receiver_rejects_last_super_admin_removal_from_raw_app_data_intent
     assert_eq!(super_admins, vec![alix.inbox_id().to_string()]);
 }
 
-/// `update_group_description` on a `proposals_enabled` group should also
+/// `update_group_description` on a dictionary-native group should also
 /// flow through the AppData path. This catches any per-field hardcoding
 /// (e.g. forgetting to map `Description` → `GROUP_DESCRIPTION`).
 #[xmtp_common::test(unwrap_try = true)]
@@ -920,7 +890,7 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
 /// apply the new admin list into the OpenMLS AppData dictionary, and
 /// surface bo as an admin to peers via `mutable_metadata().admin_list`.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_admin_list_add_via_app_data_path_after_migration() {
+async fn test_admin_list_add_via_app_data_path() {
     use crate::groups::UpdateAdminListType;
 
     tester!(alix);
@@ -970,7 +940,7 @@ async fn test_admin_list_add_via_app_data_path_after_migration() {
 
 /// Round-trip: add then remove on a dictionary-native group.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_admin_list_remove_via_app_data_path_after_migration() {
+async fn test_admin_list_remove_via_app_data_path() {
     use crate::groups::UpdateAdminListType;
 
     tester!(alix);
@@ -1009,7 +979,7 @@ async fn test_admin_list_remove_via_app_data_path_after_migration() {
 /// component rather than ADMIN_LIST. Confirms the action→component
 /// mapping in the sender's match arm.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_super_admin_list_add_via_app_data_path_after_migration() {
+async fn test_super_admin_list_add_via_app_data_path() {
     use crate::groups::UpdateAdminListType;
 
     tester!(alix);
@@ -1053,12 +1023,12 @@ async fn test_super_admin_list_add_via_app_data_path_after_migration() {
 }
 
 /// `update_permission_policy(UpdateMetadata, GROUP_NAME, AdminOnly)`
-/// on a migrated group should publish an
+/// on a dictionary-native group should publish an
 /// `AppDataUpdate(COMPONENT_REGISTRY, Update(TlsMapDelta::update(GROUP_NAME, …)))`
 /// proposal that mutates the affected component's metadata in the
 /// registry. Verify by re-reading the registry post-commit.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_permission_update_via_app_data_path_after_migration() {
+async fn test_permission_update_via_app_data_path() {
     use crate::groups::intents::{PermissionPolicyOption, PermissionUpdateType};
     use xmtp_mls_common::{
         app_data::component_id::ComponentId, group_mutable_metadata::MetadataField,
@@ -1134,42 +1104,4 @@ async fn test_permission_update_via_app_data_path_after_migration() {
             other => panic!("{label} GROUP_NAME insert_policy unexpected variant: {other:?}"),
         }
     }
-}
-
-/// Sanity check: on an *unmigrated* group, the same admin-list update
-/// API still works through the legacy GCE path and produces the same
-/// observable state. Catches a regression where the dual-routing gate
-/// might mis-fire on unmigrated groups.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_admin_list_add_unchanged_on_unmigrated_group() {
-    use crate::groups::UpdateAdminListType;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    // New groups use the dictionary path without setup.
-    alix_group
-        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
-        .await?;
-    bo_group.sync().await?;
-
-    let alix_meta = alix_group.mutable_metadata()?;
-    assert!(
-        alix_meta.admin_list.contains(&bo.inbox_id().to_string()),
-        "admin-list update broke, admin_list={:?}",
-        alix_meta.admin_list,
-    );
-    let bo_meta = bo_group.mutable_metadata()?;
-    assert!(
-        bo_meta.admin_list.contains(&bo.inbox_id().to_string()),
-        "bo should see himself as admin via legacy GMM, admin_list={:?}",
-        bo_meta.admin_list,
-    );
 }

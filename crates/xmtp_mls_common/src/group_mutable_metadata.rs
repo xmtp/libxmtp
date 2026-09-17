@@ -1,6 +1,6 @@
 use openmls::{
     extensions::{Extension, Extensions, UnknownExtension},
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
+    group::GroupContext,
 };
 use prost::Message;
 use std::{collections::HashMap, fmt};
@@ -338,28 +338,6 @@ impl TryFrom<GroupMutableMetadataProto> for GroupMutableMetadata {
     }
 }
 
-impl TryFrom<&Extensions<GroupContext>> for GroupMutableMetadata {
-    type Error = GroupMutableMetadataError;
-
-    /// Attempts to extract GroupMutableMetadata from MLS Extensions.
-    fn try_from(value: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
-        match find_mutable_metadata_extension(value) {
-            Some(metadata) => GroupMutableMetadata::try_from(metadata),
-            None => Err(GroupMutableMetadataError::MissingExtension),
-        }
-    }
-}
-
-impl TryFrom<&OpenMlsGroup> for GroupMutableMetadata {
-    type Error = GroupMutableMetadataError;
-
-    /// Attempts to extract GroupMutableMetadata from an OpenMlsGroup.
-    fn try_from(group: &OpenMlsGroup) -> Result<Self, Self::Error> {
-        let extensions = group.extensions();
-        extensions.try_into()
-    }
-}
-
 /// Finds the mutable metadata extension in the given MLS Extensions.
 ///
 /// This function searches for an Unknown Extension with the
@@ -373,35 +351,6 @@ pub fn find_mutable_metadata_extension(extensions: &Extensions<GroupContext>) ->
         }
         None
     })
-}
-
-/// Read `GroupMutableMetadata` from the **legacy** group-context
-/// extension only.
-///
-/// Use only when the caller is certain the group is unmigrated — on
-/// post-bootstrap groups the legacy extension is gone and this returns
-/// [`GroupMutableMetadataError::MissingExtension`].
-///
-/// For capability-aware reads that handle both legacy and migrated
-/// groups, use `extract_group_mutable_metadata_capability_aware` in
-/// the `xmtp_mls` crate at
-/// `xmtp_mls::groups::app_data::component_source`.
-/// (`xmtp_mls_common` cannot rustdoc-link to it because the dependency
-/// direction is one-way — this comment is the pointer.)
-pub fn extract_legacy_group_mutable_metadata(
-    group: &OpenMlsGroup,
-) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    extract_legacy_group_mutable_metadata_from_extensions(group.extensions())
-}
-
-/// Same as [`extract_legacy_group_mutable_metadata`], but reads directly from a
-/// group's `GroupContext` extensions — no full `OpenMlsGroup` needed.
-pub fn extract_legacy_group_mutable_metadata_from_extensions(
-    extensions: &Extensions<GroupContext>,
-) -> Result<GroupMutableMetadata, GroupMutableMetadataError> {
-    find_mutable_metadata_extension(extensions)
-        .ok_or(GroupMutableMetadataError::MissingExtension)?
-        .try_into()
 }
 
 /// Single source of truth for the `MetadataField` ↔ `ComponentId`
@@ -447,33 +396,8 @@ pub const METADATA_FIELD_COMPONENT_MAP: &[(
     ),
 ];
 
-/// Production migration predicate over raw extensions: the group is
-/// post-bootstrap iff the AppData dictionary carries the
-/// `COMPONENT_REGISTRY` entry (the bootstrap commit's first write).
-///
-/// `xmtp_mls::groups::app_data::is_migrated_extensions` layers a
-/// test-only registry override on top of this; use that one inside
-/// `xmtp_mls`. This variant exists for crates below `xmtp_mls` in the
-/// dependency graph (e.g. the archive exporter).
-pub fn extensions_are_migrated(extensions: &Extensions<GroupContext>) -> bool {
-    extensions
-        .app_data_dictionary()
-        .map(|ext| {
-            ext.dictionary()
-                .get(&super::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16())
-                .is_some()
-        })
-        .unwrap_or(false)
-}
-
-/// Overlay the AppData dictionary's metadata components onto `base` —
-/// the dict→legacy direction of the capability-aware read paths.
-///
-/// **Ungated**: callers decide migration state before calling (the
-/// `xmtp_mls` wrapper gates on its test-override-aware
-/// `is_migrated_extensions`; the archive exporter gates on
-/// [`extensions_are_migrated`]). No-op when the extensions carry no
-/// AppData dictionary.
+/// Overlay the AppData dictionary's metadata components onto `base`.
+/// No-op when the extensions carry no AppData dictionary.
 ///
 /// Value translation per component family:
 /// - `MESSAGE_DISAPPEAR_*`: 8-byte BE `i64` on the wire → base-10
@@ -656,7 +580,7 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_commit_log_signer_utility_method() {
         // Test with valid hex-encoded signer
         let test_secret_bytes = vec![1u8; 32];
@@ -693,7 +617,7 @@ mod tests {
     /// getters and the `GroupUpdated` diff read from must still carry
     /// the four fields with their empty-string defaults. Losing them
     /// surfaced `undefined` instead of `""` across the JS SDKs.
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_merge_defaults_absent_bounded_string_components() {
         use super::super::app_data::component_id::ComponentId;
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
@@ -758,7 +682,7 @@ mod tests {
         }
     }
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_lossy_merge_applies_good_fields_and_reports_bad_ones() {
         use super::super::app_data::component_id::ComponentId;
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};

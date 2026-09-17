@@ -1,4 +1,4 @@
-//! Pause, downgrade, and recovery paths.
+//! Pause and recovery paths.
 
 use crate::{context::XmtpSharedContext, tester};
 use xmtp_db::prelude::*;
@@ -6,7 +6,7 @@ use xmtp_db::prelude::*;
 /// A Welcome with a higher AppData version floor remains pending without
 /// installing the group. An upgraded client can process the same saved input.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_welcome_on_migrated_group_pauses_below_min_version() {
+async fn test_welcome_on_dictionary_group_pauses_below_min_version() {
     use crate::builder::ClientBuilder;
     use crate::groups::tests::increment_patch_version;
     use crate::utils::VersionInfo;
@@ -45,16 +45,6 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
 
     // Alix migrates. Post-migration the legacy GMM is stripped and the
     // floor lives in the AppData dict only.
-
-    let alix_migrated = alix_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(
-        alix_migrated,
-        "alix's group must be dictionary-native (precondition for this test)"
-    );
 
     // Carol's Welcome carries the version floor only in the AppData dict.
     tester!(carol, disable_workers);
@@ -130,9 +120,8 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
 /// raise `ProtocolVersionTooLow` against the receiver's pkg_version.
 /// `mls_sync` then writes `paused_for_version`.
 ///
-/// Sibling of `test_welcome_on_migrated_group_pauses_below_min_version`
-/// (welcome-time pause) and `test_enable_proposals_pauses_old_client_via_legacy_gmm_bump`
-/// (pre-bootstrap legacy GMM bump). Pre-fix, the migrated branch of
+/// Sibling of `test_welcome_on_dictionary_group_pauses_below_min_version`
+/// (welcome-time pause). Pre-fix, the dictionary branch of
 /// `ValidatedCommit::from_staged_commit` set
 /// `MutableMetadataValidationInfo::default()` unconditionally — so
 /// `minimum_supported_protocol_version` was always `None`, the
@@ -174,12 +163,6 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     // The creation floor permits both clients. Raising that committed floor
     // must still pause the client whose version is too low.
     for (label, group) in [("alix", &alix_group), ("bo", bo_group)] {
-        let migrated = group
-            .load_mls_group_with_lock_async(async |g| {
-                Ok::<bool, crate::groups::GroupError>(group.proposals_enabled(&g))
-            })
-            .await?;
-        assert!(migrated, "{label} must be dictionary-native");
         assert!(
             group.paused_for_version()?.is_none(),
             "{label} must not be paused at the creation floor"
@@ -268,7 +251,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
 /// unit tests on `committed_floor_exceeding_in_extensions` plus the
 /// guard's placement in `process_message_with_app_data`.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
+async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
     use crate::builder::ClientBuilder;
     use crate::client::Client;
     use crate::groups::tests::increment_patch_version;
@@ -461,10 +444,8 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
 
 /// `membership_capabilities` reports raw per-installation extension support
 /// plus the group context's extension types — generic facts the app filters.
-/// This exercises the *app-side* derivation of the proposal-migration answers:
-/// "already migrated?" = context has `AppDataDictionary`; "eligible / who
-/// blocks?" = each installation's extensions has it. New groups advertise
-/// `AppDataDictionary` in their context.
+/// This checks that new groups and their installations advertise
+/// `AppDataDictionary`.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_capabilities() {
     use crate::groups::{InstallationCapabilities, MlsExtensionType};
@@ -479,7 +460,7 @@ async fn test_membership_capabilities() {
     bo.sync_welcomes().await?;
     caro.sync_welcomes().await?;
 
-    // How an app turns the generic snapshot into the proposal question.
+    // Check that each installation advertises dictionary support.
     let supports_proposals = |inst: &InstallationCapabilities| {
         inst.capabilities_known
             && inst
@@ -537,7 +518,7 @@ async fn test_membership_capabilities() {
         }
     }
 
-    // App-side aggregation: nobody blocks migration.
+    // All current-code installations advertise dictionary support.
     let blocking: Vec<&str> = caps
         .members
         .iter()
@@ -546,7 +527,7 @@ async fn test_membership_capabilities() {
         .collect();
     assert!(
         blocking.is_empty(),
-        "no inbox blocks migration: {blocking:?}"
+        "no inbox lacks dictionary support: {blocking:?}"
     );
 
     let current = alix_group.membership_capabilities().await?;

@@ -218,7 +218,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 if has_pending_change {
                     return Err(OutgoingPreparationError::StateChanged.into());
                 }
-                dependencies.validate_local(&self.context, storage, self.group_id)?;
+                dependencies.validate_local(storage)?;
                 let original_proposals = group
                     .pending_proposals()
                     .map(|proposal| proposal.proposal_reference_ref().clone())
@@ -408,116 +408,60 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                 }
 
-                // Route through AppDataUpdate only on migrated groups,
-                // via the same `is_migrated_group` predicate the
-                // UpdateAdminList / UpdatePermission gates use.
-                // `is_migrated_group` (not `registry.is_empty()`) is the
-                // correct migration signal: `ComponentRegistry::is_empty()`
-                // ignores preserved-but-unrecognized entries, so a migrated
-                // group whose entries were all tolerated as unrecognized
-                // would misreport as empty and mis-route to legacy.
-                let is_migrated = crate::groups::app_data::is_migrated_group(openmls_group);
-                tracing::debug!(
-                    group_id = %self.group_id,
-                    is_migrated,
-                    path = if is_migrated {
-                        "app_data_update"
-                    } else {
-                        "legacy_gce"
+                // Publish a standalone AppDataUpdate proposal followed by a
+                // commit that references it. Both wire messages go in one
+                // publish batch, with the proposal first.
+                use crate::groups::app_data::{
+                    component_source::{
+                        ComponentMutation, ComponentSourceError, encode_app_data_update_payload,
+                        metadata_field_to_component_id,
                     },
-                    "MetadataUpdate intent routing"
-                );
-                if is_migrated {
-                    // Publish a STANDALONE AppDataUpdate proposal followed
-                    // by a commit that references it (XIP §1.5.2 / §3.4).
-                    // Both wire messages go in one publish batch — the
-                    // proposal comes first so the receiver has it in its
-                    // pending store before processing the commit.
-                    use crate::groups::app_data::{
-                        component_source::{
-                            ComponentMutation, ComponentSourceError,
-                            encode_app_data_update_payload, metadata_field_to_component_id,
+                    stage_app_data_propose_and_commit,
+                };
+
+                let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
+                    .ok_or_else(|| {
+                        GroupError::ComponentSource(ComponentSourceError::UnknownMetadataField(
+                            metadata_intent.field_name.clone(),
+                        ))
+                    })?;
+
+                let value = xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
+                    component_id,
+                    &metadata_intent.field_value,
+                )
+                .map_err(crate::groups::app_data::migration::BootstrapSynthesisError::from)?;
+                let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
+                    component_id,
+                    new_value: &value,
+                })?;
+
+                let signer = self.context.identity().installation_keys.clone();
+                let ((proposal_msg, bundle), staged_commit, group_epoch) =
+                    generate_prepared_commit(
+                        storage,
+                        openmls_group,
+                        move |group, provider| -> Result<_, GroupError> {
+                            Ok(stage_app_data_propose_and_commit(
+                                group,
+                                provider,
+                                &signer,
+                                component_id,
+                                payload,
+                            )?)
                         },
-                        stage_app_data_propose_and_commit,
-                    };
+                    )?;
 
-                    let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
-                        .ok_or_else(|| {
-                            GroupError::ComponentSource(ComponentSourceError::UnknownMetadataField(
-                                metadata_intent.field_name.clone(),
-                            ))
-                        })?;
-
-                    let value =
-                        xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
-                            component_id,
-                            &metadata_intent.field_value,
-                        )
-                        .map_err(
-                            crate::groups::app_data::migration::BootstrapSynthesisError::from,
-                        )?;
-                    let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
-                        component_id,
-                        new_value: &value,
-                    })?;
-
-                    let signer = self.context.identity().installation_keys.clone();
-                    let ((proposal_msg, bundle), staged_commit, group_epoch) =
-                        generate_prepared_commit(
-                            storage,
-                            openmls_group,
-                            move |group, provider| -> Result<_, GroupError> {
-                                Ok(stage_app_data_propose_and_commit(
-                                    group,
-                                    provider,
-                                    &signer,
-                                    component_id,
-                                    payload,
-                                )?)
-                            },
-                        )?;
-
-                    let (commit, welcome, _group_info) = bundle.into_messages();
-                    // A metadata-only AppDataUpdate commit has no add/remove
-                    // proposals, so OpenMLS should never synthesize a welcome
-                    // alongside it. If that ever changes, dropping it here
-                    // would silently strand installations that expected one.
-                    debug_assert!(
-                        welcome.is_none(),
-                        "MetadataUpdate via AppDataUpdate must not produce a welcome"
-                    );
-                    return Ok(Some(PublishIntentData {
-                        payloads_to_publish: vec![
-                            proposal_msg.tls_serialize_detached()?,
-                            commit.tls_serialize_detached()?,
-                        ],
-                        staged_commit,
-                        post_commit_action: None,
-                        should_send_push_notification: intent.should_push,
-                        group_epoch,
-                    }));
-                }
-
-                let mutable_metadata_extensions = build_extensions_for_metadata_update(
-                    openmls_group,
-                    metadata_intent.field_name,
-                    metadata_intent.field_value,
-                )?;
-
-                let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
-                            provider,
-                            mutable_metadata_extensions.clone(),
-                            &keys,
-                        )
-                    })?;
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
+                let (commit, welcome, _group_info) = bundle.into_messages();
+                debug_assert!(
+                    welcome.is_none(),
+                    "MetadataUpdate via AppDataUpdate must not produce a welcome"
+                );
                 Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![commit_bytes],
+                    payloads_to_publish: vec![
+                        proposal_msg.tls_serialize_detached()?,
+                        commit.tls_serialize_detached()?,
+                    ],
                     staged_commit,
                     post_commit_action: None,
                     should_send_push_notification: intent.should_push,
@@ -528,120 +472,31 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let admin_list_update_intent =
                     UpdateAdminListIntentData::try_from(intent.data.clone())?;
 
-                // Mirror the MetadataUpdate dual-routing gate: only
-                // route through AppDataUpdate on groups whose AppData
-                // dict has the `COMPONENT_REGISTRY` entry (the
-                // bootstrap-commit marker). Otherwise stay on the
-                // legacy GCE path so unmigrated peers continue to
-                // validate via the legacy `GroupMutableMetadata`
-                // extension. Single shared predicate via
-                // `is_migrated_group` keeps every send/receive/validate
-                // path honest about what "migrated" means.
-                let is_migrated = crate::groups::app_data::is_migrated_group(openmls_group);
-                tracing::debug!(
-                    group_id = %self.group_id,
-                    is_migrated,
-                    path = if is_migrated {
-                        "app_data_update"
-                    } else {
-                        "legacy_gce"
-                    },
-                    "UpdateAdminList intent routing"
-                );
-                if is_migrated {
-                    let signer = self.context.identity().installation_keys.clone();
-                    let publish =
-                        crate::groups::app_data::sender_intents::apply_update_admin_list_app_data_intent(
-                            storage,
-                            openmls_group,
-                            admin_list_update_intent,
-                            signer,
-                            intent.should_push,
-                        )?;
-                    return Ok(Some(publish));
-                }
-
-                // Legacy GCE path on unmigrated groups.
-                let mutable_metadata_extensions = build_extensions_for_admin_lists_update(
-                    openmls_group,
-                    admin_list_update_intent,
-                )?;
-
-                let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
-                            provider,
-                            mutable_metadata_extensions.clone(),
-                            &keys,
-                        )
-                    })?;
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![commit_bytes],
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
+                let signer = self.context.identity().installation_keys.clone();
+                let publish =
+                    crate::groups::app_data::sender_intents::apply_update_admin_list_app_data_intent(
+                        storage,
+                        openmls_group,
+                        admin_list_update_intent,
+                        signer,
+                        intent.should_push,
+                    )?;
+                Ok(Some(publish))
             }
             IntentKind::UpdatePermission => {
                 let update_permissions_intent =
                     UpdatePermissionIntentData::try_from(intent.data.clone())?;
 
-                // Mirror the MetadataUpdate / UpdateAdminList dual-
-                // routing gate via the shared `is_migrated_group`
-                // predicate.
-                let is_migrated = crate::groups::app_data::is_migrated_group(openmls_group);
-                tracing::debug!(
-                    group_id = %self.group_id,
-                    is_migrated,
-                    path = if is_migrated {
-                        "app_data_update"
-                    } else {
-                        "legacy_gce"
-                    },
-                    "UpdatePermission intent routing"
-                );
-                if is_migrated {
-                    let signer = self.context.identity().installation_keys.clone();
-                    let publish =
-                        crate::groups::app_data::sender_intents::apply_update_permission_app_data_intent(
-                            storage,
-                            openmls_group,
-                            update_permissions_intent,
-                            signer,
-                            intent.should_push,
-                        )?;
-                    return Ok(Some(publish));
-                }
-
-                // Legacy GCE path on unmigrated groups.
-                let group_permissions_extensions = build_extensions_for_permissions_update(
-                    openmls_group,
-                    update_permissions_intent,
-                )?;
-
-                let keys = self.context.identity().installation_keys.clone();
-                let ((commit, _, _), staged_commit, group_epoch) =
-                    generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        group.update_group_context_extensions(
-                            provider,
-                            group_permissions_extensions.clone(),
-                            &keys,
-                        )
-                    })?;
-
-                let commit_bytes = commit.tls_serialize_detached()?;
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![commit_bytes],
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
+                let signer = self.context.identity().installation_keys.clone();
+                let publish =
+                    crate::groups::app_data::sender_intents::apply_update_permission_app_data_intent(
+                        storage,
+                        openmls_group,
+                        update_permissions_intent,
+                        signer,
+                        intent.should_push,
+                    )?;
+                Ok(Some(publish))
             }
             IntentKind::ReaddInstallations => {
                 let intent_data = ReaddInstallationsIntentData::try_from(intent.data.as_slice())?;
@@ -655,27 +510,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 )
             }
             IntentKind::ProposeMemberUpdate => {
-                if !self.proposals_enabled(openmls_group) {
-                    return Err(GroupError::from(CommitValidationError::ProposalsNotEnabled));
-                }
-
-                // Detect whether this is a migrated group. On
-                // migrated groups, in addition to the Add/Remove
-                // proposals below, we also emit an
-                // `AppDataUpdate(GROUP_MEMBERSHIP)` proposal carrying
-                // the membership delta. The subsequent
-                // `CommitPendingProposals` intent sweeps everything
-                // into a single commit. Bootstrap removed the legacy
-                // `GROUP_MEMBERSHIP_EXTENSION_ID` extension, so the
-                // legacy GCE proposal that `CommitPendingProposals`
-                // would otherwise emit is no-op on migrated groups —
-                // the AppData path carries the source of truth.
-                //
-                // Uses the canonical `is_migrated_group` predicate
-                // (presence of the `COMPONENT_REGISTRY` entry) to
-                // match every other send/receive/validate gate.
-                let is_migrated = crate::groups::app_data::is_migrated_group(openmls_group);
-
                 let intent_data = ProposeMemberUpdateIntentData::try_from(intent.data.as_slice())?;
                 let group_epoch = openmls_group.epoch().as_u64();
                 let signer = &self.context.identity().installation_keys;
@@ -728,22 +562,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         new_membership.add(inbox_id.clone(), sequence_id as u64);
                     }
 
-                    // Carry forward the failed-installations set on
-                    // the local `new_membership`. On the legacy path
-                    // this drives the GCE proposal that
-                    // `CommitPendingProposals` emits against
-                    // GROUP_MEMBERSHIP_EXTENSION_ID, where
-                    // failed_installations is part of the wire form.
-                    // On the migrated path the AppDataUpdate payload
-                    // built by `build_group_membership_app_data_payload`
-                    // intentionally does NOT propagate
-                    // failed_installations (see that function's doc);
-                    // we still set it here so the equality check at
-                    // the AppDataUpdate emit site below
-                    // (`old_group_membership != new_membership`)
-                    // detects kp-failure-only deltas, and so the
-                    // unmigrated and migrated branches share one
-                    // `new_membership` value.
+                    // Keep the failed-installations set on the local
+                    // membership so the equality check detects key-package
+                    // failure-only deltas.
                     new_membership.failed_installations =
                         changes_with_kps.failed_installations.clone();
 
@@ -793,16 +614,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     return Ok(None);
                 }
 
-                // On migrated groups, emit a parallel
-                // `AppDataUpdate(GROUP_MEMBERSHIP)` proposal carrying
-                // the membership delta we computed above (filtered to
-                // kp-successful adds + explicit removes + carried-
-                // forward failed_installations). The subsequent
-                // `CommitPendingProposals` intent sweeps Add/Remove
-                // and AppDataUpdate proposals into one commit and
-                // skips the legacy GCE proposal (since the legacy
-                // GROUP_MEMBERSHIP_EXTENSION_ID is gone post-bootstrap).
-                if is_migrated && old_group_membership != new_membership {
+                if old_group_membership != new_membership {
                     use crate::groups::mls_sync::update_group_membership::build_group_membership_app_data_payload;
 
                     let payload = build_group_membership_app_data_payload(
@@ -825,10 +637,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
                 }
 
-                // Note: The GroupContextExtensions proposal to update membership is created
-                // by CommitPendingProposals, not here (and is no-op on migrated groups since
-                // the legacy GROUP_MEMBERSHIP_EXTENSION_ID is gone).
-
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: proposal_payloads,
                     staged_commit: None,
@@ -838,120 +646,16 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 }))
             }
             IntentKind::ProposeGroupContextExtensions => {
-                if crate::groups::app_data::is_migrated_group(openmls_group) {
-                    return Err(CommitValidationError::UnsupportedProposalType(
-                        ProposalType::GroupContextExtensions,
-                    )
-                    .into());
-                }
-                // No proposals_enabled guard here — ProposeGroupContextExtensions is used
-                // by enable_proposals() to bootstrap proposal support on the group.
-                //
-                // This arm handles the legacy propose-by-reference flow
-                // only. The one-time AppData-migration bootstrap commit
-                // is routed through [`IntentKind::BootstrapMigration`]
-                // instead — keep them distinct so the commit-producing
-                // path never fires accidentally when a caller just
-                // wants a standalone GCE proposal.
-                let intent_data =
-                    ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
-                let group_epoch = openmls_group.epoch().as_u64();
-
-                // Deserialize the extensions using tls_codec
-                use openmls::prelude::tls_codec::Deserialize;
-                let new_extensions =
-                    Extensions::tls_deserialize(&mut intent_data.extensions_bytes.as_slice())?;
-
-                let signer = &self.context.identity().installation_keys;
-                let (proposal_msg, _proposal_ref) = openmls_group
-                    .propose_group_context_extensions(&provider, new_extensions, signer)
-                    .map_err(GroupError::Proposal)?;
-
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![proposal_msg.tls_serialize_detached()?],
-                    staged_commit: None,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
+                Err(CommitValidationError::UnsupportedProposalType(
+                    ProposalType::GroupContextExtensions,
+                )
+                .into())
             }
-            IntentKind::BootstrapMigration => {
-                // One-time AppData-migration bootstrap: bundles one
-                // GCE proposal (that strips the four legacy XMTP
-                // extensions and adds AppDataDictionary to
-                // RequiredCapabilities) with an `AppDataUpdate`
-                // proposal per well-known component.
-                // Routed on an explicit [`IntentKind::BootstrapMigration`]
-                // rather than shape-sniffing `ProposeGroupContextExtensions`
-                // payloads so a future non-bootstrap GCE intent with
-                // similar extension shape can't accidentally trigger
-                // the bootstrap path.
-                //
-                // Receive-side validation lives in
-                // `validated_commit.rs` (`is_bootstrap_commit` routes
-                // into `validate_bootstrap_and_build`, which drives
-                // `bootstrap_validator::validate_bootstrap_commit`).
-                if crate::groups::app_data::is_migrated_group(openmls_group) {
-                    return Ok(None);
-                }
-                let _intent_data =
-                    ProposeGroupContextExtensionsIntentData::try_from(intent.data.as_slice())?;
-                let mut new_extensions = openmls_group.extensions().clone();
-                for extension in [
-                    ExtensionType::Unknown(xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID),
-                    ExtensionType::Unknown(xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID),
-                    ExtensionType::Unknown(xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID),
-                    ExtensionType::ImmutableMetadata,
-                ] {
-                    new_extensions.remove(extension);
-                }
-                crate::groups::update_required_capabilities_for_bootstrap(&mut new_extensions)?;
-                let component_values = dependencies
-                    .bootstrap_components
-                    .take()
-                    .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
-
-                let signer = self.context.identity().installation_keys.clone();
-                let (bundle, staged_commit, group_epoch): (
-                    openmls::prelude::CommitMessageBundle,
-                    Option<Vec<u8>>,
-                    u64,
-                ) = generate_prepared_commit(
-                    storage,
-                    openmls_group,
-                    move |group, provider| -> Result<_, GroupError> {
-                        Ok(crate::groups::app_data::migration::stage_bootstrap_commit(
-                            group,
-                            provider,
-                            &signer,
-                            &component_values,
-                            new_extensions,
-                        )?)
-                    },
-                )?;
-                let (commit, _, _) = bundle.into_messages();
-                Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
-                    staged_commit,
-                    post_commit_action: None,
-                    should_send_push_notification: intent.should_push,
-                    group_epoch,
-                }))
-            }
+            IntentKind::BootstrapMigration => Err(CommitValidationError::UnsupportedProposalType(
+                ProposalType::GroupContextExtensions,
+            )
+            .into()),
             IntentKind::AppDataUpdate => {
-                // Generic AppData write: full-replace or 3-way-merge
-                // delta. The handler decodes the intent payload, computes
-                // the final wire bytes (running residual computation for
-                // DeltaWithBase), and stages an
-                // `AppDataUpdate(component_id, payload)` proposal +
-                // commit. All AppData writes go through the same path.
-                if !crate::groups::app_data::is_migrated_group(openmls_group) {
-                    return Err(GroupError::ProposalsNotSupported(
-                        "AppDataUpdate intent requires the group to be migrated to AppData. \
-                         Call `enable_proposals` first."
-                            .into(),
-                    ));
-                }
                 let intent_data = crate::groups::intents::AppDataUpdateIntentData::try_from(
                     intent.data.as_slice(),
                 )?;
@@ -985,292 +689,58 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     openmls_group.extensions().clone();
                 let current_membership = extract_group_membership(&current_extensions)?;
 
-                // Analyze pending proposals to determine membership changes and collect installations
+                // Collect installations for any Add proposals in the pending set.
                 let mut inbox_ids_to_add: Vec<String> = Vec::new();
-                let mut inbox_ids_to_remove: Vec<String> = Vec::new();
                 let mut installations_to_welcome: Vec<Installation> = Vec::new();
-                let mut key_packages_to_add: Vec<openmls::key_packages::KeyPackage> = Vec::new();
 
                 for proposal_ref in openmls_group.pending_proposals() {
-                    match proposal_ref.proposal() {
-                        Proposal::Add(add_proposal) => {
-                            let key_package = add_proposal.key_package();
-                            let credential = BasicCredential::try_from(
-                                key_package.leaf_node().credential().clone(),
-                            )?;
-                            let inbox_id = parse_credential(credential.identity())?;
-                            if !inbox_ids_to_add.contains(&inbox_id)
-                                && current_membership.get(&inbox_id).is_none()
-                            {
-                                inbox_ids_to_add.push(inbox_id);
-
-                                // Collect the key package for proposal support check
-                                key_packages_to_add.push(key_package.clone());
-
-                                // Extract installation info from the key package for welcome sending
-                                if let Ok(verified_kp) =
-                                    VerifiedKeyPackageV2::try_from(key_package.clone())
-                                    && let Ok(installation) =
-                                        Installation::from_verified_key_package(&verified_kp)
-                                {
-                                    installations_to_welcome.push(installation);
-                                }
-                            }
-                        }
-                        Proposal::Remove(remove_proposal) => {
-                            if let Some(member) = openmls_group.member_at(remove_proposal.removed())
-                            {
-                                let credential = BasicCredential::try_from(member.credential)?;
-                                let inbox_id = parse_credential(credential.identity())?;
-                                if !inbox_ids_to_remove.contains(&inbox_id) {
-                                    inbox_ids_to_remove.push(inbox_id);
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-
-                // Build the updated membership
-                let mut new_membership = current_membership.clone();
-
-                // Add new members with their latest sequence IDs
-                if !inbox_ids_to_add.is_empty() {
-                    let latest_sequence_ids = &dependencies.latest_sequence_ids;
-
-                    for inbox_id in &inbox_ids_to_add {
-                        let sequence_id = latest_sequence_ids
-                            .get(inbox_id.as_str())
-                            .copied()
-                            .ok_or(GroupError::MissingSequenceId)?;
-                        new_membership.add(inbox_id.clone(), sequence_id as u64);
-                    }
-                }
-
-                // Remove members
-                for inbox_id in &inbox_ids_to_remove {
-                    new_membership.remove(inbox_id);
-                }
-
-                // Compute failed installations for added members so they are
-                // tracked in the GCE and can be retried in future updates.
-                // calculate_membership_changes_with_keypackages merges
-                // current_membership.failed_installations with any new failures.
-                if !inbox_ids_to_add.is_empty() {
-                    let changes_with_kps = dependencies.take_changes()?;
-
-                    new_membership.failed_installations = changes_with_kps.failed_installations;
-                }
-
-                // Determine if membership changes require a GCE proposal
-                let membership_changed =
-                    !inbox_ids_to_add.is_empty() || !inbox_ids_to_remove.is_empty();
-
-                // Check if a pending GCE already has the correct membership.
-                // Compare only the `members` field, not `failed_installations`,
-                // since failed_installations can change between Phase 1 and Phase 2
-                // due to transient network conditions.
-                let has_pending_gce_with_membership = membership_changed
-                    && openmls_group.pending_proposals().any(|p| {
-                        if let Proposal::GroupContextExtensions(gce) = p.proposal() {
-                            extract_group_membership(gce.extensions())
-                                .map(|m| m.members == new_membership.members)
-                                .unwrap_or(false)
-                        } else {
-                            false
-                        }
-                    });
-
-                // Detect migrated state. On migrated groups the legacy
-                // `GROUP_MEMBERSHIP_EXTENSION_ID` is gone; membership
-                // updates flow as AppDataUpdate proposals (already
-                // emitted by `ProposeMemberUpdate` and sitting in the
-                // pending queue). The GCE proposal that this branch
-                // would otherwise build to update the legacy extension
-                // is skipped — the commit just sweeps the pending
-                // AppDataUpdate alongside the Add/Remove proposals.
-                let is_migrated_for_commit =
-                    crate::groups::app_data::is_migrated_extensions(openmls_group.extensions());
-
-                if membership_changed && !has_pending_gce_with_membership && !is_migrated_for_commit
-                {
-                    // === GCE needed: batch GCE proposal + commit in one publish ===
-                    // Create GCE proposal and commit locally inside one
-                    // generate_prepared_commit call, returning both payloads.
-
-                    // Check for any existing pending GCE (might have non-membership changes).
-                    // If one exists, use its extensions as base to preserve those changes.
-                    let base_extensions = openmls_group
-                        .pending_proposals()
-                        .find_map(|p| {
-                            if let Proposal::GroupContextExtensions(gce) = p.proposal() {
-                                Some(gce.extensions().clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .unwrap_or_else(|| openmls_group.extensions().clone());
-
-                    // Build extensions with membership update on top of the base
-                    let mut new_extensions = base_extensions;
-                    new_extensions
-                        .add_or_replace(build_group_membership_extension(&new_membership))?;
-
-                    // Check if proposals need to be disabled due to new members not supporting them
-                    let proposals_currently_enabled = self.proposals_enabled(openmls_group);
-                    if proposals_currently_enabled && !key_packages_to_add.is_empty() {
-                        let new_members_support_proposals = self
-                            .validate_key_packages_support_proposals(&key_packages_to_add)
-                            .is_ok();
-
-                        if !new_members_support_proposals {
-                            tracing::info!(
-                                "Disabling proposals: new members don't support the AppData dictionary extension"
-                            );
-                            new_extensions.remove(ExtensionType::AppDataDictionary);
-                            update_required_capabilities_for_proposals(&mut new_extensions, false)?;
-                        }
-                    }
-
-                    let new_membership_for_filter = new_membership.clone();
-                    let signer = self.context.identity().installation_keys.clone();
-                    let ((gce_payload, bundle), staged_commit, group_epoch) =
-                        generate_prepared_commit(
-                            storage,
-                            openmls_group,
-                            |group, provider| -> Result<_, GroupError> {
-                                // Create GCE proposal locally
-                                let (gce_msg, _) = group
-                                    .propose_group_context_extensions(
-                                        provider,
-                                        new_extensions.clone(),
-                                        &signer,
-                                    )
-                                    .map_err(GroupError::Proposal)?;
-                                let gce_payload = gce_msg.tls_serialize_detached()?;
-
-                                // Create commit consuming all proposals (including GCE).
-                                // `build_commit_with_pending_app_data_updates` pre-computes
-                                // the AppData dictionary writes from any queued
-                                // `AppDataUpdate` proposals so the commit builder can
-                                // apply them in lockstep. See plan §11.
-                                let bundle = build_commit_with_pending_app_data_updates(
-                                    group,
-                                    provider,
-                                    &signer,
-                                    |qp| match qp.proposal() {
-                                        Proposal::GroupContextExtensions(gce) => {
-                                            extract_group_membership(gce.extensions())
-                                                .map(|m| {
-                                                    m.members == new_membership_for_filter.members
-                                                })
-                                                .unwrap_or(false)
-                                        }
-                                        _ => true,
-                                    },
-                                )?;
-
-                                Ok((gce_payload, bundle))
-                            },
+                    if let Proposal::Add(add_proposal) = proposal_ref.proposal() {
+                        let key_package = add_proposal.key_package();
+                        let credential = BasicCredential::try_from(
+                            key_package.leaf_node().credential().clone(),
                         )?;
+                        let inbox_id = parse_credential(credential.identity())?;
+                        if !inbox_ids_to_add.contains(&inbox_id)
+                            && current_membership.get(&inbox_id).is_none()
+                        {
+                            inbox_ids_to_add.push(inbox_id);
 
-                    let (commit, maybe_welcome, _group_info) = bundle.into_messages();
-                    let staged_commit =
-                        staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-                    let post_commit_action = match maybe_welcome {
-                        Some(welcome_message) => {
-                            tracing::debug!(
-                                num_installations = installations_to_welcome.len(),
-                                "Creating post commit action with installations to welcome"
-                            );
-                            Some(PostCommitAction::from_welcome(
-                                welcome_message,
-                                installations_to_welcome,
-                            )?)
+                            // Extract installation info from the key package for welcome sending.
+                            if let Ok(verified_kp) =
+                                VerifiedKeyPackageV2::try_from(key_package.clone())
+                                && let Ok(installation) =
+                                    Installation::from_verified_key_package(&verified_kp)
+                            {
+                                installations_to_welcome.push(installation);
+                            }
                         }
-                        None => None,
-                    };
-
-                    tracing::debug!(
-                        inbox_ids_to_add = ?inbox_ids_to_add,
-                        inbox_ids_to_remove = ?inbox_ids_to_remove,
-                        "Publishing batched GCE proposal + commit"
-                    );
-
-                    Ok(Some(PublishIntentData {
-                        payloads_to_publish: vec![gce_payload, commit.tls_serialize_detached()?],
-                        staged_commit: Some(staged_commit),
-                        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-                        should_send_push_notification: intent.should_push,
-                        group_epoch,
-                    }))
-                } else {
-                    // === No GCE needed (or matching GCE already in store) ===
-                    // Create and publish the commit directly.
-
-                    let new_membership_for_filter = new_membership.clone();
-                    let (bundle, staged_commit, group_epoch) = generate_prepared_commit(
-                        storage,
-                        openmls_group,
-                        |group, provider| -> Result<_, GroupError> {
-                            // See plan §11 — this commit path also has to thread
-                            // queued `AppDataUpdate` proposals' dict writes in
-                            // lockstep with the commit build.
-                            build_commit_with_pending_app_data_updates(
-                                group,
-                                provider,
-                                signer,
-                                |qp| match qp.proposal() {
-                                    Proposal::GroupContextExtensions(gce) => {
-                                        if !membership_changed {
-                                            // No membership changes: include all GCEs
-                                            return true;
-                                        }
-                                        // Only include GCE with correct membership
-                                        // (compare members only, not failed_installations)
-                                        extract_group_membership(gce.extensions())
-                                            .map(|m| m.members == new_membership_for_filter.members)
-                                            .unwrap_or(false)
-                                    }
-                                    _ => true,
-                                },
-                            )
-                        },
-                    )?;
-                    let (commit, maybe_welcome, _group_info) = bundle.into_messages();
-
-                    let staged_commit =
-                        staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
-
-                    // Build post commit action if there's a welcome message
-                    let post_commit_action = match maybe_welcome {
-                        Some(welcome_message) => {
-                            tracing::debug!(
-                                num_installations = installations_to_welcome.len(),
-                                "Creating post commit action with installations to welcome"
-                            );
-                            Some(PostCommitAction::from_welcome(
-                                welcome_message,
-                                installations_to_welcome,
-                            )?)
-                        }
-                        None => None,
-                    };
-
-                    tracing::debug!(
-                        membership_changed,
-                        "Publishing commit with pending proposals"
-                    );
-
-                    Ok(Some(PublishIntentData {
-                        payloads_to_publish: vec![commit.tls_serialize_detached()?],
-                        staged_commit: Some(staged_commit),
-                        post_commit_action: post_commit_action.map(|action| action.to_bytes()),
-                        should_send_push_notification: intent.should_push,
-                        group_epoch,
-                    }))
+                    }
                 }
+
+                let (bundle, staged_commit, group_epoch) =
+                    generate_prepared_commit(storage, openmls_group, |group, provider| {
+                        build_commit_with_pending_app_data_updates(group, provider, signer, |_| {
+                            true
+                        })
+                    })?;
+                let (commit, maybe_welcome, _group_info) = bundle.into_messages();
+                let staged_commit =
+                    staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
+                let post_commit_action = match maybe_welcome {
+                    Some(welcome_message) => Some(PostCommitAction::from_welcome(
+                        welcome_message,
+                        installations_to_welcome,
+                    )?),
+                    None => None,
+                };
+
+                Ok(Some(PublishIntentData {
+                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
+                    staged_commit: Some(staged_commit),
+                    post_commit_action: post_commit_action.map(|action| action.to_bytes()),
+                    should_send_push_notification: intent.should_push,
+                    group_epoch,
+                }))
             }
         }
     }

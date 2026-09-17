@@ -58,15 +58,11 @@ impl Conversation {
     Ok(())
   }
 
-  /// Whether this group has migrated to AppData-proposal-based
-  /// metadata updates (the `AppDataDictionary` group-context
-  /// extension is present). `false` means the group is still on
-  /// the legacy GroupContextExtensions path.
+  /// Proposals are available on every group at creation.
   #[napi]
   #[xmtp_common::err_span]
   pub fn proposals_enabled(&self) -> Result<bool> {
-    let group = self.create_mls_group();
-    Ok(group.is_proposals_enabled().map_err(ErrorWrapper::from)?)
+    Ok(true)
   }
 
   #[napi]

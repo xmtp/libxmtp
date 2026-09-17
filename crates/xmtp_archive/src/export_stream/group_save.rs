@@ -4,9 +4,7 @@ use xmtp_db::group::{GroupQueryArgs, StoredGroup};
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::{GroupMetadata, extract_group_metadata},
-    group_mutable_metadata::{
-        GroupMutableMetadata, extensions_are_migrated, merge_dict_into_mutable_metadata_lossy,
-    },
+    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata_lossy},
 };
 use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
@@ -66,14 +64,6 @@ impl BackupRecordProvider for GroupSave {
                 };
                 let extensions = mls_group.extensions();
 
-                // Capability-aware reads: migrated (post-bootstrap)
-                // groups no longer carry the legacy `ImmutableMetadata`
-                // / `GroupMutableMetadata` extensions — their metadata
-                // lives in the AppData dictionary. Reading the legacy
-                // extensions only would silently drop every migrated
-                // group from the backup (conversation loss on restore).
-                // Skips below are logged, never silent: a group that
-                // fails BOTH sources is corrupt and worth a log line.
                 let immutable_metadata = extract_group_metadata(extensions)
                     .inspect_err(|e| {
                         tracing::warn!(
@@ -83,38 +73,23 @@ impl BackupRecordProvider for GroupSave {
                         );
                     })
                     .ok()?;
-                let mutable_metadata = if extensions_are_migrated(extensions) {
-                    let mut base = GroupMutableMetadata::new(
-                        std::collections::HashMap::new(),
-                        Vec::new(),
-                        Vec::new(),
+                let mut mutable_metadata = GroupMutableMetadata::new(
+                    std::collections::HashMap::new(),
+                    Vec::new(),
+                    Vec::new(),
+                );
+                // Per-field degrade, never per-group: a malformed
+                // component loses that one field, not the whole group.
+                // Dropping the group would orphan its exported messages
+                // and make the restore foreign-key check fail.
+                for e in merge_dict_into_mutable_metadata_lossy(&mut mutable_metadata, extensions) {
+                    tracing::warn!(
+                        group_id = %group_id,
+                        error = %e,
+                        "skipping malformed metadata component in backup; \
+                         group still exported"
                     );
-                    // Per-field degrade, never per-group: a malformed
-                    // component loses that one field, not the whole
-                    // group. Dropping the group here would orphan its
-                    // (unconditionally exported) messages, and the
-                    // restore's foreign-key check would abort the
-                    // entire import over one corrupt component.
-                    for e in merge_dict_into_mutable_metadata_lossy(&mut base, extensions) {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping malformed metadata component in backup; \
-                             group still exported"
-                        );
-                    }
-                    base
-                } else {
-                    GroupMutableMetadata::try_from(&mls_group)
-                        .inspect_err(|e| {
-                            tracing::warn!(
-                                group_id = %group_id,
-                                error = %e,
-                                "skipping group in backup: unreadable legacy metadata"
-                            );
-                        })
-                        .ok()?
-                };
+                }
 
                 Some(BackupElement {
                     element: Some(Element::Group(GroupSave::new(
