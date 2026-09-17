@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **10 crates** with **403 total error codes**.
+**38 error types** across **10 crates** with **404 total error codes**.
 
 ## mobile
 
@@ -544,6 +544,7 @@ Errors that can occur when working with GroupMutablePermissions.
 | `GroupMutablePermissionsError::MissingPolicies` | Missing policies. Required permission policies not present. Not retryable. |
 | `GroupMutablePermissionsError::MissingExtension` | Missing extension. Required MLS extension not found. Not retryable. |
 | `GroupMutablePermissionsError::InvalidPermissionPolicyOption` | Invalid permission policy option. Invalid permission policy configuration. Not retryable. |
+| `GroupMutablePermissionsError::PolicyProjection` | Invalid policy state in the component registry. The permission view could not be read from group state. Not retryable. |
 
 ### IdentityError <sub>enum</sub>
 
