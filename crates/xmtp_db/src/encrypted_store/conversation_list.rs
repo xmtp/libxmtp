@@ -123,20 +123,22 @@ impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Fast DM deduplication using EXISTS - avoids expensive window functions
-            // For each group, ensure no other group exists with same dm_id and newer last_message_ns
-            query = query.filter(sql::<diesel::sql_types::Bool>(
+            // Fast DM deduplication using EXISTS - avoids expensive window functions.
+            // For each group, ensure no other group with the same dm_id outranks
+            // it: a joined row before a `Restored` archive placeholder, then the
+            // latest message, then the highest id. `find_groups` and
+            // `fetch_stitched` rank the same way.
+            query = query.filter(sql::<diesel::sql_types::Bool>(&format!(
                 "NOT EXISTS (
                     SELECT 1 FROM groups g2
                     WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(conversation_list.dm_id, conversation_list.id)
-                    AND (COALESCE(g2.last_message_ns, 0) > COALESCE((
-                        SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
-                    ), 0)
-                    OR (COALESCE(g2.last_message_ns, 0) = COALESCE((
-                        SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
-                    ), 0) AND g2.id > conversation_list.id))
+                    AND (g2.membership_state != {restored}, COALESCE(g2.last_message_ns, 0), g2.id)
+                      > (conversation_list.membership_state != {restored}, COALESCE((
+                            SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
+                        ), 0), conversation_list.id)
                 )",
-            ));
+                restored = GroupMembershipState::Restored as i32,
+            )));
         }
 
         if let Some(limit) = limit {
@@ -478,6 +480,61 @@ pub(crate) mod tests {
                 })
                 .unwrap();
             assert_eq!(empty_array_results.len(), 3);
+        })
+    }
+
+    /// A `Restored` archive placeholder for a DM must not hide the row the
+    /// client can act in, even when the placeholder holds the newer message
+    /// and the higher id.
+    #[xmtp_common::test]
+    fn test_dm_list_prefers_joined_over_restored() {
+        use crate::group::StoredGroup;
+        use xmtp_common::{Generate, time::now_ns};
+        use xmtp_proto::types::GroupId;
+
+        with_connection(|conn| {
+            let dm_id = "dm:alice:bob";
+            let (low_id, high_id) = {
+                let a = GroupId::generate();
+                let b = GroupId::generate();
+                if a.as_ref() < b.as_ref() {
+                    (a, b)
+                } else {
+                    (b, a)
+                }
+            };
+            let now = now_ns();
+
+            let restored = StoredGroup::builder()
+                .id(high_id)
+                .created_at_ns(now)
+                .last_message_ns(now)
+                .membership_state(GroupMembershipState::Restored)
+                .added_by_inbox_id("alice")
+                .dm_id(Some(dm_id.to_string()))
+                .build()
+                .unwrap();
+            restored.store(conn).unwrap();
+
+            let active = StoredGroup::builder()
+                .id(low_id)
+                .created_at_ns(now)
+                .membership_state(GroupMembershipState::Allowed)
+                .added_by_inbox_id("alice")
+                .dm_id(Some(dm_id.to_string()))
+                .build()
+                .unwrap();
+            active.store(conn).unwrap();
+
+            let listed = conn
+                .fetch_conversation_list(GroupQueryArgs::default())
+                .unwrap();
+            let dm_rows: Vec<_> = listed
+                .iter()
+                .filter(|conversation| conversation.dm_id.as_deref() == Some(dm_id))
+                .collect();
+            assert_eq!(dm_rows.len(), 1);
+            assert_eq!(dm_rows[0].id, active.id);
         })
     }
 

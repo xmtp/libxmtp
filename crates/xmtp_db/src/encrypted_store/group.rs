@@ -577,15 +577,20 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             .into_boxed();
 
         if !include_duplicate_dms {
-            // Fast DM deduplication using EXISTS - avoids expensive window functions
-            // Keep only the latest group for each dm_id (or regular group if not a DM)
-            query = query.filter(sql::<diesel::sql_types::Bool>(
+            // Fast DM deduplication using EXISTS - avoids expensive window functions.
+            // Keep one group for each dm_id (or the regular group if not a DM):
+            // a joined row before a `Restored` archive placeholder, then the
+            // latest message, then the highest id. `fetch_stitched` and
+            // `conversation_list` rank the same way.
+            query = query.filter(sql::<diesel::sql_types::Bool>(&format!(
                 "NOT EXISTS (
                     SELECT 1 FROM groups g2
                     WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(groups.dm_id, groups.id)
-                    AND (COALESCE(g2.last_message_ns, 0), g2.id) > (COALESCE(groups.last_message_ns, 0), groups.id)
+                    AND (g2.membership_state != {restored}, COALESCE(g2.last_message_ns, 0), g2.id)
+                      > (groups.membership_state != {restored}, COALESCE(groups.last_message_ns, 0), groups.id)
                 )",
-            ));
+                restored = GroupMembershipState::Restored as i32,
+            )));
         }
 
         if let Some(limit) = limit {
