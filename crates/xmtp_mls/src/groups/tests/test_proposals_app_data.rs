@@ -42,10 +42,6 @@ async fn test_permission_updates_preserve_pending_fields(#[case] other_member: b
     let bo_groups = bo.sync_welcomes().await.unwrap();
     let bo_group = bo_groups.first().unwrap();
     alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await
-        .unwrap();
-    alix_group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await
         .unwrap();

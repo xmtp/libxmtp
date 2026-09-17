@@ -2,9 +2,9 @@
 
 use tls_codec::Serialize;
 use xmtp_proto::xmtp::mls::message_contents::{
-    ComponentPermissions, ComponentType,
-    MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
-    PermissionsUpdatePolicy as PermissionsUpdatePolicyProto, PolicySet as PolicySetProto,
+    ComponentPermissions, ComponentType, MembershipPolicy as MembershipPolicyProto,
+    MetadataPolicy as MetadataPolicyProto, PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
+    PolicySet as PolicySetProto,
     membership_policy::{BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
     metadata_policy::{
         AndCondition as MetadataAndCondition, AnyCondition as MetadataAnyCondition,
@@ -342,24 +342,28 @@ pub(crate) fn membership_policy_to_metadata_policy(
             };
             Ok(metadata_policy(mapped))
         }
-        Some(MembershipPolicyKind::AndCondition(condition)) if !condition.policies.is_empty() => Ok(MetadataPolicyProto {
-            kind: Some(MetadataPolicyKind::AndCondition(MetadataAndCondition {
-                policies: condition
-                    .policies
-                    .iter()
-                    .map(membership_policy_to_metadata_policy)
-                    .collect::<Result<_, _>>()?,
-            })),
-        }),
-        Some(MembershipPolicyKind::AnyCondition(condition)) if !condition.policies.is_empty() => Ok(MetadataPolicyProto {
-            kind: Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition {
-                policies: condition
-                    .policies
-                    .iter()
-                    .map(membership_policy_to_metadata_policy)
-                    .collect::<Result<_, _>>()?,
-            })),
-        }),
+        Some(MembershipPolicyKind::AndCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AndCondition(MetadataAndCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
+        Some(MembershipPolicyKind::AnyCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
         _ => Err(MigrationError::UnknownMembershipPolicy(None)),
     }
 }

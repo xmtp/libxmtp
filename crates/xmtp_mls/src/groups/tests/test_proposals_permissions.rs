@@ -2,9 +2,7 @@
 
 use crate::{
     context::XmtpSharedContext,
-    groups::{
-        intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
-    },
+    groups::intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
     tester,
 };
 use xmtp_db::{group_intent::IntentKind, prelude::*};
@@ -1111,10 +1109,6 @@ async fn test_dictionary_native_permissions_presets(
     let group = alix.create_group(Some(expected.clone()), None).unwrap();
     assert_eq!(group.permissions().unwrap().policies, expected);
     group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await
-        .unwrap();
-    group
         .update_permission_policy(
             PermissionUpdateType::AddMember,
             crate::groups::intents::PermissionPolicyOption::Deny,
@@ -1173,9 +1167,6 @@ async fn test_receiver_rejects_invalid_registry_action_state() {
             .await?;
         let received = bo.sync_welcomes().await?;
         let peer = received.first()?;
-        group
-            .enable_proposals(EnableProposalsOptions::test_default())
-            .await?;
         peer.sync().await?;
         let before = peer.permissions()?;
         let epoch = peer.epoch().await?;

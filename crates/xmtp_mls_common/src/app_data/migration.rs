@@ -15,8 +15,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use crate::app_data::creation::{
-    build_registry, encode_conversation_type, encode_dm_members,
-    encode_inbox_id_set, encode_metadata_attribute_value, metadata_field_registry_mapping,
+    build_registry, encode_conversation_type, encode_dm_members, encode_inbox_id_set,
+    encode_metadata_attribute_value, metadata_field_registry_mapping,
 };
 use crate::{
     app_data::{
@@ -685,7 +685,7 @@ mod tests {
         assert!(matches!(err, MigrationError::UnknownMetadataField(f) if f == "something_new"));
     }
 
-#[xmtp_common::test(unwrap_try = true)]
+    #[xmtp_common::test(unwrap_try = true)]
     fn synthesis_admin_list_super_admin_only() {
         let mut ps = minimal_default_policy_set();
         ps.add_admin_policy = Some(super_admin_only_perms());

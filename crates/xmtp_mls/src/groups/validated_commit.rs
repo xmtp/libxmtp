@@ -899,11 +899,12 @@ impl ValidatedCommit {
                 read_post_commit_mutable_metadata(openmls_group, staged_commit, registry)?;
             verified_commit.metadata_validation_info =
                 metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
-            verified_commit.permissions_changed = staged_commit.app_data_update_proposals().any(|queued| {
-                let id = queued.app_data_update_proposal().component_id();
-                id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16()
-                    || id == xmtp_mls_common::app_data::component_id::ComponentId::GROUP_ACTION_POLICIES.as_u16()
-            });
+            verified_commit.permissions_changed =
+                staged_commit.app_data_update_proposals().any(|queued| {
+                    let id = queued.app_data_update_proposal().component_id();
+                    id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY
+                        .as_u16()
+                });
         }
         Ok(verified_commit)
     }
