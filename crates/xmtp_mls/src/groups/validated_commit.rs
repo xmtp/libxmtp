@@ -34,7 +34,7 @@ use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
-    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
 };
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
@@ -302,18 +302,27 @@ impl From<&CommitParticipant> for xmtp_mls_common::app_data::validation::ActorAu
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
-pub struct MutableMetadataValidationInfo {
+/// Membership authorization has no metadata or permission diff fields.
+/// Each component update is checked against its authenticated proposer.
+pub(crate) struct MembershipValidationInfo<'a> {
+    pub actor: &'a CommitParticipant,
+    pub added_inboxes: &'a [Inbox],
+    pub removed_inboxes: &'a [Inbox],
+    pub dm_members: Option<&'a DmMembers<String>>,
+}
+
+/// Actual metadata changes, used only for transcripts and status updates.
+/// Component policies authorize these changes before this summary is built.
+#[derive(Debug, Clone, Serialize)]
+pub struct MetadataChanges {
     pub metadata_field_changes: Vec<MetadataFieldChange>,
     pub admins_added: Vec<Inbox>,
     pub admins_removed: Vec<Inbox>,
     pub super_admins_added: Vec<Inbox>,
     pub super_admins_removed: Vec<Inbox>,
-    pub num_super_admins: u32,
-    pub minimum_supported_protocol_version: Option<String>,
 }
 
-impl MutableMetadataValidationInfo {
+impl MetadataChanges {
     pub fn is_empty(&self) -> bool {
         self.metadata_field_changes.is_empty()
             && self.admins_added.is_empty()
@@ -423,7 +432,7 @@ pub struct ValidatedCommit {
     pub added_inboxes: Vec<Inbox>,
     pub removed_inboxes: Vec<Inbox>,
     pub readded_installations: HashSet<Vec<u8>>,
-    pub metadata_validation_info: MutableMetadataValidationInfo,
+    pub metadata_changes: MetadataChanges,
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
@@ -543,11 +552,6 @@ impl ValidatedCommit {
                 })?),
                 None => None,
             };
-        let metadata_validation_info = MutableMetadataValidationInfo {
-            minimum_supported_protocol_version,
-            ..Default::default()
-        };
-        let permissions_changed = false;
         // Get the committer who created the commit and all unique proposers.
         // The committer may differ from the proposers (e.g., when one member commits
         // proposals created by other members).
@@ -688,32 +692,16 @@ impl ValidatedCommit {
             }
         }
 
-        let mut verified_commit = Self {
-            actor,
-            proposers,
-            added_inboxes,
-            removed_inboxes,
-            readded_installations,
-            metadata_validation_info,
-            installations_changed,
-            permissions_changed,
-            dm_members: immutable_metadata.dm_members.clone(),
+        let membership = MembershipValidationInfo {
+            actor: &actor,
+            added_inboxes: &added_inboxes,
+            removed_inboxes: &removed_inboxes,
+            dm_members: immutable_metadata.dm_members.as_ref(),
         };
-
-        // On migrated groups the legacy GROUP_PERMISSIONS extension
-        // is gone — reuse the synthesized stub already built above
-        // for the same reason (per-component policy enforcement
-        // happens via `validate_app_data_update_proposals_in_commit`,
-        // and the legacy commit-level policy_set.evaluate_commit
-        // would otherwise reject every commit on a migrated group
-        // because there's no extension to extract from).
-        if !group_permissions.policies.evaluate_commit(&verified_commit) {
+        if !group_permissions.policies.evaluate_membership(&membership) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
-        if let Some(min_version) = &verified_commit
-            .metadata_validation_info
-            .minimum_supported_protocol_version
-        {
+        if let Some(min_version) = &minimum_supported_protocol_version {
             let current_version = context.version_info().pkg_semver();
             let min_supported_version = LibXMTPVersion::parse(min_version)?;
             tracing::info!(
@@ -733,21 +721,29 @@ impl ValidatedCommit {
         // checks do not reject a valid proposal committed by another member.
         let post_metadata =
             read_post_commit_mutable_metadata(openmls_group, staged_commit, &registry)?;
-        verified_commit.metadata_validation_info =
+        let metadata_changes =
             metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
-        verified_commit.permissions_changed =
-            staged_commit.app_data_update_proposals().any(|queued| {
-                let id = queued.app_data_update_proposal().component_id();
-                id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY
-                    .as_u16()
-            });
-        Ok(verified_commit)
+        let permissions_changed = staged_commit.app_data_update_proposals().any(|queued| {
+            let id = queued.app_data_update_proposal().component_id();
+            id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16()
+        });
+        Ok(Self {
+            actor,
+            proposers,
+            added_inboxes,
+            removed_inboxes,
+            readded_installations,
+            metadata_changes,
+            installations_changed,
+            permissions_changed,
+            dm_members: immutable_metadata.dm_members.clone(),
+        })
     }
 
     // Reuse intent kind here to represent the commit type, even if it's an external commit
     // This is for debugging purposes only, so an approximation is fine
     pub fn debug_commit_type(&self) -> CommitType {
-        let metadata_info = &self.metadata_validation_info;
+        let metadata_info = &self.metadata_changes;
         if !self.added_inboxes.is_empty()
             || !self.removed_inboxes.is_empty()
             || self.installations_changed
@@ -771,7 +767,7 @@ impl ValidatedCommit {
     pub fn is_empty(&self) -> bool {
         self.added_inboxes.is_empty()
             && self.removed_inboxes.is_empty()
-            && self.metadata_validation_info.is_empty()
+            && self.metadata_changes.is_empty()
     }
 
     pub fn actor_inbox_id(&self) -> InboxId {
@@ -1699,11 +1695,11 @@ fn metadata_changes_between(
     immutable_metadata: &GroupMetadata,
     old_mutable_metadata: &GroupMutableMetadata,
     new_mutable_metadata: &GroupMutableMetadata,
-) -> MutableMetadataValidationInfo {
+) -> MetadataChanges {
     let metadata_field_changes =
         mutable_metadata_field_changes(old_mutable_metadata, new_mutable_metadata);
 
-    MutableMetadataValidationInfo {
+    MetadataChanges {
         metadata_field_changes,
         admins_added: get_added_members(
             &old_mutable_metadata.admin_list,
@@ -1729,11 +1725,6 @@ fn metadata_changes_between(
             immutable_metadata,
             old_mutable_metadata,
         ),
-        num_super_admins: new_mutable_metadata.super_admin_list.len() as u32,
-        minimum_supported_protocol_version: new_mutable_metadata
-            .attributes
-            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
-            .map(|s| s.to_string()),
     }
 }
 
@@ -2101,32 +2092,32 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
             added_inboxes: commit.added_inboxes.iter().map(InboxProto::from).collect(),
             removed_inboxes: removed_inboxes.iter().map(InboxProto::from).collect(),
             metadata_field_changes: commit
-                .metadata_validation_info
+                .metadata_changes
                 .metadata_field_changes
                 .iter()
                 .map(MetadataFieldChangeProto::from)
                 .collect(),
             left_inboxes: left_inboxes.iter().map(InboxProto::from).collect(),
             added_admin_inboxes: commit
-                .metadata_validation_info
+                .metadata_changes
                 .admins_added
                 .iter()
                 .map(InboxProto::from)
                 .collect(),
             removed_admin_inboxes: commit
-                .metadata_validation_info
+                .metadata_changes
                 .admins_removed
                 .iter()
                 .map(InboxProto::from)
                 .collect(),
             added_super_admin_inboxes: commit
-                .metadata_validation_info
+                .metadata_changes
                 .super_admins_added
                 .iter()
                 .map(InboxProto::from)
                 .collect(),
             removed_super_admin_inboxes: commit
-                .metadata_validation_info
+                .metadata_changes
                 .super_admins_removed
                 .iter()
                 .map(InboxProto::from)

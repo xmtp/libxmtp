@@ -369,7 +369,7 @@ where
                 self.handle_super_admin_status_change(
                     storage,
                     mls_group,
-                    &validated_commit.metadata_validation_info,
+                    &validated_commit.metadata_changes,
                 );
 
                 if let Some((msg, payload)) = transcript {
