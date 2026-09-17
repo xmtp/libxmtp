@@ -22,7 +22,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use crate::app_data::{
     component_id::ComponentId,
     component_registry::{ComponentOp, ComponentRegistry, ComponentRegistryError},
-    migration::metadata_field_registry_mapping,
+    creation::metadata_field_registry_mapping,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -204,7 +204,7 @@ pub fn policy_set_from_dictionary(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app_data::migration::{
+    use crate::app_data::creation::{
         admin_list_policy_to_metadata_policy, membership_policy_to_metadata_policy,
         synthesize_registry_from_policy_set,
     };

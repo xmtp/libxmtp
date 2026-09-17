@@ -48,4 +48,6 @@ Auth callback bridges return only `auth callback failed` on failure. Never retai
 or log callback error text or credential values. The middleware owns retryability.
 
 Run the error conversion test without a Node runtime:
-`just test workspace -p bindings_node --features napi/dyn-symbols,napi/noop auth_codes_reach_node_errors`.
+`just test workspace -p bindings_node auth_codes_reach_node_errors`.
+The N-API test dependency enables `dyn-symbols` and `noop` so Rust test binaries
+can run without Node. Normal addon builds do not enable these test features.

@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn test_increment_patch_version() {
     assert_eq!(increment_patch_version("1.2.3"), Some("1.2.4".to_string()));
     assert_eq!(increment_patch_version("0.0.9"), Some("0.0.10".to_string()));
@@ -18,7 +18,77 @@ fn test_increment_patch_version() {
     assert_eq!(increment_patch_version("invalid"), None);
 }
 
-#[xmtp_common::test]
+/// Send-side mirror of the receive-side downgrade check. A newly created
+/// group already has the proposals protocol floor, so a lower request fails
+/// before it queues an AppDataUpdate.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_downgrade() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+    let current = xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
+    let err = alix_group
+        .update_group_min_version("0.0.0")
+        .await
+        .expect_err("downgrade must be rejected by the send-side guard");
+    assert!(
+        matches!(
+            err,
+            GroupError::MinVersionDowngrade { ref requested, current: ref existing }
+            if requested == "0.0.0" && existing == current
+        ),
+        "expected MinVersionDowngrade, got {err:?}",
+    );
+}
+
+/// `update_group_min_version` surfaces an unparseable input as a clean
+/// `InvalidMinVersion` error rather than leaking commit validation details.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_malformed_input() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+    let err = alix_group
+        .update_group_min_version("not-a-version")
+        .await
+        .expect_err("malformed semver must be rejected");
+    assert!(
+        matches!(
+            err,
+            GroupError::InvalidMinVersion { ref value, .. } if value == "not-a-version"
+        ),
+        "expected InvalidMinVersion, got {err:?}",
+    );
+}
+
+/// The steady-state bump path also refuses values above the client's own
+/// version.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_update_group_min_version_rejects_above_own() {
+    use crate::groups::GroupError;
+
+    tester!(alix);
+
+    let alix_group = alix.create_group(None, None)?;
+    let err = alix_group
+        .update_group_min_version("99.0.0")
+        .await
+        .expect_err("min_version above own pkg_version must be rejected");
+    assert!(
+        matches!(
+            err,
+            GroupError::MinVersionExceedsOwnVersion { ref requested, .. }
+            if requested == "99.0.0"
+        ),
+        "expected MinVersionExceedsOwnVersion, got {err:?}",
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_can_set_min_supported_protocol_version_for_commit() {
     let mut amal_version = VersionInfo::default();
     amal_version.test_update_version(
@@ -100,7 +170,7 @@ async fn test_can_set_min_supported_protocol_version_for_commit() {
     assert_eq!(messages.len(), 5);
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
     let mut amal_version = VersionInfo::default();
     amal_version.test_update_version(
@@ -293,7 +363,7 @@ async fn test_client_on_old_version_blocks_welcome_until_upgrade() {
     );
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     tester!(amal);
     tester!(bo);
@@ -331,7 +401,10 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     let min_version = metadata
         .attributes
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
-    assert_eq!(min_version, None);
+    assert_eq!(
+        min_version.map(String::as_str),
+        Some(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+    );
 
     let result = bo_group.update_group_min_version_to_match_self().await;
     assert!(result.is_err());
@@ -341,7 +414,10 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     let min_version = metadata
         .attributes
         .get(&MetadataField::MinimumSupportedProtocolVersion.to_string());
-    assert_eq!(min_version, None);
+    assert_eq!(
+        min_version.map(String::as_str),
+        Some(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
+    );
 
     amal_group.sync().await.unwrap();
     let result = amal_group.update_group_min_version_to_match_self().await;
@@ -355,7 +431,7 @@ async fn test_only_super_admins_can_set_min_supported_protocol_version() {
     assert_eq!(min_version.unwrap(), amal.version_info().pkg_version());
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     let mut amal_version = VersionInfo::default();
     amal_version.test_update_version(
@@ -383,6 +459,15 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
         .unwrap();
     amal_group.sync().await.unwrap();
 
+    let envelopes = amal
+        .context
+        .api()
+        .query_group_messages(amal_group.group_id)
+        .await
+        .unwrap();
+    assert!(envelopes.last().unwrap().is_commit());
+    let predecessor = envelopes.iter().rev().nth(1).unwrap().cursor;
+
     // Bo joins group and attempts to send message
     bo.sync_welcomes().await.unwrap();
     let binding = bo.find_groups(GroupQueryArgs::default()).unwrap();
@@ -402,11 +487,12 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     let Some(GroupError::StreamBarrier(error)) = summary.other.as_deref() else {
         panic!("expected the unsupported version barrier, got {summary:?}");
     };
-    assert_blocked_obligation(error, &topic, processed, "unsupported_protocol_version");
+    assert!(predecessor >= processed);
+    assert_blocked_obligation(error, &topic, predecessor, "unsupported_protocol_version");
     assert_eq!(bo_group.epoch_authenticator().await.unwrap(), before);
     assert_eq!(
         bo.context.db().topic_progress(&db_topic).unwrap().processed,
-        processed
+        predecessor
     );
 
     assert_paused_sync(
@@ -425,7 +511,7 @@ async fn test_send_message_while_paused_after_welcome_returns_expected_error() {
     }
 }
 
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message_after_min_version_update_gets_expected_error() {
     let mut amal_version = VersionInfo::default();
     amal_version.test_update_version(
@@ -521,16 +607,8 @@ async fn test_send_message_after_min_version_update_gets_expected_error() {
         pending.error_code.as_deref(),
         Some("unsupported_protocol_version")
     );
-    if predecessor > processed {
-        let rejection = bo
-            .context
-            .db()
-            .read_last_rejection(&db_topic)
-            .unwrap()
-            .unwrap();
-        assert_eq!(rejection.sequence_id, predecessor);
-        assert_eq!(rejection.code, "mls_processing_failure");
-    }
+    // The AppDataUpdate proposal is processed before its commit blocks.
+    // It does not advance the epoch and does not need a rejection record.
 
     assert_paused_sync(
         bo_group.sync().await.unwrap_err(),

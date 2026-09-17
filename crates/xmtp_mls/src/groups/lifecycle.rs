@@ -1,6 +1,7 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
 ///
@@ -835,25 +836,25 @@ where
         assert!(conversation_type != ConversationType::Dm);
 
         let creator_inbox_id = context.inbox_id();
-        let protected_metadata = build_protected_metadata_extension(
-            creator_inbox_id,
-            conversation_type,
-            oneshot_message,
-        )?;
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
-        let mutable_metadata = build_mutable_metadata_extension_default(
+        // CFG-068: deployments without a commit log do not create a signer.
+        let signer =
+            commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
+        let dictionary = initial_dictionary(
+            InitialGroupKind::Group {
+                conversation_type,
+                oneshot_message: oneshot_message.as_ref(),
+            },
+            &permissions_policy_set
+                .to_proto()
+                .map_err(group_permissions::GroupMutablePermissionsError::from)
+                .map_err(MetadataPermissionsError::from)?,
+            &opts,
             creator_inbox_id,
-            opts.clone(),
-            commit_log_enabled,
-        )?;
-        let group_membership = build_starting_group_membership_extension(creator_inbox_id, 0);
-        let mutable_permissions = build_mutable_permissions_extension(permissions_policy_set)?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permissions,
-        )?;
+            signer.as_ref().map(|key| key.as_slice()),
+        )
+        .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        let group_config = build_group_config(dictionary)?;
 
         state_write(context.mls_storage(), |tx| {
             let storage = tx.storage();
@@ -918,28 +919,26 @@ where
         context: &Context,
         membership_state: GroupMembershipState,
         dm_target_inbox_id: InboxId,
-        opts: DMMetadataOptions,
+        opts: GroupMetadataOptions,
         existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
-        let protected_metadata =
-            build_dm_protected_metadata_extension(context.inbox_id(), dm_target_inbox_id.clone())?;
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
-        let mutable_metadata = build_dm_mutable_metadata_extension_default(
+        let signer =
+            commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
+        let dictionary = initial_dictionary(
+            InitialGroupKind::Dm {
+                target_inbox_id: &dm_target_inbox_id,
+            },
+            &PolicySet::new_dm()
+                .to_proto()
+                .map_err(group_permissions::GroupMutablePermissionsError::from)
+                .map_err(MetadataPermissionsError::from)?,
+            &opts,
             context.inbox_id(),
-            &dm_target_inbox_id,
-            opts.clone(),
-            commit_log_enabled,
-        )?;
-        let group_membership = build_starting_group_membership_extension(context.inbox_id(), 0);
-        let mutable_permissions = PolicySet::new_dm();
-        let mutable_permission_extension =
-            build_mutable_permissions_extension(mutable_permissions)?;
-        let group_config = build_group_config(
-            protected_metadata,
-            mutable_metadata,
-            group_membership,
-            mutable_permission_extension,
-        )?;
+            signer.as_ref().map(|key| key.as_slice()),
+        )
+        .map_err(app_data::migration::BootstrapSynthesisError::from)?;
+        let group_config = build_group_config(dictionary)?;
 
         let (stored_group, created) = state_write(context.mls_storage(), |tx| {
             let storage = tx.storage();

@@ -1407,7 +1407,7 @@ pub(crate) mod tests {
     use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
     use xmtp_common::{rand_string, rand_vec};
     use xmtp_mls_common::{
-        app_data::{component_id::ComponentId, migration::synthesize_registry_from_policy_set},
+        app_data::{component_id::ComponentId, creation::synthesize_registry_from_policy_set},
         group_metadata::DmMembers,
     };
 

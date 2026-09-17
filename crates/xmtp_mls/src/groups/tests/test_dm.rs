@@ -107,7 +107,7 @@ fn dictionary_native_dm(
     allow_add_member: bool,
 ) -> openmls::group::MlsGroup {
     use crate::groups::group_permissions::{MembershipPolicies, PolicySet};
-    use xmtp_mls_common::app_data::migration::synthesize_registry_from_policy_set;
+    use xmtp_mls_common::app_data::creation::synthesize_registry_from_policy_set;
 
     // Build the dictionary directly. DM bootstrap synthesis is a separate task.
     let mut policies = PolicySet::new_dm();
@@ -198,10 +198,24 @@ fn dictionary_native_dm_with_registry(
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_dm_accepts_valid_permissions() {
-    tester!(alix);
-    let added_by = hex::encode([0x42; 32]);
-    let group = dictionary_native_dm(&alix.context, &added_by, false);
-    crate::groups::validate_dm_group(&alix.context, &group, &added_by)?;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    bo.sync_welcomes().await?;
+    let received = bo.group(&dm.group_id)?;
+    assert!(received.is_proposals_enabled()?);
+    assert!(received.mutable_metadata()?.admin_list.is_empty());
+    assert!(received.mutable_metadata()?.super_admin_list.is_empty());
+    assert_eq!(received.members().await?.len(), 2);
+    dm.send_message(b"dictionary-native DM", Default::default())
+        .await?;
+    received.sync().await?;
+    assert!(
+        received
+            .find_messages(&MsgQueryArgs::default())?
+            .iter()
+            .any(|message| { message.decrypted_message_bytes == b"dictionary-native DM" })
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

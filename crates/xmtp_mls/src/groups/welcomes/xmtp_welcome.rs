@@ -386,7 +386,7 @@ where
         let mut anchor_mode = JoinAnchorMode::Advance;
 
         if let Some(existing) = &existing_group {
-            let current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
+            let mut current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or(xmtp_db::NotFound::MlsGroup(group_id))?;
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
             let incoming_epoch = staged_welcome.public_group().group_context().epoch();
@@ -410,6 +410,10 @@ where
                     anchor: anchor.0,
                 });
             }
+            // A replacement Welcome starts a new membership generation.
+            // Clear the old proposals in memory and storage before installing
+            // it. OpenMLS stores proposal references by group ID, not epoch.
+            current.clear_pending_proposals(&storage)?;
         }
 
         // The checks above allow PendingRemove only for a valid inactive rejoin.

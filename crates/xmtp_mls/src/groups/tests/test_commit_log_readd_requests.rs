@@ -178,9 +178,9 @@ async fn test_readd_installation_succeeds() {
         .await
         .unwrap();
 
-    // Complete the version update before recording the pre-removal authenticator.
+    // Use the creation floor before recording the pre-removal authenticator.
     a_group
-        .update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+        .update_group_min_version(xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION)
         .await?;
 
     bo.sync_all_welcomes_and_groups(None).await.unwrap();
@@ -243,6 +243,13 @@ async fn test_readd_installation_succeeds() {
     );
     assert!(b_group.is_active()?);
     assert_eq!(b_group.epoch().await?, a_group.epoch().await?);
+    b_group.with_group_snapshot(|mls_group| {
+        assert!(
+            mls_group.pending_proposals().next().is_none(),
+            "a replacement Welcome must not restore old-epoch proposals"
+        );
+        Ok(())
+    })?;
     assert_eq!(
         bo.context
             .db()
@@ -467,17 +474,13 @@ async fn test_request_readd_with_allowlisted_groups() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_readd_succeeds() {
-    use crate::groups::EnableProposalsOptions;
-
     tester!(alix);
     tester!(bo);
     tester!(caro);
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo.sync_all_welcomes_and_groups(None).await?;
     caro.sync_all_welcomes_and_groups(None).await?;
     let bo_group = bo.group(&group.group_id)?;
@@ -503,7 +506,7 @@ async fn test_dictionary_native_readd_succeeds() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_dictionary_native_readd_records_failed_installations() {
     use crate::groups::{
-        EnableProposalsOptions, GroupError,
+        GroupError,
         group_membership::MembershipDiffWithKeyPackages,
         intents::ReaddInstallationsIntentData,
         mls_sync::{
@@ -521,9 +524,6 @@ async fn test_dictionary_native_readd_records_failed_installations() {
     tester!(caro);
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
-        .await?;
-    group
-        .enable_proposals(EnableProposalsOptions::test_default())
         .await?;
 
     // Supply failed fetch results directly. Each commit must keep prior failures.

@@ -1,132 +1,7 @@
 //! Pause, downgrade, and recovery paths.
 
-use crate::{context::XmtpSharedContext, groups::EnableProposalsOptions, tester};
+use crate::{context::XmtpSharedContext, tester};
 use xmtp_db::prelude::*;
-
-/// Bootstrap-time pause path: a receiver validating a bootstrap commit
-/// whose seeded `MIN_SUPPORTED_PROTOCOL_VERSION` exceeds its own
-/// version must PAUSE at the bootstrap (`ProtocolVersionTooLow`), not
-/// byte-compare it. Reachable only via a downgrade between the step-A
-/// legacy floor bump and the bootstrap: step-A normally pauses
-/// below-floor members before they ever see step-B.
-///
-/// This test is fully differential for the bootstrap floor check:
-/// without it, the downgraded receiver's byte-compare SUCCEEDS (its
-/// synthesized expectation reads the same floor value from the
-/// pre-flip GMM — value equality, no version comparison) and it merges
-/// the bootstrap, ending migrated-and-unpaused in a group whose floor
-/// it doesn't meet. With the check it ends unmigrated-and-paused, and
-/// reprocesses the bootstrap with upgraded code later.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_downgraded_client_pauses_at_bootstrap_seeding_higher_floor() {
-    use crate::builder::ClientBuilder;
-    use crate::client::Client;
-    use crate::groups::tests::increment_patch_version;
-    use crate::identity::IdentityStrategy;
-    use crate::utils::{DefaultTestClientCreator, VersionInfo, test::register_client};
-    use xmtp_common::tmp_path;
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::XmtpTestDb;
-    use xmtp_id::InboxOwner;
-    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
-
-    // Both clients run one patch above the default so the legacy floor
-    // can be raised to a value the default version doesn't meet.
-    let mut high_version = VersionInfo::default();
-    let bumped = increment_patch_version(high_version.pkg_version()).expect("patch bump");
-    high_version.test_update_version(&bumped);
-
-    let alix =
-        ClientBuilder::new_test_client_with_version(&generate_local_wallet(), high_version.clone())
-            .await;
-
-    // Bo lives on a persistent store so the same identity can be
-    // re-opened at a lower version mid-flow.
-    let bo_wallet = generate_local_wallet();
-    let bo_db_path = tmp_path();
-    let bo_ident = bo_wallet.get_identifier()?;
-    let bo_nonce = 1;
-    let bo_strategy = IdentityStrategy::new(
-        bo_ident.inbox_id(bo_nonce)?,
-        bo_ident.clone(),
-        bo_nonce,
-        None,
-    );
-
-    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path.clone())).await;
-    let bo = Client::builder(bo_strategy.clone())
-        .api_client(DefaultTestClientCreator::create().build()?)
-        .store(bo_store)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .version(high_version.clone())
-        .build()
-        .await?;
-    register_client(&bo, &bo_wallet).await;
-
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups
-        .iter()
-        .find(|g| g.group_id == alix_group.group_id)
-        .expect("bo should receive a welcome for alix_group");
-    bo_group.sync().await?;
-
-    // Step-A equivalent, processed by bo at the HIGH version: raise the
-    // legacy GMM floor to `bumped`. Bo meets it — no pause.
-    alix_group.update_group_min_version_to_match_self().await?;
-    bo_group.sync().await?;
-    assert!(
-        bo_group.paused_for_version()?.is_none(),
-        "bo meets the legacy floor pre-downgrade and must not be paused"
-    );
-
-    // The downgrade, BETWEEN the legacy bump and the bootstrap.
-    let bo_group_id = bo_group.group_id;
-    drop(bo);
-    let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path)).await;
-    let bo_downgraded = Client::builder(bo_strategy)
-        .api_client(DefaultTestClientCreator::create().build()?)
-        .store(bo_store)
-        .default_mls_store()?
-        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-        .version(VersionInfo::default())
-        .build()
-        .await?;
-
-    // Alix migrates. `enable_proposals` skips its own step-A bump (the
-    // current floor already satisfies the test floor), and the
-    // bootstrap synthesis seeds `MIN_SUPPORTED_PROTOCOL_VERSION` from
-    // the GMM attribute — i.e. `bumped`.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-
-    // The bootstrap is the first commit the downgraded bo processes.
-    let bo_group = bo_downgraded.group(&bo_group_id)?;
-    let _ = bo_group.sync().await;
-
-    assert_eq!(
-        bo_group.paused_for_version()?.as_deref(),
-        Some(bumped.as_str()),
-        "a downgraded receiver must pause AT the bootstrap seeding a floor above \
-         its version, deferring it for post-upgrade reprocessing"
-    );
-    let bo_migrated = bo_group
-        .load_mls_group_with_lock_async(async |g| {
-            Ok::<bool, crate::groups::GroupError>(bo_group.proposals_enabled(&g))
-        })
-        .await?;
-    assert!(
-        !bo_migrated,
-        "the paused bootstrap must NOT have been merged — pre-fix the byte-compare \
-         accepted it and bo ended migrated in a group whose floor it doesn't meet"
-    );
-}
 
 /// A Welcome with a higher AppData version floor remains pending without
 /// installing the group. An upgraded client can process the same saved input.
@@ -170,9 +45,7 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
 
     // Alix migrates. Post-migration the legacy GMM is stripped and the
     // floor lives in the AppData dict only.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     let alix_migrated = alix_group
         .load_mls_group_with_lock_async(async |g| {
             Ok::<bool, crate::groups::GroupError>(alix_group.proposals_enabled(&g))
@@ -180,7 +53,7 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
         .await?;
     assert!(
         alix_migrated,
-        "alix must be migrated post-enable_proposals (precondition for this test)"
+        "alix's group must be dictionary-native (precondition for this test)"
     );
 
     // Carol's Welcome carries the version floor only in the AppData dict.
@@ -247,11 +120,11 @@ async fn test_welcome_on_migrated_group_pauses_below_min_version() {
     );
 }
 
-/// XIP §3 steady-state pause path: when an already-migrated client bumps
-/// `MIN_SUPPORTED_PROTOCOL_VERSION` on an already-migrated group, the
+/// XIP §3 steady-state pause path: when a dictionary-native client bumps
+/// `MIN_SUPPORTED_PROTOCOL_VERSION` on a dictionary-native group, the
 /// floor flows as an `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)`
 /// proposal carried inside a regular commit. The legacy GMM extension
-/// is gone post-bootstrap so the validator can't diff it — instead it
+/// is absent, so the validator cannot diff it. Instead it
 /// must read the post-commit floor from the dict overlay (current dict
 /// + any staged AppDataUpdate proposals targeting the component) and
 /// raise `ProtocolVersionTooLow` against the receiver's pkg_version.
@@ -298,24 +171,18 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         .expect("bo should receive a welcome for alix_group");
     bo_group.sync().await?;
 
-    // Migrate with the test floor (`0.0.0`) so bo isn't paused by the
-    // step-A legacy GMM bump — this test specifically exercises the
-    // POST-migration steady-state pause path, not the pre-bootstrap one.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    bo_group.sync().await?;
-
+    // The creation floor permits both clients. Raising that committed floor
+    // must still pause the client whose version is too low.
     for (label, group) in [("alix", &alix_group), ("bo", bo_group)] {
         let migrated = group
             .load_mls_group_with_lock_async(async |g| {
                 Ok::<bool, crate::groups::GroupError>(group.proposals_enabled(&g))
             })
             .await?;
-        assert!(migrated, "{label} must be migrated post-enable_proposals");
+        assert!(migrated, "{label} must be dictionary-native");
         assert!(
             group.paused_for_version()?.is_none(),
-            "{label} must not be paused after migration (test_default floor is 0.0.0)"
+            "{label} must not be paused at the creation floor"
         );
     }
 
@@ -327,7 +194,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     // Send-side clamp is satisfied (alix's pkg_version == requested
     // floor). The bump flows as an
     // `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)` inside a commit —
-    // post-bootstrap the legacy GMM extension is gone so the dict is
+    // The legacy GMM extension is absent, so the dictionary is
     // the only path the floor can ride on.
     alix_group
         .update_group_min_version(&alix_pkg_version)
@@ -376,7 +243,7 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
         paused.as_deref(),
         Some(alix_pkg_version.as_str()),
         "bo must be paused at the new floor via the AppDataUpdate-driven path; \
-         post-bootstrap the legacy GMM extension is gone so the dict overlay is the \
+         the legacy GMM extension is absent, so the dict overlay is the \
          only floor signal the validator can read"
     );
 }
@@ -456,9 +323,9 @@ async fn test_downgraded_client_pauses_on_migrated_group_with_higher_floor() {
     bo_group.sync().await?;
 
     // Migrate with the 0.0.0 test floor so nobody pauses at bootstrap.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
+    bo_group.sync().await?;
+
     bo_group.sync().await?;
 
     // Raise the floor to the bumped version. Bo — at that same version —
@@ -592,62 +459,12 @@ async fn test_unstick_paused_groups_recovers_after_upgrade() {
     );
 }
 
-/// Bootstrap retry safety: a successful migration is a hard idempotent
-/// fixed-point. A second `enable_proposals` call on an already-migrated
-/// group MUST NOT emit a new commit (advance the epoch). The existing
-/// idempotency check at the `proposals_enabled` early-return is the
-/// protection; this test pins the wire-level behavior so a refactor
-/// that removes the check would surface in CI.
-///
-/// Backstops the "user retries enable_proposals after a flaky network"
-/// scenario where the first call succeeded but the user believes it
-/// didn't.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_enable_proposals_no_wire_commit_on_already_migrated() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-
-    // First call — migrates the group, advances the epoch.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    let epoch_after_migration = alix_group.epoch().await?;
-
-    // Second call — must early-return (no commit, no epoch advance).
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    assert_eq!(
-        alix_group.epoch().await?,
-        epoch_after_migration,
-        "second enable_proposals must NOT advance the epoch (no commit emitted)"
-    );
-
-    // Third call with a different `force` value — same fixed-point.
-    alix_group
-        .enable_proposals(EnableProposalsOptions {
-            force: true,
-            min_version: None,
-        })
-        .await?;
-    assert_eq!(
-        alix_group.epoch().await?,
-        epoch_after_migration,
-        "third enable_proposals with different options must STILL NOT advance the epoch"
-    );
-}
-
 /// `membership_capabilities` reports raw per-installation extension support
 /// plus the group context's extension types — generic facts the app filters.
 /// This exercises the *app-side* derivation of the proposal-migration answers:
 /// "already migrated?" = context has `AppDataDictionary`; "eligible / who
-/// blocks?" = each installation's extensions has it. After `enable_proposals`,
-/// the context advertises `AppDataDictionary`.
+/// blocks?" = each installation's extensions has it. New groups advertise
+/// `AppDataDictionary` in their context.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_capabilities() {
     use crate::groups::{InstallationCapabilities, MlsExtensionType};
@@ -672,12 +489,11 @@ async fn test_membership_capabilities() {
 
     let caps = alix_group.membership_capabilities().await?;
 
-    // A fresh group is not migrated: its context lacks AppDataDictionary.
+    // A new group is dictionary-native.
     assert!(
-        !caps
-            .context_extensions
+        caps.context_extensions
             .contains(&MlsExtensionType::AppDataDictionary),
-        "a fresh group's context is not migrated"
+        "a new group's context includes AppDataDictionary"
     );
 
     assert_eq!(caps.members.len(), 3, "alix, bo, and caro");
@@ -733,18 +549,12 @@ async fn test_membership_capabilities() {
         "no inbox blocks migration: {blocking:?}"
     );
 
-    // After enabling proposals, the context advertises AppDataDictionary —
-    // how an app detects the group is now migrated.
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-
-    let migrated = alix_group.membership_capabilities().await?;
+    let current = alix_group.membership_capabilities().await?;
     assert!(
-        migrated
+        current
             .context_extensions
             .contains(&MlsExtensionType::AppDataDictionary),
-        "context advertises AppDataDictionary after enable_proposals"
+        "context advertises AppDataDictionary"
     );
-    assert_eq!(migrated.members.len(), 3);
+    assert_eq!(current.members.len(), 3);
 }

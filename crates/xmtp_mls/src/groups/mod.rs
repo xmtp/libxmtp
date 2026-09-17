@@ -58,11 +58,12 @@ use crate::{
 pub use error::*;
 use intents::SendMessageIntentData;
 pub use intents::UpdateGroupMembershipResult;
+#[cfg(test)]
+use openmls::extensions::Metadata;
 use openmls::{
     credentials::CredentialType,
     extensions::{
-        Extension, ExtensionType, Extensions, Metadata, RequiredCapabilitiesExtension,
-        UnknownExtension,
+        Extension, ExtensionType, Extensions, RequiredCapabilitiesExtension, UnknownExtension,
     },
     group::{GroupContext, MlsGroupCreateConfig},
     messages::proposals::ProposalType,

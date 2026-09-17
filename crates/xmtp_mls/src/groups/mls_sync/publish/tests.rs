@@ -4,6 +4,7 @@ use prost::Message;
 use xmtp_proto::types::Topic;
 
 mod deadlines;
+mod dictionary_creation;
 
 #[rstest::rstest]
 #[case::name_first(true)]
@@ -157,10 +158,7 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     use crate::{
         Client,
         builder::DeviceSyncMode,
-        groups::{
-            EnableProposalsOptions,
-            intents::{PermissionPolicyOption, PermissionUpdateType},
-        },
+        groups::intents::{PermissionPolicyOption, PermissionUpdateType},
         identity::IdentityStrategy,
         utils::DefaultTestClientCreator,
     };
@@ -179,9 +177,7 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
     let group = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     group
         .update_permission_policy(
             PermissionUpdateType::UpdateMetadata,
@@ -317,22 +313,9 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn prepared_proposals_keep_wire_order_after_reload() {
-    use crate::groups::EnableProposalsOptions;
-
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let group = alix.create_group(None, None)?;
-    let enabled = group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await;
-    assert!(
-        enabled.is_ok(),
-        "proposal setup failed: {:?}",
-        enabled.map_err(|error| match error {
-            GroupError::SyncFailedToWait(summary) => summary.publish_errors,
-            error => vec![error],
-        })
-    );
     let data: Vec<u8> =
         ProposeMemberUpdateIntentData::new(vec![bo.inbox_id().to_string()], vec![]).try_into()?;
     QueueIntent::propose_member_update()

@@ -159,7 +159,9 @@ async fn test_add_inbox() {
         .query_group_messages(group_id)
         .await
         .unwrap();
-    assert_eq!(messages.len(), 1);
+    // Adding a member emits an Add proposal, a membership AppDataUpdate proposal,
+    // and the commit that consumes both proposals.
+    assert_eq!(messages.len(), 3);
 }
 
 #[xmtp_common::test]
@@ -206,8 +208,8 @@ async fn test_remove_inbox() {
     let messages_with_remove = group.find_messages(&MsgQueryArgs::default()).unwrap();
     assert_eq!(messages_with_remove.len(), 2);
 
-    // We are expecting 1 message on the group topic, not 2, because the second one should have
-    // failed
+    // Each membership update emits an MLS proposal, a membership AppDataUpdate proposal,
+    // and a commit. Both the add and remove are published.
     let group_id = group.group_id;
     let messages = client_1
         .context
@@ -216,7 +218,7 @@ async fn test_remove_inbox() {
         .await
         .expect("read topic");
 
-    assert_eq!(messages.len(), 2);
+    assert_eq!(messages.len(), 6);
 }
 
 #[xmtp_common::test]

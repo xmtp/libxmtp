@@ -328,7 +328,6 @@ impl MutableMetadataValidationInfo {
             && self.admins_removed.is_empty()
             && self.super_admins_added.is_empty()
             && self.super_admins_removed.is_empty()
-            && self.minimum_supported_protocol_version.is_none()
     }
 }
 
@@ -521,6 +520,15 @@ impl ValidatedCommit {
             )
         {
             return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
+        }
+        if is_migrated
+            && staged_commit
+                .queued_proposals()
+                .any(|queued| matches!(queued.proposal(), Proposal::GroupContextExtensions(_)))
+        {
+            return Err(CommitValidationError::UnsupportedProposalType(
+                ProposalType::GroupContextExtensions,
+            ));
         }
         let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
@@ -766,6 +774,16 @@ impl ValidatedCommit {
             .cloned()
             .collect();
 
+        // A deleted inbox has no post-commit entry to retain its failures.
+        // Keep authenticated old failures only when they have no current leaf.
+        failed_installations.extend(
+            old_group_membership
+                .failed_installations
+                .iter()
+                .filter(|id| !current_group_members.contains(*id))
+                .cloned(),
+        );
+
         // Remove readded installations from the added/removed/failed lists before going through validation
         let readded_installations = extract_readded_installations(
             &actor,
@@ -827,7 +845,7 @@ impl ValidatedCommit {
             }
         }
 
-        let verified_commit = Self {
+        let mut verified_commit = Self {
             actor,
             proposers,
             added_inboxes,
@@ -836,7 +854,7 @@ impl ValidatedCommit {
             metadata_validation_info,
             installations_changed,
             permissions_changed,
-            dm_members: immutable_metadata.dm_members,
+            dm_members: immutable_metadata.dm_members.clone(),
         };
 
         // On migrated groups the legacy GROUP_PERMISSIONS extension
@@ -872,6 +890,21 @@ impl ValidatedCommit {
                     min_version.clone(),
                 ));
             }
+        }
+        // Component policies have already checked each authenticated proposer.
+        // Build the change summary after authorization, so legacy actor-based
+        // checks do not reject a valid proposal committed by another member.
+        if let Some(registry) = migrated_registry.as_ref() {
+            let post_metadata =
+                read_post_commit_mutable_metadata(openmls_group, staged_commit, registry)?;
+            verified_commit.metadata_validation_info =
+                metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
+            verified_commit.permissions_changed =
+                staged_commit.app_data_update_proposals().any(|queued| {
+                    let id = queued.app_data_update_proposal().component_id();
+                    id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY
+                        .as_u16()
+                });
         }
         Ok(verified_commit)
     }
@@ -1130,6 +1163,41 @@ struct ExpectedDiff {
 }
 
 /// Read committed metadata once through the active extension representation.
+/// Decode the post-commit metadata for messages, callbacks, and admin side effects.
+fn read_post_commit_mutable_metadata(
+    group: &OpenMlsGroup,
+    staged_commit: &StagedCommit,
+    registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
+) -> Result<GroupMutableMetadata, CommitValidationError> {
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+    use xmtp_mls_common::{
+        app_data::component_id::ComponentId,
+        group_mutable_metadata::{METADATA_FIELD_COMPONENT_MAP, merge_dict_into_mutable_metadata},
+    };
+    let mut dictionary = AppDataDictionary::new();
+    for id in METADATA_FIELD_COMPONENT_MAP
+        .iter()
+        .map(|(_, id)| *id)
+        .chain([ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST])
+    {
+        if let Some(bytes) = super::app_data::component_source::read_post_commit_component_bytes(
+            id,
+            group,
+            staged_commit,
+            registry,
+        )? {
+            dictionary.insert(id.as_u16(), bytes);
+        }
+    }
+    let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
+        AppDataDictionaryExtension::new(dictionary),
+    )])
+    .expect("one dictionary extension has no duplicate types");
+    let mut metadata = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
+    merge_dict_into_mutable_metadata(&mut metadata, &extensions)?;
+    Ok(metadata)
+}
+
 fn read_committed_metadata(
     group: &OpenMlsGroup,
 ) -> Result<(GroupMetadata, GroupMutableMetadata), CommitValidationError> {
@@ -1444,6 +1512,7 @@ fn validate_one_app_data_update(
     proposer_inbox_id: &str,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     openmls_group: &OpenMlsGroup,
+    dm_members: Option<&DmMembers<String>>,
 ) -> Result<(), CommitValidationError> {
     use super::app_data::component_source::read_from_app_data_dict;
 
@@ -1460,6 +1529,7 @@ fn validate_one_app_data_update(
         proposer_inbox_id,
         registry,
         old_value.as_deref(),
+        dm_members,
     )
 }
 
@@ -1516,6 +1586,43 @@ fn enforce_min_version_monotonicity(
     }
 }
 
+/// Permit exactly one insertion for the other authenticated DM participant.
+fn permits_dm_participant_insert(
+    operation: &openmls::messages::proposals::AppDataUpdateOperation,
+    proposer_inbox_id: &str,
+    dm_members: Option<&DmMembers<String>>,
+) -> bool {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use tls_codec::{Deserialize as _, VLBytes};
+    use xmtp_mls_common::{
+        inbox_id::InboxId,
+        tls_map::{TlsMapDelta, TlsMapMutation},
+    };
+
+    let Some(dm) = dm_members else { return false };
+    let AppDataUpdateOperation::Update(payload) = operation else {
+        return false;
+    };
+    let Ok(delta) = TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload.as_slice())
+    else {
+        return false;
+    };
+    let mut inserted = delta
+        .mutations
+        .iter()
+        .filter_map(|mutation| match mutation {
+            TlsMapMutation::Insert { key, .. } => Some(key.to_hex()),
+            _ => None,
+        });
+    let Some(inbox_id) = inserted.next() else {
+        return false;
+    };
+    inserted.next().is_none()
+        && inbox_id != proposer_inbox_id
+        && (inbox_id == dm.member_one_inbox_id.as_ref()
+            || inbox_id == dm.member_two_inbox_id.as_ref())
+}
+
 /// Pure core of [`validate_one_app_data_update`] with `old_value`
 /// passed explicitly so unit tests can exercise the
 /// expand → per-change policy loop without a real MLS group.
@@ -1526,6 +1633,7 @@ pub(super) fn validate_one_app_data_update_with_old_value(
     proposer_inbox_id: &str,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     old_value: Option<&[u8]>,
+    dm_members: Option<&DmMembers<String>>,
 ) -> Result<(), CommitValidationError> {
     use xmtp_mls_common::app_data::{
         registry_table::lookup_component,
@@ -1598,7 +1706,17 @@ pub(super) fn validate_one_app_data_update_with_old_value(
         }
     };
 
+    // A DM may add its other participant even though its add-member policy
+    // denies general additions. Use the same exception as MLS Add validation.
+    let dm_participant_insert = component_id
+        == xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+        && permits_dm_participant_insert(operation, proposer_inbox_id, dm_members);
     for change in &changes {
+        if dm_participant_insert
+            && change.op == xmtp_mls_common::app_data::component_registry::ComponentOp::Insert
+        {
+            continue;
+        }
         let cc = ComponentChange::builder()
             .component_id(component_id)
             .op(change.op)
@@ -1813,6 +1931,7 @@ fn validate_app_data_update_proposals_in_commit(
             &proposer.inbox_id,
             registry,
             old_value.as_deref(),
+            immutable_metadata.dm_members.as_ref(),
         )?;
 
         // Unknown components do not have a per-id invariant. Known component
@@ -1944,10 +2063,22 @@ fn extract_metadata_changes(
 
     let new_mutable_metadata: GroupMutableMetadata = new_mutable_metadata_ext.try_into()?;
 
-    let metadata_field_changes =
-        mutable_metadata_field_changes(old_mutable_metadata, &new_mutable_metadata);
+    Ok(metadata_changes_between(
+        immutable_metadata,
+        old_mutable_metadata,
+        &new_mutable_metadata,
+    ))
+}
 
-    Ok(MutableMetadataValidationInfo {
+fn metadata_changes_between(
+    immutable_metadata: &GroupMetadata,
+    old_mutable_metadata: &GroupMutableMetadata,
+    new_mutable_metadata: &GroupMutableMetadata,
+) -> MutableMetadataValidationInfo {
+    let metadata_field_changes =
+        mutable_metadata_field_changes(old_mutable_metadata, new_mutable_metadata);
+
+    MutableMetadataValidationInfo {
         metadata_field_changes,
         admins_added: get_added_members(
             &old_mutable_metadata.admin_list,
@@ -1978,7 +2109,7 @@ fn extract_metadata_changes(
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .map(|s| s.to_string()),
-    })
+    }
 }
 
 // Returns true if the permissions have changed, false otherwise
@@ -2265,6 +2396,9 @@ pub fn validate_proposal(
             }
         }
         Proposal::GroupContextExtensions(gce_proposal) => {
+            if super::app_data::is_migrated_group(openmls_group) {
+                return Err(unsupported_error());
+            }
             let existing_extensions = openmls_group.extensions();
             let new_extensions = gce_proposal.extensions();
 
@@ -2429,6 +2563,7 @@ pub fn validate_proposal(
                 &proposer.inbox_id,
                 &registry,
                 openmls_group,
+                immutable_metadata.dm_members.as_ref(),
             )?;
         }
         Proposal::AppEphemeral(_) => {
@@ -2535,6 +2670,84 @@ mod permission_on_receive_tests {
         validation::ActorAuthority,
     };
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dictionary_native_group_rejects_gce_proposal_and_commit() {
+        use crate::tester;
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        let provider = alix.context.mls_provider();
+        let mut group = OpenMlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let signer = &alix.context.identity().installation_keys;
+        group.propose_group_context_extensions(&provider, group.extensions().clone(), signer)?;
+        let (immutable, mutable) = read_committed_metadata(&group)?;
+        let proposal = group.pending_proposals().next()?;
+        assert!(matches!(
+            validate_proposal(
+                proposal,
+                &group,
+                &PolicySet::default(),
+                &immutable,
+                &mutable
+            ),
+            Err(CommitValidationError::UnsupportedProposalType(
+                ProposalType::GroupContextExtensions
+            ))
+        ));
+        group.commit_to_pending_proposals(&provider, signer)?;
+        let staged = group.pending_commit()?;
+        assert!(matches!(
+            ValidatedCommit::from_staged_commit_local(
+                &alix.context,
+                &alix.context.db(),
+                staged,
+                group.own_leaf_index(),
+                &group,
+                u64::MAX,
+            ),
+            Err(CommitValidationError::UnsupportedProposalType(
+                ProposalType::GroupContextExtensions
+            ))
+        ));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dm_membership_insert_exception_rejects_other_inboxes() {
+        use tls_codec::{Serialize as _, VLBytes};
+        use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMapDelta};
+        let creator = InboxId::from_bytes([1; 32]);
+        let peer = InboxId::from_bytes([2; 32]);
+        let outsider = InboxId::from_bytes([3; 32]);
+        let dm = DmMembers {
+            member_one_inbox_id: creator.to_hex(),
+            member_two_inbox_id: peer.to_hex(),
+        };
+        for (keys, allowed) in [
+            (vec![peer], true),
+            (vec![creator], false),
+            (vec![outsider], false),
+            (vec![peer, outsider], false),
+            (vec![peer, peer], false),
+        ] {
+            let mut delta = TlsMapDelta::<InboxId, VLBytes>::new();
+            for key in keys {
+                delta = delta.insert(key, vec![].into());
+            }
+            let operation = AppDataUpdateOperation::Update(delta.tls_serialize_detached()?.into());
+            assert_eq!(
+                permits_dm_participant_insert(&operation, &creator.to_hex(), Some(&dm)),
+                allowed
+            );
+            assert!(!permits_dm_participant_insert(
+                &operation,
+                &creator.to_hex(),
+                None
+            ));
+        }
+    }
+
     fn non_admin_actor() -> ActorAuthority {
         ActorAuthority {
             is_admin: false,
@@ -2560,6 +2773,7 @@ mod permission_on_receive_tests {
             "test-inbox",
             &registry,
             None,
+            None,
         )
         .expect_err("non-admin write to super-admin-only component must be rejected");
         assert!(
@@ -2578,6 +2792,7 @@ mod permission_on_receive_tests {
             admin_actor(),
             "test-inbox",
             &registry,
+            None,
             None,
         )
         .expect_err("plain-admin write to super-admin-only component must be rejected");
@@ -2601,6 +2816,7 @@ mod permission_on_receive_tests {
             non_admin_actor(),
             "test-inbox",
             &registry,
+            None,
             None,
         )
         .expect_err("write to unregistered component must be rejected");

@@ -81,4 +81,8 @@ third-party = [
   # Sentry stays a plain dependency of the two crates that actually use it.
   { name = "sentry" },
   { name = "sentry-core" },
+  # Node's Rust tests use `noop` and `dyn-symbols` without a Node runtime.
+  # Do not enable those test features in normal addon builds.
+  { name = "napi" },
+  { name = "napi-sys" },
 ]

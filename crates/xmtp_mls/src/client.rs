@@ -851,7 +851,12 @@ where
             &self.context,
             GroupMembershipState::Allowed,
             target_inbox_id.clone(),
-            opts.unwrap_or_default(),
+            GroupMetadataOptions {
+                message_disappearing_settings: opts
+                    .unwrap_or_default()
+                    .message_disappearing_settings,
+                ..Default::default()
+            },
             None,
         )?;
 

@@ -4,7 +4,7 @@ use crate::groups::{GroupError, build_group_membership_extension};
 use crate::identity::XmtpKeyPackage;
 use crate::{
     groups::{
-        build_group_config, build_mutable_metadata_extension_default,
+        build_legacy_test_group_config, build_mutable_metadata_extension_default,
         build_mutable_permissions_extension, build_protected_metadata_extension,
         build_starting_group_membership_extension,
     },
@@ -132,7 +132,7 @@ fn generate_group_config(
     )?;
     let group_membership = build_starting_group_membership_extension(creator_inbox, 0);
     let mutable_permissions = build_mutable_permissions_extension(Default::default())?;
-    let group_config = build_group_config(
+    let group_config = build_legacy_test_group_config(
         protected_metadata,
         mutable_metadata,
         group_membership,

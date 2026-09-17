@@ -1677,7 +1677,9 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
             bo.context.api().limits().max_query_limit as u32,
         )
         .await?;
-    assert_eq!(rows.len(), 2);
+    // The reused ciphertext is followed by the AppDataUpdate proposal and
+    // commit for the dictionary-native metadata update.
+    assert_eq!(rows.len(), 3);
     let (_, commit_cursor, _) = xmtp_api_backend::envelope::metadata(
         rows.last().unwrap().meta.as_ref().unwrap(),
         topic.kind(),
@@ -1729,6 +1731,8 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
             .sequence_id,
         reused_cursor
     );
+    assert!(controller.process_ready());
+    // The dictionary-native metadata update has a proposal before its commit.
     assert!(controller.process_ready());
     assert_eq!(
         bo.context.db().topic_progress(&key)?.processed,

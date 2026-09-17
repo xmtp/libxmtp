@@ -18,6 +18,7 @@ DEFAULT_DATABASE_URL_PATTERN = r"^postgres://xmtp:xmtp@(localhost|127\.0\.0\.1):
 def main():
     if sys.argv[1:2] == ["--assert-env"]:
         assert os.environ["SQLX_OFFLINE"] == "true"
+        assert os.environ["RUST_MIN_STACK"] == os.environ["EXPECTED_TEST_STACK"]
         actual = os.environ["DATABASE_URL"]
         expected = os.environ["EXPECTED_DATABASE_URL"]
         if expected == "<default>":
@@ -42,9 +43,9 @@ def main():
         assert "xmtp_backend " not in result.stdout, result.stdout
         print(f"PASS: no backend dependency for {options}")
 
-    for target, database_url in [
-        ("workspace", None),
-        ("crate xmtp_mls", "postgres://example/override"),
+    for target, database_url, test_stack in [
+        ("workspace", None, None),
+        ("crate xmtp_mls", "postgres://example/override", "16777216"),
     ]:
         env = os.environ.copy()
         env.pop("DATABASE_URL", None)
@@ -52,6 +53,10 @@ def main():
             env["DATABASE_URL"] = database_url
         env["EXPECTED_DATABASE_URL"] = database_url or "<default>"
         env["SQLX_OFFLINE"] = "false"
+        env.pop("RUST_MIN_STACK", None)
+        if test_stack is not None:
+            env["RUST_MIN_STACK"] = test_stack
+        env["EXPECTED_TEST_STACK"] = test_stack or "8388608"
         env["CARGO_TEST_CMD"] = shlex.join([str(Path(__file__).resolve()), "--assert-env"])
         subprocess.run(
             ["dev/nix-shell", f"just test {target}"], cwd=root, env=env, check=True

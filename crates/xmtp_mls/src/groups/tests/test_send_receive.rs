@@ -20,8 +20,8 @@ async fn test_send_message() {
 
     tracing::info!("The messages: {decrypted_messages:?}");
 
-    // The key update and the application message.
-    assert_eq!(messages.len(), 2);
+    // The AppDataUpdate proposal, the key-update commit, and the application message.
+    assert_eq!(messages.len(), 3);
     let stored = decrypted_messages.last().unwrap();
     let envelope = messages.last().unwrap();
     assert!(envelope.envelope_hash.is_some());
@@ -93,7 +93,9 @@ async fn test_key_update() {
         .query_group_messages(group.group_id)
         .await
         .unwrap();
-    assert_eq!(messages.len(), 2);
+    // Adding Bola emits an Add proposal, a membership AppDataUpdate proposal, and a commit.
+    // The explicit key update emits the fourth envelope.
+    assert_eq!(messages.len(), 4);
 
     let pending_commit_is_none = group
         .load_mls_group_with_lock(client.context.mls_storage(), |mls_group| {

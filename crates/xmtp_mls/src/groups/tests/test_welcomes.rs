@@ -23,7 +23,6 @@ use xmtp_proto::types::GroupId;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn ordinary_welcome_rejects_peer_admin_combinator() {
-    use crate::groups::EnableProposalsOptions;
     use openmls::{component::ComponentData, messages::proposals::AppDataUpdateOperation};
     use openmls_traits::OpenMlsProvider;
     use prost::Message;
@@ -40,9 +39,6 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
     tester!(alix);
     tester!(bo);
     let group = alix.create_group(None, None)?;
-    group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
     let intent = group
         .get_membership_update_intent(&[bo.inbox_id()], &[])
         .await?;

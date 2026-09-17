@@ -8,7 +8,6 @@
 use crate::{
     context::XmtpSharedContext,
     groups::{
-        EnableProposalsOptions,
         intents::{CommitPendingProposalsIntentData, ProposeMemberUpdateIntentData},
         send_message_opts::SendMessageOpts,
     },
@@ -152,26 +151,6 @@ async fn test_proposal_intent_serialization(
 }
 
 // =============================================================================
-// Proposals Enabled Extension Tests
-// =============================================================================
-
-/// Test that proposals_enabled correctly detects when proposals are not enabled on a group.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_proposals_enabled_default_false() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-
-    assert!(
-        !alix_group.is_proposals_enabled()?,
-        "Proposals should not be enabled by default"
-    );
-}
-
-// =============================================================================
 // End-to-End Proposal Flow Tests
 // =============================================================================
 
@@ -202,9 +181,7 @@ async fn test_e2e_propose_add_member_flow() {
     assert_eq!(initial_members.len(), 2);
 
     // Enable proposals so members can send/receive them
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     assert!(alix_group.is_proposals_enabled()?);
     bo_group.sync().await?;
 
@@ -306,9 +283,7 @@ async fn test_e2e_propose_remove_member_flow() {
     assert_eq!(initial_members.len(), 3);
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -429,10 +404,7 @@ async fn test_propose_invalid_member_operations(#[case] is_add: bool) {
     assert_eq!(members.len(), 2);
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await
-        .unwrap();
+
     bo_group.sync().await.unwrap();
 
     let db = alix_group.context.db();
@@ -510,9 +482,7 @@ async fn test_message_auto_commits_pending_proposals() {
     assert!(has_message);
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Alix proposes to add caro
@@ -607,9 +577,7 @@ async fn test_multiple_add_proposals_before_commit() {
     bo_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     // Alix proposes to add caro
@@ -711,9 +679,7 @@ async fn test_mixed_add_remove_proposals_before_commit() {
     assert_eq!(initial_members.len(), 3, "Should start with 3 members");
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -843,9 +809,7 @@ async fn test_proposer_can_commit_own_proposal() {
     assert_eq!(initial_members.len(), 2);
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
 
     let initial_epoch = alix_group.epoch().await?;
@@ -957,9 +921,7 @@ async fn test_concurrent_proposals_from_different_members() {
     caro_group.sync().await?;
 
     // Enable proposals
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
+
     bo_group.sync().await?;
     caro_group.sync().await?;
 
@@ -1024,92 +986,6 @@ async fn test_concurrent_proposals_from_different_members() {
         "After concurrent proposals - Dave welcomes: {}, Eve welcomes: {}",
         dave_groups.len(),
         eve_groups.len()
-    );
-}
-
-/// Concurrent `enable_proposals` from two members is a graceful race:
-///
-/// 1. Both calls return `Ok`. The winner publishes the bootstrap
-///    commit; the loser's intent fails locally because the group's
-///    epoch advanced under it, but the public API observes the
-///    group is migrated and returns `Ok(no-op)` — see the
-///    race-loss recovery wrapper in `enable_proposals`.
-/// 2. Post-race, both sides converge to a single migrated state at
-///    a single epoch — no fork.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_enable_proposals_concurrent_callers_converge() {
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix.create_group(None, None)?;
-    alix_group
-        .add_members(&[bo.context.identity.inbox_id()])
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups
-        .iter()
-        .find(|g| g.group_id == alix_group.group_id)
-        .expect("bo should receive a welcome for alix_group")
-        .clone();
-    bo_group.sync().await?;
-
-    // Race two `enable_proposals` calls. The recovery wrapper inside
-    // `enable_proposals` returns `Ok` for the loser once it observes the
-    // migration completed — but that recovery depends on the winner's
-    // bootstrap commit having landed locally by the time the loser's own
-    // intent errors, which is a timing race within the loser's sync retry
-    // loop. So an immediate `Err` here is only a transient race loss, not a
-    // failure: the contract is that the API converges to `Ok` once migrated.
-    let alix_group_clone = alix_group.clone();
-    let bo_group_clone = bo_group.clone();
-    let (alix_result, bo_result) = tokio::join!(
-        alix_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
-        bo_group_clone.enable_proposals(EnableProposalsOptions::test_default()),
-    );
-
-    // Sync both to converge — this lands any not-yet-applied bootstrap commit.
-    alix_group.sync().await?;
-    bo_group.sync().await?;
-
-    // Recovery contract: any caller that returned `Err` (a race loss) must
-    // converge to `Ok` once the migration is visible locally. Re-driving
-    // `enable_proposals` hits the `already_migrated` fast-path and returns
-    // `Ok` — proving the wrapper recovers, without depending on bootstrap
-    // timing. A genuine recovery failure would surface here as a persistent
-    // `Err` (group never migrated).
-    for (label, result, group) in [
-        ("alix", &alix_result, &alix_group),
-        ("bo", &bo_result, &bo_group),
-    ] {
-        if let Err(err) = result {
-            let recovered = group
-                .enable_proposals(EnableProposalsOptions::test_default())
-                .await;
-            assert!(
-                recovered.is_ok(),
-                "{label}'s enable_proposals lost the race ({err:?}) and did not recover to Ok: {recovered:?}",
-            );
-        }
-    }
-
-    for (label, group) in [("alix", &alix_group), ("bo", &bo_group)] {
-        let migrated = group
-            .load_mls_group_with_lock_async(async |g| {
-                Ok::<bool, crate::groups::GroupError>(group.proposals_enabled(&g))
-            })
-            .await?;
-        assert!(
-            migrated,
-            "{label} must end up migrated after a concurrent race"
-        );
-    }
-
-    // Convergence: both sides at the same epoch — no fork.
-    let alix_epoch = alix_group.epoch().await?;
-    let bo_epoch = bo_group.epoch().await?;
-    assert_eq!(
-        alix_epoch, bo_epoch,
-        "concurrent migration must converge — alix at {alix_epoch}, bo at {bo_epoch}"
     );
 }
 

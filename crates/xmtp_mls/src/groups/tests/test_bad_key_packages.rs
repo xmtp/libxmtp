@@ -5,32 +5,50 @@ use super::*;
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_create_from_welcome_validation() {
-    use crate::groups::{build_group_membership_extension, group_membership::GroupMembership};
+    use crate::groups::app_data::stage_app_data_propose_and_commit;
+    use prost::Message as _;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
+            typed::Component,
+        },
+        inbox_id::InboxId,
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        GroupMembershipEntry,
+        group_membership_entry::{V1, Version},
+    };
     tester!(alix);
     tester!(bo);
 
     let alix_group = alix.create_group(None, None).unwrap();
     let provider = alix.context.mls_provider();
-    // Doctor the group membership
+    // Add a dictionary membership entry for an inbox that has no MLS leaf.
+    // The welcome receiver must still reject this malformed membership view.
     let mut mls_group = alix_group
         .load_mls_group_with_lock(alix.context.mls_storage(), |mut mls_group| {
-            let mut existing_extensions = mls_group.extensions().clone();
-            let mut group_membership = GroupMembership::new();
-            group_membership.add("deadbeef".to_string(), 1);
-            existing_extensions
-                .add_or_replace(build_group_membership_extension(&group_membership))
-                .unwrap();
-
-            mls_group
-                .update_group_context_extensions(
-                    &provider,
-                    existing_extensions.clone(),
-                    &alix.identity().installation_keys,
-                )
-                .unwrap();
+            let phantom = InboxId::from_hex(&"ff".repeat(32)).unwrap();
+            let entry = GroupMembershipEntry {
+                version: Some(Version::V1(V1 {
+                    sequence_id: 1,
+                    failed_installations: vec![],
+                })),
+            };
+            let delta = TlsMapDelta::new().insert(phantom, VLBytes::new(entry.encode_to_vec()));
+            let payload = <GroupMembershipComponent as Component>::encode_mutation(&delta).unwrap();
+            stage_app_data_propose_and_commit(
+                &mut mls_group,
+                &provider,
+                &alix.identity().installation_keys,
+                ComponentId::GROUP_MEMBERSHIP,
+                payload,
+            )
+            .unwrap();
             mls_group.merge_pending_commit(&provider).unwrap();
 
-            Ok(mls_group) // Return the updated group if necessary
+            Ok(mls_group)
         })
         .unwrap();
 
@@ -130,8 +148,25 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
         .await
         .unwrap();
 
-    // The last message should be our "Hello from Alix"
-    assert_eq!(messages_bola_1.len(), 3);
+    // Dictionary-native creation publishes one valid Add proposal, one
+    // membership AppDataUpdate proposal, and their commit. The malformed
+    // installation has no Add proposal. Two application messages follow.
+    let expected_message_count = 3 + 2;
+    assert_eq!(messages_bola_1.len(), expected_message_count);
+    use openmls::prelude::ContentType;
+    assert_eq!(
+        messages_bola_1
+            .iter()
+            .map(|envelope| envelope.message.content_type())
+            .collect::<Vec<_>>(),
+        vec![
+            ContentType::Proposal,
+            ContentType::Proposal,
+            ContentType::Commit,
+            ContentType::Application,
+            ContentType::Application,
+        ],
+    );
 
     // Query messages from Alix's perspective
     let messages_alix = alix
@@ -141,8 +176,7 @@ async fn test_create_group_with_member_two_installations_one_malformed_keypackag
         .await
         .unwrap();
 
-    // The last message should be our "Hello from Alix"
-    assert_eq!(messages_alix.len(), 3);
+    assert_eq!(messages_alix.len(), expected_message_count);
     assert_eq!(
         message.to_vec(),
         get_latest_message(&group).await.decrypted_message_bytes
