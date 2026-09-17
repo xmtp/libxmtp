@@ -1006,201 +1006,6 @@ async fn test_non_super_admin_gce_permission_change_rejected() {
     );
 }
 
-/// App-data action policies are hardcoded super-admin-only components. A member
-/// must not be able to replace the stored declaration, even if its bytes are a
-/// valid `GroupActionPolicies` value.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_non_super_admin_app_data_action_policies_change_rejected() {
-    use crate::groups::{
-        app_data::component_source::ComponentSourceError,
-        intents::{AppDataUpdateIntentData, QueueIntent},
-    };
-    use xmtp_mls_common::app_data::component_id::ComponentId;
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_groups = bo.sync_welcomes().await?;
-    let bo_group = bo_groups.first()?;
-    bo_group.sync().await?;
-
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    bo_group.sync().await?;
-
-    // Re-use the current valid value. This isolates the authorization check
-    // from protobuf decoding and value validation.
-    let payload = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            mls_group
-                .extensions()
-                .app_data_dictionary()
-                .and_then(|dictionary| {
-                    dictionary
-                        .dictionary()
-                        .get(&ComponentId::GROUP_ACTION_POLICIES.as_u16())
-                })
-                .map(|bytes| bytes.to_vec())
-                .ok_or_else(|| {
-                    crate::groups::GroupError::ComponentSource(
-                        ComponentSourceError::MalformedComponentValue {
-                            component_id: ComponentId::GROUP_ACTION_POLICIES,
-                            reason: "action policies are missing after bootstrap".into(),
-                        },
-                    )
-                })
-        })
-        .await?;
-    let intent = QueueIntent::app_data_update()
-        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            payload,
-        )))
-        .queue(bo_group)?;
-
-    assert_insufficient_permissions(
-        bo_group
-            .sync_until_intent_resolved(intent.id)
-            .await
-            .unwrap_err(),
-    );
-
-    // The receiver also discards the proposal. It must not remain pending.
-    let _ = alix_group.sync().await;
-    let pending = alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<usize, crate::groups::GroupError>(mls_group.pending_proposals().count())
-        })
-        .await?;
-    assert_eq!(
-        pending, 0,
-        "non-super-admin action-policy proposal was retained"
-    );
-}
-
-/// A super admin can queue a raw action-policy replacement that bypasses the
-/// sender's paired registry update. The receiver must reject the commit so the
-/// declaration cannot differ from the policy that enforces admin-list writes.
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_receiver_rejects_raw_action_policy_registry_divergence() {
-    use crate::groups::intents::{
-        AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType, QueueIntent,
-    };
-    use prost::Message as _;
-    use xmtp_mls_common::app_data::component_id::ComponentId;
-    use xmtp_proto::xmtp::mls::message_contents::{
-        PermissionsUpdatePolicy,
-        permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
-    };
-
-    tester!(alix);
-    tester!(bo);
-
-    let alix_group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_group = bo.sync_welcomes().await?.first()?.clone();
-    alix_group
-        .enable_proposals(EnableProposalsOptions::test_default())
-        .await?;
-    bo_group.sync().await?;
-
-    let before_permissions = bo_group.permissions()?;
-    let before_epoch = bo_group.epoch().await?;
-    let before_dictionary = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<_, crate::groups::GroupError>(
-                mls_group
-                    .extensions()
-                    .app_data_dictionary()
-                    .expect("app-data dictionary is present after bootstrap")
-                    .dictionary()
-                    .clone(),
-            )
-        })
-        .await?;
-    let payload = alix_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            let bytes = mls_group
-                .extensions()
-                .app_data_dictionary()
-                .and_then(|dictionary| {
-                    dictionary
-                        .dictionary()
-                        .get(&ComponentId::GROUP_ACTION_POLICIES.as_u16())
-                })
-                .expect("action policies are present after bootstrap");
-            let mut actions =
-                xmtp_proto::xmtp::mls::message_contents::GroupActionPolicies::decode(bytes)?;
-            actions.add_admin = Some(PermissionsUpdatePolicy {
-                kind: Some(PermissionsPolicyKind::Base(
-                    PermissionsBasePolicy::Deny as i32,
-                )),
-            });
-            Ok::<_, crate::groups::GroupError>(actions.encode_to_vec())
-        })
-        .await?;
-    let intent = QueueIntent::app_data_update()
-        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            payload,
-        )))
-        .queue(&alix_group)?;
-
-    assert!(
-        alix_group
-            .sync_until_intent_resolved(intent.id)
-            .await
-            .is_err(),
-        "a raw action-policy write that diverges from ADMIN_LIST must be rejected"
-    );
-
-    // A safe rejection can return a successful summary. The terminal record
-    // proves that the receiver advanced past the rejected commit.
-    let _ = bo_group.sync().await;
-    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
-    let rejection = bo
-        .context
-        .db()
-        .read_last_rejection(&topic)?
-        .expect("receiver did not reject divergent action policies");
-    assert_eq!(
-        bo.context.db().topic_progress(&topic)?.processed,
-        rejection.sequence_id
-    );
-    assert_eq!(bo_group.epoch().await?, before_epoch);
-    assert_eq!(bo_group.permissions()?, before_permissions);
-    let after_dictionary = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<_, crate::groups::GroupError>(
-                mls_group
-                    .extensions()
-                    .app_data_dictionary()
-                    .expect("app-data dictionary is present after rejection")
-                    .dictionary()
-                    .clone(),
-            )
-        })
-        .await?;
-    assert_eq!(after_dictionary, before_dictionary);
-
-    // A later valid paired update must still commit. This proves the safe
-    // rejection did not leave the group at a pending commit head.
-    alix_group
-        .update_permission_policy(
-            PermissionUpdateType::AddAdmin,
-            PermissionPolicyOption::SuperAdminOnly,
-            None,
-        )
-        .await?;
-    bo_group.sync().await?;
-    assert_eq!(bo_group.epoch().await?, before_epoch + 1);
-}
-
 /// A raw registry mutation must not relax the constrained `ADMIN_LIST` entry.
 /// The shared constrained-component check rejects it before publication.
 #[xmtp_common::test(unwrap_try = true)]
@@ -1303,10 +1108,9 @@ async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
     assert_eq!(after_dictionary, before_dictionary);
 }
 
-/// `AllowIfAdmin` is structurally valid for `ADMIN_LIST`, but it still cannot
-/// diverge from the super-admin-only `add_admin` declaration in 0x800C.
+/// A valid registry update alone changes the public action policy view.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_receiver_rejects_raw_registry_action_policy_divergence() {
+async fn test_registry_alone_controls_action_policy_view() {
     use crate::groups::{
         app_data::load_component_registry,
         intents::{AppDataUpdateIntentData, QueueIntent},
@@ -1337,19 +1141,6 @@ async fn test_receiver_rejects_raw_registry_action_policy_divergence() {
         .await?;
     bo_group.sync().await?;
 
-    let before_permissions = bo_group.permissions()?;
-    let before_dictionary = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<_, crate::groups::GroupError>(
-                mls_group
-                    .extensions()
-                    .app_data_dictionary()
-                    .expect("app-data dictionary is present after bootstrap")
-                    .dictionary()
-                    .clone(),
-            )
-        })
-        .await?;
     let payload = alix_group
         .load_mls_group_with_lock_async(async |mls_group| {
             let registry = load_component_registry(&mls_group)?;
@@ -1380,33 +1171,14 @@ async fn test_receiver_rejects_raw_registry_action_policy_divergence() {
         )))
         .queue(&alix_group)?;
 
-    assert!(
-        alix_group
-            .sync_until_intent_resolved(intent.id)
-            .await
-            .is_err(),
-        "a raw ADMIN_LIST policy that disagrees with 0x800C must be rejected"
-    );
-    let _ = bo_group.sync().await;
-    let topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
-    assert!(
-        bo.context.db().read_last_rejection(&topic)?.is_some(),
-        "receiver did not terminally reject an ADMIN_LIST/0x800C mismatch"
-    );
-    assert_eq!(bo_group.permissions()?, before_permissions);
-    let after_dictionary = bo_group
-        .load_mls_group_with_lock_async(async |mls_group| {
-            Ok::<_, crate::groups::GroupError>(
-                mls_group
-                    .extensions()
-                    .app_data_dictionary()
-                    .expect("app-data dictionary is present after rejection")
-                    .dictionary()
-                    .clone(),
-            )
-        })
-        .await?;
-    assert_eq!(after_dictionary, before_dictionary);
+    alix_group.sync_until_intent_resolved(intent.id).await?;
+    bo_group.sync().await?;
+    for group in [&alix_group, &bo_group] {
+        assert_eq!(
+            group.permissions()?.policies.add_admin_policy,
+            crate::groups::group_permissions::PermissionsPolicies::allow_if_actor_admin(),
+        );
+    }
 }
 
 /// Each removal below is valid against the committed two-super-admin state,
@@ -1523,10 +1295,9 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     );
 }
 
-/// A permissions update changes the declared action policy and its registry
-/// enforcement mirror in one commit. Check all four action slots on both peers.
+/// Check all four registry action slots and the public view on both peers.
 #[xmtp_common::test(unwrap_try = true)]
-async fn test_migrated_action_permission_updates_mirror_registry() {
+async fn test_migrated_action_permission_updates_use_registry() {
     use crate::groups::{
         group_permissions::{MembershipPolicies, PermissionsPolicies},
         intents::{PermissionPolicyOption, PermissionUpdateType},
@@ -1580,12 +1351,12 @@ async fn test_migrated_action_permission_updates_mirror_registry() {
         assert_eq!(
             alix_group.epoch().await?,
             epoch + 1,
-            "{update_type:?} did not commit both mirrored updates in one commit"
+            "{update_type:?} did not commit the registry update"
         );
         assert_eq!(
             bo_group.epoch().await?,
             epoch + 1,
-            "receiver did not apply the mirrored update commit"
+            "receiver did not apply the registry update"
         );
 
         match &update_type {
@@ -1608,7 +1379,7 @@ async fn test_migrated_action_permission_updates_mirror_registry() {
             assert_eq!(
                 group.permissions()?.policies,
                 expected,
-                "{label} did not reconstruct the action policy declaration"
+                "{label} did not project the registry action policy"
             );
 
             let (component_id, policy) = match &update_type {
@@ -1638,7 +1409,7 @@ async fn test_migrated_action_permission_updates_mirror_registry() {
                 .permissions
                 .as_ref()
                 .unwrap_or_else(|| panic!("{label} registry entry missing permissions"));
-            let mirrored_policy = match policy {
+            let stored_policy = match policy {
                 "insert" => permissions.insert_policy.as_ref(),
                 "delete" => permissions.delete_policy.as_ref(),
                 _ => unreachable!(),
@@ -1646,8 +1417,8 @@ async fn test_migrated_action_permission_updates_mirror_registry() {
             .and_then(|policy| policy.kind.as_ref())
             .unwrap_or_else(|| panic!("{label} registry entry missing {policy} policy"));
             assert!(
-                matches!(mirrored_policy, MetadataPolicyKind::Base(base) if *base == expected_base),
-                "{label} registry {policy} policy did not mirror the action policy: {mirrored_policy:?}"
+                matches!(stored_policy, MetadataPolicyKind::Base(base) if *base == expected_base),
+                "{label} registry {policy} policy does not match the action policy: {stored_policy:?}"
             );
         }
     }
@@ -1767,5 +1538,88 @@ async fn test_dictionary_native_permissions_presets(
             PreconfiguredPolicies::from_policy_set(&actual).unwrap(),
             preset
         );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_receiver_rejects_invalid_registry_action_state() {
+    use crate::groups::{
+        app_data::load_component_registry,
+        intents::{AppDataUpdateIntentData, QueueIntent},
+    };
+    use prost::Message;
+    use tls_codec::VLBytes;
+    use xmtp_mls_common::{
+        app_data::{
+            component_id::ComponentId, components::tls_map_components::ComponentRegistryComponent,
+            typed::Component,
+        },
+        tls_map::TlsMapDelta,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        MetadataPolicy,
+        metadata_policy::{AnyCondition, Kind, MetadataBasePolicy},
+    };
+
+    for (id, malformed_tree) in [
+        (ComponentId::GROUP_MEMBERSHIP, false),
+        (ComponentId::ADMIN_LIST, false),
+        (ComponentId::GROUP_MEMBERSHIP, true),
+    ] {
+        tester!(alix);
+        tester!(bo);
+        let group = alix
+            .create_group_with_members(&[bo.inbox_id()], None, None)
+            .await?;
+        let received = bo.sync_welcomes().await?;
+        let peer = received.first()?;
+        group
+            .enable_proposals(EnableProposalsOptions::test_default())
+            .await?;
+        peer.sync().await?;
+        let before = peer.permissions()?;
+        let epoch = peer.epoch().await?;
+        let payload = group.with_group_snapshot(|group| {
+            let delta = if malformed_tree {
+                let mut metadata = load_component_registry(group)?.get(&id).unwrap().unwrap();
+                metadata.permissions.as_mut().unwrap().insert_policy = Some(MetadataPolicy {
+                    kind: Some(Kind::AnyCondition(AnyCondition {
+                        policies: vec![
+                            MetadataPolicy {
+                                kind: Some(Kind::Base(MetadataBasePolicy::Allow as i32)),
+                            },
+                            MetadataPolicy {
+                                kind: Some(Kind::Base(i32::MAX)),
+                            },
+                        ],
+                    })),
+                });
+                TlsMapDelta::new().update(id, VLBytes::new(metadata.encode_to_vec()))
+            } else {
+                TlsMapDelta::<ComponentId, VLBytes>::new().delete(id)
+            };
+            <ComponentRegistryComponent as Component>::encode_mutation(&delta)
+                .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))
+        })?;
+        let intent = QueueIntent::app_data_update()
+            .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+                ComponentId::COMPONENT_REGISTRY.as_u16(),
+                payload,
+            )))
+            .queue(&group)?;
+        assert!(group.sync_until_intent_resolved(intent.id).await.is_err());
+        let _ = peer.sync().await;
+        let topic = xmtp_db::incoming_envelope::StreamTopic::group(peer.group_id);
+        let rejection = bo
+            .context
+            .db()
+            .read_last_rejection(&topic)?
+            .expect("peer must reject invalid action state");
+        assert_eq!(
+            bo.context.db().topic_progress(&topic)?.processed,
+            rejection.sequence_id
+        );
+        assert_eq!(peer.epoch().await?, epoch);
+        assert_eq!(peer.permissions()?, before);
     }
 }

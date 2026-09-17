@@ -549,20 +549,10 @@ impl ValidatedCommit {
             );
         }
 
-        // On migrated groups the legacy `GROUP_PERMISSIONS_EXTENSION_ID`
-        // is gone — membership policy lives in the AppData
-        // dictionary's `GROUP_ACTION_POLICIES` declaration; metadata update
-        // policies remain in the COMPONENT_REGISTRY. Per-component AppDataUpdate enforcement
-        // runs separately in
-        // `validate_app_data_update_proposals_in_commit`, but the
-        // legacy code paths here (extract_permissions_changed +
-        // standalone Add/Remove proposer permission checks) still
-        // need a `GroupMutablePermissions` instance to evaluate
-        // against. We reconstruct the membership-affecting bits from the
-        // action declaration so post-bootstrap commits enforce the same policy
-        // a pre-bootstrap GCE-extension lookup would.
+        // Migrated groups read action policies from COMPONENT_REGISTRY.
         let group_permissions: GroupMutablePermissions = if is_migrated {
             super::group_permissions::policy_set_from_dictionary(openmls_group.extensions())
+                .map_err(CommitValidationError::installed_state)?
         } else {
             GroupMutablePermissions::try_from(extensions)
                 .map_err(CommitValidationError::installed_state)?
@@ -1636,13 +1626,7 @@ pub(super) fn validate_one_app_data_update_with_old_value(
     // Only known components have this hook. Unknown ids use the
     // type-aware compatibility path and therefore cannot add invariants
     // beyond their registry policy.
-    // Declaration consistency needs both final values. Defer that invariant
-    // until the commit has applied every proposal. Standalone proposals may
-    // supply one half of a paired declaration and registry update.
-    if let Some(component) = component
-        && component_id
-            != xmtp_mls_common::app_data::component_id::ComponentId::GROUP_ACTION_POLICIES
-    {
+    if let Some(component) = component {
         let post_value = match operation {
             openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => component
                 .apply_update_payload(payload.as_slice(), old_value)
@@ -1844,49 +1828,20 @@ fn validate_app_data_update_proposals_in_commit(
         }
     }
 
-    // Check both directions: a declaration write can diverge from the registry,
-    // and a registry write can diverge from an unchanged declaration.
-    if component_post_states.contains_key(&ComponentId::GROUP_ACTION_POLICIES)
-        || component_post_states.contains_key(&ComponentId::COMPONENT_REGISTRY)
-    {
-        use xmtp_mls_common::app_data::{
-            component_registry::{ComponentOp, ComponentRegistry},
-            components::action_policies::GroupActionPoliciesComponent,
-            typed::Component,
-            validation::ComponentChange,
-        };
-
-        let post_registry = match component_post_states.get(&ComponentId::COMPONENT_REGISTRY) {
-            Some(Some(bytes)) => ComponentRegistry::from_bytes(bytes)
-                .map_err(|_| CommitValidationError::InsufficientPermissions)?,
-            Some(None) => return Err(CommitValidationError::InsufficientPermissions),
-            None => registry.clone(),
-        };
-        let post_actions = component_post_states
-            .entry(ComponentId::GROUP_ACTION_POLICIES)
-            .or_insert_with(|| {
-                read_from_app_data_dict(ComponentId::GROUP_ACTION_POLICIES, openmls_group)
-            });
-        let change = ComponentChange::builder()
-            .component_id(ComponentId::GROUP_ACTION_POLICIES)
-            .op(ComponentOp::Update)
-            // This invariant is independent of the actor. Each proposal's
-            // authority was checked against the pre-commit registry above.
-            .actor(ActorAuthority {
-                is_admin: false,
-                is_super_admin: false,
-            })
-            .maybe_new_value(post_actions.as_deref())
-            .build();
-        GroupActionPoliciesComponent::validate_invariant(&change, &post_registry).map_err(
-            |error| {
-                tracing::warn!(
-                    error = %error,
-                    "AppDataUpdate commit rejected: action policies disagree with registry"
-                );
+    // Validate the final registry after all deltas. Required action entries
+    // must remain present, and every child in each action tree must be valid.
+    if let Some(post_registry) = component_post_states.get(&ComponentId::COMPONENT_REGISTRY) {
+        let bytes = post_registry
+            .as_deref()
+            .ok_or(CommitValidationError::InsufficientPermissions)?;
+        let registry =
+            xmtp_mls_common::app_data::component_registry::ComponentRegistry::from_bytes(bytes)
+                .map_err(|_| CommitValidationError::InsufficientPermissions)?;
+        xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)
+            .map_err(|error| {
+                tracing::warn!(%error, "invalid registry action policy in commit");
                 CommitValidationError::InsufficientPermissions
-            },
-        )?;
+            })?;
     }
 
     Ok(())

@@ -114,6 +114,7 @@ where
         let migrated = crate::groups::app_data::is_migrated_group(group);
         let policies = if migrated {
             crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())
+                .map_err(CommitValidationError::installed_state)?
         } else {
             extract_group_permissions(group).map_err(CommitValidationError::installed_state)?
         };

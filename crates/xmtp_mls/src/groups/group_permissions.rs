@@ -1197,61 +1197,16 @@ impl PolicySet {
     }
 }
 
-/// Reconstruct migrated-group permissions from the app-data dictionary.
-///
-/// This must fail closed, never fail hard. A stored policy can be malformed
-/// (for example, an empty condition) or use a policy variant from a newer
-/// client. In that case only the affected field becomes `Deny`.
-///
-/// Returning an error here reaches `CommitValidationError::installed_state`.
-/// That error is not a safe rejection, so it leaves the commit head pending
-/// and wedges every member on the group. Denying one bad field instead lets
-/// the receiver reject only a commit that tries to use that field.
+/// Project action policies from the validated component registry.
 pub(crate) fn policy_set_from_dictionary(
     extensions: &Extensions<GroupContext>,
-) -> GroupMutablePermissions {
-    let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions);
-
-    let add_member_policy = proto
-        .add_member_policy
-        .and_then(|policy| MembershipPolicies::try_from(policy).ok())
-        .unwrap_or_else(MembershipPolicies::deny);
-    let remove_member_policy = proto
-        .remove_member_policy
-        .and_then(|policy| MembershipPolicies::try_from(policy).ok())
-        .unwrap_or_else(MembershipPolicies::deny);
-    let add_admin_policy = proto
-        .add_admin_policy
-        .and_then(|policy| PermissionsPolicies::try_from(policy).ok())
-        .unwrap_or_else(PermissionsPolicies::deny);
-    let remove_admin_policy = proto
-        .remove_admin_policy
-        .and_then(|policy| PermissionsPolicies::try_from(policy).ok())
-        .unwrap_or_else(PermissionsPolicies::deny);
-    let update_permissions_policy = proto
-        .update_permissions_policy
-        .and_then(|policy| PermissionsPolicies::try_from(policy).ok())
-        .unwrap_or_else(PermissionsPolicies::deny);
-
-    let mut update_metadata_policy = HashMap::new();
-    for field in GroupMutableMetadata::supported_fields() {
-        let policy = proto
-            .update_metadata_policy
-            .get(field.as_str())
-            .cloned()
-            .and_then(|policy| MetadataPolicies::try_from(policy).ok())
-            .unwrap_or_else(MetadataPolicies::deny);
-        update_metadata_policy.insert(field.to_string(), policy);
-    }
-
-    GroupMutablePermissions::new(PolicySet::new(
-        add_member_policy,
-        remove_member_policy,
-        update_metadata_policy,
-        add_admin_policy,
-        remove_admin_policy,
-        update_permissions_policy,
-    ))
+) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
+    let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions)
+        .map_err(|error| {
+            tracing::warn!(%error, "invalid registry action policy");
+            GroupMutablePermissionsError::InvalidPermissionPolicyOption
+        })?;
+    Ok(GroupMutablePermissions::new(PolicySet::from_proto(proto)?))
 }
 
 /// Checks if a PolicySet is equivalent to the "All Members" preconfigured policy.
@@ -1456,21 +1411,10 @@ pub(crate) mod tests {
     fn dictionary_extensions(policy_set: &PolicySet) -> Extensions<GroupContext> {
         let proto = policy_set.to_proto().unwrap();
         let registry = synthesize_registry_from_policy_set(&proto).unwrap();
-        let actions = xmtp_proto::xmtp::mls::message_contents::GroupActionPolicies {
-            add_member: proto.add_member_policy,
-            remove_member: proto.remove_member_policy,
-            add_admin: proto.add_admin_policy,
-            remove_admin: proto.remove_admin_policy,
-            update_permissions: proto.update_permissions_policy,
-        };
         let mut dictionary = AppDataDictionary::new();
         dictionary.insert(
             ComponentId::COMPONENT_REGISTRY.as_u16(),
             registry.to_bytes().unwrap(),
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
         );
         Extensions::from_vec(vec![Extension::AppDataDictionary(
             AppDataDictionaryExtension::new(dictionary),
@@ -1829,7 +1773,7 @@ pub(crate) mod tests {
             PreconfiguredPolicies::Default.to_policy_set(),
             PreconfiguredPolicies::AdminsOnly.to_policy_set(),
         ] {
-            let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&policy_set));
+            let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&policy_set))?;
             assert_eq!(reconstructed.policies, policy_set);
         }
 
@@ -1843,7 +1787,7 @@ pub(crate) mod tests {
         );
         let mut expected_dm = legacy_dm.clone();
         expected_dm.update_permissions_policy = PermissionsPolicies::allow_if_actor_super_admin();
-        let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&legacy_dm));
+        let reconstructed = policy_set_from_dictionary(&dictionary_extensions(&legacy_dm))?;
         assert_eq!(reconstructed.policies, expected_dm);
 
         for preset in [
@@ -1851,7 +1795,7 @@ pub(crate) mod tests {
             PreconfiguredPolicies::AdminsOnly,
         ] {
             let reconstructed =
-                policy_set_from_dictionary(&dictionary_extensions(&preset.to_policy_set()));
+                policy_set_from_dictionary(&dictionary_extensions(&preset.to_policy_set()))?;
             assert_eq!(
                 PreconfiguredPolicies::from_policy_set(&reconstructed.policies)?,
                 preset
@@ -1877,21 +1821,10 @@ pub(crate) mod tests {
         group_name.permissions.as_mut()?.update_policy = Some(malformed);
         registry.set(ComponentId::GROUP_NAME, group_name)?;
 
-        let actions = xmtp_proto::xmtp::mls::message_contents::GroupActionPolicies {
-            add_member: proto.add_member_policy,
-            remove_member: proto.remove_member_policy,
-            add_admin: proto.add_admin_policy,
-            remove_admin: proto.remove_admin_policy,
-            update_permissions: proto.update_permissions_policy,
-        };
         let mut dictionary = AppDataDictionary::new();
         dictionary.insert(
             ComponentId::COMPONENT_REGISTRY.as_u16(),
             registry.to_bytes()?,
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
         );
         let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
             AppDataDictionaryExtension::new(dictionary),
@@ -1901,42 +1834,7 @@ pub(crate) mod tests {
             MetadataField::GroupName.to_string(),
             MetadataPolicies::deny(),
         );
-        assert_eq!(policy_set_from_dictionary(&extensions).policies, expected);
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn dictionary_reader_denies_only_malformed_declared_action() {
-        let mut expected = PreconfiguredPolicies::Default.to_policy_set();
-        let proto = expected.to_proto()?;
-        // The registry still permits this action. The declaration below is
-        // authoritative and malformed, so only this action must become deny.
-        let registry = synthesize_registry_from_policy_set(&proto)?;
-        let actions = xmtp_proto::xmtp::mls::message_contents::GroupActionPolicies {
-            add_member: Some(MembershipPolicyProto {
-                kind: Some(PolicyKindProto::AndCondition(AndConditionProto {
-                    policies: vec![],
-                })),
-            }),
-            remove_member: proto.remove_member_policy,
-            add_admin: proto.add_admin_policy,
-            remove_admin: proto.remove_admin_policy,
-            update_permissions: proto.update_permissions_policy,
-        };
-        let mut dictionary = AppDataDictionary::new();
-        dictionary.insert(
-            ComponentId::COMPONENT_REGISTRY.as_u16(),
-            registry.to_bytes()?,
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
-        );
-        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-            AppDataDictionaryExtension::new(dictionary),
-        )])?;
-
-        expected.add_member_policy = MembershipPolicies::deny();
-        assert_eq!(policy_set_from_dictionary(&extensions).policies, expected);
+        assert_eq!(policy_set_from_dictionary(&extensions)?.policies, expected);
     }
 
     /// Tests that the preconfigured policy functions work as expected with new metadata fields.

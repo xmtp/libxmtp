@@ -20,6 +20,114 @@ use xmtp_db::refresh_state::EntityKind;
 use xmtp_mls_common::group::GroupMetadataOptions;
 
 use xmtp_proto::types::GroupId;
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ordinary_welcome_rejects_peer_admin_combinator() {
+    use crate::groups::EnableProposalsOptions;
+    use openmls::{component::ComponentData, messages::proposals::AppDataUpdateOperation};
+    use openmls_traits::OpenMlsProvider;
+    use prost::Message;
+    use tls_codec::{Deserialize, Serialize, VLBytes};
+    use xmtp_mls_common::{
+        app_data::component_id::ComponentId,
+        tls_map::{TlsMap, TlsMapDelta},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentMetadata, MetadataPolicy,
+        metadata_policy::{AndCondition, Kind, MetadataBasePolicy},
+    };
+
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group
+        .enable_proposals(EnableProposalsOptions::test_default())
+        .await?;
+    let intent = group
+        .get_membership_update_intent(&[bo.inbox_id()], &[])
+        .await?;
+    let old_membership = group.with_group_snapshot(|group| {
+        Ok(crate::groups::validated_commit::extract_group_membership(
+            group.extensions(),
+        )?)
+    })?;
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        &group.context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+    )
+    .await?;
+    let action = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let signer = &group.context.identity().installation_keys;
+            let bytes = mls_group
+                .extensions()
+                .app_data_dictionary()
+                .unwrap()
+                .dictionary()
+                .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
+                .unwrap();
+            let mut registry = TlsMap::<ComponentId, VLBytes>::tls_deserialize_exact(bytes)?;
+            let mut metadata = ComponentMetadata::decode(
+                registry.get(&ComponentId::ADMIN_LIST).unwrap().as_slice(),
+            )?;
+            metadata.permissions.as_mut().unwrap().insert_policy = Some(MetadataPolicy {
+                kind: Some(Kind::AndCondition(AndCondition {
+                    policies: vec![MetadataPolicy {
+                        kind: Some(Kind::Base(MetadataBasePolicy::AllowIfSuperAdmin as i32)),
+                    }],
+                })),
+            });
+            let value = VLBytes::new(metadata.encode_to_vec());
+            let delta = TlsMapDelta::new().update(ComponentId::ADMIN_LIST, value.clone());
+            registry.update(ComponentId::ADMIN_LIST, value)?;
+            // A malicious peer can bypass our registry validation. Construct
+            // its authenticated dictionary with the OpenMLS APIs directly.
+            mls_group.propose_app_data_update(
+                &provider,
+                signer,
+                ComponentId::COMPONENT_REGISTRY.as_u16(),
+                AppDataUpdateOperation::Update(delta.tls_serialize_detached()?.into()),
+            )?;
+            let mut updater = mls_group.app_data_dictionary_updater();
+            updater.set(ComponentData::from_parts(
+                ComponentId::COMPONENT_REGISTRY.as_u16(),
+                registry.tls_serialize_detached()?.into(),
+            ));
+            let updates = updater.changes();
+            let mut stage = mls_group
+                .commit_builder()
+                .consume_proposal_store(true)
+                .load_psks(provider.storage())?;
+            stage.with_app_data_dictionary_updates(updates);
+            stage
+                .build(provider.rand(), provider.crypto(), signer, |_| true)?
+                .stage_commit(&provider)?;
+            mls_group.merge_pending_commit(&provider)?;
+
+            let publish =
+                apply_update_group_membership_intent(storage, mls_group, intent, changes, signer)?
+                    .unwrap();
+            let PostCommitAction::SendWelcomes(action) =
+                PostCommitAction::from_bytes(&publish.post_commit_data().unwrap())?;
+            mls_group.merge_staged_commit(
+                &provider,
+                decode_staged_commit(&publish.staged_commit().unwrap())?,
+            )?;
+            Ok::<_, GroupError>(xmtp_db::TransactionOutcome::Continue(action))
+        })
+    })?
+    .into_continued();
+    group.send_welcomes(action, None).await?;
+    assert!(
+        bo.sync_welcomes().await?.is_empty(),
+        "ordinary Welcome must reject peer admin combinators"
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_cursor() {
     // Welcomes now come with a cursor so that clients no longer pull down

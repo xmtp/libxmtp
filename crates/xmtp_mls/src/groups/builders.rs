@@ -509,7 +509,7 @@ pub(in crate::groups) fn validate_dm_group(
     // Note: we don't validate mutable metadata permissions, because they don't affect group membership
     let is_migrated = app_data::is_migrated_extensions(mls_group.extensions());
     let permissions = if is_migrated {
-        group_permissions::policy_set_from_dictionary(mls_group.extensions())
+        group_permissions::policy_set_from_dictionary(mls_group.extensions())?
     } else {
         extract_group_permissions(mls_group)?
     };

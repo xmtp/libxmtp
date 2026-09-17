@@ -447,6 +447,18 @@ where
             }
         }
 
+        // A Welcome is peer state, even on a clean database. Validate action
+        // entries and complete policy trees before admitting any group type.
+        if crate::groups::app_data::is_migrated_group(&mls_group) {
+            let registry = crate::groups::app_data::load_component_registry(&mls_group)
+                .map_err(|_| GroupError::InvalidWelcomeMetadata)?;
+            xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)
+                .map_err(|error| {
+                    tracing::warn!(%error, "invalid registry action policy in Welcome");
+                    GroupError::InvalidWelcomeMetadata
+                })?;
+        }
+
         // Determine the membership state
         // If the user is being re-added after leaving, set to ALLOWED
         // Otherwise, new members start in PENDING state

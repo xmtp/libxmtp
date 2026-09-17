@@ -1,57 +1,135 @@
-//! Reconstruct legacy policy messages from the app-data dictionary.
+//! Project the public policy view from the component registry.
 //!
-//! The dictionary is received state. Bad container bytes deny all policies
-//! in that container. Invalid policy syntax denies only the affected field.
-//! Permission updates remain super-admin-only, independent of stored policies.
+//! Exact round trips cover nonempty membership And/Any trees over the four
+//! defined base policies, base admin policies (Deny, AllowIfAdmin,
+//! AllowIfSuperAdmin), super-admin permission updates, and complete maps of
+//! valid supported metadata policies. Child order, duplicate
+//! children, and all condition wrappers are preserved.
+//!
+//! This is not an identity for arbitrary PolicySet values. Admin combinators
+//! have no forward mapping. Permission updates always require a super admin
+//! (including DMs, whose legacy policy is Deny). Creation fills sparse metadata
+//! maps with defaults. These are existing limits, not additional stored state.
 
 use openmls::{extensions::Extensions, group::GroupContext};
-use prost::Message as _;
 use xmtp_proto::xmtp::mls::message_contents::{
-    GroupActionPolicies, MembershipPolicy, MetadataPolicy, PermissionsUpdatePolicy, PolicySet,
-    membership_policy::{BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
+    MembershipPolicy, MetadataPolicy, PermissionsUpdatePolicy, PolicySet,
+    membership_policy::{self, BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
     permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
 };
 
 use crate::app_data::{
-    component_id::ComponentId, component_registry::ComponentRegistry,
+    component_id::ComponentId,
+    component_registry::{ComponentOp, ComponentRegistry, ComponentRegistryError},
     migration::metadata_field_registry_mapping,
 };
 
-fn deny_membership() -> MembershipPolicy {
-    MembershipPolicy {
-        kind: Some(MembershipPolicyKind::Base(
-            MembershipBasePolicy::Deny as i32,
-        )),
-    }
+#[derive(Debug, thiserror::Error)]
+pub enum PolicyProjectionError {
+    #[error("component registry is missing")]
+    MissingRegistry,
+    #[error(transparent)]
+    Registry(#[from] ComponentRegistryError),
+    #[error("invalid membership policy: {0:?}")]
+    InvalidMembershipPolicy(Option<i32>),
+    #[error("admin policy must be Deny, AllowIfAdmin, or AllowIfSuperAdmin: {0:?}")]
+    InvalidAdminPolicy(Option<i32>),
 }
 
-fn deny_metadata() -> MetadataPolicy {
-    MetadataPolicy {
-        kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Deny as i32)),
-    }
-}
-
-fn deny_permissions() -> PermissionsUpdatePolicy {
-    PermissionsUpdatePolicy {
-        kind: Some(PermissionsPolicyKind::Base(
-            PermissionsBasePolicy::Deny as i32,
-        )),
-    }
-}
-
-fn valid_membership(policy: &MembershipPolicy) -> bool {
-    match &policy.kind {
-        Some(MembershipPolicyKind::Base(base)) => MembershipBasePolicy::try_from(*base)
-            .is_ok_and(|base| base != MembershipBasePolicy::Unspecified),
-        Some(MembershipPolicyKind::AndCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_membership)
+/// Invert the membership mapping without changing the policy tree.
+/// Visit all children. An earlier Allow must not hide an invalid OR child.
+pub fn metadata_policy_to_membership_policy(
+    policy: &MetadataPolicy,
+) -> Result<MembershipPolicy, PolicyProjectionError> {
+    let kind = match &policy.kind {
+        Some(MetadataPolicyKind::Base(base)) => {
+            let base = match MetadataBasePolicy::try_from(*base) {
+                Ok(MetadataBasePolicy::Allow) => MembershipBasePolicy::Allow,
+                Ok(MetadataBasePolicy::Deny) => MembershipBasePolicy::Deny,
+                // Both evaluators use is_admin || is_super_admin.
+                Ok(MetadataBasePolicy::AllowIfAdmin) => {
+                    MembershipBasePolicy::AllowIfAdminOrSuperAdmin
+                }
+                Ok(MetadataBasePolicy::AllowIfSuperAdmin) => {
+                    MembershipBasePolicy::AllowIfSuperAdmin
+                }
+                _ => return Err(PolicyProjectionError::InvalidMembershipPolicy(Some(*base))),
+            };
+            MembershipPolicyKind::Base(base as i32)
         }
-        Some(MembershipPolicyKind::AnyCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_membership)
+        Some(MetadataPolicyKind::AndCondition(condition)) if !condition.policies.is_empty() => {
+            MembershipPolicyKind::AndCondition(membership_policy::AndCondition {
+                policies: condition
+                    .policies
+                    .iter()
+                    .map(metadata_policy_to_membership_policy)
+                    .collect::<Result<_, _>>()?,
+            })
         }
-        None => false,
+        Some(MetadataPolicyKind::AnyCondition(condition)) if !condition.policies.is_empty() => {
+            MembershipPolicyKind::AnyCondition(membership_policy::AnyCondition {
+                policies: condition
+                    .policies
+                    .iter()
+                    .map(metadata_policy_to_membership_policy)
+                    .collect::<Result<_, _>>()?,
+            })
+        }
+        _ => return Err(PolicyProjectionError::InvalidMembershipPolicy(None)),
+    };
+    Ok(MembershipPolicy { kind: Some(kind) })
+}
+
+/// Invert the constrained admin mapping. Combinators are not supported.
+pub fn metadata_policy_to_admin_policy(
+    policy: &MetadataPolicy,
+) -> Result<PermissionsUpdatePolicy, PolicyProjectionError> {
+    let Some(MetadataPolicyKind::Base(base)) = policy.kind else {
+        return Err(PolicyProjectionError::InvalidAdminPolicy(None));
+    };
+    let mapped = match MetadataBasePolicy::try_from(base) {
+        Ok(MetadataBasePolicy::Deny) => PermissionsBasePolicy::Deny,
+        Ok(MetadataBasePolicy::AllowIfAdmin) => PermissionsBasePolicy::AllowIfAdmin,
+        Ok(MetadataBasePolicy::AllowIfSuperAdmin) => PermissionsBasePolicy::AllowIfSuperAdmin,
+        _ => return Err(PolicyProjectionError::InvalidAdminPolicy(Some(base))),
+    };
+    Ok(PermissionsUpdatePolicy {
+        kind: Some(PermissionsPolicyKind::Base(mapped as i32)),
+    })
+}
+
+fn registry_policy(
+    registry: &ComponentRegistry,
+    id: ComponentId,
+    op: ComponentOp,
+) -> Result<MetadataPolicy, PolicyProjectionError> {
+    let permissions = registry
+        .get(&id)?
+        .and_then(|metadata| metadata.permissions)
+        .ok_or(ComponentRegistryError::MissingPermissions(id))?;
+    let policy = match op {
+        ComponentOp::Insert => permissions.insert_policy,
+        ComponentOp::Update => permissions.update_policy,
+        ComponentOp::Delete => permissions.delete_policy,
+    };
+    Ok(policy.ok_or(ComponentRegistryError::MissingPolicyField(id, op))?)
+}
+
+/// Require the action entries and validate each complete action policy tree.
+/// Use this on Welcome admission and on the final registry of a commit.
+pub fn validate_registry_action_policies(
+    registry: &ComponentRegistry,
+) -> Result<(), PolicyProjectionError> {
+    for op in [ComponentOp::Insert, ComponentOp::Delete] {
+        metadata_policy_to_membership_policy(&registry_policy(
+            registry,
+            ComponentId::GROUP_MEMBERSHIP,
+            op,
+        )?)?;
+        metadata_policy_to_admin_policy(&registry_policy(registry, ComponentId::ADMIN_LIST, op)?)?;
     }
+    Ok(())
 }
 
 fn valid_metadata(policy: &MetadataPolicy) -> bool {
@@ -68,336 +146,239 @@ fn valid_metadata(policy: &MetadataPolicy) -> bool {
     }
 }
 
-fn valid_permissions(policy: &PermissionsUpdatePolicy) -> bool {
-    match &policy.kind {
-        Some(PermissionsPolicyKind::Base(base)) => PermissionsBasePolicy::try_from(*base)
-            .is_ok_and(|base| base != PermissionsBasePolicy::Unspecified),
-        Some(PermissionsPolicyKind::AndCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_permissions)
-        }
-        Some(PermissionsPolicyKind::AnyCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_permissions)
-        }
-        None => false,
-    }
-}
-
-fn registry_from_dictionary(extensions: &Extensions<GroupContext>) -> Option<ComponentRegistry> {
-    let bytes = extensions
-        .app_data_dictionary()?
-        .dictionary()
-        .get(&ComponentId::COMPONENT_REGISTRY.as_u16())?;
-    xmtp_common::optify!(
-        ComponentRegistry::from_bytes(bytes),
-        "component registry is malformed; deny dictionary policies"
-    )
-}
-
-fn action_policies_from_dictionary(
+/// Read the four action slots from COMPONENT_REGISTRY alone.
+/// Invalid action trees return an error; they never become a different policy.
+/// Metadata fields retain their existing per-field deny fallback.
+pub fn policy_set_from_dictionary(
     extensions: &Extensions<GroupContext>,
-) -> Option<GroupActionPolicies> {
+) -> Result<PolicySet, PolicyProjectionError> {
     let bytes = extensions
-        .app_data_dictionary()?
-        .dictionary()
-        .get(&ComponentId::GROUP_ACTION_POLICIES.as_u16())?;
-    xmtp_common::optify!(
-        GroupActionPolicies::decode(bytes),
-        "group action policies are malformed; deny actions"
-    )
-}
-
-/// Reconstruct a legacy [`PolicySet`] from the dictionary.
-///
-/// Membership and admin policies are declared by `GROUP_ACTION_POLICIES`.
-/// Permission updates are always super-admin-only. Metadata update policies
-/// stay in their registry entries. Missing or invalid stored policies become
-/// `Deny` for that field.
-///
-/// Fail closed, never fail hard: a conversion error can reach
-/// `CommitValidationError::installed_state` in `xmtp_mls`. That error is not
-/// a safe rejection. It leaves the commit head pending and blocks every
-/// member of the group. A bad stored field must deny that action instead.
-pub fn policy_set_from_dictionary(extensions: &Extensions<GroupContext>) -> PolicySet {
-    let action_policies = action_policies_from_dictionary(extensions);
-    let registry = registry_from_dictionary(extensions);
-
+        .app_data_dictionary()
+        .and_then(|dictionary| {
+            dictionary
+                .dictionary()
+                .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
+        })
+        .ok_or(PolicyProjectionError::MissingRegistry)?;
+    let registry = ComponentRegistry::from_bytes(bytes)?;
+    let membership = |op| {
+        metadata_policy_to_membership_policy(&registry_policy(
+            &registry,
+            ComponentId::GROUP_MEMBERSHIP,
+            op,
+        )?)
+    };
+    let admin = |op| {
+        metadata_policy_to_admin_policy(&registry_policy(&registry, ComponentId::ADMIN_LIST, op)?)
+    };
     let mut update_metadata_policy = std::collections::HashMap::new();
     for (field, component_id, _) in metadata_field_registry_mapping() {
-        let policy = registry
-            .as_ref()
-            .and_then(|registry| {
-                xmtp_common::optify!(
-                    registry.get(component_id),
-                    "registry entry is malformed; deny metadata policy"
-                )
-                .flatten()
-            })
-            .and_then(|metadata| metadata.permissions)
-            .and_then(|permissions| permissions.update_policy)
-            .filter(valid_metadata)
-            .unwrap_or_else(deny_metadata);
+        let policy = xmtp_common::optify!(
+            registry_policy(&registry, *component_id, ComponentOp::Update),
+            "registry metadata policy is missing or malformed"
+        )
+        .filter(valid_metadata)
+        .unwrap_or(MetadataPolicy {
+            kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Deny as i32)),
+        });
         update_metadata_policy.insert(field.as_str().to_string(), policy);
     }
-
-    PolicySet {
-        add_member_policy: Some(
-            action_policies
-                .as_ref()
-                .and_then(|policies| policies.add_member.clone())
-                .filter(valid_membership)
-                .unwrap_or_else(deny_membership),
-        ),
-        remove_member_policy: Some(
-            action_policies
-                .as_ref()
-                .and_then(|policies| policies.remove_member.clone())
-                .filter(valid_membership)
-                .unwrap_or_else(deny_membership),
-        ),
+    Ok(PolicySet {
+        add_member_policy: Some(membership(ComponentOp::Insert)?),
+        remove_member_policy: Some(membership(ComponentOp::Delete)?),
+        add_admin_policy: Some(admin(ComponentOp::Insert)?),
+        remove_admin_policy: Some(admin(ComponentOp::Delete)?),
         update_metadata_policy,
-        add_admin_policy: Some(
-            action_policies
-                .as_ref()
-                .and_then(|policies| policies.add_admin.clone())
-                .filter(valid_permissions)
-                .unwrap_or_else(deny_permissions),
-        ),
-        remove_admin_policy: Some(
-            action_policies
-                .as_ref()
-                .and_then(|policies| policies.remove_admin.clone())
-                .filter(valid_permissions)
-                .unwrap_or_else(deny_permissions),
-        ),
-        // Registry and action-policy writes are always super-admin-only.
-        // The stored legacy field does not control this permission.
+        // No stored value controls permission-update authority.
         update_permissions_policy: Some(PermissionsUpdatePolicy {
             kind: Some(PermissionsPolicyKind::Base(
                 PermissionsBasePolicy::AllowIfSuperAdmin as i32,
             )),
         }),
-    }
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        app_data::migration::synthesize_registry_from_policy_set,
-        group_mutable_metadata::MetadataField,
+    use crate::app_data::migration::{
+        admin_list_policy_to_metadata_policy, membership_policy_to_metadata_policy,
+        synthesize_registry_from_policy_set,
     };
     use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
+    use prost::Message;
+    use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{AndCondition, AnyCondition};
 
-    fn policy_set_with_denies() -> PolicySet {
-        let mut update_metadata_policy = std::collections::HashMap::new();
-        for (field, _, _) in metadata_field_registry_mapping() {
-            update_metadata_policy.insert(field.as_str().to_string(), deny_metadata());
+    fn base(base: MetadataBasePolicy) -> MetadataPolicy {
+        MetadataPolicy {
+            kind: Some(MetadataPolicyKind::Base(base as i32)),
         }
+    }
+
+    fn policy_set() -> PolicySet {
         PolicySet {
-            add_member_policy: Some(deny_membership()),
-            remove_member_policy: Some(deny_membership()),
-            update_metadata_policy,
-            add_admin_policy: Some(deny_permissions()),
-            remove_admin_policy: Some(deny_permissions()),
-            update_permissions_policy: Some(PermissionsUpdatePolicy {
-                kind: Some(PermissionsPolicyKind::Base(
-                    PermissionsBasePolicy::AllowIfSuperAdmin as i32,
-                )),
-            }),
+            add_member_policy: Some(
+                metadata_policy_to_membership_policy(&base(MetadataBasePolicy::Allow)).unwrap(),
+            ),
+            remove_member_policy: Some(
+                metadata_policy_to_membership_policy(&base(MetadataBasePolicy::AllowIfAdmin))
+                    .unwrap(),
+            ),
+            add_admin_policy: Some(
+                metadata_policy_to_admin_policy(&base(MetadataBasePolicy::AllowIfSuperAdmin))
+                    .unwrap(),
+            ),
+            remove_admin_policy: Some(
+                metadata_policy_to_admin_policy(&base(MetadataBasePolicy::AllowIfSuperAdmin))
+                    .unwrap(),
+            ),
+            update_permissions_policy: Some(
+                metadata_policy_to_admin_policy(&base(MetadataBasePolicy::AllowIfSuperAdmin))
+                    .unwrap(),
+            ),
+            update_metadata_policy: metadata_field_registry_mapping()
+                .iter()
+                .map(|(field, _, _)| {
+                    (
+                        field.as_str().to_string(),
+                        base(MetadataBasePolicy::AllowIfAdmin),
+                    )
+                })
+                .collect(),
         }
+    }
+
+    fn extensions(registry: &ComponentRegistry) -> Extensions<GroupContext> {
+        let mut dictionary = AppDataDictionary::new();
+        dictionary.insert(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            registry.to_bytes().unwrap(),
+        );
+        Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dictionary),
+        )])
+        .unwrap()
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn update_permissions_reports_enforced_super_admin_policy() {
         for stored in [
-            None,
-            Some(deny_permissions()),
-            Some(PermissionsUpdatePolicy {
-                kind: Some(PermissionsPolicyKind::Base(
-                    PermissionsBasePolicy::AllowIfAdmin as i32,
-                )),
-            }),
+            MetadataBasePolicy::Deny,
+            MetadataBasePolicy::AllowIfAdmin,
+            MetadataBasePolicy::AllowIfSuperAdmin,
         ] {
-            let mut dictionary = AppDataDictionary::new();
-            dictionary.insert(
-                ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-                GroupActionPolicies {
-                    update_permissions: stored,
-                    ..Default::default()
-                }
-                .encode_to_vec(),
-            );
-            let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-                AppDataDictionaryExtension::new(dictionary),
-            )])?;
+            let mut expected = policy_set();
+            expected.update_permissions_policy =
+                Some(metadata_policy_to_admin_policy(&base(stored))?);
+            let registry = synthesize_registry_from_policy_set(&expected)?;
             assert_eq!(
-                policy_set_from_dictionary(&extensions).update_permissions_policy,
-                Some(PermissionsUpdatePolicy {
-                    kind: Some(PermissionsPolicyKind::Base(
-                        PermissionsBasePolicy::AllowIfSuperAdmin as i32
-                    ))
-                })
+                policy_set_from_dictionary(&extensions(&registry))?.update_permissions_policy,
+                policy_set().update_permissions_policy
             );
         }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn reconstructs_declared_actions_and_registry_metadata() {
-        let expected = policy_set_with_denies();
-        let registry = synthesize_registry_from_policy_set(&expected)?;
-        let actions = GroupActionPolicies {
-            add_member: expected.add_member_policy.clone(),
-            remove_member: expected.remove_member_policy.clone(),
-            add_admin: expected.add_admin_policy.clone(),
-            remove_admin: expected.remove_admin_policy.clone(),
-            update_permissions: expected.update_permissions_policy.clone(),
-        };
-        let mut dictionary = AppDataDictionary::new();
-        dictionary.insert(
-            ComponentId::COMPONENT_REGISTRY.as_u16(),
-            registry.to_bytes()?,
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
-        );
-        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-            AppDataDictionaryExtension::new(dictionary),
-        )])?;
-
-        assert_eq!(policy_set_from_dictionary(&extensions), expected);
+    fn inverse_preserves_nested_membership_trees_and_all_base_variants() {
+        let leaves = [
+            MetadataBasePolicy::Allow,
+            MetadataBasePolicy::Deny,
+            MetadataBasePolicy::AllowIfAdmin,
+            MetadataBasePolicy::AllowIfSuperAdmin,
+        ];
+        for leaf in leaves {
+            let tree = MetadataPolicy {
+                kind: Some(MetadataPolicyKind::AndCondition(AndCondition {
+                    policies: vec![
+                        base(leaf),
+                        MetadataPolicy {
+                            kind: Some(MetadataPolicyKind::AnyCondition(AnyCondition {
+                                policies: vec![
+                                    base(MetadataBasePolicy::Deny),
+                                    base(leaf),
+                                    base(leaf),
+                                ],
+                            })),
+                        },
+                    ],
+                })),
+            };
+            let membership = metadata_policy_to_membership_policy(&tree)?;
+            assert_eq!(
+                membership_policy_to_metadata_policy(&membership)?.encode_to_vec(),
+                tree.encode_to_vec()
+            );
+            let mut expected = policy_set();
+            expected.add_member_policy = Some(membership);
+            let registry = synthesize_registry_from_policy_set(&expected)?;
+            assert_eq!(
+                policy_set_from_dictionary(&extensions(&registry))?,
+                expected
+            );
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn preserves_policy_combinator_messages_exactly() {
-        let mut expected = policy_set_with_denies();
-        expected.add_member_policy = Some(MembershipPolicy {
-            kind: Some(MembershipPolicyKind::AndCondition(
-                xmtp_proto::xmtp::mls::message_contents::membership_policy::AndCondition {
-                    policies: vec![deny_membership(), deny_membership()],
-                },
-            )),
-        });
-        expected.update_metadata_policy.insert(
-            MetadataField::GroupName.as_str().to_string(),
-            MetadataPolicy {
-                kind: Some(MetadataPolicyKind::AnyCondition(
-                    xmtp_proto::xmtp::mls::message_contents::metadata_policy::AnyCondition {
-                        policies: vec![deny_metadata(), deny_metadata()],
-                    },
-                )),
-            },
-        );
-        let registry = synthesize_registry_from_policy_set(&expected)?;
-        let actions = GroupActionPolicies {
-            add_member: expected.add_member_policy.clone(),
-            remove_member: expected.remove_member_policy.clone(),
-            add_admin: expected.add_admin_policy.clone(),
-            remove_admin: expected.remove_admin_policy.clone(),
-            update_permissions: expected.update_permissions_policy.clone(),
-        };
-        let mut dictionary = AppDataDictionary::new();
-        dictionary.insert(
-            ComponentId::COMPONENT_REGISTRY.as_u16(),
-            registry.to_bytes()?,
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
-        );
-        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-            AppDataDictionaryExtension::new(dictionary),
-        )])?;
-
-        let actual = policy_set_from_dictionary(&extensions);
-        assert_eq!(actual, expected);
-        assert_eq!(
-            actual.add_member_policy.as_ref()?.encode_to_vec(),
-            expected.add_member_policy.as_ref()?.encode_to_vec()
-        );
-        assert_eq!(
-            actual
-                .update_metadata_policy
-                .get(MetadataField::GroupName.as_str())?
-                .encode_to_vec(),
-            expected
-                .update_metadata_policy
-                .get(MetadataField::GroupName.as_str())?
-                .encode_to_vec()
-        );
+    fn inverse_rejects_malformed_trailing_or_child() {
+        for bad in [
+            None,
+            Some(MetadataPolicyKind::Base(0)),
+            Some(MetadataPolicyKind::Base(i32::MAX)),
+        ] {
+            let tree = MetadataPolicy {
+                kind: Some(MetadataPolicyKind::AnyCondition(AnyCondition {
+                    policies: vec![
+                        base(MetadataBasePolicy::Allow),
+                        MetadataPolicy { kind: bad },
+                    ],
+                })),
+            };
+            assert!(metadata_policy_to_membership_policy(&tree).is_err());
+            let mut registry = synthesize_registry_from_policy_set(&policy_set())?;
+            let mut metadata = registry.get(&ComponentId::GROUP_MEMBERSHIP)??;
+            metadata.permissions.as_mut()?.insert_policy = Some(tree);
+            registry.set(ComponentId::GROUP_MEMBERSHIP, metadata)?;
+            assert!(validate_registry_action_policies(&registry).is_err());
+            assert!(policy_set_from_dictionary(&extensions(&registry)).is_err());
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn missing_dictionary_denies_stored_policies() {
-        let extensions = Extensions::from_vec(vec![])?;
-        let policies = policy_set_from_dictionary(&extensions);
-        assert_eq!(policies.add_member_policy, Some(deny_membership()));
-        assert_eq!(policies.remove_member_policy, Some(deny_membership()));
-        assert_eq!(policies.add_admin_policy, Some(deny_permissions()));
-        assert_eq!(policies.remove_admin_policy, Some(deny_permissions()));
-        assert_eq!(
-            policies.update_permissions_policy,
-            policy_set_with_denies().update_permissions_policy
-        );
-        assert!(
-            policies
-                .update_metadata_policy
-                .values()
-                .all(|p| p == &deny_metadata())
-        );
+    fn inverse_rejects_admin_combinators_and_preserves_supported_bases() {
+        for leaf in [
+            MetadataBasePolicy::Deny,
+            MetadataBasePolicy::AllowIfAdmin,
+            MetadataBasePolicy::AllowIfSuperAdmin,
+        ] {
+            let policy = base(leaf);
+            assert_eq!(
+                admin_list_policy_to_metadata_policy(&metadata_policy_to_admin_policy(&policy)?)?,
+                policy
+            );
+            for kind in [
+                MetadataPolicyKind::AndCondition(AndCondition {
+                    policies: vec![policy.clone()],
+                }),
+                MetadataPolicyKind::AnyCondition(AnyCondition {
+                    policies: vec![policy],
+                }),
+            ] {
+                assert!(
+                    metadata_policy_to_admin_policy(&MetadataPolicy { kind: Some(kind) }).is_err()
+                );
+            }
+        }
+        assert!(metadata_policy_to_admin_policy(&base(MetadataBasePolicy::Allow)).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn malformed_fields_deny_without_changing_valid_fields() {
-        let mut expected = policy_set_with_denies();
-        expected.remove_member_policy = Some(MembershipPolicy {
-            kind: Some(MembershipPolicyKind::Base(
-                MembershipBasePolicy::Allow as i32,
-            )),
-        });
-        let mut registry = synthesize_registry_from_policy_set(&expected)?;
-        let mut metadata = registry.get(&ComponentId::GROUP_NAME)??;
-        metadata.permissions.as_mut()?.update_policy = Some(MetadataPolicy {
-            kind: Some(MetadataPolicyKind::AndCondition(
-                xmtp_proto::xmtp::mls::message_contents::metadata_policy::AndCondition {
-                    policies: vec![],
-                },
-            )),
-        });
-        registry.set(ComponentId::GROUP_NAME, metadata)?;
-        let actions = GroupActionPolicies {
-            // A valid sibling in an OR must not hide an unknown policy.
-            add_member: Some(MembershipPolicy {
-                kind: Some(MembershipPolicyKind::AnyCondition(
-                    xmtp_proto::xmtp::mls::message_contents::membership_policy::AnyCondition {
-                        policies: vec![
-                            expected.remove_member_policy.clone()?,
-                            MembershipPolicy {
-                                kind: Some(MembershipPolicyKind::Base(i32::MAX)),
-                            },
-                        ],
-                    },
-                )),
-            }),
-            remove_member: expected.remove_member_policy.clone(),
-            add_admin: Some(PermissionsUpdatePolicy {
-                kind: Some(PermissionsPolicyKind::Base(i32::MAX)),
-            }),
-            remove_admin: expected.remove_admin_policy.clone(),
-            update_permissions: None,
-        };
-        let mut dictionary = AppDataDictionary::new();
-        dictionary.insert(
-            ComponentId::COMPONENT_REGISTRY.as_u16(),
-            registry.to_bytes()?,
-        );
-        dictionary.insert(
-            ComponentId::GROUP_ACTION_POLICIES.as_u16(),
-            actions.encode_to_vec(),
-        );
-        let extensions = Extensions::from_vec(vec![Extension::AppDataDictionary(
-            AppDataDictionaryExtension::new(dictionary),
-        )])?;
-        assert_eq!(policy_set_from_dictionary(&extensions), expected);
+    fn action_entries_cannot_be_absent() {
+        for id in [ComponentId::GROUP_MEMBERSHIP, ComponentId::ADMIN_LIST] {
+            let mut registry = synthesize_registry_from_policy_set(&policy_set())?;
+            registry.remove(&id)?;
+            assert!(validate_registry_action_policies(&registry).is_err());
+            assert!(policy_set_from_dictionary(&extensions(&registry)).is_err());
+        }
+        assert!(policy_set_from_dictionary(&Extensions::default()).is_err());
     }
 }

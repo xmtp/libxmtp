@@ -28,7 +28,7 @@ use xmtp_mls_common::{
     tls_set::{TlsSetDelta, TlsSetMutation},
 };
 use xmtp_proto::xmtp::mls::message_contents::{
-    GroupActionPolicies, MetadataPolicy as MetadataPolicyProto,
+    MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
@@ -40,9 +40,6 @@ use super::{
 use crate::groups::{
     AdminListActionType, GroupError,
     error::MetadataPermissionsError,
-    group_permissions::{
-        MembershipPolicies, MembershipPolicy, PermissionsPolicies, PermissionsPolicy,
-    },
     intents::{
         AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdatePermissionIntentData,
@@ -234,49 +231,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let mut updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
-    if intent_data.update_type != PermissionUpdateType::UpdateMetadata {
-        let id = ComponentId::GROUP_ACTION_POLICIES;
-        let bytes = read(id)?;
-        let mut actions = GroupActionPolicies::decode(bytes).map_err(|error| {
-            ComponentSourceError::MalformedComponentValue {
-                component_id: id,
-                reason: format!("action policies decode: {error}"),
-            }
-        })?;
-        match intent_data.update_type {
-            PermissionUpdateType::AddMember => {
-                actions.add_member = Some(
-                    MembershipPolicies::from(intent_data.policy_option)
-                        .to_proto()
-                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
-                )
-            }
-            PermissionUpdateType::RemoveMember => {
-                actions.remove_member = Some(
-                    MembershipPolicies::from(intent_data.policy_option)
-                        .to_proto()
-                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
-                )
-            }
-            PermissionUpdateType::AddAdmin => {
-                actions.add_admin = Some(
-                    PermissionsPolicies::from(intent_data.policy_option)
-                        .to_proto()
-                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
-                )
-            }
-            PermissionUpdateType::RemoveAdmin => {
-                actions.remove_admin = Some(
-                    PermissionsPolicies::from(intent_data.policy_option)
-                        .to_proto()
-                        .map_err(|_| MetadataPermissionsError::InvalidPermissionUpdate)?,
-                )
-            }
-            PermissionUpdateType::UpdateMetadata => unreachable!(),
-        }
-        updates.push((id, actions.encode_to_vec()));
-    }
+    let updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
 
     let ((proposal_messages, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,

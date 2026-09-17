@@ -552,10 +552,6 @@ mod tests {
             reg.set(ComponentId::SUPER_ADMIN_LIST, sample_meta()),
             Err(ComponentRegistryError::HardcodedComponent(_))
         ));
-        assert!(matches!(
-            reg.set(ComponentId::GROUP_ACTION_POLICIES, sample_meta()),
-            Err(ComponentRegistryError::HardcodedComponent(_))
-        ));
         assert!(reg.is_empty());
     }
 
@@ -570,10 +566,6 @@ mod tests {
         ));
         assert!(matches!(
             reg.remove(&ComponentId::SUPER_ADMIN_LIST),
-            Err(ComponentRegistryError::HardcodedComponent(_))
-        ));
-        assert!(matches!(
-            reg.remove(&ComponentId::GROUP_ACTION_POLICIES),
             Err(ComponentRegistryError::HardcodedComponent(_))
         ));
     }

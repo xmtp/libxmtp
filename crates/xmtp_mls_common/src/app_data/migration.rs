@@ -11,7 +11,7 @@ use openmls::{
 use prost::Message as _;
 use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::{
-    ComponentMetadata, ComponentPermissions, ComponentType, GroupActionPolicies,
+    ComponentMetadata, ComponentPermissions, ComponentType,
     GroupMembership as GroupMembershipProto, MembershipPolicy as MembershipPolicyProto,
     MetadataPolicy as MetadataPolicyProto, PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
     PolicySet as PolicySetProto,
@@ -468,25 +468,29 @@ pub(super) fn membership_policy_to_metadata_policy(
             };
             Ok(metadata_policy(mapped))
         }
-        Some(MembershipPolicyKind::AndCondition(condition)) => Ok(MetadataPolicyProto {
-            kind: Some(MetadataPolicyKind::AndCondition(MetadataAndCondition {
-                policies: condition
-                    .policies
-                    .iter()
-                    .map(membership_policy_to_metadata_policy)
-                    .collect::<Result<_, _>>()?,
-            })),
-        }),
-        Some(MembershipPolicyKind::AnyCondition(condition)) => Ok(MetadataPolicyProto {
-            kind: Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition {
-                policies: condition
-                    .policies
-                    .iter()
-                    .map(membership_policy_to_metadata_policy)
-                    .collect::<Result<_, _>>()?,
-            })),
-        }),
-        None => Err(MigrationError::UnknownMembershipPolicy(None)),
+        Some(MembershipPolicyKind::AndCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AndCondition(MetadataAndCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
+        Some(MembershipPolicyKind::AnyCondition(condition)) if !condition.policies.is_empty() => {
+            Ok(MetadataPolicyProto {
+                kind: Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition {
+                    policies: condition
+                        .policies
+                        .iter()
+                        .map(membership_policy_to_metadata_policy)
+                        .collect::<Result<_, _>>()?,
+                })),
+            })
+        }
+        _ => Err(MigrationError::UnknownMembershipPolicy(None)),
     }
 }
 
@@ -499,8 +503,7 @@ pub(super) fn membership_policy_to_metadata_policy(
 ///   attributes, `COMMIT_LOG_SIGNER`, `CONVERSATION_TYPE`),
 ///   the versioned single-`InboxId` TLS wire form (`CREATOR_INBOX_ID`),
 ///   and TLS-codec containers that sort their keys (`ADMIN_LIST`,
-///   `SUPER_ADMIN_LIST`, `DM_MEMBERS`, `ONESHOT_MESSAGE`), plus the
-///   deterministic prost encoding of `GROUP_ACTION_POLICIES`.
+///   `SUPER_ADMIN_LIST`, `DM_MEMBERS`, `ONESHOT_MESSAGE`).
 /// - [`Self::expected_registry`] — `COMPONENT_REGISTRY` is decoded
 ///   first, then compared per entry as a typed [`ComponentMetadata`].
 ///   The outer `TlsMapDelta` wrapper IS deterministic, but each
@@ -559,7 +562,6 @@ pub fn synthesize_canonical_subset_from_extensions(
 ) -> Result<CanonicalBootstrapExpectation, MigrationError> {
     let gmm: crate::group_mutable_metadata::GroupMutableMetadata = extensions.try_into()?;
     let registry = synthesize_registry_from_extensions(extensions)?;
-    let policy_set = extract_legacy_policy_set(extensions)?;
     let legacy_membership = extract_legacy_group_membership(extensions)?;
     let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
 
@@ -573,18 +575,6 @@ pub fn synthesize_canonical_subset_from_extensions(
         let (id, meta) = entry?;
         expected_registry.insert(id, meta);
     }
-
-    // GROUP_ACTION_POLICIES declares membership and admin-list policies.
-    // It also preserves the legacy update_permissions field, but permission
-    // updates remain super-admin-only. This hardcoded component has no registry
-    // entry. Keep policy messages verbatim, including their combinators.
-    strict.insert(
-        ComponentId::GROUP_ACTION_POLICIES,
-        (
-            AppDataUpdateOperationType::Update,
-            action_policies_from_policy_set(&policy_set)?.encode_to_vec(),
-        ),
-    );
 
     // Bytes/String metadata attributes. Skip fields that aren't set in
     // the legacy GMM — the typed component encoders reject empty input
@@ -745,40 +735,6 @@ fn extract_legacy_policy_set(
     permissions_proto
         .policies
         .ok_or(MigrationError::MissingPolicyField("policies"))
-}
-
-fn action_policies_from_policy_set(
-    policy_set: &PolicySetProto,
-) -> Result<GroupActionPolicies, MigrationError> {
-    Ok(GroupActionPolicies {
-        add_member: Some(
-            policy_set
-                .add_member_policy
-                .clone()
-                .ok_or(MigrationError::MissingPolicyField("add_member_policy"))?,
-        ),
-        remove_member: Some(
-            policy_set
-                .remove_member_policy
-                .clone()
-                .ok_or(MigrationError::MissingPolicyField("remove_member_policy"))?,
-        ),
-        add_admin: Some(
-            policy_set
-                .add_admin_policy
-                .clone()
-                .ok_or(MigrationError::MissingPolicyField("add_admin_policy"))?,
-        ),
-        remove_admin: Some(
-            policy_set
-                .remove_admin_policy
-                .clone()
-                .ok_or(MigrationError::MissingPolicyField("remove_admin_policy"))?,
-        ),
-        update_permissions: Some(policy_set.update_permissions_policy.clone().ok_or(
-            MigrationError::MissingPolicyField("update_permissions_policy"),
-        )?),
-    })
 }
 
 fn find_unknown_extension(extensions: &Extensions<GroupContext>, id: u16) -> Option<&Vec<u8>> {
@@ -1096,7 +1052,6 @@ mod tests {
         // Hardcoded are NOT in the registry.
         assert!(!registry.contains(&ComponentId::SUPER_ADMIN_LIST));
         assert!(!registry.contains(&ComponentId::COMPONENT_REGISTRY));
-        assert!(!registry.contains(&ComponentId::GROUP_ACTION_POLICIES));
     }
 
     #[test]
@@ -1186,18 +1141,6 @@ mod tests {
             .insert("something_new".to_string(), allow_metadata());
         let err = synthesize_registry_from_policy_set(&ps).unwrap_err();
         assert!(matches!(err, MigrationError::UnknownMetadataField(f) if f == "something_new"));
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn synthesis_preserves_non_super_admin_update_permissions_in_action_policies() {
-        let mut ps = minimal_default_policy_set();
-        ps.update_permissions_policy = Some(admin_only_perms());
-        let action_policies = action_policies_from_policy_set(&ps).unwrap();
-        assert_eq!(
-            action_policies.update_permissions,
-            ps.update_permissions_policy
-        );
-        assert!(synthesize_registry_from_policy_set(&ps).is_ok());
     }
 
     #[test]
@@ -1976,9 +1919,6 @@ mod tests {
             "0x800A Update 312e31312e30",
             // COMMIT_LOG_SIGNER (0x800B): raw 32 key bytes.
             "0x800B Update abababababababababababababababababababababababababababababababab",
-            // GROUP_ACTION_POLICIES (0x800C): the five legacy action
-            // policies, retained as their original proto messages.
-            "0x800C Update 0a020801120208011a020802220208022a020803",
             // CREATOR_INBOX_ID (0xBFFE): versioned InboxId (varint v0 + 32 bytes).
             "0xBFFE Update 001111111111111111111111111111111111111111111111111111111111111111",
             // CONVERSATION_TYPE (0xBFFF): BE i32, Group = 1.
@@ -2035,7 +1975,6 @@ mod tests {
             "0x8009 Update 676f6c64656e2d6170702d64617461",
             "0x800A Update 312e31312e30",
             "0x800B Update abababababababababababababababababababababababababababababababab",
-            "0x800C Update 0a020801120208011a020802220208022a020803",
             // ONESHOT_MESSAGE (0xBFFC): prost encoding of the empty
             // proto — zero bytes, seed present.
             "0xBFFC Update ",
