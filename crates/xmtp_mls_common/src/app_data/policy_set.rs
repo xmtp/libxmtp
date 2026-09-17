@@ -177,6 +177,9 @@ pub fn policy_set_from_dictionary(
             registry_policy(&registry, *component_id, ComponentOp::Update),
             "registry metadata policy is missing or malformed"
         )
+        // This view validates the whole metadata tree. Enforcement can
+        // short-circuit OR, so malformed trailing children can give a
+        // different result. This pre-existing difference is retained.
         .filter(valid_metadata)
         .unwrap_or(MetadataPolicy {
             kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Deny as i32)),

@@ -552,7 +552,11 @@ impl ValidatedCommit {
         // Migrated groups read action policies from COMPONENT_REGISTRY.
         let group_permissions: GroupMutablePermissions = if is_migrated {
             super::group_permissions::policy_set_from_dictionary(openmls_group.extensions())
-                .map_err(CommitValidationError::installed_state)?
+                .map_err(|error| {
+                    CommitValidationError::installed_state(
+                        CommitValidationError::GroupMutablePermissions(error),
+                    )
+                })?
         } else {
             GroupMutablePermissions::try_from(extensions)
                 .map_err(CommitValidationError::installed_state)?

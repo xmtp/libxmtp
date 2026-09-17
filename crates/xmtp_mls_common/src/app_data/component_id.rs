@@ -68,6 +68,9 @@ impl ComponentId {
     pub const COMPONENT_REGISTRY: Self = Self(0x8000);
     /// The super admin list. Super admin only.
     pub const SUPER_ADMIN_LIST: Self = Self(0x8001);
+    // === Constrained Component IDs ===
+    // Stored policies are limited to Deny, AllowIfAdmin, or AllowIfSuperAdmin.
+
     /// The admin list. Configurable: super admin only or admin/super admin.
     pub const ADMIN_LIST: Self = Self(0x8002);
 

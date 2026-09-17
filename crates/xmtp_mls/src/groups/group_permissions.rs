@@ -66,6 +66,11 @@ pub enum GroupMutablePermissionsError {
     /// Invalid permission policy configuration. Not retryable.
     #[error("invalid permission policy option")]
     InvalidPermissionPolicyOption,
+    /// Invalid policy state in the component registry.
+    ///
+    /// The permission view could not be read from group state. Not retryable.
+    #[error("invalid component-registry policy state: {0}")]
+    PolicyProjection(#[from] xmtp_mls_common::app_data::policy_set::PolicyProjectionError),
 }
 
 /// Represents the mutable permissions for a group.
@@ -1204,7 +1209,7 @@ pub(crate) fn policy_set_from_dictionary(
     let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions)
         .map_err(|error| {
             tracing::warn!(%error, "invalid registry action policy");
-            GroupMutablePermissionsError::InvalidPermissionPolicyOption
+            GroupMutablePermissionsError::PolicyProjection(error)
         })?;
     Ok(GroupMutablePermissions::new(PolicySet::from_proto(proto)?))
 }
