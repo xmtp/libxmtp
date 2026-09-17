@@ -501,6 +501,8 @@ pub fn merge_dict_into_mutable_metadata(
         }
     }
 
+    insert_absent_bounded_string_defaults(base);
+
     for (component_id, list) in [
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
         (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
@@ -510,6 +512,40 @@ pub fn merge_dict_into_mutable_metadata(
         }
     }
     Ok(())
+}
+
+/// The four bounded-string metadata fields that the pre-dictionary
+/// [`GroupMutableMetadata::new_default`] always seeded, each with an
+/// empty-string default.
+///
+/// The dictionary omits a component that was never set, which is the
+/// correct wire behaviour: absent and set-to-empty are genuinely
+/// different states and the dictionary keeps them apart. The legacy
+/// `attributes` map has no way to say "absent", and every consumer of
+/// it — the FFI getters, and the `GroupUpdated` metadata-change
+/// diff — was written against a map in which these four keys are
+/// always present. Defaulting them here keeps the dict→legacy
+/// projection faithful to that older shape without touching the
+/// dictionary itself.
+const DEFAULTED_BOUNDED_STRING_FIELDS: &[(MetadataField, &str)] = &[
+    (MetadataField::GroupName, DEFAULT_GROUP_NAME),
+    (MetadataField::Description, DEFAULT_GROUP_DESCRIPTION),
+    (
+        MetadataField::GroupImageUrlSquare,
+        DEFAULT_GROUP_IMAGE_URL_SQUARE,
+    ),
+    (MetadataField::AppData, ""),
+];
+
+/// Give every field in [`DEFAULTED_BOUNDED_STRING_FIELDS`] its legacy
+/// default when the dictionary carried no such component. Fields that
+/// the dictionary did carry keep their decoded value.
+fn insert_absent_bounded_string_defaults(base: &mut GroupMutableMetadata) {
+    for (field, default) in DEFAULTED_BOUNDED_STRING_FIELDS {
+        base.attributes
+            .entry(field.as_str().to_string())
+            .or_insert_with(|| (*default).to_string());
+    }
 }
 
 /// Best-effort variant of [`merge_dict_into_mutable_metadata`] that
@@ -547,6 +583,8 @@ pub fn merge_dict_into_mutable_metadata_lossy(
             }
         }
     }
+
+    insert_absent_bounded_string_defaults(base);
 
     for (component_id, list) in [
         (ComponentId::ADMIN_LIST, &mut base.admin_list),
@@ -648,6 +686,76 @@ mod tests {
 
         let bad_metadata = GroupMutableMetadata::new(bad_attributes, vec![], vec![]);
         assert!(bad_metadata.commit_log_signer().is_none());
+    }
+
+    /// Regression: a dictionary omits a bounded-string component that
+    /// was never set, but the legacy `attributes` map that the FFI
+    /// getters and the `GroupUpdated` diff read from must still carry
+    /// the four fields with their empty-string defaults. Losing them
+    /// surfaced `undefined` instead of `""` across the JS SDKs.
+    #[xmtp_common::test]
+    fn test_merge_defaults_absent_bounded_string_components() {
+        use super::super::app_data::component_id::ComponentId;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+        use openmls::group::GroupContext;
+
+        // A dictionary with only GROUP_NAME set: the three other
+        // bounded-string components are absent, exactly as a group
+        // created with no metadata options would be.
+        let mut dict = AppDataDictionary::new();
+        let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), b"Only Name".to_vec());
+        let extensions: Extensions<GroupContext> =
+            Extensions::from_vec(vec![Extension::AppDataDictionary(
+                AppDataDictionaryExtension::new(dict),
+            )])
+            .unwrap();
+
+        for label in ["strict", "lossy"] {
+            let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+            if label == "strict" {
+                merge_dict_into_mutable_metadata(&mut base, &extensions).unwrap();
+            } else {
+                assert!(merge_dict_into_mutable_metadata_lossy(&mut base, &extensions).is_empty());
+            }
+
+            // The component that was present keeps its decoded value.
+            assert_eq!(
+                base.attributes
+                    .get(MetadataField::GroupName.as_str())
+                    .map(String::as_str),
+                Some("Only Name"),
+                "{label}: a present component must not be overwritten by its default",
+            );
+
+            // The absent ones read as "" rather than being missing.
+            for field in [
+                MetadataField::Description,
+                MetadataField::GroupImageUrlSquare,
+                MetadataField::AppData,
+            ] {
+                assert_eq!(
+                    base.attributes.get(field.as_str()).map(String::as_str),
+                    Some(""),
+                    "{label}: absent {} must default to an empty string",
+                    field.as_str(),
+                );
+            }
+
+            // Fields that legacy only seeded when actually set stay
+            // absent — they never had an empty-string default.
+            for field in [
+                MetadataField::MessageDisappearFromNS,
+                MetadataField::MessageDisappearInNS,
+                MetadataField::MinimumSupportedProtocolVersion,
+                MetadataField::CommitLogSigner,
+            ] {
+                assert!(
+                    !base.attributes.contains_key(field.as_str()),
+                    "{label}: {} must not gain a default",
+                    field.as_str(),
+                );
+            }
+        }
     }
 
     #[xmtp_common::test]
