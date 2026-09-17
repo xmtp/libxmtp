@@ -1,7 +1,4 @@
-use openmls::{
-    extensions::{Extension, Extensions, UnknownExtension},
-    group::{GroupContext, MlsGroup as OpenMlsGroup},
-};
+use openmls::{extensions::Extensions, group::GroupContext};
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -25,7 +22,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::validated_commit::{CommitParticipant, Inbox, MetadataFieldChange, ValidatedCommit};
-use xmtp_configuration::{GROUP_PERMISSIONS_EXTENSION_ID, SUPER_ADMIN_METADATA_PREFIX};
+use xmtp_configuration::SUPER_ADMIN_METADATA_PREFIX;
 use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
 /// Errors that can occur when working with GroupMutablePermissions.
@@ -147,40 +144,6 @@ impl TryFrom<GroupMutablePermissionsProto> for GroupMutablePermissions {
     fn try_from(value: GroupMutablePermissionsProto) -> Result<Self, Self::Error> {
         Self::from_proto(value)
     }
-}
-
-/// Implements conversion from &Extensions to GroupMutablePermissions.
-impl TryFrom<&Extensions<GroupContext>> for GroupMutablePermissions {
-    type Error = GroupMutablePermissionsError;
-
-    fn try_from(value: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
-        for extension in value.iter() {
-            if let Extension::Unknown(GROUP_PERMISSIONS_EXTENSION_ID, UnknownExtension(metadata)) =
-                extension
-            {
-                return GroupMutablePermissions::try_from(metadata);
-            }
-        }
-        Err(GroupMutablePermissionsError::MissingExtension)
-    }
-}
-
-/// Implements conversion from &OpenMlsGroup to GroupMutablePermissions.
-impl TryFrom<&OpenMlsGroup> for GroupMutablePermissions {
-    type Error = GroupMutablePermissionsError;
-
-    fn try_from(value: &OpenMlsGroup) -> Result<Self, Self::Error> {
-        let extensions = value.extensions();
-        extensions.try_into()
-    }
-}
-
-/// Extracts group permissions from an OpenMlsGroup.
-pub fn extract_group_permissions(
-    group: &OpenMlsGroup,
-) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
-    let extensions = group.extensions();
-    extensions.try_into()
 }
 
 /// A trait for policies that can update Metadata for the group.
@@ -1404,7 +1367,7 @@ pub(crate) mod tests {
     use std::collections::HashSet;
 
     use crate::groups::validated_commit::MutableMetadataValidationInfo;
-    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
+    use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
     use xmtp_common::{rand_string, rand_vec};
     use xmtp_mls_common::{
         app_data::{component_id::ComponentId, creation::synthesize_registry_from_policy_set},

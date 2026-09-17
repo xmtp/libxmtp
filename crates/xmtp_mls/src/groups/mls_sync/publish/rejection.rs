@@ -81,7 +81,6 @@ impl RejectionCode {
                 C::GroupMetadata(_) => Self::GroupMetadata,
                 C::MlsCredential(_) => Self::MlsCredential,
                 C::GroupMutableMetadata(_) => Self::GroupMutableMetadata,
-                C::GroupMutablePermissions(_) => Self::GroupMutablePermissions,
                 C::TooManyCharacters { .. } => Self::TooManyCharacters,
                 C::MinVersionDowngrade { .. } => Self::MinVersionDowngrade,
                 C::MinVersionRemoveOnExistingFloor { .. } => Self::MinVersionRemove,

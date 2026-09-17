@@ -453,7 +453,7 @@ where
 
         // A Welcome is peer state, even on a clean database. Validate action
         // entries and complete policy trees before admitting any group type.
-        if crate::groups::app_data::is_migrated_group(&mls_group) {
+        {
             let registry = crate::groups::app_data::load_component_registry(&mls_group)
                 .map_err(|_| GroupError::InvalidWelcomeMetadata)?;
             xmtp_mls_common::app_data::policy_set::validate_registry_action_policies(&registry)

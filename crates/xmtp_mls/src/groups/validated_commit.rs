@@ -1,11 +1,6 @@
 use super::{
-    MAX_APP_DATA_LENGTH, MAX_GROUP_DESCRIPTION_LENGTH, MAX_GROUP_IMAGE_URL_LENGTH,
-    MAX_GROUP_NAME_LENGTH,
     group_membership::{GroupMembership, MembershipDiff},
-    group_permissions::{
-        GroupMutablePermissions, GroupMutablePermissionsError, MembershipPolicy, MetadataPolicy,
-        PermissionsPolicy, PolicySet, extract_group_permissions,
-    },
+    group_permissions::{MembershipPolicy, PolicySet},
 };
 
 #[cfg(test)]
@@ -19,7 +14,7 @@ use crate::{
 };
 use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
-    extensions::{Extension, Extensions, UnknownExtension},
+    extensions::{Extension, Extensions},
     group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
     messages::proposals::{Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
@@ -39,10 +34,7 @@ use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
-    group_mutable_metadata::{
-        GroupMutableMetadata, GroupMutableMetadataError, MetadataField,
-        find_mutable_metadata_extension,
-    },
+    group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
 };
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
@@ -109,9 +101,9 @@ pub enum CommitValidationError {
     #[error(transparent)]
     ProtoDecode(#[from] prost::DecodeError),
     #[error(transparent)]
+    GroupMutablePermissions(#[from] super::group_permissions::GroupMutablePermissionsError),
+    #[error(transparent)]
     InstallationDiff(#[from] InstallationDiffError),
-    #[error("Failed to parse group mutable permissions: {0}")]
-    GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not supported")]
     NoPSKSupport,
     #[error("Unsupported proposal type: {0:?}")]
@@ -439,11 +431,6 @@ pub struct ValidatedCommit {
 
 /// Reject any commit that carries a `PreSharedKey` proposal.
 ///
-/// Called from both the steady-state and bootstrap commit-validation
-/// paths so the rejection rule lives in one place — drift between the
-/// two paths is a security risk (a steady-state tightening that misses
-/// the bootstrap path would let a sender smuggle a PSK proposal through
-/// a bootstrap-shaped commit).
 fn reject_psk_proposals(staged_commit: &StagedCommit) -> Result<(), CommitValidationError> {
     if staged_commit.psk_proposals().any(|_| true) {
         return Err(CommitValidationError::NoPSKSupport);
@@ -492,14 +479,6 @@ impl ValidatedCommit {
         openmls_group: &OpenMlsGroup,
         envelope_sequence: u64,
     ) -> Result<Self, CommitValidationError> {
-        let extensions = openmls_group.extensions();
-        // Capability-aware reads. On post-bootstrap groups, the
-        // legacy `ImmutableMetadata` and `GroupMutableMetadata`
-        // extensions are stripped — read from the AppData dictionary
-        // instead. Bootstrap commits themselves are detected below
-        // and route into `validate_bootstrap_and_build`, which uses
-        // these pre-flip values as the canonical source.
-        let is_migrated = super::app_data::is_migrated_extensions(extensions);
         // PAUSE BEFORE PARSE: when the group's committed floor already
         // exceeds this client's version, every migrated-state read
         // below (dict-seeded metadata, registry loads, per-proposal
@@ -513,18 +492,15 @@ impl ValidatedCommit {
         // post-policy check at the end of this function, after its
         // super-admin permission has been verified. See
         // `committed_floor_exceeding` for the full rationale.
-        if is_migrated
-            && let Some(min_version) = super::app_data::committed_floor_exceeding(
-                openmls_group,
-                context.version_info().pkg_semver(),
-            )
-        {
+        if let Some(min_version) = super::app_data::committed_floor_exceeding(
+            openmls_group,
+            context.version_info().pkg_semver(),
+        ) {
             return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
         }
-        if is_migrated
-            && staged_commit
-                .queued_proposals()
-                .any(|queued| matches!(queued.proposal(), Proposal::GroupContextExtensions(_)))
+        if staged_commit
+            .queued_proposals()
+            .any(|queued| matches!(queued.proposal(), Proposal::GroupContextExtensions(_)))
         {
             return Err(CommitValidationError::UnsupportedProposalType(
                 ProposalType::GroupContextExtensions,
@@ -533,82 +509,20 @@ impl ValidatedCommit {
         let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
 
-        // Bootstrap detection MUST run before the steady-state
-        // extractors below — bootstrap commits strip MUTABLE_METADATA,
-        // GROUP_PERMISSIONS, and GROUP_MEMBERSHIP from
-        // `new_group_extensions`, so `extract_metadata_changes` /
-        // `extract_permissions_changed` / membership-diff would all
-        // surface MissingExtension errors before bootstrap-specific
-        // validation could ever run. The pre-flip extensions still
-        // carry the legacy set, so the metadata reads above are safe.
-        if super::app_data::bootstrap_validator::is_bootstrap_commit(staged_commit, extensions) {
-            validate_identity_sequence_order(
-                &extract_group_membership(extensions)
-                    .map_err(CommitValidationError::installed_state)?,
-                envelope_sequence,
-            )?;
-            return Self::validate_bootstrap_and_build(
-                staged_commit,
-                committer_leaf_index,
-                openmls_group,
-                immutable_metadata,
-                mutable_metadata,
-                context.version_info().pkg_version(),
-            );
-        }
-
-        // Migrated groups read action policies from COMPONENT_REGISTRY.
-        let group_permissions: GroupMutablePermissions = if is_migrated {
+        let group_permissions =
             super::group_permissions::policy_set_from_dictionary(openmls_group.extensions())
                 .map_err(|error| {
                     CommitValidationError::installed_state(
                         CommitValidationError::GroupMutablePermissions(error),
                     )
-                })?
-        } else {
-            GroupMutablePermissions::try_from(extensions)
-                .map_err(CommitValidationError::installed_state)?
-        };
+                })?;
         let current_group_members = get_current_group_members(openmls_group);
 
-        let existing_group_extensions = openmls_group.extensions();
-        let proposals_enabled = super::check_proposals_enabled(existing_group_extensions);
-        let new_group_extensions = staged_commit.group_context().extensions();
-
-        // On migrated groups, load the pre-commit COMPONENT_REGISTRY
-        // exactly once and thread it through both
-        // `read_post_commit_component_bytes` (here) and
-        // `validate_app_data_update_proposals_in_commit` (further
-        // down). This collapses two independent dict reads on every
-        // migrated-commit validation into one.
-        //
-        // Pre-commit semantics are the documented convention across
-        // the migrated commit path — see the doc on
-        // `read_post_commit_component_bytes` for the full statement
-        // and the bootstrap-commit carve-out.
-        //
-        // On migrated groups, metadata changes flow as AppDataUpdate
-        // proposals — there is no legacy GroupMutableMetadata
-        // extension on either side to diff. Per-component policy
-        // enforcement happens through
-        // `validate_app_data_update_proposals_in_commit` below;
-        // character limits are enforced at the sender (host APIs like
-        // `update_group_name`) and via Component-level
-        // `validate_invariant` hooks. An empty struct is the correct
-        // "no legacy metadata changes" view — *except* for
-        // `MIN_SUPPORTED_PROTOCOL_VERSION`, where the validator below
-        // relies on the post-commit floor being surfaced so old
-        // clients reject commits raising the floor above their
-        // pkg_version. Compute it capability-aware: pre-commit dict
-        // overlaid with any `AppDataUpdate(MIN_SUPPORTED_PROTOCOL_VERSION)`
-        // proposals carried by the staged commit, last-write-wins.
-        // Mirrors the unmigrated branch's reliance on
-        // `extract_metadata_changes` returning the new GMM attribute
-        // even when nothing else changed.
-        let (metadata_validation_info, migrated_registry) = if is_migrated {
-            let registry = super::app_data::load_component_registry(openmls_group)
-                .map_err(CommitValidationError::installed_state)?;
-            let min_version_bytes =
+        // Reuse the committed registry for all component checks. Apply pending
+        // floor updates to this view, then check their policy before pausing.
+        let registry = super::app_data::load_component_registry(openmls_group)
+            .map_err(CommitValidationError::installed_state)?;
+        let min_version_bytes =
                 super::app_data::component_source::read_post_commit_component_bytes(
                     xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
                     openmls_group,
@@ -616,7 +530,7 @@ impl ValidatedCommit {
                     &registry,
                 )
                 .map_err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from)?;
-            let minimum_supported_protocol_version = match min_version_bytes {
+        let minimum_supported_protocol_version = match min_version_bytes {
                 Some(bytes) => Some(String::from_utf8(bytes).map_err(|e| {
                     CommitValidationError::GroupMutableMetadata(
                         GroupMutableMetadataError::MalformedComponent {
@@ -629,76 +543,11 @@ impl ValidatedCommit {
                 })?),
                 None => None,
             };
-            (
-                MutableMetadataValidationInfo {
-                    minimum_supported_protocol_version,
-                    ..Default::default()
-                },
-                Some(registry),
-            )
-        } else {
-            (
-                extract_metadata_changes(
-                    &immutable_metadata,
-                    &mutable_metadata,
-                    existing_group_extensions,
-                    new_group_extensions,
-                )?,
-                None,
-            )
+        let metadata_validation_info = MutableMetadataValidationInfo {
+            minimum_supported_protocol_version,
+            ..Default::default()
         };
-
-        // Legacy metadata extensions carry these values directly. Migrated
-        // groups enforce the same bounds through component invariants, which
-        // validate the receiver-side AppData post-state.
-        if !is_migrated {
-            for field_change in &metadata_validation_info.metadata_field_changes {
-                if let Some(new_value) = &field_change.new_value {
-                    match field_change.field_name.as_str() {
-                        val if val == MetadataField::Description.as_str()
-                            && new_value.len() > MAX_GROUP_DESCRIPTION_LENGTH =>
-                        {
-                            return Err(CommitValidationError::TooManyCharacters {
-                                length: MAX_GROUP_DESCRIPTION_LENGTH,
-                            });
-                        }
-                        val if val == MetadataField::GroupName.as_str()
-                            && new_value.len() > MAX_GROUP_NAME_LENGTH =>
-                        {
-                            return Err(CommitValidationError::TooManyCharacters {
-                                length: MAX_GROUP_NAME_LENGTH,
-                            });
-                        }
-                        val if val == MetadataField::GroupImageUrlSquare.as_str()
-                            && new_value.len() > MAX_GROUP_IMAGE_URL_LENGTH =>
-                        {
-                            return Err(CommitValidationError::TooManyCharacters {
-                                length: MAX_GROUP_IMAGE_URL_LENGTH,
-                            });
-                        }
-                        val if val == MetadataField::AppData.as_str()
-                            && new_value.len() > MAX_APP_DATA_LENGTH =>
-                        {
-                            return Err(CommitValidationError::TooManyCharacters {
-                                length: MAX_APP_DATA_LENGTH,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        // On migrated groups the legacy GROUP_PERMISSIONS_EXTENSION_ID
-        // was stripped at bootstrap and stays absent — permission
-        // changes flow as `AppDataUpdate(COMPONENT_REGISTRY)` which
-        // `validate_app_data_update_proposals_in_commit` validates.
-        // Skip the legacy extension diff to avoid `MissingExtension`.
-        let permissions_changed = if is_migrated {
-            false
-        } else {
-            extract_permissions_changed(&group_permissions, new_group_extensions)?
-        };
+        let permissions_changed = false;
         // Get the committer who created the commit and all unique proposers.
         // The committer may differ from the proposers (e.g., when one member commits
         // proposals created by other members).
@@ -717,15 +566,12 @@ impl ValidatedCommit {
         // iterates both) never flow through `validate_proposal()` —
         // that path only handles standalone proposal-by-reference
         // messages — so this is where their permission check lives.
-        // Bootstrap commits are routed earlier in this function and
-        // never reach this path; their dispatch is via
-        // `validate_bootstrap_and_build`.
         validate_app_data_update_proposals_in_commit(
             staged_commit,
             openmls_group,
             &immutable_metadata,
             &mutable_metadata,
-            migrated_registry.as_ref(),
+            &registry,
         )?;
 
         // Get the installations actually added and removed in the commit
@@ -735,7 +581,6 @@ impl ValidatedCommit {
             mut credentials_to_verify,
             added_inbox_proposers,
             removed_inbox_proposers,
-            gce_proposer,
         } = get_proposal_changes(
             staged_commit,
             openmls_group,
@@ -751,8 +596,6 @@ impl ValidatedCommit {
             staged_commit,
             openmls_group,
             envelope_sequence,
-            proposals_enabled,
-            &gce_proposer,
             &added_inbox_proposers,
             &removed_inbox_proposers,
         )?;
@@ -864,13 +707,7 @@ impl ValidatedCommit {
         // and the legacy commit-level policy_set.evaluate_commit
         // would otherwise reject every commit on a migrated group
         // because there's no extension to extract from).
-        let policy_set = if is_migrated {
-            group_permissions.clone()
-        } else {
-            extract_group_permissions(openmls_group)
-                .map_err(CommitValidationError::installed_state)?
-        };
-        if !policy_set.policies.evaluate_commit(&verified_commit) {
+        if !group_permissions.policies.evaluate_commit(&verified_commit) {
             return Err(CommitValidationError::InsufficientPermissions);
         }
         if let Some(min_version) = &verified_commit
@@ -894,18 +731,16 @@ impl ValidatedCommit {
         // Component policies have already checked each authenticated proposer.
         // Build the change summary after authorization, so legacy actor-based
         // checks do not reject a valid proposal committed by another member.
-        if let Some(registry) = migrated_registry.as_ref() {
-            let post_metadata =
-                read_post_commit_mutable_metadata(openmls_group, staged_commit, registry)?;
-            verified_commit.metadata_validation_info =
-                metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
-            verified_commit.permissions_changed =
-                staged_commit.app_data_update_proposals().any(|queued| {
-                    let id = queued.app_data_update_proposal().component_id();
-                    id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY
-                        .as_u16()
-                });
-        }
+        let post_metadata =
+            read_post_commit_mutable_metadata(openmls_group, staged_commit, &registry)?;
+        verified_commit.metadata_validation_info =
+            metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
+        verified_commit.permissions_changed =
+            staged_commit.app_data_update_proposals().any(|queued| {
+                let id = queued.app_data_update_proposal().component_id();
+                id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY
+                    .as_u16()
+            });
         Ok(verified_commit)
     }
 
@@ -946,76 +781,6 @@ impl ValidatedCommit {
     pub fn actor_installation_id(&self) -> Vec<u8> {
         self.actor.installation_id.clone()
     }
-
-    /// Build a `ValidatedCommit` for the one-time AppData-migration
-    /// bootstrap commit.
-    ///
-    /// Bootstrap commits don't add or remove members, don't change the
-    /// per-inbox sequence ids, and don't change the legacy permissions
-    /// (their state is migrated to the AppData dictionary, not
-    /// modified). They're validated against the receiver-derived
-    /// canonical subset and a super-admin proposer requirement; the
-    /// resulting `ValidatedCommit` reports "no diff" on every
-    /// steady-state field so downstream policy evaluation and
-    /// installation-diff checks see a no-op.
-    fn validate_bootstrap_and_build(
-        staged_commit: &StagedCommit,
-        committer_leaf_index: LeafNodeIndex,
-        openmls_group: &OpenMlsGroup,
-        immutable_metadata: GroupMetadata,
-        mutable_metadata: GroupMutableMetadata,
-        own_version: &str,
-    ) -> Result<Self, CommitValidationError> {
-        reject_psk_proposals(staged_commit)?;
-
-        let (actor, proposers) = extract_committer_and_proposers(
-            staged_commit,
-            committer_leaf_index,
-            openmls_group,
-            &immutable_metadata,
-            &mutable_metadata,
-        )?;
-
-        let gce_proposer = super::app_data::bootstrap_validator::extract_gce_proposer(
-            staged_commit,
-            openmls_group,
-            &immutable_metadata,
-            &mutable_metadata,
-        )?
-        .ok_or(CommitValidationError::ProposerNotFound)?;
-
-        // A bootstrap seeding a floor above this client pauses the
-        // group (same variant the steady-state floor checks emit, so
-        // the pause machinery in `mls_sync` applies) rather than
-        // surfacing as an opaque byte-compare `Mismatch` — which
-        // above-floor members wouldn't share, i.e. a fork.
-        super::app_data::bootstrap_validator::validate_bootstrap_commit(
-            staged_commit,
-            openmls_group,
-            &gce_proposer,
-            own_version,
-        )
-        .map_err(|e| {
-            match e {
-            super::app_data::bootstrap_validator::BootstrapValidationError::ProtocolVersionTooLow(
-                min_version,
-            ) => CommitValidationError::ProtocolVersionTooLow(min_version),
-            other => other.into(),
-        }
-        })?;
-
-        Ok(Self {
-            actor,
-            proposers,
-            added_inboxes: Vec::new(),
-            removed_inboxes: Vec::new(),
-            readded_installations: HashSet::new(),
-            metadata_validation_info: MutableMetadataValidationInfo::default(),
-            installations_changed: false,
-            permissions_changed: false,
-            dm_members: immutable_metadata.dm_members,
-        })
-    }
 }
 
 impl From<ValidatedCommit> for GroupMembershipChanges {
@@ -1041,8 +806,6 @@ struct ProposalChanges {
     added_inbox_proposers: HashMap<String, CommitParticipant>,
     /// Maps inbox_id to the proposer who proposed removing it
     removed_inbox_proposers: HashMap<String, CommitParticipant>,
-    /// The proposer of the GCE proposal (if any) - this affects membership changes
-    gce_proposer: Option<CommitParticipant>,
 }
 
 /**
@@ -1062,7 +825,6 @@ fn get_proposal_changes(
     let mut credentials_to_verify: Vec<CommitParticipant> = vec![];
     let mut added_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
     let mut removed_inbox_proposers: HashMap<String, CommitParticipant> = HashMap::new();
-    let mut gce_proposer: Option<CommitParticipant> = None;
 
     for proposal in staged_commit.queued_proposals() {
         // Extract the proposer for this proposal
@@ -1106,10 +868,6 @@ fn get_proposal_changes(
                 removed_installations.insert(installation_id);
                 removed_inbox_proposers.insert(inbox_id, proposer);
             }
-            // For GroupContextExtensions proposals, track the proposer for membership changes
-            Proposal::GroupContextExtensions(_) => {
-                gce_proposer = Some(proposer);
-            }
             _ => continue,
         }
     }
@@ -1120,7 +878,6 @@ fn get_proposal_changes(
         credentials_to_verify,
         added_inbox_proposers,
         removed_inbox_proposers,
-        gce_proposer,
     })
 }
 
@@ -1132,21 +889,6 @@ fn get_proposal_changes(
 fn get_latest_group_membership(
     staged_commit: &StagedCommit,
 ) -> Result<GroupMembership, CommitValidationError> {
-    for proposal in staged_commit.queued_proposals() {
-        match proposal.proposal() {
-            Proposal::GroupContextExtensions(group_context_extensions) => {
-                let new_group_membership: GroupMembership =
-                    extract_group_membership(group_context_extensions.extensions())?;
-                tracing::info!(
-                    "Group context extensions proposal found: {:?}",
-                    new_group_membership
-                );
-                return Ok(new_group_membership);
-            }
-            _ => continue,
-        }
-    }
-
     extract_group_membership(staged_commit.group_context().extensions())
 }
 
@@ -1201,10 +943,6 @@ fn read_post_commit_mutable_metadata(
 fn read_committed_metadata(
     group: &OpenMlsGroup,
 ) -> Result<(GroupMetadata, GroupMutableMetadata), CommitValidationError> {
-    let extensions = group.extensions();
-    if !super::app_data::is_migrated_extensions(extensions) {
-        return Ok((extensions.try_into()?, extensions.try_into()?));
-    }
     let seed = super::app_data::component_source::read_group_metadata_from_dict(group)?
         .ok_or(GroupMetadataError::MissingExtension)?;
     let immutable =
@@ -1246,8 +984,6 @@ impl ExpectedDiff {
         staged_commit: &StagedCommit,
         openmls_group: &OpenMlsGroup,
         envelope_sequence: u64,
-        proposals_enabled: bool,
-        gce_proposer: &Option<CommitParticipant>,
         added_inbox_proposers: &HashMap<String, CommitParticipant>,
         removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<Self, CommitValidationError> {
@@ -1264,8 +1000,6 @@ impl ExpectedDiff {
             extensions,
             &immutable_metadata,
             &mutable_metadata,
-            proposals_enabled,
-            gce_proposer,
             added_inbox_proposers,
             removed_inbox_proposers,
         )?;
@@ -1283,8 +1017,6 @@ impl ExpectedDiff {
         existing_group_extensions: &Extensions<GroupContext>,
         immutable_metadata: &GroupMetadata,
         mutable_metadata: &GroupMutableMetadata,
-        proposals_enabled: bool,
-        gce_proposer: &Option<CommitParticipant>,
         added_inbox_proposers: &HashMap<String, CommitParticipant>,
         removed_inbox_proposers: &HashMap<String, CommitParticipant>,
     ) -> Result<ExpectedDiff, CommitValidationError> {
@@ -1300,38 +1032,23 @@ impl ExpectedDiff {
             &membership_diff,
         )?;
 
-        // For added inboxes, try to find the proposer from:
-        // 1. The original Add proposal proposer for this specific inbox
-        // 2. The GCE proposer (if membership changed via GCE proposal without a direct Add proposal)
-        // When proposals are enabled, a proposer must always be determinable.
         let added_inboxes = membership_diff
             .added_inboxes
             .iter()
             .map(|inbox_id| {
-                // Look up the proposer who proposed adding this specific inbox.
-                // Falls back to the GCE proposer if no direct Add proposal was found
-                // (e.g., membership changed via a GroupContextExtensions proposal).
                 let proposer = added_inbox_proposers
                     .get(inbox_id.as_str())
                     .cloned()
-                    .or_else(|| gce_proposer.clone());
-                match proposer {
-                    Some(p) => Ok(build_inbox_with_proposer(
-                        inbox_id,
-                        immutable_metadata,
-                        mutable_metadata,
-                        p,
-                    )),
-                    None if proposals_enabled => Err(CommitValidationError::ProposerNotFound),
-                    None => Ok(build_inbox(inbox_id, immutable_metadata, mutable_metadata)),
-                }
+                    .ok_or(CommitValidationError::ProposerNotFound)?;
+                Ok(build_inbox_with_proposer(
+                    inbox_id,
+                    immutable_metadata,
+                    mutable_metadata,
+                    proposer,
+                ))
             })
             .collect::<Result<Vec<Inbox>, CommitValidationError>>()?;
 
-        // For removed inboxes, try to find the proposer from:
-        // 1. The original Remove proposal proposer for this specific inbox
-        // 2. The GCE proposer (if membership changed via GCE proposal without a direct Remove proposal)
-        // When proposals are enabled, a proposer must always be determinable.
         let removed_inboxes = membership_diff
             .removed_inboxes
             .iter()
@@ -1339,17 +1056,13 @@ impl ExpectedDiff {
                 let proposer = removed_inbox_proposers
                     .get(inbox_id.as_str())
                     .cloned()
-                    .or_else(|| gce_proposer.clone());
-                match proposer {
-                    Some(p) => Ok(build_inbox_with_proposer(
-                        inbox_id,
-                        immutable_metadata,
-                        mutable_metadata,
-                        p,
-                    )),
-                    None if proposals_enabled => Err(CommitValidationError::ProposerNotFound),
-                    None => Ok(build_inbox(inbox_id, immutable_metadata, mutable_metadata)),
-                }
+                    .ok_or(CommitValidationError::ProposerNotFound)?;
+                Ok(build_inbox_with_proposer(
+                    inbox_id,
+                    immutable_metadata,
+                    mutable_metadata,
+                    proposer,
+                ))
             })
             .collect::<Result<Vec<Inbox>, CommitValidationError>>()?;
 
@@ -1834,31 +1547,16 @@ pub(super) fn app_data_update_proposer_leaf(
 ///
 /// # Registry semantics
 ///
-/// `preloaded_registry`, when `Some`, is the **pre-commit**
-/// `COMPONENT_REGISTRY` — the same view used by
-/// [`super::app_data::component_source::read_post_commit_component_bytes`]
-/// and any other per-component check on this commit. Pre-commit (not
-/// post-commit) is the documented convention across the migrated commit
-/// path: registry mutations and writes that depend on those mutations
-/// MUST land in separate commits. Bootstrap commits are the only
-/// "register + write in the same commit" legitimate pattern and route
-/// through a dedicated validator instead.
-///
-/// `None` defers the registry load to this function, which only
-/// materializes it lazily after a peek confirms at least one
-/// `AppDataUpdate` proposal exists. The split lets the caller share a
-/// single registry across this helper and
-/// `read_post_commit_component_bytes` on the migrated branch, while
-/// unmigrated callers (or commits with zero `AppDataUpdate` proposals)
-/// pay zero load cost.
+/// `registry` is the committed registry shared with the other component checks.
+/// Registry changes and writes that depend on them must use separate commits.
 fn validate_app_data_update_proposals_in_commit(
     staged_commit: &StagedCommit,
     openmls_group: &OpenMlsGroup,
     immutable_metadata: &GroupMetadata,
     mutable_metadata: &GroupMutableMetadata,
-    preloaded_registry: Option<&xmtp_mls_common::app_data::component_registry::ComponentRegistry>,
+    registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
 ) -> Result<(), CommitValidationError> {
-    use super::app_data::{component_source::read_from_app_data_dict, load_component_registry};
+    use super::app_data::component_source::read_from_app_data_dict;
     use std::collections::HashMap;
     use xmtp_mls_common::app_data::{
         component_id::ComponentId, registry_table::lookup_component, validation::ActorAuthority,
@@ -1880,19 +1578,6 @@ fn validate_app_data_update_proposals_in_commit(
     if proposals.peek().is_none() {
         return Ok(());
     }
-
-    // Use the caller's pre-loaded registry when available; otherwise
-    // load lazily. `owned_registry` keeps the loaded value alive for
-    // the `registry` borrow.
-    let owned_registry;
-    let registry = match preloaded_registry {
-        Some(r) => r,
-        None => {
-            owned_registry = load_component_registry(openmls_group)
-                .map_err(CommitValidationError::installed_state)?;
-            &owned_registry
-        }
-    };
 
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
@@ -1992,82 +1677,22 @@ pub(super) fn extract_commit_participant(
     }
 }
 
-/// Get the [`GroupMembership`] from a `GroupContext` struct.
-///
-/// Post-migration the legacy `GROUP_MEMBERSHIP_EXTENSION_ID` is gone —
-/// we reconstruct from the AppData dictionary's `GROUP_MEMBERSHIP`
-/// component. Pre-migration the legacy extension is authoritative.
+/// Get [`GroupMembership`] from the AppData dictionary.
 #[tracing::instrument(level = "trace", skip_all)]
 pub fn extract_group_membership(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMembership, CommitValidationError> {
-    if let Some(proto) = super::app_data::component_source::read_group_membership_from_dict(
-        extensions,
-    )
-    .map_err(|e| {
-        CommitValidationError::GroupMutableMetadata(
-            xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
-        )
-    })? {
-        // Proto and `GroupMembership` carry the same two fields; build
-        // directly to skip a wasteful `encode → decode` round-trip
-        // through `try_from(bytes)`.
-        return Ok(GroupMembership {
-            members: proto.members,
-            failed_installations: proto.failed_installations,
-        });
-    }
-
-    for extension in extensions.iter() {
-        if let Extension::Unknown(
-            xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
-            UnknownExtension(group_membership),
-        ) = extension
-        {
-            return Ok(GroupMembership::try_from(group_membership.clone())?);
-        }
-    }
-
-    Err(CommitValidationError::MissingGroupMembership)
-}
-
-/**
- * Extracts the changes to the mutable metadata in the commit.
- *
- * Returns an error if the extension is not found in either the old or new group context.
- */
-fn extract_metadata_changes(
-    immutable_metadata: &GroupMetadata,
-    // We already have the old mutable metadata, so save parsing it a second time
-    old_mutable_metadata: &GroupMutableMetadata,
-    old_group_extensions: &Extensions<GroupContext>,
-    new_group_extensions: &Extensions<GroupContext>,
-) -> Result<MutableMetadataValidationInfo, CommitValidationError> {
-    let old_mutable_metadata_ext = find_mutable_metadata_extension(old_group_extensions)
-        .ok_or(CommitValidationError::MissingMutableMetadata)?;
-    let new_mutable_metadata_ext = find_mutable_metadata_extension(new_group_extensions)
-        .ok_or(CommitValidationError::MissingMutableMetadata)?;
-
-    // Before even decoding the new metadata, make sure that something has changed. Otherwise we know there is
-    // nothing to do
-    if old_mutable_metadata_ext.eq(new_mutable_metadata_ext) {
-        let minimum_supported_protocol_version: Option<String> = old_mutable_metadata
-            .attributes
-            .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
-            .map(|s| s.to_string());
-        return Ok(MutableMetadataValidationInfo {
-            minimum_supported_protocol_version,
-            ..Default::default()
-        });
-    }
-
-    let new_mutable_metadata: GroupMutableMetadata = new_mutable_metadata_ext.try_into()?;
-
-    Ok(metadata_changes_between(
-        immutable_metadata,
-        old_mutable_metadata,
-        &new_mutable_metadata,
-    ))
+    let proto = super::app_data::component_source::read_group_membership_from_dict(extensions)
+        .map_err(|e| {
+            CommitValidationError::GroupMutableMetadata(
+                xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+            )
+        })?
+        .ok_or(CommitValidationError::MissingGroupMembership)?;
+    Ok(GroupMembership {
+        members: proto.members,
+        failed_installations: proto.failed_installations,
+    })
 }
 
 fn metadata_changes_between(
@@ -2110,29 +1735,6 @@ fn metadata_changes_between(
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str())
             .map(|s| s.to_string()),
     }
-}
-
-// Returns true if the permissions have changed, false otherwise
-fn extract_permissions_changed(
-    old_group_permissions: &GroupMutablePermissions,
-    new_group_extensions: &Extensions<GroupContext>,
-) -> Result<bool, CommitValidationError> {
-    let new_group_permissions: GroupMutablePermissions = new_group_extensions.try_into()?;
-    Ok(!old_group_permissions.eq(&new_group_permissions))
-}
-
-fn find_unknown_extension(
-    extensions: &Extensions<GroupContext>,
-    extension_type: u16,
-) -> Option<&Vec<u8>> {
-    extensions.iter().find_map(|extension| {
-        if let Extension::Unknown(id, UnknownExtension(bytes)) = extension
-            && *id == extension_type
-        {
-            return Some(bytes);
-        }
-        None
-    })
 }
 
 /**
@@ -2395,128 +1997,7 @@ pub fn validate_proposal(
                 return Err(CommitValidationError::InsufficientPermissions);
             }
         }
-        Proposal::GroupContextExtensions(gce_proposal) => {
-            if super::app_data::is_migrated_group(openmls_group) {
-                return Err(unsupported_error());
-            }
-            let existing_extensions = openmls_group.extensions();
-            let new_extensions = gce_proposal.extensions();
-
-            // Check for mutable metadata changes (group name, admin list, etc.)
-            let old_meta = find_mutable_metadata_extension(existing_extensions);
-            let new_meta = find_mutable_metadata_extension(new_extensions);
-            if old_meta.is_some() && new_meta.is_none() {
-                tracing::warn!(
-                    proposer_inbox_id = %proposer.inbox_id,
-                    "GCE proposal rejected: cannot remove mutable metadata extension"
-                );
-                return Err(CommitValidationError::InsufficientPermissions);
-            }
-            if let (Some(old_meta), Some(new_meta)) = (old_meta, new_meta)
-                && old_meta != new_meta
-            {
-                let metadata_changes = extract_metadata_changes(
-                    immutable_metadata,
-                    mutable_metadata,
-                    existing_extensions,
-                    new_extensions,
-                )?;
-
-                for change in &metadata_changes.metadata_field_changes {
-                    if let Some(policy) = policy_set.update_metadata_policy.get(&change.field_name)
-                        && !policy.evaluate(&proposer, change)
-                    {
-                        tracing::warn!(
-                            proposer_inbox_id = %proposer.inbox_id,
-                            field = %change.field_name,
-                            "GCE proposal rejected: no permission to update metadata field"
-                        );
-                        return Err(CommitValidationError::InsufficientPermissions);
-                    }
-                }
-
-                if !metadata_changes.admins_added.is_empty()
-                    && !policy_set.add_admin_policy.evaluate(&proposer)
-                {
-                    tracing::warn!(
-                        proposer_inbox_id = %proposer.inbox_id,
-                        "GCE proposal rejected: no permission to add admins"
-                    );
-                    return Err(CommitValidationError::InsufficientPermissions);
-                }
-                if !metadata_changes.admins_removed.is_empty()
-                    && !policy_set.remove_admin_policy.evaluate(&proposer)
-                {
-                    tracing::warn!(
-                        proposer_inbox_id = %proposer.inbox_id,
-                        "GCE proposal rejected: no permission to remove admins"
-                    );
-                    return Err(CommitValidationError::InsufficientPermissions);
-                }
-
-                if (!metadata_changes.super_admins_added.is_empty()
-                    || !metadata_changes.super_admins_removed.is_empty())
-                    && !proposer.is_super_admin
-                {
-                    tracing::warn!(
-                        proposer_inbox_id = %proposer.inbox_id,
-                        "GCE proposal rejected: only super admins can modify super admin list"
-                    );
-                    return Err(CommitValidationError::InsufficientPermissions);
-                }
-            }
-
-            // Check for permission changes (only super admin can
-            // change permissions). On migrated groups the legacy
-            // GROUP_PERMISSIONS, MUTABLE_METADATA, and GROUP_MEMBERSHIP
-            // extensions are all stripped at bootstrap; their state
-            // lives in the AppData dictionary and changes flow as
-            // `AppDataUpdate` proposals validated against the dict's
-            // policy entries. A GCE proposal that (re-)introduces any
-            // of these legacy extensions on a migrated group is
-            // therefore unconditionally rejected — otherwise a
-            // non-super-admin peer could smuggle an arbitrary policy
-            // set, metadata change, or membership view through the
-            // legacy extension because the post-migration check below
-            // would have nothing to diff against.
-            let migrated_for_perms = super::app_data::is_migrated_extensions(existing_extensions);
-            if migrated_for_perms {
-                for (ext_id, ext_name) in [
-                    (
-                        xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID,
-                        "GROUP_PERMISSIONS",
-                    ),
-                    (
-                        xmtp_configuration::MUTABLE_METADATA_EXTENSION_ID,
-                        "MUTABLE_METADATA",
-                    ),
-                    (
-                        xmtp_configuration::GROUP_MEMBERSHIP_EXTENSION_ID,
-                        "GROUP_MEMBERSHIP",
-                    ),
-                ] {
-                    if find_unknown_extension(new_extensions, ext_id).is_some() {
-                        tracing::warn!(
-                            proposer_inbox_id = %proposer.inbox_id,
-                            extension = ext_name,
-                            "GCE proposal rejected: legacy extension cannot be (re-)added to a migrated group"
-                        );
-                        return Err(CommitValidationError::InsufficientPermissions);
-                    }
-                }
-            } else {
-                let old_permissions: GroupMutablePermissions = existing_extensions.try_into()?;
-                if !proposer.is_super_admin
-                    && let Ok(true) = extract_permissions_changed(&old_permissions, new_extensions)
-                {
-                    tracing::warn!(
-                        proposer_inbox_id = %proposer.inbox_id,
-                        "GCE proposal rejected: only super admins can change permissions"
-                    );
-                    return Err(CommitValidationError::InsufficientPermissions);
-                }
-            }
-        }
+        Proposal::GroupContextExtensions(_) => return Err(unsupported_error()),
         Proposal::Update(update_proposal) => {
             // Update proposals are allowed for the member themselves, but the new leaf node's
             // credential must match the proposer's identity to prevent identity swaps.

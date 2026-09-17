@@ -119,17 +119,6 @@ impl TryFrom<GroupMetadataProto> for GroupMetadata {
     }
 }
 
-impl TryFrom<&Extensions<GroupContext>> for GroupMetadata {
-    type Error = GroupMetadataError;
-
-    fn try_from(extensions: &Extensions<GroupContext>) -> Result<Self, Self::Error> {
-        let data = extensions
-            .immutable_metadata()
-            .ok_or(GroupMetadataError::MissingExtension)?;
-        data.metadata().try_into()
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct DmMembers<Id: AsRef<str>> {
     pub member_one_inbox_id: Id,
@@ -217,54 +206,33 @@ impl TryFrom<DmMembersProto> for DmMembers<InboxId> {
 /// Extract `GroupMetadata` from a group context.
 ///
 /// **Capability-aware.** On migrated groups (post-bootstrap, where the
-/// AppData dictionary contains the canonical `COMPONENT_REGISTRY` entry)
-/// the metadata is reconstructed from the dict's `CONVERSATION_TYPE`,
+/// The AppData dictionary contains the canonical `COMPONENT_REGISTRY` entry.
+/// The metadata is reconstructed from the dictionary's `CONVERSATION_TYPE`,
 /// `CREATOR_INBOX_ID`, `DM_MEMBERS`, and `ONESHOT_MESSAGE` components.
-/// On unmigrated groups it is read from the legacy `ImmutableMetadata`
-/// MLS extension. Callers don't need to know which path applies.
 pub fn extract_group_metadata(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMetadata, GroupMetadataError> {
-    if let Some(metadata) = read_group_metadata_from_dict(extensions)? {
-        return Ok(metadata);
-    }
-
-    let extension = extensions
-        .immutable_metadata()
-        .ok_or(GroupMetadataError::MissingExtension)?;
-
-    extension.metadata().try_into()
+    read_group_metadata_from_dict(extensions)
 }
 
-/// Read `GroupMetadata` from the AppData dictionary on a migrated group.
-///
-/// Returns `Ok(None)` for unmigrated groups (no `COMPONENT_REGISTRY`
-/// entry in the dict, or no AppData dictionary at all) so the caller
-/// can fall back to the legacy `ImmutableMetadata` extension. Returns
-/// `Err` only on a malformed dict entry on a group that *is* migrated.
+/// Read `GroupMetadata` from the AppData dictionary.
 fn read_group_metadata_from_dict(
     extensions: &Extensions<GroupContext>,
-) -> Result<Option<GroupMetadata>, GroupMetadataError> {
+) -> Result<GroupMetadata, GroupMetadataError> {
     use crate::app_data::component_id::ComponentId;
     use crate::inbox_id::InboxId as DictInboxId;
     use crate::tls_set::TlsSet;
     use tls_codec::Deserialize;
 
-    let Some(ext) = extensions.app_data_dictionary() else {
-        return Ok(None);
-    };
+    let ext = extensions
+        .app_data_dictionary()
+        .ok_or(GroupMetadataError::MissingExtension)?;
     let dict = ext.dictionary();
 
-    // Use COMPONENT_REGISTRY presence as the post-bootstrap marker. A
-    // pre-bootstrap group should never carry a stray dict entry that
-    // shadows the legacy extension.
     if !dict.contains(&ComponentId::COMPONENT_REGISTRY.as_u16()) {
-        return Ok(None);
+        return Err(GroupMetadataError::MissingExtension);
     }
 
-    // On a migrated group these two are required. Falling back to the
-    // legacy `ImmutableMetadata` extension would mean trusting a stale
-    // (or absent) value, so surface the malformed dict instead.
     let Some(ct_bytes) = dict.get(&ComponentId::CONVERSATION_TYPE.as_u16()) else {
         return Err(GroupMetadataError::Conversion(
             xmtp_proto::ConversionError::Missing {
@@ -324,19 +292,19 @@ fn read_group_metadata_from_dict(
         None => None,
     };
 
-    Ok(Some(GroupMetadata {
+    Ok(GroupMetadata {
         conversation_type,
         creator_inbox_id,
         dm_members,
         oneshot_message,
-    }))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn test_dm_members_sort() {
         let members = DmMembers {
             member_one_inbox_id: "thats_me".to_string(),

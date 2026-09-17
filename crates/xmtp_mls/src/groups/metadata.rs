@@ -532,80 +532,33 @@ where
 
     /// Retrieves the admin list of the group from the group's mutable metadata extension.
     ///
-    /// Element order: on migrated groups the dict-backed `TlsSet<InboxId>`
-    /// is iterated in sorted-by-raw-bytes order. On unmigrated groups
-    /// the legacy `GroupMutableMetadata.admin_list` is returned in its
-    /// stored (insertion) order. Both contracts pre-date this refactor;
-    /// preserving each side avoids surprising binding consumers that
-    /// rely on the pre-migration order.
+    /// The dictionary-backed `TlsSet<InboxId>` is iterated in sorted raw-byte
+    /// order.
     pub fn admin_list(&self) -> Result<Vec<String>, GroupError> {
-        self.read_admin_set_preserving_legacy_order(AdminListKind::Admin)
+        self.read_admin_set(AdminListKind::Admin)
     }
 
     /// Retrieves the super admin list of the group from the group's mutable metadata extension.
     ///
     /// Same ordering contract as [`Self::admin_list`].
     pub fn super_admin_list(&self) -> Result<Vec<String>, GroupError> {
-        self.read_admin_set_preserving_legacy_order(AdminListKind::SuperAdmin)
+        self.read_admin_set(AdminListKind::SuperAdmin)
     }
 
-    fn read_admin_set_preserving_legacy_order(
-        &self,
-        kind: AdminListKind,
-    ) -> Result<Vec<String>, GroupError> {
+    fn read_admin_set(&self, kind: AdminListKind) -> Result<Vec<String>, GroupError> {
         let ctx = self.load_group_context()?;
         let extensions = ctx.extensions();
-        if self::app_data::is_migrated_extensions(extensions) {
-            let facade = self::app_data::typed_facade::MlsGroupAppData::new(extensions);
-            let set = match kind {
-                AdminListKind::Admin => facade.get::<AdminListComponent>(),
-                AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
-            }
-            .map_err(|e| {
-                GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(e))
-            })?;
-            Ok(set
-                .map(|s| s.iter().map(|id| id.to_hex()).collect())
-                .unwrap_or_default())
-        } else {
-            // Unmigrated: return the Vec<String> straight from the legacy GMM
-            // extension so callers keep their pre-migration insertion order.
-            // Propagate decode errors (e.g. a corrupted legacy GMM extension)
-            // via the same `MetadataPermissionsError::Mutable(...)` shape that
-            // pre-refactor `mutable_metadata()?.admin_list` produced — a soft
-            // `.ok()` here would convert a loud failure into silent "no admins"
-            // data corruption. `MissingExtension` is the legacy "no extension on
-            // the group" case and remains the soft-skip → empty Vec contract.
-            let metadata = match xmtp_mls_common::group_mutable_metadata::extract_legacy_group_mutable_metadata_from_extensions(
-                extensions,
-            ) {
-                Ok(m) => Some(m),
-                Err(xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::MissingExtension) => {
-                    // Expected on very old groups created before the legacy GMM
-                    // extension existed; logged at debug to give operators
-                    // visibility without spamming warn on a legitimate state. An
-                    // empty list is the contract callers expect (admin_list /
-                    // super_admin_list return `Ok(vec![])` here, not `Err`).
-                    tracing::debug!(
-                        group_id = %self.group_id,
-                        kind = ?kind,
-                        "unmigrated group has no legacy GroupMutableMetadata extension; returning empty admin set"
-                    );
-                    None
-                }
-                Err(e) => {
-                    return Err(GroupError::MetadataPermissionsError(
-                        MetadataPermissionsError::Mutable(e),
-                    ));
-                }
-            };
-            Ok(metadata
-                .map(|m| match kind {
-                    AdminListKind::Admin => m.admin_list,
-                    AdminListKind::SuperAdmin => m.super_admin_list,
-                })
-                .unwrap_or_default())
+        let facade = self::app_data::typed_facade::MlsGroupAppData::new(extensions);
+        let set = match kind {
+            AdminListKind::Admin => facade.get::<AdminListComponent>(),
+            AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
         }
+        .map_err(|e| {
+            GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(e))
+        })?;
+        Ok(set
+            .map(|s| s.iter().map(|id| id.to_hex()).collect())
+            .unwrap_or_default())
     }
 
     /// Checks if the given inbox ID is an admin of the group at the most recently synced epoch.
@@ -626,27 +579,10 @@ where
         mls_group: &OpenMlsGroup,
         inbox_id: String,
     ) -> Result<bool, GroupMutableMetadataError> {
-        // On migrated groups, the legacy GMM extension is gone — read
-        // SUPER_ADMIN_LIST from the AppData dict. A missing dict
-        // entry on a migrated group is treated as "no super-admins":
-        // falling through to `GroupMutableMetadata::try_from(mls_group)`
-        // would hit `MissingExtension` because bootstrap has already
-        // stripped the legacy GMM. Today bootstrap always seeds an
-        // (empty or populated) `SUPER_ADMIN_LIST` entry so the `None`
-        // branch is defensive, but the explicit handling keeps the
-        // read-side safe against any future weakening of that
-        // invariant.
-        //
-        // On unmigrated groups we fall back to the legacy GMM
-        // extension — that path is unchanged.
-        if self::app_data::is_migrated_group(mls_group) {
-            let list = self::app_data::component_source::read_super_admin_list_from_dict(mls_group)
-                .map_err(GroupMutableMetadataError::from)?
-                .unwrap_or_default();
-            return Ok(list.contains(&inbox_id));
-        }
-        let mutable_metadata = GroupMutableMetadata::try_from(mls_group)?;
-        Ok(mutable_metadata.super_admin_list.contains(&inbox_id))
+        let list = self::app_data::component_source::read_super_admin_list_from_dict(mls_group)
+            .map_err(GroupMutableMetadataError::from)?
+            .unwrap_or_default();
+        Ok(list.contains(&inbox_id))
     }
 
     /// Retrieves the conversation type of the group from the group's metadata extension.

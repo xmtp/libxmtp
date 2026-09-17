@@ -1,17 +1,12 @@
 use super::{
-    FailedInstallationIds, GroupError, HmacKey, MlsGroup, build_extensions_for_admin_lists_update,
-    build_extensions_for_metadata_update, build_extensions_for_permissions_update,
-    build_group_membership_extension,
+    FailedInstallationIds, GroupError, HmacKey, MlsGroup,
     change_callbacks::AppDataChange,
-    group_permissions::extract_group_permissions,
     intents::{
         CommitPendingProposalsIntentData, Installation, IntentError, PostCommitAction,
-        ProposeGroupContextExtensionsIntentData, ProposeMemberUpdateIntentData,
-        SendMessageIntentData, SendWelcomesAction, UpdateAdminListIntentData,
-        UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
+        ProposeMemberUpdateIntentData, SendMessageIntentData, SendWelcomesAction,
+        UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
-    update_required_capabilities_for_proposals,
     validated_commit::{
         CommitValidationError, LibXMTPVersion, extract_group_membership, validate_proposal,
     },
@@ -53,7 +48,7 @@ use openmls::{
     key_packages::KeyPackage,
     messages::proposals::Proposal,
     prelude::{
-        ExtensionType, Extensions, LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage,
+        Extensions, LeafNodeIndex, MlsGroup as OpenMlsGroup, ProcessedMessage,
         ProcessedMessageContent, ProposalType, Sender,
         tls_codec::{Error as TlsCodecError, Serialize},
     },
@@ -100,7 +95,6 @@ use xmtp_db::{
     pending_remove::{PendingRemove, QueryPendingRemove},
 };
 use xmtp_id::{InboxId, InboxIdRef};
-use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,

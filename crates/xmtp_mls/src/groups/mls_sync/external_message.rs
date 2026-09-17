@@ -106,45 +106,30 @@ where
         ) {
             return Err(CommitValidationError::ProtocolVersionTooLow(version).into());
         }
-        if !self.proposals_enabled(group)
-            && proposal.proposal().proposal_type() != ProposalType::GroupContextExtensions
-        {
-            return Err(CommitValidationError::ProposalsNotEnabled.into());
-        }
-        let migrated = crate::groups::app_data::is_migrated_group(group);
-        let policies = if migrated {
+        let policies =
             crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())
                 .map_err(|error| {
                     CommitValidationError::installed_state(
                         CommitValidationError::GroupMutablePermissions(error),
                     )
-                })?
-        } else {
-            extract_group_permissions(group).map_err(CommitValidationError::installed_state)?
-        };
-        let immutable = if migrated {
-            let seed =
-                crate::groups::app_data::component_source::read_group_metadata_from_dict(group)
-                    .map_err(CommitValidationError::installed_state)?
-                    .ok_or_else(|| {
-                        CommitValidationError::installed_state(
-                            xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
-                        )
-                    })?;
-            xmtp_mls_common::group_metadata::GroupMetadata::try_from(
-                xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
-                    conversation_type: seed.conversation_type,
-                    creator_inbox_id: seed.creator_inbox_id,
-                    creator_account_address: String::new(),
-                    dm_members: seed.dm_members,
-                    oneshot_message: seed.oneshot,
-                },
-            )
+                })?;
+        let seed = crate::groups::app_data::component_source::read_group_metadata_from_dict(group)
             .map_err(CommitValidationError::installed_state)?
-        } else {
-            extract_group_metadata(group.extensions())
-                .map_err(CommitValidationError::installed_state)?
-        };
+            .ok_or_else(|| {
+                CommitValidationError::installed_state(
+                    xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
+                )
+            })?;
+        let immutable = xmtp_mls_common::group_metadata::GroupMetadata::try_from(
+            xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
+                conversation_type: seed.conversation_type,
+                creator_inbox_id: seed.creator_inbox_id,
+                creator_account_address: String::new(),
+                dm_members: seed.dm_members,
+                oneshot_message: seed.oneshot,
+            },
+        )
+        .map_err(CommitValidationError::installed_state)?;
         let mutable =
             crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 group,

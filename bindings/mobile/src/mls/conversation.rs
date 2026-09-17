@@ -428,20 +428,10 @@ impl FfiConversation {
         Ok(app_data)
     }
 
-    /// Whether this group has migrated to AppData-proposal-based
-    /// metadata updates (the `AppDataDictionary` group-context
-    /// extension is present). `false` means the group is still on
-    /// the legacy GroupContextExtensions path.
-    ///
-    /// Prefer this semantic bool over scanning
-    /// [`FfiGroupMembershipCapabilities::context_extensions`] for
-    /// `AppDataDictionary` — the capabilities snapshot answers
-    /// "which members block migration", not "is this group migrated",
-    /// and the marker extension is an internal protocol detail.
-    /// Mirrors `proposalsEnabled` on the wasm and node bindings.
+    /// Proposals are available on every group at creation.
     #[tracing::instrument(level = "debug", skip_all)]
     pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
-        Ok(self.inner.is_proposals_enabled()?)
+        Ok(true)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

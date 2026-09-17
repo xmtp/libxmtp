@@ -211,10 +211,18 @@ pub fn synthesize_canonical_subset_for_validation(
 pub fn synthesize_canonical_subset_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<CanonicalBootstrapExpectation, MigrationError> {
-    let gmm: crate::group_mutable_metadata::GroupMutableMetadata = extensions.try_into()?;
+    let gmm = crate::group_mutable_metadata::GroupMutableMetadata::try_from(
+        crate::group_mutable_metadata::find_mutable_metadata_extension(extensions)
+            .ok_or(crate::group_mutable_metadata::GroupMutableMetadataError::MissingExtension)?,
+    )?;
     let registry = synthesize_registry_from_extensions(extensions)?;
     let legacy_membership = extract_legacy_group_membership(extensions)?;
-    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
+    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(
+        extensions
+            .immutable_metadata()
+            .ok_or(crate::group_metadata::GroupMetadataError::MissingExtension)?
+            .metadata(),
+    )?;
 
     let mut strict: BTreeMap<ComponentId, (AppDataUpdateOperationType, Vec<u8>)> = BTreeMap::new();
 
@@ -360,7 +368,12 @@ fn synthesize_registry_from_extensions(
 ) -> Result<ComponentRegistry, MigrationError> {
     let policy_set = extract_legacy_policy_set(extensions)?;
 
-    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(extensions)?;
+    let legacy_metadata = crate::group_metadata::GroupMetadata::try_from(
+        extensions
+            .immutable_metadata()
+            .ok_or(crate::group_metadata::GroupMetadataError::MissingExtension)?
+            .metadata(),
+    )?;
     build_registry(
         &policy_set,
         legacy_metadata.dm_members.is_some(),

@@ -199,48 +199,24 @@ where
 
     /// Get the `GroupMetadata` of the group.
     ///
-    /// On migrated groups the legacy immutable-metadata extension has
-    /// been removed; synthesize from dict (CONVERSATION_TYPE,
-    /// CREATOR_INBOX_ID, DM_MEMBERS, ONESHOT_MESSAGE). On unmigrated
-    /// groups, the legacy extension is authoritative.
-    ///
-    /// Migrated-but-no-seeds is treated as a hard error rather than
-    /// falling through to the legacy extension — the bootstrap commit
-    /// strips the legacy `GroupContextExtension`, so falling through
-    /// would surface an unrelated `MissingExtension` from the legacy
-    /// path. Returning `MissingExtension` directly here keeps the
-    /// failure shape callers already handle while making the
-    /// "incomplete migration" condition explicit at the originating
-    /// site.
+    /// The AppData dictionary contains CONVERSATION_TYPE,
+    /// CREATOR_INBOX_ID, DM_MEMBERS, and ONESHOT_MESSAGE.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.with_group_snapshot(|mls_group| {
-            if self::app_data::is_migrated_group(mls_group) {
-                let seed =
-                    self::app_data::component_source::read_group_metadata_from_dict(mls_group)
-                        .map_err(MetadataPermissionsError::from)?
-                        .ok_or_else(|| {
-                            MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
-                        })?;
-                use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
-                // `creator_account_address` has been `""` on the
-                // legacy write path since long before this migration
-                // (see the `TODO: remove from proto` note in
-                // `xmtp_mls_common::group_metadata`). The field is
-                // effectively dead — no consumer reads it — so the
-                // migrated synthesis keeps it empty to match legacy
-                // bytes exactly.
-                let proto = GroupMetadataProto {
-                    conversation_type: seed.conversation_type,
-                    creator_inbox_id: seed.creator_inbox_id,
-                    creator_account_address: String::new(),
-                    dm_members: seed.dm_members,
-                    oneshot_message: seed.oneshot,
-                };
-                return Ok(GroupMetadata::try_from(proto).map_err(MetadataPermissionsError::from)?);
-            }
-            extract_group_metadata(mls_group.extensions())
-                .map_err(MetadataPermissionsError::from)
-                .map_err(Into::into)
+            let seed = self::app_data::component_source::read_group_metadata_from_dict(mls_group)
+                .map_err(MetadataPermissionsError::from)?
+                .ok_or_else(|| {
+                    MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
+                })?;
+            use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
+            let proto = GroupMetadataProto {
+                conversation_type: seed.conversation_type,
+                creator_inbox_id: seed.creator_inbox_id,
+                creator_account_address: String::new(),
+                dm_members: seed.dm_members,
+                oneshot_message: seed.oneshot,
+            };
+            Ok(GroupMetadata::try_from(proto).map_err(MetadataPermissionsError::from)?)
         })
     }
 
@@ -264,20 +240,7 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     ///
-    /// Post-migration (dict contains `COMPONENT_REGISTRY` — see
-    /// [`self::app_data::is_migrated_group`]) the legacy GMM extension
-    /// is gone; we start with an empty base and
-    /// `merge_app_data_into_mutable_metadata` populates every field
-    /// from the AppData dict. Pre-migration we read the legacy GMM
-    /// extension authoritatively. The overlay helper itself also
-    /// checks the migration marker (defense in depth), so a stray
-    /// dict entry on a pre-bootstrap group can't silently shadow
-    /// legacy values.
-    ///
-    /// Intentionally distinct from `proposals_enabled`: a group can
-    /// have `proposals_enabled == true` but not yet have completed
-    /// its bootstrap commit, during which window the legacy GMM is
-    /// still authoritative.
+    /// The AppData dictionary contains all mutable metadata.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use self::app_data::component_source::ComponentSourceError;
         let ctx = self.load_group_context()?;
@@ -285,11 +248,6 @@ where
             ctx.extensions(),
         )
         .map_err(|e| match e {
-            // Inner `GroupMutableMetadataError` originates from the legacy
-            // `TryFrom<&Extensions>` path on unmigrated groups; the
-            // `From<ComponentSourceError>` impl preserves it verbatim so binding
-            // consumers that pattern-match on `MetadataPermissionsError::Mutable`
-            // keep lighting up on `MissingExtension`.
             ComponentSourceError::GroupMutableMetadata(inner) => {
                 GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))
             }
@@ -322,23 +280,11 @@ where
         })
     }
 
-    /// Returns the legacy permissions projection for this group.
-    ///
-    /// In a migrated group, this includes metadata update policies and the
-    /// four registry action policies. It does not expose metadata insert or
-    /// delete policies, `GROUP_MEMBERSHIP` update policy, or custom and
-    /// external components. Permission-update enforcement remains hardcoded;
-    /// its reported value is always super-admin-only.
+    /// Returns the permissions projection for this group.
     pub fn permissions(&self) -> Result<GroupMutablePermissions, GroupError> {
         let ctx = self.load_group_context()?;
-        if self::app_data::is_migrated_extensions(ctx.extensions()) {
-            self::group_permissions::policy_set_from_dictionary(ctx.extensions())
-                .map_err(|error| MetadataPermissionsError::from(error).into())
-        } else {
-            ctx.extensions()
-                .try_into()
-                .map_err(|error| MetadataPermissionsError::from(error).into())
-        }
+        self::group_permissions::policy_set_from_dictionary(ctx.extensions())
+            .map_err(|error| MetadataPermissionsError::from(error).into())
     }
 
     /// Capability-aware single-component read.
@@ -350,18 +296,11 @@ where
     /// the full `GroupMutableMetadata` composite parse that a naive read would
     /// run on every call.
     ///
-    /// Returns `Ok(None)` when the component has no stored value
-    /// (legacy GMM attribute missing on unmigrated groups, or dict slot
-    /// absent on migrated groups).
+    /// Returns `Ok(None)` when the dictionary has no stored value.
     ///
-    /// Preserves the pre-refactor `GroupError::MetadataPermissionsError(...)`
-    /// shape that `self.mutable_metadata()` produced. For the corrupted-
-    /// legacy-GMM case the inner `GroupMutableMetadataError` is peeled
-    /// out of `ComponentSourceError::GroupMutableMetadata(...)` and
-    /// surfaced as `MetadataPermissionsError::Mutable(inner)`, matching
-    /// what binding consumers used to see. Other `ComponentSourceError`
-    /// variants (TLS codec, set/map apply failures) surface as
-    /// `MetadataPermissionsError::ComponentSource(other)`.
+    /// `ComponentSourceError::GroupMutableMetadata` maps to
+    /// `MetadataPermissionsError::Mutable`. Other component-source errors map
+    /// to `MetadataPermissionsError::ComponentSource`.
     pub(in crate::groups) fn read_single_component<C>(&self) -> Result<Option<C::Value>, GroupError>
     where
         C: xmtp_mls_common::app_data::typed::Component,

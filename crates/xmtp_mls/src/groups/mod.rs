@@ -32,8 +32,8 @@ pub use welcomes::*;
 pub use self::group_permissions::PreconfiguredPolicies;
 use self::{
     group_membership::GroupMembership,
+    group_permissions::GroupMutablePermissions,
     group_permissions::PolicySet,
-    group_permissions::{GroupMutablePermissions, extract_group_permissions},
     intents::{
         AdminListActionType, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdateMetadataIntentData, UpdatePermissionIntentData,
@@ -65,7 +65,7 @@ use openmls::{
     extensions::{
         Extension, ExtensionType, Extensions, RequiredCapabilitiesExtension, UnknownExtension,
     },
-    group::{GroupContext, MlsGroupCreateConfig},
+    group::MlsGroupCreateConfig,
     messages::proposals::ProposalType,
     prelude::{Capabilities, MlsGroup as OpenMlsGroup, WireFormatPolicy},
 };
@@ -74,9 +74,11 @@ use std::collections::HashMap;
 use std::{collections::HashSet, sync::Arc};
 use tokio::sync::Mutex;
 use xmtp_common::{Event, log_event, time::now_ns};
+#[cfg(test)]
+use xmtp_configuration::GROUP_PERMISSIONS_EXTENSION_ID;
 use xmtp_configuration::{
-    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, GROUP_PERMISSIONS_EXTENSION_ID, MAX_PAST_EPOCHS,
-    MUTABLE_METADATA_EXTENSION_ID, SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
+    CIPHERSUITE, GROUP_MEMBERSHIP_EXTENSION_ID, MAX_PAST_EPOCHS, MUTABLE_METADATA_EXTENSION_ID,
+    SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS,
     WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID, WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID,
 };
 use xmtp_content_types::delete_message::DeleteMessageCodec;

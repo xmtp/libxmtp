@@ -2,7 +2,7 @@
 //!
 //! Each helper here corresponds to one `IntentKind` branch in
 //! `mls_sync.rs::get_publish_intent_data`. The caller has already
-//! confirmed `is_migrated_group(openmls_group)` is true; these
+//! loaded the dictionary-native group; these
 //! functions stage the inline `AppDataUpdate` commit and return the
 //! resulting `PublishIntentData`.
 

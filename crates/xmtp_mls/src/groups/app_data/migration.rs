@@ -401,7 +401,7 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     }
     // RequiredCapabilities MUST list AppDataDictionary so post-flip
     // members can't add themselves without supporting the dict. Using
-    // `check_proposals_enabled` (which detects the AppDataDictionary
+    // the former migration predicate (which detects the AppDataDictionary
     // GCE itself) wouldn't work here — openmls only adds the dict GCE
     // when the AppDataUpdate proposals apply during commit processing.
     use openmls::extensions::ExtensionType;

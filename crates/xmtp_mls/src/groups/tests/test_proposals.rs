@@ -3,7 +3,7 @@
 //! These tests verify:
 //! 1. That `all_members_support_proposals` correctly detects extension support
 //! 2. That proposal-based add/remove member flows work correctly
-//! 3. That proposals_enabled correctly detects group context extension
+//! 3. That proposal-based group operations work on dictionary-native groups
 
 use crate::{
     context::XmtpSharedContext,
@@ -180,9 +180,6 @@ async fn test_e2e_propose_add_member_flow() {
     let initial_members = alix_group.members().await?;
     assert_eq!(initial_members.len(), 2);
 
-    // Enable proposals so members can send/receive them
-
-    assert!(alix_group.is_proposals_enabled()?);
     bo_group.sync().await?;
 
     // 2. Alix proposes to add caro
