@@ -1,4 +1,12 @@
+---
+prefix: CFG
+status: legacy
+---
 # 006: Server Configuration
+
+> **Being replaced.** This document is superseded by `CONF` (backend configuration) in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `CFG-nnn` identifiers in new code.
 
 Status: approved, revision 4. Drafted 2026-09-15 from the owner's answers to the question list in Ref `GvJUN6bEoPtEhnNp`; revised the same day after an adversarial review and the owner's review comments.
 

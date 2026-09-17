@@ -47,3 +47,22 @@ test("a missing H1 is a build error", () => {
     /Missing document title: broken\.md/,
   );
 });
+
+test("spec preparation removes YAML frontmatter", () => {
+  const result = prepareDocument(
+    "---\nprefix: JOIN\nstatus: legacy\n---\n# Joining groups\n\nPublic text.",
+    "004-join.md",
+    { spec: true },
+  );
+  assert.equal(result.title, "Joining groups");
+  assert.equal(result.body, "Public text.");
+});
+
+test("frontmatter-like text after the title is preserved", () => {
+  const result = prepareDocument(
+    "# Title\n\nIntro.\n\n---\n\nA horizontal rule stays.",
+    "005.md",
+    { spec: true },
+  );
+  assert.match(result.body, /horizontal rule stays/u);
+});

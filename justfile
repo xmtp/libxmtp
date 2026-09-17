@@ -13,8 +13,28 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 set shell := ["./dev/nix-shell"]
 
 # Test agent helpers in their locked environment without starting a language server.
-agent-test:
+agent-test: spec-test
     UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
+
+# --- SPECS ---
+# See specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
+
+# Validate specs/ and the implements:/verifies: links in the tree.
+spec-check *args:
+    python3.11 dev/specs/check.py check {{ args }}
+
+# Print every requirement with its evidence. Pass --json for tooling.
+spec-index *args:
+    python3.11 dev/specs/check.py index {{ args }}
+
+# Print one requirement with its links, for example `just spec-show JOIN-012`.
+spec-show id:
+    python3.11 dev/specs/check.py show {{ id }}
+
+# The checker's own tests. Stdlib only, so no uv project.
+[script("bash")]
+spec-test:
+    cd dev/specs && python3.11 -m unittest discover -p 'test_*.py'
 
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
@@ -48,7 +68,7 @@ _check-crate +crates:
 
 # --- LINT ---
 
-lint: lint-rust lint-config lint-markdown lint-proto
+lint: lint-rust lint-config lint-markdown lint-proto spec-check
 
 lint-proto:
     buf lint proto

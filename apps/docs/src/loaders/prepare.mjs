@@ -1,5 +1,9 @@
 export function prepareDocument(raw, filename, { spec = false } = {}) {
-  const lines = raw.split(/\r?\n/u);
+  // Specs carry YAML frontmatter that the site reads through its own loader,
+  // and legacy specs carry a "> Legacy" banner naming their replacement.
+  // Neither belongs in the published body.
+  const withoutFrontmatter = raw.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/u, "");
+  const lines = withoutFrontmatter.split(/\r?\n/u);
   let inReview = false;
   let fence;
   const kept = [];
