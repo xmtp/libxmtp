@@ -121,12 +121,10 @@ async fn test_welcome_on_dictionary_group_pauses_below_min_version() {
 /// `mls_sync` then writes `paused_for_version`.
 ///
 /// Sibling of `test_welcome_on_dictionary_group_pauses_below_min_version`
-/// (welcome-time pause). Pre-fix, the dictionary branch of
-/// `ValidatedCommit::from_staged_commit` set
-/// `MutableMetadataValidationInfo::default()` unconditionally — so
-/// `minimum_supported_protocol_version` was always `None`, the
-/// validator's version arm never fired on migrated groups, and a
-/// below-floor receiver silently kept processing commits.
+/// (welcome-time pause). The validator checks the proposed protocol floor
+/// separately from membership authorization, after component authorization.
+/// `MetadataChanges` is built afterward for transcripts and status updates;
+/// it is not used to check the protocol floor.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     use crate::builder::ClientBuilder;
