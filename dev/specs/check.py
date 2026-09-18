@@ -27,12 +27,18 @@ from pathlib import Path
 # SPEC-030: three to five uppercase letters, a hyphen, exactly three digits.
 ID_RE = re.compile(r"\b([A-Z]{3,5})-([0-9]{3})\b(?!-?[0-9])")
 
-# SPEC-034: - **PREFIX-NNN Title.** Sentence.
-BULLET_RE = re.compile(r"^- \*\*([A-Z]{3,5}-[0-9]{3}) ([^*]+?)\.\*\* (.+)$")
+# SPEC-034: a requirement is one row of a table with this header.
+TABLE_HEADER_RE = re.compile(r"^\|\s*ID\s*\|\s*Requirement\s*\|\s*Why\s*\|\s*$")
 
-# Any bullet that opens with a bold token looking like an identifier. Used to
-# catch a malformed id (SPEC-030) that BULLET_RE would silently skip.
-BULLET_LEAD_RE = re.compile(r"^- \*\*([A-Za-z]{2,8}-[0-9]+)\b")
+# Any row that opens with a bold token looking like an identifier. Used to
+# catch a malformed id (SPEC-030) that ID_CELL_RE would silently skip.
+ROW_LEAD_RE = re.compile(r"^\|\s*\*\*([A-Za-z]{2,8}-[0-9]+)")
+
+# The ID cell: **PREFIX-NNN** Title
+ID_CELL_RE = re.compile(r"^\*\*([A-Z]{3,5}-[0-9]{3})\*\*\s+(\S.*)$")
+
+# A pipe that is not escaped separates cells; `\|` is a pipe inside a cell.
+CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 
 # SPEC-050, SPEC-051. A link token lives in a comment. Requiring the comment
 # leader stops a string literal such as `const N: &str = "verifies: JOIN-001";`
@@ -132,6 +138,18 @@ MAX_SENTENCES = 3  # SPEC-037
 # "warn" while backlinks are being added, and an owner flips it to "error"
 # when the last approved spec has its links.
 GATE_DEFAULT = "warn"
+
+
+def split_row(line: str) -> list[str] | None:
+    """Return the cells of a table row, or None when the line is not a row.
+
+    A row starts and ends with a pipe. An escaped pipe stays inside its cell,
+    and is unescaped here so the text reads as the author meant it.
+    """
+    parts = CELL_SPLIT_RE.split(line.strip())
+    if len(parts) < 3 or parts[0].strip() or parts[-1].strip():
+        return None
+    return [c.strip().replace("\\|", "|") for c in parts[1:-1]]
 
 
 @dataclass
@@ -507,7 +525,7 @@ class Checker:
         section: str,
         owns: set[str] | None = None,
     ) -> int:
-        """Validate one fully collected requirement. Returns 1 if it counts."""
+        """Validate one requirement row. Returns 1 if it counts."""
         rid = pending["id"]
         text = " ".join(pending["lines"]).strip()
         where = f"{rel}:{pending['line']}"
@@ -569,7 +587,7 @@ class Checker:
         current_section = ""
         fence = None
         count = 0
-        pending: dict | None = None
+        in_table = False
         idl: list[str] | None = None
         idl_start = 0
         idl_lang = ""
@@ -597,93 +615,56 @@ class Checker:
                     idl.append(line)
                 continue
             if line.startswith("## "):
-                if pending is not None:
-                    count += self.finish_requirement(
-                        rel, prefix, status, pending, current_section, owns
-                    )
-                    pending = None
                 current_section = line[3:].strip()
+                in_table = False
+                continue
+            if TABLE_HEADER_RE.match(line):
+                in_table = True
+                continue
+            # A table ends at a blank line or at a line that is not a row.
+            if not line.startswith("|"):
+                in_table = False
                 continue
 
-            # A requirement is a Markdown list item, which may wrap over several
-            # physical lines. Collect the whole item, then validate it: a
-            # keyword or a condition on a continuation line is part of the
-            # obligation and must not be invisible to the checks.
-            if pending is not None:
-                stripped = line.strip()
-                if not stripped:
-                    # A blank line does not end a Markdown list item, so any
-                    # indented text after it still belongs to the requirement.
-                    # Rather than guess at that, the format forbids it: an
-                    # obligation must not hide in a second paragraph.
-                    pending["saw_blank"] = True
-                    continue
-                # CommonMark also continues a list item with an unindented
-                # paragraph line ("lazy continuation"). Accept it so the text
-                # is validated, and require the indented form so the document
-                # stays unambiguous to a human reader.
-                # Lazy continuation only applies while the paragraph is still
-                # open. A blank line then unindented text starts new prose and
-                # ends the item, which is the ordinary shape of a section.
-                if pending.get("saw_blank") and not line.startswith(" "):
-                    is_continuation = False
-                else:
-                    is_continuation = stripped and not stripped.startswith("- ")
-                    if is_continuation and not line.startswith(" "):
-                        self.error(
-                            f"{rel}:{i}",
-                            "SPEC-034",
-                            f"{pending['id']} continues on an unindented line; "
-                            "indent a continuation so the item is unambiguous",
-                        )
-                if is_continuation and pending.get("saw_blank"):
-                    self.error(
-                        f"{rel}:{i}",
-                        "SPEC-034",
-                        f"{pending['id']} continues after a blank line; a "
-                        "requirement is one list item with no blank line inside",
-                    )
-                    pending["saw_blank"] = False
-                if is_continuation:
-                    if stripped.startswith("Why:"):
-                        pending["why"] = stripped[4:].strip()
-                    elif pending["why"] is not None:
-                        pending["why"] += " " + stripped
-                    else:
-                        pending["lines"].append(stripped)
-                    continue
-                if is_continuation:
-                    pass
-                else:
-                    count += self.finish_requirement(
-                        rel, prefix, status, pending, current_section, owns
-                    )
-                    pending = None
-
-            bullet = BULLET_LEAD_RE.match(line)
-            if bullet:
-                # SPEC-030: catch a requirement-shaped bullet whose id is
-                # malformed. Without this it would parse as ordinary prose and
-                # disappear from every check.
-                match = BULLET_RE.match(line)
-                if not match:
-                    self.error(
-                        f"{rel}:{i}",
-                        "SPEC-034",
-                        f"{bullet.group(1)!r} is not in the form "
-                        "`- **PREFIX-NNN Title.** Sentence.`",
-                    )
-                    continue
-                pending = {
-                    "id": match.group(1),
-                    "title": match.group(2),
-                    "lines": [match.group(3)],
-                    "why": None,
-                    "line": i,
-                    "saw_blank": False,
-                }
-
-        if pending is not None:
+            lead = ROW_LEAD_RE.match(line)
+            if not lead:
+                continue
+            # SPEC-034: a requirement is one row, so there is nothing to
+            # collect across lines. Everything the checks need is here.
+            where = f"{rel}:{i}"
+            if not in_table:
+                self.error(
+                    where,
+                    "SPEC-034",
+                    f"{lead.group(1)} is a row outside a requirements table; "
+                    "the table header is `| ID | Requirement | Why |`",
+                )
+            cells = split_row(line)
+            if cells is None or len(cells) != 3:
+                self.error(
+                    where,
+                    "SPEC-034",
+                    f"{lead.group(1)} needs exactly three cells: ID, Requirement, Why",
+                )
+                continue
+            match = ID_CELL_RE.match(cells[0])
+            if not match:
+                # SPEC-030: catch a requirement-shaped row whose id is
+                # malformed. Without this it would parse as an ordinary table
+                # row and disappear from every check.
+                self.error(
+                    where,
+                    "SPEC-034",
+                    f"{cells[0]!r} is not in the form `**PREFIX-NNN** Title`",
+                )
+                continue
+            pending = {
+                "id": match.group(1),
+                "title": match.group(2).strip().rstrip("."),
+                "lines": [cells[1]],
+                "why": cells[2],
+                "line": i,
+            }
             count += self.finish_requirement(
                 rel, prefix, status, pending, current_section, owns
             )
@@ -1004,11 +985,10 @@ class Checker:
                     continue
                 if fence is not None:
                     continue
-                if line.startswith("- **"):
-                    body = BULLET_RE.match(line)
-                    scan = body.group(3) if body else line
-                else:
-                    scan = line
+                # A requirement's own id sits in its first cell and is not a
+                # reference; scan the other cells.
+                cells = split_row(line) if ROW_LEAD_RE.match(line) else None
+                scan = " | ".join(cells[1:]) if cells else line
                 # A code span is a reference like any other: `JOIN-012` in a
                 # requirement still points at an obligation. Only the meta
                 # spec's own illustrations are exempt, and it says so.
