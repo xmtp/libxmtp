@@ -215,6 +215,14 @@ jobs:
         with:
           args: install visualstudio2022buildtools
 
+      - name: Install protobuf compiler
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install protoc
+
+      - name: Verify protobuf compiler
+        run: protoc --version
+
       - name: Setup aarch64 toolchain
         if: ${{ matrix.target == 'aarch64-pc-windows-msvc' }}
         run: |
