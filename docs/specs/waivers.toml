@@ -1,0 +1,48 @@
+# Waivers under SPEC-055. Each entry names a requirement that carries no
+# `verifies:` link, with the kind that says why (SPEC-057).
+#
+# `gap` entries record behaviour the implementation does not yet satisfy. They
+# are the ones SPEC-026 requires when a spec states the intended behaviour and
+# the code does something else. Each needs an owner and an issue.
+
+[[waiver]]
+id = "JOIN-076"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A Welcome's stated wrapper algorithm is used as given and never compared with the algorithm the addressed key package advertised. A message naming the classical wrapper over the package's init key is accepted even when the package advertised the post-quantum one, so the stronger wrapper can be stripped by relabelling."
+
+[[waiver]]
+id = "JOIN-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A Welcome whose wrapper algorithm is unknown is held for one day and then rejected. A Welcome whose MLS version is unsupported is held with no deadline, so it is never rejected and blocks key-package retirement for as long as it stays in the queue."
+
+[[waiver]]
+id = "JOIN-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An installation whose key package fails verification is recorded in failed_installations. An installation for which the backend serves no key package at all is dropped from the add and not recorded, so a joiner cannot tell it from one the sender never saw."
+
+[[waiver]]
+id = "JOIN-056"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A resolved pointee's installation_key is checked against the topic it was fetched from when the envelope is decoded, but its wrapper_algorithm is never checked against WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY; the pointee is accepted on its authenticated decryption alone."
+
+[[waiver]]
+id = "JOIN-060"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Three separate failures. The two-party conversation check rejects only when every policy differs from the fixed set, so a conversation with a single permissive policy is accepted. A conversation the joiner added itself skips the policy and admin checks. A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
+
+[[waiver]]
+id = "JOIN-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
