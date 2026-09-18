@@ -4,45 +4,528 @@
 # `gap` entries record behaviour the implementation does not yet satisfy. They
 # are the ones SPEC-026 requires when a spec states the intended behaviour and
 # the code does something else. Each needs an owner and an issue.
-
+#
+# `analysis` entries record an obligation a recorded review establishes and no
+# test can.
+#
+# The issue links below are placeholders. Each needs a real issue before its
+# spec is approved.
 [[waiver]]
 id = "JOIN-076"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A Welcome's stated wrapper algorithm is used as given and never compared with the algorithm the addressed key package advertised. A message naming the classical wrapper over the package's init key is accepted even when the package advertised the post-quantum one, so the stronger wrapper can be stripped by relabelling."
-
 [[waiver]]
 id = "JOIN-077"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A Welcome whose wrapper algorithm is unknown is held for one day and then rejected. A Welcome whose MLS version is unsupported is held with no deadline, so it is never rejected and blocks key-package retirement for as long as it stays in the queue."
-
 [[waiver]]
 id = "JOIN-012"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An installation whose key package fails verification is recorded in failed_installations. An installation for which the backend serves no key package at all is dropped from the add and not recorded, so a joiner cannot tell it from one the sender never saw."
-
 [[waiver]]
 id = "JOIN-056"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A resolved pointee's installation_key is checked against the topic it was fetched from when the envelope is decoded, but its wrapper_algorithm is never checked against WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY; the pointee is accepted on its authenticated decryption alone."
-
 [[waiver]]
 id = "JOIN-060"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Three separate failures. The two-party conversation check rejects only when every policy differs from the fixed set, so a conversation with a single permissive policy is accepted. A conversation the joiner added itself skips the policy and admin checks. A conversation naming the kind used between an inbox's own installations is installed with no validation at all."
-
 [[waiver]]
 id = "JOIN-002"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A group whose members do not all advertise a capability silently drops that capability for the whole group rather than the non-advertising installation being excluded, and a key package that fails verification is treated as one that does not advertise the capability."
+
+[[waiver]]
+id = "FORK-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A super admin promoted after joining never publishes commit-log entries, because should_publish_commit_log is set only at group creation and at Welcome."
+
+[[waiver]]
+id = "FORK-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "is_commit_log_forked is never reset after a replacement Welcome, and the worker excludes groups already marked forked, so a repaired member reports forked for ever."
+
+[[waiver]]
+id = "FORK-060"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The readd responder requires is_super_admin and a DM's super admin list is empty, so a DM readd request is never answered."
+
+[[waiver]]
+id = "FORK-062"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "apply_readd_installations_intent removes a target whose key package fetch failed and records it in failed_installations instead of leaving it in place."
+
+[[waiver]]
+id = "FORK-070"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The node and wasm bindings expose no fork-recovery policy or response switch; only the mobile binding does."
+
+[[waiver]]
+id = "IDENT-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An identity update with an empty action list passes every validator and is stored, so repeated empty updates consume an inbox's finite log slots and can prevent a later revocation."
+
+[[waiver]]
+id = "IDENT-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "new_recovery_identifier and member_to_revoke are decoded without form validation, so a mixed-case or malformed Ethereum identifier is accepted and stored."
+
+[[waiver]]
+id = "IDENT-032"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The nonce-zero derivation is checked against the existing signer rather than the legacy signature's own signer, and is skipped when the existing signer is an installation."
+
+[[waiver]]
+id = "IDENT-040"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An add whose new member is already a current member is accepted and overwrites its adder, timestamp, and chain id."
+
+[[waiver]]
+id = "IDENT-045"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No chain id is recorded for the recovery role, so a recovery identifier that is not a member carries no chain binding."
+
+[[waiver]]
+id = "IDENT-046"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
+
+[[waiver]]
+id = "IDENT-050"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Replay keys are not canonical: ERC-191 and legacy wallet signatures record the recovery byte as received (0 or 1 against 27 or 28) and passkey signatures record s as received, so one signature has several replay keys."
+
+[[waiver]]
+id = "IDENT-060"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An account_id whose namespace is not eip155 is not rejected before routing; the verifier lookup fails with a retryable no-route error."
+
+[[waiver]]
+id = "IDENT-062"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No admission freshness check on an ERC-6492 signature's block_number exists, so a removed contract signer can sign now and validate against a block before its removal."
+
+[[waiver]]
+id = "CONS-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "insert_newer_consent_record updates only state on replace and never consented_at_ns, and record equality ignores the timestamp, so a newer record with the same state never advances the merge."
+
+[[waiver]]
+id = "CONS-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
+
+[[waiver]]
+id = "CONS-023"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Creator auto-allow tests creator_inbox_id only, not the adder, and stores it with the current time, replacing any existing record including a synced denial."
+
+[[waiver]]
+id = "CONS-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The creator auto-allow runs after DM consent stitching and overwrites the inherited record."
+
+[[waiver]]
+id = "CONS-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
+
+[[waiver]]
+id = "CONS-030"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An explicit empty consent filter is treated as an absent filter and returns allowed and unknown conversations."
+
+[[waiver]]
+id = "SYNC-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A Welcome whose conversation type is sync is accepted with no check that the adder or the leaf nodes name the client's own inbox, and primary sync group selection by greatest creation time lets an accepted foreign group become the publish target."
+
+[[waiver]]
+id = "SYNC-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The periodic scan selects unprocessed messages in every sync-typed group with no sender inbox filter, and process_message compares only the sender installation id."
+
+[[waiver]]
+id = "SYNC-021"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Only records the store reports as changed are published, so a repeated same-state decision is never published."
+
+[[waiver]]
+id = "SYNC-022"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An equal cycled_at_ns replaces the stored HMAC root key by arrival order rather than by the deterministic byte-order tie rule."
+
+[[waiver]]
+id = "AUTH-009"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
+
+[[waiver]]
+id = "AUTH-031"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A non-numeric exp is reported expired and a non-numeric nbf, scope, or sub is reported malformed, rather than one classification for every wrong-typed claim."
+
+[[waiver]]
+id = "AUTH-006"
+kind = "analysis"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test can establish machine-level timing resistance of the API key digest comparison. Admission, full-set processing, and bypass behaviour are covered by the verifier tests."
+
+[[waiver]]
+id = "API-259"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
+
+[[waiver]]
+id = "PUSH-257"
+kind = "gap"
+owner = "backend"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Dispatch does not wait for open subscription transactions, so an envelope settled after the start position was read and dispatched before the subscription committed is never attempted."
+
+[[waiver]]
+id = "GMOD-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Committed proposals lack the standalone path's complete unsupported-type allowlist, so the required refusal outcomes are not uniformly enforced."
+
+[[waiver]]
+id = "GMOD-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A key package the backend does not serve becomes None, is filtered out by the store, and is neither added nor recorded as a failed installation."
+
+[[waiver]]
+id = "GMOD-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "CommitPendingProposals selects only the first installation of a previously absent inbox for Welcome delivery and skips additions to inboxes already present."
+
+[[waiver]]
+id = "GMOD-030"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The vendored OpenMLS validator returns early for a Remove when the commit carries no GroupContextExtensions proposal, so dictionary-only proposal lists escape the mixed-operation and repeated-Remove checks."
+
+[[waiver]]
+id = "PERM-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The per-inbox proposer map overwrites earlier attribution when one inbox has several proposals."
+
+[[waiver]]
+id = "PERM-015"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
+
+[[waiver]]
+id = "META-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A scalar first write expands to an Update and fails the immutable permission gate, while an authorized insert-only delta can populate an absent immutable collection."
+
+[[waiver]]
+id = "META-050"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Message expiry is computed from processing time without the sent-time threshold or the checked, clamped addition the requirement states."
+
+[[waiver]]
+id = "META-051"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A direct lookup by message id returns an expired message until cleanup deletes it."
+
+[[waiver]]
+id = "DMS-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A join whose adder is the client's own inbox returns before the role and policy checks, and neither join path restricts the admitted membership and ratchet-tree leaves to the declared pair."
+
+[[waiver]]
+id = "DMS-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Consent inheritance orders records by descending time and then takes the last, selecting the oldest decision, and replaces its timestamp with the current time."
+
+[[waiver]]
+id = "DMS-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Duplicate detection compares accumulated hashes of the most recent non-empty fields and ignores the initiator, rather than comparing complete payloads."
+
+[[waiver]]
+id = "PROC-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "MissingProposal is classified as terminal without distinguishing a proposal absent from the prefix from lost local proposal state."
+
+[[waiver]]
+id = "PROC-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The same classification can discard work that should remain held after a loss of local state."
+
+[[waiver]]
+id = "PROC-021"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
+
+[[waiver]]
+id = "PROC-023"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A live catch-up snapshot exposes the count of unresolved Welcomes, not their identifiers."
+
+[[waiver]]
+id = "PROC-036"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Client processing logs still contain full installation identifiers."
+
+[[waiver]]
+id = "SEND-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A same-key retry queues another intent while the existing message row remains failed."
+
+[[waiver]]
+id = "SEND-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Optimistic sending does not check active membership before storing work, so it queues into a group the client has been removed from."
+
+[[waiver]]
+id = "SEND-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No recovery is defined or implemented for a publish that may have committed before an OUT_OF_RANGE response."
+
+[[waiver]]
+id = "SEND-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A definite backend refusal is not consistently converted into a terminal intent and message failure."
+
+[[waiver]]
+id = "SEND-016"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A rejected echo marks the intent as errored without setting its message row to failed."
+
+[[waiver]]
+id = "SEND-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Removal from a group rejects pending intents without failing their message rows."
+
+[[waiver]]
+id = "ARCH-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The importer reads the container version and never compares it, so an archive of an unsupported version is parsed with the version 0 parser."
+
+[[waiver]]
+id = "ARCH-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Group export windows on creation time while message export windows on send time, so a message can be exported without its group and the import then fails on the group foreign key."
+
+[[waiver]]
+id = "ARCH-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Export reduces an unknown content type identifier to the string unknown, and import does not give the embedded identifier precedence."
+
+[[waiver]]
+id = "ARCH-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry."
+
+[[waiver]]
+id = "ARCH-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The mobile, node, and wasm bindings truncate an archive key longer than 32 bytes instead of rejecting it."
+
+[[waiver]]
+id = "ARCH-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Batched reads provide no fixed export snapshot and can silently omit groups whose MLS state or immutable metadata cannot be read."
+
+[[waiver]]
+id = "ARCH-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Incomplete framing at end of input can loop or be mistaken for a clean end of stream."
+
+[[waiver]]
+id = "ARCH-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Import rebuilds only selected metadata and loses the archived creator, adder, timestamps, attributes, and admin information."
+
+[[waiver]]
+id = "CTYPE-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust dispatch ignores the authority when matching a content type, while the SDK registries require the minor version to match as well."
+
+[[waiver]]
+id = "CTYPE-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The Rust send path accepts raw bytes without requiring a complete typed envelope."
+
+[[waiver]]
+id = "CTYPE-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Raw publication accepts a compression value, and the mobile SDK encoding paths can produce a compressed envelope."
+
+[[waiver]]
+id = "CTYPE-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The Kotlin and Swift registries return the text codec when no codec matches, so unknown content can decode as apparently successful text."
+
+[[waiver]]
+id = "CTYPE-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "A raw-envelope send uses a fixed default for the push flag instead of the value the catalogue gives for the content type."
+
+[[waiver]]
+id = "CTYPE-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The reply encoder accepts an inner envelope that carries no type."
+
+[[waiver]]
+id = "CTYPE-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The legacy reaction encoder and the unrestricted raw-send path still permit publishing reaction major version 1."
+
+[[waiver]]
+id = "CTYPE-014"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Remote-attachment decoding accepts a missing required parameter as an empty value."
+
+[[waiver]]
+id = "CTYPE-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Deletion eligibility is read from the stored type enum without validating the target's authority and major version."
