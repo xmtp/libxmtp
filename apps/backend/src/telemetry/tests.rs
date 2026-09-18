@@ -2,7 +2,7 @@ use super::*;
 
 #[xmtp_common::test(unwrap_try = true)]
 fn catalogue_matches_documented_types_and_help_for_every_metric() {
-    let document = include_str!("../../../../docs/specs/002_backend_architecture.md");
+    let document = include_str!("../../../../docs/legacy-specs/002_backend_architecture.md");
     let table = document
         .split("### Backend metric catalogue")
         .nth(1)?

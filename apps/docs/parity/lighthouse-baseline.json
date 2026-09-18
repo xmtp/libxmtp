@@ -29,7 +29,7 @@
     },
     {
       "old": "/protocol/security",
-      "new": "/specs/001-backend-api/",
+      "new": "/specs/",
       "accessibility": 0.95,
       "performance": 0.65
     },

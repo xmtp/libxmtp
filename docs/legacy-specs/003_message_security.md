@@ -1,4 +1,12 @@
+---
+prefix: SEC
+status: legacy
+---
 # 003: Message Security
+
+> **Being replaced.** This document is superseded by `API`, `IDENT`, and `JOIN` in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `SEC-nnn` identifiers in new code.
 
 Status: backend admission and identity trust limits approved on 2026-09-04. The full client MLS security description is completed during Phase 3.
 
