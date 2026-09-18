@@ -56,7 +56,7 @@ One spec is one file. The file name carries the prefix so a reader who sees `JOI
 | SPEC-007 | Platform choices are not requirements | A spec MUST NOT state platform choices such as the database engine, the process model, or a storage library. Those belong in the implementing module's README. | |
 | SPEC-008 | Specs supersede their sources | When an approved spec and an XIP, a legacy spec, or the code disagree, the spec MUST be followed. An XIP is a source with no authority of its own. | |
 | SPEC-009 | Legacy specs | A legacy spec MUST carry `status: legacy` and a banner naming the specs that replace it. | `status: legacy` means "being replaced", not "no longer binding". |
-| SPEC-010 | Prose style | Spec prose MUST use short sentences, one term for each concept, no idioms, and no metaphor. Prose MUST say what a thing is and what it carries, in the term the protocol uses, and MUST NOT paraphrase its effect or its intent. | A paraphrase of an effect ("a location nobody can guess") hides the mechanism a reader has to check ("a randomly generated topic"). |
+| SPEC-010 | Prose style | Spec prose MUST be direct: it states what a mechanism is and what breaks without it, in short sentences with one term for each concept, and MUST NOT argue for the design, describe alternatives, or narrate decisions. Prose MUST name a thing in the term the protocol uses, without metaphor or a paraphrase of its effect. | A reader comes for the rules, and every sentence that defends a choice stands between the reader and them. |
 | SPEC-011 | Legacy authority | Until an obligation receives a disposition under SPEC-013, that obligation MUST remain binding, and a reviewer MUST treat the legacy spec as authoritative for it. | |
 | SPEC-013 | Legacy dispositions | Every obligation in a legacy document MUST receive one owner-approved disposition: carried into a replacement, retired, or moved out of the specs to a design note or a module README. An author MUST record the disposition of each one in the change summary. | some legacy clauses cannot be carried. A platform choice is barred from a replacement by SPEC-007, so without an explicit retirement it would either bind for ever or vanish when the file is deleted. |
 | SPEC-012 | Deleting a legacy spec | A legacy file MUST be deleted once every obligation in it has a disposition, and the deleting PR MUST move every consumer that reads it. | a build or a test that reads a legacy spec breaks the moment the file goes. |
@@ -121,7 +121,6 @@ Specs are written in waves, so one will often need an obligation another has not
 | SPEC-044 | Version conditions | A requirement MAY carry a version condition where behaviour differs by client or group version, whether or not the switch exists yet. It MUST name the version that divides the cases, not the release that shipped it. | a promise about older clients is a promise about a protocol version, which outlives any particular build. |
 | SPEC-045 | Known limitations | A known limitation MUST be plain prose that states what is accepted and why, without an identifier. | |
 | SPEC-046 | Diagrams are welcome | A spec MAY contain a Mermaid diagram wherever it explains faster than prose, including one per section. | |
-| SPEC-091 | Departures from a standard | Where a mechanism departs from a published standard or an established practice it builds on, the section prose MUST name the standard behaviour and the reason for the departure. Prose MUST NOT otherwise give design history. | A reader who knows MLS expects one-time key packages and one Welcome per commit. Saying where XMTP departs and why is the one piece of history that changes how the rules read. |
 
 ### 3.1 Type blocks
 
@@ -234,4 +233,4 @@ The rule against reusing a deleted number is a convention. The checker sees only
 
 The checker counts sentences approximately and reports a long requirement as a warning, not an error.
 
-SPEC-089, SPEC-091, and SPEC-092 are judgement rules. The checker does not enforce them; the reviewing skill does.
+SPEC-089 and SPEC-092 are judgement rules. The checker does not enforce them; the reviewing skill does.

@@ -45,7 +45,7 @@ Write the check, not a description of it. Every vague requirement costs an owner
 
 ## Writing
 
-- Write a section's prose before its requirements: what the mechanism is for and what breaks without it. Where the mechanism departs from a standard it builds on, name the standard behaviour and the reason (SPEC-091). That applies to a handful of places per spec. Everywhere else, no design history.
+- Write a section's prose before its requirements: what the mechanism is and what breaks without it, in a few direct sentences. No argument for the design, no alternatives, no decision history (SPEC-010). A reader who wants a reason has the Why cell.
 - Apply the admission test (SPEC §2) to every candidate and reject anything that fails one question. Ask in particular who observes a violation: if only the actor that breaks the rule, it is a design note, not a requirement (SPEC-092).
 - State the general invariant, never one example of it. A rule and the value it fixes are one row. Two rows a single act would violate are one row (SPEC-028).
 - Allocate the next unused number. Never renumber, never reuse; check `git log -S` when in doubt. An id carried forward from a superseded document, or moved here by a split, goes in the `owns` frontmatter key.
@@ -62,4 +62,4 @@ Every obligation in the legacy source needs a disposition in the summary: carrie
 
 ## Finish
 
-Run `dev/nix-shell 'just spec-check'`. Return the spec and a change summary: IDs added, amended, removed; legacy requirements not carried, each with a reason; waivers the code will need; departures from a standard you could not explain; questions only an owner can answer. Do not set `status: approved`.
+Run `dev/nix-shell 'just spec-check'`. Return the spec and a change summary: IDs added, amended, removed; legacy requirements not carried, each with a reason; waivers the code will need; questions only an owner can answer. Do not set `status: approved`.
