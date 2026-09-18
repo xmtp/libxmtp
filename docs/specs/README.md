@@ -2,7 +2,7 @@
 
 The approved specs in this folder are the promises libxmtp and the self-hosted backend keep. `SPEC-spec-format.md` defines the format, the admission test, the identifier scheme, and the backlink rules. `GLOSSARY.md` defines the actors and shared terms. Requirement identifiers are globally unique, such as `CONF-012` or `JOIN-034`.
 
-Specs supersede XIPs and the legacy documents under `docs/specs/`. A legacy document is source material and is deleted when its replacement is approved.
+Specs supersede XIPs and the superseded documents under `docs/legacy-specs/`. A legacy document is source material and is deleted when its replacement is approved.
 
 ## Capability map
 
@@ -34,7 +34,7 @@ Specs supersede XIPs and the legacy documents under `docs/specs/`. A legacy docu
 Run each one as `dev/nix-shell 'just <recipe>'`.
 
 ```bash
-just spec-check            # validate specs/ and the backlinks in code; part of just lint
+just spec-check            # validate docs/specs/ and the backlinks in code; part of just lint
 just spec-index            # print every requirement with its links; --json for tooling
 just spec-show JOIN-012    # print one requirement with its links
 ```

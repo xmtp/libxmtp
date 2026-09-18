@@ -1,11 +1,11 @@
 ---
 name: reviewing-specs
-description: Use when reviewing a draft or amended spec in specs/ before an owner sees it - covers the format checks, the admission test, precision, cross-spec contradictions, and sampling requirements against the code
+description: Use when reviewing a draft or amended spec in docs/specs/ before an owner sees it - covers the format checks, the admission test, precision, cross-spec contradictions, and sampling requirements against the code
 ---
 
 # Reviewing a spec
 
-Read `specs/SPEC-spec-format.md`. Review with a clean context, on a different model than the author. Your job is to find what is wrong, not to agree.
+Read `docs/specs/SPEC-spec-format.md`. Review with a clean context, on a different model than the author. Your job is to find what is wrong, not to agree.
 
 ## Checks, in order
 

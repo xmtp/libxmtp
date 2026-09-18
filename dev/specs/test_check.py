@@ -19,14 +19,14 @@ REGISTRY = """# Prefix registry
 
 | Prefix | Spec | File |
 | --- | --- | --- |
-| `JOIN` | Joining groups | `specs/JOIN-joining-groups.md` |
-| `API` | Backend API | `specs/API-backend-api.md` |
+| `JOIN` | Joining groups | `docs/specs/JOIN-joining-groups.md` |
+| `API` | Backend API | `docs/specs/API-backend-api.md` |
 
 ## Legacy
 
 | Prefix | Legacy document | Replaced by |
 | --- | --- | --- |
-| `CFG` | `docs/specs/006.md` | `CONF` |
+| `CFG` | `docs/legacy-specs/006.md` | `CONF` |
 """
 
 HEAD = """---
@@ -64,9 +64,9 @@ def build(
     registry: str = REGISTRY,
     extra: str = "",
 ) -> Path:
-    (tmp / "specs").mkdir(parents=True, exist_ok=True)
-    (tmp / "specs" / "PREFIXES.md").write_text(registry)
-    (tmp / "specs" / "JOIN-joining-groups.md").write_text(
+    (tmp / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+    (tmp / "docs" / "specs" / "PREFIXES.md").write_text(registry)
+    (tmp / "docs" / "specs" / "JOIN-joining-groups.md").write_text(
         HEAD.format(status=status) + requirements + extra
     )
     return tmp
@@ -258,9 +258,9 @@ class Structure(unittest.TestCase):
     def test_missing_terms_section_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = Path(d)
-            (tmp / "specs").mkdir(parents=True)
-            (tmp / "specs" / "PREFIXES.md").write_text(REGISTRY)
-            (tmp / "specs" / "JOIN-joining-groups.md").write_text(
+            (tmp / "docs" / "specs").mkdir(parents=True)
+            (tmp / "docs" / "specs" / "PREFIXES.md").write_text(REGISTRY)
+            (tmp / "docs" / "specs" / "JOIN-joining-groups.md").write_text(
                 "---\nprefix: JOIN\nstatus: draft\n---\n# T\n\nSummary.\n\n"
                 "## Scope\n\nIn and out.\n\n## 1. Welcomes\n\nProse.\n"
             )
@@ -287,9 +287,9 @@ class Structure(unittest.TestCase):
     def test_bad_frontmatter_key_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = Path(d)
-            (tmp / "specs").mkdir(parents=True)
-            (tmp / "specs" / "PREFIXES.md").write_text(REGISTRY)
-            (tmp / "specs" / "JOIN-joining-groups.md").write_text(
+            (tmp / "docs" / "specs").mkdir(parents=True)
+            (tmp / "docs" / "specs" / "PREFIXES.md").write_text(REGISTRY)
+            (tmp / "docs" / "specs" / "JOIN-joining-groups.md").write_text(
                 "---\nprefix: JOIN\nstatus: draft\nowner: someone\n---\n# T\n\nS.\n\n"
                 "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nx\n"
             )
@@ -426,7 +426,7 @@ class Links(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\nreason = "reviewed by hand"\n'
             )
             self.assertNotIn("SPEC-051", rules(run(tmp, gate="error"), "error"))
@@ -437,7 +437,7 @@ class Links(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\n'
             )
             self.assertIn("SPEC-055", rules(run(tmp), "error"))
@@ -448,7 +448,7 @@ class Links(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-777"\nkind = "analysis"\nreason = "typo"\n'
             )
             self.assertIn("SPEC-055", rules(run(tmp), "error"))
@@ -459,7 +459,7 @@ class Links(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\nreason = "reviewed by hand"\n'
             )
             self.code(tmp, "// verifies: JOIN-001\nfn f() {}\n")
@@ -782,14 +782,14 @@ class ReviewRegressions(unittest.TestCase):
     def test_reused_prefix_below_floor_is_rejected(self):
         """A number that already meant a legacy requirement cannot be reallocated."""
         registry = REGISTRY.replace(
-            "| `API` | Backend API | `specs/API-backend-api.md` |",
-            "| `API` | Backend API | `specs/API-a.md` |",
+            "| `API` | Backend API | `docs/specs/API-backend-api.md` |",
+            "| `API` | Backend API | `docs/specs/API-a.md` |",
         )
         with TemporaryDirectory() as d:
             tmp = Path(d)
-            (tmp / "specs").mkdir(parents=True)
-            (tmp / "specs" / "PREFIXES.md").write_text(registry)
-            (tmp / "specs" / "API-a.md").write_text(
+            (tmp / "docs" / "specs").mkdir(parents=True)
+            (tmp / "docs" / "specs" / "PREFIXES.md").write_text(registry)
+            (tmp / "docs" / "specs" / "API-a.md").write_text(
                 "---\nprefix: API\nstatus: draft\n---\n# A\n\nS.\n\n"
                 "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
                 "| ID | Title | Requirement | Why |\n| --- | --- | --- | --- |\n"
@@ -799,14 +799,14 @@ class ReviewRegressions(unittest.TestCase):
 
     def test_reused_prefix_above_floor_is_allowed(self):
         registry = REGISTRY.replace(
-            "| `API` | Backend API | `specs/API-backend-api.md` |",
-            "| `API` | Backend API | `specs/API-a.md` |",
+            "| `API` | Backend API | `docs/specs/API-backend-api.md` |",
+            "| `API` | Backend API | `docs/specs/API-a.md` |",
         )
         with TemporaryDirectory() as d:
             tmp = Path(d)
-            (tmp / "specs").mkdir(parents=True)
-            (tmp / "specs" / "PREFIXES.md").write_text(registry)
-            (tmp / "specs" / "API-a.md").write_text(
+            (tmp / "docs" / "specs").mkdir(parents=True)
+            (tmp / "docs" / "specs" / "PREFIXES.md").write_text(registry)
+            (tmp / "docs" / "specs" / "API-a.md").write_text(
                 "---\nprefix: API\nstatus: draft\n---\n# A\n\nS.\n\n"
                 "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
                 "| ID | Title | Requirement | Why |\n| --- | --- | --- | --- |\n"
@@ -820,7 +820,7 @@ class ReviewRegressions(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nreason = "later"\n'
             )
             self.assertIn("SPEC-057", rules(run(tmp), "error"))
@@ -831,7 +831,7 @@ class ReviewRegressions(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
             )
             self.assertIn("SPEC-057", rules(run(tmp), "error"))
@@ -842,7 +842,7 @@ class ReviewRegressions(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
                 'owner = "backend"\nissue = "https://example.invalid/1"\n'
             )
@@ -949,7 +949,7 @@ class SecondReviewRegressions(unittest.TestCase):
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
             )
-            (tmp / "specs" / "waivers.toml").write_text(
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "restart broken"\n'
                 'owner = "backend"\nissue = "https://example.invalid/1"\n'
             )
@@ -964,12 +964,12 @@ class SecondReviewRegressions(unittest.TestCase):
             )
 
     def test_moved_id_needs_owns(self):
-        registry = REGISTRY + "| `GMOD` | Modifying groups | `specs/GMOD-g.md` |\n"
+        registry = REGISTRY + "| `GMOD` | Modifying groups | `docs/specs/GMOD-g.md` |\n"
         for owns, expect in ((None, True), ("JOIN-001", False)):
             with TemporaryDirectory() as d:
                 tmp = Path(d)
-                (tmp / "specs").mkdir(parents=True)
-                (tmp / "specs" / "PREFIXES.md").write_text(registry)
+                (tmp / "docs" / "specs").mkdir(parents=True)
+                (tmp / "docs" / "specs" / "PREFIXES.md").write_text(registry)
                 head = "---\nprefix: GMOD\nstatus: draft\n"
                 if owns:
                     head += f"owns: {owns}\n"
@@ -977,7 +977,7 @@ class SecondReviewRegressions(unittest.TestCase):
                 head += (
                     "| ID | Title | Requirement | Why |\n| --- | --- | --- | --- |\n"
                 )
-                (tmp / "specs" / "GMOD-g.md").write_text(
+                (tmp / "docs" / "specs" / "GMOD-g.md").write_text(
                     head + "| JOIN-001 | Moved rule | The client MUST reject it. | |\n"
                 )
                 self.assertEqual("SPEC-031" in rules(run(tmp), "error"), expect)
@@ -985,8 +985,8 @@ class SecondReviewRegressions(unittest.TestCase):
     def pending(self, join_status: str, ident_status: str) -> list[tuple[str, str]]:
         registry = (
             "# Prefix registry\n\n## Active\n\n| Prefix | Spec | File |\n| --- | --- | --- |\n"
-            "| `JOIN` | Joining groups | `specs/JOIN-j.md` |\n"
-            "| `IDENT` | Identity updates | `specs/IDENT-i.md` |\n"
+            "| `JOIN` | Joining groups | `docs/specs/JOIN-j.md` |\n"
+            "| `IDENT` | Identity updates | `docs/specs/IDENT-i.md` |\n"
         )
         head = (
             "---\nprefix: {p}\nstatus: {st}\n---\n# T\n\nS.\n\n"
@@ -995,13 +995,13 @@ class SecondReviewRegressions(unittest.TestCase):
         )
         with TemporaryDirectory() as d:
             tmp = Path(d)
-            (tmp / "specs").mkdir(parents=True)
-            (tmp / "specs" / "PREFIXES.md").write_text(registry)
-            (tmp / "specs" / "JOIN-j.md").write_text(
+            (tmp / "docs" / "specs").mkdir(parents=True)
+            (tmp / "docs" / "specs" / "PREFIXES.md").write_text(registry)
+            (tmp / "docs" / "specs" / "JOIN-j.md").write_text(
                 head.format(p="JOIN", st=join_status)
                 + "| JOIN-001 | Proof check | The client MUST verify it as ?IDENT requires. | |\n"
             )
-            (tmp / "specs" / "IDENT-i.md").write_text(
+            (tmp / "docs" / "specs" / "IDENT-i.md").write_text(
                 head.format(p="IDENT", st=ident_status)
                 + "| IDENT-001 | Proof rule | The client MUST check it. | |\n"
             )

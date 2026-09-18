@@ -6,15 +6,9 @@ Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `s
 
 - `docs/self-hosted/agent-context.md` — self-hosted project rules and architecture.
   Read it once at session start. Do not re-read it.
-- `specs/` — approved specs. They win. `specs/SPEC-spec-format.md` is the
-  format and the rules; `specs/README.md` says which spec owns what.
-  `docs/specs/` holds the superseded legacy specs: source material, not authority.
-- Skills in `.agents/skills/`. Read one when you start the work it covers:
-  `writing-rust` (conventions and shared helpers), `writing-rust-tests`,
-  `working-with-nix`, `working-with-worktrees`, `check-ci`,
-  `authoring-specs` (drafting or amending a spec in `specs/`),
-  `reviewing-specs` (reviewing a draft before an owner sees it),
-  `checking-spec-compliance` (backlinks, and auditing a PR against requirements).
+- `docs/specs/` — approved specs. They win over code, plans, and XIPs. Read the
+  ones that cover what you are working on, not all of them;
+  `docs/specs/README.md` says which spec owns what.
 
 ## Instruction scope
 

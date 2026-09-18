@@ -4,12 +4,12 @@ import { basename, dirname } from "node:path";
 import { docsLoader } from "@astrojs/starlight/loaders";
 import { prepareDocument } from "./prepare.mjs";
 
-// The specs live in specs/ at the repository root and are published under
-// /specs/, with the README as the section index.
+// The specs live in docs/specs/ and are published under /specs/, with the
+// README as the section index.
 const SPEC_SOURCES = [
   {
-    dir: "../../specs/",
-    editBase: "https://github.com/xmtp/libxmtp/edit/main/specs/",
+    dir: "../../docs/specs/",
+    editBase: "https://github.com/xmtp/libxmtp/edit/main/docs/specs/",
     route(name) {
       if (name === "README.md") return "/specs/";
       return `/specs/${name.replace(/\.md$/u, "").toLowerCase()}/`;

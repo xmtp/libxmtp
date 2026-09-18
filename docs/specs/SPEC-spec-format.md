@@ -18,15 +18,15 @@ flowchart LR
 
 ## Scope
 
-In scope: every file in `specs/`, the requirement identifier scheme, the admission test, backlinks from code and tests, waivers, the checker, and the "Spec changes" section that plans carry.
+In scope: every file in `docs/specs/`, the requirement identifier scheme, the admission test, backlinks from code and tests, waivers, the checker, and the "Spec changes" section that plans carry.
 
 Out of scope: the format and tooling of plans, design notes under `docs/` and in module READMEs, and the XIP process.
 
 | Related | Relation |
 | --- | --- |
-| `specs/GLOSSARY.md` | Names the actors and shared terms every spec uses. Definitions only; obligations live in requirements (SPEC-072). |
-| `specs/PREFIXES.md` | The registry of requirement prefixes. Read by the checker. |
-| `specs/README.md` | The capability map: which spec owns what. Informative. |
+| `docs/specs/GLOSSARY.md` | Names the actors and shared terms every spec uses. Definitions only; obligations live in requirements (SPEC-072). |
+| `docs/specs/PREFIXES.md` | The registry of requirement prefixes. Read by the checker. |
+| `docs/specs/README.md` | The capability map: which spec owns what. Informative. |
 
 ## Terms
 
@@ -39,7 +39,7 @@ Out of scope: the format and tooling of plans, design notes under `docs/` and in
 | Requirement | One row of a requirements table, in the form of SPEC-034. |
 | Normative text | Text that creates an obligation: a requirement row, and whatever a requirement points at (SPEC-041). |
 | Design note | A Markdown file under `docs/` or a module README that explains mechanisms and choices. Never normative. |
-| Legacy spec | A file under `docs/specs/` with `status: legacy`: being replaced. It stays binding for obligations whose replacement is not yet approved (SPEC-011). |
+| Legacy spec | A file under `docs/legacy-specs/` with `status: legacy`: being replaced. It stays binding for obligations whose replacement is not yet approved (SPEC-011). |
 
 ## 1. Files
 
@@ -47,7 +47,7 @@ One spec is one file. The file name carries the prefix so a reader who sees `JOI
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| SPEC-001 | One file per spec | A spec MUST be one Markdown file in `specs/` named `PREFIX-slug.md`, where `PREFIX` is the spec's prefix in uppercase and `slug` is lowercase words joined by hyphens. | |
+| SPEC-001 | One file per spec | A spec MUST be one Markdown file in `docs/specs/` named `PREFIX-slug.md`, where `PREFIX` is the spec's prefix in uppercase and `slug` is lowercase words joined by hyphens. | |
 | SPEC-002 | Frontmatter keys | A spec MUST begin with YAML frontmatter with the keys `prefix` and `status`, whose value is `draft`, `approved`, or `legacy`, and MAY carry `owns` listing identifiers it holds from another prefix. | |
 | SPEC-003 | Section order | After the title and its summary paragraphs, a spec MUST contain `## Scope`, then `## Terms`, then numbered capability sections `## 1.` to `## N.` in ascending order, then optionally `## Known limitations` as the last section. | |
 | SPEC-004 | Owner sets status | An author MUST NOT set `status: approved`. Only an owner's review of the PR changes a spec to `approved`. | |
@@ -97,7 +97,7 @@ Specs are written in waves, so one will often need an obligation another has not
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | SPEC-030 | Identifier form | A requirement identifier MUST be `PREFIX-NNN`: three to five uppercase letters, a hyphen, and exactly three digits. | |
-| SPEC-031 | Prefix registry | Every prefix MUST be registered in `specs/PREFIXES.md`, and a spec MUST use only its own prefix for its requirements. | |
+| SPEC-031 | Prefix registry | Every prefix MUST be registered in `docs/specs/PREFIXES.md`, and a spec MUST use only its own prefix for its requirements. | |
 | SPEC-032 | Allocating a number | The author MUST give a new requirement the next unused number for the prefix, MUST NOT renumber an existing requirement, and MUST NOT reuse the number of a deleted requirement. | |
 | SPEC-033 | Amending a requirement | When an amendment keeps the same obligation, the requirement MUST keep its identifier. When the obligation changes, the author MUST allocate a new identifier and delete the old row. A spec MUST NOT contain a table of retired requirements. | |
 | SPEC-075 | Moving a requirement | When a split moves an unchanged obligation to another spec, it MUST keep its identifier, and the receiving spec MUST list that identifier in its `owns` frontmatter key. | changing an identifier because a file was reorganised breaks every backlink for an obligation nobody edited. Prose cannot record this, because the checker has to know. |
@@ -107,7 +107,7 @@ Specs are written in waves, so one will often need an obligation another has not
 | SPEC-036 | Requirement title | A requirement MUST have a title of two to seven words in the Title cell, with no trailing period. | |
 | SPEC-037 | Length and rationale | The Requirement cell MUST be at most three sentences. The Why cell MUST state what breaks when the requirement is violated, or be empty, and MUST NOT restate the requirement. | Section prose carries the reasons by default. A Why that repeats the rule in other words costs a reader a sentence and teaches nothing. |
 | SPEC-089 | Concrete conditions | A condition MUST name the field, stored value, or comparison it tests, and a bound MUST state its value, or its default and the rule that selects it when the value is a tunable. A word that stands in for a measure, such as "earliest", "confirmed", "usable", or "bounded", MUST NOT replace the measure. | "The earliest message at the location" is a claim; "the message with the lowest sequence id at the location" is a test. A bound with no value cannot be violated. |
-| SPEC-038 | Naming the actor | A requirement MUST name its actor with a term from `specs/GLOSSARY.md`, or with a process actor this document defines in its Terms. A new system actor MUST be added to the glossary, not defined in a spec. | |
+| SPEC-038 | Naming the actor | A requirement MUST name its actor with a term from `docs/specs/GLOSSARY.md`, or with a process actor this document defines in its Terms. A new system actor MUST be added to the glossary, not defined in a spec. | |
 | SPEC-039 | Exact values once | A wire field, topic byte, published limit, error code, or persisted format MUST be stated exactly once, in the spec that owns it. Other specs MUST reference it by identifier. | |
 | SPEC-040 | Transport identifiers | A spec that states the contract of a transport format MAY use that format's identifiers and error codes, such as `xmtp.backend.v1.GetConfigurationResponse` or `INVALID_ARGUMENT`. | |
 | SPEC-041 | Normative text | Only requirement rows, and the content a requirement points at, are normative. A table other than a requirements table, a type block, a diagram, a glossary entry, or an example MUST be treated as informative unless a requirement points at it. | |
@@ -196,7 +196,7 @@ Two things make a test worth linking: where it runs, and what it establishes. A 
 | SPEC-052 | Distinct evidence only | A test MUST carry a link only when no already-linked test establishes the same property in the same place. When two tests establish the same property in the same place, only one MUST carry the link, and it MUST be the Rust test when there is one. | a rule counting only places would reject a rollback test that shares a place with the normal-path test, and those establish different properties. |
 | SPEC-053 | No other mentions | A comment in code MUST NOT mention a requirement identifier except in an `implements:` or `verifies:` token. The checker reports a stray mention as an error when the identifier's spec is approved and as a warning otherwise. | |
 | SPEC-054 | Evidence exemptions | This document and any requirement whose keyword is `SHOULD` MUST be exempt from SPEC-051 and from SPEC-055. | |
-| SPEC-055 | Waiver entries | A requirement that SPEC-054 does not exempt and that carries no `verifies:` link MUST have an entry in `specs/waivers.toml` with the identifier, a `kind`, and a reason. A waiver MUST be reviewed like a spec change. | |
+| SPEC-055 | Waiver entries | A requirement that SPEC-054 does not exempt and that carries no `verifies:` link MUST have an entry in `docs/specs/waivers.toml` with the identifier, a `kind`, and a reason. A waiver MUST be reviewed like a spec change. | |
 | SPEC-056 | The checker gates merges | `just lint` MUST run `just spec-check`, and a PR MUST pass it. | |
 | SPEC-058 | Evidence gate rollout | While backlinks are being added to the code, the checker MAY report a missing `verifies:` link as a warning rather than an error. Once the last approved spec has its links, an owner MUST turn the gate to error, and it MUST stay there. | a gate that fails every pull request on the day it lands gets switched off. Saying so here is honest; leaving SPEC-051 to read as enforced when it is not would not be. |
 | SPEC-057 | Waiver kinds | A waiver entry's `kind` MUST be `analysis` when a recorded review establishes the obligation and no test can, or `gap` when the implementation does not yet satisfy it. A `gap` entry MUST name an owner and an issue. | a security property proven by cryptographic review is not the same as behaviour known to be wrong, and hiding both behind one word loses the distinction that matters. |
@@ -208,7 +208,7 @@ Plans are out of scope and tooling-agnostic; this section is the one rule they c
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | SPEC-060 | Spec changes section | A plan MUST contain a section titled "Spec changes" that lists the requirement identifiers the plan implements and every identifier it adds, amends, or removes, or states "None". | |
-| SPEC-061 | Owner review | A change to a file in `specs/` MUST be reviewed by an owner. A plan MUST NOT treat a proposed spec change as approved before that review. | |
+| SPEC-061 | Owner review | A change to a file in `docs/specs/` MUST be reviewed by an owner. A plan MUST NOT treat a proposed spec change as approved before that review. | |
 | SPEC-062 | Spec first | A project MAY land its spec change with waivers in the first PR of a stack and remove the waivers in later PRs. | |
 
 ## 6. This document
@@ -220,7 +220,7 @@ This document is a spec about specs, so a few of its own rules cannot apply to i
 | SPEC-080 | Admission exemption | This document's rules MUST be exempt from SPEC-020 through SPEC-023, which test obligations about system behaviour. | "a requirement has a title" binds an author, not the system, so asking who relies on it at runtime has no answer. |
 | SPEC-081 | Evidence and size exemptions | This document MUST be exempt from SPEC-005, SPEC-051, and SPEC-055. | |
 | SPEC-082 | Process actors | This document MAY use the process actors in its Terms section, which the glossary does not define. | |
-| SPEC-084 | Naming its own artefacts | This document MUST be exempt from SPEC-006 for the files, recipes, and keys it defines, which it MUST be able to name. | a format that may not write `specs/waivers.toml` cannot say where a waiver goes. |
+| SPEC-084 | Naming its own artefacts | This document MUST be exempt from SPEC-006 for the files, recipes, and keys it defines, which it MUST be able to name. | a format that may not write `docs/specs/waivers.toml` cannot say where a waiver goes. |
 | SPEC-085 | Test obligations about specs | This document's rules about evidence MUST be exempt from SPEC-025, which bars obligations about a capability's tests. | SPEC-025 keeps work planning out of a capability spec. Requiring a spec's own requirements to carry evidence is a rule about specs, not about a capability's test plan. |
 | SPEC-086 | Permissions in this document | A MAY in this document MUST be exempt from SPEC-029, which requires a permission to name the obligation it creates for a reader. | |
 | SPEC-083 | No other exemptions | Every rule this document states that it does not list here MUST apply to it. | the format has to survive being read by a reviewer who follows it literally. |
