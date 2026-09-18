@@ -89,7 +89,7 @@ XMTP currently hides the sender of Welcome messages (used to add users to a grou
 
 ## Trust boundary
 
-The backend operator can observe topic identifiers, request timing, request size, and client connection metadata. The operator cannot decrypt valid MLS message content without a group key. Clients receive unsigned backend envelopes over a trusted transport and then validate the enclosed protocol data. See the [message security specification](/specs/003-message-security/) for the full trust boundary.
+The backend operator can observe topic identifiers, request timing, request size, and client connection metadata. The operator cannot decrypt valid MLS message content without a group key. Clients receive unsigned backend envelopes over a trusted transport and then validate the enclosed protocol data. See the [message security specification](/specs/legacy/003-message-security/) for the full trust boundary.
 
 ## Cryptographic tools in use
 
