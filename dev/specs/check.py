@@ -28,14 +28,17 @@ from pathlib import Path
 ID_RE = re.compile(r"\b([A-Z]{3,5})-([0-9]{3})\b(?!-?[0-9])")
 
 # SPEC-034: a requirement is one row of a table with this header.
-TABLE_HEADER_RE = re.compile(r"^\|\s*ID\s*\|\s*Requirement\s*\|\s*Why\s*\|\s*$")
+TABLE_HEADER_RE = re.compile(
+    r"^\|\s*ID\s*\|\s*Title\s*\|\s*Requirement\s*\|\s*Why\s*\|\s*$"
+)
+REQUIREMENT_CELLS = 4  # ID, Title, Requirement, Why
 
-# Any row that opens with a bold token looking like an identifier. Used to
-# catch a malformed id (SPEC-030) that ID_CELL_RE would silently skip.
-ROW_LEAD_RE = re.compile(r"^\|\s*\*\*([A-Za-z]{2,8}-[0-9]+)")
+# Any row whose first cell looks like an identifier. Used to catch a
+# malformed id (SPEC-030) that ID_CELL_RE would silently skip.
+ROW_LEAD_RE = re.compile(r"^\|\s*\**([A-Za-z]{2,8}-[0-9]+)\**\s*\|")
 
-# The ID cell: **PREFIX-NNN** Title
-ID_CELL_RE = re.compile(r"^\*\*([A-Z]{3,5}-[0-9]{3})\*\*\s+(\S.*)$")
+# The ID cell holds the identifier and nothing else.
+ID_CELL_RE = re.compile(r"^([A-Z]{3,5}-[0-9]{3})$")
 
 # A pipe that is not escaped separates cells; `\|` is a pipe inside a cell.
 CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
@@ -637,14 +640,15 @@ class Checker:
                     where,
                     "SPEC-034",
                     f"{lead.group(1)} is a row outside a requirements table; "
-                    "the table header is `| ID | Requirement | Why |`",
+                    "the table header is `| ID | Title | Requirement | Why |`",
                 )
             cells = split_row(line)
-            if cells is None or len(cells) != 3:
+            if cells is None or len(cells) != REQUIREMENT_CELLS:
                 self.error(
                     where,
                     "SPEC-034",
-                    f"{lead.group(1)} needs exactly three cells: ID, Requirement, Why",
+                    f"{lead.group(1)} needs exactly four cells: ID, Title, "
+                    "Requirement, Why",
                 )
                 continue
             match = ID_CELL_RE.match(cells[0])
@@ -655,14 +659,14 @@ class Checker:
                 self.error(
                     where,
                     "SPEC-034",
-                    f"{cells[0]!r} is not in the form `**PREFIX-NNN** Title`",
+                    f"{cells[0]!r} is not a bare identifier of the form PREFIX-NNN",
                 )
                 continue
             pending = {
                 "id": match.group(1),
-                "title": match.group(2).strip().rstrip("."),
-                "lines": [cells[1]],
-                "why": cells[2],
+                "title": cells[1].rstrip("."),
+                "lines": [cells[2]],
+                "why": cells[3],
                 "line": i,
             }
             count += self.finish_requirement(

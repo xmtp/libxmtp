@@ -16,19 +16,19 @@ Read `specs/SPEC-spec-format.md` first: it is the rules, this skill is the order
 
 ## The requirement row
 
-One obligation per row of a table with the header `| ID | Requirement | Why |`:
+One obligation per row of a table with the header `| ID | Title | Requirement | Why |`:
 
 ```markdown
-| ID | Requirement | Why |
-| --- | --- | --- |
-| **JOIN-012** Stale welcome | When a Welcome names a group the client already holds and its epoch is not later than the local epoch, the client MUST discard the Welcome. | An older Welcome would roll a member back to a dead epoch. |
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| JOIN-012 | Stale welcome | When a Welcome names a group the client already holds and its epoch is not later than the local epoch, the client MUST discard the Welcome. | An older Welcome would roll a member back to a dead epoch. |
 ```
 
 Condition first, then the actor, then the keyword. That is the EARS clause order (`when`, `while`, `where`, `if ... then`) written with MUST and MUST NOT instead of SHALL, and lowercase triggers. A trigger buried at the end of a sentence cannot be tested.
 
 - MUST and MUST NOT state obligations; MAY states freedom. Never `SHALL`.
 - `SHOULD` only for an app or an operator, which the system cannot enforce. Those need no test.
-- Two to seven words of title after the bold ID, no period. At most three sentences in the Requirement cell.
+- The ID cell holds the bare identifier. Two to seven words of title in the Title cell, no period. At most three sentences in the Requirement cell.
 - The Why cell says what breaks when the rule is violated, or is empty. It never repeats the rule. Section prose carries the reasons by default.
 - A row is one line: no fence, no list. A pipe inside a cell is `\|`. A type block goes above the table whose rows point at it.
 
