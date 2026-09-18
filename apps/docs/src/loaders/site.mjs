@@ -4,10 +4,8 @@ import { basename, dirname } from "node:path";
 import { docsLoader } from "@astrojs/starlight/loaders";
 import { prepareDocument } from "./prepare.mjs";
 
-// The approved and draft specs live in specs/ at the repository root and are
-// published under /specs/. The superseded documents in docs/specs/ stay
-// published under /specs/legacy/ until each one is deleted with its
-// replacement.
+// The specs live in specs/ at the repository root and are published under
+// /specs/, with the README as the section index.
 const SPEC_SOURCES = [
   {
     dir: "../../specs/",
@@ -26,22 +24,10 @@ const SPEC_SOURCES = [
       return fixed[name] ?? 10;
     },
   },
-  {
-    dir: "../../docs/specs/",
-    editBase: "https://github.com/xmtp/libxmtp/edit/main/docs/specs/",
-    route(name) {
-      return `/specs/legacy/${name.replace(/\.md$/u, "").replaceAll("_", "-")}/`;
-    },
-    // Keep the numeric order of the legacy files, after every current spec.
-    order(name) {
-      return 100 + Number(name.match(/^\d+/u)?.[0] ?? 99);
-    },
-  },
 ];
 
 const BADGES = {
   draft: { text: "Draft", variant: "caution" },
-  legacy: { text: "Legacy", variant: "note" },
 };
 
 function idForRoute(route) {
