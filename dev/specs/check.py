@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate specs/ and the requirement backlinks in the repository.
+"""Validate docs/specs/ and the requirement backlinks in the repository.
 
 Three commands, all reached through just recipes:
 
@@ -8,7 +8,7 @@ Three commands, all reached through just recipes:
     just spec-show ID          print one requirement with its links
 
 The checker parses the specs itself rather than reading generated state, so
-nothing has to be committed and regenerated. See specs/SPEC-spec-format.md for
+nothing has to be committed and regenerated. See docs/specs/SPEC-spec-format.md for
 the rules it enforces; every check names the requirement it comes from.
 """
 
@@ -131,11 +131,15 @@ NOT_IDS = {"SHA-256", "SHA-512", "UTF-8", "BASE-64", "RFC-2119"}
 
 # SPEC-032: a prefix inherited from a legacy document keeps that document's
 # number space, so a new requirement never reuses a string that already meant
-# something. See the floors table in specs/PREFIXES.md.
+# something. See the floors table in docs/specs/PREFIXES.md.
 PREFIX_FLOORS = {"API": 200, "PUSH": 200}
 
 MAX_REQUIREMENTS = 150  # SPEC-005
 MAX_SENTENCES = 3  # SPEC-037
+
+# Where the specs live, relative to the repository root.
+SPECS_DIR = "docs/specs"
+LEGACY_SPECS_DIR = "docs/legacy-specs"
 
 # Whether a missing verifies link fails the check. SPEC-058 keeps this at
 # "warn" while backlinks are being added, and an owner flips it to "error"
@@ -204,11 +208,11 @@ class Checker:
     # -- loading -----------------------------------------------------------
 
     def load_prefixes(self) -> None:
-        """Read specs/PREFIXES.md. SPEC-031."""
-        path = self.root / "specs" / "PREFIXES.md"
+        """Read the prefix registry. SPEC-031."""
+        path = self.root / SPECS_DIR / "PREFIXES.md"
         if not path.exists():
             self.error(
-                "specs/PREFIXES.md", "SPEC-031", "the prefix registry is missing"
+                f"{SPECS_DIR}/PREFIXES.md", "SPEC-031", "the prefix registry is missing"
             )
             return
         legacy = False
@@ -230,7 +234,7 @@ class Checker:
                 continue
             if prefix in self.prefixes:
                 self.error(
-                    "specs/PREFIXES.md",
+                    f"{SPECS_DIR}/PREFIXES.md",
                     "SPEC-031",
                     f"prefix {prefix} is registered twice",
                 )
@@ -241,44 +245,44 @@ class Checker:
             }
 
     def load_waivers(self) -> None:
-        """Read specs/waivers.toml. SPEC-055."""
-        path = self.root / "specs" / "waivers.toml"
+        """Read the waivers file. SPEC-055."""
+        path = self.root / SPECS_DIR / "waivers.toml"
         if not path.exists():
             return
         try:
             data = tomllib.loads(path.read_text())
         except tomllib.TOMLDecodeError as exc:
-            self.error("specs/waivers.toml", "SPEC-055", f"invalid TOML: {exc}")
+            self.error(f"{SPECS_DIR}/waivers.toml", "SPEC-055", f"invalid TOML: {exc}")
             return
         for entry in data.get("waiver", []):
             rid = entry.get("id")
             reason = entry.get("reason")
             if not rid:
-                self.error("specs/waivers.toml", "SPEC-055", "a waiver has no id")
+                self.error(f"{SPECS_DIR}/waivers.toml", "SPEC-055", "a waiver has no id")
                 continue
             if not reason:
                 self.error(
-                    "specs/waivers.toml",
+                    f"{SPECS_DIR}/waivers.toml",
                     "SPEC-055",
                     f"the waiver for {rid} has no reason",
                 )
             kind = entry.get("kind")
             if kind not in ("analysis", "gap"):
                 self.error(
-                    "specs/waivers.toml",
+                    f"{SPECS_DIR}/waivers.toml",
                     "SPEC-057",
                     f'the waiver for {rid} needs kind = "analysis" or "gap"',
                 )
             elif kind == "gap" and not (entry.get("owner") and entry.get("issue")):
                 self.error(
-                    "specs/waivers.toml",
+                    f"{SPECS_DIR}/waivers.toml",
                     "SPEC-057",
                     f"the gap waiver for {rid} needs an owner and an issue",
                 )
             self.waivers[rid] = {"reason": reason or "", "kind": kind}
 
     def load_specs(self) -> None:
-        specs_dir = self.root / "specs"
+        specs_dir = self.root / SPECS_DIR
         for path in sorted(specs_dir.glob("*.md")):
             if path.name in ("README.md", "GLOSSARY.md", "PREFIXES.md"):
                 continue
@@ -310,7 +314,7 @@ class Checker:
             )
         if prefix not in self.prefixes:
             self.error(
-                rel, "SPEC-031", f"prefix {prefix!r} is not in specs/PREFIXES.md"
+                rel, "SPEC-031", f"prefix {prefix!r} is not in {SPECS_DIR}/PREFIXES.md"
             )
         self.spec_status[prefix] = status
 
@@ -798,7 +802,7 @@ class Checker:
                 d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")
             ]
             rel_dir = Path(dirpath).relative_to(self.root).as_posix()
-            if rel_dir.startswith("specs") or rel_dir.startswith("docs/specs"):
+            if rel_dir.startswith(SPECS_DIR) or rel_dir.startswith(LEGACY_SPECS_DIR):
                 continue
             for name in filenames:
                 if Path(name).suffix not in SCAN_SUFFIXES:
@@ -889,7 +893,7 @@ class Checker:
         for rid in sorted(self.waivers):
             if rid not in self.requirements:
                 self.error(
-                    "specs/waivers.toml",
+                    f"{SPECS_DIR}/waivers.toml",
                     "SPEC-055",
                     f"the waiver for {rid} does not name a current requirement",
                 )
@@ -901,7 +905,7 @@ class Checker:
                 # one path does not close it, so only an analysis waiver is
                 # made redundant by a link.
                 self.warn(
-                    "specs/waivers.toml",
+                    f"{SPECS_DIR}/waivers.toml",
                     "SPEC-055",
                     f"{rid} now has a verifies link; remove its analysis waiver",
                 )
@@ -910,7 +914,7 @@ class Checker:
 
     def check_pending_refs(self) -> None:
         """SPEC-078, SPEC-079: report every ?PREFIX marker and whose debt it is."""
-        for path in sorted((self.root / "specs").glob("*.md")):
+        for path in sorted((self.root / SPECS_DIR).glob("*.md")):
             if path.name in ("PREFIXES.md", "README.md"):
                 continue
             rel = path.relative_to(self.root).as_posix()
@@ -971,7 +975,7 @@ class Checker:
         a reference: the format spec and the README both show sample ids such
         as `JOIN-012` to explain the scheme.
         """
-        for path in sorted((self.root / "specs").glob("*.md")):
+        for path in sorted((self.root / SPECS_DIR).glob("*.md")):
             # The registry describes the number space itself, so the ids in it
             # are boundaries, not references to obligations.
             if path.name == "PREFIXES.md":

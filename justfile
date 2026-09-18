@@ -17,9 +17,9 @@ agent-test: spec-test
     UV_PROJECT_ENVIRONMENT="{{ justfile_directory() }}/.cache/agents/venv" UV_PYTHON_DOWNLOADS=never uv run --frozen --no-dev --project dev/agents --python "$(command -v python3.11)" python -m unittest discover -s dev/agents -p 'test_*.py' -v
 
 # --- SPECS ---
-# See specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
+# See docs/specs/SPEC-spec-format.md and .agents/skills/authoring-specs.
 
-# Validate specs/ and the implements:/verifies: links in the tree.
+# Validate docs/specs/ and the implements:/verifies: links in the tree.
 spec-check *args:
     python3.11 dev/specs/check.py check {{ args }}
 
