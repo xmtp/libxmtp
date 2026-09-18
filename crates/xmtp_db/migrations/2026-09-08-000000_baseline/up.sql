@@ -275,9 +275,13 @@ CREATE TABLE group_messages (
     sequence_id BIGINT NOT NULL,
     envelope_hash BLOB,
     expiry_ns BIGINT,
+    -- Milliseconds since the epoch, scaled to nanoseconds. `unixepoch(...,
+    -- 'subsec')` returns whole seconds plus a fraction, so the seconds are
+    -- counted once. Do not build this from `strftime('%s')` plus
+    -- `strftime('%f')`: `%f` is `SS.SSS` and carries the seconds again, which
+    -- makes the stamp run ahead and jump backwards at every minute boundary.
     inserted_at_ns BIGINT NOT NULL DEFAULT (
-        CAST(strftime('%s','now') AS INTEGER) * 1000000000 +
-        CAST(strftime('%f','now') * 1000000 AS INTEGER) * 1000
+        CAST(unixepoch('now','subsec') * 1000 AS INTEGER) * 1000000
    ),
     expire_at_ns BIGINT, should_push BOOLEAN NOT NULL DEFAULT TRUE, idempotency_key TEXT NOT NULL DEFAULT '',
     delivery_sequence BIGINT CHECK (delivery_sequence IS NULL OR delivery_sequence > 0),
