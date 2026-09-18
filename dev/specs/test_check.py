@@ -51,6 +51,8 @@ What is in and out.
 
 Prose that explains the mechanism.
 
+| ID | Requirement | Why |
+| --- | --- | --- |
 """
 
 
@@ -84,7 +86,8 @@ class RequirementForm(unittest.TestCase):
     def test_well_formed_requirement_passes(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             checker = run(tmp)
             self.assertEqual(rules(checker, "error"), [])
@@ -95,8 +98,8 @@ class RequirementForm(unittest.TestCase):
             tmp = build(
                 Path(d),
                 textwrap.dedent("""\
-                - **JOIN-001 Stale welcome.** The client MUST discard it.
-                - **JOIN-001 Other rule.** The client MUST accept it.
+                | **JOIN-001** Stale welcome | The client MUST discard it. | |
+                | **JOIN-001** Other rule | The client MUST accept it. | |
                 """),
             )
             self.assertIn("SPEC-032", rules(run(tmp), "error"))
@@ -104,14 +107,15 @@ class RequirementForm(unittest.TestCase):
     def test_one_word_title_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Welcomes.** The client MUST discard it.\n"
+                Path(d), "| **JOIN-001** Welcomes | The client MUST discard it. | |\n"
             )
             self.assertIn("SPEC-036", rules(run(tmp), "error"))
 
     def test_shall_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client SHALL discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client SHALL discard it. | |\n",
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
 
@@ -120,14 +124,15 @@ class RequirementForm(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** A spec MUST NOT use `SHALL` here.\n",
+                "| **JOIN-001** Stale welcome | A spec MUST NOT use `SHALL` here. | |\n",
             )
             self.assertEqual(rules(run(tmp), "error"), [])
 
     def test_should_needs_an_unenforceable_actor(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client SHOULD discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client SHOULD discard it. | |\n",
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
 
@@ -135,14 +140,14 @@ class RequirementForm(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Secret storage.** An app SHOULD NOT persist the secret.\n",
+                "| **JOIN-001** Secret storage | An app SHOULD NOT persist the secret. | |\n",
             )
             self.assertEqual(rules(run(tmp), "error"), [])
 
     def test_missing_keyword_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client discards it.\n"
+                Path(d), "| **JOIN-001** Stale welcome | The client discards it. | |\n"
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
 
@@ -151,8 +156,8 @@ class RequirementForm(unittest.TestCase):
             tmp = build(
                 Path(d),
                 (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it. "
-                    "One more. Two more. Three more.\n"
+                    "| **JOIN-001** Stale welcome | The client MUST discard it. "
+                    "One more. Two more. Three more. | |\n"
                 ),
             )
             checker = run(tmp)
@@ -161,20 +166,72 @@ class RequirementForm(unittest.TestCase):
 
     def test_malformed_bullet_is_reported(self):
         with TemporaryDirectory() as d:
-            tmp = build(Path(d), "- **JOIN-001** The client MUST discard it.\n")
+            tmp = build(Path(d), "| **JOIN-001** | The client MUST discard it. | |\n")
             self.assertIn("SPEC-034", rules(run(tmp), "error"))
 
-    def test_why_line_is_captured(self):
+    def test_why_cell_is_captured(self):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                textwrap.dedent("""\
-                - **JOIN-001 Stale welcome.** The client MUST discard it.
-                  Why: an older Welcome would roll the member back.
-                """),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | An older Welcome would roll the member back. |\n",
             )
             checker = run(tmp)
             self.assertIn("roll the member back", checker.requirements["JOIN-001"].why)
+
+    def test_empty_why_cell_is_allowed(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
+            )
+            checker = run(tmp)
+            self.assertEqual(rules(checker, "error"), [])
+            self.assertEqual(checker.requirements["JOIN-001"].why, "")
+
+    def test_escaped_pipe_stays_in_its_cell(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST write `a \\| b` as shown. | |\n",
+            )
+            checker = run(tmp)
+            self.assertEqual(rules(checker, "error"), [])
+            self.assertIn("a | b", checker.requirements["JOIN-001"].text)
+
+    def test_wrong_cell_count_is_an_error(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. |\n",
+            )
+            checker = run(tmp)
+            self.assertIn("SPEC-034", rules(checker, "error"))
+            self.assertNotIn("JOIN-001", checker.requirements)
+
+    def test_row_outside_a_requirements_table_is_an_error(self):
+        """A requirement pasted into another table is still parsed, and reported."""
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "\n| Term | Meaning | Note |\n| --- | --- | --- |\n"
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
+            )
+            checker = run(tmp)
+            self.assertIn("SPEC-034", rules(checker, "error"))
+            self.assertIn("JOIN-001", checker.requirements)
+
+    def test_table_ends_at_a_blank_line(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n\n"
+                "Ordinary prose that mentions SHALL as a word.\n",
+            )
+            checker = run(tmp)
+            self.assertEqual(
+                checker.requirements["JOIN-001"].text, "The client MUST discard it."
+            )
+            self.assertEqual(rules(checker, "error"), [])
 
 
 class Structure(unittest.TestCase):
@@ -182,7 +239,7 @@ class Structure(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 registry="# Prefix registry\n\n| Prefix | Spec | File |\n| --- | --- | --- |\n",
             )
             self.assertIn("SPEC-031", rules(run(tmp), "error"))
@@ -202,7 +259,7 @@ class Structure(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra="\n## 3. Later\n\nProse.\n",
             )
             self.assertIn("SPEC-003", rules(run(tmp), "error"))
@@ -210,7 +267,7 @@ class Structure(unittest.TestCase):
     def test_ceiling_is_enforced(self):
         with TemporaryDirectory() as d:
             body = "".join(
-                f"- **JOIN-{n:03d} Rule number {n}.** The client MUST do it.\n"
+                f"| **JOIN-{n:03d}** Rule number {n} | The client MUST do it. | |\n"
                 for n in range(1, check.MAX_REQUIREMENTS + 2)
             )
             tmp = build(Path(d), body)
@@ -232,10 +289,10 @@ class Structure(unittest.TestCase):
             tmp = build(
                 Path(d),
                 textwrap.dedent("""\
-                - **JOIN-001 Stale welcome.** The client MUST discard it.
+                | **JOIN-001** Stale welcome | The client MUST discard it. | |
 
                 ```markdown
-                - **JOIN-999 Example only.** The client MUST do nothing.
+                | **JOIN-999** Example only | The client MUST do nothing. | |
                 ```
                 """),
             )
@@ -253,7 +310,8 @@ class Links(unittest.TestCase):
     def test_verifies_link_is_collected(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, "// verifies: JOIN-001\nfn test_welcome() {}\n")
             checker = run(tmp)
@@ -264,7 +322,8 @@ class Links(unittest.TestCase):
         """Evidence at several boundaries is not capped."""
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(
                 tmp,
@@ -277,7 +336,8 @@ class Links(unittest.TestCase):
     def test_many_implements_links_are_allowed(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(
                 tmp,
@@ -289,7 +349,8 @@ class Links(unittest.TestCase):
     def test_stray_mention_of_approved_id_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, "// see JOIN-001 for the rule\nfn f() {}\n")
             self.assertIn("SPEC-053", rules(run(tmp), "error"))
@@ -298,7 +359,8 @@ class Links(unittest.TestCase):
         """Legacy ids are cleaned up with their spec, so they must not block a PR."""
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, "// CFG-051: the identifier is the binding\nfn f() {}\n")
             checker = run(tmp)
@@ -308,7 +370,8 @@ class Links(unittest.TestCase):
     def test_unknown_id_with_known_prefix_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, "// verifies: JOIN-404\nfn f() {}\n")
             self.assertIn("SPEC-053", rules(run(tmp), "error"))
@@ -318,8 +381,8 @@ class Links(unittest.TestCase):
             tmp = build(
                 Path(d),
                 textwrap.dedent("""\
-                - **JOIN-001 Stale welcome.** The client MUST discard it.
-                - **JOIN-002 Fresh welcome.** The client MUST accept it.
+                | **JOIN-001** Stale welcome | The client MUST discard it. | |
+                | **JOIN-002** Fresh welcome | The client MUST accept it. | |
                 """),
             )
             self.code(tmp, "// verifies: JOIN-001, JOIN-002\nfn f() {}\n")
@@ -330,7 +393,8 @@ class Links(unittest.TestCase):
     def test_gate_turns_missing_evidence_into_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.assertIn("SPEC-051", rules(run(tmp, gate="warn"), "warning"))
             self.assertIn("SPEC-051", rules(run(tmp, gate="error"), "error"))
@@ -339,7 +403,7 @@ class Links(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 status="draft",
             )
             checker = run(tmp, gate="error")
@@ -348,7 +412,8 @@ class Links(unittest.TestCase):
     def test_waiver_satisfies_the_gate(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\nreason = "reviewed by hand"\n'
@@ -358,7 +423,8 @@ class Links(unittest.TestCase):
     def test_waiver_without_a_reason_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\n'
@@ -368,7 +434,8 @@ class Links(unittest.TestCase):
     def test_waiver_for_unknown_id_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-777"\nkind = "analysis"\nreason = "typo"\n'
@@ -378,7 +445,8 @@ class Links(unittest.TestCase):
     def test_stale_waiver_is_a_warning(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "analysis"\nreason = "reviewed by hand"\n'
@@ -389,7 +457,8 @@ class Links(unittest.TestCase):
     def test_sdk_languages_are_scanned(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(
                 tmp,
@@ -401,7 +470,8 @@ class Links(unittest.TestCase):
     def test_skipped_directories_are_not_scanned(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(
                 tmp, "// verifies: JOIN-001\nfn f() {}\n", name="target/debug/gen.rs"
@@ -414,7 +484,7 @@ class CrossReferences(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it per API-900.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it per API-900. | |\n",
             )
             self.assertIn("SPEC-042", rules(run(tmp), "error"))
 
@@ -423,7 +493,7 @@ class CrossReferences(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST follow `API-900`.\n",
+                "| **JOIN-001** Stale welcome | The client MUST follow `API-900`. | |\n",
             )
             self.assertIn("SPEC-042", rules(run(tmp), "error"))
 
@@ -431,7 +501,7 @@ class CrossReferences(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** An id looks like `PREFIX-NNN`; the client MUST parse it.\n",
+                "| **JOIN-001** Stale welcome | An id looks like `PREFIX-NNN`; the client MUST parse it. | |\n",
             )
             self.assertNotIn("SPEC-042", rules(run(tmp), "error"))
 
@@ -439,14 +509,15 @@ class CrossReferences(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST follow XYZ-900.\n",
+                "| **JOIN-001** Stale welcome | The client MUST follow XYZ-900. | |\n",
             )
             self.assertIn("SPEC-042", rules(run(tmp), "error"))
 
     def test_hyphenated_non_identifier_is_not_a_reference(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST use SHA-256.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST use SHA-256. | |\n",
             )
             self.assertNotIn("SPEC-042", rules(run(tmp), "error"))
 
@@ -459,7 +530,7 @@ class Proto(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "message WelcomeMessage {\n"
                     "  bytes installation_key = 1;  // 32 bytes\n"
@@ -474,7 +545,7 @@ class Proto(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "message WelcomeMessage {\n"
                     "  oneof version {\n"
@@ -490,7 +561,7 @@ class Proto(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block("message Welcome {\n  bytes data;\n}"),
             )
             self.assertIn("SPEC-047", rules(run(tmp), "error"))
@@ -499,7 +570,7 @@ class Proto(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block("message Welcome {\n  bytes data = 1;"),
             )
             self.assertIn("SPEC-047", rules(run(tmp), "error"))
@@ -509,7 +580,7 @@ class Proto(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block("message Welcome {\n  bytes data = 1;\n}"),
             )
             checker = run(tmp)
@@ -525,7 +596,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "dictionary Welcome {\n"
                     "  required sequence<octet> installation_key;   // 32 bytes\n"
@@ -538,7 +609,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block("interface Welcome {\n  void send();\n};"),
             )
             self.assertIn("SPEC-049", rules(run(tmp), "error"))
@@ -548,7 +619,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "dictionary WelcomeMessage { required sequence<octet> data; };\n"
                     "dictionary WelcomePointer { required sequence<octet> pointer; };\n"
@@ -561,7 +632,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "dictionary Welcome {\n  required Uint8Array data;\n};"
                 ),
@@ -572,7 +643,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "dictionary Welcome {\n  required sequence<octet> data;"
                 ),
@@ -583,7 +654,7 @@ class WebIDL(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.block(
                     "dictionary Welcome {\n"
                     "  required sequence<octet> data;   // not a Uint8Array\n"
@@ -605,35 +676,31 @@ class ReviewRegressions(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(body)
 
-    def test_wrapped_requirement_text_is_captured(self):
-        """A keyword on a continuation line is part of the obligation."""
+    def test_keyword_anywhere_in_the_cell_is_seen(self):
+        """The whole Requirement cell is the obligation."""
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                (
-                    "- **JOIN-001 Wrapped rule.** When a Welcome arrives late, the client\n"
-                    "  MUST discard it.\n"
-                ),
+                "| **JOIN-001** Wrapped rule | When a Welcome arrives late, the client MUST discard it. | |\n",
             )
             checker = run(tmp)
             self.assertIn("MUST discard it", checker.requirements["JOIN-001"].text)
             self.assertNotIn("SPEC-035", rules(checker, "error"))
 
-    def test_shall_on_a_continuation_line_is_caught(self):
+    def test_shall_late_in_the_cell_is_caught(self):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                (
-                    "- **JOIN-001 Wrapped rule.** When a Welcome arrives late, the client\n"
-                    "  SHALL discard it.\n"
-                ),
+                "| **JOIN-001** Wrapped rule | When a Welcome arrives late, the client SHALL discard it. | |\n",
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
 
     def test_malformed_id_is_reported_not_skipped(self):
         """A two-digit id must not vanish from every check."""
         with TemporaryDirectory() as d:
-            tmp = build(Path(d), "- **JOIN-01 Bad id.** The client MUST discard it.\n")
+            tmp = build(
+                Path(d), "| **JOIN-01** Bad id | The client MUST discard it. | |\n"
+            )
             checker = run(tmp)
             self.assertEqual(checker.requirements, {})
             self.assertIn("SPEC-034", rules(checker, "error"))
@@ -641,7 +708,7 @@ class ReviewRegressions(unittest.TestCase):
     def test_four_digit_id_is_rejected(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-1000 Wide id.** The client MUST discard it.\n"
+                Path(d), "| **JOIN-1000** Wide id | The client MUST discard it. | |\n"
             )
             checker = run(tmp)
             self.assertEqual(checker.requirements, {})
@@ -651,7 +718,8 @@ class ReviewRegressions(unittest.TestCase):
         """A link token only counts inside a comment."""
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, 'const NOTE: &str = "verifies: JOIN-001";\n')
             checker = run(tmp)
@@ -666,7 +734,7 @@ class ReviewRegressions(unittest.TestCase):
             with TemporaryDirectory() as d:
                 tmp = build(
                     Path(d),
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                    "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 )
                 self.code(tmp, f"{leader} verifies: JOIN-001\nx\n", name=name)
                 self.assertEqual(
@@ -679,7 +747,7 @@ class ReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=(
                     "\n```proto\n"
                     "message Welcome {\n"
@@ -695,7 +763,7 @@ class ReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra="\n```webidl\ntypedef unsigned long Counter;\n```\n",
             )
             self.assertEqual(rules(run(tmp), "error"), [])
@@ -713,7 +781,8 @@ class ReviewRegressions(unittest.TestCase):
             (tmp / "specs" / "API-a.md").write_text(
                 "---\nprefix: API\nstatus: draft\n---\n# A\n\nS.\n\n"
                 "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
-                "- **API-001 Topic derivation.** The backend MUST derive it.\n"
+                "| ID | Requirement | Why |\n| --- | --- | --- |\n"
+                "| **API-001** Topic derivation | The backend MUST derive it. | |\n"
             )
             self.assertIn("SPEC-032", rules(run(tmp), "error"))
 
@@ -729,14 +798,16 @@ class ReviewRegressions(unittest.TestCase):
             (tmp / "specs" / "API-a.md").write_text(
                 "---\nprefix: API\nstatus: draft\n---\n# A\n\nS.\n\n"
                 "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
-                "- **API-200 Topic derivation.** The backend MUST derive it.\n"
+                "| ID | Requirement | Why |\n| --- | --- | --- |\n"
+                "| **API-200** Topic derivation | The backend MUST derive it. | |\n"
             )
             self.assertNotIn("SPEC-032", rules(run(tmp), "error"))
 
     def test_waiver_without_a_kind_is_an_error(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nreason = "later"\n'
@@ -746,7 +817,8 @@ class ReviewRegressions(unittest.TestCase):
     def test_gap_waiver_needs_an_owner_and_issue(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
@@ -756,45 +828,14 @@ class ReviewRegressions(unittest.TestCase):
     def test_complete_gap_waiver_passes(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
                 'owner = "backend"\nissue = "https://example.invalid/1"\n'
             )
             self.assertNotIn("SPEC-057", rules(run(tmp), "error"))
-
-    def test_blank_line_inside_a_requirement_is_rejected(self):
-        """CommonMark keeps a second paragraph in the item; an obligation must not hide there."""
-        with TemporaryDirectory() as d:
-            tmp = build(
-                Path(d),
-                (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it.\n\n"
-                    "  The client SHALL also delete the group.\n"
-                ),
-            )
-            checker = run(tmp)
-            errors = rules(checker, "error")
-            self.assertIn("SPEC-034", errors)
-            # The hidden text is still validated, so its SHALL is caught.
-            self.assertIn("SPEC-035", errors)
-
-    def test_paragraph_after_a_requirement_list_is_not_absorbed(self):
-        """Unindented prose after a list is ordinary prose, not part of the item."""
-        with TemporaryDirectory() as d:
-            tmp = build(
-                Path(d),
-                (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it.\n\n"
-                    "Ordinary prose that mentions SHALL as a word.\n"
-                ),
-            )
-            checker = run(tmp)
-            self.assertEqual(
-                checker.requirements["JOIN-001"].text, "The client MUST discard it."
-            )
-            self.assertNotIn("SPEC-034", rules(checker, "error"))
 
 
 class SecondReviewRegressions(unittest.TestCase):
@@ -808,7 +849,8 @@ class SecondReviewRegressions(unittest.TestCase):
     def test_raw_string_is_not_evidence(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, 'const DOC: &str = r#"\n// verifies: JOIN-001\n"#;\n')
             self.assertEqual(run(tmp).requirements["JOIN-001"].verifies, [])
@@ -817,7 +859,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client SHOULD notify the app.\n",
+                "| **JOIN-001** Stale welcome | The client SHOULD notify the app. | |\n",
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
 
@@ -827,8 +869,8 @@ class SecondReviewRegressions(unittest.TestCase):
             tmp = build(
                 Path(d),
                 (
-                    "- **JOIN-001 Stale welcome.** When an app SHOULD retry, "
-                    "the client MUST discard it.\n"
+                    "| **JOIN-001** Stale welcome | When an app SHOULD retry, "
+                    "the client MUST discard it. | |\n"
                 ),
             )
             self.assertIn("SPEC-035", rules(run(tmp), "error"))
@@ -836,7 +878,8 @@ class SecondReviewRegressions(unittest.TestCase):
     def test_malformed_link_token_is_not_truncated(self):
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             self.code(tmp, "// verifies: JOIN-0010\nfn t() {}\n")
             self.assertEqual(run(tmp).requirements["JOIN-001"].verifies, [])
@@ -845,40 +888,9 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST comply with JOIN-047.\n",
+                "| **JOIN-001** Stale welcome | The client MUST comply with JOIN-047. | |\n",
             )
             self.assertIn("SPEC-042", rules(run(tmp), "error"))
-
-    def test_lazy_continuation_is_captured_and_reported(self):
-        with TemporaryDirectory() as d:
-            tmp = build(
-                Path(d),
-                (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
-                    "The client SHALL also delete it.\n"
-                ),
-            )
-            checker = run(tmp)
-            self.assertIn("SHALL", checker.requirements["JOIN-001"].text)
-            errors = rules(checker, "error")
-            self.assertIn("SPEC-034", errors)
-            self.assertIn("SPEC-035", errors)
-
-    def test_prose_after_a_list_is_not_absorbed(self):
-        """A blank line then unindented text ends the item."""
-        with TemporaryDirectory() as d:
-            tmp = build(
-                Path(d),
-                (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it.\n\n"
-                    "Ordinary prose follows the list.\n"
-                ),
-            )
-            checker = run(tmp)
-            self.assertEqual(
-                checker.requirements["JOIN-001"].text, "The client MUST discard it."
-            )
-            self.assertNotIn("SPEC-034", rules(checker, "error"))
 
     def proto(self, body: str) -> str:
         return f"\n```proto\n{body}\n```\n"
@@ -887,7 +899,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.proto(
                     "message Sample {\n  bytes id = 1;\n"
                     "  oneof payload {\n    bytes data = 1;\n  }\n}"
@@ -899,7 +911,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.proto(
                     "enum State {\n  option allow_alias = true;\n"
                     "  UNKNOWN = 0;\n  STARTED = 1;\n  RUNNING = 1;\n}"
@@ -911,7 +923,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra=self.proto(
                     "message Outer {\n  message Inner {\n    bytes a = 1;\n  }\n"
                     "  bytes b = 1;\n}"
@@ -923,7 +935,8 @@ class SecondReviewRegressions(unittest.TestCase):
         """Evidence for one path does not close a recorded implementation gap."""
         with TemporaryDirectory() as d:
             tmp = build(
-                Path(d), "- **JOIN-001 Stale welcome.** The client MUST discard it.\n"
+                Path(d),
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
             )
             (tmp / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "restart broken"\n'
@@ -950,8 +963,10 @@ class SecondReviewRegressions(unittest.TestCase):
                 if owns:
                     head += f"owns: {owns}\n"
                 head += "---\n# G\n\nS.\n\n## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
+                head += "| ID | Requirement | Why |\n| --- | --- | --- |\n"
                 (tmp / "specs" / "GMOD-g.md").write_text(
-                    head + "- **JOIN-001 Moved rule.** The client MUST reject it.\n"
+                    head
+                    + "| **JOIN-001** Moved rule | The client MUST reject it. | |\n"
                 )
                 self.assertEqual("SPEC-031" in rules(run(tmp), "error"), expect)
 
@@ -964,6 +979,7 @@ class SecondReviewRegressions(unittest.TestCase):
         head = (
             "---\nprefix: {p}\nstatus: {st}\n---\n# T\n\nS.\n\n"
             "## Scope\n\nx\n\n## Terms\n\nx\n\n## 1. A\n\nProse.\n\n"
+            "| ID | Requirement | Why |\n| --- | --- | --- |\n"
         )
         with TemporaryDirectory() as d:
             tmp = Path(d)
@@ -971,11 +987,11 @@ class SecondReviewRegressions(unittest.TestCase):
             (tmp / "specs" / "PREFIXES.md").write_text(registry)
             (tmp / "specs" / "JOIN-j.md").write_text(
                 head.format(p="JOIN", st=join_status)
-                + "- **JOIN-001 Proof check.** The client MUST verify it as ?IDENT requires.\n"
+                + "| **JOIN-001** Proof check | The client MUST verify it as ?IDENT requires. | |\n"
             )
             (tmp / "specs" / "IDENT-i.md").write_text(
                 head.format(p="IDENT", st=ident_status)
-                + "- **IDENT-001 Proof rule.** The client MUST check it.\n"
+                + "| **IDENT-001** Proof rule | The client MUST check it. | |\n"
             )
             checker = check.Checker(tmp, gate="warn")
             checker.run()
@@ -998,7 +1014,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Proof check.** The client MUST verify it as ?NOPE requires.\n",
+                "| **JOIN-001** Proof check | The client MUST verify it as ?NOPE requires. | |\n",
             )
             self.assertIn("SPEC-078", rules(run(tmp), "error"))
 
@@ -1008,8 +1024,8 @@ class SecondReviewRegressions(unittest.TestCase):
             tmp = build(
                 Path(d),
                 (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it, "
-                    "and the backend MUST reject it.\n"
+                    "| **JOIN-001** Stale welcome | The client MUST discard it, "
+                    "and the backend MUST reject it. | |\n"
                 ),
             )
             checker = run(tmp)
@@ -1021,8 +1037,8 @@ class SecondReviewRegressions(unittest.TestCase):
             tmp = build(
                 Path(d),
                 (
-                    "- **JOIN-001 Stale welcome.** The client MUST discard it and "
-                    "MUST NOT report it.\n"
+                    "| **JOIN-001** Stale welcome | The client MUST discard it and "
+                    "MUST NOT report it. | |\n"
                 ),
             )
             self.assertNotIn("SPEC-034", rules(run(tmp), "warning"))
@@ -1032,8 +1048,8 @@ class SecondReviewRegressions(unittest.TestCase):
             tmp = build(
                 Path(d),
                 (
-                    "- **JOIN-001 Stale welcome.** When a Welcome is late and "
-                    "unreadable, the client MUST discard it.\n"
+                    "| **JOIN-001** Stale welcome | When a Welcome is late and "
+                    "unreadable, the client MUST discard it. | |\n"
                 ),
             )
             self.assertNotIn("SPEC-034", rules(run(tmp), "warning"))
@@ -1043,7 +1059,7 @@ class SecondReviewRegressions(unittest.TestCase):
         with TemporaryDirectory() as d:
             tmp = build(
                 Path(d),
-                "- **JOIN-001 Stale welcome.** The client MUST discard it.\n",
+                "| **JOIN-001** Stale welcome | The client MUST discard it. | |\n",
                 extra="\n| Extension | Identifier |\n| --- | --- |\n| Wrapper | `0xff03` |\n",
             )
             self.assertEqual(rules(run(tmp), "error"), [])
