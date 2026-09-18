@@ -14,6 +14,36 @@ fn it_does_not_error_on_empty_messages() {
     })
 }
 
+/// The database stamps `inserted_at_ns` on insert. Its default must agree with
+/// the client clock: a stamp built from `strftime('%s')` plus `strftime('%f')`
+/// counts the seconds of the minute twice, so it runs up to 59 s ahead and
+/// jumps backwards at every minute boundary.
+#[xmtp_common::test]
+fn test_inserted_at_default_matches_the_client_clock() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+
+        let message = generate_message(None, Some(&group.id), None, None, None, None);
+
+        let before = xmtp_common::time::now_ns();
+        message.store(conn).unwrap();
+        let after = xmtp_common::time::now_ns();
+
+        let stored = conn.get_group_message(&message.id).unwrap().unwrap();
+        // One millisecond of slack on each side: the column is only
+        // millisecond-granular, so its value truncates below `before`.
+        let window = (before - 1_000_000)..=(after + 1_000_000);
+        assert!(
+            window.contains(&stored.inserted_at_ns),
+            "inserted_at_ns {} is outside the store window {}..={}",
+            stored.inserted_at_ns,
+            window.start(),
+            window.end()
+        );
+    })
+}
+
 #[xmtp_common::test]
 fn test_exclude_content_types_filter() {
     with_connection(|conn| {
