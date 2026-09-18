@@ -95,5 +95,11 @@
   "/network/network-nodes": "/protocol/overview/",
   "/network/run-a-node": "/deploy/overview/",
   "/protocol/signatures": "/sdk/use-signatures/",
-  "/protocol/xips": "/protocol/overview/"
+  "/protocol/xips": "/protocol/overview/",
+  "/specs/001-backend-api": "/specs/legacy/001-backend-api/",
+  "/specs/002-backend-architecture": "/specs/legacy/002-backend-architecture/",
+  "/specs/003-message-security": "/specs/legacy/003-message-security/",
+  "/specs/004-streaming": "/specs/legacy/004-streaming/",
+  "/specs/005-push-subscriptions": "/specs/legacy/005-push-subscriptions/",
+  "/specs/006-server-configuration": "/specs/legacy/006-server-configuration/"
 }
