@@ -21,15 +21,15 @@ flowchart LR
 
 In scope: the content type identifier and how a client matches one; the `EncodedContent` envelope and its parameters, fallback, and compression fields; the codec contract and the errors it reports; the push flag a type carries; content nested inside content; coexistence of a legacy and a current version of a type; what a client does with a type it cannot decode; and the catalogue of standard types with their schemas.
 
-Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an MLS message, the message id, and publishing (`?SEND`); receipt, ordering, and storage of messages (`?PROC`); the group metadata a commit changes and the transcript message a client derives from it (`?GMOD`, `?META`); the device sync payload (`?SYNC`); what a push server does with the push flag (`?PUSH`); the archive that carries stored content between installations (ARCH); and the effect of a delete or a leave request on group state (`?PROC`, `?GMOD`).
+Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an MLS message, the message id, and publishing (SEND); receipt, ordering, and storage of messages (PROC); the group metadata a commit changes and the transcript message a client derives from it (GMOD, META); the device sync payload (SYNC); what a push server does with the push flag (PUSH-219); the archive that carries stored content between installations (ARCH); and the effect of a delete or a leave request on group state (`?PROC`, GMOD).
 
 | Related | Relation |
 | --- | --- |
-| `?SEND` | Owns the `PlaintextEnvelope`, the idempotency key, and the send options a client publishes with. This spec owns the `EncodedContent` inside it and the push value a type supplies. |
-| `?PROC` | Owns storing a received message and applying a `deleteMessage` to a stored message. This spec owns the type's schema and which types are deletable. |
-| `?PUSH` | Owns the publish field that tells the backend whether to notify. This spec owns the value a type supplies for it. |
-| `?SYNC` | Owns the sync message, an `EncodedContent` of its own type whose schema it states. |
-| `?GMOD` | Owns the commit that a `group_updated` message summarises and the effect of a `leave_request`. |
+| SEND section 1 | Owns the `PlaintextEnvelope` and message identity. `?SEND` needs the explicit push override and default text rules stated in sections 3 and 4. |
+| `?PROC` | Needs deletion authorization and application rules. CTYPE-018 owns type and message-kind eligibility. |
+| `PUSH-219` | Owns backend push eligibility. CTYPE-010 owns the default value for catalogue content; PUSH-218 needs to defer to it. |
+| SYNC | Owns the sync message, an `EncodedContent` of its own type whose schema it states. |
+| `?GMOD` | Needs the transcript publication restriction in section 7; GMOD owns group changes. |
 | ARCH | Carries a stored message's `EncodedContent` bytes unchanged (ARCH-008), so a type a client does not decode survives export and import. |
 
 ## Terms
@@ -39,18 +39,19 @@ Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an
 | Content type identifier | A `ContentTypeId`: `authority_id`, `type_id`, `version_major`, and `version_minor`. |
 | Human-readable form | The string `authority_id/type_id:version_major.version_minor` of an identifier, for example `xmtp.org/text:1.0`. It appears on the wire only where a catalogue schema names it. |
 | Encoded content | An `EncodedContent` as defined in section 2. |
-| Codec | The encode and decode functions for one identifier, with the push value in section 4. A client ships the codecs of the catalogue; an app registers codecs for its own types. |
+| Codec | The encode and decode functions for one identifier, with the push value in section 4. Catalogue decoders can be supplied by the client or an SDK; an app can register additional codecs under CTYPE-017. |
 | Standard type | A type under authority `xmtp.org`, or one of the two `coinbase.com` types, in the catalogue in section 7. |
-| Custom type | A type whose codec an app registers and the catalogue does not list. |
+| Custom type | A type outside the catalogue, whether or not an app has registered a codec for it. |
+| Unknown type | An identifier for which the client and SDK have no matching decoder under CTYPE-001. |
 | Fallback | The `fallback` string of an encoded content: text a client shows when it cannot decode the content. |
 | Nested content | An `EncodedContent` carried inside the `content` of another, as a reply carries the content it replies with. |
-| Push value | The boolean a codec supplies for a type, which the client publishes as the push flag `?PUSH` owns. |
+| Push value | The boolean a codec supplies for a type, which the client publishes as `should_push` under PUSH-219. |
 
 ## 1. The identifier
 
 An identifier has three parts that name the type and one that does not. The authority is the party that defines the type, named by a DNS name. The type is a name unique under that authority. The major version separates encodings that do not decode one another. The minor version marks an additive change: content under a later minor version decodes under a codec for an earlier one, so a client matches a codec without it.
 
-`xmtp.org` is the authority of the standard types, and the catalogue in section 7 is the whole set. A type under `xmtp.org` that the catalogue does not list is one no client on the network can decode, and an app that publishes one takes a name a later standard type may need.
+The catalogue in section 7 reserves identifiers under `xmtp.org` and lists two types under `coinbase.com`. An unlisted identifier may be implemented by an app. It does not become a standard type by using the `xmtp.org` authority.
 
 ```proto
 message ContentTypeId {
@@ -63,14 +64,15 @@ message ContentTypeId {
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-001 | Match on three values | When the client selects a codec for an encoded content, it MUST select the codec whose `authority_id`, `type_id`, and `version_major` equal the content's, and MUST NOT require `version_minor` to be equal. | A codec keyed on the minor version rejects every additive change, and a match that ignores the authority decodes one authority's type with another's codec. |
+| CTYPE-001 | Match on three values | When the client or an SDK selects a codec, including through the Kotlin, Swift, or TypeScript registry, it MUST match `authority_id`, `type_id`, and `version_major`, and MUST NOT require `version_minor` to match. | Ignoring authority can select another party's codec; requiring the minor version rejects compatible content. |
 | CTYPE-002 | Standard authority is reserved | An app SHOULD NOT register a codec whose `authority_id` is `xmtp.org` for a `type_id` the catalogue in section 7 does not list. | |
+| CTYPE-016 | Published identifiers retain meaning | When the client or an SDK implements a published identifier, it MUST retain that identifier's meaning and accept later minor versions with the earlier minor version's decoding rules. When a sender uses an encoding that those rules cannot decode, it MUST use a new major version or a new type identifier. | Reassigning an identifier makes stored messages change meaning and separates clients by version. |
 
 ## 2. The envelope
 
-An `EncodedContent` carries the identifier, the parameters a decoder needs beyond the bytes, a fallback, an optional compression, and the content. A recipient reads `parameters` as the catalogue schema for the type says; a parameter the schema does not name is ignored. The fallback is the one part of the envelope every client reads, whatever the type, so a type that is not plain text carries one. Text and markdown carry none because their content is the text.
+An `EncodedContent` carries the identifier, the parameters a decoder needs beyond the bytes, a fallback, an optional compression, and the content. A recipient reads parameters under CTYPE-014. Fallback text is available without decoding the content. CTYPE-004 names the types that require it.
 
-`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. No client on the network inflates `content` before decoding it (Known limitations), so a sender that compresses produces content no recipient decodes.
+`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. Decompression is not shared by all receive paths (Known limitations), so CTYPE-006 excludes compressed publication.
 
 ```proto
 // Recognized compression algorithms
@@ -100,7 +102,7 @@ message EncodedContent {
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-003 | Every message names its type | When the client publishes an application message, it MUST set `EncodedContent.type` and MUST NOT publish one whose `type` is absent. | A message with no type is stored by every recipient as content it cannot decode, with no fallback to show. |
+| CTYPE-003 | Every message names its type | When the client publishes an application message, it MUST require a protobuf `EncodedContent` with a present `type` containing non-empty `authority_id` and `type_id`, and MUST reject input that lacks that envelope or identifier. It MUST carry the identifier as the protobuf `ContentTypeId`, not its human-readable form; a catalogue parameter that explicitly carries that form does not replace `type`. | Recipients need the structured identifier to select a decoder. |
 | CTYPE-004 | Fallback for non-text types | When the client encodes content of a catalogue type whose Fallback column in section 7 is `yes`, it MUST set `fallback` to a non-empty string. | A recipient without that codec shows nothing for the message. |
 | CTYPE-005 | Custom types carry a fallback | An app SHOULD set `fallback` on every content it encodes under a custom type it registers. | |
 | CTYPE-006 | No compression | When the client publishes an application message, it MUST NOT set `compression`. | |
@@ -111,34 +113,39 @@ A codec turns a value into an `EncodedContent` and back. What the encode functio
 
 A client meets content it cannot decode as a matter of course: a custom type from an app it is not, a standard type from a newer client, or bytes a buggy sender produced. The message is still a message: it has an id, a sender, a position in the conversation, and it may be the target of a reply, a reaction, or a deletion. The client keeps it and hands the app what it has, which is the identifier, the fallback, and the raw envelope. Dropping it would make the conversation differ between a client that has the codec and one that does not.
 
-An SDK reports four failures as distinct kinds: no codec is registered for the identifier, a codec's decode failed, a codec's encode failed, and the bytes are not an `EncodedContent` or carry no `type`.
+An SDK reports no matching codec, decode failure, encode failure, and malformed envelope as distinct outcomes. A registry lookup that fails is not permission to call the text decoder.
+
+For CTYPE-007, equality means the same strings, byte sequences, numeric values, optional-member presence, and sequence order; map-member order is irrelevant. An action timestamp is compared after conversion to UTC and truncation below millisecond precision, as required by its encoding in section 7.
+
+`?SEND` is expected to require an SDK that accepts string content without an explicit content type to encode it as the catalogue text type. This default applies to a send request, not to received content with a missing or unknown identifier.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-007 | Encode round trip | When a codec encodes a value, the result MUST carry `type` equal to the codec's identifier, and decoding that result with the same codec MUST return a value equal to the input. | |
-| CTYPE-008 | Undecodable content is kept | When a received application message carries a `type` the client has no codec for, or its codec fails to decode it, or its bytes are not an `EncodedContent`, the client MUST store the message with its bytes unchanged and MUST expose to the app the message's identifier, its `fallback`, and the raw `EncodedContent` where the bytes decode as one. | A message dropped on one installation and kept on another leaves the two with different conversations. |
-| CTYPE-009 | Failures are distinguishable | An SDK MUST let an app distinguish, as distinct error kinds, no codec registered for an identifier, a decode failure, an encode failure, and bytes that are not an `EncodedContent` or carry no `type`. | |
+| CTYPE-007 | Encode round trip | When the client or an SDK encodes an app value with a codec, it MUST return an envelope whose `type` equals that codec's identifier and whose decoding with the same codec returns an equal value under the comparison above. | The app and the recipient must receive the value that was sent. |
+| CTYPE-008 | Undecodable content is kept | When a received application message has no matching codec, fails decoding, or is not a typed `EncodedContent`, the client MUST retain its original bytes and message id. The client and SDK MUST expose those bytes and that id to the app, with the actual content identifier and fallback when present, without replacing the identifier with a text or fallback type. | Dropping undecodable content gives installations different conversation histories. |
+| CTYPE-009 | Failures are distinguishable | When encoding, decoding, or selecting a codec, an SDK MUST let the app distinguish no matching codec, codec decode failure, codec encode failure, and a malformed or untyped envelope. On a lookup failure, the Kotlin and Swift SDK registries MUST report no matching codec and MUST NOT return a successful text decode instead. | Unknown UTF-8 content can otherwise appear to be ordinary text. |
+| CTYPE-017 | Apps supply custom codecs | An SDK MUST let an app register a codec for a custom type, use it for received custom content matched under CTYPE-001, and send typed envelopes that the app encodes with it. | An app-defined type must be usable without changing the client. |
 
 ## 4. The push value
 
-A type says whether a message of that type is worth a notification. A reaction, a read receipt, a deletion, and a group transcript are not; text and attachments are. The codec supplies the value and the client publishes it as the push flag on the message. `?PUSH` is expected to own that flag on the publish request and to require that the backend delivers a push notification only for a message whose flag is set. `?SEND` is expected to own the send options and to require that an app's explicit push option, when given, replaces the codec's value.
+A type supplies a default push value. The client can obtain it from a codec or from the identifier of an app-supplied envelope. PUSH-219 owns backend push eligibility. `?SEND` is expected to require that an explicitly supplied `shouldPush` value, including false, overrides the type default. An omitted options object and an object with no `shouldPush` field both leave that default in effect. PUSH-218 needs to defer to CTYPE-010 for catalogue application messages instead of imposing a blanket true default.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-010 | Push value from the catalogue | When the client publishes content of a catalogue type and the app gave no push option, it MUST set the push flag to the Push column of section 7 for that type. | A read receipt that pushes wakes every device for nothing; a text that does not push is a message nobody sees until they open the app. |
+| CTYPE-010 | Push value from the catalogue | When the client or an SDK publishes catalogue content without an explicit app push override under `?SEND`, it MUST set the push flag to the catalogue's Push value, including for an app-supplied raw envelope and for an options object with no push field. | Incorrect defaults suppress wanted notifications or send unwanted ones to recipients. |
 
 ## 5. Nested content
 
-A reply carries the content it replies with as a complete `EncodedContent` inside its own `content`, with the nested identifier repeated in human-readable form in the `contentType` parameter. The nested content is decoded with the same rule as a top-level one, so a reply with a custom type inside it is a reply the recipient can still place in the conversation: the reference resolves and the outer fallback shows. The `editMessage` schema in section 7 nests the same way.
+A reply carries the content it replies with as a complete `EncodedContent` inside its own `content`, with the nested identifier repeated in human-readable form in the `contentType` parameter. The nested content is decoded with the same rule as a top-level one, so a reply with a custom type inside it is a reply the recipient can still place in the conversation: the reference resolves and the outer fallback shows. The reserved `editMessage` schema also contains nested content, but CTYPE-020 gives it no mutation effect.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-011 | Nested content is complete | When the client encodes content that nests another, the nested bytes MUST be a complete `EncodedContent` with its own `type`, so that CTYPE-001 selects its codec. | |
-| CTYPE-012 | Nested unknown content | When the client decodes a reply whose nested content it cannot decode under CTYPE-008, it MUST return the reply with its `reference` and the nested `EncodedContent` as custom content, and MUST NOT fail the reply. | A recipient that fails the whole reply loses the reference and shows the reply as unknown instead of as a reply to a known message. |
+| CTYPE-011 | Nested content is complete | When the client or an SDK encodes nested content, it MUST require a complete protobuf `EncodedContent` with a present `type` and non-empty `authority_id` and `type_id`, and MUST fail encoding when these are absent. | An outer type cannot identify the nested payload. |
+| CTYPE-012 | Nested decode outcomes | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and that envelope unchanged as custom content; the nested `type` MUST control over a conflicting `contentType` parameter. When nested bytes are malformed or untyped, or a matching nested codec fails, it MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply an envelope to return as a valid custom value. |
 
 ## 6. A legacy and a current version
 
-A type changes its major version when its encoding changes. Old messages under the old major version are still in every conversation and every archive, so a client decodes both and publishes only the current one. The reaction type is the one such case: major version 1 is JSON, major version 2 is protobuf. Both are in the catalogue.
+An incompatible encoding needs a different major version under CTYPE-016. Support for an older major is explicit; a codec is not selected merely because its major is greater than the message's. The reaction type is the one such case: major version 1 is JSON, major version 2 is protobuf. Both are in the catalogue.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -146,20 +153,22 @@ A type changes its major version when its encoding changes. Old messages under t
 
 ## 7. The catalogue
 
-The table below is the set of standard types. Each row is the exact identifier, what `content` holds, the parameters the schema reads, whether a fallback is set, the push value, and whether a `deleteMessage` may target a message of the type. `?PROC` is expected to require that a client applies a `deleteMessage` only to a stored message whose type is deletable and whose sender is the deleter or a super admin. The schema blocks that follow the table state each encoding. A JSON encoding is written as a WebIDL dictionary whose member names are the JSON keys; a member that is not `required` is omitted from the JSON when absent.
+The catalogue lists identifiers, encodings, parameters, fallback and push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. `?PROC` is expected to require that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
 
-Two types under `coinbase.com`, `actions` and `intent`, ship in every client and are listed with the standard types. The sync message type is owned by `?SYNC`, which states its identifier and schema; it is not repeated here. `xmtp.org/editMessage:1.0` has a schema in this repository and no client encodes or decodes it; it is reserved and its schema is listed last.
+Catalogue presence does not promise a codec class in every SDK. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
+
+JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and section 3.1 provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
 
 | Type | Identifier | Content | Parameters | Fallback | Push | Deletable |
 | --- | --- | --- | --- | --- | --- | --- |
-| Text | `xmtp.org/text:1.0` | UTF-8 text | `encoding`, always `UTF-8`; absent reads as `UTF-8`; any other value fails decoding | no | true | yes |
-| Markdown | `xmtp.org/markdown:1.0` | UTF-8 Markdown | `encoding`, as for text | no | true | yes |
+| Text | `xmtp.org/text:1.0` | UTF-8 text | `encoding`: `UTF-8` | no | true | yes |
+| Markdown | `xmtp.org/markdown:1.0` | UTF-8 Markdown | `encoding`: `UTF-8` | no | true | yes |
 | Reaction | `xmtp.org/reaction:2.0` | Protobuf `ReactionV2` | none | yes | false | no |
 | Legacy reaction | `xmtp.org/reaction:1.0` | JSON `LegacyReaction` | none | yes | false | no |
 | Reply | `xmtp.org/reply:1.0` | Protobuf `EncodedContent`: the nested content | `reference`: the replied-to message id in lowercase hexadecimal; `contentType`: the nested identifier in human-readable form; `referenceInboxId`: optional, the replied-to sender's inbox id | yes | true | yes |
 | Read receipt | `xmtp.org/readReceipt:1.0` | Empty | none | no | false | no |
 | Attachment | `xmtp.org/attachment:1.0` | The file bytes | `mimeType`; `filename`: optional | yes | true | yes |
-| Remote attachment | `xmtp.org/remoteStaticAttachment:1.0` | The URL as UTF-8 text | `contentDigest`, `secret`, `salt`, `nonce`, `scheme`, `contentLength`: optional, `filename`: optional; see `RemoteAttachment` | yes | true | yes |
+| Remote attachment | `xmtp.org/remoteStaticAttachment:1.0` | The URL as UTF-8 text | `contentDigest`, `secret`, `salt`, `nonce`, `scheme`; `contentLength` and `filename`: optional; see the Remote attachment parameters table | yes | true | yes |
 | Multiple remote attachments | `xmtp.org/multiRemoteStaticAttachment:1.0` | Protobuf `MultiRemoteAttachment` | none | yes | true | yes |
 | Transaction reference | `xmtp.org/transactionReference:1.0` | JSON `TransactionReference` | none | yes | true | yes |
 | Wallet send calls | `xmtp.org/walletSendCalls:1.0` | JSON `WalletSendCalls` | none | yes | true | yes |
@@ -169,31 +178,30 @@ Two types under `coinbase.com`, `actions` and `intent`, ship in every client and
 | Legacy membership change | `xmtp.org/group_membership_change:1.0` | Protobuf `GroupMembershipChanges` | none | no | false | no |
 | Leave request | `xmtp.org/leave_request:1.0` | Protobuf `LeaveRequest` | none | no | false | no |
 | Delete message | `xmtp.org/deleteMessage:1.0` | Protobuf `DeleteMessage` | none | no | false | no |
-| Edit message (reserved) | `xmtp.org/editMessage:1.0` | Protobuf `EditMessage` | none | | | |
+| Edit message (reserved) | `xmtp.org/editMessage:1.0` | Protobuf `EditMessage` | none | no | false | no |
 
-Group updated and legacy membership change are never published: a client derives a group updated message from each commit it applies and stores it as a message of the group, and a legacy membership change is the same record from clients before the current transcript format. Both are in the catalogue because every client stores and decodes them as messages of the group. A client publishes a leave request under `leave_request`: the schema file's comment names `leaveRequest`, and that comment is wrong.
+Group updated and legacy membership change represent commit transcripts. `?GMOD` is expected to require that the client derives transcript records from validated commits and never publishes either transcript type as an application message.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-014 | Catalogue encodings are binding | When the client encodes or decodes content of a catalogue type, it MUST use the identifier, the content encoding, and the parameters the table above and the schema blocks below state for that type, and MUST NOT publish content of that type under any other identifier. | Two clients that disagree on the bytes behind one identifier each see the other's messages as undecodable. |
-| CTYPE-015 | Remote attachment payload | When the client encodes a remote attachment, the bytes at the URL MUST be an encoded `EncodedContent` of type `xmtp.org/attachment:1.0` encrypted with AES-GCM under a 256-bit key derived by HKDF-SHA256 from a 32-byte random `secret` and a 32-byte random `salt` with empty info, under a 12-byte random `nonce`, with `contentDigest` the lowercase hexadecimal SHA-256 of the ciphertext. When the client decrypts one, it MUST reject a payload whose SHA-256 differs from `contentDigest` before it decrypts. | The URL is unauthenticated storage. Without the digest check a substituted payload is decrypted and shown. |
+| CTYPE-014 | Catalogue encodings are binding | When the client or an SDK encodes or decodes a catalogue type, it MUST use the identifier, content encoding, parameters, protobuf schemas, Remote attachment parameters table, and JSON member tables in this section, and MUST NOT publish that type under another identifier. On decode, it MUST ignore envelope parameters that the type does not name. | Different encodings under one identifier break interoperability. |
+| CTYPE-015 | Remote attachment payload | When the client or an SDK encodes a remote attachment, including each entry of a multiple attachment, it MUST encrypt a serialized attachment `EncodedContent` with AEAD_AES_256_GCM ([RFC 5116 §5.2](https://www.rfc-editor.org/rfc/rfc5116.html#section-5.2)), a 16-byte appended tag, empty associated data, and a fresh 12-byte random nonce. It MUST derive the 32-byte key with HKDF-SHA256 ([RFC 5869 §2](https://www.rfc-editor.org/rfc/rfc5869.html#section-2)) from a fresh 32-byte random secret and 32-byte random salt with empty info, and set `contentDigest` to lowercase hexadecimal SHA-256 of ciphertext including the tag. Before decryption, it MUST reject a digest mismatch; it MUST reject an authentication failure without returning plaintext. | The digest identifies the encrypted object; GCM authenticates its contents. |
+| CTYPE-018 | Deletion eligibility | When the client accepts or applies a deletion, it MUST require the target to have application message kind and a catalogue identifier with Deletable `yes`, matched on authority, type, and major version under CTYPE-001. It MUST reject deletion of a transcript, an unknown type, a custom type, a reserved type, or any catalogue type marked `no`, regardless of sender privileges. | A privileged sender must not erase protocol records or content with undefined deletion semantics. |
+| CTYPE-020 | Reserved edits do not mutate | When the client receives the reserved edit type, it MUST preserve it under CTYPE-008 and MUST NOT change the referenced message. | A schema alone does not authorize replacement of message history. |
 
 ### 7.1 Schemas
 
-The nested content of a reply, and the remote attachment parameters, as internal shapes:
+The Remote attachment parameters table gives the map values for a single remote attachment. Its URL is the UTF-8 content. The multiple-attachment protobuf carries the same values with its declared field types.
 
-```webidl
-dictionary RemoteAttachment {
-  required DOMString url;             // the content bytes of the message
-  required DOMString contentDigest;   // hex SHA-256 of the encrypted payload
-  required sequence<octet> secret;    // 32 bytes; carried hex-encoded in the parameter
-  required sequence<octet> salt;      // 32 bytes; carried hex-encoded
-  required sequence<octet> nonce;     // 12 bytes; carried hex-encoded
-  required DOMString scheme;          // "https://"
-  unsigned long contentLength;        // encrypted payload length in bytes
-  DOMString filename;
-};
-```
+| Parameter | Presence | Value |
+| --- | --- | --- |
+| `contentDigest` | required | Lowercase hexadecimal SHA-256 of ciphertext and tag |
+| `secret` | required | Lowercase hexadecimal, 32 bytes |
+| `salt` | required | Lowercase hexadecimal, 32 bytes |
+| `nonce` | required | Lowercase hexadecimal, 12 bytes |
+| `scheme` | required | `https://` |
+| `contentLength` | optional | Decimal unsigned integer, 0 through 4294967295; ciphertext and tag length |
+| `filename` | optional | String |
 
 The protobuf encodings:
 
@@ -342,85 +350,48 @@ message EditMessage {
 
 `DeleteMessage.message_id` is the target message id in lowercase hexadecimal.
 
-The JSON encodings:
+### 7.2 JSON members and validation
 
-```webidl
-dictionary LegacyReaction {
-  required DOMString action;        // "added" or "removed"
-  required DOMString reference;     // the message id reacted to, hex
-  DOMString referenceInboxId;
-  required DOMString schema;        // "unicode", "shortcode", or "custom"
-  required DOMString content;
-};
+These JSON member tables define object shapes. All listed members are required unless marked optional. Strings and numbers are JSON strings and numbers; arrays preserve order. Optional members are omitted on encode when absent. Unknown JSON object members are ignored on decode except for the additional string members of `WalletCallMetadata`.
 
-dictionary TransactionMetadata {
-  required DOMString transactionType;
-  required DOMString currency;
-  required double amount;
-  required unsigned long decimals;
-  required DOMString fromAddress;
-  required DOMString toAddress;
-};
+| Object | Required members | Optional members |
+| --- | --- | --- |
+| LegacyReaction | `action`: string; `reference`: string; `schema`: string; `content`: string | `referenceInboxId`: string |
+| TransactionReference | `networkId`: string; `reference`: string | `namespace`: string; `metadata`: TransactionMetadata |
+| TransactionMetadata | `transactionType`, `currency`, `fromAddress`, `toAddress`: strings; `amount`: number; `decimals`: integer from 0 through 4294967295 | none |
+| WalletSendCalls | `version`, `chainId`, `from`: strings; `calls`: array of WalletCall | `capabilities`: object with string values |
+| WalletCall | none | `to`, `data`, `value`, `gas`: strings; `metadata`: WalletCallMetadata |
+| WalletCallMetadata | `description`, `transactionType`: strings | Additional members with string values |
+| Actions | `id`, `description`: strings; `actions`: array of Action | `expiresAt`: string |
+| Action | `id`, `label`: strings | `imageUrl`: string; `style`: string, one of `primary`, `secondary`, `danger`; `expiresAt`: string |
+| Intent | `id`, `actionId`: strings | `metadata`: object with arbitrary JSON values |
 
-dictionary TransactionReference {
-  DOMString namespace;              // for example "eip155"
-  required DOMString networkId;     // a JSON string; a JSON number is accepted on decode
-  required DOMString reference;     // the transaction hash
-  TransactionMetadata metadata;
-};
+The validation table states encode and decode behavior separately. A decode error preserves the received message under CTYPE-008. The action-count and metadata-size limits restrict encoding; they do not reject otherwise decodable historical content.
 
-dictionary WalletCallMetadata {
-  required DOMString description;
-  required DOMString transactionType;
-  // any other member is kept as a string
-};
+| Type or field | Encode | Decode |
+| --- | --- | --- |
+| Text and markdown `encoding` | Set `UTF-8` | Use `UTF-8` when absent; reject any other value |
+| JSON object members | Use the JSON member tables, omit absent optional members, and fail for a missing required member or wrong value type | Require the declared member types; accept absent or null optional members and ignore unknown members, except that additional WalletCallMetadata members are retained as strings |
+| TransactionReference `networkId` | String | Accept string or number; return a number's decimal text as a string |
+| Actions `actions` | Require 1 through 10 entries and unique `id` values | Accept an array without imposing the encode count or uniqueness limits |
+| Action and Actions `expiresAt` | RFC 3339 UTC timestamp with exactly three fractional digits; discard precision below milliseconds | Parse RFC 3339 timestamps and normalize to UTC; accept `expires_at` as an alias |
+| Action `imageUrl`; Intent `actionId` | Use the camel-case member name | Also accept `image_url` and `action_id`, respectively |
+| Intent `metadata` | Reject when its compact UTF-8 JSON encoding exceeds 10240 bytes | Accept an object without imposing the encode size limit |
 
-dictionary WalletCall {
-  DOMString to;                     // hex address
-  DOMString data;                   // hex call data
-  DOMString value;                  // hex value
-  DOMString gas;                    // hex gas limit
-  WalletCallMetadata metadata;
-};
+Timestamp syntax is defined by [RFC 3339 §5.6](https://www.rfc-editor.org/rfc/rfc3339.html#section-5.6). Legacy reaction uses string fields for `action` and `schema`; its JSON codec accepts values beyond the named reaction enum values. Transaction hashes, addresses, call data, and numeric strings are content values, not client-side authorization of a transaction.
 
-dictionary WalletSendCalls {
-  required DOMString version;
-  required DOMString chainId;       // hex chain id, for example "0x1"
-  required DOMString from;          // hex address
-  required sequence<WalletCall> calls;
-  record<DOMString, DOMString> capabilities;
-};
-
-dictionary Action {
-  required DOMString id;
-  required DOMString label;
-  DOMString imageUrl;
-  DOMString style;                  // "primary", "secondary", or "danger"
-  DOMString expiresAt;              // RFC 3339 with millisecond precision, UTC
-};
-
-dictionary Actions {
-  required DOMString id;
-  required DOMString description;
-  required sequence<Action> actions; // 1 to 10 entries; ids unique
-  DOMString expiresAt;              // RFC 3339 with millisecond precision, UTC
-};
-
-dictionary Intent {
-  required DOMString id;
-  required DOMString actionId;
-  record<DOMString, any> metadata;  // at most 10240 bytes when encoded
-};
-```
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| CTYPE-019 | Encoding and decoding checks | When the client or an SDK encodes or decodes catalogue content, it MUST apply the matching column of the validation table above and MUST return an encode or decode failure for a violated check. | Hidden validation differences make the same content work on one SDK and fail on another. |
 
 ## Known limitations
 
-No client inflates `content` under `compression` before decoding: the Rust client and the TypeScript SDK ignore the field, and the Kotlin and Swift SDKs inflate only in the codec path an app calls. CTYPE-006 forbids setting it; content that sets it decodes on no client outside that path.
+Compression is handled by the Kotlin and Swift envelope decode helpers, but the client's standard decoders and the TypeScript receive path do not share that step. A compression flag therefore does not imply successful decompression across SDKs; CTYPE-006 forbids publishing compressed application content.
 
-A client that receives content under an unknown major version of a catalogue type keeps it under CTYPE-008 and shows the fallback. It does not attempt the codec for the major version it has.
+The client's standard dispatch checks type and major version but omits authority. Kotlin, Swift, and TypeScript registries include the minor version in their keys. These are gaps in CTYPE-001, but they do not imply that every standard text message with a later minor fails: the client can decode it before the SDK registry is reached.
 
-The catalogue lists the types every client ships. Not every SDK exposes a codec class for every one; an app on such an SDK sends and receives the type through the raw `EncodedContent`.
+Kotlin and Swift registry lookup failures select a text codec. Unknown UTF-8 content can therefore decode as text instead of producing the missing-codec outcome in CTYPE-009.
 
-`editMessage` is reserved. A message of that type is kept under CTYPE-008 and has no effect on the message it names.
+Node raw-envelope sends use false when the options object is absent; browser raw-envelope sends use true. Neither derives that default from the catalogue. A supplied options object is forwarded unchanged; both bindings declare the push field as required, so omission is not the same path as an absent options object. These paths do not yet satisfy CTYPE-010.
 
-The push value binds a client that publishes through a codec. An app that builds an `EncodedContent` itself supplies the push flag itself, and a wrong choice costs only its own recipients a notification.
+JSON member tables state the wire shapes without a JSON type-block notation. SPEC-043 and section 3.1 need a JSON notation before these tables can be replaced with JSON type blocks.

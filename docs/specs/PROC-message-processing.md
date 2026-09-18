@@ -4,203 +4,166 @@ status: draft
 ---
 # Message processing
 
-How a client turns envelopes from the network into durable, ordered local state, in order, without losing or double-applying anything, and how stored messages reach an app. These rules are payload-agnostic: they hold whatever the envelope contains. What applying an envelope means for each kind belongs to `?GMOD`, JOIN, and `?IDENT`.
+A client receives envelopes, processes them in topic order, and delivers stored messages to an app. Receipt, processing, and app acknowledgement are separate progress measures. A connection failure or a crash must not turn one into another.
 
-The backend keeps one totally ordered log per topic. A client that reads it holds three positions. The received position is the prefix whose bytes it has stored. The processed position is the prefix it has applied or rejected. The delivery position is the prefix of stored messages an app has acknowledged. Every source of envelopes, whether a live stream, a static stream, or a query, feeds the same receipt path, so a message is admitted once, applied once, and delivered from local state rather than from the wire.
-
-```mermaid
-flowchart LR
-  S[Subscribe] --> A[Admission<br/>one ordered path]
-  T[SubscribeStatic] --> A
-  Q[Query] --> A
-  A -->|F| P[(Pending envelopes)]
-  P --> O[Ordered processor<br/>one head per topic]
-  O -->|P| M[(Stored messages<br/>delivery numbers)]
-  M -->|D| D[Default consumer]
-  M --> R[Replay reader]
-```
+The backend supplies ordered topic prefixes under API-201, API-240, and API-254. The client preserves received work until it applies or rejects it. GMOD, JOIN, and IDENT own payload validation; this spec owns progress and the effect of a validation result on pending work.
 
 ## Scope
 
-In scope: the one receipt path that live streams, static streams, and queries share; the received, processed, and delivery positions and their invariants; ordered processing per topic; retry against terminal rejection; targets and what completion through a target means; capacity under backlog; reconnection; and delivery of stored messages to an app with acknowledgement.
+In scope: receipt validation; durable receipt and processing positions; rejection and retry; operation targets and completion; capacity; stream recovery; and stored-message delivery with app acknowledgement.
 
-Out of scope: the wire frames, limits, and error codes of the stream and query RPCs (`?API`); what applying a commit, proposal, or application message means and which commits are valid (`?GMOD`); Welcome validation and the join anchor (JOIN); identity update validation (`?IDENT`); the send path and intents (SEND); fork detection (`?FORK`); consent states (`?CONS`); and the topic layout (`?TOPIC`).
+Out of scope: backend wire formats and errors (API); commit and proposal validation (GMOD); Welcome validation (JOIN); identity validation (IDENT); publishing (SEND); fork recovery (FORK); consent states (CONS); and topic format (TOPIC).
 
 | Related | Relation |
 | --- | --- |
-| `?API` | Owns sequence id allocation and ordering, the `Subscribe`, `SubscribeStatic`, `Query`, and `QueryNewest` contracts, and the `message_hash` the backend assigns. This spec owns what a client does with what they return. |
-| JOIN | Owns when a Welcome installs or replaces group state and the join anchor. This spec owns the queue a Welcome waits in and the positions a join sets. |
-| `?GMOD` | Owns commit validation. This spec owns which validation outcomes advance the processed position and which hold it. |
-| SEND | Owns intents and publishing. This spec owns how a published envelope is received back and confirmed. |
+| API | Owns ordered reads and authoritative envelope metadata. This spec owns client validation, receipt, and recovery. |
+| JOIN | Owns Welcome validation, retention deadlines, and the join anchor. This spec owns pending work and completion. |
+| GMOD | Owns commit and proposal validation. This spec owns whether a failure advances processing. |
+| SEND | Owns outgoing attempts. This spec owns ordered receipt of their echoes. |
+| AUTH | Owns credential failures and lockout. This spec owns recovery for other connection failures. |
 
 ## Terms
 
 | Term | Meaning |
 | --- | --- |
-| Topic log | The envelopes the backend stores on one topic, ordered by sequence id. |
-| Received position | `F(topic)`: the highest sequence id on a topic such that every envelope at or below it is stored as pending or already handled. |
-| Processed position | `P(topic)`: the highest sequence id on a group or identity topic such that every envelope at or below it is applied or terminally rejected. |
-| Pending envelope | An admitted envelope the client has not yet applied or terminally rejected. |
+| Received position | `F(topic)`: the highest sequence id through which the retained topic prefix after the starting anchor is durably pending or already handled. Sequence ids can have gaps. |
+| Processed position | `P(topic)`: the highest sequence id through which every group or identity envelope after the starting anchor is applied or terminally rejected. Welcome topics have no `P`; their progress is `F` and the unresolved Welcome ids. |
+| Pending envelope | An admitted envelope not yet applied or terminally rejected. |
 | Head | The pending envelope with the lowest sequence id on a group or identity topic. |
-| Admission | The transaction that stores a batch of envelopes as pending and advances `F`. |
-| Target | `H(topic)`: a sequence id captured once for one operation, which that operation is complete through. |
-| Terminal rejection | The refusal a client records for an envelope that a later attempt cannot change. It advances `P` past the envelope. |
-| Held | A pending envelope that failed for a reason a later attempt can change: a storage failure, a missing dependency, or a version this client does not implement. |
-| Delivery number | A database-local integer assigned to a stored message when it first becomes deliverable. It is immutable and increases with each assignment. |
-| Delivery position | `D(group)`: the delivery number of the last message in a group that the default consumer acknowledged or excluded by filter. |
-| Delivery cursor | A database identity and a delivery number. It means "resume strictly after this item". |
-| Default consumer | The one message stream per client database that advances delivery positions. |
-| Replay reader | A message stream started from an explicit delivery cursor. It neither reads nor writes delivery positions. |
-| Acknowledgement | The point at which a delivered item is done: the callback returned, or the app asked for the next item. |
+| Admission | Acceptance of an ordered prefix as durable received work. |
+| Target | `H(topic)`: the fixed sequence id through which one operation waits for processing. Absent means target capture has not succeeded; zero means a sampled topic was empty. |
+| Terminal rejection | A recorded refusal that completes an envelope without applying it. |
+| Held | Pending work that cannot advance processing, including invalid identity history and failures with no safe rejection rule. |
+| Scope generation | A distinct revision of one operation's selected topics and discovery obligations. |
+| Delivery number | An immutable, increasing local number assigned when a message first becomes deliverable. |
+| Delivery position | `D(group)`: the last delivery number acknowledged or excluded by the default consumer's filter; zero before either occurs. |
+| Delivery cursor | A database identity and a delivery number, meaning resume strictly after that item. |
+| Default consumer | The one message reader per client database that advances `D`. |
+| Replay reader | A reader started from an app-supplied delivery cursor, independent of `D`. |
+| Acknowledgement | The app's callback returns normally, or the app requests the next iterator item. |
 
-## 1. One receipt path
+## 1. Durable receipt
 
-Envelopes reach a client three ways: a bidirectional `Subscribe` stream on native targets, a `SubscribeStatic` stream on browser targets, and a unary `Query`. All three deliver the same envelopes in the same per-topic order, and all three end in one admission transaction. Admission stores the exact envelope bytes as pending and advances `F` in the same transaction, so a crash after admission loses nothing and a crash before it changes nothing. Receipt is not processing: a stored envelope is ciphertext, and nothing about it is trusted until the processor applies it.
+`Subscribe`, `SubscribeStatic`, and `Query` supply ordered prefixes. Overlap on reconnect is normal. A batch can start at or below `F`, but not above it: the latter leaves an unfetched part of the log. Numeric gaps do not imply missing envelopes because API-200 allocates sequence ids across topics.
 
-A batch is admitted only as a contiguous extension of the topic log. The client tells the backend the exclusive position it wants to read after, and a batch that starts above `F` is refused, because the envelopes between `F` and its start would never be fetched. A batch that overlaps `F` is the normal case on reconnect; the overlap is dropped and the suffix is stored. `?API` is expected to require that the backend orders envelopes on one topic totally by sequence id, that the order is stable once assigned, and that `Subscribe`, `SubscribeStatic`, and `Query` each return a topic's envelopes in that order from a supplied exclusive cursor.
-
-`F` moves only over envelopes the client stored. A `QueryNewest` answer, a registration target, a publish response, and a push notification each name a sequence id without carrying the envelopes below it, so none of them may move `F`.
-
-| ID | Title | Requirement | Why |
-| --- | --- | --- | --- |
-| PROC-001 | Admit only a contiguous prefix | When the client admits a batch for a topic whose exclusive start is greater than the topic's `F`, whose envelopes are not in strictly increasing sequence id order, or that contains an envelope whose topic is not the batch's topic, it MUST refuse the whole batch and leave `F` and the pending envelopes unchanged. | An envelope stored past a gap is applied out of order, and the gap is never fetched. |
-| PROC-002 | Receipt is atomic | When the client admits a batch, it MUST store every envelope whose sequence id is greater than `F`, and none at or below it, and set `F` to the highest stored sequence id, in one transaction that either commits all of it or none of it. | A stored envelope without the position, or the position without the envelope, is either applied twice or never fetched. |
-| PROC-003 | Only stored envelopes move F | The client MUST NOT set a topic's `F` to a sequence id from a `QueryNewest` answer, a registration target, a publish response, or a push notification. | Each of those names a position without carrying the envelopes below it, so the client would skip them. |
-| PROC-004 | Every source shares one path | The client MUST admit an envelope from a `Subscribe` stream, a `SubscribeStatic` stream, and a `Query` through the checks of PROC-001 and PROC-002 and no other path, and MUST NOT apply an envelope that was not admitted. | An envelope applied straight from the wire bypasses the positions, so it can be applied twice or ahead of its predecessors. |
-
-## 2. Positions and ordered processing
-
-A group or identity topic is processed as a strict prefix. The processor takes the head, applies it or records a terminal rejection, and advances `P` to it, all in one transaction together with the state change and every message the envelope produced. A head that fails for a reason a later attempt can change stays where it is, and nothing behind it moves. Topics are independent: a held head on one topic does not stop another topic.
-
-The two positions and the pending set are one structure. `P` never exceeds `F`, because the processor can only handle what admission stored. Neither position moves backwards. A join is the one operation that sets both at once: JOIN-046 requires that an installed group's `P` equals the Welcome's anchor, and this spec adds what happens to `F` and to pending envelopes around it. Pending envelopes at or below the anchor were sent to a membership this installation is not part of and are discarded; those above it are the messages the new membership sent while the Welcome was in flight, and they are kept.
-
-The processor may run in more than one process on one database, and a process may restart between attempts. The positions and the pending set are therefore the only record of progress, and every attempt reads them fresh. PROC-006 and PROC-007 are the invariants CONF-022 and JOIN section 7 rely on: a stream closed by a latch leaves no position past the last processed envelope, and the cursor JOIN compares an anchor against only ever moves over applied messages.
+A target names work to fetch. It does not establish receipt. Push metadata, a publish receipt, a registration target, and a newest-envelope result can all supply targets without supplying the prefix below them. The backend hash is authoritative under API-211; a client re-encoding is not a check of that hash.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-005 | Apply in sequence id order | When the client processes a group or identity topic, it MUST apply or terminally reject the head before any pending envelope with a higher sequence id on that topic. | MLS state is a chain. A commit applied before its predecessor forks the group. |
-| PROC-006 | P advances only over handled envelopes | The client MUST set a group or identity topic's `P` to a sequence id only when every admitted envelope at or below it has been applied or terminally rejected, and MUST NOT set `P` above `F`. | A position past an unhandled envelope skips it, and the client has no way to learn what it skipped. |
-| PROC-007 | Positions never move backwards | The client MUST NOT set a topic's `F` or `P` to a value less than its current value. | A position moved backwards re-applies envelopes, which produces duplicate messages and repeated commits. |
-| PROC-008 | Processing is atomic | When the client applies an envelope, it MUST commit the state change, every message it produced, the removal of the pending envelope, and the advance of `P` in one transaction, and MUST leave none of them when the attempt fails. | A message stored without its `P` advance is delivered twice; a `P` advance without the state change loses the commit. |
-| PROC-009 | Each envelope applies once | The client MUST apply the effects of a given group or identity envelope to its local state at most once, whatever the order and repetition in which the envelope is delivered and however many processes share the database. | A second application inserts the message twice and, for a commit, advances the epoch past where the group is. |
-| PROC-010 | A join sets both positions | When the client installs group state from a Welcome whose anchor is `A`, it MUST set the group topic's `F` to the greater of its current value and `A`, MUST discard pending envelopes at or below `A`, and MUST retain those above `A`, in the join's transaction. | Envelopes below the anchor cannot be decrypted and would hold the topic for ever. Envelopes above it are messages sent to the new membership while the Welcome was in flight, and discarding them loses them. |
+| PROC-001 | Validate every received prefix | When the client admits envelopes from an ordered read, it MUST validate the topic, `cursor.sequence_id` under API-200 and `server_ns` between 0 and 9223372036854775807 inclusive, the 32-byte SHA-256 hash shape of API-211, an exclusive start at or below `F`, and strictly increasing per-topic sequence ids across batches from that registration or query. If any check fails, it MUST refuse the batch without changing received work or `F`; otherwise it MUST preserve the backend hash unchanged without comparing it to a local recomputation. | A skipped prefix loses messages; a changed hash breaks envelope identity. |
+| PROC-002 | Receipt survives interruption | When the client advances `F`, it MUST durably retain every unhandled envelope through that position without duplicate admission effects, and MUST leave both received work and `F` unchanged if admission fails. Except for a valid join under PROC-010, it MUST NOT advance `F` from a target or past an envelope it has not durably received, and MUST NOT move `F` backwards. | A position without the received work makes a crash lose messages. |
+| PROC-036 | Protect retained envelopes | While the client retains pending envelopes, it MUST apply the client database's encryption and access protection to them and MUST NOT log raw payloads, private keys, database keys, or full installation identifiers. | Receipt must not expose data that message storage protects. |
 
-## 3. Retry and terminal rejection
+## 2. Ordered processing
 
-Every failed attempt is one of two things. A property of the input, which a later attempt with the same prefix and the same state cannot change, is rejected terminally: `P` advances past the envelope in the same transaction and the topic continues. Anything else holds the head: a storage failure, a missing private key, an identity reference that has not been fetched yet, or a version this client does not implement. The distinction is the load-bearing decision in this spec. Rejecting a transient failure loses a message or a commit that the next attempt would have applied; holding on an input failure stops the topic behind an envelope that will never apply.
+Group and identity processing completes a prefix. A held head blocks later envelopes on that topic. Independent topics and independent Welcomes can still progress. Processing a received envelope can produce messages, update group state, or reject input without producing either.
 
-The table below is the disposition of each class. A requirement points at it, so it is normative. The MLS conditions are those of RFC 9420 as the client's MLS implementation reports them; `?GMOD` owns which XMTP commit validations fail terminally and which are dependencies, and is expected to require that a commit whose identity reference names a sequence id not less than the commit's own, or one the backend holds no update for after the client has fetched, is rejected, and that a reference the client has not yet fetched holds the commit. `?FORK` owns what follows an epoch mismatch; the client records the group as possibly forked when it rejects under the epoch row, and `?FORK` is expected to own that record and its recovery.
+`P` never exceeds `F`. A closed stream can leave `F` above `P`: the client has stored ciphertext that it has not processed. CONF-022 closes streams on a latch; it does not erase that work or require the two positions to be equal. JOIN section 7 compares its anchor with `P`, not with `F`.
 
-| Class | Condition | Disposition |
-| --- | --- | --- |
-| Malformed | The envelope does not decode, its group id is not the topic's, or its MLS message is not a `PrivateMessage` | Terminal rejection |
-| Undecryptable | AEAD authentication fails, the generation is out of bound, the wire format is wrong, or the secret for the message was already consumed or discarded for forward secrecy | Terminal rejection |
-| Epoch mismatch | The message names an epoch greater than the group's, or an epoch less than the group's by 3 or more | Terminal rejection |
-| Invalid commit | The commit fails the checks of [RFC 9420 §12.4.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4.2) for a reason other than a missing local key, including a proposal reference the ordered prefix never carried | Terminal rejection |
-| Unauthorized | The sender is not a member, or `?GMOD` rejects the commit under the group's permissions | Terminal rejection |
-| Own without intent | The sender is this installation and no intent matches the payload (SEND section 4) | Terminal rejection |
-| Already applied | The envelope's effects are already in local state | Terminal rejection |
-| Local failure | Storage fails, a local key the message needs is absent, or the attempt is interrupted | Held; retried after 250 milliseconds |
-| Dependency | The envelope references identity state the client has not fetched | Held while the fetch runs |
-| Unsupported | The payload's MLS version is not 1.0, or the group requires a protocol version later than this client's | Held until the client is upgraded |
-
-A held envelope keeps `P` where it is. An unsupported one is held with no deadline for a group or identity topic, because an upgrade is the only thing that makes it readable and the topic cannot skip it. A Welcome is different: it has no successors that depend on it, so JOIN-077 and JOIN-079 give it a deadline.
+A valid Welcome starts or resumes the group at its join anchor under JOIN-046. Envelopes below that anchor do not belong to the installed membership; envelopes above it remain work for that membership.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-011 | Reject only a property of the input | The client MUST record a terminal rejection for a group or identity envelope only under a class the table above marks terminal, and MUST advance `P` past the envelope in the same transaction as the record. | A rejection recorded for a transient failure loses the envelope permanently, and the client cannot ask for it again. |
-| PROC-012 | Hold everything else | If an attempt fails under a class the table above marks held, then the client MUST keep the envelope pending, MUST NOT advance `P` to or past it, and MUST NOT apply a later envelope on that topic. | Skipping the envelope forks the group at the next commit; rejecting it loses a message the next attempt would apply. |
-| PROC-013 | A hold stops only its topic | While a head is held, the client MUST continue to process every other topic whose head is ready. | One unreadable group would otherwise stop every conversation. |
-| PROC-014 | Decide on the prefix alone | When the client decides whether an envelope is terminally rejected, it MUST decide from the ordered prefix, the installed state, and fetched identity state, and MUST NOT decide from wall-clock timing, an unpublished intent, or a delivery position. | A decision that depends on local timing gives two installations of one inbox different answers about the same envelope. |
+| PROC-005 | Process a topic prefix | When the client processes a group or identity topic, it MUST apply or terminally reject the head before a later envelope, and MUST advance `P` only through that handled prefix, without moving it backwards or above `F`. After a commit removes this installation, it MUST stop processing later group envelopes, retain them, and resume only after a valid rejoin under JOIN section 7. | Out-of-order state changes fork the group. |
+| PROC-008 | Effects survive interruption together | After an interrupted processing attempt, the client MUST expose either all of the envelope's effects with its completed processing position or none of them, and MUST apply each envelope's effects at most once across retries and concurrent clients sharing the database. | Partial or repeated effects lose state or duplicate messages. |
+| PROC-010 | Preserve the join boundary | When the client installs group state at anchor `A` under JOIN-046, it MUST establish `F` as the greater of its previous value and `A`, discard pending group envelopes at or below `A`, and retain those above `A`, with the installed state. | Discarding work above the anchor loses messages sent while the Welcome was in flight. |
+
+## 3. Rejection and held work
+
+A terminal group rejection needs a complete preceding prefix and the state needed to validate it. An error's retry flag alone proves neither condition. Missing local state is not proof that the input is invalid. Identity processing has a different rule: an invalid update blocks the identity prefix and every parent that requires that state. It is not skipped to produce a later association state. IDENT-070 and IDENT-071 own the exact verified state a parent can use.
+
+The group disposition table below applies only after those prerequisites hold. Commit validation is defined by [RFC 9420 §12.4.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4.2) and GMOD; proposal validation is defined by [RFC 9420 §12.1](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.1) and GMOD-001 through GMOD-003. The application-message window does not authorize an old commit. A commit requires the current epoch; SEND-014 covers rebuilding an own commit that lost its epoch.
+
+| Group input or failure | Disposition |
+| --- | --- |
+| Supported input fails decoding, topic/group matching, sender authentication, or payload validation | Terminal rejection |
+| Authentication fails, generation is out of bound, wire format is wrong, or a message secret was consumed or discarded for forward secrecy | Terminal rejection; local key, ratchet, library, and storage failures remain held |
+| Application message from another installation at the current epoch or one of the three retained preceding epochs | Apply if validation succeeds; reject if its epoch secrets were discarded under the retention policy |
+| Own application-message echo at the current epoch or one or two epochs earlier | Apply if validation succeeds; an echo three or more epochs earlier is stale |
+| Application message older than its applicable window, or before the installed join epoch | Terminal rejection |
+| Supported message names a future epoch after the complete preceding prefix | Terminal rejection, not a stale-attempt retry |
+| Commit or proposal has a terminal validation result under the rules above, including a commit from a past epoch or a proposal reference absent from the complete prefix | Terminal rejection; missing local state for an already handled proposal remains held |
+| Own envelope has no matching attempt under SEND-012, or its effects were already applied | Terminal rejection without applying effects again |
+| Storage failure, interruption, absent local key, unsupported MLS or required group version, a held proposal kind under GMOD-001, unresolved validation, or any error not established as a terminal case above | Held |
+
+| Identity input or failure | Disposition |
+| --- | --- |
+| Update validates against the complete preceding identity history | Apply under IDENT-004 and IDENT-071 |
+| Invalid identity history, missing local state, unresolved verification, unsupported input, or any other validation failure | Hold the identity prefix and dependent work; do not substitute a later or partial association state |
+
+Welcome rejection and retention belong to JOIN-047, JOIN-048, JOIN-077, and JOIN-079. A later Welcome can complete while an earlier one stays unresolved. A running client needs later attempts to reach the retention decision without a restart.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| PROC-011 | Reject on complete evidence | When a group envelope reaches the head with its preceding prefix handled and its required validation state available, the client MUST apply the group disposition table and durably record the topic, sequence id, and typed reason of a terminal rejection with the advance of `P`. It MUST base rejection on the ordered prefix, installed state, and verified identity state, using an own attempt only to match and validate its echo under SEND-012, and MUST NOT use wall-clock timing or app delivery progress as rejection evidence. | Local failures must not become permanent message loss. |
+| PROC-012 | Preserve unresolved work | When group or identity work has a held disposition in the tables above, the client MUST keep it pending without advancing `P` across it or applying its successors, and MUST block parents that require invalid or unresolved identity history. While a Welcome remains held under JOIN, it MUST retain the original deadline across retries and restarts and, while running, eventually make the attempt at or after that deadline without requiring a new network event. | Invalid identity state must not authorize a member; an unreadable Welcome must not retain keys forever. |
+| PROC-013 | A hold stays isolated | While a topic head or a Welcome is held, the client MUST continue to attempt independent ready topics and Welcomes and MUST preserve completed dependency results when another dependency fails. | One unreadable conversation must not stop all conversations. |
 
 ## 4. Targets and completion
 
-An operation that waits for the network, whether an explicit sync or a send waiting for its own envelope, needs a point at which it is done. That point is a target: a sequence id captured once from the backend for that operation. A target is a head the backend observed, including replica lag; it is not a promise about later publications, and a publication after capture does not move it. Without a fixed target a sync under continuous traffic never returns.
+An explicit sync samples the serving backend's heads. A send or externally supplied fetch target names a particular envelope instead. Only a backend-sampled head describes what that backend could see at capture; an external target can be ahead of it. Neither target moves with later traffic. API-244 omits empty topics from `QueryNewest`; that omission supplies target zero, not an uncaptured target.
 
-Completion through a target means processing, not receipt. For a group or identity topic it is `P` at or above the target, or the group inactive because a commit at or below the target removed this installation. For a Welcome topic it is `F` at or above the target with no pending Welcome at or below it, because Welcomes are independent of one another and a later success does not resolve an earlier one. A Welcome that installs a group at or below the Welcome target discovers work the operation did not know about: the operation captures a target for that group too, so that "synced" includes the conversations the sync found.
+Welcome-aware catch-up and sync of Welcomes with groups include discovery. They enroll groups installed by Welcomes through the fixed Welcome target, subject to the operation's consent selection. A generic topic operation or a send with fixed targets has no such discovery scope. Unrelated local groups and Welcomes beyond the target do not extend a run.
 
-A sync shares receipt and processing with any open stream. It fetches by `Query` from `F` when `F` is below the target, and waits for the processor once `F` reaches it. It never re-fetches a stored prefix and never starts a second processor.
+Completion on group and identity topics uses `P`. Completion on Welcome topics uses `F` and every unresolved Welcome through `H`; the highest successful Welcome does not replace that set. An inactive group completes its obligation at the removal position without processing messages for a membership it no longer holds.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-015 | A target is captured once | When the client captures a target for an operation, it MUST take it from a `QueryNewest` answer, from the acknowledgement of a stream registration made for that operation, or from the publish receipt of the client's own envelope, and MUST NOT move it for a later publication. | A moving target never arrives under continuous traffic. |
-| PROC-016 | Completion is processing through the target | The client MUST report an operation complete through a target only when, for each group or identity topic, `P` is not less than the target or the group is inactive at a removal at or below it, and for each Welcome topic, `F` is not less than the target and no pending Welcome at or below it remains. | An operation reported complete on receipt tells the app its messages are in when they are still ciphertext. |
-| PROC-017 | Discovered groups join the operation | When a Welcome at or below an operation's Welcome target installs a group, the client MUST capture a target for that group and include it in the operation's completion under PROC-016. | A sync that ignores the conversations it just joined returns with those conversations empty. |
-| PROC-018 | An incomplete operation says so | When an operation ends before PROC-016 holds for every topic, whether at its deadline, on a held head, or on cancellation, the client MUST return a failure that names each unfinished topic with its target, `F`, `P`, and cause, and MUST NOT return success. | A success that hides an unfinished topic makes the app act on state it does not have. |
-| PROC-019 | Cancellation keeps pending work | When an operation is cancelled or reaches its deadline, the client MUST retain every pending envelope and every position. | Work discarded on cancellation has to be downloaded again, and a Welcome cannot be. |
+| PROC-015 | Fix operation targets and scope | When an operation establishes its scope, the client MUST fix each target from a fresh `QueryNewest` result, a new registration acknowledgement for that operation, a publish receipt, or an externally supplied fetch target, using zero for a successfully queried empty topic and leaving failed captures absent. For Welcome-aware catch-up or sync of Welcomes with groups, it MUST enroll discovered groups through the fixed Welcome target that pass that operation's selection, with one fixed target each; later traffic and unrelated groups MUST NOT extend the run. For an all-groups stream, it MUST include stored groups at startup and discover newly stored groups without relying on a new network event. | Moving targets prevent completion under continuous traffic. |
+| PROC-016 | Complete only processed work | The client MUST report an operation complete only after all required targets and discovery are established and, for every group or identity topic, `P >= H` or a removal at or below `H` made the group inactive, and for every Welcome topic, `F >= H` with no unresolved Welcome at or below `H`. | Receipt alone leaves the app with unprocessed ciphertext. |
+| PROC-018 | Report incomplete work without loss | When an operation ends with unfinished work, the SDK MUST return a typed incomplete or blocked result naming each unfinished topic, its optional target, `F`, `P` for group or identity topics or unresolved Welcome ids through the target, and its typed cause, and MUST preserve committed progress and pending work. On scope replacement or cancellation it MUST identify cancelled obligations under their old scope generation, release only that operation's interests, and MUST NOT report them complete. Before returning blocked, it MUST let independent obligations complete, block, or reach the deadline. | An app needs to distinguish missing targets, held input, and cancelled work. |
 
 ## 5. Capacity
 
-Admission and processing are bounded so that a backlog on one topic cannot exhaust the database or the client's memory. The client holds separate budgets for group, Welcome, and identity envelopes, so that a group backlog cannot starve the Welcomes and identity updates that group processing depends on. When a budget is full, receipt pauses for the topics holding the most pending data, and resumes as the processor drains them. The limits are internal constants, not app settings.
-
-| Limit | Value |
-| --- | --- |
-| Rows and bytes in one admission batch | 128 rows, 32 MiB |
-| Pending rows and bytes per topic | 1024 rows, 64 MiB |
-| Pending rows and bytes across group topics | 8192 rows, 128 MiB |
-| Pending rows and bytes across Welcome topics | 1024 rows, 64 MiB |
-| Pending rows and bytes across identity topics | 4096 rows, 32 MiB |
-| Rows and bytes in one local delivery read | 128 rows, 16 MiB |
-
-Receipt is served in rotation: a topic that was read goes to the back of the ready set, and a newly ready topic joins the back, so no topic with pending catch-up is starved. That does not promise equal throughput.
+Pending work consumes storage and memory. Separate capacity for groups, Welcomes, and identity updates prevents a group backlog from blocking its own dependencies. These budgets limit pending work; they do not bound the whole database. Local delivery reads have a separate budget and are not envelope admission.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-020 | Pressure never skips | When admitting a batch would exceed a limit in the table above, the client MUST refuse that batch, leave `F` and the pending envelopes unchanged, and resume admission for that topic from `F` once the budget allows, and MUST NOT discard a pending envelope to make room. | An envelope dropped for capacity is a gap the client never notices and the group forks at the next commit. |
+| PROC-020 | Capacity never loses work | When capacity prevents receipt, the client MUST preserve pending work and `F`, return a typed capacity error if no legal admission fits, and resume ready topics without starvation as capacity is released. It MUST reserve separate pending capacity for group, Welcome, and identity work so one kind cannot consume another kind's capacity, and MUST NOT discard pending input or advance `F` to make room. | Dropping a pending commit loses the state needed for later messages. |
 
-## 6. Streams and reconnection
+## 6. Streams and recovery
 
-A client registers topics on a stream with the cursor it wants to read after, which is each topic's durable `F`. The stream's acknowledgement of a registration carries the topic's target for that registration, and every envelope after it is admitted under section 1. `?API` is expected to require that a registration delivers every retained envelope above the supplied cursor, because a sequence id gap is legal and the client cannot tell a skipped envelope from one that never existed. A group discovered by a Welcome while a stream over all groups is open is added to the stream from its `F`. On a browser target the same registration is a `SubscribeStatic` stream per group of topics, replaced when the interest set changes; on every target the interest set is the app's choice and consent does not gate it.
+The app selects network interests, including denied conversations. Consent filters local delivery; it does not authorize subscriptions. A topic stays registered while any operation needs it. Static replacement and reconnect both resume from durable receipt, and obsolete registration results cannot update a replacement scope.
 
-A stream fails for many reasons: the connection drops, the backend restarts, or no frame arrives for three keepalive intervals (30 seconds each unless the stream's first frame names another). Reconnection is transparent to the positions. The client reconnects with backoff, registers the current interest set again, and supplies each topic's `F` as recorded in the database at that moment, never a position it received but did not commit. Overlap with envelopes already admitted is dropped by PROC-002. A result that belongs to a registration the client has since replaced is discarded.
+The recovery rules below also cover silence and Query fallback. Silence is three advertised keepalive intervals without an inbound frame while the client is able to read, using 30 seconds for an absent or zero interval. Client backpressure is not wire silence. For a send or supplied target, a healthy receiver has a receipt wait of 1 second from the operation's start of receipt waiting; partial receipt does not restart it. An explicit sync starts Query immediately. Once `F >= H`, only processing remains.
 
-An app sees the connection's state and each topic's progress rather than a closed stream. A latch under CONF-022 is the one event that closes streams with an error.
+AUTH-025 owns credential lockout and terminal credential failures. CONF-022 owns configuration latches. Those rules can close a stream; they are not retried by the general transport recovery rule. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
+
+The connection states describe transport activity: `connecting` is the first open, `connected` has a receipt source, `reconnecting` is recovery after a retryable failure, `failed` is recovery after a non-retryable source response with delayed retries, and `closed` has no future automatic attempts. `failed` does not mean pending processing failed. Registration states are `pending`, `active`, and `removed`; processing states are `pending`, `complete`, `blocked`, and `cancelled`.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-021 | Register from the durable position | When the client registers a topic on a stream, including on every reconnection, it MUST supply a position that is not greater than the topic's `F` as committed in the database, and MUST NOT supply a sequence id that admission has not committed. | A position ahead of `F` skips the envelopes between them; one behind it costs a re-download, which PROC-002 absorbs. |
-| PROC-022 | Reconnection keeps progress | When a stream fails and the client reconnects, it MUST keep every position and pending envelope, and MUST NOT report the failure as completion of any operation. | A reconnection that resets positions replays every conversation from the start. |
-| PROC-023 | Connection state is observable | An SDK MUST expose to an app, for each message stream, the connection state as connecting, connected, reconnecting, failed, or closed, and for each selected topic whether its registration is pending, active, or removed and whether its processing through the current target is pending, complete, blocked, or cancelled. | An app that cannot distinguish a reconnecting stream from a failed one either spins or gives up. |
+| PROC-021 | Recover without losing progress | When a stream fails, becomes silent under the silence rule above, or needs replacement, the client MUST recover under the recovery rules in this section from current durable `F` and current interests, preserve pending work, discard obsolete registration results, and wait for a static replacement to be ready before cancelling replaced registrations. While `F < H`, it MUST use Query after `F` immediately for explicit sync or an uncovered target, and after the receipt wait above for a covered target, skipping that wait if it would reach the operation's deadline. It MUST NOT refetch a stored prefix or turn connection failure into processing completion. | Stream failure must not strand work that Query can supply. |
+| PROC-023 | Expose scope and progress | An SDK MUST expose a current catch-up snapshot and change notifications with the scope generation, connection state under the definitions above, each selected topic's registration and processing states, optional fixed target, durable progress, unresolved Welcome ids, and typed cause. It MUST expose pending discovery until its targets are enrolled and cancellations under the old generation, and MUST NOT report the current scope caught up while any registration, discovery, or processing obligation is unfinished. | An app otherwise cannot tell a missing target from an empty topic or a retry from completion. |
 
 ## 7. Local delivery
 
-An app's message stream reads stored messages, not the wire. Every message that becomes deliverable receives a delivery number in the transaction that made it deliverable, so the database holds a total order of deliverable messages that is independent of network sequence ids and of which source stored the message. A message becomes deliverable when it is stored with `Published` status by ordered processing, by a join, or by an import. An optimistic own message has no number until its envelope comes back and processing confirms it (SEND section 4), so an app never sees a message before it is published.
+Message delivery reads retained local messages. The default consumer remembers app acknowledgement in `D`; a replay reader uses its supplied cursor and leaves `D` alone. Receipt, sync, and network reconnection do not acknowledge app work. Messages stored by another process or an import remain visible without a new network event.
 
-There are two kinds of reader. The default consumer is the one stream per client database that advances delivery positions: it reads, per selected group, every retained message above `D` in delivery number order, hands over one item at a time, and persists `D` when the app acknowledges. A replay reader starts from an explicit cursor the app supplies and never touches `D`. Both deliver the same items in the same order; only the default consumer remembers.
+An app callback or iterator can sit behind a binding queue. A successful enqueue is not an acknowledgement: the app must reach the acknowledgement boundary. A crash after app handling and before durable acknowledgement can repeat the item.
 
-Acknowledgement is the boundary that makes delivery at-least-once rather than lossy. A callback that throws, an iterator that is dropped, or a crash before the write leaves the item unacknowledged, and it is delivered again with the same message id and the same delivery number. Delivery is not exactly-once and does not claim to be. Ownership of the default consumer is a lease: a second consumer is refused while the lease is live, and a stale owner cannot advance `D` after its lease expired, so two processes cannot interleave acknowledgements.
-
-Scope and filter are different things. Scope is the set of groups a consumer reads; a group outside it keeps its `D` and its backlog. A filter, on consent state or conversation type, is applied to a candidate inside the scope; a candidate the filter excludes is acknowledged without a callback, so a filter change does not replay it. `?CONS` owns the consent states a filter names and is expected to require that a conversation starts in a state that decides whether it is streamed. Messages in a conversation of a kind the client uses between its own installations are never delivered; `?SYNC` owns that kind.
-
-Conversation callbacks are live notifications and are not replayed; a conversation an app missed while it had no stream open is found by listing, not by a stream.
+Scope and filter have different effects. A group outside scope keeps its backlog. A filter excludes a candidate inside scope and consumes it for default delivery. Conversation callbacks are live notifications; message replay does not replay conversation discovery or later message edits and deletions.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PROC-024 | Delivery numbers are assigned once | When a stored message first has `Published` status, the client MUST assign it one delivery number greater than every delivery number assigned before in that database, in the transaction that gave it that status, and MUST NOT change or reuse the number afterwards, including after the message is deleted. | A number that moves or repeats makes a cursor resume in the wrong place. |
-| PROC-025 | Only published messages are delivered | A message stream MUST deliver only stored messages that have `Published` status and a delivery number, and whose disappearing-message deadline, where it has one, has not passed, and MUST NOT deliver a message with `Unpublished` or `Failed` status. | An unpublished own message shown as received is shown twice, once now and once when it is confirmed. |
-| PROC-026 | The default consumer resumes from D | The default consumer MUST deliver, for each group in its scope, every eligible message with a delivery number greater than the group's `D`, in delivery number order, including messages stored by another process, by a sync, or by an import, and including while the client has no network connection. | A stream that starts "now" loses everything that arrived while it was closed. |
-| PROC-027 | Receipt and processing never advance D | The client MUST NOT advance a group's `D` by admitting, processing, or syncing envelopes; only an acknowledgement or a filter exclusion by the default consumer MUST advance it. | A sync that consumed messages on the app's behalf would hide them from the stream. |
-| PROC-028 | One unacknowledged item | The default consumer MUST hold at most one delivered item without acknowledgement, MUST persist `D` for that item when the callback returns normally or the app requests the next item, and MUST NOT treat queuing the callback, a callback error, or dropping the iterator as acknowledgement. | An item acknowledged on enqueue is lost when the app crashes before it runs. |
-| PROC-029 | A failed acknowledgement stops the reader | If persisting `D` fails, then the default consumer MUST NOT hand over another item until the write succeeds or the reader is closed, and MUST NOT skip the unacknowledged item on restart. | Continuing past a failed write delivers the next item and then replays this one behind it. |
-| PROC-030 | Repeats keep their identity | When a message is delivered more than once, every delivery MUST carry the same message id and the same delivery cursor. | The id is the only thing an app can deduplicate on. |
-| PROC-031 | One default consumer per database | While a default consumer's lease of 30 seconds is unexpired, the client MUST refuse to open a second default consumer with an error the app can distinguish, and MUST NOT advance `D` on behalf of a consumer whose lease has expired or been replaced. | Two consumers advancing one `D` skip each other's items. |
-| PROC-032 | Scope excludes, filter consumes | When a group is outside the default consumer's scope, the client MUST leave that group's `D` unchanged; when a candidate inside the scope is excluded by the consent or conversation-type filter, the client MUST advance `D` past it without a callback. | Consuming an out-of-scope group loses its backlog when the app adds it back; replaying a filtered row shows an app a message it chose not to see. |
-| PROC-033 | Every item carries a cursor | An SDK MUST attach to every delivered item, from either reader, a delivery cursor holding the database identity and the item's delivery number, and MUST reject a supplied cursor whose database identity is not the current database's with an error the app can distinguish. | A cursor from another database or from before a restore resumes at a number that means something else. |
-| PROC-034 | Replay is independent | When an app opens a stream from a supplied cursor, the client MUST deliver every eligible message in scope with a delivery number greater than the cursor's, in delivery number order, then continue with new messages, and MUST NOT read, write, or lease `D`. | A replay that moved `D` would make the default consumer skip what the replay showed. |
-| PROC-035 | History and stream meet without a gap | An SDK MUST let an app read history and a delivery cursor from one database snapshot, such that every eligible message stored after that snapshot has a delivery number greater than the cursor's. | A cursor taken after the history read misses messages stored between the two. |
+| PROC-024 | Stable delivery identity | When a message first becomes deliverable, the client MUST assign it one delivery number greater than all previously assigned numbers in that database, with the change that makes it deliverable, and MUST NOT change or reuse it, including after deletion or duplicate insertion. Every repeat delivery MUST carry the same message id and delivery cursor. | A changed identity makes app deduplication and resume unreliable. |
+| PROC-025 | Deliver only eligible messages | A message stream MUST deliver only retained application or membership-change messages with `Published` status and a delivery number whose disappearing-message deadline has not passed, and MUST NOT deliver `Unpublished` or `Failed` messages. | An optimistic message is not yet accepted by the group. |
+| PROC-026 | Resume durable app delivery | The default consumer MUST deliver eligible messages in delivery-number order above each selected group's saved `D`, including messages stored by sync, push-driven fetch, import, or another process, without requiring a network connection or a new network event. Receipt, processing, stream close, and reconnect MUST NOT advance or reset `D`. | Network activity must not consume the app's unread messages. |
+| PROC-028 | Acknowledge at the app boundary | With one item handed to the app and not yet acknowledged, the SDK MUST persist that item's `D` only when the app callback returns normally or the app requests the next iterator item, including across binding queues, and MUST NOT hand over another item until that write succeeds. A callback error, enqueue, iterator cancellation, or failed acknowledgement write MUST leave the item eligible on restart. | Acknowledgement before app handling loses a message on a crash. |
+| PROC-031 | Exclusive recoverable consumer ownership | Before each default-consumer handoff or change to `D`, the client MUST verify that the consumer still has exclusive ownership across clients sharing the database, and MUST reject a competing consumer with a typed ownership error. It MUST maintain that ownership while active or stop handoffs and writes, release ownership on clean close, and permit takeover after an owner stops without closing, without permitting the old owner to change the new owner's `D`. | Two owners can skip each other's messages. |
+| PROC-032 | Scope excludes and filters consume | When an app changes selected groups or filters, including selection of denied groups, the SDK MUST apply that choice without making consent or membership a subscription authorization check, stop new handoffs for removed groups immediately, and reselect queued items from changed scopes before handoff even if a group was added back. For default delivery it MUST leave out-of-scope `D` unchanged and advance `D` past an in-scope filter exclusion without a callback, without replaying exclusions after a filter change; network interest MUST remain while another operation needs it, and local delivery MUST NOT wait for registration acknowledgement. | Removing a group must preserve its unread backlog without allowing stale callbacks. |
+| PROC-033 | Cursors name the database | An SDK MUST attach a delivery cursor to every item from either reader, supply a beginning cursor with delivery number zero, and reject a supplied cursor for a different database with a typed cursor error. Exposing a cursor MUST NOT acknowledge default delivery. | A foreign cursor resumes at an unrelated message. |
+| PROC-034 | Replay is independent | When an app opens a stream from a supplied cursor, the client MUST deliver every eligible message in scope strictly after that cursor in delivery-number order and then continue with new messages, without reading, changing, or acquiring ownership of `D`. | A replay must not consume the default consumer's backlog. |
+| PROC-035 | History and stream meet | An SDK MUST supply selected eligible history and a delivery cursor from one database snapshot, such that every message made deliverable after that snapshot has a greater delivery number. | Separate snapshots can leave messages between history and stream. |
 
 ## Known limitations
 
-Delivery is at-least-once. A crash or a lease expiry between the app's handling of an item and the durable acknowledgement repeats that item with the same message id (PROC-030). An app that needs exactly-once handling deduplicates on the message id.
+Delivery is at-least-once. A crash or loss of consumer ownership after app handling but before durable acknowledgement can repeat an item. The app can deduplicate on its message id.
 
-A group or identity envelope this client cannot read because of its MLS version or the group's required protocol version holds its topic with no deadline. Only an upgrade releases it. Nothing tells other members that this installation has stopped; they observe it when it next sends or fails to.
+A backend-sampled target includes replica lag. Completion through it does not claim receipt of every primary commit before the call. An externally supplied target has no such sampled-head guarantee.
 
-A target is the head a backend replica had at capture. A replica behind the primary yields a lower target, and an operation completes through it without the envelopes the primary already holds. The next operation captures a newer target.
+Push-envelope entry points accept a backend `ServerEnvelope` and use its metadata as an ordered-fetch target. These entry points do not accept the PUSH JSON body containing `topic` and `sequence_id`; automatic Welcome discovery for an unknown group named by that body is not part of their interface.
 
-Fairness across topics bounds starvation, not latency. A slow consumer or a shared connection still affects every topic on the stream.
+A held group or identity prefix has no retention deadline. Unsupported input can require a client upgrade; invalid identity history can require repair. Retrying a local failure does not make invalid history valid.
 
-Conversation callbacks are live only. A conversation joined while no stream was open is not replayed to a later stream; the app lists conversations to find it. A conversation notification follows the database at a 250 millisecond poll, so it can trail the join by that much.
-
-The connection state `failed` is not terminal: the client keeps reconnecting with a delay that doubles from 5 seconds to 300 seconds while it reports `failed`. A held group or identity head is retried once when the client starts processing and then only after the client is created again; only held Welcomes are rescanned, every 3600 seconds.
-
-Push notifications are not a receipt path. A push payload names an envelope; the client fetches from `F` under section 1 and never applies the payload directly. `?PUSH` owns the payload.
+The current connection state `failed` can accompany continued retries. Terminal credential handling still needs to be separated from general transport recovery to satisfy AUTH-025.
