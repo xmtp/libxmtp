@@ -54,6 +54,7 @@ export default defineConfig({
         plugins: examplePlugins(),
       },
       components: {
+        Hero: "./src/components/Hero.astro",
         Header: "./src/components/Header.astro",
         Footer: "./src/components/Footer.astro",
         PageTitle: "./src/components/PageTitle.astro",
@@ -163,8 +164,12 @@ export default defineConfig({
       plugins: [
         ...referencePlugins,
         starlightLlmsTxt({
+          // Keep homepage prompts and checked code in the developer export.
+          // Other disclosures retain the existing compact export behavior.
+          minify: { details: false },
           customSelectors: {
             all: [".twoslash-popup-container", ".twoslash-error-box"],
+            small: ["details:not(.home-disclosure)"],
           },
           promote: ["get-started/**", "sdk/**"],
           exclude: ["reference/**"],

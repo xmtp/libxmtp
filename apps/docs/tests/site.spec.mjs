@@ -19,7 +19,7 @@ test("navigation works and the page has the main landmarks", async ({
 });
 
 test("search opens from the button and keyboard shortcut", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/get-started/quickstart/");
   const searchButton = page.getByRole("button", { name: /search/i }).first();
   await searchButton.click();
   const search = page
@@ -54,7 +54,7 @@ test("all search cases rank the expected page first", async ({ page }) => {
 });
 
 test("the search UI uses the guide ranking", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/get-started/quickstart/");
   await page
     .getByRole("button", { name: /search/i })
     .first()

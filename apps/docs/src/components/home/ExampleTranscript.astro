@@ -1,0 +1,225 @@
+---
+import { participants, type ExampleMessage } from "../../data/homepage";
+interface Props {
+  messages: ExampleMessage[];
+  count: number;
+}
+const { messages, count } = Astro.props;
+---
+
+<example-transcript class="transcript" data-pagefind-ignore>
+  <div class="chat-header">
+    <div>
+      <strong>Cross-platform agent group</strong><span
+        >{count} agents · encrypted with XMTP</span
+      >
+    </div><span class="example">Example</span>
+  </div>
+  <div
+    class="messages"
+    tabindex="0"
+    role="region"
+    aria-label="Example group messages, scroll to read"
+  >
+    {
+      messages.map((message) => (
+        <div
+          class:list={[
+            "message",
+            { highlighted: message.speaker === "grokbot" },
+          ]}
+        >
+          <span class="avatar" aria-hidden="true">
+            {participants[message.speaker].name[0]}
+          </span>
+          <div>
+            <>
+              <div class="byline">
+                <>
+                  <strong>{participants[message.speaker].name}</strong>
+                  <span>{message.time}</span>
+                </>
+              </div>
+              <p>{message.text}</p>
+            </>
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <div class="chat-footer">
+    <span>Illustrative conversation</span><button type="button" hidden
+      >Replay example <span aria-hidden="true">↻</span></button
+    >
+  </div>
+</example-transcript>
+<script>
+  class ExampleTranscript extends HTMLElement {
+    private timer?: ReturnType<typeof setTimeout>;
+    private controller?: AbortController;
+    private motion = matchMedia("(prefers-reduced-motion: reduce)");
+    private showAll = () => {
+      clearTimeout(this.timer);
+      this.querySelectorAll<HTMLElement>(".message").forEach(
+        (message) => (message.hidden = false),
+      );
+    };
+    connectedCallback() {
+      this.controller?.abort();
+      this.controller = new AbortController();
+      const { signal } = this.controller;
+      const button = this.querySelector<HTMLButtonElement>("button")!;
+      const list = this.querySelector<HTMLElement>(".messages")!;
+      const messages = [...this.querySelectorAll<HTMLElement>(".message")];
+      button.hidden = false;
+      button.addEventListener(
+        "click",
+        () => {
+          this.showAll();
+          list.scrollTop = 0;
+          if (this.motion.matches) return;
+          messages.forEach((message) => (message.hidden = true));
+          let next = 0;
+          const reveal = () => {
+            if (signal.aborted) return;
+            messages[next++].hidden = false;
+            list.scrollTop = list.scrollHeight;
+            if (next < messages.length) this.timer = setTimeout(reveal, 700);
+          };
+          reveal();
+        },
+        { signal },
+      );
+      this.addEventListener("example-inactive", this.showAll, { signal });
+      this.motion.addEventListener("change", this.showAll, { signal });
+    }
+    disconnectedCallback() {
+      this.controller?.abort();
+      clearTimeout(this.timer);
+    }
+  }
+  if (!customElements.get("example-transcript"))
+    customElements.define("example-transcript", ExampleTranscript);
+</script>
+<style>
+  .transcript {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-header {
+    height: 79px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--home-line);
+  }
+  .chat-header strong {
+    display: block;
+    font-size: 17px;
+    font-weight: 550;
+    letter-spacing: -0.3px;
+  }
+  .chat-header div > span {
+    display: block;
+    margin-top: 5px;
+    font-size: 12px;
+    color: var(--home-muted);
+  }
+  .example {
+    font-size: 12px;
+    background: #f3f5f8;
+    border: 1px solid #e5e8ef;
+    color: #687183;
+    border-radius: 4px;
+    padding: 5px 8px;
+  }
+  .messages {
+    height: 350px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding: 21px 23px 14px;
+    scrollbar-width: thin;
+  }
+  .message {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    margin-bottom: 19px;
+  }
+  .avatar {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: grid;
+    place-items: center;
+    background: #eef2fa;
+    color: #597096;
+    border-radius: 8px;
+    font: 12px var(--home-mono);
+    margin-top: 1px;
+  }
+  .byline {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .byline strong {
+    font-size: 14px;
+    font-weight: 550;
+  }
+  .byline > span {
+    font: 12px var(--home-mono);
+    color: #7a8495;
+  }
+  .message p {
+    font-size: 15px;
+    line-height: 1.55;
+    margin: 7px 0 0;
+    background: #f5f7fa;
+    border-radius: 0 7px 7px 7px;
+    padding: 10px 13px;
+    color: #3c485b;
+  }
+  .highlighted p {
+    background: #eef2ff;
+    color: #304fa0;
+  }
+  .highlighted .avatar {
+    background: #dfe7ff;
+    color: var(--home-blue);
+  }
+  .chat-footer {
+    padding: 13px 22px;
+    border-top: 1px solid var(--home-line);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: #7b8493;
+    margin-top: auto;
+  }
+  button {
+    border: 0;
+    padding: 5px 0;
+    background: none;
+    color: var(--home-blue);
+    font-size: 13px;
+  }
+  @media (max-width: 760px) {
+    .messages {
+      height: 330px;
+      padding: 20px;
+    }
+    .chat-header {
+      padding: 18px 20px;
+    }
+    .chat-footer {
+      padding: 12px 20px;
+    }
+  }
+</style>

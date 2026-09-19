@@ -20,7 +20,7 @@ export default [
   ...astro.configs.recommended,
   ...tseslint.configs.recommended.map((config) => ({
     ...config,
-    files: ["examples/**/*.ts"],
+    files: ["examples/**/*.ts", "src/**/*.ts"],
   })),
   {
     files: ["examples/**/*.ts"],
