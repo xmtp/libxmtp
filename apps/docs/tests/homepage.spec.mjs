@@ -1,5 +1,23 @@
 import { expect, test } from "@playwright/test";
 
+test("homepage header opens the SDK guide and security docs", async ({
+  page,
+}) => {
+  for (const [name, path, heading] of [
+    ["SDKs", "/sdk/client/", "Client"],
+    ["Security", "/protocol/security/", "Messaging security"],
+  ]) {
+    await page.goto("/");
+    const link = page
+      .getByRole("navigation", { name: "Main navigation" })
+      .getByRole("link", { name, exact: true });
+    await expect(link).toHaveAttribute("href", path);
+    await link.click();
+    await expect(page).toHaveURL(path);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
+  }
+});
+
 test("group names fit their badges and diagram nodes do not overlap", async ({
   page,
 }) => {

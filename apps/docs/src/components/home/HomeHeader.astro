@@ -1,7 +1,7 @@
 ---
 import logo from "../../assets/home/xmtp-logo.svg";
 interface Props {
-  links: { quickstart: string; github: string };
+  links: { quickstart: string; sdk: string; security: string; github: string };
 }
 const { links } = Astro.props;
 ---
@@ -11,7 +11,7 @@ const { links } = Astro.props;
     ><img src={logo.src} width="120" height="36" alt="XMTP" /></a
   >
   <nav aria-label="Main navigation">
-    <a href="#sdks">SDKs</a><a href="#security">Security</a>
+    <a href={links.sdk}>SDKs</a><a href={links.security}>Security</a>
     <a href={links.quickstart}>Docs <span aria-hidden="true">↗</span></a>
     <a class="github" href={links.github}
       >GitHub <span aria-hidden="true">↗</span></a
