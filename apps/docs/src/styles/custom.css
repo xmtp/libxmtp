@@ -31,9 +31,6 @@
     white-space: nowrap;
     font-weight: 500;
   }
-  header .header {
-    height: 3rem;
-  }
   .site-title img {
     height: 2rem;
     filter: brightness(0);

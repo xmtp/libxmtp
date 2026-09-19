@@ -207,22 +207,16 @@ test("guide pages do not load homepage fonts or controls", async ({ page }) => {
   expect(homeAssets).toEqual([]);
 });
 
-test("the light homepage preserves the saved dark docs theme", async ({
+test("the light homepage leaves docs on the automatic system theme", async ({
   page,
 }) => {
   await page.goto("/get-started/quickstart/");
-  await page
-    .locator("starlight-theme-select select")
-    .first()
-    .selectOption("dark", { force: true });
+  await page.emulateMedia({ colorScheme: "dark" });
   await page.goto("/");
   await expect(page.locator("body")).toHaveCSS(
     "background-color",
     "rgb(255, 255, 255)",
   );
-  expect(
-    await page.evaluate(() => localStorage.getItem("starlight-theme")),
-  ).toBe("dark");
   await page
     .locator(".home-header")
     .getByRole("link", { name: "Docs", exact: true })

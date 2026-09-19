@@ -1,5 +1,5 @@
 ---
-import Header from "@astrojs/starlight/components/Header.astro";
+import DocsHeader from "./DocsHeader.astro";
 import HomeHeader from "./home/HomeHeader.astro";
 import { isHomepage } from "../lib/homepage-route";
 import { links } from "../data/homepage";
@@ -24,7 +24,7 @@ const sections = [
     </>
   ) : (
     <>
-      <Header {...Astro.props} />
+      <DocsHeader />
       <nav class="section-nav" aria-label="Sections">
         {sections.map(([label, href]) => (
           <a href={href}>{label}</a>

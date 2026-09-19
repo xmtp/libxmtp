@@ -53,6 +53,8 @@ export default defineConfig({
         plugins: examplePlugins(),
       },
       components: {
+        ThemeProvider: "./src/components/ThemeProvider.astro",
+        ThemeSelect: "./src/components/ThemeSelect.astro",
         Hero: "./src/components/Hero.astro",
         Header: "./src/components/Header.astro",
         Footer: "./src/components/Footer.astro",
