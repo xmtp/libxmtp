@@ -1,0 +1,81 @@
+---
+interface Props {
+  quickstart: string;
+}
+const { quickstart } = Astro.props;
+---
+
+<section class="home home-hero">
+  <span class="home-label">OPEN-SOURCE SECURE MESSAGING</span>
+  <h1 id="_top" data-page-title data-pagefind-meta="guideTitle">
+    Connect people and agents<br /> in private conversations<span class="period"
+      >.</span
+    >
+  </h1>
+  <p>
+    End-to-end encrypted chat.<br />Native mobile SDKs. DMs and groups. The
+    security underneath. Built for private keys.
+  </p>
+  <div class="actions">
+    <a class="home-button" href={quickstart}
+      >Start building <span aria-hidden="true">↗</span></a
+    >
+    <a class="home-link" href="#start"
+      >Build with your coding assistant <span aria-hidden="true">→</span></a
+    >
+  </div>
+</section>
+<style>
+  .home-hero {
+    padding: 65px 0 60px;
+    text-align: center;
+  }
+  h1 {
+    font-weight: 500;
+    font-size: clamp(42px, 5vw, 65px);
+    letter-spacing: -3px;
+    line-height: 1.06;
+    margin: 25px 0 24px;
+    color: var(--home-ink);
+  }
+  .period {
+    color: var(--home-blue);
+  }
+  p {
+    font-size: 20px;
+    line-height: 1.6;
+    color: #5a6069;
+    max-width: 660px;
+    margin: 0 auto 33px;
+  }
+  .actions {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 26px;
+  }
+  @media (max-width: 900px) {
+    h1 {
+      font-size: 53px;
+    }
+  }
+  @media (max-width: 680px) {
+    .home-hero {
+      padding: 35px 0 40px;
+    }
+    h1 {
+      font-size: 41px;
+      letter-spacing: -1.8px;
+    }
+    h1 br {
+      display: none;
+    }
+    p {
+      font-size: 17px;
+    }
+    .actions {
+      flex-direction: column;
+      gap: 22px;
+    }
+  }
+</style>

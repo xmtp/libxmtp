@@ -1,0 +1,60 @@
+---
+import logo from "../../assets/home/xmtp-logo.svg";
+interface Props {
+  links: { quickstart: string; sdk: string; security: string; github: string };
+}
+const { links } = Astro.props;
+---
+
+<div class="home home-header">
+  <a href="/" aria-label="XMTP home"
+    ><img src={logo.src} width="120" height="36" alt="XMTP" /></a
+  >
+  <nav aria-label="Main navigation">
+    <a href={links.sdk}>SDKs</a><a href={links.security}>Security</a>
+    <a href={links.quickstart}>Docs <span aria-hidden="true">↗</span></a>
+    <a class="github" href={links.github}
+      >GitHub <span aria-hidden="true">↗</span></a
+    >
+  </nav>
+</div>
+<style>
+  .home-header {
+    height: 116px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  img {
+    display: block;
+    width: 120px;
+    height: 36px;
+  }
+  nav {
+    display: flex;
+    gap: 25px;
+    font-size: 14px;
+    font-weight: 550;
+  }
+  @media (max-width: 900px) {
+    img {
+      width: 105px;
+    }
+  }
+  @media (max-width: 680px) {
+    .home-header {
+      height: 90px;
+    }
+    img {
+      width: 99px;
+      height: 30px;
+    }
+    nav {
+      gap: 14px;
+      font-size: 12px;
+    }
+    .github {
+      display: none;
+    }
+  }
+</style>

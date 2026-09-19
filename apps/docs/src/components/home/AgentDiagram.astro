@@ -1,0 +1,347 @@
+---
+import mark from "../../assets/home/xmtp-x.svg";
+import { participants, type ParticipantId } from "../../data/homepage";
+interface Props {
+  ids: ParticipantId[];
+  variant: "pair" | "group";
+}
+const { ids, variant } = Astro.props;
+---
+
+{
+  variant === "pair" ? (
+    <div
+      class="pair"
+      role="group"
+      aria-label="Agents exchanging end-to-end encrypted messages through an XMTP backend"
+    >
+      {ids.map((id, index) => (
+        <>
+          {index === 1 && (
+            <div class="core">
+              <img src={mark.src} width="50" height="50" alt="" />
+              <strong>XMTP</strong>
+              <small>Encrypted end to end</small>
+            </div>
+          )}
+          <div class:list={["agent-card", { right: index === 1 }]}>
+            <span>{index === 0 ? "RESEARCH AGENT" : "CREATIVE AGENT"}</span>
+            <strong>{participants[id].name}</strong>
+            <small>Its own inbox + keys</small>
+          </div>
+        </>
+      ))}
+    </div>
+  ) : (
+    <div
+      class="network"
+      aria-label={`${ids.length} agents connected to one encrypted XMTP group`}
+    >
+      <div class="panel-label">
+        <>
+          <span class="home-label">THE GROUP</span>
+          <span>{ids.length} separate inboxes</span>
+        </>
+      </div>
+      <div class="map">
+        <svg
+          class="edges"
+          viewBox="0 0 400 340"
+          preserveAspectRatio="none"
+          aria-hidden="true"
+        >
+          <ellipse
+            cx="200"
+            cy="170"
+            rx="132"
+            ry="130"
+            fill="none"
+            stroke="currentColor"
+            stroke-dasharray="3 7"
+            opacity=".35"
+          />
+          <path
+            d="M94 53L200 170M306 53L200 170M72 170H328M94 287L200 170M306 287L200 170"
+            fill="none"
+            stroke="currentColor"
+          />
+        </svg>
+        {ids.map((id, index) => (
+          <div class="group-agent" data-position={index + 1}>
+            <span class="badge">{participants[id].name}</span>
+            <span>{participants[id].role}</span>
+          </div>
+        ))}
+        <div class="center">
+          <>
+            <img src={mark.src} width="42" height="42" alt="XMTP" />
+            <strong>One group</strong>
+            <small>End-to-end encrypted</small>
+          </>
+        </div>
+      </div>
+      <p>
+        Each agent keeps its own identity and keys.
+        <br />
+        Messages stay private to the group.
+      </p>
+    </div>
+  )
+}
+<style>
+  .pair {
+    display: grid;
+    grid-template-columns: minmax(210px, 1fr) 156px minmax(210px, 1fr);
+    gap: 22px;
+    margin: 28px 0;
+    align-items: stretch;
+  }
+  .agent-card {
+    display: flex;
+    min-height: 180px;
+    flex-direction: column;
+    justify-content: center;
+    padding: 30px;
+    border: 1px solid var(--home-line);
+    border-radius: 16px;
+    background: #fff;
+    box-shadow: 0 12px 36px #0f172a0d;
+  }
+  .agent-card > span {
+    margin-bottom: 22px;
+    color: var(--home-muted);
+    font: 12px var(--home-mono);
+    letter-spacing: 0.09em;
+  }
+  .agent-card strong {
+    font-size: clamp(26px, 3vw, 40px);
+    letter-spacing: -0.04em;
+  }
+  .agent-card small {
+    margin-top: 8px;
+    color: var(--home-muted);
+    font-size: 14px;
+  }
+  .core {
+    display: flex;
+    min-height: 180px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    border-radius: 16px;
+    background: var(--home-ink);
+    color: #fff;
+    text-align: center;
+  }
+  .core img {
+    width: 50px;
+    height: 50px;
+    filter: invert(1);
+    margin-bottom: 13px;
+  }
+  .core strong {
+    font-size: 20px;
+    letter-spacing: -0.02em;
+  }
+  .core small {
+    margin-top: 7px;
+    color: #b8c0d0;
+    font-size: 12px;
+  }
+  .network {
+    container-type: inline-size;
+    background: #f7f9fc;
+    border-right: 1px solid var(--home-line);
+    min-width: 0;
+    padding: 22px 22px 18px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  .panel-label {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    color: #6a7486;
+    font-size: 12px;
+  }
+  .map {
+    position: relative;
+    width: 100%;
+    max-width: 450px;
+    aspect-ratio: 400/340;
+    min-height: 340px;
+    margin: 12px auto;
+  }
+  .edges {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    color: #a6b6d9;
+  }
+  .group-agent {
+    position: absolute;
+    width: max-content;
+    display: flex;
+    align-items: center;
+    flex-direction: column;
+    gap: 7px;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    color: #515e74;
+    background: #f7f9fc;
+    padding: 4px;
+    text-align: center;
+  }
+  .badge {
+    min-width: 72px;
+    min-height: 42px;
+    padding: 9px 12px;
+    display: grid;
+    place-items: center;
+    background: #fff;
+    border: 1px solid #cfd8e8;
+    box-shadow: 0 3px 7px #182b4810;
+    border-radius: 12px;
+    font: 15px var(--home-mono);
+    color: #405777;
+    white-space: nowrap;
+  }
+  .group-agent[data-position="1"] {
+    left: 23.5%;
+    top: 15.6%;
+  }
+  .group-agent[data-position="2"] {
+    left: 76.5%;
+    top: 15.6%;
+  }
+  .group-agent[data-position="3"] {
+    left: 14%;
+    top: 50%;
+  }
+  .group-agent[data-position="4"] {
+    left: 86%;
+    top: 50%;
+  }
+  .group-agent[data-position="5"] {
+    left: 23.5%;
+    top: 84.4%;
+  }
+  .group-agent[data-position="6"] {
+    left: 76.5%;
+    top: 84.4%;
+  }
+  .center {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    width: 132px;
+    background: #f7f9fc;
+    padding: 12px 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    text-align: center;
+  }
+  .center strong {
+    font-size: 15px;
+    font-weight: 550;
+  }
+  .center small {
+    font-size: 12px;
+    line-height: 1.35;
+    max-width: 120px;
+    color: #6d7a8d;
+  }
+  .network p {
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.65;
+    color: #6a7486;
+    margin: 0 0 3px;
+  }
+  @media (max-width: 1000px) {
+    .network {
+      padding: 19px 10px;
+    }
+    .center {
+      width: 108px;
+    }
+    .center img {
+      width: 36px;
+      height: 36px;
+    }
+  }
+  @media (max-width: 760px) {
+    .pair {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .agent-card {
+      min-height: 132px;
+      padding: 24px;
+    }
+    .agent-card > span {
+      margin-bottom: 14px;
+    }
+    .right {
+      text-align: right;
+    }
+    .core {
+      min-height: 128px;
+    }
+    .network {
+      border-right: 0;
+      border-bottom: 1px solid var(--home-line);
+      padding: 19px 20px;
+    }
+    .map {
+      max-width: 380px;
+      margin: 8px auto;
+    }
+    .center {
+      width: 110px;
+    }
+    .badge {
+      font-size: 12px;
+    }
+    .group-agent {
+      font-size: 11px;
+    }
+  }
+  /* A radial layout needs room for three readable nodes across its middle. */
+  @container (max-width: 300px) {
+    .map {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px 12px;
+      aspect-ratio: auto;
+      min-height: 0;
+      padding-block: 12px;
+    }
+    .edges {
+      display: none;
+    }
+    .map .group-agent,
+    .map .center {
+      position: static;
+      transform: none;
+      width: auto;
+    }
+    .center {
+      grid-column: 1 / -1;
+      grid-row: 1;
+    }
+    .group-agent {
+      font-size: 12px;
+    }
+    .badge {
+      font-size: 14px;
+      min-width: 88px;
+    }
+  }
+</style>

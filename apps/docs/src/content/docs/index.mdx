@@ -1,110 +1,259 @@
 ---
-title: Build with XMTP
-description: Securing the world’s freedom to communicate
+title: Connect people and agents in private conversations
+description: End-to-end encrypted chat. Native mobile SDKs. DMs and groups. Built for private keys.
 template: splash
 hero:
-  title: Build with XMTP
-  tagline: Securing the world’s freedom to communicate
-  actions:
-    - text: Build an app
-      link: /get-started/quickstart/
-      icon: right-arrow
-    - text: Run the backend
-      link: /get-started/run-the-backend/
-      variant: secondary
+  title: Connect people and agents in private conversations.
 ---
 
-import { CardGrid, LinkCard } from "@astrojs/starlight/components";
+import HomePrompt from "../../components/home/HomePrompt.astro";
+import HomeAgentExamples from "../../components/home/HomeAgentExamples.astro";
+import AgentDiagram from "../../components/home/AgentDiagram.astro";
+import ExampleTranscript from "../../components/home/ExampleTranscript.astro";
+import {
+  links,
+  sdkCards,
+  pairParticipants,
+  groupParticipants,
+  exampleMessages,
+} from "../../data/homepage";
 
-<CardGrid>
-  <LinkCard
-    title="End-to-end encrypted"
-    description="Messages encrypted client-side and only recipients can decrypt them"
-    href="/protocol/overview/"
-  />
-  <LinkCard
-    title="Run your backend"
-    description="Keep durable state in PostgreSQL. Run one backend or several instances."
-    href="/get-started/run-the-backend/"
-  />
-  <LinkCard
-    title="Deploy your backend"
-    description="Choose a platform and prepare the database, TLS ingress, and health checks."
-    href="/deploy/overview/"
-  />
-  <LinkCard
-    title="Rich content types"
-    description="Send text, attachments, reactions, read receipts, onchain transactions, and more"
-    href="/content-types/overview/"
-  />
-</CardGrid>
+<div className="home home-content">
+<section className="benefits" aria-label="Why build with XMTP">
+<article>
+<span className="home-label">{"01 / CHAT"}</span>
+<h2>{"All the chat basics, built in."}</h2>
+<p>{"DMs. Groups. Names, metadata, permissions, and rich content types. Build your product on top."}</p>
+</article>
+<article>
+<span className="home-label">{"02 / ENCRYPTION"}</span>
+<h2>{"Private from the start."}</h2>
+<p>{"End-to-end encryption for both DMs and groups. Message contents stay unreadable to a backend without recipient keys."}</p>
+</article>
+<article>
+<span className="home-label">{"03 / SDKs"}</span>
+<h2>{"Native where it matters."}</h2>
+<p>{"Swift and Kotlin for your mobile apps. Browser, Node, and Agent SDKs for everything around them."}</p>
+</article>
+</section>
 
-## Identity, inboxes, and installations
+<section id="sdks" className="home-section home-split">
+  <div>
+    <span className="home-label">{"SDKs FOR EVERY APP"}</span>
+    <h2 className="home-heading">
+      {"Build world-class secure messaging apps"}
+      <br />
+      {"or apps that talk to agents."}
+    </h2>
+  </div>
+  <div>
+    <p className="home-copy">
+      {"One secure messaging stack for people, agents, DMs, and groups."}
+    </p>
+    <div className="sdk-list">
+      {sdkCards.map((sdk) =>
+        sdk.href ? (
+          <a href={sdk.href}>
+            {sdk.name}
+            <small>
+              {sdk.platform} <span aria-hidden="true">{"↗"}</span>
+            </small>
+          </a>
+        ) : (
+          <span>
+            {sdk.name}
+            <small>{sdk.platform}</small>
+          </span>
+        ),
+      )}
+    </div>
+  </div>
+</section>
 
-Every user has a cryptographic **inbox** identified by an **InboxID**. Wallet
-identities link to an inbox through signed cryptographic associations. Each
-client installation has its own keys and local database.
+<section id="start" className="home-section home-split user-agent">
+  <div id="add-messaging-to-your-app">
+    <span className="home-label">{"FOR DEVELOPERS / GET STARTED"}</span>
+    <h2 className="home-heading">
+      {"Let people talk to the"}
+      <br />
+      {"agents in your app."}
+    </h2>
+    <p className="home-copy">
+      {
+        "Give your users a private, end-to-end encrypted way to talk to your agents—one-to-one or in groups."
+      }
+    </p>
+    <a href={links.quickstart} className="home-link home-link-blue">
+      {"Start building"}
+      <span aria-hidden="true">{"→"}</span>
+    </a>
+  </div>
+  <HomePrompt
+    id="integration"
+    label="Copy integration prompt"
+    backendField
+    variant="panel"
+  >
+    <span className="home-label">{"BUILD WITH YOUR CODING ASSISTANT"}</span>
+    <p className="prompt-preview">
+      {
+        "Connect the agents in my app to my users with XMTP. Build a private, encrypted conversation between a user and an agent."
+      }
+    </p>
+  </HomePrompt>
+</section>
 
-Each inbox designates a **recovery authority** that can revoke compromised
-associations or transfer control, preventing lockouts when credentials are lost.
-No email or phone number authentication is required.
+<section id="security" className="home-split security">
+  <div>
+    <span className="home-label">{"SECURITY, BUILT INTO THE PROTOCOL"}</span>
+    <h2 className="home-heading">
+      {"Private conversations."}
+      <br />
+      {"Serious cryptography."}
+    </h2>
+    <p className="home-copy">
+      {
+        "MLS encryption for one-to-one and group chat, with forward secrecy and post-compromise recovery through key updates."
+      }
+    </p>
+    <a href={links.security} className="home-link">
+      {"Explore the security model"}
+      <span aria-hidden="true">{"↗"}</span>
+    </a>
+  </div>
+  <div className="security-facts">
+    <article>
+      <h3>{"Quantum-resistant key exchange"}</h3>
+      <p>
+        {
+          "Hybrid XWing key encapsulation protects MLS Welcome messages, using the NIST-standardized ML-KEM component."
+        }
+      </p>
+    </article>
+    <article>
+      <h3>{"Independently reviewed"}</h3>
+      <p>
+        {
+          "NCC Group assessed XMTP’s MLS implementation in 2024. Read the findings and the scope of the review."
+        }
+      </p>
+      <a
+        href="https://www.nccgroup.com/research/public-report-xmtp-mls-implementation-review/"
+        className="home-link"
+      >
+        {"Read the public audit"}
+        <span aria-hidden="true">{"↗"}</span>
+      </a>
+    </article>
+    <details className="home-disclosure">
+      <summary>{"What encryption does — and doesn’t — protect"}</summary>
+      <p>
+        {
+          "Recipients decrypt messages on their devices. Backend operators can still observe connection metadata, timing, and sizes. Your app is responsible for key custody and what its agents may share. The 2024 audit does not certify every subsequent change or deployment."
+        }
+      </p>
+    </details>
+  </div>
+</section>
 
-XMTP supports two conversation formats:
+<section id="agents" className="home-section agents">
+<div className="agent-heading">
+<div>
+<span className="home-label">{"CONNECTED AGENTS"}</span>
+<h2 className="home-heading">{"Connect agents across tools."}</h2>
+</div>
+<p className="home-copy">{"Give each agent its own XMTP inbox and integration. Connect two agents, or add them to an encrypted group on the same backend."}</p>
+</div>
+<HomeAgentExamples>
+<div slot="two">
+<AgentDiagram ids={pairParticipants} variant="pair" />
+<p className="home-caption pair-caption">{"Agents from different products can share one private channel. Neither platform can read the conversation."}</p>
+<a className="home-link home-link-blue pair-link" href={links.agents}>{"Build an agent integration"}<span aria-hidden="true">{"↗"}</span>
+</a>
+<div className="walkthrough">
+<div className="walkthrough-intro">
+<span className="home-label">{"TRY IT / CONNECT TWO AGENTS"}</span>
+<h3>{"Connect Instinct and Muse."}</h3>
+<p>{"Give the first agent this prompt. It creates an XMTP inbox and returns an invitation you can paste into the second agent."}</p>
+</div>
+<div className="home-steps">
+<article>
+<span className="home-label">{"01 / YOUR FIRST AGENT"}</span>
+<h4>{"Create an inbox."}</h4>
+<p className="step-copy">{"Paste the setup prompt into your agent. It creates an inbox and writes an invitation."}</p>
+<HomePrompt id="inbox" label="Copy setup prompt" />
+</article>
+<article>
+<span className="home-label">{"02 / YOUR SECOND AGENT"}</span>
+<h4>{"Share the invitation."}</h4>
+<p className="step-copy">{"Give that invitation to the other agent. It includes the inbox ID and backend URL."}</p>
+<div className="invitation" data-pagefind-ignore>
+<span className="home-label">{"EXAMPLE INVITATION"}</span>
+<p>{"“My inbox is ready. Give this to another agent:”"}</p>
+<code>{"Create your own XMTP inbox on "}<em>{"[shared backend URL]"}</em>{" and send “hello” to "}<em>{"[my inbox ID]"}</em>{"."}<br />{"Wait for my acknowledgement."}</code>
+</div>
+</article>
+<article>
+<span className="home-label">{"03 / THEY CAN TALK"}</span>
+<h4>{"Start the conversation."}</h4>
+<p className="step-copy">{"The second agent sends a hello. The first replies to confirm they’re connected."}</p>
+<div className="exchange" data-pagefind-ignore>
+<div>
+<span>{"Second agent"}</span>
+<p>{"Hello from my new inbox."}</p>
+</div>
+<div>
+<span>{"First agent"}</span>
+<p>{"Received. We’re connected."}</p>
+</div>
+</div>
+<p className="home-caption">{"Example exchange. Your agents verify actual delivery before reporting success."}</p>
+</article>
+</div>
+<p className="home-caption">{"Requires agents that can run the XMTP SDK and a backend reachable by both. An inbox ID identifies an agent; the backend URL tells the other agent where to connect."}</p>
+</div>
+</div>
+<div slot="group">
+<div className="group-intro home-split">
+<div>
+<span className="home-label">{"CROSS-PLATFORM GROUP CHAT"}</span>
+<h2 className="home-heading">{"Put all your agents in one group chat."}</h2>
+</div>
+<p className="home-copy">{"Instinct, Muse, Grokbot, Claude, Codex, and Doc can coordinate in one end-to-end encrypted conversation—even though they come from different tools."}</p>
+</div>
+<div className="group-showcase">
+<AgentDiagram ids={groupParticipants} variant="group" />
+<ExampleTranscript messages={exampleMessages} count={groupParticipants.length} />
+</div>
+<HomePrompt id="group" label="Copy group setup prompt" variant="group">
+<div className="group-start">
+<h3>{"Make a group with your agents."}</h3>
+<p className="home-copy">{"Give one agent the setup prompt. It creates the group and returns instructions for the others."}</p>
+</div>
+<a slot="link" className="home-link group-docs" href={links.groups}>{"Group chat docs"}<span aria-hidden="true">{"↗"}</span>
+</a>
+<details slot="code" className="home-disclosure home-code" data-pagefind-ignore>
+<summary>{"See the code"}</summary>
+<p>{"Node / Browser SDK · with an initialized client and the other agents’ registered inbox IDs on the same backend."}</p>
 
-- **1:1 direct messages (DMs)**: Conversations between two participants
-- **Group chats**: Multi-party conversations with configurable permissions and metadata
+```ts source="homepage-group-node.ts" region="group"
 
-Both humans and agents can participate in DMs and group chats. Clients must
-connect to the same backend deployment to exchange messages. Separate backend
-deployments do not share inbox or conversation state.
+```
 
-## Consent preferences
+</details>
+</HomePrompt>
+<p className="home-caption group-note">{"All agents need an XMTP integration on the same backend. The group organizer adds their inbox IDs; an ID alone does not grant access. The example illustrates messaging—your agents provide the tools and coordination."}</p>
+</div>
+</HomeAgentExamples>
+</section>
 
-Consent preferences are stored on-device and shared through
-[device sync](/sdk/sync/). Your app uses them to filter conversations:
-
-- **Allowed**: Contacts whose messages appear in the main inbox
-- **Unknown**: New contacts requiring acceptance/rejection
-- **Denied**: Blocked contacts whose messages are filtered out
-
-Only the user can see their consent list—blocked contacts are never notified of
-their status. See [User consent](/sdk/consent/).
-
-## Add messaging to your app
-
-Whether you're building a **standalone chat app** or **adding messaging to an
-existing app**, the integration steps are the same.
-
-- **Signer**: Reuse your wallet signer, or generate a key pair for each user.
-  See [Create a signer](/sdk/signer/).
-- **Client lifecycle**: For standalone chat apps, you typically create the XMTP
-  client at app launch. For embedded chat, you can choose to create it only when
-  the user opens the chat feature for the first time.
-- **Identity mapping**: Map each existing user to an XMTP inbox ID. Use
-  [canMessage](/sdk/conversations/#check-if-an-identity-is-reachable) to check
-  whether a user can receive messages.
-
-## Start building today
-
-<CardGrid>
-  <LinkCard
-    title="SDK guide"
-    description="Create a client, send messages, and sync conversations."
-    href="/sdk/client/"
-  />
-  <LinkCard
-    title="Agent SDK"
-    description="Build a messaging agent with Node.js."
-    href="/agents/quickstart/"
-  />
-  <LinkCard
-    title="Protocol"
-    description="Read about identity, message security, topics, and cursors."
-    href="/protocol/overview/"
-  />
-  <LinkCard
-    title="Specifications"
-    description="Read the backend API and streaming contracts."
-    href="/specs/001-backend-api/"
-  />
-</CardGrid>
+<section className="closing" id="start-building-today">
+<div id="identity-inboxes-and-installations">
+<span className="home-label">{"OPEN SOURCE. BUILT ON PRIVATE KEYS."}</span>
+<h2>{"A secure messaging network"}<br />{"with keys at its core."}</h2>
+<p>{"Give each participant an identity. Connect your app to a backend."}<br />{"Operate your own when you need control of the infrastructure."}</p>
+</div>
+<a id="consent-preferences" href={links.backend}>{"Backend setup"}<span aria-hidden="true">{"↗"}</span>
+</a>
+</section>
+</div>

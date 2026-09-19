@@ -1,0 +1,14 @@
+---
+import Hero from "@astrojs/starlight/components/Hero.astro";
+import HomeHero from "./home/HomeHero.astro";
+import { isHomepage } from "../lib/homepage-route";
+import { links } from "../data/homepage";
+---
+
+{
+  isHomepage(Astro.locals.starlightRoute.entry.id) ? (
+    <HomeHero quickstart={links.quickstart} />
+  ) : (
+    <Hero {...Astro.props} />
+  )
+}

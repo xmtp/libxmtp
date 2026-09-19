@@ -1,5 +1,10 @@
 ---
-import Header from "@astrojs/starlight/components/Header.astro";
+import DocsHeader from "./DocsHeader.astro";
+import HomeHeader from "./home/HomeHeader.astro";
+import { isHomepage } from "../lib/homepage-route";
+import { links } from "../data/homepage";
+import homeStyles from "../styles/home.css?url";
+const home = isHomepage(Astro.locals.starlightRoute.entry.id);
 const sections = [
   ["Get started", "/get-started/quickstart/"],
   ["SDK guide", "/sdk/client/"],
@@ -11,7 +16,20 @@ const sections = [
 ];
 ---
 
-<Header {...Astro.props} />
-<nav class="section-nav" aria-label="Sections">
-  {sections.map(([label, href]) => <a href={href}>{label}</a>)}
-</nav>
+{
+  home ? (
+    <>
+      <link rel="stylesheet" href={homeStyles} />
+      <HomeHeader links={links} />
+    </>
+  ) : (
+    <>
+      <DocsHeader />
+      <nav class="section-nav" aria-label="Sections">
+        {sections.map(([label, href]) => (
+          <a href={href}>{label}</a>
+        ))}
+      </nav>
+    </>
+  )
+}

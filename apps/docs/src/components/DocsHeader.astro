@@ -1,0 +1,35 @@
+---
+import Search from "@astrojs/starlight/components/Search.astro";
+import SiteTitle from "@astrojs/starlight/components/SiteTitle.astro";
+import SocialIcons from "@astrojs/starlight/components/SocialIcons.astro";
+---
+
+<div class="docs-header">
+  <div class="title"><SiteTitle /></div>
+  <div class="search print:hidden"><Search /></div>
+  <div class="social sl-hidden md:sl-flex print:hidden"><SocialIcons /></div>
+</div>
+
+<style>
+  .docs-header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    height: 3rem;
+  }
+  .title {
+    min-width: 0;
+    margin-inline-end: auto;
+  }
+  .social {
+    align-items: center;
+  }
+  .search {
+    min-width: 0;
+  }
+  @media (min-width: 50rem) {
+    .search {
+      width: min(22rem, 40vw);
+    }
+  }
+</style>

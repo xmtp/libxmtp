@@ -39,8 +39,7 @@ export default defineConfig({
       pagefind: { ranking: searchRanking },
       description: "Build secure messaging with XMTP and a backend you run.",
       logo: {
-        light: "./src/assets/logomark-light-purple.png",
-        dark: "./src/assets/logomark-dark-purple.png",
+        src: "./src/assets/home/xmtp-logo.svg",
         replacesTitle: true,
       },
       favicon: "/x-mark-blue-lightmode.png",
@@ -54,6 +53,9 @@ export default defineConfig({
         plugins: examplePlugins(),
       },
       components: {
+        ThemeProvider: "./src/components/ThemeProvider.astro",
+        ThemeSelect: "./src/components/ThemeSelect.astro",
+        Hero: "./src/components/Hero.astro",
         Header: "./src/components/Header.astro",
         Footer: "./src/components/Footer.astro",
         PageTitle: "./src/components/PageTitle.astro",
@@ -163,8 +165,12 @@ export default defineConfig({
       plugins: [
         ...referencePlugins,
         starlightLlmsTxt({
+          // Keep homepage prompts and checked code in the developer export.
+          // Other disclosures retain the existing compact export behavior.
+          minify: { details: false },
           customSelectors: {
             all: [".twoslash-popup-container", ".twoslash-error-box"],
+            small: ["details:not(.home-disclosure)"],
           },
           promote: ["get-started/**", "sdk/**"],
           exclude: ["reference/**"],

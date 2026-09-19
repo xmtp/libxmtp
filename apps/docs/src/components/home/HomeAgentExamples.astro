@@ -1,0 +1,150 @@
+<home-agent-examples>
+  <div
+    class="tabs"
+    role="tablist"
+    aria-label="Agent connection examples"
+    hidden
+  >
+    <button
+      type="button"
+      role="tab"
+      id="agent-tab-two"
+      aria-controls="agent-panel-two"
+      aria-selected="true">Connect two agents</button
+    >
+    <button
+      type="button"
+      role="tab"
+      id="agent-tab-group"
+      aria-controls="agent-panel-group"
+      aria-selected="false"
+      tabindex="-1">Agent group chat</button
+    >
+  </div>
+  <div
+    id="agent-panel-two"
+    role="tabpanel"
+    aria-labelledby="agent-tab-two"
+    tabindex="0"
+  >
+    <slot name="two" />
+  </div>
+  <div
+    id="agent-panel-group"
+    role="tabpanel"
+    aria-labelledby="agent-tab-group"
+    tabindex="0"
+  >
+    <slot name="group" />
+  </div>
+</home-agent-examples>
+<script>
+  class HomeAgentExamples extends HTMLElement {
+    private controller?: AbortController;
+    connectedCallback() {
+      this.controller?.abort();
+      this.controller = new AbortController();
+      const { signal } = this.controller;
+      const tabs = [
+        ...this.querySelectorAll<HTMLButtonElement>('[role="tab"]'),
+      ];
+      const panels = [
+        ...this.querySelectorAll<HTMLElement>('[role="tabpanel"]'),
+      ];
+      const select = (index: number, focus = false) => {
+        tabs.forEach((tab, i) => {
+          tab.setAttribute("aria-selected", String(i === index));
+          tab.tabIndex = i === index ? 0 : -1;
+          panels[i].hidden = i !== index;
+          if (i !== index)
+            panels[i]
+              .querySelector("example-transcript")
+              ?.dispatchEvent(new Event("example-inactive"));
+        });
+        if (focus) tabs[index].focus();
+      };
+      tabs.forEach((tab, index) => {
+        tab.addEventListener("click", () => select(index), { signal });
+        tab.addEventListener(
+          "keydown",
+          (event) => {
+            const next = {
+              ArrowRight: (index + 1) % tabs.length,
+              ArrowLeft: (index + tabs.length - 1) % tabs.length,
+              Home: 0,
+              End: tabs.length - 1,
+            }[event.key];
+            if (next !== undefined) {
+              event.preventDefault();
+              select(next, true);
+            }
+          },
+          { signal },
+        );
+      });
+      select(0);
+      this.querySelector<HTMLElement>(".tabs")!.hidden = false;
+    }
+    disconnectedCallback() {
+      this.controller?.abort();
+    }
+  }
+  if (!customElements.get("home-agent-examples"))
+    customElements.define("home-agent-examples", HomeAgentExamples);
+</script>
+<style>
+  home-agent-examples {
+    display: block;
+    min-width: 0;
+  }
+  .tabs {
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    padding: 4px;
+    margin-bottom: 48px;
+    border: 1px solid var(--home-line);
+    border-radius: 12px;
+    background: #f3f4f6;
+  }
+  button {
+    min-height: 48px;
+    padding: 0 22px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--home-muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 650;
+    transition:
+      background 160ms,
+      color 160ms,
+      box-shadow 160ms;
+  }
+  button[aria-selected="true"] {
+    background: #fff;
+    color: var(--home-ink);
+    box-shadow:
+      0 1px 2px #0f172a14,
+      0 4px 14px #0f172a0d;
+  }
+  @media (max-width: 760px) {
+    .tabs {
+      display: grid;
+      width: 100%;
+      margin-bottom: 34px;
+    }
+    button {
+      min-width: 0;
+      padding: 0 12px;
+      font-size: 13px;
+    }
+  }
+  @media (max-width: 430px) {
+    button {
+      min-height: 52px;
+      line-height: 1.2;
+    }
+  }
+</style>
