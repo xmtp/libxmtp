@@ -39,8 +39,7 @@ export default defineConfig({
       pagefind: { ranking: searchRanking },
       description: "Build secure messaging with XMTP and a backend you run.",
       logo: {
-        light: "./src/assets/logomark-light-purple.png",
-        dark: "./src/assets/logomark-dark-purple.png",
+        src: "./src/assets/home/xmtp-logo.svg",
         replacesTitle: true,
       },
       favicon: "/x-mark-blue-lightmode.png",

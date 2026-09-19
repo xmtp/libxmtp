@@ -106,6 +106,16 @@ test("the header fits above the page content", async ({ page, viewport }) => {
   );
   const logo = await page.locator(".site-title img:visible").boundingBox();
   expect(logo.height).toBeLessThanOrEqual(40);
+  await expect(page.locator(".site-title img:visible")).toHaveAttribute(
+    "src",
+    /xmtp-logo.*\.svg/,
+  );
+  const dark =
+    (await page.locator("html").getAttribute("data-theme")) === "dark";
+  await expect(page.locator(".site-title img:visible")).toHaveCSS(
+    "filter",
+    dark ? "brightness(0) invert(1)" : "brightness(0)",
+  );
   expect(
     await page.evaluate(() => document.documentElement.scrollWidth),
   ).toBeLessThanOrEqual(viewport.width);

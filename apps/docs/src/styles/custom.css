@@ -36,6 +36,10 @@
   }
   .site-title img {
     height: 2rem;
+    filter: brightness(0);
+  }
+  :root[data-theme="dark"] .site-title img {
+    filter: brightness(0) invert(1);
   }
   .section-nav a {
     text-decoration: none;
