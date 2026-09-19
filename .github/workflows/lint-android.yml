@@ -8,7 +8,7 @@ jobs:
     name: Lint (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup-nix
         with:
           disk-key: android
