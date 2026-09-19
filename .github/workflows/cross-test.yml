@@ -102,7 +102,7 @@ jobs:
       # checkout time (~75s). We only need:
       #   - release/* branches (fetched in the next step)
       #   - *-nightly.* tags (fetched in the step after that)
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
           fetch-tags: false
