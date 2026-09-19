@@ -1,5 +1,53 @@
 import { expect, test } from "@playwright/test";
 
+test("group names fit their badges and diagram nodes do not overlap", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page
+    .getByRole("tab", { name: "Agent group chat", exact: true })
+    .click();
+  await page.evaluate(() => document.fonts.ready);
+  for (const width of [320, 390, 768, 1024, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const issues = await page.locator(".network").evaluate((network) => {
+      const failures = [];
+      const panel = network.getBoundingClientRect();
+      for (const badge of network.querySelectorAll(".badge")) {
+        const box = badge.getBoundingClientRect();
+        const range = document.createRange();
+        range.selectNodeContents(badge);
+        const text = range.getBoundingClientRect();
+        if (text.left < box.left + 6 || text.right > box.right - 6) {
+          failures.push(`Name exceeds badge padding: ${badge.textContent}`);
+        }
+      }
+      const nodes = [...network.querySelectorAll(".group-agent, .center")];
+      nodes.forEach((node, index) => {
+        const box = node.getBoundingClientRect();
+        if (box.left < panel.left || box.right > panel.right) {
+          failures.push(`Node exceeds panel: ${node.textContent}`);
+        }
+        for (const other of nodes.slice(index + 1)) {
+          const next = other.getBoundingClientRect();
+          if (
+            box.left < next.right &&
+            box.right > next.left &&
+            box.top < next.bottom &&
+            box.bottom > next.top
+          ) {
+            failures.push(
+              `Nodes overlap: ${node.textContent} / ${other.textContent}`,
+            );
+          }
+        }
+      });
+      return failures;
+    });
+    expect(issues, `${width}px diagram`).toEqual([]);
+  }
+});
+
 test("homepage layout and agent tabs work with keyboard input", async ({
   page,
 }) => {
