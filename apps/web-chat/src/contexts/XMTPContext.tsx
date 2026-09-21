@@ -1,5 +1,6 @@
 import {
   Client,
+  type AuthCallback,
   type BuiltInContentTypes,
   type ClientOptions,
   type Signer,
@@ -19,6 +20,7 @@ import { useActions } from "@/stores/inbox/hooks";
 export type ContentTypes = BuiltInContentTypes;
 
 export type InitializeClientOptions = {
+  authCallback?: AuthCallback;
   backendUrl: string;
   dbEncryptionKey?: Uint8Array;
   env?: string;
@@ -87,6 +89,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
    */
   const initialize = useCallback(
     async ({
+      authCallback,
       backendUrl,
       dbEncryptionKey,
       env,
@@ -115,6 +118,7 @@ export const XMTPProvider: React.FC<XMTPProviderProps> = ({
         try {
           // create a new XMTP client
           xmtpClient = await Client.create(signer, {
+            authCallback,
             backendUrl,
             env: env ?? (await backendLabel(backendUrl)),
             loggingLevel,

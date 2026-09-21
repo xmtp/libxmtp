@@ -20,6 +20,7 @@ import { backendLabel } from "@/helpers/backend";
 import { isValidInboxId } from "@/helpers/strings";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useMemberId } from "@/hooks/useMemberId";
+import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -55,6 +56,7 @@ export const InboxTools: React.FC = () => {
     ephemeralAccountEnabled,
     setEphemeralAccountEnabled,
   } = useSettings();
+  const { authCallback } = useAuthToken();
   const [active, setActive] = useState(1);
 
   const handleFindInstallations = useCallback(async () => {
@@ -66,6 +68,7 @@ export const InboxTools: React.FC = () => {
     setSelectedInstallationIds([]);
     try {
       const inboxState = await Client.fetchInboxStates([inboxId], {
+        authCallback,
         backendUrl,
         env: await backendLabel(backendUrl),
       });
@@ -80,7 +83,7 @@ export const InboxTools: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [inboxId, backendUrl]);
+  }, [inboxId, backendUrl, authCallback]);
 
   const handleFetchInboxUpdatesCount = useCallback(async () => {
     if (!isValidInboxId(inboxId)) {
@@ -91,7 +94,7 @@ export const InboxTools: React.FC = () => {
     try {
       const inboxUpdatesCounts = await Client.fetchLatestInboxUpdatesCount(
         [inboxId],
-        { backendUrl, env: await backendLabel(backendUrl) },
+        { authCallback, backendUrl, env: await backendLabel(backendUrl) },
       );
       setInboxUpdatesCount(inboxUpdatesCounts.get(inboxId) ?? 0);
     } catch (error) {
@@ -99,7 +102,7 @@ export const InboxTools: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [inboxId, backendUrl]);
+  }, [inboxId, backendUrl, authCallback]);
 
   const handleRevokeInstallations = useCallback(
     async (installationIds: Uint8Array[]) => {
@@ -132,6 +135,7 @@ export const InboxTools: React.FC = () => {
       setLoading(true);
       try {
         await Client.revokeInstallations(signer, inboxId, installationIds, {
+          authCallback,
           backendUrl,
           env: await backendLabel(backendUrl),
         });
@@ -141,6 +145,7 @@ export const InboxTools: React.FC = () => {
       void handleFindInstallations();
     },
     [
+      authCallback,
       backendUrl,
       address,
       blockchain,

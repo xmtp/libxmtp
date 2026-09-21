@@ -22,7 +22,10 @@ export const BackendUrlInput: React.FC = () => {
       <TextInput
         aria-label="XMTP backend URL"
         value={value}
-        error={value && !valid ? "Enter a valid http:// or https:// URL" : null}
+        // The deployed app ships with no default backend, so an empty field is
+        // the first thing a new user sees. Explain it rather than leaving the
+        // disabled Connect button unexplained.
+        error={valid ? null : "Enter a valid http:// or https:// URL"}
         disabled={lockState !== "available"}
         placeholder="http://127.0.0.1:5050"
         onChange={(event) => {

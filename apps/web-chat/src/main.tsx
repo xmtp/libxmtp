@@ -34,6 +34,7 @@ import {
   walletConnect,
 } from "wagmi/connectors";
 import { App } from "@/components/App/App";
+import { AuthTokenProvider } from "@/contexts/AuthTokenContext";
 import { XMTPProvider } from "@/contexts/XMTPContext";
 import { queryClient } from "@/helpers/queries";
 
@@ -112,9 +113,12 @@ if (root) {
       <QueryClientProvider client={queryClient}>
         <MantineProvider defaultColorScheme="auto" theme={theme}>
           <XMTPProvider>
-            <BrowserRouter>
-              <App />
-            </BrowserRouter>
+            {/* Inside XMTPProvider: the token inputs read lockState. */}
+            <AuthTokenProvider>
+              <BrowserRouter>
+                <App />
+              </BrowserRouter>
+            </AuthTokenProvider>
           </XMTPProvider>
         </MantineProvider>
       </QueryClientProvider>
