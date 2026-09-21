@@ -39,7 +39,38 @@ pub(super) fn complete(topic: &BarrierTopicSnapshot) -> bool {
 }
 
 pub(super) fn instance_complete(instance: &InstanceSnapshot) -> bool {
-    instance.checkpoint.failure.is_none() && instance.checkpoint.topics.iter().all(complete)
+    super::checkpoint_complete(&instance.checkpoint)
+}
+
+/// An unrelated topic cannot defer a completed group's obligations.
+pub(super) fn group_complete(instance: &InstanceSnapshot, group_id: &str) -> bool {
+    if instance_complete(instance) {
+        return true;
+    }
+    let active = instance
+        .groups
+        .iter()
+        .any(|group| group.group_id == group_id && group.active);
+    if active {
+        let Ok(group_id) = hex::decode(group_id) else {
+            return false;
+        };
+        let topic = hex::encode(Topic::new_group_message(group_id));
+        return instance
+            .checkpoint
+            .topics
+            .iter()
+            .find(|entry| entry.topic == topic)
+            .is_some_and(complete);
+    }
+    // A missing or Restored group can still be waiting for a Welcome.
+    let welcomes: Vec<_> = instance.checkpoint.topics.iter().filter(|entry| {
+        match hex::decode(&entry.topic) {
+            Ok(bytes) => matches!(Topic::parse(&bytes), Ok(topic) if topic.kind() == TopicKind::WelcomeMessagesV1),
+            Err(_) => false,
+        }
+    }).collect();
+    !welcomes.is_empty() && welcomes.into_iter().all(complete)
 }
 
 impl CheckpointTracker {

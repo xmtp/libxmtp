@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use xmtp_mls::diagnostics::RetryBudgets;
 
@@ -11,6 +11,8 @@ pub(super) fn evaluate(
     ledger: &MembershipLedger,
     calls: &[RollCall],
     budgets: &RetryBudgets,
+    resumed_elapsed: &BTreeMap<(String, String), u64>,
+    ended_memberships: &BTreeSet<(String, String)>,
     findings: &mut Vec<Finding>,
 ) {
     for call in calls {
@@ -20,20 +22,19 @@ pub(super) fn evaluate(
                 call.expected_installations
                     .contains(&instance.installation_id)
                     && ledger.owed(&call.group_id, &instance.installation_id)
+                    && !ended_memberships
+                        .contains(&(call.token.clone(), instance.installation_id.clone()))
             })
             .collect();
-        if owed
-            .iter()
-            .any(|instance| !checkpoint::instance_complete(instance))
-        {
-            continue;
-        }
         let disagree = findings.iter().any(|finding| {
             finding.verdict == Verdict::Fork && finding.group_id.as_ref() == Some(&call.group_id)
         });
         let mut seen = BTreeSet::new();
         for instance in owed {
             if !seen.insert(&instance.installation_id) {
+                continue;
+            }
+            if !checkpoint::group_complete(instance, &call.group_id) {
                 continue;
             }
             let sync = call.sync_received.contains(&instance.installation_id);
@@ -50,9 +51,13 @@ pub(super) fn evaluate(
                 None
             };
             let Some(delivery) = missing else { continue };
+            let elapsed_ms = resumed_elapsed
+                .get(&(call.token.clone(), instance.installation_id.clone()))
+                .copied()
+                .unwrap_or(call.elapsed_ms);
             let verdict = if disagree {
                 Verdict::Fork
-            } else if call.elapsed_ms > budgets.barrier_ms {
+            } else if elapsed_ms > budgets.barrier_ms {
                 Verdict::Brick
             } else {
                 Verdict::Stall
@@ -63,7 +68,7 @@ pub(super) fn evaluate(
                 &call.group_id,
                 format!(
                     "Roll-call token {} from {} is missing by {delivery}; waited {}ms, budget {}ms",
-                    call.token, call.sender_installation, call.elapsed_ms, budgets.barrier_ms
+                    call.token, call.sender_installation, elapsed_ms, budgets.barrier_ms
                 ),
             ));
         }

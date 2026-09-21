@@ -415,18 +415,8 @@ fn compare_current(instances: &[(&Value, &Value)]) -> (bool, bool, usize) {
 }
 
 fn checkpoint_complete(checkpoint: &Value) -> bool {
-    checkpoint.get("failure") == Some(&Value::Null)
-        && checkpoint["topics"].as_array().is_some_and(|topics| {
-            topics.iter().all(|topic| {
-                topic["target"]
-                    .as_u64()
-                    .zip(topic["processed"].as_u64())
-                    .is_some_and(|(target, processed)| processed >= target)
-                    && topic["unresolved_welcomes"]
-                        .as_array()
-                        .is_some_and(Vec::is_empty)
-            })
-        })
+    serde_json::from_value(checkpoint.clone())
+        .is_ok_and(|checkpoint| crate::check::checkpoint_complete(&checkpoint))
 }
 
 fn render_rollcall(output: &mut BoundedOutput, status: &Value, group: &str) -> bool {
@@ -481,6 +471,36 @@ fn render_rollcall(output: &mut BoundedOutput, status: &Value, group: &str) -> b
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn checkpoint_inspection_uses_welcome_and_inactive_obligations() {
+        use xmtp_proto::types::{InstallationId, Topic};
+
+        let mut checkpoint = json!({
+            "group_ids": [], "failure": null,
+            "topics": [{
+                "topic": hex::encode(Topic::new_welcome_message(InstallationId::from([7; 32]))),
+                "target": 10, "received": 10, "processed": 0,
+                "unresolved_welcomes": [11], "inactive": false, "cause": null
+            }, {
+                "topic": hex::encode(Topic::new_group_message([1_u8; 16])),
+                "target": 20, "received": 10, "processed": 10,
+                "unresolved_welcomes": [], "inactive": true, "cause": null
+            }]
+        });
+        assert!(checkpoint_complete(&checkpoint));
+        checkpoint["topics"][0]["unresolved_welcomes"] = json!([10]);
+        assert!(!checkpoint_complete(&checkpoint));
+        checkpoint["topics"][0]["unresolved_welcomes"] = json!([]);
+        checkpoint["topics"][0]["received"] = json!(9);
+        assert!(!checkpoint_complete(&checkpoint));
+        checkpoint["topics"][0]["received"] = json!(10);
+        checkpoint["topics"][1]["cause"] = json!("ProcessingPending");
+        assert!(!checkpoint_complete(&checkpoint));
+        assert!(!checkpoint_complete(
+            &json!({"failure": null, "topics": [{}]})
+        ));
+    }
 
     fn record(sequence: i64, auth: u8) -> LocalCommitLog {
         LocalCommitLog {

@@ -1,6 +1,7 @@
 //! Network faults for the worktree's isolated Toxiproxy service.
 
 use std::{
+    collections::HashMap,
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -8,7 +9,11 @@ use std::{
 use reqwest::{Client, Method, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use tonic_health::pb::{
+    HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
+};
 use xmtp_common::time::{Duration, timeout};
+use xmtp_proto::{backend_v1 as api, types::Topic};
 
 /// One proxy per installation, plus the process that shares a database.
 pub const PROXY_CAPACITY: usize = 19;
@@ -18,6 +23,12 @@ const PROXY_PORTS: [u16; PROXY_CAPACITY] = [
     6052, 6054, 6056,
 ];
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(10);
+const HEALTH_TIMEOUT: Duration = Duration::from_secs(10);
+const HEALTH_CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const HEALTH_RPC_TIMEOUT: Duration = Duration::from_secs(3);
+const HEALTH_RESPONSE_BYTES: usize = 1024;
+const CONTROL_RESPONSE_BYTES: usize = 64 * 1024;
+const HEALTH_TOPIC_GROUP_ID: [u8; 16] = [0; 16];
 const COMPOSE_TIMEOUT: Duration = Duration::from_secs(30);
 const PROXY_PREFIX: &str = "xchaos-";
 const UPSTREAM: &str = "backend:5050";
@@ -76,6 +87,26 @@ pub enum NetworkError {
     InvalidUrl(String),
     #[error("Toxiproxy control failed: {0}")]
     Control(#[from] reqwest::Error),
+    #[error("Toxiproxy health response exceeds {CONTROL_RESPONSE_BYTES} bytes")]
+    OversizeControlResponse,
+    #[error("invalid Toxiproxy health response: {0}")]
+    InvalidControlResponse(#[from] serde_json::Error),
+    #[error("proxy {proxy} is not healthy: {detail}")]
+    ProxyHealth { proxy: String, detail: &'static str },
+    #[error("cannot connect to health service at {endpoint}: {source}")]
+    HealthTransport {
+        endpoint: String,
+        #[source]
+        source: tonic::transport::Error,
+    },
+    #[error("health request failed at {endpoint}: {source}")]
+    HealthRpc {
+        endpoint: String,
+        #[source]
+        source: tonic::Status,
+    },
+    #[error("health service at {endpoint} is not serving (status {status})")]
+    NotServing { endpoint: String, status: i32 },
     // The upstream helper returns String, rather than a typed error.
     #[error("Toxiproxy discovery failed: {0}")]
     Discovery(String),
@@ -103,11 +134,21 @@ pub struct ProxyRecord {
     pub upstream: String,
 }
 
+#[derive(Deserialize)]
+struct HealthProxy {
+    name: String,
+    listen: String,
+    upstream: String,
+    enabled: bool,
+    toxics: Vec<Value>,
+}
+
 /// The caller must clear faults before a checkpoint and call shutdown on exit.
 /// Only one fault window can own a slot, or the backend, at a time.
 pub struct NetworkController {
     client: Client,
     api: String,
+    backend: String,
     proxies: Vec<ProxyRecord>,
     backend_paused: AtomicBool,
     compose_project: String,
@@ -120,6 +161,7 @@ impl NetworkController {
             return Err(NetworkError::InvalidSlot(slot_count));
         }
         let api = environment("XMTP_TOXIPROXY_API")?;
+        let backend = environment("XMTP_BACKEND_URL")?;
         let compose_project = environment("XMTP_COMPOSE_PROJECT")?;
         let client = xmtp_common::http::client_builder()
             .timeout(CONTROL_TIMEOUT)
@@ -153,6 +195,7 @@ impl NetworkController {
         let controller = Self {
             client,
             api: api.trim_end_matches('/').into(),
+            backend,
             proxies,
             backend_paused: AtomicBool::new(false),
             compose_project,
@@ -190,6 +233,102 @@ impl NetworkController {
 
     pub fn endpoint(&self, slot: usize) -> Result<String, NetworkError> {
         Ok(self.proxy(slot)?.endpoint.clone())
+    }
+
+    /// Check infrastructure after faults are cleared and before an SDK verdict.
+    /// The direct backend probe is independent of every managed fault proxy.
+    pub async fn check_health(&self) -> Result<(), NetworkError> {
+        timeout(HEALTH_TIMEOUT, async {
+            let channel = check_service_health(&self.backend).await?;
+            // Aggregate health describes the server lifecycle. This read also
+            // checks database access, without creating or publishing data.
+            let mut query =
+                tonic::client::Grpc::new(channel).max_decoding_message_size(HEALTH_RESPONSE_BYTES);
+            query
+                .ready()
+                .await
+                .map_err(|source| NetworkError::HealthTransport {
+                    endpoint: self.backend.clone(),
+                    source,
+                })?;
+            query
+                .unary::<api::QueryNewestRequest, api::QueryNewestResponse, _>(
+                    tonic::Request::new(api::QueryNewestRequest {
+                        topics: vec![api::Topic {
+                            topic: AsRef::<[u8]>::as_ref(&Topic::new_group_message(
+                                HEALTH_TOPIC_GROUP_ID,
+                            ))
+                            .to_vec(),
+                        }],
+                        include_full_envelope: false,
+                    }),
+                    tonic::codegen::http::uri::PathAndQuery::from_static(
+                        "/xmtp.backend.v1.QueryService/QueryNewest",
+                    ),
+                    tonic_prost::ProstCodec::default(),
+                )
+                .await
+                .map_err(|source| NetworkError::HealthRpc {
+                    endpoint: self.backend.clone(),
+                    source,
+                })?;
+            let mut response = self
+                .client
+                .get(format!("{}/proxies", self.api))
+                .send()
+                .await?
+                .error_for_status()?;
+            if response
+                .content_length()
+                .is_some_and(|size| size > CONTROL_RESPONSE_BYTES as u64)
+            {
+                return Err(NetworkError::OversizeControlResponse);
+            }
+            let mut body = Vec::new();
+            while let Some(chunk) = response.chunk().await? {
+                if chunk.len() > CONTROL_RESPONSE_BYTES.saturating_sub(body.len()) {
+                    return Err(NetworkError::OversizeControlResponse);
+                }
+                body.extend_from_slice(&chunk);
+            }
+            let managed: HashMap<String, HealthProxy> = serde_json::from_slice(&body)?;
+            for expected in &self.proxies {
+                let actual =
+                    managed
+                        .get(&expected.name)
+                        .ok_or_else(|| NetworkError::ProxyHealth {
+                            proxy: expected.name.clone(),
+                            detail: "missing proxy",
+                        })?;
+                let detail = if actual.name != expected.name
+                    || !same_listener(&actual.listen, &expected.listen)
+                    || actual.upstream != expected.upstream
+                {
+                    Some("route changed")
+                } else if !actual.enabled {
+                    Some("proxy disabled")
+                } else if !actual.toxics.is_empty() {
+                    Some("faults remain active")
+                } else {
+                    None
+                };
+                if let Some(detail) = detail {
+                    return Err(NetworkError::ProxyHealth {
+                        proxy: expected.name.clone(),
+                        detail,
+                    });
+                }
+            }
+            futures::future::try_join_all(
+                self.proxies
+                    .iter()
+                    .map(|proxy| check_service_health(&proxy.endpoint)),
+            )
+            .await?;
+            Ok(())
+        })
+        .await
+        .map_err(|_| NetworkError::Timeout)?
     }
 
     pub async fn apply(&self, slot: usize, fault: NetworkFault) -> Result<(), NetworkError> {
@@ -341,6 +480,52 @@ fn environment(name: &str) -> Result<String, NetworkError> {
     std::env::var(name).map_err(|_| NetworkError::MissingEnvironment(name.into()))
 }
 
+fn same_listener(actual: &str, expected: &str) -> bool {
+    let (Ok(actual), Ok(expected)) = (
+        actual.parse::<std::net::SocketAddr>(),
+        expected.parse::<std::net::SocketAddr>(),
+    ) else {
+        return false;
+    };
+    // Toxiproxy reports a requested IPv4 wildcard as an IPv6 wildcard.
+    // The route probe still checks that the published IPv4 endpoint works.
+    actual.port() == expected.port()
+        && (actual.ip() == expected.ip()
+            || (actual.ip().is_unspecified() && expected.ip().is_unspecified()))
+}
+
+async fn check_service_health(endpoint: &str) -> Result<tonic::transport::Channel, NetworkError> {
+    let transport_error = |source| NetworkError::HealthTransport {
+        endpoint: endpoint.into(),
+        source,
+    };
+    let channel = tonic::transport::Endpoint::from_shared(endpoint.to_owned())
+        .map_err(transport_error)?
+        .connect_timeout(HEALTH_CONNECT_TIMEOUT)
+        .timeout(HEALTH_RPC_TIMEOUT)
+        .connect()
+        .await
+        .map_err(transport_error)?;
+    let response = HealthClient::new(channel.clone())
+        .max_decoding_message_size(HEALTH_RESPONSE_BYTES)
+        .check(HealthCheckRequest {
+            service: String::new(),
+        })
+        .await
+        .map_err(|source| NetworkError::HealthRpc {
+            endpoint: endpoint.into(),
+            source,
+        })?
+        .into_inner();
+    if response.status != ServingStatus::Serving as i32 {
+        return Err(NetworkError::NotServing {
+            endpoint: endpoint.into(),
+            status: response.status,
+        });
+    }
+    Ok(channel)
+}
+
 fn collect(errors: &mut Vec<NetworkError>, result: Result<(), NetworkError>) {
     if let Err(error) = result {
         errors.push(error);
@@ -358,7 +543,229 @@ fn cleanup_result(errors: Vec<NetworkError>) -> Result<(), NetworkError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, atomic::AtomicUsize};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    struct MockServer {
+        endpoint: String,
+        task: tokio::task::JoinHandle<()>,
+    }
+
+    impl Drop for MockServer {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    struct QueryProbe {
+        unavailable: bool,
+        reads: Arc<AtomicUsize>,
+    }
+
+    #[tonic::async_trait]
+    impl api::query_service_server::QueryService for QueryProbe {
+        async fn query(
+            &self,
+            _: tonic::Request<api::QueryRequest>,
+        ) -> Result<tonic::Response<api::QueryResponse>, tonic::Status> {
+            Err(tonic::Status::unimplemented("not part of the probe"))
+        }
+
+        async fn query_newest(
+            &self,
+            request: tonic::Request<api::QueryNewestRequest>,
+        ) -> Result<tonic::Response<api::QueryNewestResponse>, tonic::Status> {
+            let request = request.into_inner();
+            assert_eq!(request.topics.len(), 1);
+            assert!(!request.include_full_envelope);
+            assert!(Topic::parse(&request.topics[0].topic).is_ok());
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            if self.unavailable {
+                Err(tonic::Status::unavailable("database unavailable"))
+            } else {
+                Ok(tonic::Response::new(api::QueryNewestResponse::default()))
+            }
+        }
+    }
+
+    async fn mock_backend(serving: bool, unavailable: bool) -> (MockServer, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let (reporter, health) = tonic_health::server::health_reporter();
+        reporter
+            .set_service_status(
+                "",
+                if serving {
+                    tonic_health::ServingStatus::Serving
+                } else {
+                    tonic_health::ServingStatus::NotServing
+                },
+            )
+            .await;
+        let reads = Arc::new(AtomicUsize::new(0));
+        let probe = QueryProbe {
+            unavailable,
+            reads: reads.clone(),
+        };
+        let incoming = futures::stream::unfold(listener, |listener| async {
+            let (stream, _) = listener.accept().await.unwrap();
+            Some((Ok::<_, std::io::Error>(stream), listener))
+        });
+        let task = tokio::spawn(async move {
+            tonic::transport::Server::builder()
+                .add_service(health)
+                .add_service(api::query_service_server::QueryServiceServer::new(probe))
+                .serve_with_incoming(incoming)
+                .await
+                .unwrap();
+        });
+        (MockServer { endpoint, task }, reads)
+    }
+
+    async fn mock_control(body: Vec<u8>) -> MockServer {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            assert!(request.starts_with(b"GET /proxies "));
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            stream.write_all(header.as_bytes()).await.unwrap();
+            // A size rejection can close the socket before the body arrives.
+            let _ = stream.write_all(&body).await;
+        });
+        MockServer { endpoint, task }
+    }
+
+    fn valid_proxy() -> Value {
+        json!({"xchaos-0": {
+            "name":"xchaos-0", "listen":"0.0.0.0:6003",
+            "upstream":UPSTREAM, "enabled":true, "toxics":[],
+        }})
+    }
+
+    fn test_controller(backend: &str, control: &str, proxy: &str) -> NetworkController {
+        NetworkController {
+            client: xmtp_common::http::client_builder()
+                .timeout(CONTROL_TIMEOUT)
+                .build()
+                .unwrap(),
+            api: control.into(),
+            backend: backend.into(),
+            proxies: vec![ProxyRecord {
+                slot: 0,
+                name: "xchaos-0".into(),
+                endpoint: proxy.into(),
+                listen: "0.0.0.0:6003".into(),
+                upstream: UPSTREAM.into(),
+            }],
+            backend_paused: AtomicBool::new(false),
+            compose_project: "unused".into(),
+            compose_file: PathBuf::new(),
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_checks_direct_database_and_proxy_route() {
+        let (direct, reads) = mock_backend(true, false).await;
+        let (proxy, proxy_reads) = mock_backend(true, false).await;
+        let control = mock_control(serde_json::to_vec(&valid_proxy())?).await;
+        test_controller(&direct.endpoint, &control.endpoint, &proxy.endpoint)
+            .check_health()
+            .await?;
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+        assert_eq!(proxy_reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_accepts_toxiproxy_normalized_wildcard_listener() {
+        let (direct, _) = mock_backend(true, false).await;
+        // This is the control response shape observed from Toxiproxy 2.12.0.
+        let normalized = json!({"xchaos-0": {
+            "name":"xchaos-0", "listen":"[::]:6003",
+            "upstream":"backend:5050", "enabled":true, "Logger":{}, "toxics":[],
+        }});
+        let control = mock_control(serde_json::to_vec(&normalized)?).await;
+        test_controller(&direct.endpoint, &control.endpoint, &direct.endpoint)
+            .check_health()
+            .await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_rejects_unavailable_backend_despite_serving_health() {
+        let (direct, reads) = mock_backend(true, true).await;
+        let controller = test_controller(&direct.endpoint, "http://unused", "http://unused");
+        assert!(
+            matches!(controller.check_health().await, Err(NetworkError::HealthRpc { source, .. })
+            if source.code() == tonic::Code::Unavailable)
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_rejects_not_serving_backend() {
+        let (direct, reads) = mock_backend(false, false).await;
+        let controller = test_controller(&direct.endpoint, "http://unused", "http://unused");
+        assert!(matches!(
+            controller.check_health().await,
+            Err(NetworkError::NotServing { .. })
+        ));
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_rejects_missing_disabled_changed_or_faulted_proxy() {
+        let (direct, _) = mock_backend(true, false).await;
+        let mut cases = vec![json!({})];
+        for (field, value) in [
+            ("enabled", json!(false)),
+            ("upstream", json!("wrong:5050")),
+            ("listen", json!("[::]:6005")),
+            ("listen", json!("127.0.0.1:6003")),
+            ("toxics", json!([{"type":"timeout"}])),
+        ] {
+            let mut proxy = valid_proxy();
+            proxy["xchaos-0"][field] = value;
+            cases.push(proxy);
+        }
+        for body in cases {
+            let control = mock_control(serde_json::to_vec(&body)?).await;
+            let controller = test_controller(&direct.endpoint, &control.endpoint, "http://unused");
+            assert!(matches!(
+                controller.check_health().await,
+                Err(NetworkError::ProxyHealth { .. })
+            ));
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_rejects_broken_proxy_route() {
+        let (direct, _) = mock_backend(true, false).await;
+        let (proxy, _) = mock_backend(false, false).await;
+        let control = mock_control(serde_json::to_vec(&valid_proxy())?).await;
+        let controller = test_controller(&direct.endpoint, &control.endpoint, &proxy.endpoint);
+        assert!(
+            matches!(controller.check_health().await, Err(NetworkError::NotServing { endpoint, .. })
+            if endpoint == proxy.endpoint)
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn health_caps_control_response() {
+        let (direct, _) = mock_backend(true, false).await;
+        let control = mock_control(vec![b' '; CONTROL_RESPONSE_BYTES + 1]).await;
+        let controller = test_controller(&direct.endpoint, &control.endpoint, "http://unused");
+        assert!(matches!(
+            controller.check_health().await,
+            Err(NetworkError::OversizeControlResponse)
+        ));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn cleanup_continues_after_a_control_failure() {
@@ -369,6 +776,7 @@ mod tests {
                 .timeout(CONTROL_TIMEOUT)
                 .build()?,
             api,
+            backend: "http://unused".into(),
             proxies: vec![ProxyRecord {
                 slot: 0,
                 name: "xchaos-0".into(),

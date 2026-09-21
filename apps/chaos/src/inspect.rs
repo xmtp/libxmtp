@@ -183,6 +183,8 @@ fn render_status(output: &mut BoundedOutput, value: &Value) {
         "welcome_retries",
         "warnings",
         "stalls",
+        "escalated_stalls",
+        "recovery",
     ] {
         if let Some(value) = value.get(field) {
             if matches!(field, "counters" | "contention") {
@@ -404,21 +406,26 @@ pub(crate) fn render_findings(output: &mut BoundedOutput, value: &Value, group: 
         .take(MAX_VISITS)
         .filter(|finding| group.is_none_or(|group| finding["group_id"].as_str() == Some(group)))
         .collect();
-    findings.sort_by_key(|finding| match finding["verdict"].as_str() {
-        Some("HARNESS") => 0,
-        Some("FORK") => 1,
-        Some("BRICK") => 2,
-        Some("STALL") => 3,
-        Some("WARN") => 4,
-        _ => 5,
+    findings.sort_by_key(|finding| {
+        let severity = match finding["verdict"].as_str() {
+            Some("HARNESS") => 0,
+            Some("FORK") => 1,
+            Some("BRICK") => 2,
+            Some("STALL") => 3,
+            Some("WARN") => 4,
+            _ => 5,
+        };
+        (severity, finding["escalated"] != true)
     });
     for finding in findings.iter().take(16) {
         output.line(&format!(
-            "{} instance={} group={} topic={} detail={}",
+            "{} instance={} group={} topic={} repeats={} escalated={} detail={}",
             scalar(&finding["verdict"]),
             scalar(&finding["instance"]),
             scalar(&finding["group_id"]),
             scalar(&finding["topic"]),
+            finding["repeated_rounds"].as_u64().unwrap_or_default(),
+            finding["escalated"].as_bool().unwrap_or_default(),
             safe_error(finding["detail"].as_str().unwrap_or("missing detail"))
         ));
     }
@@ -781,6 +788,26 @@ mod tests {
         let group = inspect(temp.path(), Some("abc"), None);
         assert!(group.contains("stream token missing"));
         assert_bounded(&group);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn escalated_stalls_precede_other_stalls_in_capped_findings() {
+        let mut findings = vec![json!({"verdict":"STALL", "detail":"pending"}); 20];
+        findings.push(json!({
+            "verdict":"STALL", "detail":"blocked", "instance":4,
+            "repeated_rounds":3, "escalated":true
+        }));
+        let mut output = BoundedOutput::new(OUTPUT_LINES, LINE_BYTES);
+        render_findings(&mut output, &json!(findings), None);
+        let output = output.finish();
+        assert!(
+            output
+                .lines()
+                .next()
+                .unwrap()
+                .contains("repeats=3 escalated=true")
+        );
+        assert!(output.contains("findings capped"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

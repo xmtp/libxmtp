@@ -29,17 +29,13 @@ pub(super) fn evaluate(
             .iter()
             .filter(|instance| ledger.owed(group_id, &instance.installation_id))
             .collect();
-        // A pending Welcome or processor retry can explain both absent and unequal local state.
-        if owed
-            .iter()
-            .any(|instance| !checkpoint::instance_complete(instance))
-        {
-            continue;
-        }
         let mut reference: Option<(&InstanceSnapshot, &GroupSnapshot)> = None;
         let mut seen = BTreeSet::new();
         for instance in owed {
             if !seen.insert(&instance.installation_id) {
+                continue;
+            }
+            if !checkpoint::group_complete(instance, group_id) {
                 continue;
             }
             let Some(group) = instance
@@ -61,6 +57,15 @@ pub(super) fn evaluate(
                 continue;
             }
             if let Some((other, state)) = reference {
+                if state.cursor != group.cursor {
+                    findings.push(Finding::group(
+                        Verdict::Stall,
+                        instance.instance,
+                        group_id,
+                        "Group snapshots do not yet cover the same processed prefix",
+                    ));
+                    continue;
+                }
                 if !agrees(state, group) {
                     findings.push(Finding::group(Verdict::Fork, instance.instance, group_id,
                         format!("State disagrees with installation {} at the checkpoint (epoch {} versus {})",

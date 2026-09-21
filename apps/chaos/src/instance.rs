@@ -4,7 +4,7 @@ use crate::{
     protocol::*,
 };
 use alloy_signer_local::PrivateKeySigner;
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use futures::StreamExt;
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -21,8 +21,8 @@ use xmtp_common::{
     time::{Duration, timeout},
 };
 use xmtp_db::{
-    DbConnection, NativeDb, consent_record::ConsentState, group::GroupQueryArgs,
-    group_message::MsgQueryArgs, sql_key_store::SqlKeyStore,
+    ConnectionExt, DbConnection, NativeDb, consent_record::ConsentState, group::GroupQueryArgs,
+    sql_key_store::SqlKeyStore,
 };
 use xmtp_id::InboxOwner;
 use xmtp_mls::{Client, context::XmtpMlsLocalContext, identity::IdentityStrategy};
@@ -40,6 +40,23 @@ type ChaosGroup = xmtp_mls::groups::MlsGroup<
 >;
 const STREAM_TOKEN_CAP: usize = 4096;
 const STREAM_ERROR_CAP: usize = 16;
+
+fn published_token_bytes(
+    connection: &mut xmtp_db::diesel::SqliteConnection,
+    wanted: &BTreeSet<String>,
+) -> xmtp_db::diesel::QueryResult<Vec<Vec<u8>>> {
+    use xmtp_db::diesel::prelude::*;
+    use xmtp_db::schema::group_messages::dsl;
+
+    // Deferred tokens can be older than the newest message page.
+    dsl::group_messages
+        .filter(dsl::delivery_status.eq(xmtp_db::group_message::DeliveryStatus::Published))
+        .filter(dsl::decrypted_message_bytes.eq_any(wanted.iter().map(String::as_bytes)))
+        .select(dsl::decrypted_message_bytes)
+        .distinct()
+        .limit(STREAM_TOKEN_CAP as i64)
+        .load(connection)
+}
 
 #[derive(Debug, thiserror::Error)]
 #[error(transparent)]
@@ -388,34 +405,22 @@ impl State {
             Command::Tokens { tokens } => {
                 self.recover_stream().await?;
                 let wanted: BTreeSet<_> = tokens.into_iter().collect();
+                ensure!(wanted.len() <= STREAM_TOKEN_CAP, "token query cap exceeded");
                 if wanted.is_empty() {
                     self.tokens.lock().await.clear();
                     return Ok(json!({"sync":[],"stream":[]}));
                 }
-                let mut synced = BTreeSet::new();
-                for group in self.groups()? {
-                    // The newest page covers this round's operations and roll call.
-                    let messages = group.find_messages(&MsgQueryArgs {
-                        limit: Some(512),
-                        delivery_status: Some(xmtp_db::group_message::DeliveryStatus::Published),
-                        direction: Some(xmtp_db::group_message::SortDirection::Descending),
-                        ..Default::default()
-                    })?;
-                    for message in messages {
-                        if let Ok(token) = String::from_utf8(message.decrypted_message_bytes)
-                            && wanted.contains(&token)
-                        {
-                            synced.insert(token);
-                        }
-                    }
-                }
-                let streamed = self
-                    .tokens
-                    .lock()
-                    .await
-                    .intersection(&wanted)
-                    .cloned()
+                let published = self
+                    .client
+                    .db()
+                    .raw_query(|connection| published_token_bytes(connection, &wanted))?;
+                let synced = wanted
+                    .iter()
+                    .filter(|token| published.iter().any(|bytes| bytes == token.as_bytes()))
                     .collect::<Vec<_>>();
+                let mut seen = self.tokens.lock().await;
+                seen.retain(|token| wanted.contains(token));
+                let streamed = seen.iter().cloned().collect::<Vec<_>>();
                 Ok(json!({"sync":synced,"stream":streamed}))
             }
             Command::Publish { group } => {
@@ -614,6 +619,37 @@ async fn write_response(output: &Mutex<tokio::io::Stdout>, response: Response) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn deferred_token_lookup_is_not_limited_to_recent_messages() {
+        use xmtp_db::diesel::sql_types::{Binary, Integer};
+        use xmtp_db::diesel::{
+            Connection, RunQueryDsl, SqliteConnection, connection::SimpleConnection,
+        };
+        use xmtp_db::group_message::DeliveryStatus;
+
+        let mut connection = SqliteConnection::establish(":memory:")?;
+        connection.batch_execute(
+            "CREATE TABLE group_messages (decrypted_message_bytes BLOB NOT NULL, delivery_status INTEGER NOT NULL);")?;
+        for (token, status) in [
+            ("xchaos:old", DeliveryStatus::Published),
+            ("xchaos:pending", DeliveryStatus::Unpublished),
+        ] {
+            xmtp_db::diesel::sql_query("INSERT INTO group_messages VALUES (?, ?)")
+                .bind::<Binary, _>(token.as_bytes())
+                .bind::<Integer, _>(status as i32)
+                .execute(&mut connection)?;
+        }
+        connection.batch_execute(
+            "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<600)
+             INSERT INTO group_messages SELECT x'00', 1 FROM n;",
+        )?;
+        let wanted = BTreeSet::from(["xchaos:old".into(), "xchaos:pending".into()]);
+        assert_eq!(
+            published_token_bytes(&mut connection, &wanted)?,
+            vec![b"xchaos:old".to_vec()]
+        );
+    }
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     fn lease_busy() -> xmtp_mls::subscriptions::SubscribeError {

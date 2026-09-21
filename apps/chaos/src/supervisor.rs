@@ -285,16 +285,14 @@ impl Supervisor {
             ))
             .await;
             let mut states = states.into_iter().collect::<Result<Vec<_>>>()?;
-            if states.iter().any(|state| {
+            let incomplete = states.iter().any(|state| {
                 state.checkpoint.failure.is_some()
                     || state
                         .checkpoint
                         .topics
                         .iter()
                         .any(|topic| topic.cause.is_some())
-            }) {
-                return Ok(states);
-            }
+            });
 
             let mut common = BTreeMap::<String, u64>::new();
             for state in &states {
@@ -327,6 +325,10 @@ impl Supervisor {
                         .iter_mut()
                         .find(|entry| entry.topic == topic)
                     {
+                        // Keep typed blocking causes, but still normalize every other group.
+                        if barrier.cause.is_some() {
+                            continue;
+                        }
                         if barrier.target == Some(target)
                             && barrier.processed == target
                             && group.cursor == target
@@ -350,7 +352,7 @@ impl Supervisor {
                     drifted = true;
                 }
             }
-            if !drifted || started.elapsed() >= budget {
+            if incomplete || !drifted || started.elapsed() >= budget {
                 return Ok(states);
             }
             previous = Some(states);
@@ -389,6 +391,7 @@ impl Supervisor {
         round: u64,
         seed: u64,
         snapshots: &[InstanceSnapshot],
+        pending: &[RollCall],
     ) -> Result<Vec<RollCall>> {
         let processes = self
             .processes
@@ -397,24 +400,31 @@ impl Supervisor {
             .values()
             .cloned()
             .collect::<Vec<_>>();
-        for result in join_all(
-            processes
-                .iter()
-                .map(|p| p.call(Command::Tokens { tokens: Vec::new() })),
-        )
-        .await
-        {
-            result?;
+        if pending.is_empty() {
+            for result in join_all(
+                processes
+                    .iter()
+                    .map(|p| p.call(Command::Tokens { tokens: Vec::new() })),
+            )
+            .await
+            {
+                result?;
+            }
         }
-        let mut calls = Vec::new();
+        let pending_groups: BTreeSet<_> =
+            pending.iter().map(|call| call.group_id.as_str()).collect();
+        let mut calls = pending.to_vec();
+        let mut timers: Vec<_> = pending
+            .iter()
+            .map(|call| (Instant::now(), call.elapsed_ms))
+            .collect();
         let mut sends = Vec::new();
         let mut sent = BTreeSet::new();
         for instance in snapshots {
-            if instance.checkpoint.failure.is_some() {
-                continue;
-            }
             for group in &instance.groups {
                 if !group.active
+                    || pending_groups.contains(group.group_id.as_str())
+                    || !crate::check::group_checkpoint_complete(instance, &group.group_id)
                     || !sent.insert((group.group_id.clone(), instance.installation_id.clone()))
                 {
                     continue;
@@ -462,13 +472,12 @@ impl Supervisor {
             (result, Instant::now())
         }))
         .await;
-        let mut timers = Vec::new();
-        for (call, (result, finished)) in calls.iter().zip(finished) {
+        for (call, (result, finished)) in calls.iter().skip(pending.len()).zip(finished) {
             self.record(
                 "ops",
                 json!({"event":"rollcall","token":call.token,"sent":result?}),
             )?;
-            timers.push(finished);
+            timers.push((finished, 0));
         }
         self.checkpoint().await?;
         let tokens = calls.iter().map(|c| c.token.clone()).collect::<Vec<_>>();
@@ -484,18 +493,22 @@ impl Supervisor {
                 let received = received?;
                 let sync: Vec<String> = serde_json::from_value(received["sync"].clone())?;
                 let stream: Vec<String> = serde_json::from_value(received["stream"].clone())?;
-                let owner = self.configs.lock().expect("configs mutex")[process.slot].stream_owner;
                 for call in &mut calls {
                     if sync.contains(&call.token) {
                         call.sync_received.insert(process.installation_id.clone());
                     }
-                    if owner && stream.contains(&call.token) {
+                    if call
+                        .expected_stream_installations
+                        .contains(&process.installation_id)
+                        && stream.contains(&call.token)
+                    {
                         call.stream_received.insert(process.installation_id.clone());
                     }
                 }
             }
-            for (call, timer) in calls.iter_mut().zip(&timers) {
-                call.elapsed_ms = timer.elapsed().as_millis() as u64;
+            for (call, (timer, previous_elapsed)) in calls.iter_mut().zip(&timers) {
+                call.elapsed_ms =
+                    previous_elapsed.saturating_add(timer.elapsed().as_millis() as u64);
             }
             if calls.iter().all(|call| {
                 (call.expected_installations.is_subset(&call.sync_received)
@@ -664,6 +677,7 @@ pub(crate) async fn run(args: RunArgs) -> Result<i32> {
 }
 
 async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i32> {
+    s.network.check_health().await?;
     for slot in 0..=SHARED_SLOT {
         s.start(slot).await?;
     }
@@ -749,9 +763,16 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         schedule
             .faults
             .retain(|f| fault_selected(&args.faults, &f.kind));
+        let recovering = !oracle.pending_rollcalls().is_empty();
+        if recovering {
+            // A new crash could erase an acknowledged stream receipt before it is observed.
+            schedule.bursts.clear();
+            schedule.faults.clear();
+            sleep(Duration::from_millis(ROLL_POLL_MS)).await;
+        }
         s.record("schedule", serde_json::to_value(&schedule)?)?;
         s.ledger.lock().expect("ledger mutex").write_status(
-            &json!({"seed":seed,"round":round,"phase":"chaos","schedule":schedule}),
+            &json!({"seed":seed,"round":round,"phase":if recovering { "recovery" } else { "chaos" },"schedule":schedule}),
         )?;
         let began = Instant::now();
         let operations = async {
@@ -777,14 +798,22 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
             Ok::<_, anyhow::Error>(())
         };
         let ((ok, errors), ()) = tokio::try_join!(operations, faults)?;
-        s.clear().await?;
+        if !recovering {
+            s.clear().await?;
+        }
+        s.network.check_health().await?;
         for process in s.processes.read().await.values() {
             process.call(Command::Drain).await?;
         }
-        s.handover().await?;
+        if !recovering {
+            s.handover().await?;
+        }
         snapshots = s.checkpoint().await?;
-        let rollcall = s.rollcall(round, seed, &snapshots).await?;
+        let pending = oracle.pending_rollcalls();
+        let rollcall = s.rollcall(round, seed, &snapshots, &pending).await?;
         snapshots = s.checkpoint().await?;
+        // Check infrastructure independently before assigning an SDK verdict.
+        s.network.check_health().await?;
         let result = oracle.evaluate(
             round,
             run_start.elapsed().as_millis() as u64,
@@ -802,18 +831,25 @@ async fn run_rounds(s: &Arc<Supervisor>, args: &RunArgs, seed: u64) -> Result<i3
         let mut summary = json!({"seed":seed,"round":round,"phase":"checkpoint","verdict":result.verdict,"check":result,"installations":snapshots,"rollcall":rollcall,"schedule":schedule,"proxies":s.network.records(),"counters":round_counters,"ops":ok+errors,"ok":ok,"errors":errors,"conflicts":conflicts,"welcome_retries":welcome_retries});
         crate::report::bound_history(&mut summary);
         summary["streams"] = json!(streams);
+        summary["recovery"] = json!(recovering);
         let warnings = result
             .findings
             .iter()
             .filter(|f| f.verdict == crate::check::Verdict::Warn)
             .count();
+        let escalated_stalls = result
+            .findings
+            .iter()
+            .filter(|finding| finding.verdict == crate::check::Verdict::Stall && finding.escalated)
+            .count();
+        summary["escalated_stalls"] = json!(escalated_stalls);
         {
             let ledger = s.ledger.lock().expect("ledger mutex");
             ledger.write_status(&summary)?;
             ledger.enforce_bounds()?;
         }
         println!(
-            "round {round} ops={} ok={ok} err={errors} faults={} kinds={} bursts={} conflicts={conflicts} wretry={welcome_retries} warn={warnings} check={} {}s",
+            "round {round} recovery={recovering} ops={} ok={ok} err={errors} faults={} kinds={} bursts={} conflicts={conflicts} wretry={welcome_retries} warn={warnings} escalated={escalated_stalls} check={} {}s",
             ok + errors,
             schedule.faults.len(),
             schedule

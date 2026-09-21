@@ -32,6 +32,9 @@ tokio = { workspace = true, features = [
   "sync",
   "net",
 ] }
+tonic.workspace = true
+tonic-health.workspace = true
+tonic-prost = "0.14"
 toxiproxy_rust.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true

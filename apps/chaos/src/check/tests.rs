@@ -10,7 +10,7 @@ use super::{InstanceSnapshot, Oracle, RollCall, Verdict};
 
 fn group() -> GroupSnapshot {
     GroupSnapshot {
-        group_id: "group".into(),
+        group_id: "07070707070707070707070707070707".into(),
         epoch: 2,
         epoch_authenticator: "state".into(),
         members: ["a", "b"]
@@ -42,9 +42,9 @@ fn population() -> Vec<InstanceSnapshot> {
             stream_owner: true,
             groups: vec![group()],
             checkpoint: CheckpointSnapshot {
-                group_ids: vec!["group".into()],
+                group_ids: vec!["07070707070707070707070707070707".into()],
                 topics: vec![BarrierTopicSnapshot {
-                    topic: "topic".into(),
+                    topic: hex::encode(xmtp_proto::types::Topic::new_group_message([7; 16])),
                     target: Some(10),
                     received: 10,
                     processed: 10,
@@ -60,6 +60,167 @@ fn population() -> Vec<InstanceSnapshot> {
 
 fn oracle() -> Oracle {
     Oracle::new(false, RetryBudgets::default())
+}
+
+fn missing_stream_call() -> RollCall {
+    RollCall {
+        group_id: group().group_id,
+        token: "deferred-token".into(),
+        sender_installation: "a".into(),
+        expected_installations: BTreeSet::from(["a".into(), "b".into()]),
+        expected_stream_installations: BTreeSet::from(["a".into(), "b".into()]),
+        sync_received: BTreeSet::from(["a".into(), "b".into()]),
+        stream_received: BTreeSet::from(["a".into()]),
+        elapsed_ms: RetryBudgets::default().barrier_ms + 1,
+    }
+}
+
+fn block_topic(instance: &mut InstanceSnapshot, unrelated: bool) {
+    let mut pending = instance.checkpoint.topics[0].clone();
+    pending.processed = 9;
+    pending.cause = Some(BarrierCause::Blocked {
+        code: "unsupported_version".into(),
+    });
+    if unrelated {
+        pending.topic = hex::encode(xmtp_proto::types::Topic::new_group_message([8; 16]));
+        instance.checkpoint.topics.push(pending);
+    } else {
+        instance.checkpoint.topics[0] = pending;
+    }
+    instance.checkpoint.failure = Some(BarrierFailure::Blocked);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn unrelated_blocker_does_not_hide_group_divergence() {
+    let mut instances = population();
+    block_topic(&mut instances[1], true);
+    instances[1].groups[0].epoch_authenticator = "diverged".into();
+    let result = oracle().evaluate(1, 0, &instances, &[]);
+    assert_eq!(result.verdict, Verdict::Fork);
+    assert!(result.violation);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn unrelated_blocker_does_not_hide_missing_stream_delivery() {
+    let mut instances = population();
+    block_topic(&mut instances[1], true);
+    let result = oracle().evaluate(1, 0, &instances, &[missing_stream_call()]);
+    assert_eq!(result.verdict, Verdict::Brick);
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| finding.detail.contains("missing by stream"))
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn deferred_rollcall_survives_rounds_and_gets_a_budget_after_unblocking() {
+    let mut instances = population();
+    block_topic(&mut instances[1], false);
+    let mut oracle = oracle();
+    let first = oracle.evaluate(1, 0, &instances, &[missing_stream_call()]);
+    assert_eq!(first.verdict, Verdict::Stall);
+    assert!(!first.violation);
+    assert_eq!(oracle.pending_rollcalls().len(), 1);
+    let instances = population();
+    let resumed = oracle.evaluate(2, 1, &instances, &[]);
+    assert_eq!(resumed.verdict, Verdict::Stall);
+    assert!(!resumed.violation);
+    let overdue = oracle.evaluate(3, RetryBudgets::default().barrier_ms + 2, &instances, &[]);
+    assert_eq!(overdue.verdict, Verdict::Brick);
+    assert!(
+        overdue
+            .findings
+            .iter()
+            .any(|finding| finding.detail.contains("deferred-token"))
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn deferred_rollcall_merges_later_receipts_and_clears_the_obligation() {
+    let mut instances = population();
+    block_topic(&mut instances[1], false);
+    let mut oracle = oracle();
+    let mut call = missing_stream_call();
+    oracle.evaluate(1, 0, &instances, &[call.clone()]);
+    call.stream_received.insert("b".into());
+    assert_eq!(
+        oracle.evaluate(2, 1, &population(), &[call]).verdict,
+        Verdict::Pass
+    );
+    assert!(oracle.pending_rollcalls().is_empty());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_and_readd_end_deferred_token_obligations_but_new_tokens_are_owed() {
+    let mut instances = population();
+    block_topic(&mut instances[1], false);
+    let mut oracle = oracle();
+    oracle.evaluate(1, 0, &instances, &[missing_stream_call()]);
+    let mut instances = population();
+    instances[1].groups[0]
+        .commits
+        .push(commit(11, "removed-state", true));
+    assert_eq!(
+        oracle.evaluate(2, 1, &instances, &[]).verdict,
+        Verdict::Pass
+    );
+    assert!(oracle.pending_rollcalls().is_empty());
+    let mut fresh = missing_stream_call();
+    fresh.token = "new-membership-token".into();
+    assert_eq!(
+        oracle.evaluate(3, 2, &instances, &[fresh]).verdict,
+        Verdict::Brick
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn pending_receiver_does_not_hide_missing_delivery_to_a_complete_receiver() {
+    let mut instances = population();
+    block_topic(&mut instances[1], false);
+    let mut call = missing_stream_call();
+    call.stream_received.clear();
+    let result = oracle().evaluate(1, 0, &instances, &[call]);
+    assert_eq!(result.verdict, Verdict::Brick);
+    assert!(
+        result
+            .findings
+            .iter()
+            .any(|finding| { finding.verdict == Verdict::Brick && finding.instance == Some(0) })
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn different_group_prefixes_with_unrelated_blocking_are_not_a_fork() {
+    let mut instances = population();
+    block_topic(&mut instances[1], true);
+    instances[1].groups[0].cursor = 11;
+    instances[1].groups[0].epoch_authenticator = "later-state".into();
+    instances[1].checkpoint.topics[0].target = Some(11);
+    instances[1].checkpoint.topics[0].received = 11;
+    instances[1].checkpoint.topics[0].processed = 11;
+    let result = oracle().evaluate(1, 0, &instances, &[]);
+    assert_eq!(result.verdict, Verdict::Stall);
+    assert!(!result.violation);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn pending_rollcall_cap_reports_harness_without_discarding_evidence() {
+    let calls: Vec<_> = (0..=super::MAX_PENDING_ROLLCALLS)
+        .map(|index| {
+            let mut call = missing_stream_call();
+            call.token = format!("token-{index}");
+            call.elapsed_ms = 0;
+            call
+        })
+        .collect();
+    let mut oracle = oracle();
+    assert_eq!(
+        oracle.evaluate(1, 0, &population(), &calls).verdict,
+        Verdict::Harness
+    );
+    assert_eq!(oracle.pending_rollcalls().len(), calls.len());
 }
 
 fn commit(sequence_id: i64, authenticator: &str, removed: bool) -> CommitSnapshot {
@@ -309,7 +470,7 @@ async fn shared_database_requires_only_the_stream_owner() {
     shared.stream_owner = true;
     instances.push(shared);
     let mut call = RollCall {
-        group_id: "group".into(),
+        group_id: "07070707070707070707070707070707".into(),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),
@@ -343,7 +504,7 @@ async fn installation_joined_after_rollcall_does_not_owe_earlier_tokens() {
         });
     }
     let mut call = RollCall {
-        group_id: "group".into(),
+        group_id: "07070707070707070707070707070707".into(),
         token: "token".into(),
         sender_installation: "a".into(),
         expected_installations: BTreeSet::from(["a".into(), "b".into()]),

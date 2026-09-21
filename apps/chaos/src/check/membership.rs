@@ -71,6 +71,12 @@ impl MembershipLedger {
             .is_some_and(|record| record.owes_membership)
     }
 
+    pub(super) fn generation(&self, group: &str, installation: &str) -> Option<u64> {
+        self.records
+            .get(&(group.to_owned(), installation.to_owned()))
+            .map(|record| record.generation)
+    }
+
     pub(super) fn group_ids(&self) -> BTreeSet<&str> {
         self.records
             .values()
@@ -154,8 +160,12 @@ impl MembershipLedger {
         for group_id in groups {
             let active: Vec<_> = instances
                 .iter()
-                .filter(|instance| checkpoint::instance_complete(instance))
-                .flat_map(|instance| instance.groups.iter())
+                .flat_map(|instance| {
+                    instance
+                        .groups
+                        .iter()
+                        .filter(move |group| checkpoint::group_complete(instance, &group.group_id))
+                })
                 .filter(|group| group.group_id == group_id && group.active)
                 .collect();
             let Some(first) = active.first() else {

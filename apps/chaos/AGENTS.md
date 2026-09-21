@@ -63,8 +63,17 @@ After the run gate is satisfied:
 
 Exit codes: 0 finished, 2 invariant violation, 3 harness error, 130 interrupted.
 A `STALL` reports an incomplete obligation with its cause. Repeated stalls can
-escalate. A `WARN` alone does not stop a normal run; `--strict` enables the
+escalate. Bounded status and inspect output show `repeats` and `escalated`;
+the round line counts escalated stalls. Escalation does not shorten the SDK
+retry budget. Investigate an escalated stall through traces before a longer run.
+A `WARN` alone does not stop a normal run; `--strict` enables the
 stricter policy.
+
+Pending roll-call checks keep the harness in fault-free recovery rounds.
+These rounds do not run new operations, restart children, or hand over streams.
+The next chaos round starts only after the pending receipts are checked.
+This prevents a process kill from erasing a receipt before the supervisor reads it.
+The round line marks these rounds with `recovery=true`.
 
 ## Evidence and output
 
