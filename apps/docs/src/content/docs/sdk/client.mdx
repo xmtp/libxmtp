@@ -128,7 +128,82 @@ let client = try await Client.create(account: signingKey, options: options)
 
 `dbPath: null` creates an in-memory client. A string selects that exact path. Node also accepts a callback that receives the inbox ID. Browser does not accept the callback form.
 
-Browser and Node can take a pre-built `Backend` instead of inline network options. Do not pass both. `createBackend` takes `backendUrl`, `env`, and `appVersion`.
+Node can take a pre-built `Backend` instead of inline network options. Do not
+pass both. Browser clients need inline options because a WASM `Backend` cannot
+cross the worker boundary. `createBackend` takes `backendUrl`, `env`,
+`appVersion`, and an optional `authCallback`.
+
+### Backend authentication
+
+If the backend requires an API key or JWT, set `authCallback`. This async callback
+returns a credential with `value`, `expiresAtSeconds` in Unix seconds, and an
+optional header `name`. The default name is `authorization`. Include `Bearer`
+and one space before the token. This credential is separate from the XMTP wallet
+signer and the database encryption key.
+
+The examples take an app function that obtains a token and its expiry. Fetch a
+current token each time the callback runs. Do not log tokens or embed an
+operator's secret in a public app.
+
+<Tabs syncKey="sdk">
+<TabItem label="Browser">
+
+```ts source="client-browser.ts" region="auth"
+
+```
+
+</TabItem>
+<TabItem label="Node">
+
+```ts source="client-node.ts" region="auth"
+
+```
+
+</TabItem>
+<TabItem label="Kotlin">
+
+```kotlin
+fun authenticatedApi(
+    fetchToken: suspend () -> Pair<String, Long>
+): ClientOptions.Api = ClientOptions.Api(
+    backendUrl = "https://xmtp.example.com",
+    authCallback = {
+        val (token, expiresAtSeconds) = fetchToken()
+        Credential(value = "Bearer $token", expiresAtSeconds = expiresAtSeconds)
+    }
+)
+```
+
+Pass this API configuration to `ClientOptions.api`.
+
+</TabItem>
+<TabItem label="Swift">
+
+```swift
+func authenticatedApi(
+  fetchToken: @escaping @Sendable () async throws -> (String, Int64)
+) -> ClientOptions.Api {
+  ClientOptions.Api(
+    backendUrl: "https://xmtp.example.com",
+    authCallback: {
+      let (token, expiresAtSeconds) = try await fetchToken()
+      return Credential(value: "Bearer \(token)", expiresAtSeconds: expiresAtSeconds)
+    }
+  )
+}
+```
+
+Pass this API configuration to `ClientOptions.api`.
+
+</TabItem>
+</Tabs>
+
+Agent apps pass `authCallback` to `Agent.create` or `Agent.createFromEnv`.
+The SDK caches credentials and invokes the callback after expiry or rejection.
+Callback failures report a fixed error without the app's error text.
+Server configuration discovery does not invoke the callback. Swift and Kotlin
+connections with callbacks are not shared through the unauthenticated connection
+cache. See [backend auth configuration](/get-started/run-the-backend/#auth).
 
 ## Build an existing client
 

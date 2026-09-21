@@ -1,127 +1,303 @@
 ---
 title: Migrate to a self-hosted backend
-description: Move an XMTP app to a backend that you run.
+description: Update SDK setup, local data, streams, and push notifications when moving from the previous XMTP release.
 ---
 
-Your app now points at a backend you run instead of a network address selected by
-name. Application code does not change. Client setup does, and every user starts
-with a new local database.
+Self-hosted XMTP uses a backend that you run. You must update client setup,
+create new local databases, and replace the old push integration. The backend
+does not join or copy the previous XMTP network. All participants in a
+conversation must use the same deployment.
 
-Read [Run the backend](/get-started/run-the-backend/) first if you do not have a backend
-running yet.
+This guide compares the self-hosted SDKs with
+[`main` at `cc878025d`](https://github.com/xmtp/libxmtp/tree/cc878025dab2f93bca18b67fa9fca562a65f2247)
+(August 27, 2026). It covers Browser, Node, Agent, Kotlin, Swift, and their
+bindings. This is a source baseline, not a shared SDK release number.
+React Native is not included in this repository's self-hosted SDKs.
+
+## Migration order
+
+1. [Deploy the backend](/deploy/overview/), then use
+   [Run the backend](/get-started/run-the-backend/) for configuration and startup.
+2. Select matching [SDK packages and native bindings](/get-started/install/)
+   that support `backendUrl`. An older network SDK cannot use this backend.
+3. Preserve required history with the old SDK before replacing its database.
+   Review the [history limits](#keeping-history) below.
+4. Update client options and standalone identity calls. Register users on the
+   new backend and create conversations there.
+5. Update stream consumers and push handlers. Test with two installations on
+   the new backend before moving users.
 
 ## Client setup
 
-`backendUrl` is required on every platform. There is no default and no fallback.
-Include the scheme: `https://` for a public deployment, `http://` for a local one.
+`backendUrl` is required. There is no default and no fallback. Include the
+scheme: `https://` for a public deployment, `http://` for local development.
+TLS now follows the URL scheme; remove `isSecure`.
 
-`env` no longer selects a network. It is only a label for the default database
-file name, used when you do not set a database path. It is a free string. Android
-requires it to be one path component, so a value such as `../other` is rejected.
+`env` no longer selects a network. It is a string label used in the default
+database filename. Android requires one path component, so `../other` is invalid.
+Keep the label and database path stable after migration.
 
-There is no `isSecure` option. The transport is inferred from the URL scheme: an
-`https` or `grpcs` URL uses TLS, anything else does not.
+| SDK     | Required change                                                                                                                                                                       |
+| ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Browser | Pass `{ backendUrl: "https://xmtp.example.com" }` to `Client.create` and `Client.build`. A pre-built WASM `Backend` cannot cross the worker boundary.                                 |
+| Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
+| Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
+| Kotlin  | Supply `ClientOptions(api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                           |
+| Swift   | Supply `ClientOptions(api: .init(backendUrl: "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                                         |
 
-| Platform    | Setup                                                                                                                                                                                                                         |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Node SDK    | `backendUrl` on client options. `env` and `appVersion` stay optional.                                                                                                                                                         |
-| Browser SDK | Same as the Node SDK.                                                                                                                                                                                                         |
-| Agent SDK   | Pass `backendUrl` to `Agent.createFromEnv()` or set `XMTP_BACKEND_URL`. The environment variable takes precedence. If neither supplies a URL, creation throws `backendUrl is required`. `XMTP_ENV` still sets the label only. |
-| iOS         | `ClientOptions.Api(backendUrl:env:appVersion:)`. `env` defaults to `"local"`.                                                                                                                                                 |
-| Android     | `ClientOptions.Api(backendUrl, env, appVersion)`. A blank URL throws `A backend URL is required`.                                                                                                                             |
+See [Create a client](/sdk/client/#create-a-client) for complete examples.
+In JavaScript, the default filename label changes from `dev` to `default`.
+Swift no longer checks the legacy database filename as a fallback.
 
-The JS SDKs also accept a pre-built `Backend` object instead of inline network
-options. Pass one or the other, never both. iOS and Android have only the inline
-form.
+### Removed connection and history options
 
-## Removed options and methods
+| Previous API                                                                          | Change                                                                                                               |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| JavaScript `apiUrl`; JavaScript and mobile `gatewayHost`                              | Use `backendUrl`. There is one backend endpoint.                                                                     |
+| `XmtpEnv`, `ApiUrls`, `HistorySyncUrls`, Node `envToString`; mobile `XMTPEnvironment` | Removed. Use a URL and an optional string database label. Mobile `Client.environment` is now a string.               |
+| Mobile `isSecure`                                                                     | Removed. Set the URL scheme.                                                                                         |
+| `historySyncUrl`; binding `deviceSyncServerUrl` and `deviceSyncWorkerMode`            | Removed. There is no history-sync server setting.                                                                    |
+| `sendSyncRequest`, `sendSyncArchive`, `listAvailableArchives`, `processSyncArchive`   | Removed. Use local archives where applicable. `AvailableArchiveInfo` and mobile `AvailableArchive` are also removed. |
+| `VisibilityConfirmationOptions.quorumPercentage` and `quorumAbsolute`                 | Removed. Visibility checks wait for backend readability. `timeoutMs` remains.                                        |
 
-| Removed                 | Platforms        | Replacement                        |
-| ----------------------- | ---------------- | ---------------------------------- |
-| `apiUrl`                | JS               | `backendUrl`                       |
-| `isSecure`              | iOS, Android     | none; inferred from the URL scheme |
-| `historySyncUrl`        | JS, iOS, Android | none                               |
-| `deviceSyncServerUrl`   | JS               | none                               |
-| `deviceSyncWorkerMode`  | JS               | none                               |
-| `customLocalHost`       | React Native     | `backendUrl`                       |
-| `sendSyncRequest`       | all              | none                               |
-| `sendSyncArchive`       | all              | none                               |
-| `listAvailableArchives` | all              | none                               |
-| `processSyncArchive`    | all              | none                               |
+Device preference sync remains available. Removing server-based archive transfer
+does not remove `disableDeviceSync`, mobile `deviceSyncEnabled`, or JavaScript
+`syncAllDeviceSyncGroups`.
 
-The four removed methods were the server-based history transfer. Nothing replaces
-them. File-based archives, described below, are the supported way to move history
-between installations.
+### Standalone identity calls and bindings
 
-`env` changed meaning rather than being removed, so an existing call site that
-passes `env` still compiles on iOS and Android but no longer chooses a network.
-Add `backendUrl` or the client will not build.
+JavaScript static `Client.canMessage`, `fetchInboxStates`,
+`fetchLatestInboxUpdatesCount`, and `revokeInstallations` now require
+`NetworkOptions` or a `Backend`. Node `isAddressAuthorized` and
+`isInstallationAuthorized` do too. Replace an omitted argument or an environment
+string with explicit connection options.
+
+For direct binding consumers, construct `BackendBuilder` with a backend URL.
+Remove `setApiUrl` and `setGatewayHost`; optional `setEnv` sets the database
+label. `Backend.backendUrl` replaces `v3Host` and `gatewayHost`; `cacheKey` is
+new. Raw client creation no longer takes a separate gateway host. Mobile
+`connectToBackend` also takes one backend URL.
+
+### Authentication
+
+Backend authentication is separate from the wallet signer used for XMTP identity.
+The backend can require an API key or JWT. See
+[authentication configuration](/get-started/run-the-backend/#auth).
+
+All SDKs accept an async `authCallback`: pass it in JavaScript network options
+or mobile `ClientOptions.Api`. Agents pass it through their client options.
+The callback returns a `Credential` with `value`, `expiresAtSeconds` (Unix
+seconds), and optional `name`. The default header is `authorization`. Include
+`Bearer` and one space before an API key or JWT.
+
+The middleware caches the credential and requests a new one after expiry or
+rejection. Configuration discovery needs no credential and does not invoke the
+callback. Callback failures use a fixed error, without app error text.
+See [Backend authentication](/sdk/client/#backend-authentication) for examples.
+The low-level binding callback and handle APIs remain available.
+For direct mobile binding implementations, auth callbacks now throw
+`FfiAuthCallbackError.Failed` in Swift or `FfiAuthCallbackException.Failed` in
+Kotlin. The dedicated callback error replaces the flat `FfiError`, which could
+abort the process when a foreign callback failed.
+
+Swift `getOrCreateInboxId` now returns lookup errors, as Kotlin does. It generates
+an ID only after a successful lookup finds none. Handle authentication and
+network failures instead of treating them as a new identity.
+
+## New server configuration APIs
+
+The SDK reads the backend's identifier, auth requirements, limits, retention
+settings, MLS policy, and supported smart contract wallet chains.
+
+| API                                    | Purpose                                                                                                                                                                                                     |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Client.fetchServerConfiguration(...)` | Fetch configuration without a client, database, or credential. JavaScript accepts the URL; Swift uses `url:`; Kotlin accepts a URL or `ClientOptions.Api`. Browser also exports `fetchServerConfiguration`. |
+| `client.serverConfiguration()`         | Read the snapshot captured when this client was built.                                                                                                                                                      |
+| `client.refreshServerConfiguration()`  | Fetch and store configuration for the next build. This does not replace the current client's snapshot.                                                                                                      |
+
+Online client creation fetches configuration when no cached copy exists. It also
+fetches when the configured URL changes. Background refresh runs about hourly.
+Group size and installation limits now come from the deployment; the defaults
+remain 250 group members and 10 installations per inbox.
+
+Handle these new typed errors. JavaScript and Swift use the `Error` suffix;
+Kotlin uses `Exception`:
+
+| Error name without suffix  | App action                                                                                     |
+| -------------------------- | ---------------------------------------------------------------------------------------------- |
+| `ConfigurationUnavailable` | Check connectivity and backend compatibility; retry when the cause is resolved.                |
+| `ConfigurationInvalid`     | Ask the operator to correct the published configuration.                                       |
+| `BackendMismatch`          | Stop using this database for the other deployment. Create a database for the intended backend. |
+| `ClientVersionTooOld`      | Upgrade the SDK to meet the backend's minimum libxmtp version.                                 |
+| `AuthRequired`             | Configure a credential source supported by the SDK.                                            |
+| `ChainNotAccepted`         | Use a supported wallet chain or ask the operator to configure it.                              |
+
+A database is bound to the backend identifier. A URL can change while the
+identifier stays the same. A different identifier stops the client and its
+streams; a later matching refresh does not clear the stored conflict.
+Do not rename a deployment to move it to another server.
 
 ## The local database must be recreated
 
-A database file created before this change is rejected. On open, the client
-returns:
+A database created before the transition is rejected with this error:
 
 ```text
 This database predates the backend transition. Delete the database file and create a new client.
 ```
 
-Export any history you need with the old SDK before the upgrade. The new SDK cannot open the pre-transition database to export it.
+The error is not retryable. The SDK leaves the database intact. Export required
+history with the old SDK first, and keep a recoverable copy of the database and
+its key. Then use a new database path or remove the old database through your
+app's migration flow. The new SDK cannot open it to export history.
 
-The error is not retryable, and the client does not delete anything. It refuses
-to open the file and leaves it and its contents intact. Your app must detect this
-error, delete the database file itself, and create a new client.
+A new database creates a new installation. Register it on the new backend.
+After migration, preserve that database and its encryption key between launches
+to avoid creating more installations and reaching the deployment's limit.
 
-Deleting the database creates a new installation for that inbox. An inbox is
-limited to 10 installations. Users who cycle through installations can reach that
-limit and will have to revoke old ones before registering another.
-
-Plan this as a one-time upgrade path in your app: catch the error on first
-launch after the update, delete the file, and create the client again.
+On Browser, `Client.close()` is now asynchronous. Await it before database
+operations. `Opfs.importDb` requires an absent destination and a current libxmtp
+database; it no longer overwrites an existing file. Import changes the database
+identity and invalidates earlier delivery cursors and acknowledgement tokens.
+It is not a way to convert a pre-transition database.
 
 ## Keeping history
 
-Messages that were sent before you moved to your own backend are not carried
-over. There is no server-side migration of message history.
+There is no server-side transfer of identities, groups, or message history from
+the previous network. Plan to create active conversations on the new backend.
 
-File archives do move local data between installations, and this is verified end
-to end: export an archive from the old client before you delete its database,
-then import it into the new client. Consent records, conversations, and
-application messages are restored.
+Local archive APIs remain: `createArchive`, `archiveMetadata`, and
+`importArchive`. Node, Kotlin, and Swift use a file path. Browser uses archive
+bytes. See [Backups](/sdk/backups/) for API and encryption-key requirements.
 
-The archive is a self-contained encrypted file, so the importing client can be a
-different installation with its own database. The Node, iOS, and Android SDKs
-take a file path: `createArchive(path, key, options)` and `importArchive(path,
-key)`. The Browser SDK works on bytes instead: `createArchive` returns the
-archive data and `importArchive(data, key)` accepts it.
+An imported conversation is initially inactive: its local history is readable,
+but it has no joined MLS state for sending. On the same backend, an active
+member can add the new installation and the conversation can become active.
+Restored DMs also remain inactive until the installation joins; a newly created
+DM can later be combined with the restored conversation.
 
-One behavior matters for your UI. A conversation restored from an archive is
-inactive until the new installation is added to the group again. Immediately
-after import you can list the conversation and read its metadata and old
-messages, but `isActive` is false and you cannot send in it. Once another member
-adds the new installation and the client syncs welcomes, the conversation becomes
-fully functional, the archived messages are stitched in with the new ones, and
-sending works.
+:::caution[Archives are not a backend migration]
 
-Restored direct messages behave the same way. Because a restored conversation is
-skipped when the client looks for an existing DM, starting a new DM with the same
-person creates a separate active conversation. The two are stitched together once
-the restored one becomes active.
-
-:::caution[Archive scope]
-
-The cross-installation tests verify archive import on the same backend. They do not verify migration from a pre-transition database to a separate backend. An archive contains local database rows, not MLS group keys or backend state. Reactivation requires an active member of the original group; importing an archive alone cannot recreate that group on another backend.
+The archive tests cover installations on the same backend. They do not establish
+compatibility between a pre-transition export and this release. An archive
+contains local rows, not MLS group keys or backend state. It cannot recreate the
+original group on a separate backend. Verify import with your exact old and new
+SDK versions before promising history retention, and keep the original backup.
 
 :::
 
-So an archive preserves history for the user, but restoring a conversation to a
-working state still needs one of its members to add the new installation.
+## Message streams and new delivery APIs
 
-## What does not change
+Message streams now use stored delivery progress. They can deliver retained
+messages when opened, then continue with new messages. Do not assume a stream
+contains only messages sent after it starts. Make app side effects safe to repeat.
 
-- Application code paths. Sending, listing, streaming, and reading conversations
-  and messages keep the same shapes.
-- Content types and codecs.
-- Consent state and the consent APIs.
-- Sync and streaming methods.
-- `appVersion`, `dbEncryptionKey`, database path options, and logging options.
+| Consumer                           | When the SDK acknowledges a message                                                                           |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| JavaScript or Swift async iterator | When the consumer requests the next item.                                                                     |
+| JavaScript `onValue` callback      | After the callback completes successfully. Callback mode starts consumption; do not also iterate that stream. |
+| Kotlin `Flow`                      | After the direct collector returns. Adding a buffer changes this boundary.                                    |
+
+Closing or cancelling does not acknowledge the current item. It can be delivered
+again. Callback, registered-codec decode, and acknowledgement failures stop
+delivery instead of silently dropping the message.
+
+Only one default message reader can own delivery for a database at a time.
+Use explicit replay cursors for independent readers.
+
+JavaScript message streams keep the old retry options in their types but ignore
+`retry*`, `onFail`, `onRetry`, `onRestart`, and `disableSync`. The core handles
+retryable network recovery. This change applies to message streams; do not
+assume every conversation or preference stream has the same behavior.
+
+| New API                                                                                                  | Use                                                                                                                                                             |
+| -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DecodedMessage.deliveryCursor`                                                                          | Identify a message's position in local delivery. Cursors are opaque and local to a database.                                                                    |
+| `messageHistorySnapshot` and `beginningDeliveryCursor` on a conversation or the conversations collection | Read local history with a boundary for subsequent streaming, or start replay from the beginning.                                                                |
+| JavaScript stream option `from`; mobile `messageReader` with a `from` argument                           | Replay from a cursor without changing the default consumer's progress.                                                                                          |
+| JavaScript `MessageStream` and mobile `MessageReader`                                                    | Observe catch-up with `catchUpSnapshot` and `catchUpChanged`; update scope and filters. JavaScript also exposes `deliveredCursor` and stream option `groupIds`. |
+| JavaScript `getStreamFailureDetails(error)`; mobile `error.streamFailureDetails`                         | Read structured catch-up, processing, and publish-confirmation failures.                                                                                        |
+| `CatchUpSummary.failed`                                                                                  | Distinguish processing failures from a timeout. Failed processing prevents a successful catch-up result.                                                        |
+
+Network catch-up and app acknowledgement are separate. A publish-confirmation
+failure does not prove the write failed. Preserve structured error details when
+deciding whether to retry. See [Sync](/sdk/sync/) and [Cursors](/protocol/cursors/).
+
+## Push notifications
+
+The [previous push guide](https://docs.xmtp.org/chat-apps/push-notifs/push-notifs)
+uses a separate push server, manual topic subscriptions, and HMAC-key updates.
+The self-hosted backend sends notifications itself through APNs, FCM, or HTTPS.
+
+| Previous integration                                                         | Self-hosted integration                                                                                                                           |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Register through `XMTPPush` or push-service stubs                            | Call `client.enableNotifications(config)` on Node, Kotlin, or Swift. Agents use `agent.client`. Browser and WASM do not expose this API.          |
+| Maintain `allPushTopics` / `getPushTopics` and resubscribe after key changes | SDK maintains subscriptions, sender-filter keys, and registration renewal while its task runner runs. The old push methods and stubs are removed. |
+| Control subscriptions on the separate push server                            | Use `conversation.setNotifications` and `notificationsEnabled`, plus client `notificationState` and `disableNotifications`.                       |
+| Process encrypted message bytes from the notification                        | Treat the push as a hint, fetch from the backend, then decrypt locally.                                                                           |
+
+### Operator changes
+
+Configure the backend's [push channels](/get-started/push-configuration/).
+APNs needs the operator's key, team ID, key ID, bundle ID, and environment.
+FCM needs a Firebase service account. HTTPS delivery can use a host allowlist.
+Apps supply their provider token, or an HTTPS receiver URL and a random 32-byte
+signing key. Registration fails if the selected channel is not configured.
+
+Retire the old push server and its registrations when the app migration is
+complete. The new `disableNotifications` cannot remove old-server registrations.
+
+### App changes
+
+Register again with `enableNotifications`; previous subscriptions and overrides
+are not imported. By default, the SDK selects allowed conversations and welcomes,
+but excludes device-sync groups, commits, and proposals. Use per-conversation
+overrides for mute controls. Enable again when the token or configuration changes.
+
+The new payload contains `topic` and `sequence_id`, with no message bytes:
+
+```json
+{
+  "topic": "AAECAwQFBgcICQoLDA0ODxA=",
+  "sequence_id": "9007199254740993"
+}
+```
+
+`topic` is base64 of a binary topic. Decode the kind byte and ID; do not pass it
+to a legacy string-topic lookup. `sequence_id` is decimal text, not a JavaScript
+`number`. APNs delivers a background notification; FCM delivers a data message.
+HTTPS also includes `recipient_id` and signed Standard Webhooks headers.
+
+The receiver must open the correct local database, process pending welcomes,
+sync the conversation, and read decrypted messages. Apply consent and sender
+checks, suppress duplicates, then display a notification. Delivery can be
+delayed, repeated, or absent. Continue normal foreground sync. See
+[Push notifications](/sdk/push-notifications/) for platform examples, payload
+routing, webhook verification, and background-handler responsibilities.
+
+## Other observable changes
+
+- SDK topic strings change from `/xmtp/mls/1/g-<id>/proto` and
+  `/xmtp/mls/1/w-<installation-id>/proto` to hex-encoded binary topics:
+  `00<group-id>` and `01<installation-id>`. These differ from the base64 push
+  field. Update stored routing data and topic parsers.
+- Debug API counters now describe `publish`, `query`, `queryNewest`, `subscribe`,
+  and `subscribeStatic`. Remove old key-package and group/welcome-specific
+  counters. Identity stats remove `publishIdentityUpdate` and
+  `getIdentityUpdatesV2`; `verifySmartContractWalletSignature` becomes
+  `verifySmartContractWalletSignatures`.
+- Node adds `otelServiceName` and `otelSampleRatio` telemetry options. Worker
+  configuration adds `WorkerKind.ConfigurationRefresh`.
+
+## Which documentation to use
+
+The public site's
+[network environment options](https://docs.xmtp.org/chat-apps/core-messaging/create-a-client),
+[history-sync server flow](https://docs.xmtp.org/chat-apps/list-stream-sync/history-sync),
+and [app funding flow](https://docs.xmtp.org/fund-agents-apps/get-started) describe
+the previous network. Self-hosted deployments use this site's backend setup,
+local archives, and SDK push APIs. They do not require an XMTP Gateway Service,
+funding an app on the XMTP network, or registration as an xmtpd network node.
+
+Core sending, conversation management, content codecs, and consent APIs retain
+their main shapes. Review the changes above before reusing old setup, streaming,
+backup, or notification code.
