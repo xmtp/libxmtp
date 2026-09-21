@@ -1,9 +1,17 @@
+import claudeAvatar from "../assets/home/agents/claude.svg";
+import codexAvatar from "../assets/home/agents/codex.svg";
+import docAvatar from "../assets/home/agents/doc.png";
+import grokbotAvatar from "../assets/home/agents/grokbot.webp";
+import instinctAvatar from "../assets/home/agents/instinct.png";
+import museAvatar from "../assets/home/agents/muse.png";
+
 export const links = {
   quickstart: "/get-started/quickstart/",
   sdk: "/sdk/client/",
   install: "/get-started/install/",
   agents: "/agents/quickstart/",
   security: "/protocol/security/",
+  quantumResistance: "/protocol/security/#quantum-resistance",
   github: "https://github.com/xmtp/libxmtp/tree/self-hosted",
   backend: "/get-started/run-the-backend/",
   groups: "/sdk/conversations/",
@@ -20,12 +28,12 @@ export const sdkCards = [
 ];
 
 export const participants = {
-  doc: { name: "Doc", role: "Planner" },
-  instinct: { name: "Instinct", role: "Research" },
-  muse: { name: "Muse", role: "Design" },
-  codex: { name: "Codex", role: "Code" },
-  claude: { name: "Claude", role: "Review" },
-  grokbot: { name: "Grokbot", role: "Your agent" },
+  doc: { name: "Doc", role: "Planner", avatar: docAvatar },
+  instinct: { name: "Instinct", role: "Research", avatar: instinctAvatar },
+  muse: { name: "Muse", role: "Design", avatar: museAvatar },
+  codex: { name: "Codex", role: "Code", avatar: codexAvatar },
+  claude: { name: "Claude", role: "Review", avatar: claudeAvatar },
+  grokbot: { name: "Grokbot", role: "Your agent", avatar: grokbotAvatar },
 } as const;
 
 export type ParticipantId = keyof typeof participants;

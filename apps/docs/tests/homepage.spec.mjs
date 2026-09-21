@@ -1,5 +1,47 @@
 import { expect, test } from "@playwright/test";
 
+test("homepage uses the approved hero, security link, and local agent avatars", async ({
+  page,
+}) => {
+  const prototypeRequests = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).hostname.endsWith("shanemacsora.chatgpt.site")) {
+      prototypeRequests.push(request.url());
+    }
+  });
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Build secure messaging for people and agents.",
+  );
+  await expect(page.locator(".home-hero .home-label")).toHaveText(
+    "OPEN SOURCE · END-TO-END ENCRYPTED · QUANTUM-RESISTANT",
+  );
+  await expect(
+    page.getByRole("link", { name: /How quantum resistance works/ }),
+  ).toHaveAttribute("href", "/protocol/security/#quantum-resistance");
+
+  await page
+    .getByRole("tab", { name: "Create an agent group", exact: true })
+    .click();
+  const network = page.locator(".network");
+  await network.scrollIntoViewIfNeeded();
+  const avatars = network.locator(".badge img");
+  await expect(avatars).toHaveCount(6);
+  const avatarData = await avatars.evaluateAll((images) =>
+    images.map((image) => ({ alt: image.alt, src: image.getAttribute("src") })),
+  );
+  expect(avatarData.map(({ alt }) => alt)).toEqual([
+    "Doc",
+    "Instinct",
+    "Muse",
+    "Codex",
+    "Claude",
+    "Grokbot",
+  ]);
+  expect(avatarData.every(({ src }) => src?.startsWith("/_astro/"))).toBe(true);
+  expect(prototypeRequests).toEqual([]);
+});
+
 test("homepage header opens the SDK guide and security docs", async ({
   page,
 }) => {
@@ -18,12 +60,12 @@ test("homepage header opens the SDK guide and security docs", async ({
   }
 });
 
-test("group names fit their badges and diagram nodes do not overlap", async ({
+test("group avatars fit their badges and diagram nodes do not overlap", async ({
   page,
 }) => {
   await page.goto("/");
   await page
-    .getByRole("tab", { name: "Agent group chat", exact: true })
+    .getByRole("tab", { name: "Create an agent group", exact: true })
     .click();
   await page.evaluate(() => document.fonts.ready);
   for (const width of [320, 390, 768, 1024, 1440]) {
@@ -33,11 +75,16 @@ test("group names fit their badges and diagram nodes do not overlap", async ({
       const panel = network.getBoundingClientRect();
       for (const badge of network.querySelectorAll(".badge")) {
         const box = badge.getBoundingClientRect();
-        const range = document.createRange();
-        range.selectNodeContents(badge);
-        const text = range.getBoundingClientRect();
-        if (text.left < box.left + 6 || text.right > box.right - 6) {
-          failures.push(`Name exceeds badge padding: ${badge.textContent}`);
+        const avatar = badge.querySelector("img");
+        const image = avatar.getBoundingClientRect();
+        if (!avatar.alt) failures.push("Avatar has no accessible name");
+        if (
+          image.left < box.left ||
+          image.right > box.right ||
+          image.top < box.top ||
+          image.bottom > box.bottom
+        ) {
+          failures.push(`Avatar exceeds badge: ${avatar.alt}`);
         }
       }
       const nodes = [...network.querySelectorAll(".group-agent, .center")];
@@ -76,7 +123,7 @@ test("homepage layout and agent tabs work with keyboard input", async ({
     exact: true,
   });
   const group = page.getByRole("tab", {
-    name: "Agent group chat",
+    name: "Create an agent group",
     exact: true,
   });
   await pair.focus();
@@ -132,7 +179,7 @@ test("copy uses the same text as the preview and validates backend URLs", async 
   for (const id of ["integration", "inbox", "group"]) {
     if (id === "group")
       await page
-        .getByRole("tab", { name: "Agent group chat", exact: true })
+        .getByRole("tab", { name: "Create an agent group", exact: true })
         .click();
     const prompt = page.locator(`home-prompt[data-prompt="${id}"]`);
     await prompt.locator("button.copy").click();
@@ -166,7 +213,7 @@ test("reduced motion keeps the full transcript visible", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/");
   await page
-    .getByRole("tab", { name: "Agent group chat", exact: true })
+    .getByRole("tab", { name: "Create an agent group", exact: true })
     .click();
   await page.getByRole("button", { name: "Replay example" }).click();
   await expect(page.locator("example-transcript .message:visible")).toHaveCount(
@@ -242,7 +289,7 @@ test("homepage content fits the viewport at 200 percent browser zoom", async ({
     ),
   ).toBe(true);
   await page
-    .getByRole("tab", { name: "Agent group chat", exact: true })
+    .getByRole("tab", { name: "Create an agent group", exact: true })
     .click();
   expect(
     await page.evaluate(

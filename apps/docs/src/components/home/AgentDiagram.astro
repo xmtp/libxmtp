@@ -68,7 +68,16 @@ const { ids, variant } = Astro.props;
         </svg>
         {ids.map((id, index) => (
           <div class="group-agent" data-position={index + 1}>
-            <span class="badge">{participants[id].name}</span>
+            <span class="badge">
+              <img
+                src={participants[id].avatar.src}
+                width="48"
+                height="48"
+                alt={participants[id].name}
+                loading="lazy"
+                decoding="async"
+              />
+            </span>
             <span>{participants[id].role}</span>
           </div>
         ))}
@@ -183,7 +192,7 @@ const { ids, variant } = Astro.props;
   }
   .group-agent {
     position: absolute;
-    width: max-content;
+    width: 76px;
     display: flex;
     align-items: center;
     flex-direction: column;
@@ -196,18 +205,22 @@ const { ids, variant } = Astro.props;
     text-align: center;
   }
   .badge {
-    min-width: 72px;
-    min-height: 42px;
-    padding: 9px 12px;
+    width: 48px;
+    height: 48px;
+    padding: 5px;
     display: grid;
     place-items: center;
     background: #fff;
     border: 1px solid #cfd8e8;
     box-shadow: 0 3px 7px #182b4810;
     border-radius: 12px;
-    font: 15px var(--home-mono);
-    color: #405777;
-    white-space: nowrap;
+    overflow: hidden;
+  }
+  .badge img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
   .group-agent[data-position="1"] {
     left: 23.5%;
@@ -307,14 +320,23 @@ const { ids, variant } = Astro.props;
       width: 110px;
     }
     .badge {
-      font-size: 12px;
+      width: 44px;
+      height: 44px;
     }
     .group-agent {
       font-size: 11px;
     }
   }
-  /* A radial layout needs room for three readable nodes across its middle. */
   @container (max-width: 300px) {
+    .group-agent {
+      width: 64px;
+    }
+    .center {
+      width: 100px;
+    }
+  }
+  /* Keep a readable fallback for unusually narrow embedded views. */
+  @container (max-width: 220px) {
     .map {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -340,8 +362,8 @@ const { ids, variant } = Astro.props;
       font-size: 12px;
     }
     .badge {
-      font-size: 14px;
-      min-width: 88px;
+      width: 48px;
+      height: 48px;
     }
   }
 </style>
