@@ -29,9 +29,9 @@
     "clean": "pnpm build:clean && pnpm test:clean",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
-    "lint:rust": "pnpm lint:clippy && pnpm lint:fmt",
     "lint:clippy": "cargo clippy --locked --all-features --all-targets --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",
+    "lint:rust": "pnpm lint:clippy && pnpm lint:fmt",
     "test": "pnpm build:clean && pnpm build:test && pnpm build:finish && vitest run",
     "test:clean": "rm -rf test/*.db3*"
   },

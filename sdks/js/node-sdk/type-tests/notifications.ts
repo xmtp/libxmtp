@@ -44,17 +44,15 @@ export async function checkNotifications(
   const config: NotificationConfig = {
     channel: channels[0],
   };
-  const enabled: NotificationState = await client.enableNotifications(config);
+  const _enabled: NotificationState = await client.enableNotifications(config);
   const state: NotificationState = await client.notificationState();
   if (state.state === "failed") {
     const error: NotificationError = state.error;
-    const code: string = error.code;
-    void code;
+    const _code: string = error.code;
   }
   const value: NotificationOverride = "default";
   await conversation.setNotifications(value);
-  const effective: boolean = await conversation.notificationsEnabled();
+  const _effective: boolean = await conversation.notificationsEnabled();
   const disabled: Promise<void> = client.disableNotifications();
   await disabled;
-  void [enabled, effective];
 }

@@ -4,7 +4,8 @@ A TypeScript CLI for automating SDK release workflows in the libxmtp monorepo â€
 
 ## Setup
 
-**Prerequisites:** Node.js >= 22 and pnpm
+Use Node.js 26 and pnpm from the Nix shell. Run the commands below with
+`dev/nix-shell '<command>'` from the repository root.
 
 ```bash
 just install
@@ -13,7 +14,7 @@ just install
 ## Usage
 
 ```bash
-pnpm --filter @xmtp/release-tools run cli -- <command> [flags]
+pnpm --filter @xmtp/release-tools cli <command> [flags]
 ```
 
 ### `bump-version`
@@ -26,7 +27,7 @@ Bump the version in an SDK manifest (e.g., podspec).
 | `--type` | `major` \| `minor` \| `patch` | yes      | Version bump type |
 
 ```bash
-pnpm --filter @xmtp/release-tools run cli -- bump-version --sdk ios --type minor
+pnpm --filter @xmtp/release-tools cli bump-version --sdk ios --type minor
 ```
 
 ### `compute-version`
@@ -40,9 +41,9 @@ Compute a full version string for dev, RC, or final releases. Dev builds append 
 | `--rc-number`    | number                   | for `rc` | RC number    |
 
 ```bash
-pnpm --filter @xmtp/release-tools run cli -- compute-version --sdk ios --release-type dev
-pnpm --filter @xmtp/release-tools run cli -- compute-version --sdk ios --release-type rc --rc-number 1
-pnpm --filter @xmtp/release-tools run cli -- compute-version --sdk ios --release-type final
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type dev
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type rc --rc-number 1
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type final
 ```
 
 ### `update-spm-checksum`
@@ -56,7 +57,7 @@ Update the binary target URL and checksum in `Package.swift`.
 | `--checksum` | string | yes      | SHA-256 checksum of the artifact |
 
 ```bash
-pnpm --filter @xmtp/release-tools run cli -- update-spm-checksum --sdk ios \
+pnpm --filter @xmtp/release-tools cli update-spm-checksum --sdk ios \
   --url "https://github.com/xmtp/libxmtp/releases/download/ios-1.0.0/LibXMTP.xcframework.zip" \
   --checksum "abc123..."
 ```
@@ -77,9 +78,9 @@ Orchestrate a full release branch â€” bumps versions, scaffolds release notes, a
 | `--base`        | string                                  | no       | Base ref to branch from (default: `HEAD`)       |
 
 ```bash
-pnpm --filter @xmtp/release-tools run cli -- create-release-branch \
+pnpm --filter @xmtp/release-tools cli create-release-branch \
   --version "1.0.0" \
-  --base main \
+  --base self-hosted \
   --ios minor \
   --android patch \
   --node-sdk minor \
