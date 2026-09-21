@@ -25,7 +25,8 @@ check-agent-docs:
     pnpm --filter @xmtp/docs run check:agent-docs
 
 lint:
-    pnpm --filter @xmtp/docs run lint
+    # Docs lint is not type-aware and does not need SDK build output.
+    pnpm run lint
 
 format-check:
     pnpm --filter @xmtp/docs run format-check
