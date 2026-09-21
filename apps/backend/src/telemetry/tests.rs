@@ -1,18 +1,23 @@
 use super::*;
 
+// verifies: OPS-016, OPS-017
 #[xmtp_common::test(unwrap_try = true)]
 fn catalogue_matches_documented_types_and_help_for_every_metric() {
-    let document = include_str!("../../../../docs/legacy-specs/002_backend_architecture.md");
-    let table = document
-        .split("### Backend metric catalogue")
+    // The spec owns the catalogue and fixes each family's name and type. The
+    // observability guide carries the help text `CATALOGUE` renders. The spec
+    // table adds Labels and Meaning columns, so it is matched on name and type
+    // only.
+    let ops = include_str!("../../../../docs/specs/OPS-backend-operations.md");
+    let spec_table = ops
+        .split("| Metric | Type | Labels | Meaning |")
         .nth(1)?
-        .split("## 8.")
+        .split("\n\n")
         .next()?;
-    let names: Vec<_> = table
+    let spec_rows: Vec<_> = spec_table
         .lines()
         .filter(|line| line.starts_with("| `"))
         .collect();
-    assert_eq!(names.len(), CATALOGUE.len());
+    assert_eq!(spec_rows.len(), CATALOGUE.len());
     let guide = include_str!("../../../../docs/backend-observability.md");
     let guide_rows: Vec<_> = guide
         .split("## Metric catalogue")
@@ -35,9 +40,13 @@ fn catalogue_matches_documented_types_and_help_for_every_metric() {
             MetricType::Gauge => "gauge",
             MetricType::Histogram => "histogram",
         };
-        assert!(
-            names.contains(&format!("| `{}` | {kind} | {} |", spec.name, spec.help).as_str()),
-            "{}",
+        assert_eq!(
+            spec_rows
+                .iter()
+                .filter(|row| row.starts_with(&format!("| `{}` | {kind} |", spec.name)))
+                .count(),
+            1,
+            "{} must appear once in OPS-backend-operations.md with type {kind}",
             spec.name
         );
         let prefix = format!("| `{}` | {kind} | {} |", spec.name, spec.help);
