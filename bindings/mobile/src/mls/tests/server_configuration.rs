@@ -1,8 +1,8 @@
-//! Spec 006 §7 through the mobile binding (CFG-106).
+//! Spec 006 §7 through the mobile binding.
 //!
 //! The values a deployment publishes are covered in `xmtp_mls`. What is covered
 //! here is the translation: every field of the snapshot the client holds
-//! reaches the uniffi record, and the static fetch of CFG-081 reads the same
+//! reaches the uniffi record, and the static fetch reads the same
 //! deployment with no database, no client, and no credential.
 
 use super::*;
@@ -128,7 +128,7 @@ fn assert_mirrors(ffi: &FfiServerConfiguration, core: &ServerConfiguration) {
     assert_eq!(ffi.mls.commit_log_enabled, core.mls.commit_log_enabled);
 }
 
-// CFG-080: the snapshot the client resolved at build reaches the record whole.
+// verifies: CONF-061
 #[xmtp_common::test(unwrap_try = true)]
 async fn server_configuration_exposes_every_published_field() {
     let alix = Tester::new().await;
@@ -146,8 +146,7 @@ async fn server_configuration_exposes_every_published_field() {
     assert!(!published.smart_contract_wallet_chains.is_empty());
 }
 
-// CFG-081: the static fetch reads the same deployment with no database, no
-// client, and no credential.
+// verifies: CONF-062
 #[xmtp_common::test(unwrap_try = true)]
 async fn fetch_server_configuration_reads_the_shared_backend() {
     let fetched = fetch_server_configuration(backend_test_url(), None).await?;
@@ -160,8 +159,7 @@ async fn fetch_server_configuration_reads_the_shared_backend() {
     assert_eq!(fetched, alix.server_configuration());
 }
 
-// CFG-082: an explicit refresh returns what the backend answered now, and the
-// snapshot the running client holds is unchanged.
+// verifies: CONF-074
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_server_configuration_returns_the_fetched_copy() {
     let alix = Tester::new().await;

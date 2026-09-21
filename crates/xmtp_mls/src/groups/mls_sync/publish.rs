@@ -26,7 +26,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// until ordered processing resolves it.
     #[xmtp_common::mls_span]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
-        // CFG-051 and CFG-061: nothing this client prepared is published once
+        // Nothing this client prepared is published once
         // it has latched. The intent stays queued for a client that can.
         self.context.server_configuration().check()?;
         let mut sent = HashSet::new();

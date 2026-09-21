@@ -648,6 +648,7 @@ async fn test_download_commit_log_from_remote() {
     );
 }
 
+// verifies: FORK-031, FORK-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_should_skip_remote_log_entry() {
     // Disable background CommitLogWorker for deterministic testing

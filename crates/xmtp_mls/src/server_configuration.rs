@@ -1,7 +1,7 @@
 //! Resolving, storing, and refreshing what the backend publishes about itself.
 //!
-//! Spec 006 §6. The client holds one immutable snapshot for its life (CFG-030)
-//! and reads every value in §6.4 through the provider, never the database. This
+//! The client holds one immutable snapshot for its life
+//! and reads configuration through the provider, never the database. This
 //! module owns the three places the database is touched: the resolve that runs
 //! once inside `build`, the refresh worker, and the explicit refresh the SDKs
 //! expose.
@@ -46,7 +46,7 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
 }
 
 /// A condition that, once observed, fails every later call for the life of the
-/// client (CFG-051, CFG-054, CFG-061).
+/// client.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ConfigurationLatch {
     /// This database is bound to one deployment and another one answered.
@@ -82,9 +82,8 @@ impl From<&ConfigurationLatch> for ClientError {
 pub struct ServerConfigurationHandle {
     provider: Arc<dyn ConfigProvider>,
     latch: Arc<RwLock<Option<ConfigurationLatch>>>,
-    /// The chains an app-supplied smart contract wallet signature may name
-    /// (CFG-069, CFG-070). `None` when the app supplied its own verifier,
-    /// which CFG-069 exempts from the check.
+    /// The chains an app-supplied smart contract wallet signature may name.
+    /// `None` when the app supplied its own verifier.
     restricted_chains: Option<Arc<[String]>>,
 }
 
@@ -106,10 +105,10 @@ impl Default for ServerConfigurationHandle {
 impl ServerConfigurationHandle {
     /// Hold one snapshot, with no zero left in its limits.
     ///
-    /// CFG-031 replaces a zero on the wire with the compiled default, but a
+    /// Wire conversion replaces a zero on the wire with the compiled default, but a
     /// snapshot an app builds in Rust and hands in through a `ConfigProvider`
-    /// (CFG-033) never passes through that conversion, and a zero dimension
-    /// would panic the `chunks(limit)` calls in `xmtp_api` (CFG-064). Every
+    /// never passes through that conversion, and a zero dimension
+    /// would panic the `chunks(limit)` calls in `xmtp_api`. Every
     /// snapshot reaches a client through this constructor, so sanitizing here
     /// is what keeps the zero out of all three readers at once: this handle,
     /// the wrapper that chunks with it, and the transport.
@@ -133,8 +132,8 @@ impl ServerConfigurationHandle {
     }
 
     /// Restrict app-supplied smart contract wallet signatures to the chains the
-    /// snapshot names (CFG-069, CFG-070). Skipped entirely when the app
-    /// supplied its own verifier, which CFG-069 exempts.
+    /// snapshot names. Skipped entirely when the app
+    /// supplied its own verifier, which the chain restriction exempts.
     pub(crate) fn with_chain_restriction(mut self, custom_verifier: bool) -> Self {
         self.restricted_chains = (!custom_verifier).then(|| {
             Arc::<[String]>::from(self.configuration().smart_contract_wallet_chains.clone())
@@ -143,20 +142,20 @@ impl ServerConfigurationHandle {
     }
 
     /// Bind a signature request to the chains this deployment accepts, before
-    /// it is handed to the app (CFG-069, CFG-070).
+    /// it is handed to the app.
     pub fn restrict(&self, request: &mut xmtp_id::associations::builder::SignatureRequest) {
         if let Some(chains) = self.restricted_chains.clone() {
             request.restrict_chains(chains);
         }
     }
 
-    /// The snapshot. Fixed for the life of the client (CFG-030): a refresh
+    /// The snapshot. Fixed for the life of the client: a refresh
     /// rewrites the stored row, never this value.
     pub fn configuration(&self) -> &ServerConfiguration {
         self.provider.server_configuration()
     }
 
-    /// Whether this deployment keeps a commit log (CFG-068). Read at every
+    /// Whether this deployment keeps a commit log. Read at every
     /// write and read site, so a deployment that turns it off turns it off for
     /// every group this client touches.
     pub fn commit_log_enabled(&self) -> bool {
@@ -169,7 +168,8 @@ impl ServerConfigurationHandle {
     }
 
     /// Fail when a latch is set. Every call that reaches the network goes
-    /// through here (CFG-051, CFG-061).
+    /// through here.
+    // implements: CONF-022
     pub fn check(&self) -> Result<(), ClientError> {
         match self.latch.read().as_ref() {
             Some(latch) => Err(latch.into()),
@@ -188,7 +188,7 @@ impl ServerConfigurationHandle {
 
 /// Decode a stored row into a snapshot.
 ///
-/// CFG-042: a copy that does not decode is a warning, not a failure. The
+/// A copy that does not decode is a warning, not a failure. The
 /// identifier stays available for the binding check and every value falls back
 /// to its compiled default.
 fn snapshot_from(stored: &StoredServerConfiguration) -> ServerConfiguration {
@@ -208,7 +208,7 @@ fn snapshot_from(stored: &StoredServerConfiguration) -> ServerConfiguration {
     }
 }
 
-/// Validate a fetched response and turn it into a snapshot (CFG-044).
+/// Validate a fetched response and turn it into a snapshot.
 fn validated(
     response: &backend_v1::GetConfigurationResponse,
 ) -> Result<ServerConfiguration, ServerConfigurationError> {
@@ -219,8 +219,9 @@ fn validated(
 
 /// Fetch, validate, and store one copy, applying the identifier binding.
 ///
-/// Shared by the build-time fetch (CFG-040, CFG-055), the refresh worker
-/// (CFG-048), and the explicit refresh the SDKs expose (CFG-082).
+/// Shared by the build-time fetch, the refresh worker,
+/// and the explicit refresh the SDKs expose.
+// implements: CONF-030, CONF-040, CONF-071
 pub(crate) async fn fetch_and_store<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
     db: &impl DbQuery,
@@ -236,7 +237,7 @@ where
     })?;
     let configuration = validated(&response)?;
 
-    // CFG-051: the identifier, not the URL, is the binding. A row with an
+    // The identifier, not the URL, is the binding. A row with an
     // empty identifier was written by an offline build and binds nothing.
     let stored = db.server_configuration().map_err(storage_unavailable)?;
     if let Some(stored) = stored.as_ref()
@@ -248,7 +249,7 @@ where
             received = %configuration.identifier,
             "this database is bound to a different backend deployment"
         );
-        // CFG-054: a failure to record it keeps the in-memory latch, so this
+        // A failure to record it keeps the in-memory latch, so this
         // client still fails every later call.
         if let Err(error) = db.record_server_configuration_conflict(&configuration.identifier) {
             tracing::error!(%error, "could not record the conflicting backend identifier");
@@ -270,9 +271,9 @@ where
     Ok(configuration)
 }
 
-/// Read a deployment's configuration with no database and no client (CFG-081).
+/// Read a deployment's configuration with no database and no client.
 ///
-/// The one call that needs no credential (CFG-045), so an app can learn whether
+/// The one call that needs no credential, so an app can learn whether
 /// the deployment requires authentication, which scopes it wants, and which
 /// chains it accepts before it decides how to build a client. Nothing is
 /// stored and no identifier binding is applied: there is no database to bind to.
@@ -288,7 +289,7 @@ where
     Ok(validated(&response)?)
 }
 
-/// The form a backend URL is stored and compared in (CFG-055).
+/// The form a backend URL is stored and compared in.
 ///
 /// A transport reports the URI it dialled, which for `http://host:port` carries
 /// a trailing slash the app never typed. Normalising both sides keeps a purely
@@ -301,15 +302,15 @@ fn storage_unavailable(error: StorageError) -> ClientError {
     ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Storage(error)))
 }
 
-/// Resolve the snapshot `build` will hold (CFG-040 to CFG-043, CFG-052,
-/// CFG-055).
+/// Resolve the snapshot `build` will hold.
 ///
-/// The minimum-version check of CFG-060 is deliberately not here: it applies to
+/// The minimum-version check is not here: it applies to
 /// the snapshot the client ends up holding, which may have come from a
-/// caller-supplied provider (CFG-033) that never reached this function.
+/// caller-supplied provider that never reached this function.
 ///
 /// Runs before any identity work. Offline, it never awaits a network call, so
-/// `build_offline` still completes without polling a pending future (CFG-094).
+/// `build_offline` still completes without polling a pending future.
+// implements: CONF-026, CONF-027, CONF-033, CONF-034, CONF-072
 pub(crate) async fn resolve<ApiClient>(
     api: &ApiClientWrapper<ApiClient>,
     db: &impl DbQuery,
@@ -320,7 +321,7 @@ where
 {
     let stored = db.server_configuration().map_err(storage_unavailable)?;
 
-    // CFG-052: a recorded conflict fails every build until the database is
+    // A recorded conflict fails every build until the database is
     // replaced with one created for the backend the app now uses.
     if let Some(conflicting) = stored
         .as_ref()
@@ -333,18 +334,18 @@ where
     }
 
     let configuration = match (allow_offline, stored) {
-        // CFG-043: offline with no copy is compiled defaults and an empty
+        // Offline with no copy is compiled defaults and an empty
         // identifier. The first successful refresh writes the row.
         (true, None) => ServerConfiguration::default(),
-        // CFG-043: offline with a copy uses it, and skips the URL check.
+        // Offline with a copy uses it, and skips the URL check.
         (true, Some(stored)) => snapshot_from(&stored),
-        // CFG-040: online with no copy fetches before any identity work.
+        // Online with no copy fetches before any identity work.
         (false, None) => {
             let handle = ServerConfigurationHandle::default();
             fetch_and_store(api, db, &handle).await?
         }
         (false, Some(stored)) => {
-            // CFG-042 and CFG-055: the stored copy is used as is unless the
+            // The stored copy is used as is unless the
             // configured URL moved, in which case the identifier is checked
             // again before anything else happens.
             let moved = api
@@ -369,8 +370,9 @@ where
     )))
 }
 
-/// CFG-060 and CFG-061: compare on major, minor, and patch only, so a
+/// Compare on major, minor, and patch only, so a
 /// prerelease tag never makes a client too old.
+// implements: CONF-049
 pub(crate) fn check_minimum_version(
     configuration: &ServerConfiguration,
     client_version: &semver::Version,

@@ -326,7 +326,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     if current_format.is_none() {
                         return Ok(Err(StorageError::OldStreamDatabase));
                     }
-                    // Spec 006 CFG-044: the baseline gained `server_configuration`.
+                    // The baseline gained `server_configuration`.
                     // Diesel records one version for the whole baseline, so a
                     // database created by an earlier self-hosted build is never
                     // re-migrated and would meet the configuration queries with

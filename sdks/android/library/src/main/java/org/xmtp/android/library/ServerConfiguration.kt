@@ -8,7 +8,7 @@ import uniffi.xmtpv3.FfiRetentionConfiguration
 import uniffi.xmtpv3.FfiServerConfiguration
 import uniffi.xmtpv3.FfiSigningKeyDescription
 
-// The six server-configuration conditions of spec 006 CFG-083.
+// The six server-configuration conditions.
 //
 // libxmtp raises each one as its own `FfiException` subclass, and this SDK lets
 // native errors reach the app rather than re-wrapping them, the way it already
@@ -18,22 +18,22 @@ import uniffi.xmtpv3.FfiSigningKeyDescription
 // the values behind a condition — the accepted chains, the required scopes, the
 // limits — are read from `ServerConfiguration` instead.
 
-/** The deployment did not serve its configuration, or it could not be stored (CFG-041). */
+/** The deployment did not serve its configuration, or it could not be stored. */
 typealias ConfigurationUnavailableException = FfiException.ConfigurationUnavailable
 
-/** The deployment published a configuration this client cannot use (CFG-044). */
+/** The deployment published a configuration this client cannot use. */
 typealias ConfigurationInvalidException = FfiException.ConfigurationInvalid
 
-/** This database is bound to one deployment and a different one answered (CFG-051). */
+/** This database is bound to one deployment and a different one answered. */
 typealias BackendMismatchException = FfiException.BackendMismatch
 
-/** The deployment requires a newer libxmtp than this build (CFG-060, CFG-061). */
+/** The deployment requires a newer libxmtp than this build. */
 typealias ClientVersionTooOldException = FfiException.ClientVersionTooOld
 
-/** The deployment requires a credential and none was configured (CFG-062). */
+/** The deployment requires a credential and none was configured. */
 typealias AuthRequiredException = FfiException.AuthRequired
 
-/** The deployment does not verify wallet signatures on that chain (CFG-069, CFG-070). */
+/** The deployment does not verify wallet signatures on that chain. */
 typealias ChainNotAcceptedException = FfiException.ChainNotAccepted
 
 /** Public identity of one accepted signing key. Never the key itself. */
@@ -198,6 +198,7 @@ data class ServerConfiguration(
     val smartContractWalletChains: List<String>,
 ) {
     internal companion object {
+        // implements: CONF-061
         internal fun fromFfi(configuration: FfiServerConfiguration): ServerConfiguration =
             ServerConfiguration(
                 identifier = configuration.identifier,

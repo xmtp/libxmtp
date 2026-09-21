@@ -8,7 +8,7 @@ where
 {
     #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
-        // CFG-051 and CFG-061: a latched client makes no further calls.
+        // A latched client makes no further calls.
         self.context.server_configuration().check()?;
         let conn = self.context.db();
 

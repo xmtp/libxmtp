@@ -56,6 +56,7 @@ pub fn build_post_quantum_public_key_extension(
 }
 
 /// Build a package with the supplied provider. Client bookkeeping is separate.
+// implements: JOIN-072
 pub fn build_key_package(
     inbox_id: &str,
     credential: Credential,
@@ -137,6 +138,7 @@ mod tests {
     use openmls_rust_crypto::OpenMlsRustCrypto;
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-004
     fn generated_package_preserves_options_and_verifies() {
         for include_post_quantum in [false, true] {
             for welcome_pointers in [false, true] {
@@ -202,6 +204,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: API-235
     fn credential_shape_is_not_a_key_package_admission_rule() {
         let provider = OpenMlsRustCrypto::default();
         let key = XmtpInstallationCredential::new();
@@ -224,6 +227,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: JOIN-008
     fn configured_expired_lifetime_still_fails_verification() {
         let provider = OpenMlsRustCrypto::default();
         let key = XmtpInstallationCredential::new();

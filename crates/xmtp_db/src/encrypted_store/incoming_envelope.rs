@@ -664,6 +664,7 @@ pub trait QueryIncomingEnvelope: ConnectionExt + Sized {
 
     /// Install a validated join anchor without rewinding either durable position.
     /// The caller must check the group state and install MLS state in the same transaction.
+    // implements: PROC-010
     fn install_group_anchor(
         &self,
         group_id: GroupId,

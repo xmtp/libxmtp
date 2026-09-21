@@ -95,6 +95,7 @@ async fn aborted_transaction_is_replaced_before_pool_reuse() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-020
 async fn startup_rejects_retention_that_overflows_the_database_clock() {
     let database = TestDatabase::new()?;
     let mut config: Config = toml::from_str(&format!(
@@ -118,6 +119,7 @@ async fn startup_rejects_retention_that_overflows_the_database_clock() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-005
 async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {
     let mut database = TestDatabase::new()?;
     let config: Config = toml::from_str(&format!("[database]\nurl = {:?}", database.url()))?;
@@ -140,6 +142,7 @@ async fn concurrent_initializers_apply_one_migration_on_an_empty_database() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-286, API-287
 async fn storage_constraints_reject_invalid_rows() {
     let server = TestServer::new(|_| {}).await?;
     server

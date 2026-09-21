@@ -7,7 +7,7 @@ import { toServerConfigurationError } from "@/utils/errors";
 
 /**
  * Reads what a backend publishes about itself with no database, no client,
- * and no credential (spec 006 CFG-081).
+ * and no credential.
  *
  * An app can call this before it builds a client to learn whether the
  * deployment requires auth, which scopes it requires, and which smart contract

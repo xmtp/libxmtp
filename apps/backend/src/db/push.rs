@@ -33,6 +33,7 @@ impl Store {
 
     /// Replace delivery while preserving subscriptions. The conflict predicate
     /// also checks ownership when two first registrations race.
+    // implements: PUSH-255
     #[xmtp_common::db_span]
     pub(crate) async fn upsert_recipient(
         &self,
@@ -57,6 +58,7 @@ impl Store {
     }
 
     /// Delete the owned recipient and cascade its subscriptions in one statement.
+    // implements: PUSH-207
     #[xmtp_common::db_span]
     pub(crate) async fn delete_recipient(
         &self,
@@ -77,6 +79,7 @@ impl Store {
     /// Apply one atomic change set under the recipient lock. New subscriptions
     /// start at the closed boundary; replacements keep their start position.
     /// Cancellation or a limit failure rolls back every change in the request.
+    // implements: PUSH-216, PUSH-217, PUSH-255
     #[xmtp_common::db_span]
     pub(crate) async fn apply_subscriptions(
         &self,

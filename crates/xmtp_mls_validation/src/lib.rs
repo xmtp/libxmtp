@@ -164,6 +164,7 @@ fn checked_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Result<Topic,
 /// This is the routing phase. It performs the payload-specific decoding needed
 /// to find a topic, but leaves key-package and identity admission to
 /// [`validate_envelope`]. A malformed envelope returns before any verifier call.
+// implements: TOPIC-001, TOPIC-002, API-230
 pub fn parse_envelope(envelope: ClientEnvelope) -> Result<ParsedEnvelope, ValidationError> {
     let payload = envelope
         .payload

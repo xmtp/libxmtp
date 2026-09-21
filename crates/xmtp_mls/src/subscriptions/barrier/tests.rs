@@ -93,6 +93,7 @@ fn admit_pending<C: XmtpSharedContext>(
     Ok(())
 }
 
+// verifies: PROC-015, PROC-016
 #[xmtp_common::test(unwrap_try = true)]
 async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups() {
     tester!(alix, disable_workers);
@@ -181,6 +182,7 @@ async fn fixed_welcome_discovery_excludes_later_scope_and_keeps_rejoined_groups(
     assert!(snapshot.topics.iter().all(BarrierTopic::complete));
 }
 
+// verifies: PROC-013, PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_stalled_welcome_does_not_hold_known_group_processing() {
     tester!(alix, disable_workers);
@@ -256,6 +258,7 @@ async fn a_stalled_welcome_does_not_hold_known_group_processing() {
     ));
 }
 
+// verifies: PROC-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn target_capture_timeout_reports_every_starting_topic() {
     tester!(alix, disable_workers);

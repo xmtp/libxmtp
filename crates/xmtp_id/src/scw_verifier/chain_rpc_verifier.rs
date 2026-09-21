@@ -171,6 +171,7 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[xmtp_common::timeout(Duration::from_secs(60))]
     #[tokio::test]
+    // verifies: IDENT-060
     async fn test_smart_wallet_time_travel(#[future] docker_smart_wallet: SmartWalletContext) {
         let SmartWalletContext {
             factory,

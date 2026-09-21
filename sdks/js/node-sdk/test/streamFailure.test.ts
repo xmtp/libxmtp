@@ -37,6 +37,7 @@ const error = (payload: unknown) =>
   );
 
 describe("structured stream failures", () => {
+  // verifies: PROC-018
   it("retains an uncaptured target and exact large sequence values", () => {
     const details = getStreamFailureDetails(error(failure()));
     expect(details?.kind).toBe("barrier");
@@ -56,6 +57,7 @@ describe("structured stream failures", () => {
     });
   });
 
+  // verifies: PROC-018
   it("distinguishes an empty captured target from failed target capture", () => {
     const payload = failure();
     payload.barriers[0].unfinished[0].target = "0";
@@ -64,6 +66,7 @@ describe("structured stream failures", () => {
     ).toBe(0n);
   });
 
+  // verifies: PROC-018
   it("retains blocked and pending obligations in the same failure", () => {
     const payload = failure();
     const blocked = topic();
@@ -82,6 +85,7 @@ describe("structured stream failures", () => {
     expect(obligations?.[1].cause).toEqual(blocked.cause);
   });
 
+  // verifies: SEND-019
   it("retains the published intent when confirmation did not complete", () => {
     const payload = failure();
     payload.kind = "published_but_unconfirmed";
@@ -95,6 +99,7 @@ describe("structured stream failures", () => {
     expect(details?.barriers).toHaveLength(1);
   });
 
+  // verifies: PROC-018
   it("retains every sibling barrier and published intent in a sync summary", () => {
     const payload = failure();
     payload.kind = "catch_up";

@@ -28,6 +28,7 @@ describe('RemoteAttachment encryption compatibility', () => {
   const testFilename = 'test.txt'
   const testMimeType = 'text/plain'
 
+  // verifies: CTYPE-015
   it('should decrypt TS encrypted payload with Rust', async () => {
     const encrypted = await RemoteAttachmentCodec.encodeEncrypted(
       {
@@ -54,6 +55,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     expect(decrypted.mimeType).toBe(testMimeType)
   })
 
+  // verifies: CTYPE-015
   it('should decrypt Rust encrypted payload with TS', async () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
@@ -84,6 +86,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     expect(decrypted.mimeType).toBe(testMimeType)
   })
 
+  // verifies: CTYPE-015
   it('should fail with wrong content digest', () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
@@ -105,6 +108,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     ).toThrow('content digest mismatch')
   })
 
+  // verifies: CTYPE-015
   it('should fail with wrong secret', () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
@@ -129,6 +133,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     ).toThrow()
   })
 
+  // verifies: CTYPE-015
   it('should fail with corrupted payload', () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
@@ -153,6 +158,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     ).toThrow()
   })
 
+  // verifies: CTYPE-015
   it('should create a 32-byte secret', () => {
     const encrypted = encryptAttachment({
       filename: 'test.txt',
@@ -162,6 +168,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     expect(encrypted.secret.length).toBe(32)
   })
 
+  // verifies: CTYPE-015
   it('should create a 32-byte salt', () => {
     const encrypted = encryptAttachment({
       filename: 'test.txt',
@@ -171,6 +178,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     expect(encrypted.salt.length).toBe(32)
   })
 
+  // verifies: CTYPE-015
   it('should create a 12-byte nonce', () => {
     const encrypted = encryptAttachment({
       filename: 'test.txt',
@@ -180,6 +188,7 @@ describe('RemoteAttachment encryption compatibility', () => {
     expect(encrypted.nonce.length).toBe(12)
   })
 
+  // verifies: CTYPE-015
   it('should produce unique encryption each time', () => {
     const encrypted1 = encryptAttachment({
       filename: 'test.txt',

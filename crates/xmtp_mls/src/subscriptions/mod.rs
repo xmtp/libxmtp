@@ -259,8 +259,8 @@ pub enum SubscribeError {
     Enriched(#[from] EnrichMessageError),
     /// The client latched a fatal configuration failure.
     ///
-    /// Either this database is bound to a different deployment (CFG-051) or the
-    /// deployment now requires a newer client (CFG-061). Every open stream is
+    /// Either this database is bound to a different deployment or the
+    /// deployment now requires a newer client. Every open stream is
     /// closed with it and every later call fails with it. Not retryable.
     #[error(transparent)]
     #[error_code(inherit)]
@@ -513,7 +513,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // Cancellation can carry a latched reason,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
@@ -548,7 +548,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // Cancellation can carry a latched reason,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
@@ -583,7 +583,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // CFG-051 and CFG-061: cancellation can carry a latched reason,
+                // Cancellation can carry a latched reason,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();

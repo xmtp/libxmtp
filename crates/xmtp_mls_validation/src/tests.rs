@@ -23,6 +23,7 @@ fn expected_topic(kind: TopicKind, identifier: impl AsRef<[u8]>) -> Vec<u8> {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-001, API-230
 fn group_message_matrix_preserves_routing_bytes_and_flags() {
     for (kind, expected_flag) in [
         (GroupMessageKind::Application, false),
@@ -49,6 +50,7 @@ fn group_message_matrix_preserves_routing_bytes_and_flags() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-002, API-230
 fn group_message_matrix_rejects_malformed_data_and_wrong_id_lengths() {
     for group_id in [vec![0x11; 15], vec![0x11; 17]] {
         let error = parse_envelope(group_message_envelope(
@@ -78,6 +80,7 @@ fn group_message_matrix_rejects_malformed_data_and_wrong_id_lengths() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-001, API-230
 fn welcome_matrix_accepts_both_forms_without_decryption() {
     for envelope in [
         inline_welcome_envelope(INSTALLATION_ID),
@@ -95,6 +98,7 @@ fn welcome_matrix_accepts_both_forms_without_decryption() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-002, API-230
 fn welcome_matrix_rejects_missing_form_and_wrong_destination_lengths() {
     for installation_id in [vec![0x22; 31], vec![0x22; 33]] {
         let error = parse_envelope(inline_welcome_envelope(installation_id))
@@ -117,6 +121,7 @@ fn welcome_matrix_rejects_missing_form_and_wrong_destination_lengths() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-001, API-230
 async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
     let mut envelope = commit_log_envelope(GROUP_ID);
     let Some(Payload::CommitLogEntry(entry)) = envelope.payload.as_mut() else {
@@ -140,6 +145,7 @@ async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-002, API-230
 fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
     for group_id in [vec![0x11; 15], vec![0x11; 17]] {
         let error = parse_envelope(commit_log_envelope(group_id))
@@ -160,6 +166,7 @@ fn commit_log_matrix_rejects_malformed_data_and_wrong_id_lengths() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-235, JOIN-004
 async fn key_package_admission_accepts_the_existing_credential_shape() {
     let twenty_years = 20 * 365 * 24 * 60 * 60;
     for fixture in [
@@ -238,6 +245,7 @@ fn key_package_topic_length_is_separate_from_ciphersuite_validation() {
     assert_eq!(error.reason(), Reason::MalformedPayload);
 }
 
+// verifies: JOIN-007, JOIN-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_package_parse_precedes_existing_cryptographic_validation() {
     for fixture in [
@@ -293,6 +301,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-050
 async fn identity_admission_preserves_typed_replay_failure() {
     let fixture = identity_history_with_passkey().await;
     let mut history = fixture.history;
@@ -313,6 +322,7 @@ async fn identity_admission_preserves_typed_replay_failure() {
     assert!(!error.is_retryable());
 }
 
+// verifies: IDENT-061
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_admission_preserves_retryable_scw_failure() {
     let verifier = MultiSmartContractSignatureVerifier::new(Default::default())?;
@@ -328,6 +338,7 @@ async fn identity_admission_preserves_retryable_scw_failure() {
     assert!(error.is_retryable());
 }
 
+// verifies: IDENT-030
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_signature_failure_precedes_state_application() {
     let error = validate_identity_updates(
@@ -372,6 +383,7 @@ async fn identity_admission_preserves_raw_recovery_identifier_behavior() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: TOPIC-002
 fn identity_topics_require_a_32_byte_hex_inbox() {
     let fixture = xmtp_proto::xmtp::identity::associations::IdentityUpdate {
         inbox_id: "11".repeat(31),

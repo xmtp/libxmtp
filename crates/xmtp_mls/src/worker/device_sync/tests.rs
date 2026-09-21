@@ -6,6 +6,7 @@ use xmtp_db::{
     group::{ConversationType, StoredGroup},
 };
 
+// verifies: SYNC-023
 #[xmtp_common::test(unwrap_try = true)]
 fn unknown_device_sync_content_is_ignored() {
     // Field 1 was DeviceSyncContent.request. It is reserved after history
@@ -13,6 +14,7 @@ fn unknown_device_sync_content_is_ignored() {
     assert!(decode_supported_content(&[0x0a, 0x00]).is_none());
 }
 
+// verifies: SYNC-021
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -106,6 +108,7 @@ async fn test_hmac_and_consent_preference_sync() {
     assert_eq!(alix2_group.consent_state()?, ConsentState::Allowed);
 }
 
+// verifies: SYNC-014
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
@@ -315,6 +318,7 @@ async fn test_sync_group_creation_leaves_no_reconcile_task() {
     );
 }
 
+// verifies: SYNC-014
 #[xmtp_common::timeout(std::time::Duration::from_secs(30))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]

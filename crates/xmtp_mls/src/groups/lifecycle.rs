@@ -439,7 +439,7 @@ where
 
         let creator_inbox_id = context.inbox_id();
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
-        // CFG-068: deployments without a commit log do not create a signer.
+        // Deployments without a commit log do not create a signer.
         let signer =
             commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
         let dictionary = initial_dictionary(

@@ -108,6 +108,7 @@ async fn welcome_discovery_rolls_back_with_installation_state() {
     );
 }
 
+// verifies: PROC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn admission_rolls_back_the_batch_and_received_position() {
     let store = TestDb::create_persistent_store(None).await;
@@ -124,6 +125,7 @@ async fn admission_rolls_back_the_batch_and_received_position() {
     assert_eq!(db.first_pending_envelope(&group)?.unwrap().sequence_id, 10);
 }
 
+// verifies: PROC-002, PROC-005, PROC-013
 #[xmtp_common::test(unwrap_try = true)]
 async fn overlaps_and_sparse_ids_preserve_the_pending_head() {
     let store = TestDb::create_persistent_store(None).await;
@@ -171,6 +173,7 @@ async fn overlaps_and_sparse_ids_preserve_the_pending_head() {
     )?);
 }
 
+// verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn bounds_leave_progress_unchanged_and_reserve_dependency_capacity() {
     let store = TestDb::create_persistent_store(None).await;
@@ -395,6 +398,7 @@ async fn welcome_read_budget_preserves_the_due_prefix_and_pending_state() {
     );
 }
 
+// verifies: PROC-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn outer_state_rollback_restores_pending_rows_and_processed_progress() {
     let store = TestDb::create_persistent_store(None).await;
@@ -414,6 +418,7 @@ async fn outer_state_rollback_restores_pending_rows_and_processed_progress() {
     assert_eq!(db.first_pending_envelope(&topic)?.unwrap().sequence_id, 10);
 }
 
+// verifies: PROC-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn validated_join_anchor_preserves_the_received_tail() {
     let store = TestDb::create_persistent_store(None).await;
@@ -461,6 +466,7 @@ async fn validated_join_anchor_preserves_the_received_tail() {
     db.install_group_anchor(fresh_group, Cursor(0), JoinAnchorMode::Advance)?;
 }
 
+// verifies: PROC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn independent_database_handles_resume_durable_receipt() {
     let path = xmtp_common::tmp_path();
@@ -488,6 +494,7 @@ async fn independent_database_handles_resume_durable_receipt() {
     );
 }
 
+// verifies: PROC-008, PROC-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn terminal_rejection_is_bounded_and_rolls_back_with_processed_progress() {
     let store = TestDb::create_persistent_store(None).await;

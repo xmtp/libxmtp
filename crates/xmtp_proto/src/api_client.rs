@@ -104,7 +104,7 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     /// The backend URL this client sends to, when the transport knows it.
     ///
     /// The stored configuration row records the URL its copy came from, and
-    /// `build` compares the two (CFG-042, CFG-055). A transport that cannot
+    /// `build` compares the two. A transport that cannot
     /// name a URL — a test double, for instance — returns `None`, and the
     /// comparison is skipped.
     fn backend_url(&self) -> Option<&str> {
@@ -112,7 +112,7 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     }
 
     /// Whether a credential source — an auth callback or an auth handle — was
-    /// configured on this transport (CFG-062). A transport with no auth
+    /// configured on this transport. A transport with no auth
     /// middleware reports `false` and `build` refuses a deployment that
     /// requires authentication. Defaults to `true` so a test double, which has
     /// no transport stack to ask, is never the thing that refuses a build.
@@ -120,7 +120,7 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
         true
     }
 
-    /// Install the shapes the deployment publishes (CFG-064), so the stream and
+    /// Install the shapes the deployment publishes, so the stream and
     /// metadata chunking that happens below `ApiClientWrapper` uses them too.
     /// Called once, by `build`, before any stream opens. A transport with
     /// nothing to chunk ignores it.
@@ -191,7 +191,7 @@ xmtp_common::if_native! {
 
         type Error: RetryableError + 'static;
 
-        /// The frame shapes this deployment accepts (CFG-064), as installed by
+        /// The frame shapes this deployment accepts, as installed by
         /// [`XmtpBackendClient::set_limits`]. The bidi ledger chunks interest
         /// updates below `ApiClientWrapper`, so it cannot read the wrapper's
         /// copy and asks the transport instead. A transport that was never told

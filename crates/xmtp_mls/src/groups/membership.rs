@@ -34,7 +34,7 @@ where
             .filter_map(|(inbox, identifier)| inbox.map(|inbox| (identifier, inbox)))
             .collect();
 
-        // CFG-066 is enforced in `add_members`, the one method both entry
+        // The member limit is enforced in `add_members`, the one method both entry
         // points reach.
         if inbox_id_map.len() != account_identifiers.len() {
             let found_addresses: HashSet<&Identifier> = inbox_id_map.keys().collect();
@@ -83,7 +83,7 @@ where
             return ok_result;
         }
 
-        // CFG-066: the deployment sets the ceiling, checked here — the one
+        // The deployment sets the ceiling, checked here — the one
         // method both entry points reach — before the commit is built and
         // before anything is published. The count comes from the group's own
         // membership extension unioned with the inboxes this commit would add,
@@ -409,6 +409,7 @@ where
         Ok(())
     }
 
+    // implements: GMOD-031
     pub async fn leave_group(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
 

@@ -12,7 +12,7 @@ use xmtp_proto::{
 #[derive(Clone, Debug)]
 pub struct BackendClient<C> {
     pub(crate) client: C,
-    /// The shapes this deployment accepts (CFG-064). Swapped in once, by
+    /// The shapes this deployment accepts. Swapped in once, by
     /// `build`, after the configuration is read and before any stream opens.
     /// The compiled defaults until then, which is what every transport built
     /// without a client keeps.
@@ -69,8 +69,8 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
     }
 
     fn set_limits(&self, limits: Arc<LimitsConfiguration>) {
-        // A zero here would panic `chunks(0)` in `streams.rs`. CFG-031 keeps
-        // zeroes off the wire; this keeps them out of a snapshot an app built
+        // A zero here would panic `chunks(0)` in `streams.rs`. Wire conversion
+        // replaces zeroes; this also does so for a snapshot an app built
         // in Rust and supplied through a `ConfigProvider`.
         self.limits.store(Arc::new(limits.without_zeroes()));
     }

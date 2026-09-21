@@ -109,6 +109,7 @@ impl UnsignedIdentityUpdate {
 }
 
 impl SignatureTextCreator for UnsignedIdentityUpdate {
+    // implements: IDENT-020
     fn signature_text(&self) -> String {
         let all_signatures = self
             .actions
@@ -143,6 +144,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: IDENT-010, IDENT-020
     fn create_signatures() {
         let account_identifier =
             Identifier::eth("0x1234567890abcdef1234567890abcdef12345678").unwrap();

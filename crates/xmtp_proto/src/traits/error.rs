@@ -5,6 +5,7 @@ use thiserror::Error;
 use xmtp_common::{BoxDynError, ErrorCode, RetryableError, retryable};
 
 /// Authentication failures with no credential or callback error text.
+// implements: AUTH-026
 #[derive(Clone, Copy, Debug, Error, ErrorCode)]
 pub enum AuthError {
     /// The backend rejected the credential. Retryable if a callback can run.

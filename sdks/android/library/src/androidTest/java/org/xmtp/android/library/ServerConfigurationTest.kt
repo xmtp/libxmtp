@@ -10,9 +10,8 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.messages.PrivateKeyBuilder
 
 /**
- * Spec 006 CFG-106 for Android: one test reads every field of
- * [Client.serverConfiguration], one calls [Client.fetchServerConfiguration]
- * against the shared backend.
+ * Read every field of [Client.serverConfiguration] and call
+ * [Client.fetchServerConfiguration] against the shared backend.
  *
  * The shared stack runs `dev/backend/local.toml`, so the identifier, the two
  * query limits, and the single anvil chain are asserted exactly. Every other
@@ -21,7 +20,7 @@ import org.xmtp.android.library.messages.PrivateKeyBuilder
  */
 @RunWith(AndroidJUnit4::class)
 class ServerConfigurationTest : BaseInstrumentedTest() {
-    /** CFG-080: the build snapshot, field by field. */
+    // verifies: CONF-061
     @Test
     fun testServerConfigurationExposesEveryField() {
         val client = runBlocking { createClient(PrivateKeyBuilder()) }
@@ -33,7 +32,7 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
             configuration.serverVersion.isNotBlank(),
         )
         // local.toml publishes no minimum, which leaves the deployment open to
-        // every client version (CFG-005).
+        // every client version.
         assertEquals("", configuration.minLibxmtpVersion)
 
         val auth = configuration.auth
@@ -82,7 +81,7 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
         assertEquals(listOf("eip155:31337"), configuration.smartContractWalletChains)
     }
 
-    /** CFG-081: the same values, with no database and no client. */
+    // verifies: CONF-062
     @Test
     fun testFetchServerConfigurationWithoutAClient() {
         val fetched = runBlocking { Client.fetchServerConfiguration(localApi().backendUrl) }
@@ -97,7 +96,7 @@ class ServerConfigurationTest : BaseInstrumentedTest() {
         assertEquals(client.serverConfiguration(), fetched)
     }
 
-    /** CFG-082: a refresh returns the fetched value and leaves the snapshot alone. */
+    // verifies: CONF-074
     @Test
     fun testRefreshServerConfigurationLeavesTheSnapshot() {
         val client = runBlocking { createClient(PrivateKeyBuilder()) }

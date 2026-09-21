@@ -13,6 +13,7 @@ use tonic::{Request, Response, Status};
 #[tonic::async_trait]
 impl api::configuration_service_server::ConfigurationService for Backend {
     #[xmtp_common::rpc_span]
+    // implements: CONF-012
     async fn get_configuration(
         &self,
         _request: Request<api::GetConfigurationRequest>,

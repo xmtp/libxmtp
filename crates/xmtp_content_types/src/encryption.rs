@@ -28,6 +28,7 @@ pub struct EncryptedPayload {
 }
 
 /// Encrypts plaintext using AES-256-GCM with HKDF-SHA256 key derivation.
+// implements: CTYPE-015
 pub fn encrypt(plaintext: &[u8], secret: &[u8]) -> Result<EncryptedPayload, CodecError> {
     // Generate random salt and nonce
     let salt: [u8; HKDF_SALT_SIZE] = xmtp_common::rand_array();
@@ -52,6 +53,7 @@ pub fn encrypt(plaintext: &[u8], secret: &[u8]) -> Result<EncryptedPayload, Code
 }
 
 /// Decrypts ciphertext that was encrypted with [`encrypt`].
+// implements: CTYPE-015
 pub fn decrypt(encrypted: &EncryptedPayload, secret: &[u8]) -> Result<Vec<u8>, CodecError> {
     // Validate salt and nonce lengths
     if encrypted.salt.len() != HKDF_SALT_SIZE {
@@ -138,6 +140,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-015
     fn test_encrypt_produces_different_output_each_time() {
         let secret: [u8; SECRET_SIZE] = xmtp_common::rand_array();
         let plaintext = b"Same message";
@@ -153,6 +156,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-015
     fn test_encrypted_payload_sizes() {
         let secret: [u8; SECRET_SIZE] = xmtp_common::rand_array();
         let plaintext = b"Test message";

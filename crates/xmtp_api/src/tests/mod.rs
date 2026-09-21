@@ -361,6 +361,7 @@ async fn query_rejects_has_more_without_progress() {
     ));
 }
 
+// verifies: API-245
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_packages_are_keyed_and_absence_is_explicit() {
     let fixture = key_package_envelope("ab".repeat(32), Default::default());
@@ -757,6 +758,7 @@ async fn invalid_input_returns_invalid_request_without_rpc() {
     }
 }
 
+// verifies: AUTH-026
 #[xmtp_common::test(unwrap_try = true)]
 fn auth_codes_and_retryability_survive_api_erasure() {
     use xmtp_common::ErrorCode;

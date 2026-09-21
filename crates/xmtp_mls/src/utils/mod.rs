@@ -31,6 +31,7 @@ pub mod id {
     use xmtp_proto::xmtp::mls::message_contents::{PlaintextEnvelope, plaintext_envelope::V1};
 
     /// Relies on a client-created idempotency_key (which could be a timestamp)
+    // implements: SEND-002
     pub fn calculate_message_id(
         group_id: impl AsRef<[u8]>,
         decrypted_message_bytes: &[u8],

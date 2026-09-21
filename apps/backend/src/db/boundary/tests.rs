@@ -2,6 +2,7 @@ use super::*;
 use crate::test_support::TestServer;
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-203
 async fn statement_timeout_during_barrier_acquisition_preserves_proof_and_allows_retry() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "db::boundary::tests::statement_timeout_during_barrier_acquisition_preserves_proof_and_allows_retry",

@@ -65,6 +65,7 @@ where
             ]));
     }
 
+    // implements: GMOD-032
     pub(super) fn process_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,

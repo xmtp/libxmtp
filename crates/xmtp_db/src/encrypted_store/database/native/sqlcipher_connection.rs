@@ -642,7 +642,7 @@ mod tests {
         );
     }
 
-    /// Spec 006 CFG-044: the baseline gained `server_configuration`. Diesel
+    /// The baseline gained `server_configuration`. Diesel
     /// records one version for the whole baseline, so a database from an
     /// earlier self-hosted build is never re-migrated. Initialization must
     /// reject it here rather than let the configuration queries meet

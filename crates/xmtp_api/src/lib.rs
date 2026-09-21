@@ -33,6 +33,7 @@ pub mod strategies {
 /// downcast of the outer value alone would miss the code. Check the source
 /// chain too: `ApiClientError::Auth` is `#[error(transparent)]` over the
 /// `AuthError`.
+// implements: AUTH-026
 pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     fn find(error: &(dyn std::any::Any + 'static)) -> Option<xmtp_proto::api::AuthError> {
         if let Some(xmtp_proto::api::ApiClientError::Auth(auth)) = error.downcast_ref() {
@@ -115,10 +116,10 @@ pub struct ApiClientWrapper<ApiClient> {
     pub api_client: ApiClient,
     pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
-    /// What the deployment published about the shapes it accepts (CFG-064).
+    /// What the deployment published about the shapes it accepts.
     /// The compiled defaults until a client resolves a snapshot and installs
     /// it, which is what keeps a bare wrapper — a test double, the static
-    /// fetch of CFG-081 — chunking exactly as it did before this existed.
+    /// configuration fetch — chunking exactly as it did before this existed.
     pub(crate) configuration: Arc<xmtp_configuration::ServerConfiguration>,
 }
 
@@ -144,8 +145,8 @@ impl<ApiClient> ApiClientWrapper<ApiClient> {
         }
     }
 
-    /// Chunk and pre-validate every later request against this snapshot
-    /// (CFG-064, CFG-065). Called once, by `build`, before the client runs.
+    /// Chunk and pre-validate every later request against this snapshot.
+    /// Called once, by `build`, before the client runs.
     pub fn set_configuration(
         &mut self,
         configuration: Arc<xmtp_configuration::ServerConfiguration>,

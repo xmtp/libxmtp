@@ -28,7 +28,7 @@ describe("server configuration", () => {
     const client = await createRegisteredClient(signer);
     const configuration = client.serverConfiguration();
 
-    // Top level (CFG-080).
+    // Top level.
     expect(typeof configuration.identifier).toBe("string");
     // A real published identifier, not the empty default an offline build
     // would hold: 1 to 256 bytes with no whitespace (spec 006 §4.1).
@@ -69,7 +69,7 @@ describe("server configuration", () => {
     expectCount(retention.welcomeSeconds);
     expectCount(retention.keyPackageSeconds);
 
-    // Limits. The backend fills every one of them (CFG-026), so none is zero.
+    // Limits. The backend fills every one of them, so none is zero.
     const { limits } = configuration;
     const limitNames = [
       "maxEnvelopeBytes",
@@ -98,7 +98,7 @@ describe("server configuration", () => {
       expectCount(limits[name]);
       expect(limits[name]).toBeGreaterThan(0);
     }
-    // The fixed 25 MiB transport ceiling of CFG-007 and CFG-071.
+    // The fixed 25 MiB transport ceiling.
     expect(limits.maxRequestBytes).toBeLessThanOrEqual(25 * 1024 * 1024);
     expect(limits.maxResponseBytes).toBeLessThanOrEqual(25 * 1024 * 1024);
 
@@ -151,12 +151,13 @@ describe("server configuration", () => {
 
     const refreshed = await client.refreshServerConfiguration();
     expect(refreshed).toEqual(snapshot);
-    // The snapshot is read once at build and never replaced (CFG-030).
+    // The snapshot is read once at build and never replaced.
     expect(client.serverConfiguration()).toEqual(snapshot);
 
     await client.close();
   });
 
+  // verifies: CONF-064
   it("should surface each configuration failure as its own type", () => {
     const cases = [
       ["ClientError::ConfigurationUnavailable", ConfigurationUnavailableError],

@@ -119,6 +119,7 @@ impl IdentityRequirement {
 
 /// Read only a verified cached snapshot. Never resolve to a newer snapshot.
 /// The caller supplies the state transaction's connection.
+// implements: IDENT-070
 pub(crate) fn require_association_state(
     conn: &impl DbQuery,
     requirement: &IdentityRequirement,
@@ -243,6 +244,7 @@ async fn resolve_identity_requirement_with_wait(
 
 /// Coalesce exact requirements and keep every completed result. One failed
 /// proof does not cancel other fetches or remove their verified cache entries.
+// implements: PROC-013
 pub(crate) async fn resolve_identity_requirements(
     context: &impl XmtpSharedContext,
     requirements: impl IntoIterator<Item = IdentityRequirement>,
@@ -339,6 +341,7 @@ mod tests {
         assert_eq!(registry.active.lock().len(), 1);
     }
 
+    // verifies: IDENT-070
     #[xmtp_common::test(unwrap_try = true)]
     async fn historical_proof_does_not_use_a_newer_cached_snapshot() {
         tester!(alix, disable_workers);
@@ -381,6 +384,7 @@ mod tests {
         );
     }
 
+    // verifies: PROC-013
     #[xmtp_common::test(unwrap_try = true)]
     async fn dependency_batch_keeps_success_after_an_invalid_sibling() {
         tester!(alix, disable_workers);

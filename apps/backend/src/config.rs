@@ -222,6 +222,7 @@ impl Config {
     /// where the keys come from the configuration itself. Nothing secret
     /// belongs here: no JWKS URL, no key material, no chain RPC URL, and no
     /// database, telemetry, or listener setting.
+    // implements: CONF-011, CONF-070
     pub fn configuration_response(
         &self,
         jwks_keys: &[(String, String)],
@@ -274,6 +275,7 @@ impl Config {
 
     /// Publish what a client needs to hold a credential, and nothing else.
     /// A credential-free deployment publishes an otherwise empty section.
+    // implements: CONF-068
     fn auth_configuration(&self, jwks_keys: &[(String, String)]) -> api::AuthConfiguration {
         let Some(auth) = self.auth.as_ref().filter(|auth| auth.is_enabled()) else {
             return api::AuthConfiguration::default();
@@ -386,6 +388,7 @@ fn invalid(field: &'static str, reason: &'static str) -> ConfigError {
 /// Keep the published configuration inside one small response. An oversized
 /// one is a configuration mistake, not a runtime condition, so it stops
 /// startup rather than failing every client that asks for it.
+// implements: CONF-009
 pub(crate) fn validate_configuration_size(
     response: &api::GetConfigurationResponse,
 ) -> Result<(), ConfigError> {
@@ -436,6 +439,7 @@ impl ServerConfig {
 
     /// Require a numeric bind address and a positive shutdown budget, plus the
     /// deployment identity clients bind to.
+    // implements: CONF-002, CONF-067
     fn validate(&self) -> Result<(), ConfigError> {
         let Some(identifier) = self.identifier.as_deref() else {
             return Err(invalid(
@@ -866,6 +870,7 @@ pub struct LimitsConfig {
 
 impl LimitsConfig {
     /// Check positive limits, downstream integer ranges, and related capacities.
+    // implements: CONF-008
     fn validate(&self) -> Result<(), ConfigError> {
         positive(self.max_push_topics, "limits.max_push_topics")?;
         positive(self.max_query_topics, "limits.max_query_topics")?;
@@ -937,6 +942,7 @@ impl LimitsConfig {
 
     /// Reserve worst-case metadata and framing in each request and delivery budget.
     /// Saturating arithmetic ensures oversized configured values cannot wrap to fit.
+    // implements: OPS-021
     fn validate_envelope_fit(&self) -> Result<(), ConfigError> {
         let request_bytes = self.max_envelope_bytes.saturating_add(
             1 + prost::encoding::encoded_len_varint(self.max_envelope_bytes as u64),

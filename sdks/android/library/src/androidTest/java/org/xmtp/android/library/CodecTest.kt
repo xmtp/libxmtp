@@ -59,6 +59,7 @@ class CodecTest : BaseInstrumentedTest() {
         boClient = fixtures.boClient
     }
 
+    // verifies: CTYPE-007, CTYPE-017
     @Test
     fun testCanRoundTripWithCustomContentType() {
         Client.register(codec = NumberCodec())

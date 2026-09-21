@@ -5,6 +5,7 @@ use xmtp_common::time::{Duration, timeout};
 use xmtp_db::{ConnectionExt, Store};
 use xmtp_proto::types::Cursor;
 
+// verifies: PROC-028
 #[xmtp_common::test(unwrap_try = true)]
 async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     tester!(alix);
@@ -33,6 +34,7 @@ async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     assert_eq!(stream.next().await.unwrap()?.id, second.id);
 }
 
+// verifies: PROC-028
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_callback_releases_owner_without_consuming_its_item() {
     tester!(alix);
@@ -63,6 +65,7 @@ async fn rejected_callback_releases_owner_without_consuming_its_item() {
     ));
 }
 
+// verifies: PROC-028
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
     tester!(alix);
@@ -85,6 +88,7 @@ async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
     assert_eq!(reader.next_delivery().await?.unwrap().message.id, second.id);
 }
 
+// verifies: PROC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn excluded_rows_stay_consumed_after_a_filter_change() {
     tester!(alix);
@@ -130,6 +134,7 @@ async fn excluded_rows_stay_consumed_after_a_filter_change() {
     assert_eq!(reader.next_delivery().await?.unwrap().message.id, later.id);
 }
 
+// verifies: PROC-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn missed_local_wake_is_recovered_by_a_fresh_database_poll() {
     tester!(alix);
@@ -154,6 +159,7 @@ async fn missed_local_wake_is_recovered_by_a_fresh_database_poll() {
     assert_eq!(item.message.id, message.id);
 }
 
+// verifies: PROC-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_host_queue_token_cannot_dispatch_or_acknowledge() {
     tester!(alix);
@@ -173,6 +179,7 @@ async fn stale_host_queue_token_cannot_dispatch_or_acknowledge() {
     assert!(reader.next_delivery().await.is_err());
 }
 
+// verifies: PROC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn removed_and_readded_scope_discards_old_queued_tokens_without_acknowledging() {
     tester!(alix);

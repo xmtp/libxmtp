@@ -150,6 +150,7 @@ final class MessageDeliveryStream: @unchecked Sendable {
 		}
 	}
 
+	// implements: PROC-028, PROC-031, PROC-032
 	func next() async throws -> DecodedMessage? {
 		try await withTaskCancellationHandler {
 			do {

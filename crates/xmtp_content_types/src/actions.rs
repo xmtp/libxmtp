@@ -69,6 +69,7 @@ impl ContentCodec<Actions> for ActionsCodec {
         }
     }
 
+    // implements: CTYPE-019
     fn encode(actions: Actions) -> Result<EncodedContent, CodecError> {
         if actions.actions.is_empty() {
             return Err(CodecError::Encode(
@@ -165,6 +166,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: CTYPE-007, CTYPE-019
     fn encode_decode_actions() {
         let mut actions = Actions {
             id: "thanksgiving_selection".to_string(),
@@ -214,6 +216,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: CTYPE-019
     fn expires_at_serializes_as_utc_with_millis() {
         let actions = Actions {
             id: "test".to_string(),

@@ -1,5 +1,6 @@
 use super::*;
 
+// verifies: CONS-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn should_stream_consent() {
     let alix = Tester::builder().sync_worker().build().await;
@@ -68,7 +69,7 @@ async fn should_stream_consent() {
     assert_eq!(item[0].state, ConsentState::Allowed);
 }
 
-/// API-089: only the exact identity topic's serving head confirms registration.
+/// Only the exact identity topic's serving head confirms registration.
 #[rstest::rstest]
 #[case(false)]
 #[case(true)]
@@ -142,7 +143,7 @@ async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool
         .unwrap();
 }
 
-/// API-089: a response with a different metadata topic cannot confirm registration.
+/// A response with a different metadata topic cannot confirm registration.
 #[xmtp_common::test(unwrap_try = true)]
 async fn registration_visibility_rejects_mismatched_metadata() {
     use crate::client::{ClientError, VisibilityConfirmationOptions};

@@ -517,6 +517,7 @@ pub enum InitialGroupKind<'a> {
 
 /// Build the complete dictionary stored in epoch zero.
 /// Collection values are stored snapshots, not proposal deltas.
+// implements: META-018, PERM-002
 pub fn initial_dictionary(
     kind: InitialGroupKind<'_>,
     policy_set: &PolicySetProto,
@@ -685,6 +686,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-018, PERM-002
     fn initial_group_dictionary_seeds_required_and_optional_values() {
         let creator = inbox(1);
         let options = crate::group::GroupMetadataOptions {
@@ -771,6 +773,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-018, DMS-002
     fn initial_dm_dictionary_has_empty_admin_sets_and_dm_members() {
         let creator = inbox(1);
         let target = inbox(2);

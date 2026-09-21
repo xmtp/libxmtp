@@ -444,9 +444,9 @@ where
     pub disable_workers: bool,
     pub worker_config: Option<crate::worker::WorkerConfig>,
     pub change_callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
-    /// A caller-supplied snapshot (CFG-033). With one in place the client never
+    /// A caller-supplied snapshot. With one in place the client never
     /// fetches, stores, refreshes, or checks the identifier, so a test can name
-    /// any value §6.4 acts on without standing a backend up for it.
+    /// any applied value without starting a backend for it.
     pub config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
 }
 
@@ -641,7 +641,7 @@ where
         self
     }
 
-    /// Build against a fixed snapshot (CFG-033).
+    /// Build against a fixed snapshot.
     pub fn config_provider(
         mut self,
         provider: Arc<dyn xmtp_configuration::ConfigProvider>,
@@ -651,7 +651,7 @@ where
     }
 
     /// Build against a snapshot that differs from the compiled defaults only in
-    /// the fields `edit` touches (CFG-033, CFG-100).
+    /// the fields `edit` touches.
     pub fn configured(
         self,
         edit: impl FnOnce(&mut xmtp_configuration::ServerConfiguration),

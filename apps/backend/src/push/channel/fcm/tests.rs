@@ -60,6 +60,7 @@ fn expire(sender: &FcmSender) {
     *cache = Some(flight);
 }
 
+// verifies: PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn requests_use_service_account_oauth_and_exact_data_only_message() {
     let token = Provider::start(Protocol::Http1, vec![token_reply()]).await?;

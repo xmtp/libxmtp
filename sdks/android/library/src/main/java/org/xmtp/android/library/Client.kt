@@ -432,7 +432,7 @@ class Client(
 
         /**
          * Read a deployment's configuration with no database, no client, and no
-         * credential (spec 006 CFG-081).
+         * credential.
          *
          * Call this before deciding how to build a client: it reports whether
          * the deployment requires authentication, which scopes it wants, and
@@ -920,7 +920,7 @@ class Client(
 
     /**
      * What this deployment published about itself, as resolved when this client
-     * was built (spec 006 CFG-030, CFG-080).
+     * was built.
      *
      * The snapshot is fixed for the life of the client: a refresh, whether the
      * hourly worker's or [refreshServerConfiguration], rewrites the stored copy
@@ -931,7 +931,7 @@ class Client(
 
     /**
      * Fetch this deployment's configuration now, rewrite the stored copy, and
-     * return what the deployment answered (spec 006 CFG-082).
+     * return what the deployment answered.
      *
      * Applies the same validation, storage, and identifier binding the hourly
      * refresh worker applies. [serverConfiguration] is unchanged by this call.

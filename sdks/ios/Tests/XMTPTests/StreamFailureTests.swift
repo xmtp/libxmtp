@@ -2,6 +2,7 @@ import XCTest
 @testable import XMTPiOS
 
 final class StreamFailureTests: XCTestCase {
+	// verifies: PROC-018
 	func testReadsTypedDetailsFromThePublicErrorProperty() throws {
 		let message = "[BarrierError::Incomplete] failed\n[XMTP_STREAM_FAILURE_V1]" + """
 		{"kind":"barrier","code":"BarrierError::Incomplete",

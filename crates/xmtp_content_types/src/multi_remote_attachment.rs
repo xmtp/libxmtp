@@ -68,6 +68,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-007
     fn test_encode_decode() {
         let attachment_info_1 = RemoteAttachmentInfo {
             content_digest: "0123456789abcdef".to_string(),

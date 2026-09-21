@@ -163,6 +163,7 @@ async fn assert_count(server: &RunningServer, expected: i64) {
     assert_eq!(i64::from(topic_count), expected);
 }
 
+// verifies: PUSH-254, PUSH-255
 #[xmtp_common::test(unwrap_try = true)]
 async fn registration_hashes_secret_and_renewal_preserves_subscriptions() {
     let server = TestServer::new(configured).await?;
@@ -233,6 +234,7 @@ async fn registration_hashes_secret_and_renewal_preserves_subscriptions() {
     server.stop().await?;
 }
 
+// verifies: PUSH-216
 #[xmtp_common::test(unwrap_try = true)]
 async fn updates_keep_start_positions_and_round_trip_key_slots() {
     use xmtp_mls_validation::test_utils::inline_welcome_envelope;
@@ -323,6 +325,7 @@ async fn updates_keep_start_positions_and_round_trip_key_slots() {
     server.stop().await?;
 }
 
+// verifies: PUSH-217
 #[xmtp_common::test(unwrap_try = true)]
 async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updates() {
     let server = TestServer::new(|config| {
@@ -372,6 +375,7 @@ async fn topic_limit_rolls_back_removes_and_adds_and_serializes_concurrent_updat
     server.stop().await?;
 }
 
+// verifies: PUSH-207
 #[xmtp_common::test(unwrap_try = true)]
 async fn unregister_cascades_even_after_the_provider_is_removed() {
     let server = TestServer::new(configured).await?;

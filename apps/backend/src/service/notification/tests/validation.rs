@@ -10,6 +10,7 @@ fn webhook(url: &str, signing_key: Vec<u8>) -> api::RegisterRequest {
     }
 }
 
+// verifies: PUSH-253
 #[xmtp_common::test(unwrap_try = true)]
 async fn ownership_checks_precede_payload_checks_on_each_method() {
     let server = TestServer::new(configured).await?;
@@ -99,6 +100,7 @@ async fn ownership_checks_precede_payload_checks_on_each_method() {
     server.stop().await?;
 }
 
+// verifies: PUSH-210
 #[xmtp_common::test(unwrap_try = true)]
 async fn delivery_checks_follow_channel_url_and_key_order() {
     let server = TestServer::new(|_| {}).await?;
@@ -188,6 +190,7 @@ async fn delivery_checks_follow_channel_url_and_key_order() {
     server.stop().await?;
 }
 
+// verifies: PUSH-215
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_subscription_shape_failure_leaves_the_recipient_unchanged() {
     let server = TestServer::new(|config| {

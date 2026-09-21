@@ -163,6 +163,7 @@ async fn call(client: &impl Client, rpc: Rpc) -> Result<Bytes, ApiClientError> {
     }
 }
 
+// verifies: AUTH-020, AUTH-022
 #[rstest::rstest]
 #[case(Rpc::Unary)]
 #[case(Rpc::Stream)]
@@ -209,6 +210,7 @@ async fn bidi_rejection_returns_to_caller_and_next_open_refetches() {
     assert_eq!(callback.calls.load(Ordering::SeqCst), 2);
 }
 
+// verifies: AUTH-022, AUTH-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn second_rejection_returns_and_success_resets_failures() {
     let (client, peer, callback) = fixture();
@@ -278,6 +280,7 @@ async fn assert_locked(client: &AuthMiddleware<Arc<Peer>>) {
     }
 }
 
+// verifies: AUTH-023, AUTH-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn lockout_blocks_all_paths_and_set_clears_it() {
     let (client, peer, callback) = fixture();
@@ -303,6 +306,7 @@ async fn lockout_blocks_all_paths_and_set_clears_it() {
     );
 }
 
+// verifies: AUTH-023
 #[rstest::rstest]
 #[case(false, false)]
 #[case(true, false)]
@@ -385,6 +389,7 @@ async fn concurrent_failures_are_capped() {
     assert_eq!(peer.sent.lock().await.len(), concurrent);
 }
 
+// verifies: AUTH-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn shared_handles_debounce_stale_credentials_but_callbacks_do_not_share_state() {
     let (client, peer, callback) = fixture();
@@ -423,6 +428,7 @@ async fn shared_handles_debounce_stale_credentials_but_callbacks_do_not_share_st
     assert_eq!(callback.calls.load(Ordering::SeqCst), 12);
 }
 
+// verifies: AUTH-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn callback_errors_are_redacted_and_count_toward_lockout() {
     let (client, peer, callback) = fixture();
@@ -476,6 +482,7 @@ async fn callback_cancellation_does_not_change_state() {
     assert_eq!(peer.sent.lock().await.len(), 1);
 }
 
+// verifies: AUTH-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn set_during_a_refetch_wins() {
     let (client, peer, callback) = fixture();
@@ -506,6 +513,7 @@ async fn set_during_a_refetch_wins() {
     assert_eq!(callback.calls.load(Ordering::SeqCst), calls_after_set);
 }
 
+// verifies: AUTH-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn permission_denied_and_other_errors_pass_through() {
     let (client, peer, callback) = fixture();
@@ -522,6 +530,7 @@ async fn permission_denied_and_other_errors_pass_through() {
     assert_eq!(state.failures, 0);
 }
 
+// verifies: AUTH-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn handle_only_rejections_never_lock_out() {
     let peer = Arc::new(Peer::default());
@@ -660,6 +669,7 @@ xmtp_common::if_native! {
     /// 100 ms, so repeated reopen rejections reach the failure limit in well
     /// under a second. A shutdown there would lose every subscription for the
     /// life of the process, because nothing restarts the transport task.
+    // verifies: AUTH-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn transport_waits_out_the_auth_lockout_instead_of_shutting_down() {
         use crate::queries::{BackendBinding, BidiConnection};

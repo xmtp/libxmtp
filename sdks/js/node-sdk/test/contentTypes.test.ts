@@ -1238,6 +1238,7 @@ describe("Content types", () => {
       consoleWarnSpy.mockRestore();
     });
 
+    // verifies: CTYPE-007, CTYPE-017
     it("should send and receive custom content", async () => {
       const { signer: signer1 } = createSigner();
       const { signer: signer2 } = createSigner();
@@ -1262,6 +1263,7 @@ describe("Content types", () => {
       expect(message?.contentType).toEqual(testCodec.contentType);
     });
 
+    // verifies: CTYPE-008
     it("should have undefined content when receiving custom content without codec", async () => {
       const { signer: signer1 } = createSigner();
       const { signer: signer2 } = createSigner();
@@ -1299,6 +1301,7 @@ describe("Content types", () => {
       }
     });
 
+    // verifies: CTYPE-008, PROC-028
     it("should have undefined content when receiving custom content with decode failure", async () => {
       const { signer: signer1 } = createSigner();
       const { signer: signer2 } = createSigner();

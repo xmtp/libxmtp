@@ -15,6 +15,7 @@ impl api::identity_service_server::IdentityService for Backend {
     /// Input identifiers are normalized before the read. Missing associations
     /// stay absent in the corresponding response entry; the read pool may lag
     /// the primary when a replica is configured.
+    // implements: API-270
     async fn get_inbox_ids(
         &self,
         request: Request<api::GetInboxIdsRequest>,
@@ -51,6 +52,7 @@ impl api::identity_service_server::IdentityService for Backend {
     /// Malformed account IDs and hashes fail before verifier calls. Provider
     /// failures map to `UNAVAILABLE`, while a negative signature verdict is a
     /// successful response with `is_valid` set to false.
+    // implements: API-231, API-271
     async fn verify_smart_contract_wallet_signatures(
         &self,
         request: Request<api::VerifySmartContractWalletSignaturesRequest>,

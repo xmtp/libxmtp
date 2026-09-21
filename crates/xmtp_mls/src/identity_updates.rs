@@ -322,7 +322,7 @@ where
             )
             .await?;
 
-        // CFG-069 and CFG-070: the app fills this request in, so bind it to
+        // The app fills this request in, so bind it to
         // the chains the deployment accepts before it leaves the client.
         self.context
             .server_configuration()
@@ -362,7 +362,7 @@ where
             )
             .await?;
 
-        // CFG-069 and CFG-070: the app fills this request in, so bind it to
+        // the app fills this request in, so bind it to
         // the chains the deployment accepts before it leaves the client.
         self.context
             .server_configuration()
@@ -419,7 +419,7 @@ where
             inbox_id,
             installation_ids,
         )?;
-        // CFG-069: every request this client hands back is bound to the
+        // Every request this client hands back is bound to the
         // deployment's accepted chains, so an app cannot sign it from a chain
         // the deployment refuses.
         self.context.server_configuration().restrict(&mut result);
@@ -466,7 +466,7 @@ where
         &self,
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
-        // CFG-051 and CFG-061: a latched client publishes no identity update.
+        // A latched client publishes no identity update.
         self.context.server_configuration().check()?;
         let inbox_id = signature_request.inbox_id().to_string();
 

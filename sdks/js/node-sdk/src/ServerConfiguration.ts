@@ -1,6 +1,6 @@
 /**
  * Typed failures for the deployment configuration a backend publishes
- * (spec 006 §7, CFG-083).
+ * (spec 006 §7).
  *
  * The bindings report every one of these as an `Error` whose message begins
  * with `[ClientError::<Variant>]`. Matching on that string is what this module
@@ -98,6 +98,7 @@ export class ChainNotAcceptedError extends ServerConfigurationError {
 
 const configurationCode = /^\[(ClientError::[A-Za-z]+)\]\s*([\s\S]*)$/;
 
+// implements: CONF-064
 const build = (
   code: string,
   message: string,

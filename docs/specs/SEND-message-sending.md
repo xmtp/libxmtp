@@ -23,14 +23,14 @@ flowchart LR
 
 In scope: what an app's send stores before publishing its message; the message id and the idempotency key; preparing an attempt once and retrying its exact bytes; publish receipts; the order in which a group's intents publish; confirmation through ordered processing; what an app observes for each failure; and what becomes of an intent that can never publish.
 
-Out of scope: publish atomicity and duplicate detection on the backend (API); receipt and ordered processing of the echo (PROC); what a commit contains and how it is validated (GMOD); building and wrapping Welcomes (JOIN); the guarded app-data write (META); the content encoding inside a message (CTYPE); consent recorded on send (CONS); and push flags (PUSH).
+Out of scope: publish atomicity and duplicate detection on the backend (API); receipt and ordered processing of the echo (PROC); what a commit contains and how it is validated (GMOD); building and wrapping Welcomes (JOIN); the guarded app-data write (`?META`); the content encoding inside a message (CTYPE); consent recorded on send (CONS); and push flags (PUSH).
 
 | Related | Relation |
 | --- | --- |
 | PROC | Owns the receipt path, ordered processing, and delivery to app streams. This spec owns what a send stores, what it sends, and how the echo resolves it. |
 | API | Owns the publish RPC, the `message_hash` the backend assigns, and duplicate detection by that hash. This spec owns what the client sends and resends. |
 | GMOD | Owns the content and validation of commits. This spec owns how a commit intent is queued, published, and resolved. |
-| META | Owns the guard on an app-data write. This spec owns what a guard miss does to the intent. |
+| `?META` | Needs the guard comparison for an app-data write. This spec owns what a guard miss does to the intent. |
 
 ## Terms
 
@@ -159,7 +159,7 @@ When intent synchronization ends while a receipt exists but ordered processing h
 
 ## 5. Intents that cannot publish
 
-Three things end an intent without a successful echo. A rejection under SEND-009 or SEND-016. A guard miss under META: the committed value no longer matches the write's guard, so the intent is superseded without publication. And removal: a commit that removes this installation makes every unpublished or unresolved intent of that group unpublishable, and the messages behind them are failed so that the app does not show them as pending for ever. An intent whose commit was applied before the removal still owes its Welcomes and completes them.
+Three things end an intent without a successful echo. A rejection under SEND-009 or SEND-016. A guard miss under `?META`: the committed value no longer matches the write's guard, so the intent is superseded without publication. META needs to define which committed value the guard compares and how equality is tested. And removal: a commit that removes this installation makes every unpublished or unresolved intent of that group unpublishable, and the messages behind them are failed so that the app does not show them as pending for ever. An intent whose commit was applied before the removal still owes its Welcomes and completes them.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

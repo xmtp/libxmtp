@@ -116,6 +116,7 @@ pub enum ServeError {
 /// The service implementations share the supplied backend. The listener and
 /// shutdown future belong to the caller, which controls when serving starts and
 /// ends. Auth state must come from `initialize`; inconsistent state fails closed.
+// implements: OPS-004, API-283, API-285
 pub async fn serve(
     backend: Backend,
     listener: TcpListener,

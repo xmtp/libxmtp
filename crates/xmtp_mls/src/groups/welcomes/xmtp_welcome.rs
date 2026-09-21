@@ -241,6 +241,7 @@ where
 
     /// Require an authenticated anchor before this Welcome's sequence.
     /// Zero is valid only for epoch zero or an Oneshot Welcome.
+    // implements: JOIN-036, JOIN-037, JOIN-038
     fn join_anchor(&self, decrypted: &DecryptedWelcome) -> Result<Cursor, GroupError> {
         let metadata = extract_group_metadata(
             decrypted
@@ -794,6 +795,7 @@ mod tests {
         alix_group.test_can_talk_with(&bo_group).await?;
     }
 
+    // verifies: JOIN-044
     #[rstest::rstest]
     #[case::late_active_prefix(false)]
     #[case::live_retired_controller(true)]

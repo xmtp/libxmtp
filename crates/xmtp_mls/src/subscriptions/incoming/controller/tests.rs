@@ -369,6 +369,7 @@ fn reopening_after_the_last_release_keeps_the_controller_alive() {
     assert!(controller.commands.is_closed());
 }
 
+// verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_second_scope_captures_a_fresh_target_on_the_shared_registration() {
     let mut context = context();
@@ -402,6 +403,7 @@ async fn a_second_scope_captures_a_fresh_target_on_the_shared_registration() {
     assert!(controller.transport.subscription().is_none());
 }
 
+// verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_barrier_keeps_its_fixed_target_across_registration_and_target_replies() {
     tester!(alix, disable_workers);
@@ -1083,6 +1085,7 @@ fn a_permanent_source_error_retries_with_backoff_and_recovers() {
     );
 }
 
+// verifies: PROC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     tester!(alix, disable_workers);
@@ -1182,6 +1185,7 @@ async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {
     );
 }
 
+// verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged() {
     use xmtp_db::{TransactionOutcome, XmtpMlsStorageProvider};
@@ -1453,6 +1457,7 @@ async fn each_kind_keeps_its_budget_and_only_committed_chunks_are_acknowledged()
     task.join().await?;
 }
 
+// verifies: PROC-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn byte_chunks_validate_the_complete_input_before_receipt() {
     tester!(alix, disable_workers);

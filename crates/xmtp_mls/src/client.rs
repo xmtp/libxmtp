@@ -447,18 +447,17 @@ impl<Context> Client<Context>
 where
     Context: XmtpSharedContext,
 {
-    /// What this deployment published about itself, as resolved at build
-    /// (CFG-030, CFG-080). A refresh rewrites the stored copy; it never changes
+    /// What this deployment published about itself, as resolved at build.
+    /// A refresh rewrites the stored copy; it never changes
     /// this value.
     pub fn server_configuration(&self) -> &xmtp_configuration::ServerConfiguration {
         self.context.server_configuration().configuration()
     }
 
-    /// Fetch the deployment configuration now and rewrite the stored copy
-    /// (CFG-082).
+    /// Fetch the deployment configuration now and rewrite the stored copy.
     ///
-    /// Applies the same validation (CFG-044), storage (CFG-048), and identifier
-    /// binding (CFG-051) the refresh worker applies. The snapshot this client is
+    /// Applies the same validation, storage, and identifier
+    /// binding the refresh worker applies. The snapshot this client is
     /// holding is unchanged: a new value takes effect at the next build.
     pub async fn refresh_server_configuration(
         &self,
@@ -471,7 +470,7 @@ where
             {
                 Ok(fetched) => fetched,
                 Err(error) => {
-                    // CFG-051: a latch closes every open stream, and cancelling
+                    // A latch closes every open stream, and cancelling
                     // is what closes them. The worker cancels after its turn;
                     // an explicit refresh has to do it here, because the latch
                     // it sets — a different deployment identifier — otherwise
@@ -494,7 +493,7 @@ where
                 %minimum,
                 "the backend now requires a newer libxmtp than this client"
             );
-            // CFG-061: the copy is stored either way, and the client stops.
+            // The copy is stored either way, and the client stops.
             let error = handle.latch(
                 crate::server_configuration::ConfigurationLatch::ClientVersionTooOld {
                     client,
@@ -766,7 +765,7 @@ where
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
     fn ensure_identity_ready(&self) -> Result<(), ClientError> {
-        // CFG-051 and CFG-061: once latched, every later call fails with the
+        // Once latched, every later call fails with the
         // reason. This is the gate every client-level operation already passes
         // through, so the check costs nothing extra.
         self.context.server_configuration().check()?;
@@ -1139,7 +1138,7 @@ where
         signature_request: SignatureRequest,
     ) -> Result<(), ClientError> {
         tracing::info!("registering identity");
-        // CFG-051 and CFG-061: registration is a network call like any other.
+        // Registration is a network call like any other.
         self.context.server_configuration().check()?;
 
         // Handle crash recovery - if already registered, just mark ready and return
@@ -1267,7 +1266,7 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
-        // CFG-051 and CFG-061: a latched client publishes nothing. This one
+        // A latched client publishes nothing. This one
         // reaches `Identity` directly instead of going through a group or the
         // publish path, so it carries its own gate.
         self.ensure_identity_ready()?;
@@ -1414,7 +1413,7 @@ where
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<HashMap<Identifier, bool>, ClientError> {
-        // CFG-051 and CFG-061: a latched client issues no request. The latch
+        // A latched client issues no request. The latch
         // alone, not `ensure_identity_ready`, because this answers before the
         // caller has registered an identity.
         self.context.server_configuration().check()?;

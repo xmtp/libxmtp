@@ -38,6 +38,7 @@ const source = (
 });
 
 describe("MessageStream acknowledgement boundaries", () => {
+  // verifies: PROC-028
   it("acknowledges only at the following next request", async () => {
     const first = token();
     const second = token();
@@ -57,6 +58,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     expect(reader.close).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-031, PROC-032
   it("reselects a stale queued item without consuming it", async () => {
     const stale = token();
     stale.checkOwner.mockReturnValue(false);
@@ -72,6 +74,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     await stream.end();
   });
 
+  // verifies: PROC-032
   it("reselects when a removed item has no decoded value", async () => {
     const removed = token();
     removed.checkOwner.mockReturnValue(false);
@@ -91,6 +94,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     await stream.end();
   });
 
+  // verifies: PROC-028
   it("rejects the retained token when next-request acknowledgement fails", async () => {
     const pending = token();
     pending.acknowledge.mockRejectedValue(new Error("acknowledgement failed"));
@@ -103,6 +107,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     expect(reader.nextDelivery).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-028
   it("does not hand off a value after an async decode is cancelled", async () => {
     const pending = token();
     const reader = source({ message: 1, cursor, acknowledgement: pending });
@@ -123,6 +128,7 @@ describe("MessageStream acknowledgement boundaries", () => {
 });
 
 describe("MessageStream callback mode", () => {
+  // verifies: PROC-028
   it("starts without iteration and acknowledges each successful callback", async () => {
     const first = token();
     const second = token();
@@ -151,6 +157,7 @@ describe("MessageStream callback mode", () => {
     expect(reader.close).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-028
   it("waits for the returned callback promise before acknowledgement or another read", async () => {
     const pending = token();
     const finished = Promise.withResolvers<undefined>();
@@ -175,6 +182,7 @@ describe("MessageStream callback mode", () => {
     expect(pending.reject).not.toHaveBeenCalled();
   });
 
+  // verifies: PROC-028
   it.each(["throw", "reject"] as const)(
     "rejects and closes when the callback uses %s",
     async (failure) => {
@@ -207,6 +215,7 @@ describe("MessageStream callback mode", () => {
     },
   );
 
+  // verifies: PROC-028
   it("rejects a callback item immediately on close and never acknowledges it later", async () => {
     const pending = token();
     const finished = Promise.withResolvers<undefined>();
@@ -229,6 +238,7 @@ describe("MessageStream callback mode", () => {
     expect(reader.nextDelivery).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-031
   it("does not yield between a synchronous ownership check and the callback", async () => {
     const pending = token();
     let current = true;
@@ -249,6 +259,7 @@ describe("MessageStream callback mode", () => {
     expect(pending.acknowledge).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-028
   it("rejects the pending item when callback acknowledgement fails", async () => {
     const pending = token();
     const error = new Error("acknowledgement failed");

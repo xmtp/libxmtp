@@ -121,6 +121,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		)
 	}
 
+	// verifies: PROC-028, PROC-033
 	func testReceiveAndFirstNextDoNotAcknowledgeButSecondNextDoes() async throws {
 		for includeFiltered in [false, true] {
 			let acknowledged = expectation(description: "first item acknowledged")
@@ -164,6 +165,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-028
 	func testFinishRejectsTheLastAndQueuedItemsAndClosesOnce() async throws {
 		let closed = expectation(description: "closed once")
 		closed.assertForOverFulfill = true
@@ -184,6 +186,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		await fulfillment(of: [closed], timeout: 3)
 	}
 
+	// verifies: PROC-028
 	func testDroppingTheFullStreamRejectsPendingItemsAndClosesTheSubscription() async throws {
 		for consume in [false, true] {
 			let received = expectation(description: "delivery received")
@@ -227,6 +230,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-028
 	func testCancellationBeforeHandoffRejectsTheItem() async throws {
 		for content in [TestContent.text, .forgedMembership] {
 			let token = Token(onCheck: {
@@ -245,6 +249,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-031, PROC-032
 	func testSelectionChangeRejectsTheStaleItemAndWaitsForFreshSelection() async throws {
 		for content in [TestContent.text, .forgedMembership] {
 			let rejected = expectation(description: "stale item rejected")
@@ -267,6 +272,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-031
 	func testFinishDuringOwnershipCheckPreventsHandoff() async throws {
 		for content in [TestContent.text, .forgedMembership] {
 			let stream = MessageDeliveryStream(onClose: nil)
@@ -335,6 +341,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-028
 	func testAcknowledgementFailureRejectsBothItemsAndStops() async throws {
 		for content in [TestContent.text, .forgedMembership] {
 			let queued = Token()
@@ -359,6 +366,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
+	// verifies: PROC-028
 	func testOneSlotOverflowRejectsBothItemsWithoutHandoff() async throws {
 		let first = Token()
 		let second = Token()

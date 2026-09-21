@@ -39,6 +39,7 @@ async fn ordered_query_returns_one_bounded_page_with_its_start_cursor() {
     assert_eq!(page.batches[0].envelopes.len(), 2);
 }
 
+// verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn ordered_query_reduces_the_page_before_exceeding_the_byte_limit() {
     let topic = Topic::new_group_message([1; 16]);
@@ -70,6 +71,7 @@ async fn ordered_query_reduces_the_page_before_exceeding_the_byte_limit() {
     assert_eq!(page.batches[0].envelopes.len(), 1);
 }
 
+// verifies: PROC-020
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_envelope_above_the_byte_limit_fails_without_skipping_it() {
     let topic = Topic::new_group_message([1; 16]);
@@ -98,6 +100,7 @@ async fn one_envelope_above_the_byte_limit_fails_without_skipping_it() {
     ));
 }
 
+// verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn newest_targets_keep_absent_topics_at_zero() {
     let present = Topic::new_group_message([1; 16]);

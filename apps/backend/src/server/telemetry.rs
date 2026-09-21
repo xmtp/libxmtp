@@ -91,6 +91,7 @@ struct Completion {
     ended: bool,
 }
 impl Drop for Completion {
+    // implements: OPS-018
     fn drop(&mut self) {
         let state = &self.state;
         let code = state.status.0.lock().unwrap_or(if self.ended {
@@ -144,6 +145,7 @@ where
 
     /// Count only consumed data frames. The guard also covers cancellation before
     /// response headers, and never buffers or trusts a declared content length.
+    // implements: OPS-011, OPS-012
     fn call(&mut self, request: Request<B>) -> Self::Future {
         if !is_grpc(&request) {
             return Box::pin(self.inner.call(request.map(Body::new)));

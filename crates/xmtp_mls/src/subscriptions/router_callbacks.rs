@@ -78,7 +78,7 @@ where
     C::SubscribeStream: 'static,
 {
     let key = (api.host().to_owned(), api.api_client_identity());
-    // CFG-064: interest-update frames are chunked here, below
+    // Interest-update frames are chunked here, below
     // `ApiClientWrapper`, so the caps come from the transport's own copy of the
     // snapshot. Whoever creates the transport donates them along with the API
     // client, and a transport that was never told keeps the compiled defaults.

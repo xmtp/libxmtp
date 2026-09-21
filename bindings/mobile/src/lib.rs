@@ -151,7 +151,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
 /// Keep the error code prefix and append structured details for processing failures.
 /// The flat error keeps existing callback interfaces compatible.
 ///
-/// The six server-configuration conditions of CFG-083 are separate variants, so
+/// The six server-configuration conditions are separate variants, so
 /// Kotlin and Swift match on a type instead of reading a message. Each one keeps
 /// the originating [`GenericError`] beside the structured fields, so its error
 /// code and message are exactly what they were before the variant existed.
@@ -159,30 +159,30 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for GenericError {
 #[uniffi(flat_error)]
 pub enum FfiError {
     Error(GenericError),
-    /// CFG-041: the backend did not serve its configuration, or the answer
+    /// The backend did not serve its configuration, or the answer
     /// could not be stored.
     ConfigurationUnavailable(GenericError),
-    /// CFG-044: the backend published a configuration this client cannot use.
+    /// The backend published a configuration this client cannot use.
     ConfigurationInvalid(GenericError),
-    /// CFG-051: this database is bound to one backend and a different one
+    /// This database is bound to one backend and a different one
     /// answered.
     BackendMismatch {
         error: GenericError,
         stored: String,
         received: String,
     },
-    /// CFG-060 and CFG-061: the backend requires a newer libxmtp than this build.
+    /// The backend requires a newer libxmtp than this build.
     ClientVersionTooOld {
         error: GenericError,
         client: String,
         minimum: String,
     },
-    /// CFG-062: the backend requires a credential and none was configured.
+    /// The backend requires a credential and none was configured.
     AuthRequired {
         error: GenericError,
         required_scopes: Vec<String>,
     },
-    /// CFG-069 and CFG-070: the backend does not verify smart contract wallet
+    /// The backend does not verify smart contract wallet
     /// signatures on this chain.
     ChainNotAccepted {
         error: GenericError,
@@ -224,7 +224,7 @@ impl std::error::Error for FfiError {
     }
 }
 
-/// The structured fields one of the CFG-083 conditions carries, lifted out of
+/// The structured fields a configuration failure carries, lifted out of
 /// the error before it is moved into its [`FfiError`] variant.
 enum ConfigurationFailure {
     Unavailable,
@@ -247,6 +247,7 @@ enum ConfigurationFailure {
 }
 
 impl ConfigurationFailure {
+    // implements: CONF-064
     fn of(error: &GenericError) -> Option<Self> {
         let GenericError::Client(client) = error else {
             return None;
@@ -496,6 +497,7 @@ mod lib_tests {
 
 #[cfg(test)]
 mod auth_error_tests {
+    // verifies: AUTH-026
     #[xmtp_common::test(unwrap_try = true)]
     fn auth_codes_reach_mobile_errors() {
         use xmtp_common::ErrorCode;

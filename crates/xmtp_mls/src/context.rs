@@ -49,7 +49,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
-    /// (spec 006 CFG-030), plus the latch a refresh may set.
+    /// plus the latch a refresh may set.
     pub(crate) server_configuration: ServerConfigurationHandle,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
@@ -262,7 +262,7 @@ where
     }
 
     fn version_info(&self) -> &VersionInfo;
-    /// The configuration snapshot every consumer in spec 006 section 6.4 reads.
+    /// The configuration snapshot every consumer reads.
     fn server_configuration(&self) -> &ServerConfigurationHandle;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn local_events(&self) -> &broadcast::Sender<LocalEvents>;

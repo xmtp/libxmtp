@@ -7,6 +7,7 @@ use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 use xmtp_proto::types::TopicKind;
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-240, API-241, API-242
 async fn paging_coalesces_inputs_and_uses_one_total_clamped_limit() {
     let server = TestServer::new(|config| {
         config.limits.default_query_limit = 1;
@@ -59,6 +60,7 @@ async fn paging_coalesces_inputs_and_uses_one_total_clamped_limit() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-244
 async fn newest_preserves_complete_metadata_without_payload_and_omits_empty_topics() {
     let server = TestServer::new(|_| {}).await?;
     let envelope = inline_welcome_envelope([3; 32]);
@@ -129,6 +131,7 @@ async fn newest_limits_accept_exact_count_and_reject_one_past_for_both_modes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-243
 async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
     let server = TestServer::new(|config| {
         config.limits.max_query_topics = 2;
@@ -184,6 +187,7 @@ async fn reads_reject_invalid_topics_cursors_and_original_item_counts() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-283
 async fn full_query_and_newest_fail_when_response_bytes_exceed_the_cap() {
     let server = TestServer::new(|config| {
         config.limits.max_envelope_bytes = 1_024;

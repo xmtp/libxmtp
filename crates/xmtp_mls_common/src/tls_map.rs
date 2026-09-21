@@ -348,6 +348,7 @@ where
     K: Deserialize + Size + Ord + Eq,
     V: Deserialize + Size,
 {
+    // implements: META-012
     fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error>
     where
         Self: Sized,
@@ -483,6 +484,7 @@ where
     /// assert_eq!(map.get(&2), Some(&20));
     /// assert!(!map.contains_key(&1));
     /// ```
+    // implements: META-013
     pub fn apply_delta(&mut self, delta: TlsMapDelta<K, V>) -> Result<(), TlsMapError> {
         let mut undo_stack: Vec<UndoAction<K, V>> = Vec::with_capacity(delta.mutations.len());
 
@@ -699,6 +701,7 @@ mod tests {
                     }
 
                     #[test]
+                    // verifies: META-012
                     fn insertion_order_irrelevant(
                         pairs in proptest::collection::hash_map(
                             any::<$K>(), any::<$V>(), 2..$n
@@ -713,6 +716,7 @@ mod tests {
                     }
 
                     #[test]
+                    // verifies: META-012
                     fn keys_always_sorted(
                         pairs in proptest::collection::vec((any::<$K>(), any::<$V>()), 0..$n)
                     ) {
@@ -803,6 +807,7 @@ mod tests {
                     }
 
                     #[test]
+                    // verifies: META-013
                     fn delta_rollback_on_failure(
                         pairs in proptest::collection::vec(
                             (any::<$K>(), any::<$V>()), 1..std::cmp::min($n, 200)
@@ -842,6 +847,7 @@ mod tests {
 
                     /// Reject bytes where two entries are serialized in descending key order.
                     #[test]
+                    // verifies: META-012
                     fn rejects_unsorted(
                         a in any::<$K>(),
                         b in any::<$K>(),
@@ -865,6 +871,7 @@ mod tests {
 
                     /// Reject bytes where the same key appears twice.
                     #[test]
+                    // verifies: META-012
                     fn rejects_duplicates(
                         key in any::<$K>(),
                         va in any::<$V>(),
@@ -898,6 +905,7 @@ mod tests {
 
                     /// Insert new keys, update some existing keys, update+delete others.
                     #[test]
+                    // verifies: META-013
                     fn delta_apply_sequence(
                         existing in proptest::collection::hash_map(
                             any::<$K>(), any::<$V>(), 2..std::cmp::min($n, 50)

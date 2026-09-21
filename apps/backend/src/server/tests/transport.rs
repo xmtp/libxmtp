@@ -133,6 +133,7 @@ async fn grpc_web_post(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-004
 async fn health_check_reports_serving() {
     let server = TestServer::new(|_| {}).await?;
     let mut client = HealthClient::new(server.channel.clone());
@@ -200,6 +201,7 @@ async fn deprecated_legacy_path_returns_unimplemented() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-285
 async fn grpc_web_unary_matches_native_grpc_and_accepts_headers() {
     let server = TestServer::new(|_| {}).await?;
     let envelope = inline_welcome_envelope([7; 32]);
@@ -242,6 +244,7 @@ async fn grpc_web_unary_matches_native_grpc_and_accepts_headers() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-285
 async fn cors_preflight_allows_client_headers_and_exposes_status_details() {
     let server = TestServer::new(|_| {}).await?;
     let client = xmtp_common::http::client()?;
@@ -306,6 +309,7 @@ async fn cors_preflight_allows_client_headers_and_exposes_status_details() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-282
 async fn oversized_wire_request_is_rejected_without_publish_detail_or_write() {
     let envelope = inline_welcome_envelope([8; 32]);
     let request = api::PublishRequest {
@@ -345,6 +349,7 @@ fn encode_raw_frame(bytes: Vec<u8>) -> Vec<u8> {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-224, API-283
 async fn oversized_publish_response_reports_transport_error_after_commit() {
     let Some(metrics) = support::metrics::isolated(
         "server::tests::transport::oversized_publish_response_reports_transport_error_after_commit",

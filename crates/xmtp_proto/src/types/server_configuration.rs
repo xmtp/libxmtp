@@ -1,8 +1,8 @@
 //! Turning one `GetConfigurationResponse` into the snapshot the client holds.
 //!
 //! Zero or empty on the wire means "not provided", so every such field falls
-//! back to the compiled `BACKEND_DEFAULT_*` constant (CFG-031). The two
-//! exceptions the §5.2 table names are the identifier, which is rejected when
+//! back to the compiled `BACKEND_DEFAULT_*` constant. The two
+//! exceptions are the identifier, which is rejected when
 //! empty, and `commit_log_enabled`, which keeps `None` distinct from
 //! `Some(false)`.
 
@@ -14,6 +14,7 @@ use xmtp_configuration::{
 use crate::backend_v1;
 
 /// Take the published value, or the compiled default when it is zero.
+// implements: CONF-025
 fn or_default<T, W>(published: W, default: T) -> T
 where
     T: Copy + PartialEq + Default + TryFrom<W>,

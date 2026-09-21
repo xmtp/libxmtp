@@ -160,6 +160,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-012
     fn test_create_inbox() {
         let create_request = CreateInbox::default();
         let inbox_id = create_request
@@ -178,6 +179,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-042
     fn create_and_add_separately() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -212,6 +214,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-004
     fn create_and_add_together() {
         let create_action = CreateInbox::default();
         let account_address = create_action.account_identifier.clone();
@@ -323,6 +326,7 @@ pub(crate) mod tests {
         assert_eq!(new_state.members().len(), 3);
     }
 
+    // verifies: IDENT-012
     #[wasm_bindgen_test(unsupported = test)]
     fn reject_invalid_signature_on_create() {
         // Creates a signature with the wrong signer
@@ -350,6 +354,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-040
     fn reject_invalid_signature_on_update() {
         let initial_state = new_test_inbox();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -428,6 +433,7 @@ pub(crate) mod tests {
         ));
     }
 
+    // verifies: IDENT-041
     #[wasm_bindgen_test(unsupported = test)]
     fn reject_if_installation_adding_installation() {
         let existing_state = new_test_inbox_with_installation();
@@ -493,6 +499,7 @@ pub(crate) mod tests {
         assert!(new_state.get(&installation_id).is_none());
     }
 
+    // verifies: IDENT-044
     #[wasm_bindgen_test(unsupported = test)]
     fn revoke_children() {
         let initial_state = new_test_inbox_with_installation();
@@ -614,6 +621,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-043, IDENT-045
     fn change_recovery_address() {
         let initial_state = new_test_inbox_with_installation();
         let inbox_id = initial_state.inbox_id().to_string();
@@ -658,6 +666,7 @@ pub(crate) mod tests {
     }
 
     #[wasm_bindgen_test(unsupported = test)]
+    // verifies: IDENT-046
     fn scw_signature_binding() {
         let initial_chain_id: u64 = 1;
         let signer = Identifier::rand_ethereum();

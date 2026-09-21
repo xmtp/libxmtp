@@ -157,7 +157,7 @@ The catalogue lists identifiers, encodings, parameters, push values, and deletio
 
 Catalogue presence does not promise a codec class in every SDK. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 
-JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and section 3.1 provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
+JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and [SPEC section 3.1](SPEC-spec-format.md#31-type-blocks) provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
 
 | Type | Identifier | Content | Parameters | Push | Deletable |
 | --- | --- | --- | --- | --- | --- |

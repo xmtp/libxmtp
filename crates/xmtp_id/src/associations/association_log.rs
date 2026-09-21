@@ -117,6 +117,7 @@ pub struct CreateInbox {
 }
 
 impl IdentityAction for CreateInbox {
+    // implements: IDENT-011, IDENT-012
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -164,6 +165,7 @@ pub struct AddAssociation {
 }
 
 impl IdentityAction for AddAssociation {
+    // implements: IDENT-042
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
@@ -267,6 +269,7 @@ pub struct RevokeAssociation {
 }
 
 impl IdentityAction for RevokeAssociation {
+    // implements: IDENT-043, IDENT-044
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
@@ -432,6 +435,7 @@ impl IdentityUpdate {
 }
 
 impl IdentityAction for IdentityUpdate {
+    // implements: IDENT-002, IDENT-003
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
@@ -470,6 +474,7 @@ fn is_legacy_signature(signature: &VerifiedSignature) -> bool {
     signature.kind == SignatureKind::LegacyDelegated
 }
 
+// implements: IDENT-041
 fn allowed_association(
     existing_member_kind: MemberKind,
     new_member_kind: MemberKind,
@@ -488,6 +493,7 @@ fn allowed_association(
 }
 
 // Ensure that the type of signature matches the new entity's role.
+// implements: IDENT-031
 fn allowed_signature_for_kind(
     role: &MemberKind,
     signature_kind: &SignatureKind,

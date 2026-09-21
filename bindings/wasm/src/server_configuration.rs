@@ -1,8 +1,8 @@
 //! What one backend deployment publishes about itself, as the browser sees it.
 //!
-//! Spec 006 §7. An app reads the snapshot its client resolved at build
-//! (CFG-080), asks for a fresh copy (CFG-082), or learns what a deployment
-//! wants before it has a client at all (CFG-081).
+//! An app reads the snapshot its client resolved at build,
+//! asks for a fresh copy, or learns what a deployment
+//! wants before it has a client at all.
 //!
 //! Every numeric field is a JavaScript `number`. §7 requires that: the wire
 //! carries `uint32` and `uint64`, every published value is below 2^53, and an
@@ -14,7 +14,7 @@
 //!
 //! "Every published value is below 2^53" is not an assumption here: a value
 //! above `xmtp_configuration::MAX_PUBLISHED_VALUE` fails validation before a
-//! snapshot is ever built (CFG-044), so no `as f64` below can round.
+//! snapshot is ever built, so no `as f64` below can round.
 
 use crate::ErrorWrapper;
 use crate::client::Client;
@@ -26,7 +26,7 @@ use xmtp_api::{ApiClientWrapper, strategies};
 use xmtp_api_backend::MessageBackendBuilder;
 
 /// The public identity of one signing key the deployment accepts. Never the
-/// key itself (CFG-024).
+/// key itself.
 #[derive(Clone, Debug, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -191,6 +191,7 @@ pub struct ServerConfiguration {
   pub smart_contract_wallet_chains: Vec<String>,
 }
 
+// implements: CONF-061
 impl From<&xmtp_configuration::ServerConfiguration> for ServerConfiguration {
   fn from(configuration: &xmtp_configuration::ServerConfiguration) -> Self {
     Self {
@@ -207,7 +208,7 @@ impl From<&xmtp_configuration::ServerConfiguration> for ServerConfiguration {
 }
 
 /// Read a deployment's configuration with no database, no client, and no
-/// credential (CFG-081, CFG-045).
+/// credential.
 ///
 /// The transport arguments are the ones every other entry point takes: the
 /// backend URL and the optional app version sent as `x-app-version`. No auth
@@ -235,16 +236,15 @@ pub async fn fetch_server_configuration(
 
 #[wasm_bindgen]
 impl Client {
-  /// What this deployment published, as resolved when this client was built
-  /// (CFG-030, CFG-080). A refresh rewrites the stored copy; it never changes
+  /// What this deployment published, as resolved when this client was built.
+  /// A refresh rewrites the stored copy; it never changes
   /// this value.
   #[wasm_bindgen(js_name = serverConfiguration)]
   pub fn server_configuration(&self) -> ServerConfiguration {
     self.inner_client().server_configuration().into()
   }
 
-  /// Fetch the deployment configuration now and rewrite the stored copy
-  /// (CFG-082).
+  /// Fetch the deployment configuration now and rewrite the stored copy.
   ///
   /// Applies the same validation, storage, and identifier binding the refresh
   /// worker applies. The snapshot this client holds is unchanged; a new value
@@ -266,7 +266,7 @@ mod tests {
   use crate::tests::create_test_client;
   use xmtp_configuration::backend_test_url;
 
-  /// CFG-106: every field of the snapshot is readable through the binding.
+  // verifies: CONF-061, CONF-074
   #[xmtp_common::test(unwrap_try = true)]
   async fn server_configuration_exposes_every_field() {
     let client = create_test_client(None).await;
@@ -314,7 +314,7 @@ mod tests {
       limits.max_ping_burst,
     ] {
       // §7: every published value is a JavaScript number no larger than
-      // `MAX_PUBLISHED_VALUE`, which validation enforces (CFG-044), so the
+      // `MAX_PUBLISHED_VALUE`, which validation enforces, so the
       // `f64` an app reads is the value the deployment published.
       assert!(limit > 0.0);
       assert!(limit <= xmtp_configuration::MAX_PUBLISHED_VALUE as f64);
@@ -327,14 +327,14 @@ mod tests {
 
     let _: &Vec<String> = &configuration.smart_contract_wallet_chains;
 
-    // CFG-082: an explicit refresh answers with the same deployment.
+    // An explicit refresh answers with the same deployment.
     let refreshed = client.refresh_server_configuration().await?;
     assert_eq!(refreshed.identifier, configuration.identifier);
 
     client.close().await?;
   }
 
-  /// CFG-081, CFG-106: the static fetch needs no database and no client.
+  // verifies: CONF-062
   #[xmtp_common::test(unwrap_try = true)]
   async fn fetch_server_configuration_needs_no_client() {
     let configuration = fetch_server_configuration(backend_test_url(), None).await?;

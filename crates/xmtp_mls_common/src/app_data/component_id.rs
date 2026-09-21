@@ -202,12 +202,14 @@ impl Size for ComponentId {
     }
 }
 
+// implements: META-005
 impl Serialize for ComponentId {
     fn tls_serialize<W: Write>(&self, writer: &mut W) -> Result<usize, tls_codec::Error> {
         tls_codec::vlen::write_length(writer, self.0 as usize)
     }
 }
 
+// implements: META-005
 impl Deserialize for ComponentId {
     fn tls_deserialize<R: Read>(bytes: &mut R) -> Result<Self, tls_codec::Error>
     where
@@ -361,6 +363,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-005
     fn test_vlen_encoding_sizes() {
         // 1-byte vlen: 0..=0x3F
         assert_eq!(ComponentId::new(0).tls_serialized_len(), 1);
@@ -375,6 +378,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-005
     fn test_decode_rejects_value_above_u16_max() {
         // A QUIC vlen-encoded value of 0x10000 (one past u16::MAX) takes 4
         // bytes: prefix 0b10 (4-byte) || 0x00_01_00_00.

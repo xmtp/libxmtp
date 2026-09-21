@@ -91,6 +91,7 @@ async fn jwt_verifies_as_base64url_with_fixed_width_signature() {
     verify_token(&sender.token().await.unwrap())?;
 }
 
+// verifies: PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn http2_request_has_only_background_payload_and_exact_headers() {
     let provider = Provider::start(Protocol::Http2Tls, vec![Reply::json(200, json!({}))]).await?;
@@ -139,6 +140,7 @@ async fn http2_request_has_only_background_payload_and_exact_headers() {
     );
 }
 
+// verifies: PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn status_and_reason_together_define_deletion_and_mismatch() {
     let transient = Outcome::Transient { retry_after: None };

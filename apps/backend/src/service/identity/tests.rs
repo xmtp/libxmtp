@@ -64,6 +64,7 @@ async fn installation_members_are_excluded_from_identifier_lookup_projection() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-270
 async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_retries() {
     let server = TestServer::new(|config| config.limits.max_identity_entries = 2).await?;
     let fixture = identity_history_with_passkey().await;
@@ -117,6 +118,7 @@ async fn verified_identity_projects_normalized_positional_lookups_and_duplicate_
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-231
 async fn scw_missing_routes_are_unavailable_and_bad_request_shapes_are_invalid() {
     let server = TestServer::new(|_| {}).await?;
     let input = api::verify_smart_contract_wallet_signatures_request::Signature {
@@ -168,6 +170,7 @@ async fn scw_missing_routes_are_unavailable_and_bad_request_shapes_are_invalid()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-234
 async fn identity_cap_rejects_new_updates_but_preserves_readable_history() {
     let server = TestServer::new(|config| config.limits.max_identity_entries = 1).await?;
     let fixture = identity_history_with_passkey().await;
@@ -198,6 +201,7 @@ async fn identity_cap_rejects_new_updates_but_preserves_readable_history() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-270
 async fn revoking_latest_association_exposes_older_active_inbox() {
     use xmtp_id::associations::{
         builder::SignatureRequestBuilder,
@@ -422,6 +426,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-271
 async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "service::identity::tests::scw_verdicts_preserve_input_order_and_resolved_blocks",
@@ -474,6 +479,7 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-231
 async fn configured_chain_provider_failure_is_unavailable() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "service::identity::tests::configured_chain_provider_failure_is_unavailable",

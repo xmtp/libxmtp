@@ -469,10 +469,11 @@ impl Identity {
                 IdentityError::NewIdentity(format!("Error resolving identity state: {}", err))
             })?;
 
-            // CFG-067: the deployment sets the ceiling; the wrapper carries the
+            // The deployment sets the ceiling; the wrapper carries the
             // snapshot resolved before any identity work ran.
             let max_installations = api_client.configuration().mls.max_installations_per_inbox;
             let current_installation_count = state.installation_ids().len();
+            // implements: CONF-044
             if current_installation_count >= max_installations {
                 return Err(IdentityError::TooManyInstallations {
                     inbox_id: associated_inbox_id.clone(),

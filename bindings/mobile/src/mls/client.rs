@@ -816,8 +816,7 @@ impl FfiXmtpClient {
         self.sync_all_device_sync_groups().await
     }
 
-    /// What this deployment published about itself, as resolved at build
-    /// (CFG-030, CFG-080).
+    /// What this deployment published about itself, as resolved at build.
     ///
     /// The snapshot is fixed for the life of the client. A refresh rewrites the
     /// stored copy and never changes this value.
@@ -827,7 +826,7 @@ impl FfiXmtpClient {
     }
 
     /// Fetch the deployment configuration now, rewrite the stored copy, and
-    /// return what the backend answered (CFG-082).
+    /// return what the backend answered.
     ///
     /// Applies the same validation, storage, and identifier binding the refresh
     /// worker applies. The snapshot [`FfiXmtpClient::server_configuration`]

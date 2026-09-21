@@ -41,7 +41,7 @@ pub enum BarrierCause {
     InvalidTopic,
 }
 
-/// One fixed target and its latest durable progress (STR-042 and STR-043).
+/// One fixed target and its latest durable progress.
 #[derive(Debug, Clone)]
 pub struct BarrierTopic {
     /// The group, Welcome, or identity topic covered by this obligation.
@@ -386,6 +386,7 @@ pub async fn wait_through<C: XmtpSharedContext>(
     .await
 }
 
+// implements: PROC-015, PROC-016, PROC-018
 async fn wait_for_targets<C: XmtpSharedContext>(
     context: &C,
     mut targets: TopicCursor,

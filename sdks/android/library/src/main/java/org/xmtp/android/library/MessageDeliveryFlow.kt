@@ -40,6 +40,8 @@ internal interface MessageDeliveryCallback<T> {
 /**
  * Keep the token through the SDK queue and acknowledge after the direct collector returns.
  * App-added Flow queues have their own collection boundary.
+ *
+ * implements: PROC-028, PROC-031, PROC-032
  */
 internal fun <T> acknowledgedMessageFlow(
     onClose: (() -> Unit)?,

@@ -9,6 +9,7 @@ use xmtp_common::time::{Duration, Instant, timeout};
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-004, OPS-007
 async fn shutdown_marks_aggregate_and_named_health_services_not_serving() {
     use tonic_health::pb::{
         HealthCheckRequest, health_check_response::ServingStatus, health_client::HealthClient,
@@ -75,6 +76,7 @@ async fn blocked_publish(
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-007, OPS-008
 async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "server::tests::lifecycle::shutdown_fails_streams_immediately_and_drains_an_admitted_publish",
@@ -140,6 +142,7 @@ async fn shutdown_fails_streams_immediately_and_drains_an_admitted_publish() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-008
 async fn shutdown_deadline_cancels_unfinished_unary_work_without_a_commit() {
     let Some(metrics) = crate::test_support::metrics::isolated(
         "server::tests::lifecycle::shutdown_deadline_cancels_unfinished_unary_work_without_a_commit",

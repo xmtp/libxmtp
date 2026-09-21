@@ -86,6 +86,7 @@ async fn test_selective_publish_of_prepared_messages() {
 
 /// A caller-supplied idempotency key fully determines the message id (instead of
 /// a timestamp) and is persisted on the stored message.
+// verifies: SEND-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_explicit_idempotency_key_produces_deterministic_id() {
     tester!(alix);
@@ -149,6 +150,7 @@ async fn test_duplicate_idempotency_key_is_idempotent() {
 /// End-to-end: the idempotency key rides the wire so the receiver recomputes the
 /// exact same message id. This is the foundation of at-least-once-with-dedup:
 /// a retry of identical content with the same key collapses to one message id.
+// verifies: SEND-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_idempotency_key_crosses_the_wire() {
     tester!(alix);

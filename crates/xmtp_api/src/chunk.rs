@@ -43,9 +43,10 @@ pub struct PublishUnit {
     envelopes: Vec<PublishEnvelope>,
 }
 impl PublishUnit {
-    /// Build a unit against the shapes one deployment published (CFG-064,
-    /// CFG-065). A unit that cannot fit in a single request is rejected here,
+    /// Build a unit against the shapes one deployment published.
+    /// A unit that cannot fit in a single request is rejected here,
     /// before any network call.
+    // implements: CONF-073
     pub fn new_within(
         envelopes: Vec<wire::ClientEnvelope>,
         limits: &LimitsConfiguration,
@@ -131,8 +132,9 @@ impl<'a> PublishMeasure<'a> {
     }
 }
 
-/// Split units into requests the deployment accepts (CFG-064). A commit and
+/// Split units into requests the deployment accepts. A commit and
 /// its proposals are one unit and never straddle a chunk.
+// implements: CONF-073
 pub fn chunk_publish_within<'a>(
     units: &'a [PublishUnit],
     limits: &LimitsConfiguration,
@@ -288,6 +290,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
 
     /// Read one bounded ordered page without decoding MLS payloads.
     /// Commit each batch before requesting more from the new received prefix `F`.
+    // implements: PROC-020
     pub async fn query_ordered_page(
         &self,
         cursors: TopicCursor,
@@ -395,6 +398,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
 
     /// Capture fixed newest targets. Absent topics have target zero.
     /// Keep these targets unchanged while waiting for processing to reach them.
+    // implements: PROC-015
     pub async fn newest_topic_cursors(&self, topics: Vec<Topic>) -> Result<TopicCursor> {
         let mut cursors: TopicCursor = topics
             .iter()

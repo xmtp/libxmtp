@@ -16,6 +16,7 @@ use xmtp_id::{
 use xmtp_mls_validation::test_utils::{identity_envelope, scw_create_inbox_update};
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-212
 async fn new_envelopes_use_transaction_start_time_even_after_a_wait() {
     let server = TestServer::new(|_| {}).await?;
     let mut pending = Vec::new();
@@ -106,6 +107,7 @@ async fn paused_server(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-222
 async fn committed_duplicate_wins_over_a_concurrent_validation_failure() {
     let (server, entered, resume) = paused_server(false).await?;
     let envelope = identity_envelope(scw_create_inbox_update());
@@ -122,6 +124,7 @@ async fn committed_duplicate_wins_over_a_concurrent_validation_failure() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-232
 async fn changed_history_aborts_all_new_rows_after_verification() {
     let (server, entered, resume) = paused_server(true).await?;
     let original = scw_create_inbox_update();
@@ -216,6 +219,7 @@ async fn ordered_writers(
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-201
 async fn distinct_same_topic_writers_allocate_in_commit_order() {
     use xmtp_mls_validation::test_utils::{inline_welcome_envelope, welcome_pointer_envelope};
     ordered_writers(
@@ -239,6 +243,7 @@ async fn identity_writers_on_distinct_inboxes_allocate_in_commit_order() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220, API-281
 async fn timed_out_publish_releases_locks_and_discards_allocated_rows() {
     let server = TestServer::new(|config| {
         config.database.max_statement_timeout_ms = 500;
@@ -397,6 +402,7 @@ async fn cumulative_publish_deadline_releases_database_locks_before_statement_ti
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220
 async fn projection_failure_after_writes_rolls_back_the_publish_transaction() {
     let server = TestServer::new(|_| {}).await?;
     let pool = &server.backend.store.primary;

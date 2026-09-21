@@ -90,6 +90,7 @@ pub enum ComponentPermissionError {
 ///    list) have permissions enforced in code: super admin only.
 /// 3. **Registry lookup**: All other components must have an entry in the
 ///    component registry. No entry = denied (deny by default).
+// implements: META-004, PERM-005, PERM-011, PERM-012, PERM-014
 pub fn validate_component_write(
     change: &ComponentChange<'_>,
     registry: &ComponentRegistry,
@@ -186,6 +187,7 @@ impl PolicyOutcome {
 ///   conservative choice.
 /// - Empty `AndCondition` / `AnyCondition` are `Invalid` rather than
 ///   vacuously `Allow`/`Deny`.
+// implements: PERM-007, PERM-008
 fn evaluate_policy_proto(
     proto: &MetadataPolicyProto,
     change: &ComponentChange<'_>,
@@ -221,6 +223,7 @@ fn evaluate_policy_proto(
     }
 }
 
+// implements: PERM-006, PERM-008
 fn evaluate_base_policy(base: i32, actor: ActorAuthority) -> PolicyOutcome {
     let base = match MetadataBasePolicy::try_from(base) {
         Ok(b) => b,
@@ -325,6 +328,7 @@ mod tests {
     // === Immutability Tests ===
 
     #[xmtp_common::test]
+    // verifies: META-004
     fn test_immutable_insert_allowed() {
         let id = ComponentId::CONVERSATION_TYPE;
         let reg = setup_registry_with(id, allow(), deny(), deny());
@@ -334,6 +338,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-004
     fn test_immutable_update_rejected() {
         let id = ComponentId::CONVERSATION_TYPE;
         let reg = setup_registry_with(id, allow(), allow(), allow());
@@ -349,6 +354,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-004
     fn test_immutable_delete_rejected() {
         let id = ComponentId::CONVERSATION_TYPE;
         let reg = setup_registry_with(id, allow(), allow(), allow());
@@ -377,6 +383,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-005
     fn test_registry_admin_rejected() {
         let reg = ComponentRegistry::new();
         let actor = admin();
@@ -391,6 +398,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-005
     fn test_registry_member_rejected() {
         let reg = ComponentRegistry::new();
         let actor = member();
@@ -416,6 +424,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-005
     fn test_super_admin_list_admin_rejected() {
         let reg = ComponentRegistry::new();
         let actor = admin();
@@ -499,6 +508,7 @@ mod tests {
     // === Registry Lookup Tests ===
 
     #[xmtp_common::test]
+    // verifies: PERM-012
     fn test_deny_by_default_no_entry() {
         let reg = ComponentRegistry::new();
         let actor = super_admin();
@@ -513,6 +523,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-006
     fn test_insert_allow_policy() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), deny(), deny());
         let actor = member();
@@ -524,6 +535,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-006
     fn test_update_admin_only_policy_admin_passes() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), admin_only(), deny());
         let actor = admin();
@@ -535,6 +547,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-006
     fn test_update_admin_only_policy_member_fails() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), admin_only(), deny());
         let actor = member();
@@ -552,6 +565,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-006
     fn test_delete_deny_policy() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), allow(), deny());
         let actor = super_admin();
@@ -569,6 +583,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-006
     fn test_delete_super_admin_only_policy() {
         let reg = setup_registry_with(
             ComponentId::GROUP_NAME,
@@ -585,6 +600,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-011
     fn test_different_insert_vs_update_permissions() {
         // Mimics group membership: anyone can update, only admin can insert
         let reg = setup_registry_with(
@@ -637,6 +653,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: PERM-014
     fn test_app_range_component() {
         let app_id = ComponentId::new(0xC100);
         let reg = setup_registry_with(app_id, allow(), allow(), deny());

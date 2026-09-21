@@ -401,6 +401,7 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
 // validate_one_app_data_update_with_old_value — receiver invariants
 // ------------------------------------------------------------------------
 
+// verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_last_super_admin_removal() {
     use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
@@ -429,6 +430,7 @@ fn receiver_rejects_last_super_admin_removal() {
     ));
 }
 
+// verifies: PERM-004
 #[xmtp_common::test(unwrap_try = true)]
 fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
     use xmtp_mls_common::app_data::components::inbox_id_set::SuperAdminListComponent;
@@ -622,6 +624,7 @@ fn unknown_component_in_xmtp_range_rejected_without_registry_entry() {
 /// component exists via the registry write that newer clients ship
 /// alongside the component, and policy gates the write the same way it
 /// would for a known component.
+// verifies: PERM-014
 #[test]
 fn unknown_component_in_xmtp_range_allowed_when_registry_permits() {
     let reg = registry_with(
@@ -728,6 +731,7 @@ fn unknown_component_remove_with_no_prior_rejected_without_registry_entry() {
 /// Unknown id Remove with permissive delete policy passes — same
 /// contract as known components. Pins that the validator doesn't
 /// require `old_value` to be present for the unknown-Remove path.
+// verifies: PERM-014
 #[test]
 fn unknown_component_remove_allowed_when_registry_permits_delete() {
     let reg = registry_with(

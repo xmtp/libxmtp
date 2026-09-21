@@ -27,7 +27,7 @@ export type ClientAction =
         /**
          * The snapshot the core resolved at build. A worker action cannot be
          * synchronous, so the snapshot travels with the init result and the
-         * main thread answers `serverConfiguration()` from it (CFG-080).
+         * main thread answers `serverConfiguration()` from it.
          */
         serverConfiguration: ServerConfiguration;
       };

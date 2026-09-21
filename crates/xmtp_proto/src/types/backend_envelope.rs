@@ -16,6 +16,7 @@ pub struct CanonicalEnvelope {
 ///
 /// Inner payload bytes are copied exactly as supplied. This function does not
 /// validate the payload or calculate the separate client MLS message ID.
+// implements: API-211
 pub fn canonical_envelope(envelope: &ClientEnvelope) -> CanonicalEnvelope {
     let bytes = envelope.encode_to_vec();
     let hash = sha256_array(&bytes);
@@ -34,7 +35,8 @@ mod tests {
         identity::associations::{IdentityUpdate, RecoverableEd25519Signature},
     };
 
-    /// P1-VAL-05, API-020/023/025, SEC-016. Same vector on native and wasm.
+    /// Same vector on native and wasm.
+    // verifies: API-211
     #[xmtp_common::test(unwrap_try = true)]
     fn all_payloads_have_stable_canonical_bytes_and_distinct_outer_hashes() {
         // Reordered inner fields and an unknown outer field are noncanonical.

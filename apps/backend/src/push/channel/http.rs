@@ -50,6 +50,7 @@ impl HttpSender {
 
     /// Validate one attempt and prepare its signing data and pinned client.
     /// DNS failures are transient; invalid delivery fields are rejected.
+    // implements: PUSH-256
     async fn validate_delivery<'a>(
         &self,
         delivery: &'a Delivery,
@@ -115,6 +116,7 @@ impl HttpSender {
 
     /// The outer deadline includes DNS, connection establishment, and response
     /// headers. Proxy and redirect handling cannot bypass the checked address.
+    // implements: PUSH-235, PUSH-259
     async fn attempt(&self, delivery: &Delivery) -> Outcome {
         let ValidatedDelivery {
             url,

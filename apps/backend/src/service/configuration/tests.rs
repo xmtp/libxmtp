@@ -6,6 +6,7 @@ use crate::{
 /// Everything an operator sets in TOML must come back on the wire, and the
 /// response must be reachable without a credential.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-069, CONF-070
 async fn published_settings_round_trip_from_the_configuration_file() {
     let server = TestServer::from_toml(
         "[server]
@@ -55,6 +56,7 @@ group_message_seconds = 604800
 /// Zero would tell a client to fall back to a compiled default that the backend
 /// does not enforce, so every published number is filled from the configuration.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-069
 async fn every_limit_retention_and_mls_field_is_filled() {
     let server = TestServer::new(|_| {}).await?;
     let published = server
@@ -111,6 +113,7 @@ async fn every_limit_retention_and_mls_field_is_filled() {
 /// A deployment that checks no credential still says so explicitly, and says
 /// nothing else about auth.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-068
 async fn disabled_auth_publishes_an_empty_summary() {
     let server =
         TestServer::from_toml("[auth]\nenabled = false\naudiences = ['ignored']\n").await?;
@@ -128,6 +131,7 @@ async fn disabled_auth_publishes_an_empty_summary() {
 /// A client must be able to learn what it needs before it holds a credential,
 /// so the call succeeds with no authorization header at all.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-010, CONF-068
 async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
     let key = TestKey::es256();
     let server = TestServer::new(|config| {
@@ -168,6 +172,7 @@ async fn enabled_auth_publishes_its_admission_settings_without_a_credential() {
 
 /// The response is built once at startup, so repeated calls are identical.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-012
 async fn the_same_response_is_returned_for_the_life_of_the_process() {
     let server = TestServer::new(|_| {}).await?;
     let mut client = server.configuration();

@@ -216,6 +216,7 @@ async fn static_stream_surfaces_bad_envelopes() {
     assert!(!error.is_retryable());
 }
 
+// verifies: PROC-021
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn three_silent_intervals_end_the_stream_with_a_retryable_error() {
@@ -240,6 +241,7 @@ async fn three_silent_intervals_end_the_stream_with_a_retryable_error() {
     assert!(subscription.next().await.is_none());
 }
 
+// verifies: PROC-021
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn silent_second_wire_ends_the_complete_subscription() {

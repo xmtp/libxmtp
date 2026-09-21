@@ -116,6 +116,7 @@ fn every_published_field_survives_the_conversion() {
     );
 }
 
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn a_zero_field_reads_as_the_compiled_default() {
     let mut response = populated();
@@ -143,6 +144,7 @@ fn a_zero_field_reads_as_the_compiled_default() {
     assert_eq!(configuration.limits.max_query_topics, 5);
 }
 
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn an_absent_submessage_reads_as_every_compiled_default() {
     let response = backend_v1::GetConfigurationResponse {

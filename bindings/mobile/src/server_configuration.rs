@@ -159,6 +159,7 @@ pub struct FfiServerConfiguration {
     pub smart_contract_wallet_chains: Vec<String>,
 }
 
+// implements: CONF-061
 impl From<&xmtp_configuration::ServerConfiguration> for FfiServerConfiguration {
     fn from(configuration: &xmtp_configuration::ServerConfiguration) -> Self {
         Self {
@@ -177,7 +178,7 @@ impl From<&xmtp_configuration::ServerConfiguration> for FfiServerConfiguration {
 /// Widen a published count for the foreign side (§7).
 ///
 /// Validation keeps every published value at or below
-/// `xmtp_configuration::MAX_PUBLISHED_VALUE` (CFG-044), so a 64-bit target never
+/// `xmtp_configuration::MAX_PUBLISHED_VALUE`, so a 64-bit target never
 /// loses a bit here and no target this binding builds for has a `usize` wider
 /// than 64 bits.
 fn widen(value: usize) -> u64 {
@@ -185,7 +186,7 @@ fn widen(value: usize) -> u64 {
 }
 
 /// Read a deployment's configuration with no database, no client, and no
-/// credential (CFG-081, CFG-045).
+/// credential.
 ///
 /// An app calls this before it decides how to build a client, so it can learn
 /// whether the deployment requires authentication, which scopes it wants, and

@@ -70,6 +70,7 @@ impl WelcomeMembership {
     }
 
     /// Reject zero identity references and references at or after this Welcome.
+    // implements: JOIN-050
     pub(crate) fn validate_sequences(&self, welcome_sequence: u64) -> Result<(), GroupError> {
         for requirement in self.requirements() {
             if requirement.sequence_id == 0 || requirement.sequence_id >= welcome_sequence {
@@ -100,6 +101,7 @@ impl<C> ValidateGroupMembership for InitialMembershipValidator<C>
 where
     C: XmtpSharedContext,
 {
+    // implements: JOIN-051
     async fn check_initial_membership(
         &self,
         welcome: &WelcomeMembership,
@@ -112,6 +114,7 @@ where
         self.check_verified_membership(welcome, &self.context.db())
     }
 
+    // implements: JOIN-052, JOIN-053
     fn check_verified_membership(
         &self,
         welcome: &WelcomeMembership,

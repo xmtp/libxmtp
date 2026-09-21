@@ -118,6 +118,7 @@ fn registry_policy(
 
 /// Require the action entries and validate each complete action policy tree.
 /// Use this on Welcome admission and on the final registry of a commit.
+// implements: PERM-017
 pub fn validate_registry_action_policies(
     registry: &ComponentRegistry,
 ) -> Result<(), PolicyProjectionError> {
@@ -149,6 +150,7 @@ fn valid_metadata(policy: &MetadataPolicy) -> bool {
 /// Read the four action slots from COMPONENT_REGISTRY alone.
 /// Invalid action trees return an error; they never become a different policy.
 /// Metadata fields retain their existing per-field deny fallback.
+// implements: PERM-024
 pub fn policy_set_from_dictionary(
     extensions: &Extensions<GroupContext>,
 ) -> Result<PolicySet, PolicyProjectionError> {
@@ -264,6 +266,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-024
     fn update_permissions_reports_enforced_super_admin_policy() {
         for stored in [
             MetadataBasePolicy::Deny,
@@ -322,6 +325,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-017
     fn inverse_rejects_malformed_trailing_or_child() {
         for bad in [
             None,
@@ -347,6 +351,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-017
     fn inverse_rejects_admin_combinators_and_preserves_supported_bases() {
         for leaf in [
             MetadataBasePolicy::Deny,
@@ -375,6 +380,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-017
     fn action_entries_cannot_be_absent() {
         for id in [ComponentId::GROUP_MEMBERSHIP, ComponentId::ADMIN_LIST] {
             let mut registry = synthesize_registry_from_policy_set(&policy_set())?;

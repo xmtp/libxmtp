@@ -161,7 +161,7 @@ impl PreparedAttempt {
 
     /// Reconstruct a request from saved envelopes without advancing a sender ratchet.
     ///
-    /// CFG-065: measured against the deployment's shapes, like every other
+    /// Measured against the deployment's shapes, like every other
     /// publish, so a lowered envelope limit is caught before the network call.
     pub(super) fn publish_unit(
         &self,
@@ -247,6 +247,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
     /// Attach authoritative receipts only to the same still-published attempt.
     /// Deleted, resolved, and replaced attempts cannot receive a late reply.
+    // implements: SEND-008
     pub(super) fn record_publish_receipts(
         &self,
         sent_intent: &StoredGroupIntent,

@@ -3,7 +3,7 @@
 //! Spec 006 §6.2. The row holds the deployment identifier, the URL the copy
 //! came from, the serialized response, and when it was fetched. A conflicting
 //! identifier is recorded once, by the conflict path only, and is never
-//! cleared (CFG-053).
+//! cleared.
 
 use crate::encrypted_store::schema::server_configuration;
 use crate::schema::server_configuration::dsl;
@@ -32,7 +32,7 @@ pub trait QueryServerConfiguration {
 
     /// Write the copy whole: identifier, URL, response, and fetch time. Never
     /// touches `conflicting_identifier`, so a matching refresh cannot erase a
-    /// recorded conflict (CFG-053).
+    /// recorded conflict.
     fn store_server_configuration(
         &self,
         identifier: &str,
@@ -41,8 +41,8 @@ pub trait QueryServerConfiguration {
         fetched_at_ns: i64,
     ) -> Result<(), StorageError>;
 
-    /// Record that the deployment answered with a different identifier
-    /// (CFG-051). Does nothing when no row exists yet.
+    /// Record that the deployment answered with a different identifier.
+    /// Does nothing when no row exists yet.
     fn record_server_configuration_conflict(
         &self,
         conflicting_identifier: &str,
@@ -84,6 +84,7 @@ impl<C: ConnectionExt> QueryServerConfiguration for DbConnection<C> {
         })?)
     }
 
+    // implements: CONF-031
     fn store_server_configuration(
         &self,
         identifier: &str,

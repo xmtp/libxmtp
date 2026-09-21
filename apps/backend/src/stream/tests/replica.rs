@@ -26,6 +26,7 @@ fn replica(config: &mut Config) {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-202, API-252, OPS-009
 async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
     let _replay = REPLAY.lock().await;
     let server = TestServer::new(replica).await?;
@@ -66,6 +67,7 @@ async fn paused_replica_keeps_fixed_empty_targets_and_recovers_visible_rows() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-005
 async fn startup_waits_for_its_boundary_to_reach_the_selected_replica() {
     let _replay = REPLAY.lock().await;
     let first = TestServer::new(replica).await?;
@@ -137,6 +139,7 @@ async fn replay_resumes_after_test_error_or_assertion_failure() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-201, API-254, OPS-010
 async fn late_gap_rows_precede_forward_rows_on_the_same_topic() {
     let _replay = REPLAY.lock().await;
     let server = TestServer::new(replica).await?;
@@ -237,6 +240,7 @@ async fn late_gap_rows_precede_forward_rows_on_the_same_topic() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-006
 async fn replica_connection_loss_fails_existing_sessions_before_recovery() {
     let _replay = REPLAY.lock().await;
     let Some(metrics) = support::metrics::isolated(

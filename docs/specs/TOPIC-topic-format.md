@@ -18,7 +18,7 @@ flowchart LR
 
 In scope: the kind byte of each topic kind, the length of its identifier and the payload field it is read from, the rule that the backend derives every stored envelope's topic from its payload, and the rejection of a topic a request names that does not match the table.
 
-Out of scope: what the backend does with an envelope once routed, the envelope wire format, and the publish rejection an unroutable payload receives (`API`); which topics a client reads and how it keeps its position on them (`?PROC`); which topic kinds a push subscription may name (`?PUSH`); and how an inbox id, an installation key, or a group id is derived (`?IDENT`, `?GMOD`).
+Out of scope: what the backend does with an envelope once routed, the envelope wire format, and the publish rejection an unroutable payload receives (`API`); which topics a client reads and how it keeps its position on them ([PROC](PROC-message-processing.md)); which topic kinds a push subscription may name (PUSH-215); inbox id derivation (IDENT-010); installation keys ([IDENT section 8](IDENT-identity-updates.md#8-installations)); and group id generation (`?GMOD`).
 
 | Related | Relation |
 | --- | --- |
@@ -46,7 +46,7 @@ The table below is the layout. Its kind bytes and lengths are the exact values t
 | `0x03` | Key package | 32-byte installation key | The `signature_key` of the leaf node of the `KeyPackage` ([RFC 9420 §10](https://www.rfc-editor.org/rfc/rfc9420.html#section-10)) carried in `KeyPackage.key_package_tls_serialized`. |
 | `0x04` | Commit-log entry | 16-byte group id | `PlaintextCommitLogEntry.group_id` decoded from `CommitLogEntry.serialized_commit_log_entry`. |
 
-The wire messages named in the table are defined by `API` (`ClientEnvelope` and its payloads) and by `JOIN` (`WelcomeMessage`, `KeyPackage`). The identity update and the commit-log entry are owned by `?IDENT` and `?FORK`, which are expected to define those messages; this spec reads one field of each.
+API-210 owns `ClientEnvelope` and its payloads, and [JOIN section 1](JOIN-joining-groups.md#1-what-a-key-package-carries) defines `KeyPackage`, and [JOIN section 4](JOIN-joining-groups.md#4-unwrapping-a-welcome) defines `WelcomeMessage`. IDENT-001 owns the identity update; [FORK section 2](FORK-fork-recovery.md#2-keys-and-signatures) defines the commit-log wire messages. This spec reads the identifier field of each payload.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

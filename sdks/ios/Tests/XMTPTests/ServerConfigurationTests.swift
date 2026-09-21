@@ -3,9 +3,8 @@ import XCTest
 @testable import XMTPiOS
 import XMTPTestHelpers
 
-/// Spec 006 §7. CFG-106 asks for one test that reads every field of
-/// `serverConfiguration()` and one that calls `fetchServerConfiguration(url)`
-/// against the shared backend.
+/// Read every field of `serverConfiguration()` and fetch configuration
+/// without a client against the shared backend.
 @available(iOS 15, *)
 final class ServerConfigurationTests: XCTestCase {
 	private func makeClient() async throws -> Client {
@@ -17,8 +16,7 @@ final class ServerConfigurationTests: XCTestCase {
 		)
 	}
 
-	/// CFG-080 and CFG-106: every field of the build snapshot is readable and
-	/// typed. CFG-026 promises no limit, retention or MLS value is ever zero.
+	// verifies: CONF-061
 	func testReadsEveryFieldOfTheSnapshot() async throws {
 		let client = try await makeClient()
 		defer { try? client.deleteLocalDatabase() }
@@ -30,7 +28,7 @@ final class ServerConfigurationTests: XCTestCase {
 			configuration.identifier.contains(where: \.isWhitespace)
 		)
 		XCTAssertFalse(configuration.serverVersion.isEmpty)
-		// CFG-005: an operator that published no minimum sends an empty string.
+		// An operator that published no minimum sends an empty string.
 		let minimum: String = configuration.minLibxmtpVersion
 		XCTAssertFalse(minimum.contains(" "))
 
@@ -41,7 +39,7 @@ final class ServerConfigurationTests: XCTestCase {
 			XCTAssertFalse(key.kid.isEmpty)
 			XCTAssertFalse(key.alg.isEmpty)
 		}
-		// CFG-028: auth off publishes an empty summary.
+		// Auth off publishes an empty summary.
 		if !authEnabled {
 			XCTAssertTrue(auth.keys.isEmpty)
 			XCTAssertTrue(auth.audiences.isEmpty)
@@ -87,7 +85,7 @@ final class ServerConfigurationTests: XCTestCase {
 		for rate in rates {
 			XCTAssertGreaterThan(rate, 0)
 		}
-		// CFG-007 caps both at the fixed 25 MiB transport ceiling.
+		// The transport caps both at the fixed 25 MiB transport ceiling.
 		XCTAssertLessThanOrEqual(limits.maxRequestBytes, 25 * 1024 * 1024)
 		XCTAssertLessThanOrEqual(limits.maxResponseBytes, 25 * 1024 * 1024)
 		XCTAssertLessThanOrEqual(limits.defaultQueryLimit, limits.maxQueryLimit)
@@ -106,9 +104,7 @@ final class ServerConfigurationTests: XCTestCase {
 		}
 	}
 
-	/// CFG-081 and CFG-106: the static fetch reads the shared backend with no
-	/// database, no client and no credential, and reports the same deployment
-	/// the client is bound to.
+	// verifies: CONF-062
 	func testFetchesServerConfigurationWithoutAClient() async throws {
 		let api = localApi(appVersion: "Testing/0.0.0")
 
@@ -125,8 +121,7 @@ final class ServerConfigurationTests: XCTestCase {
 		XCTAssertEqual(fetched.limits, client.serverConfiguration().limits)
 	}
 
-	/// CFG-082: an explicit refresh fetches now and returns what it fetched.
-	/// The running client's snapshot is unchanged.
+	// verifies: CONF-074
 	func testRefreshReturnsTheFetchedConfigurationAndLeavesTheSnapshot()
 		async throws
 	{
@@ -140,7 +135,7 @@ final class ServerConfigurationTests: XCTestCase {
 		XCTAssertEqual(client.serverConfiguration(), snapshot)
 	}
 
-	/// CFG-083: each generated case becomes its own Swift type. No backend.
+	// verifies: CONF-064
 	func testSurfacesEachConditionAsItsOwnType() throws {
 		XCTAssertNotNil(
 			FfiError.ConfigurationUnavailable(message: "a")
@@ -179,10 +174,7 @@ final class ServerConfigurationTests: XCTestCase {
 		XCTAssertNil(OrdinaryError().serverConfigurationError)
 	}
 
-	/// CFG-069 and CFG-070: a chain the deployment refuses reaches the app as
-	/// ``ChainNotAcceptedError`` from every signing path — `create`,
-	/// `addAccount`, `removeAccount` and both `revokeInstallations` — not as a
-	/// generic creation failure. No backend.
+	// verifies: CONF-064
 	func testKeepsTheConfigurationErrorOnASigningFailure() throws {
 		let rejected = Client.signingFailure(
 			FfiError.ChainNotAccepted(message: "[ClientError::ChainNotAccepted] eip155:8453")

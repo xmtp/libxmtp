@@ -23,19 +23,19 @@ use crate::{
 };
 
 /// How long after one refresh run ends before the next one starts, before
-/// jitter (CFG-046). The first run starts this long after build.
+/// jitter. The first run starts this long after build.
 pub const CONFIGURATION_REFRESH_INTERVAL: std::time::Duration =
     std::time::Duration::from_secs(3600);
 
 /// Random spread added to each wait, so a fleet of clients does not refresh
-/// in lockstep (CFG-046).
+/// at the same time.
 pub const CONFIGURATION_REFRESH_JITTER: std::time::Duration = std::time::Duration::from_secs(360);
 
 /// Attempts in one refresh run. After the last failure the run ends and the
-/// stored copy is left alone (CFG-047).
+/// stored copy is left alone.
 pub const CONFIGURATION_REFRESH_ATTEMPTS: usize = 3;
 
-/// Waits between the attempts of one run (CFG-046).
+/// Waits between the attempts of one run.
 pub const CONFIGURATION_REFRESH_BACKOFF: [std::time::Duration; 2] = [
     std::time::Duration::from_secs(5),
     std::time::Duration::from_secs(30),
@@ -47,9 +47,9 @@ pub const MAX_SERVER_IDENTIFIER_BYTES: usize = 256;
 
 /// Largest published numeric value, `2^53 - 1`.
 ///
-/// Spec 006 §7 maps every `uint64` to a JavaScript `number`, which holds
+/// The SDK maps every `uint64` to a JavaScript `number`, which holds
 /// integers exactly only up to this value. A deployment that publishes more
-/// would reach a JavaScript app rounded, so the client refuses it (CFG-044)
+/// would reach a JavaScript app rounded, so the client refuses it
 /// rather than reading a number the deployment never published.
 pub const MAX_PUBLISHED_VALUE: u64 = 9_007_199_254_740_991;
 
@@ -112,6 +112,7 @@ pub fn is_caip2_chain_id(chain: &str) -> bool {
 /// never makes a client too old for a minimum it otherwise satisfies.
 ///
 /// Returns `true` when `version` is below `minimum`.
+// implements: CONF-050
 pub fn version_is_below(version: &semver::Version, minimum: &semver::Version) -> bool {
     (version.major, version.minor, version.patch) < (minimum.major, minimum.minor, minimum.patch)
 }
@@ -208,12 +209,13 @@ impl Default for LimitsConfiguration {
 impl LimitsConfiguration {
     /// The same snapshot with every zero replaced by the compiled default.
     ///
-    /// CFG-031 already applies this rule to what arrives on the wire, so no
+    /// Wire conversion already applies this rule, so no
     /// published configuration can carry a zero. A snapshot built in Rust and
-    /// handed in through a `ConfigProvider` (CFG-033) skips that conversion,
+    /// handed in through a `ConfigProvider` skips that conversion,
     /// and a zero chunk dimension would panic the transport that slices its
-    /// work into chunks of it (CFG-064). Applying the wire rule once more,
+    /// work into chunks of it. Applying the wire rule once more,
     /// where the transport reads the value, means it never can.
+    // implements: CONF-025
     pub fn without_zeroes(&self) -> Self {
         let default = Self::default();
         macro_rules! or_default {
@@ -296,9 +298,10 @@ pub struct ServerConfiguration {
 }
 
 impl ServerConfiguration {
-    /// Apply the rules of CFG-044: the identifier must be well formed, any
+    /// The identifier must be well formed, any
     /// minimum version must parse, every chain must be CAIP-2, and every
     /// numeric value must survive the trip to an SDK integer intact.
+    // implements: CONF-071
     pub fn validate(&self) -> Result<(), ServerConfigurationError> {
         validate_server_identifier(&self.identifier)?;
         self.minimum_version()?;

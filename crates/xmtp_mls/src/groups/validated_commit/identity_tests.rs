@@ -1,5 +1,6 @@
 use super::*;
 
+// verifies: GMOD-007
 #[rstest::rstest]
 #[case::earlier(9, 10, true)]
 #[case::same(10, 10, false)]

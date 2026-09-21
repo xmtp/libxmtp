@@ -51,6 +51,7 @@ impl api::publish_service_server::PublishService for Backend {
 
 impl Backend {
     /// Keep response origins until the whole request succeeds or fails.
+    // implements: API-221
     async fn publish_batch(
         &self,
         request: api::PublishRequest,
@@ -100,6 +101,7 @@ impl Backend {
     /// identical canonical envelopes, records the first parse error, and keeps
     /// enough metadata for the database layer to restore response order.
     #[xmtp_common::span(prefix = "publish")]
+    // implements: API-233
     fn parse_publish(&self, request: api::PublishRequest) -> Result<PublishBatch, Status> {
         let limits = &self.config.limits;
         if request.encoded_len() > limits.max_request_bytes {
@@ -207,6 +209,7 @@ impl Backend {
     /// use shared structural validation, and verifier retryability is preserved
     /// for transport mapping.
     #[xmtp_common::span(prefix = "publish")]
+    // implements: API-234
     async fn validate_publish(
         &self,
         pending: &mut [PendingEnvelope],

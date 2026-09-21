@@ -155,6 +155,7 @@ impl ApnsSender {
     }
 
     /// Read a bounded response body before classifying the provider answer.
+    // implements: PUSH-259
     async fn request(
         &self,
         delivery: &Delivery,

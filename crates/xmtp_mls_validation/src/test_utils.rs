@@ -381,7 +381,7 @@ pub struct RawRecoveryFixture {
     pub raw_recovery_identifier: String,
 }
 
-/// Preserve the current raw recovery-identifier behavior from SEC-024.
+/// Preserve the current raw recovery-identifier behavior.
 pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
     let original_recovery = generate_local_wallet();
     let next_recovery = generate_local_wallet();

@@ -21,13 +21,13 @@ flowchart LR
 
 In scope: the configuration checks the backend makes before it serves; the boundary between what is published and what stays private; the public configuration wire format; how a client fetches, validates, stores, and binds to it; what a refresh may change; the conditions under which a client stops; what a client sizes or rejects using it; and what an SDK exposes to an app.
 
-Out of scope: the backend's configuration file and its keys; credentials and authorization (`?AUTH`); the backend API's enforcement of limits and its errors (`?API`); operations such as retention, readiness, and telemetry (`?OPS`); and the platform a deployment runs on.
+Out of scope: the backend's configuration file and its keys; credentials and authorization ([AUTH](AUTH-backend-auth.md)); the backend API's enforcement of limits and its errors ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)); operations such as retention, readiness, and telemetry ([OPS](OPS-backend-operations.md)); and the platform a deployment runs on.
 
 | Related | Relation |
 | --- | --- |
-| `?AUTH` | Owns what a credential is, when a client attaches one, and which failures are terminal. This spec owns only what is published about it. |
-| `?API` | Owns what the backend does when a request exceeds a limit, and the fixed transport ceiling. This spec owns the published values and what a client does before it sends. |
-| `?OPS` | Owns retention enforcement, health, and the identifier's use in telemetry. |
+| [AUTH](AUTH-backend-auth.md#6-client-credentials) | Owns what a credential is, when a client attaches one, and which failures are terminal. This spec owns only what is published about it. |
+| [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns what the backend does when a request exceeds a limit, and the fixed transport ceiling. This spec owns the published values and what a client does before it sends. |
+| [OPS](OPS-backend-operations.md) | Owns retention enforcement, health, and the identifier's use in telemetry. |
 
 ## Terms
 
@@ -42,7 +42,7 @@ Out of scope: the backend's configuration file and its keys; credentials and aut
 | Advisory value | A published value the backend does not enforce, because only a client holds the state it is about. |
 | Latch | A condition that, once observed, fails every later operation for the life of the client. |
 | Refresh | A fetch of `GetConfiguration` by a client that already holds a snapshot, on its own schedule or when the app asks. |
-| Credential source | The callback or key an app gives a client so that it can obtain credentials. What a credential is belongs to `?AUTH`. |
+| Credential source | The callback or key an app gives a client so that it can obtain credentials. [AUTH section 6](AUTH-backend-auth.md#6-client-credentials) defines the credential. |
 
 ## 1. What an operator configures
 
@@ -55,15 +55,15 @@ The backend validates its configuration before it serves. The checks below are t
 | CONF-067 | Minimum version is a semantic version | When the configured minimum client version is set and is not a version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2), the backend MUST refuse to start. | A client rejects an answer whose minimum does not parse (CONF-071), so a deployment that starts with one is unusable by every client. |
 | CONF-005 | Explicit credential intent | When the configuration contains an `[auth]` table without an `enabled` key, the backend MUST refuse to start. | A configuration that gained the table before the key existed would otherwise serve without credentials, on the strength of an omission. |
 | CONF-066 | Disabled auth table is not validated | While the `[auth]` table has `enabled` set to `false`, the backend MUST start without validating the other keys of that table and MUST NOT fetch a key set. | |
-| CONF-008 | Request budgets fit the transport | When the configured `max_request_bytes` or `max_response_bytes` is greater than the transport ceiling `?API` states, the backend MUST refuse to start. | A larger budget publishes a request size the transport refuses to carry, so a client sized to it fails every large request. |
+| CONF-008 | Request budgets fit the transport | When the configured `max_request_bytes` or `max_response_bytes` is greater than the transport ceiling API-282 states, the backend MUST refuse to start. | A larger budget publishes a request size the transport refuses to carry, so a client sized to it fails every large request. |
 | CONF-009 | Public configuration stays small | When the encoded `GetConfigurationResponse` the backend would publish is longer than 65536 bytes (64 KiB), the backend MUST refuse to start. | The message is served without a credential, so an unbounded one is an amplification source. Bounding the whole message bounds every list in it without a limit per list. |
 | CONF-065 | Refusal names the key | When the backend refuses to start under a rule in this section, it MUST report the configuration key that failed, or that the public configuration is too large. | |
 
-`?API` is expected to state the transport ceiling on an encoded request and response exactly once, as 25 MiB, and to require that a request whose encoded length is above `max_request_bytes` is rejected.
+API-282 states the transport ceiling and the failure rule for a message above the ceiling or byte budget. API-281 owns the status codes.
 
 ## 2. What is published and what is not
 
-The backend publishes the values a client or an app acts on, on a request that needs no credential, and nothing else. Connection strings, key material, the JWKS URL, API key values, and credential-verification timing stay private. Of the auth configuration, a client acts on `enabled` and `required_scopes`; the key identities, audiences, and issuers are published for inspection. `?AUTH` is expected to require that a request carrying no credential is rejected only while `auth.enabled` is true, and to own what the audiences, issuers, and scopes mean.
+The backend publishes the values a client or an app acts on, on a request that needs no credential, and nothing else. Connection strings, key material, the JWKS URL, API key values, and credential-verification timing stay private. Of the auth configuration, a client acts on `enabled` and `required_scopes`; the key identities, audiences, and issuers are published for inspection. AUTH-001 through AUTH-003 own credential admission; [AUTH section 3](AUTH-backend-auth.md#3-jwt-verification) defines the audience, issuer, and scope checks.
 
 The message is built once at startup from the validated configuration and the key set loaded then. A key set refreshed while the process runs is not republished. An operator changes what is published by restarting.
 
@@ -158,7 +158,7 @@ message GetConfigurationResponse {
 
 A client resolves its snapshot once, when it is created, and reads it for its life. The client configures itself from the values it receives from the server. A changed value takes effect for a client created afterwards.
 
-Two conditions stop a client: a different deployment answering, and a raised minimum version. Each is a latch held for the life of the client. It fails the operations that would reach the backend and closes every open stream with its error. Which latch a client reports when both arise is the implementation's choice. `?PROC` is expected to require that a client records a position on a topic only after it has processed every envelope up to it, so a stream a latch closes leaves no position past the last processed envelope.
+Two conditions stop a client: a different deployment answering, and a raised minimum version. Each is a latch held for the life of the client. It fails the operations that would reach the backend and closes every open stream with its error. Which latch a client reports when both arise is the implementation's choice. PROC-002 owns durable receipt and PROC-005 owns processed positions. Closing a stream can leave received work above the processed position; it does not erase that work.
 
 A field the snapshot does not carry, or carries as 0 or empty, takes the compiled default below, which is the value the backend defaults the same key to.
 
@@ -238,7 +238,7 @@ The client refreshes on its own schedule, spread at random. The interval, the sp
 
 ## 6. Applying the snapshot
 
-The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read; `?API` is expected to own what happens when a request exceeds one.
+The client splits and bounds its requests to the published limits, so that a request the backend would reject is never sent. The table below names the bound for each request. The fields it does not name (`max_response_bytes`, `max_stream_topics`, `max_identity_entries`, and the four rate-limit fields) are published for an app to read. API-281 and API-282 own response and request bounds, API-234 owns the identity-log limit, and API-258 owns stream frame rate limits.
 
 | Request | Bound from the snapshot |
 | --- | --- |
@@ -250,9 +250,9 @@ The client splits and bounds its requests to the published limits, so that a req
 | SubscribeStatic | Topics per stream not more than `max_static_topics` |
 | Subscribe update | `adds` not more than `max_update_adds`; `removes` not more than `max_update_removes`; encoded frame not longer than `max_request_bytes` |
 
-Group size and installation count are advisory: the backend has no view of the state they are about, so only a client can check them (Known limitations). A group's membership is its `GroupMembership` extension, owned by `?GMOD`; an inbox's installations are those its association state names, owned by `?IDENT`. The commit log is owned by `?FORK`; this spec owns only the switch.
+Group size and installation count are advisory: the backend has no view of the state they are about, so only a client can check them (Known limitations). [GMOD section 2](GMOD-modifying-groups.md#2-the-membership-component) owns group membership; [IDENT section 8](IDENT-identity-updates.md#8-installations) defines the installations in an association state. [FORK](FORK-fork-recovery.md) owns the commit log; this spec owns only the switch.
 
-The chain check runs on a signature an app is about to produce. It does not run on a signature read from the network, which the network already accepted, or when the app supplied its own verifier. `?PROC` is expected to require that a client holds on an envelope it cannot process rather than skipping it.
+The chain check runs on a signature an app is about to produce. It does not run on a signature read from the network, which the network already accepted, or when the app supplied its own verifier. PROC-012 owns the preservation of unresolved work.
 
 The version gate and the credential requirement fail creation, so an app gets one clear reason instead of every request failing.
 
@@ -268,7 +268,7 @@ The version gate and the credential requirement fail creation, so an app gets on
 | CONF-050 | Version compare ignores prerelease | When the client compares its version with a `min_libxmtp_version`, it MUST compare the major, minor, and patch numbers in that order ([Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11)) and MUST ignore the pre-release and build metadata of both. | A prerelease build of the version the operator named would otherwise be too old, which stops every development build. |
 | CONF-051 | Credentials required but absent | When the snapshot's `AuthConfiguration.enabled` is `true` and the app supplied no credential source, the client MUST fail creation and MUST report `required_scopes`. | |
 
-Whether a client attaches a credential when `enabled` is `false` and the app supplied a source anyway is not decided here; the client's credential handling does not read the snapshot, and `?AUTH` owns when a credential is attached.
+AUTH-020 owns when the client attaches a credential, including when `enabled` is `false` and the app supplied a source.
 
 ## 7. What an app can read
 
