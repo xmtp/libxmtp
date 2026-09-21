@@ -1,4 +1,4 @@
-import { createServer } from "node:http2";
+import { createServer, type ServerHttp2Stream } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadConfig, mergeConfig } from "../src/utils/config.js";
@@ -20,7 +20,7 @@ describe("API key authentication", () => {
     async (apiKey) => {
       const seen: Array<string | undefined> = [];
       const server = createServer();
-      server.on("stream", (stream, headers) => {
+      server.on("stream", (stream: ServerHttp2Stream, headers) => {
         seen.push(headers.authorization);
         stream.on("error", () => {});
         const chunks: Buffer[] = [];

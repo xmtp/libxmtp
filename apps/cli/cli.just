@@ -5,33 +5,25 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 set shell := ["../../dev/nix-shell"]
 
-install:
-    yarn
-
-install-ci:
-    yarn install --immutable
-
 sdk:
-    cd ../../sdks/js && yarn install --immutable
     cd ../../sdks/js && ./dev/bindings node
-    cd ../../sdks/js && yarn workspace @xmtp/node-sdk run build
 
 check: sdk
-    yarn typecheck
+    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run typecheck
 
 lint:
-    yarn lint
+    pnpm --filter @xmtp/cli run lint
 
 build: sdk
-    yarn build
+    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
 
 manifest: build
-    yarn manifest
+    pnpm --filter @xmtp/cli run manifest
 
 test: sdk
-    yarn build
-    {{ _env }} && yarn test
+    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
+    {{ _env }} && pnpm --filter @xmtp/cli run test
 
 test-ci *args="": sdk
-    yarn build
-    {{ _env }} && yarn vitest run {{ args }}
+    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build
+    {{ _env }} && pnpm --filter @xmtp/cli exec vitest run {{ args }}

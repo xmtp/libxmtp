@@ -1,22 +1,19 @@
 # XMTP CLI
 
-Standalone Yarn 4 project for `@xmtp/cli`, linked to the in-tree Node SDK with
-`portal:../../sdks/js/node-sdk`.
+pnpm workspace package for `@xmtp/cli`, linked to the in-tree Node SDK.
 Resolve `@xmtp/node-bindings` to the local bindings for both the CLI and SDK.
 They must share one native module instance for authenticated backends.
 
 ## Commands
 
-- `just cli install`: install CLI dependencies and update the lockfile.
-- `just cli install-ci`: install with the immutable lockfile.
+- `just install`: install the root workspace dependencies.
 - `just cli check`: build the linked SDK and typecheck the CLI.
 - `just cli lint`: run ESLint.
 - `just cli build`: build the linked SDK and CLI.
 - `just cli test`: build the linked SDK and run all tests.
 - `just cli test-ci --shard N/2`: run a CI test shard.
 
-Tests require `just backend up`. The `sdk`
-dependency installs `sdks/js`, stages Node bindings, and builds
+Tests require `just backend up`. The `sdk` dependency stages Node bindings and builds
 `@xmtp/node-sdk` before checks that need its `dist` output.
 
 ## Backend configuration

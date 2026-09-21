@@ -47,7 +47,7 @@ Note: `XMTP_DEV_SHELL` is **not set** in this shell. Use `XMTP_NIX_ENV` to detec
 `taplo`, `shellcheck`, `nixfmt`
 
 **Direct dependencies:**
-`foundry-bin`, `sqlcipher`, `corepack`
+`foundry-bin`, `sqlcipher`, `pnpm` 11 with Node.js 26
 
 **Darwin only:**
 `darwin.cctools`

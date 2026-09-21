@@ -9,7 +9,7 @@
   foundry-bin,
   just,
   sqlcipher,
-  corepack,
+  xmtp-pnpm,
   rust-analyzer,
   python311,
   uv,
@@ -58,7 +58,7 @@ mkShell {
       # .envrc auto-loads this shell, so the repo's `just` workflow must resolve here
       just
       sqlcipher
-      corepack
+      xmtp-pnpm
       rust-analyzer
       python311
       uv

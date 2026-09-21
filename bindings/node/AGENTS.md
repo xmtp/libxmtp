@@ -5,13 +5,14 @@ NAPI-RS bindings for Node. API tests are TypeScript (`test/*.test.ts`). Error co
 ## Commands
 
 ```bash
-just node check                         # install + build release NAPI to dist/
+just install                            # install the root workspace once
+just node check                         # build release NAPI to dist/
 just node lint                          # prettier
-dev/nix-shell 'cd bindings/node && yarn lint'   # clippy + rustfmt
+dev/nix-shell 'pnpm --filter @xmtp/node-bindings run lint:rust'   # clippy + rustfmt
 just node test                          # install + build with test-utils + vitest
 just node test-ci                       # what CI runs (Nix build)
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd bindings/node && yarn vitest run test/inboxId.test.ts' # one file
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && cd bindings/node && yarn vitest run -t "should generate an inbox id"' # one test
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && pnpm --filter @xmtp/node-bindings exec vitest run test/inboxId.test.ts' # one file
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && pnpm --filter @xmtp/node-bindings exec vitest run -t "should generate an inbox id"' # one test
 ```
 
 ## Gotchas
@@ -33,7 +34,7 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - Naming: bare names, deliberately identical to `bindings/wasm` (`Client`, `Conversation`, `BackendBuilder`) so the two JS SDKs stay symmetric. Pick the same name on both.
 - Exporting: `#[napi]`, `#[napi(object)]`, `#[napi(getter)]`, `#[napi(string_enum)]`, `#[napi(js_name = "...")]`. `pub async fn` becomes a Promise. Add `#[xmtp_common::err_span]` to exported methods (`src/client/mod.rs:54`).
 - Builders: `#[xmtp_macro::napi_builder]` (`src/client/backend.rs:9`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
-- Regeneration: `just node build` (`yarn napi build --platform --esm`, then `node.just:_prepare-dist` moves output to `dist/`). `dist/` is a build product. Never hand-edit it.
+- Regeneration: `just node build` (`pnpm --filter @xmtp/node-bindings exec napi build --platform --esm`, then `node.just:_prepare-dist` moves output to `dist/`). `dist/` is a build product. Never hand-edit it.
 
 ## Durable message readers
 

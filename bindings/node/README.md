@@ -43,10 +43,10 @@ src/
 
 ## Useful commands
 
-- `yarn`: Installs all dependencies (required before building)
-- `yarn build`: Build a release version of the Node bindings for the current platform
-- `yarn lint`: Run cargo clippy and fmt checks
-- `yarn test`: Run the test suite on Node
+- `just install`: Install root workspace dependencies before the first build.
+- `just node build`: Build a release version of the Node bindings for the current platform.
+- `just node lint`: Check formatting.
+- `just node test`: Run the test suite on Node.
 
 ## Testing
 

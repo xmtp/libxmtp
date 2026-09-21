@@ -1,0 +1,83 @@
+packages:
+  - bindings/node
+  - bindings/wasm
+  - sdks/js/*
+  - apps/cli
+  - apps/web-chat
+  - apps/docs
+  - dev/release-tools
+
+includeWorkspaceRoot: false
+
+# Native artifacts are staged by Just/Nix before JavaScript tasks run.
+# The bindings have no generic build script: their native scripts are explicit.
+tasks:
+  build:
+    dependsOn: ["^build"]
+  typecheck:
+    dependsOn: ["^build"]
+  lint:
+    dependsOn: ["^build"]
+  format:
+    dependsOn: []
+  format:check:
+    dependsOn: []
+
+# Nix reads packageManager from package.json; update its source hash on upgrades.
+pmOnFail: error
+# Release jobs update manifests after the frozen install.
+verifyDepsBeforeRun: warn
+minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - "@xmtp/*"
+
+allowBuilds:
+  esbuild: true
+  protobufjs: true
+  keccak: true
+  bufferutil: true
+  utf-8-validate: true
+
+overrides:
+  "@xmtp/node-bindings": workspace:*
+  # Must match nixpkgs playwright-driver and the catalog below.
+  playwright: 1.61.1
+  playwright-core: 1.61.1
+
+catalog:
+  "@eslint/compat": "^2.0.1"
+  "@eslint/js": "^9.39.2"
+  "@ianvs/prettier-plugin-sort-imports": "^4.7.0"
+  "@playwright/test": "1.61.1"
+  "@rollup/plugin-json": "^6.1.0"
+  "@rollup/plugin-typescript": "^12.3.0"
+  "@testing-library/dom": "^10.4.1"
+  "@vitest/browser": "^4.1.10"
+  "@vitest/browser-playwright": "^4.1.10"
+  "@vitest/coverage-v8": "^4.1.10"
+  "@xmtp/content-type-primitives": "3.0.1"
+  "@xmtp/content-type-remote-attachment": "^2.0.3"
+  "eslint": "^9.39.2"
+  "fast-glob": "^3.3.3"
+  "globals": "^17.1.0"
+  "playwright": "1.61.1"
+  "prettier": "^3.9.6"
+  "prettier-plugin-packagejson": "^3.0.0"
+  "rollup": "^4.59.0"
+  "rollup-plugin-dts": "^6.3.0"
+  "rollup-plugin-tsconfig-paths": "^1.5.2"
+  "tslib": "^2.8.1"
+  "tsx": "^4.23.1"
+  "typescript": "^5.9.3"
+  "typescript-eslint": "^8.70.0"
+  "uint8array-extras": "^1.5.0"
+  "viem": "^2.55.10"
+  "vite": "^8.3.0"
+  "vite-tsconfig-paths": "^6.1.1"
+  "vitest": "^4.1.10"
+
+catalogs:
+  node22:
+    "@types/node": "^22.20.0"
+  node26:
+    "@types/node": "^26.1.1"

@@ -1,8 +1,8 @@
 name: Deploy xmtp.chat
 
 # Vercel cannot build this app. web-chat depends on the in-tree browser SDK
-# through portal:../../sdks/js/browser-sdk, which depends on
-# @xmtp/wasm-bindings through portal:../../../bindings/wasm, whose dist/ is a
+# through the pnpm workspace, and the browser SDK depends on the in-tree
+# @xmtp/wasm-bindings package, whose dist/ is a
 # Nix build of a Rust crate. So the build happens here, where the Nix sticky
 # disk already makes it cheap, and Vercel only stores and serves the output.
 
@@ -56,16 +56,8 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
         if: steps.current.outputs.deploy == 'true'
-      # sdks/js must install before web-chat. The build's `sdk` step runs
-      # `yarn install --immutable` in sdks/js, which rewrites node_modules and
-      # drops web-chat's portal link if web-chat was installed first.
-      - name: Install dependencies
+      - uses: ./.github/actions/setup-js
         if: steps.current.outputs.deploy == 'true'
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: "true"
-        run: |
-          just js install-ci
-          just web-chat install-ci
       # Builds the WASM bindings and the linked browser SDK, which `vercel
       # build` below cannot do. It also produces dist/, which vercel rebuilds;
       # that rebuild is cheap and reuses everything staged here.

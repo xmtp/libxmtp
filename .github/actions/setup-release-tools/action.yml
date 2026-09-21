@@ -1,13 +1,16 @@
 name: "Setup Release Tools"
-description: "Install release tools and make xmtp-release available in PATH"
+description: "Make the installed xmtp-release command available in PATH"
+inputs:
+  nix:
+    description: "Use pnpm from the active Nix development shell"
+    required: false
+    default: "false"
 runs:
   using: "composite"
   steps:
-    - uses: ./.github/actions/setup-node
-    - name: Install release tools
-      working-directory: dev/release-tools
-      shell: bash
-      run: yarn install
+    - uses: ./.github/actions/setup-js
+      with:
+        nix: ${{ inputs.nix }}
     - name: Add xmtp-release to PATH
       shell: bash
       run: |
@@ -15,7 +18,7 @@ runs:
         mkdir -p "$BIN_DIR"
         cat > "$BIN_DIR/xmtp-release" << 'WRAPPER'
         #!/usr/bin/env bash
-        cd "$GITHUB_WORKSPACE/dev/release-tools" && exec yarn cli "$@"
+        cd "$GITHUB_WORKSPACE" && exec pnpm --filter @xmtp/release-tools cli "$@"
         WRAPPER
         chmod +x "$BIN_DIR/xmtp-release"
         echo "$BIN_DIR" >> "$GITHUB_PATH"

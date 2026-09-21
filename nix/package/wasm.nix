@@ -11,7 +11,7 @@
   chromedriver,
   google-chrome,
   chromium,
-  corepack,
+  xmtp-pnpm,
   cargo-nextest,
   stdenv,
   test ? false,
@@ -111,7 +111,7 @@ let
         rust-toolchain
         cargo-nextest
         chromedriver
-        corepack
+        xmtp-pnpm
       ]
       # chromium unsupported on darwin
       # google-chrome unsupported on aarch64-linux

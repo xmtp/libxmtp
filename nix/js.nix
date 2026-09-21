@@ -5,7 +5,7 @@
   buf,
   curl,
   geckodriver,
-  corepack,
+  xmtp-pnpm,
   pkg-config,
   playwright-driver,
   playwright,
@@ -28,7 +28,7 @@ mkShell {
     # playwright version here must match that in package.json EXACTLY for integration tests to work
     playwright
     playwright-driver.browsers
-    corepack
+    xmtp-pnpm
   ]
   ++ lib.optionals stdenv.isDarwin [
     darwin.cctools

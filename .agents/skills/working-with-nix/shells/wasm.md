@@ -38,7 +38,7 @@ Uses `fenix.stable` toolchain (not the project-pinned version) with:
 `google-chrome`, `chromedriver`, `cargo-nextest`
 
 **Other:**
-`corepack`
+`pnpm` 11 with Node.js 26
 
 ## Building WASM Package
 

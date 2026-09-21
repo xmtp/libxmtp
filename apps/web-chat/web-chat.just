@@ -5,28 +5,23 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 set shell := ["../../dev/nix-shell"]
 
-install:
-    yarn
-
-install-ci:
-    yarn install --immutable
-
-sdk:
-    cd ../../sdks/js && yarn install --immutable
+bindings:
     cd ../../sdks/js && ./dev/bindings wasm
-    cd ../../sdks/js && yarn workspace @xmtp/browser-sdk run build
+
+sdk: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/browser-sdk...' run build
 
 dev: sdk
-    {{ _env }} && yarn dev
+    {{ _env }} && pnpm --filter @xmtp/xmtp.chat run dev
 
 test: sdk
-    {{ _env }} && yarn test
+    {{ _env }} && pnpm --filter @xmtp/xmtp.chat run test
 
-check: sdk
-    yarn typecheck
+check: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run typecheck
 
 lint:
-    yarn lint
+    pnpm --filter @xmtp/xmtp.chat run lint
 
-build: sdk
-    yarn build
+build: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run build

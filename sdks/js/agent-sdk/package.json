@@ -52,41 +52,42 @@
     "dist"
   ],
   "scripts": {
-    "build": "yarn clean:dist && rollup -c",
-    "clean": "rm -rf .turbo && rm -rf node_modules && yarn clean:dist",
+    "build": "pnpm clean:dist && rollup -c",
+    "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
     "demo:actions": "tsx watch src/demo/actions.ts",
     "demo:main": "tsx watch src/demo/main.ts",
     "demo:reconnect": "XMTP_FORCE_DEBUG_LEVEL=Error tsx src/demo/reconnect.ts",
     "demo:transactions": "tsx watch src/demo/transactions.ts",
     "gen:keys": "tsx src/bin/generateKeys.ts",
-    "start": "yarn dev",
-    "test": "yarn typecheck && vitest run --typecheck",
+    "start": "pnpm dev",
+    "test": "pnpm typecheck && vitest run --typecheck",
     "test:cov": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@xmtp/content-type-primitives": "3.0.1",
-    "@xmtp/node-sdk": "workspace:^",
+    "@xmtp/content-type-primitives": "catalog:",
+    "@xmtp/node-sdk": "workspace:*",
     "ts-retry-promise": "^0.8.1",
-    "viem": "^2.37.6"
+    "viem": "catalog:"
   },
   "devDependencies": {
-    "@rollup/plugin-json": "^6.1.0",
-    "@rollup/plugin-typescript": "^12.3.0",
-    "@types/node": "^24.10.9",
-    "@vitest/coverage-v8": "^4.0.18",
-    "rollup": "^4.59.0",
-    "rollup-plugin-dts": "^6.3.0",
-    "rollup-plugin-tsconfig-paths": "^1.5.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vite": "^7.3.1",
-    "vite-tsconfig-paths": "^6.0.4",
-    "vitest": "^4.0.18"
+    "@rollup/plugin-json": "catalog:",
+    "@rollup/plugin-typescript": "catalog:",
+    "@types/node": "catalog:node22",
+    "@vitest/coverage-v8": "catalog:",
+    "rollup": "catalog:",
+    "rollup-plugin-dts": "catalog:",
+    "rollup-plugin-tsconfig-paths": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
+    "vitest": "catalog:",
+    "fast-glob": "catalog:"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

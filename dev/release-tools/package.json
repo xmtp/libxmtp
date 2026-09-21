@@ -19,16 +19,15 @@
     "yargs": "^18.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.0.0",
+    "@types/node": "catalog:node26",
     "@types/semver": "^7.5.0",
     "@types/yargs": "^17.0.35",
-    "prettier": "^3.8.1",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.0",
-    "vitest": "^4.0.0"
+    "prettier": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   },
-  "packageManager": "yarn@4.11.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   }
 }

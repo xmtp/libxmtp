@@ -1,0 +1,51 @@
+name: "Setup JavaScript"
+description: "Restore the pnpm store and install the root workspace"
+inputs:
+  nix:
+    description: "Use pnpm from the active Nix development shell"
+    required: false
+    default: "true"
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/setup-node@v6
+      if: ${{ inputs.nix != 'true' }}
+      with:
+        node-version-file: ".node-version"
+    # This reads the exact pnpm version from the root packageManager field.
+    - uses: pnpm/action-setup@v6
+      if: ${{ inputs.nix != 'true' }}
+
+    - name: Find pnpm store path (Nix)
+      id: nix-store
+      if: ${{ inputs.nix == 'true' }}
+      shell: bash
+      run: |
+        echo "path=$(dev/nix-shell 'pnpm store path --silent')" >> "$GITHUB_OUTPUT"
+        # Later composite actions can use the Nix-owned pnpm without entering
+        # a second development shell.
+        echo "$(dirname "$(dev/nix-shell 'command -v pnpm')")" >> "$GITHUB_PATH"
+
+    - name: Find pnpm store path
+      id: host-store
+      if: ${{ inputs.nix != 'true' }}
+      shell: bash
+      run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+    - name: Restore pnpm store
+      uses: actions/cache@v5
+      with:
+        path: ${{ steps.nix-store.outputs.path || steps.host-store.outputs.path }}
+        key: pnpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml') }}
+        restore-keys: |
+          pnpm-${{ runner.os }}-${{ runner.arch }}-
+
+    - name: Install workspace dependencies (Nix)
+      if: ${{ inputs.nix == 'true' }}
+      shell: bash
+      run: dev/nix-shell 'pnpm install --frozen-lockfile --prefer-offline'
+
+    - name: Install workspace dependencies
+      if: ${{ inputs.nix != 'true' }}
+      shell: bash
+      run: pnpm install --frozen-lockfile --prefer-offline

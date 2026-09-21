@@ -73,7 +73,7 @@ Note: `SDKROOT` is explicitly **unset** so xcrun discovers the right SDK per tar
 `jq`, `curl`, `graphite-cli`, `toxiproxy`, `omnix`
 
 **Direct dependencies:**
-`foundry-bin`, `sqlcipher`, `corepack`, `cargo-ndk`, `gnused`, `mktemp`, `diesel-cli`, `jdk21`, `jdk17`, `kotlin`, `ktlint`
+`foundry-bin`, `sqlcipher`, `pnpm` 11 with Node.js 26, `cargo-ndk`, `gnused`, `mktemp`, `diesel-cli`, `jdk21`, `jdk17`, `kotlin`, `ktlint`
 
 **Darwin only:**
 `darwin.cctools`, `swiftformat`, `swiftlint`, `kotlin-language-server`

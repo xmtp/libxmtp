@@ -22,11 +22,7 @@ jobs:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
-      - name: Install dependencies
-        run: just js install-ci
-      - name: Install web-chat dependencies
-        if: matrix.shard == 1
-        run: just web-chat install-ci
+      - uses: ./.github/actions/setup-js
       - name: Start backend
         run: just backend up
       - name: Run browser-sdk tests (shard ${{ matrix.shard }}/4)

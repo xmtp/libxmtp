@@ -749,7 +749,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   addMembersWithAddresses<ContentTypes>(
     group: Group<ContentTypes>,
     addresses: EthAddress[],
-  ) {
+  ): ReturnType<Group<ContentTypes>["addMembersByIdentifiers"]> {
     const identifiers = addresses.map((address) => {
       return {
         identifier: address,

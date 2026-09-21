@@ -1,8 +1,8 @@
 {
   stdenv,
   darwin,
-  corepack,
-  nodejs_24,
+  xmtp-pnpm,
+  nodejs_26,
   pkg-config,
   lib,
   mkShell,
@@ -13,8 +13,8 @@ mkShell {
   name = "xmtp-js-node environment";
   nativeBuildInputs = [ pkg-config ];
   buildInputs = [
-    corepack
-    nodejs_24
+    xmtp-pnpm
+    nodejs_26
   ]
   ++ lib.optionals stdenv.isDarwin [ darwin.cctools ];
 }

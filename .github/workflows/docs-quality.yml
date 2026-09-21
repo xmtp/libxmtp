@@ -22,7 +22,7 @@ jobs:
           disk-key: web
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
-      - run: just docs install
+      - uses: ./.github/actions/setup-js
       - run: just docs lint
       - run: just docs format-check
       - run: just docs test

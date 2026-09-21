@@ -148,15 +148,14 @@ jobs:
 
       - uses: taiki-e/install-action@just
 
+      - uses: ./.github/actions/setup-js
+
       - name: Stage node bindings
         run: just js bindings-node
 
       - name: Install + build agent-sdk
         run: |
-          nix develop .#js --command bash -euc '
-            cd sdks/js && yarn install --immutable
-            yarn workspace @xmtp/node-sdk run build
-            yarn workspace @xmtp/agent-sdk run build'
+          dev/nix-shell 'pnpm --filter @xmtp/node-sdk build && pnpm --filter @xmtp/agent-sdk build'
 
       - name: Upload build output
         uses: actions/upload-artifact@v7
@@ -171,8 +170,6 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.ref }}
       package-dir: sdks/js/agent-sdk
-      install-dir: sdks/js
-      lockfile-path: sdks/js/yarn.lock
       sdk: agent-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: agent_sdk_build

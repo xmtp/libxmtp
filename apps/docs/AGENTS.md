@@ -7,7 +7,7 @@ Starlight site for the self-hosted backend and SDKs. Specs are read from
 
 Commands run in the `docs` Nix shell through the root `justfile`.
 
-- `just docs install`: install the locked dependencies.
+- `just install`: install the locked root workspace dependencies.
 - `just docs browsers`: install Chromium on macOS. Linux uses the Nix browser.
 - `just docs dev`: start the local site.
 - `just docs build`: build the site.
