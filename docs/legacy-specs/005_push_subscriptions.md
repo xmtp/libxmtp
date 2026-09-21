@@ -1,4 +1,12 @@
+---
+prefix: PUSH
+status: legacy
+---
 # 005: Push subscriptions
+
+> **Being replaced.** This document is superseded by `PUSH` (push subscriptions and webhooks) in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `PUSH-nnn` identifiers in new code.
 
 Status: approved by the owner on 2026-09-14 (revision 7, five amendments after adversarial review, re-approved at that revision).
 

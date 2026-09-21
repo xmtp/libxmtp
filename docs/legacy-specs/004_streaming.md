@@ -1,4 +1,12 @@
+---
+prefix: STR
+status: legacy
+---
 # 004: Streaming
+
+> **Being replaced.** This document is superseded by `API` and `PROC` in `specs/`.
+> It stays binding for any obligation whose replacement is not yet approved.
+> Do not add requirements to it, and do not cite `STR-nnn` identifiers in new code.
 
 Status: backend streaming contract approved on 2026-09-06. Client durable-position revision under review.
 

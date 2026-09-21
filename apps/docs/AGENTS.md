@@ -1,7 +1,7 @@
 # Docs site
 
 Starlight site for the self-hosted backend and SDKs. Specs are read from
-`docs/specs`. Do not copy or edit the generated reference pages.
+`docs/specs/` and published under `/specs/`. Do not copy or edit the generated reference pages.
 
 ## Commands
 
