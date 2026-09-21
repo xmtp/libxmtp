@@ -14,12 +14,48 @@ This guide compares the self-hosted SDKs with
 bindings. This is a source baseline, not a shared SDK release number.
 React Native is not included in this repository's self-hosted SDKs.
 
+## Published dev releases for testing
+
+Use these published dev releases to test with a self-hosted backend. They are
+from [release run 35403812945](https://github.com/xmtp/libxmtp/actions/runs/35403812945)
+on `self-hosted`, at commit `43f235e`. Pin these versions instead of using an
+unversioned install or a moving `dev` tag.
+
+| SDK     | Package or dependency         | Dev version                                                                                     |
+| ------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
+| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.43f235e](https://www.npmjs.com/package/@xmtp/browser-sdk/v/7.2.0-dev.43f235e)        |
+| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.43f235e](https://www.npmjs.com/package/@xmtp/node-sdk/v/6.2.0-dev.43f235e)           |
+| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.43f235e](https://www.npmjs.com/package/@xmtp/agent-sdk/v/2.3.0-dev.43f235e)          |
+| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.43f235e](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.43f235e/) |
+| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.43f235e](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.43f235e)       |
+
+For example, install Node with
+`npm install @xmtp/node-sdk@6.2.0-dev.43f235e`. For Kotlin, use
+`implementation("org.xmtp:android:4.12.0-dev.43f235e")`. For Swift Package Manager,
+select the exact revision `ios-4.12.0-dev.43f235e` from
+`https://github.com/xmtp/libxmtp.git` and add the `XMTPiOS` product. That release
+includes a manifest that downloads its matching native binaries.
+
+Node and Browser depend on matching `@xmtp/node-bindings` and
+`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.43f235e`. Let the SDK
+install these dependencies; do not replace them with bindings from `main`.
+
+:::caution[Auth callbacks require a newer build]
+
+These releases predate the consistent high-level `authCallback` APIs and mobile
+callback error fixes described below. To test those changes, build the SDK and
+its matching bindings from the updated source, or use a later release that
+includes them. The versions above do not include those fixes.
+
+:::
+
 ## Migration order
 
 1. [Deploy the backend](/deploy/overview/), then use
    [Run the backend](/get-started/run-the-backend/) for configuration and startup.
-2. Select matching [SDK packages and native bindings](/get-started/install/)
-   that support `backendUrl`. An older network SDK cannot use this backend.
+2. Select a [published dev release](#published-dev-releases-for-testing) and follow
+   the [SDK installation guide](/get-started/install/). An older network SDK
+   cannot use this backend.
 3. Preserve required history with the old SDK before replacing its database.
    Review the [history limits](#keeping-history) below.
 4. Update client options and standalone identity calls. Register users on the
