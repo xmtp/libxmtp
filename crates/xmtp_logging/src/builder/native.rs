@@ -7,6 +7,12 @@ use crate::error::Error;
 use crate::handle::LoggingHandle;
 
 impl XmtpLoggingBuilder {
+    /// Send plain or JSON output to stderr. Keep stdout available for protocols.
+    pub fn with_stderr(mut self) -> Self {
+        self.stderr = true;
+        self
+    }
+
     /// Configure (or clear) OTLP telemetry export.
     pub fn with_telemetry(mut self, t: Option<TelemetryConfig>) -> Self {
         self.cfg.telemetry = t;
@@ -76,7 +82,11 @@ impl XmtpLoggingBuilder {
             crate::layers::native::native_layer(cfg.native_level.unwrap_or(cfg.level))
         } else {
             (
-                stdout_layer::<Registry>(cfg.json, cfg.stdout_level.unwrap_or(cfg.level)),
+                stdout_layer::<Registry>(
+                    cfg.json,
+                    cfg.stdout_level.unwrap_or(cfg.level),
+                    self.stderr,
+                ),
                 Vec::new(),
             )
         };

@@ -212,3 +212,6 @@ dev/specs/__pycache__/
 # Murmur local config (per-developer, not checked in)
 .murmur/murmur.local.yaml
 .murmur/murmur.*.local.yaml
+
+# Private chaos runs and evidence
+/.chaos/

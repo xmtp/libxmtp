@@ -1,0 +1,50 @@
+[package]
+name = "xchaos"
+description = "Local process chaos suite for XMTP convergence and liveness"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+alloy-signer-local.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+futures.workspace = true
+hex.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+reqwest.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = [
+  "rt-multi-thread",
+  "macros",
+  "process",
+  "io-util",
+  "io-std",
+  "signal",
+  "sync",
+  "net",
+] }
+toxiproxy_rust.workspace = true
+tracing.workspace = true
+xmtp-workspace-hack.workspace = true
+xmtp_api_backend.workspace = true
+xmtp_api_grpc.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
+xmtp_configuration.workspace = true
+xmtp_cryptography.workspace = true
+xmtp_db = { workspace = true, features = ["test-utils"] }
+xmtp_id.workspace = true
+xmtp_logging.workspace = true
+xmtp_mls = { workspace = true, features = ["test-utils"] }
+xmtp_proto.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

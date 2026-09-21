@@ -155,6 +155,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let topic = StreamTopic::group(self.group_id);
         let watch_app_data = self.context.change_callbacks().watches_app_data();
         let mut events = DeferredEvents::new();
+        #[cfg(any(test, feature = "test-utils"))]
+        let mut own_commit_epoch_conflict = false;
         let result = state_write(self.context.mls_storage(), |tx| {
             check_current_head(&tx.storage().db(), &topic, pending)?;
             if group_is_restored(&tx.storage().db(), &self.group_id)? {
@@ -228,6 +230,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             }
             if error.is_safe_rejection() {
                 tx.with_group(self.group_id, |group, storage| {
+                    #[cfg(any(test, feature = "test-utils"))]
+                    if envelope.is_commit()
+                        && matches!(&error, GroupMessageProcessingError::OldEpoch(..))
+                    {
+                        own_commit_epoch_conflict = storage
+                            .db()
+                            .find_group_intent_by_payload_hash(&envelope.payload_hash)?
+                            .is_some_and(|intent| {
+                                intent.group_id == self.group_id
+                                    && matches!(
+                                        intent.state,
+                                        IntentState::Published | IntentState::ToPublish
+                                    )
+                            });
+                    }
                     self.record_rejected_message(group, storage, envelope, &error)?;
                     storage.db().record_terminal_rejection(
                         &topic,
@@ -245,6 +262,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         })
         .map(TransactionOutcome::into_continued)
         .and_then(|outcome| outcome);
+        #[cfg(any(test, feature = "test-utils"))]
+        if own_commit_epoch_conflict
+            && matches!(&result, Err(GroupMessageProcessingError::OldEpoch(..)))
+        {
+            crate::diagnostics::record_own_commit_epoch_conflict();
+        }
         if let Ok(outcome) = &result {
             if envelope.is_commit() {
                 self.context.task_channels().wake_notifications();

@@ -1,3 +1,4 @@
+mod chaos 'apps/chaos/chaos.just'
 mod backend 'apps/backend/backend.just'
 mod android 'sdks/android/android.just'
 mod ios 'sdks/ios/ios.just'

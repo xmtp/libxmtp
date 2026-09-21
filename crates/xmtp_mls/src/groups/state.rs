@@ -105,8 +105,8 @@ where
 
     /// Get the encryption state of the current epoch. Should match for all installations
     /// in the same epoch.
-    #[cfg(test)]
-    pub(crate) async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn epoch_authenticator(&self) -> Result<Vec<u8>, GroupError> {
         self.with_group_snapshot(|mls_group| {
             Ok(mls_group.epoch_authenticator().as_slice().to_vec())
         })

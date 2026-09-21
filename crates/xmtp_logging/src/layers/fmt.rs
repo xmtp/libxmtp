@@ -78,15 +78,25 @@ impl VisitFmt for HideSentryVisitor<'_> {
 /// Filtered via `filter_directive` (explicit per-crate directives at
 /// `stdout_level`) so it overrides the global per-crate filter and narrows
 /// stdout below `level` — a bare default directive would not (INFO leaks).
-pub(crate) fn stdout_layer<S>(json: bool, stdout_level: Level) -> Box<dyn Layer<S> + Send + Sync>
+pub(crate) fn stdout_layer<S>(
+    json: bool,
+    stdout_level: Level,
+    stderr: bool,
+) -> Box<dyn Layer<S> + Send + Sync>
 where
     S: tracing::Subscriber + for<'a> LookupSpan<'a>,
 {
     let filter = filter_directive(stdout_level.as_str());
+    let writer = if stderr {
+        fmt::writer::BoxMakeWriter::new(std::io::stderr)
+    } else {
+        fmt::writer::BoxMakeWriter::new(std::io::stdout)
+    };
     if json {
         // Deliberately keeps `sentry.*`: JSON stdout is machine-consumed, so the
         // hints are filterable downstream rather than noise on a line.
         fmt::layer()
+            .with_writer(writer)
             .json()
             .flatten_event(true)
             .with_level(true)
@@ -95,6 +105,7 @@ where
             .boxed()
     } else {
         fmt::layer()
+            .with_writer(writer)
             .fmt_fields(HideSentryFields)
             .with_filter(filter)
             .boxed()

@@ -105,6 +105,17 @@ where
                     envelope.sequence_id()
                 ),
             )?;
+            #[cfg(any(test, feature = "test-utils"))]
+            tracing::warn_span!(
+                "diagnostic.epoch_mismatch",
+                group_id = %self.group_id.short_hex(),
+                sequence_id = envelope.sequence_id(),
+                message_epoch = envelope.message.epoch().as_u64(),
+                current_epoch = group.epoch().as_u64(),
+                is_commit = envelope.is_commit(),
+                error_code = error.processing_code(),
+            )
+            .in_scope(|| tracing::warn!("group marked maybe_forked after an epoch mismatch"));
         }
         if envelope.is_commit() {
             if matches!(

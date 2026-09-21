@@ -5,6 +5,8 @@ pub mod builder;
 pub mod client;
 pub mod context;
 mod definitions;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod diagnostics;
 pub mod groups;
 pub mod identity;
 pub mod identity_updates;

@@ -483,6 +483,8 @@ where
                 retry_expires_at_ns: deadline,
             },
         )?;
+        #[cfg(any(test, feature = "test-utils"))]
+        crate::diagnostics::record_welcome_retry(code);
         Ok(())
     }
 

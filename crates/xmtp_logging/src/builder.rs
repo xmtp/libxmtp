@@ -41,12 +41,18 @@ impl XmtpLogging {
 #[derive(Default)]
 pub struct XmtpLoggingBuilder {
     pub(crate) cfg: LoggingConfig,
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) stderr: bool,
 }
 
 impl XmtpLoggingBuilder {
     /// Build from a fully-specified [`LoggingConfig`].
     pub fn from_config(cfg: LoggingConfig) -> Self {
-        Self { cfg }
+        Self {
+            cfg,
+            #[cfg(not(target_arch = "wasm32"))]
+            stderr: false,
+        }
     }
 
     /// Set the initial log level.
