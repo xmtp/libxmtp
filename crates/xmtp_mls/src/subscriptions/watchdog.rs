@@ -356,8 +356,8 @@ where
 ///
 /// An ordinary close (the client shutting down) ends a stream silently, exactly
 /// as it always has. A close caused by a latched configuration failure —
-/// another deployment answering (CFG-051), or a minimum version this build no
-/// longer meets (CFG-061) — delivers that typed error to the callback first, so
+/// another deployment answering, or a minimum version this build no
+/// longer meets — delivers that typed error to the callback first, so
 /// the app learns why its streams went away rather than seeing a bare close.
 #[derive(Clone, Default)]
 pub(crate) struct StreamCancel {
@@ -388,8 +388,8 @@ impl StreamCancel {
         self.token.cancelled()
     }
 
-    /// The reason this close carries, if the client latched one (CFG-051,
-    /// CFG-061). Returned as the latch rather than the error because
+    /// The reason this close carries, if the client latched one.
+    /// Returned as the latch rather than the error because
     /// `SubscribeError` is not `Clone` and the reason is reported twice: once
     /// to the callback, once as the handle's result.
     fn fatal(&self) -> Option<crate::server_configuration::ConfigurationLatch> {
@@ -400,8 +400,8 @@ impl StreamCancel {
 /// The result a subscription loop ends with, once its loop has left.
 ///
 /// An ordinary close — the inner stream ending, or the client shutting down —
-/// is `Ok(())`. A cancellation the client latched a reason for (CFG-051,
-/// CFG-061) reports that typed error to the callback and returns it as the
+/// is `Ok(())`. A cancellation the client latched a reason for
+/// reports that typed error to the callback and returns it as the
 /// handle's result, so the app learns why its streams went away instead of
 /// seeing a bare close. Every callback subscription ends through this, so none
 /// of them can drift into swallowing a latched failure.
@@ -528,7 +528,7 @@ where
         };
         // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
         if cancelled || !stale {
-            // CFG-051 and CFG-061: a latched client closes its streams *with*
+            // A latched client closes its streams *with*
             // the reason, so the app sees the typed error and not a bare close.
             break 'reconnect close_reason(&cancel, cancelled, &mut callback);
         }
@@ -543,7 +543,7 @@ where
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
                     tokio::select! {
-                        // CFG-051 and CFG-061: a latch that lands mid-reconnect
+                        // A latch that lands mid-reconnect
                         // closes this stream with the reason too, not silently.
                         _ = cancel.cancelled() => {
                             break 'reconnect close_reason(&cancel, true, &mut callback);
@@ -734,7 +734,7 @@ mod tests {
         assert!(polled.is_err(), "disabled watchdog should never trip");
     }
 
-    /// CFG-051 and CFG-061: a latch that lands while the stream is between
+    /// A latch that lands while the stream is between
     /// subscriptions — retrying a failed `subscribe()`, or waiting out the
     /// reconnect throttle — closes it with the reason, not as a clean end.
     #[xmtp_common::test(unwrap_try = true)]

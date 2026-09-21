@@ -118,7 +118,7 @@ pub trait Client: MaybeSend + MaybeSync {
     fn host(&self) -> &str;
 
     /// Whether this transport stack was given a way to obtain a credential —
-    /// an auth callback or an auth handle (CFG-062). A stack with no auth
+    /// an auth callback or an auth handle. A stack with no auth
     /// middleware in it reports `false`, and `build` refuses a deployment that
     /// requires authentication.
     fn has_credential_source(&self) -> bool {

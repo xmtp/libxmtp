@@ -92,6 +92,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     }
   }
 
+  // implements: PROC-028, PROC-031, PROC-032
   async #read(): Promise<IteratorResult<V, undefined>> {
     if (this.#hasEnded()) return { done: true, value: undefined };
     if (this.#reading) throw new Error("A message read is already pending");

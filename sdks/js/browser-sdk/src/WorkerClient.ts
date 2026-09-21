@@ -242,12 +242,12 @@ export class WorkerClient {
     return this.#client.device_sync().syncAllDeviceSyncGroups();
   }
 
-  /** The snapshot the core resolved at build (CFG-080). */
+  /** The snapshot the core resolved at build. */
   get serverConfiguration(): ServerConfiguration {
     return this.#client.serverConfiguration();
   }
 
-  /** Fetch now and rewrite the stored copy; the snapshot is unchanged (CFG-082). */
+  /** Fetch now and rewrite the stored copy; the snapshot is unchanged. */
   async refreshServerConfiguration(): Promise<ServerConfiguration> {
     return this.#client.refreshServerConfiguration();
   }

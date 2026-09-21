@@ -213,6 +213,7 @@ impl Session {
 
     /// Serialize control, targets, history, live data, and timers in one owner.
     /// Target reads and history remain cancellable while input is processed.
+    // implements: API-250
     async fn run(
         &mut self,
         mut input: BoxStream<'static, Result<api::SubscribeRequest, Status>>,
@@ -314,6 +315,7 @@ impl Session {
 
     /// Inspect already buffered input before failing an expired challenge.
     /// Other frames remain ordered for later processing; inbound traffic is not activity.
+    // implements: API-255, API-257
     fn on_timer(
         &mut self,
         input: &mut BoxStream<'static, Result<api::SubscribeRequest, Status>>,
@@ -376,6 +378,7 @@ impl Session {
         Ok(())
     }
 
+    // implements: API-258
     fn input(&mut self, frame: api::SubscribeRequest) -> Result<(), Status> {
         match frame
             .request
@@ -445,6 +448,7 @@ impl Session {
     /// Validate the complete update before changing interests. Register all new
     /// topics before starting their head read; no history may precede Applied.
     #[xmtp_common::span(prefix = "stream")]
+    // implements: API-253
     fn update(&mut self, update: api::subscribe_request::Update) -> Result<(), Status> {
         let adds = self.validate_update(&update).map_err(|error| {
             telemetry::stream_updated(UpdateOutcome::Invalid);
@@ -496,6 +500,7 @@ impl Session {
     }
 
     /// Admit targets before enabling new registrations to fetch or become current.
+    // implements: API-252
     fn applied(&mut self, heads: Vec<i64>) -> Result<(), Status> {
         let update = self
             .pending_update
@@ -536,6 +541,7 @@ impl Session {
         Ok(())
     }
 
+    // implements: API-251
     fn validate_update(
         &self,
         update: &api::subscribe_request::Update,

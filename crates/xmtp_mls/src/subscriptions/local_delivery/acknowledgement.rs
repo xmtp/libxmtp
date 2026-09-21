@@ -200,6 +200,7 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
     }
 
     /// Persist after the callback returns successfully, or at the next iterator request.
+    // implements: PROC-028, PROC-031
     pub fn acknowledge(&self) -> Result<()> {
         let mut state = self.pending.state.lock();
         match *state {

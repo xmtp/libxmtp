@@ -68,10 +68,10 @@ async fn test_welcome_pointer_round_trip_without_welcome_pointers() {
     .await;
 }
 
+// verifies: JOIN-028
 #[xmtp_common::timeout(Duration::from_secs(40))]
 #[rstest::rstest]
 #[xmtp_common::test(unwrap_try = true)]
-
 async fn test_welcome_pointer_round_trip_with_random_mix_of_welcome_pointers() {
     let random_vec = xmtp_common::rand_vec::<1024>();
     let mut random_vec = random_vec
@@ -396,6 +396,7 @@ async fn test_welcome_pointer_resolution_for_no_destination() {
     assert!(result.unwrap().is_none());
 }
 
+// verifies: JOIN-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_pointer_resolution_to_another_welcome_pointer() {
     tester!(alix);

@@ -18,21 +18,21 @@ flowchart LR
 
 In scope: what the backend may and may not delete, and what a client does not do with an expiry; the startup checks on retention and envelope size that keep every stored envelope deliverable; the health protocol and when `SERVING` is reported; what a client observes during shutdown; which reads may answer from a lagged copy and what they still guarantee; the request id, trace context, deployment identity, the telemetry startup checks, the metric families with their label vocabularies, the operator-facing span names, the request completion log, and what telemetry never contains.
 
-Out of scope: platform and deployment choices such as the database engine, the process model, read routing between database instances, and instance affinity, which live in the backend's module README; per-RPC contracts, ordering, publish atomicity, the envelope metadata including the expiry formula, and the status codes (`API`); the retention and drain values and the telemetry keys (`CONF` and the backend's documentation); credentials (`AUTH`); push delivery and its dispatcher (`?PUSH`); and what a client does with a received envelope (`?PROC`).
+Out of scope: platform and deployment choices such as the database engine, the process model, read routing between database instances, and instance affinity, which live in the backend's module README; per-RPC contracts, ordering, publish atomicity, the envelope metadata including the expiry formula, and the status codes (`API`); the retention and drain values and the telemetry keys (`CONF` and the backend's documentation); credentials (`AUTH`); push delivery and its dispatcher ([PUSH section 5](PUSH-push-subscriptions.md#5-dispatch)); and what a client does with a received envelope ([PROC](PROC-message-processing.md)).
 
 | Related | Relation |
 | --- | --- |
 | `API` | Owns the expiry formula and every other metadata field (API-212), the per-topic prefix every read returns (API-201), and read-your-writes on `Query` (API-202). This spec owns what happens after an expiry passes and which reads may lag. |
 | `CONF` | Owns the retention values (CONF-069, section 3), the request and response budgets (CONF-008), and the deployment identifier (CONF-002) this spec carries into telemetry. |
 | `AUTH` | Owns admission, which runs before the drain admission of section 3, and the auth rejection reasons that label `xmtp_auth_rejections_total`; triggers the drain when its key set goes stale (AUTH-019). |
-| `?PUSH` | Owns push delivery, including the expiry of push recipients. This spec lists the push metric families only. |
+| [PUSH section 5](PUSH-push-subscriptions.md#5-dispatch) | Owns push dispatch and recipient expiry (PUSH-226). This spec lists the push metric families only. |
 
 ## Terms
 
 | Term | Meaning |
 | --- | --- |
 | Instance | One running backend process of a deployment. |
-| Envelope kind | The topic kind of an envelope: a group message, a Welcome, a key package, an identity update, or a commit-log entry. `?TOPIC` owns the kind byte. |
+| Envelope kind | The topic kind of an envelope: a group message, a Welcome, a key package, an identity update, or a commit-log entry. TOPIC-001 owns the kind byte. |
 | Retention period | The configured seconds for a kind: `retention.group_message_seconds`, `retention.welcome_seconds`, or `retention.key_package_seconds`. |
 | Expiry | The `expiry_ns` of an envelope's metadata, set under API-212. |
 | Exempt envelope | An envelope whose expiry is 0. |
@@ -47,7 +47,7 @@ Out of scope: platform and deployment choices such as the database engine, the p
 
 Retention is decided when an envelope is stored: API-212 sets its expiry from the retention period of its kind, and to 0 for the kinds that never expire. This section owns what the expiry then means. An exempt envelope is never deleted, whatever the operator configures, because an identity update, a commit-log entry, a commit, or a proposal is state every later message depends on. An envelope is never deleted before its expiry, and while it is stored its expiry does not hide it from any read. Which stored envelopes a read returns is decided by the request's topics, cursors, and limit under `API`, not by expiry.
 
-Deletion of an envelope after its expiry is not performed today (Known limitations); a push recipient's expiry, which `?PUSH` owns, is a separate mechanism. An expiry is a bound on the backend's storage, not a message deletion rule for a client: the only user-facing deletion is disappearing messages, which `?META` owns.
+Deletion of an envelope after its expiry is not performed today (Known limitations); push recipient expiry under PUSH-226 is a separate mechanism. An expiry is a bound on the backend's storage, not a message deletion rule for a client. [META section 6](META-group-metadata.md#6-disappearing-messages) owns disappearing messages.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -82,7 +82,7 @@ A publish admitted before shutdown may commit and still get no response. That is
 
 ## 4. Lagged reads
 
-A deployment may answer some reads from a lagged copy of its store, so a client that just published can see an older point in time on those reads than on `Query`. The lag is safe because a lagged read is still a prefix of every topic (API-201) and because it equals what the current store would have answered earlier, never a reordering and never a gap. Only `Query` reads the client's own writes (API-202). A client that must confirm its own write is visible on a lagged read polls a metadata-only `QueryNewest` on the exact topic; `?IDENT` is expected to require that for installation registration, and `?PROC` is expected to require that a client which needs its own publish visible fetches it with `Query`.
+A deployment may answer some reads from a lagged copy of its store, so a client that just published can see an older point in time on those reads than on `Query`. The lag is safe because a lagged read is still a prefix of every topic (API-201) and because it equals what the current store would have answered earlier, never a reordering and never a gap. Only `Query` reads the client's own writes (API-202). A client that must confirm its own write is visible on a lagged read polls a metadata-only `QueryNewest` on the exact topic; `?IDENT` is expected to require that for installation registration. PROC-021 defines when a client uses `Query` to reach a target from its own publish receipt.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

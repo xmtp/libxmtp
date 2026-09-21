@@ -43,6 +43,7 @@ const deferred = <T>() => {
 };
 
 describe("MessageStream worker acknowledgement boundaries", () => {
+  // verifies: PROC-028
   it("acknowledges at the following next request, not worker receipt", async () => {
     const first = token();
     const second = token();
@@ -60,6 +61,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(second.reject).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-031, PROC-032
   it("discards a stale worker token and selects again", async () => {
     const stale = token();
     stale.checkOwner.mockResolvedValue(false);
@@ -74,6 +76,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     await stream.end();
   });
 
+  // verifies: PROC-032
   it("reselects when a removed worker item has no decoded value", async () => {
     const removed = token();
     removed.checkOwner.mockResolvedValue(false);
@@ -93,6 +96,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     await stream.end();
   });
 
+  // verifies: PROC-028
   it.each(["throw", "reject"] as const)(
     "closes once when a callback uses %s without an iterator or unhandled rejection",
     async (failure) => {
@@ -123,6 +127,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     },
   );
 
+  // verifies: PROC-031
   it("does not call the app when an ownership check finishes after close", async () => {
     const pending = token();
     let finish: ((valid: boolean) => void) | undefined;
@@ -144,6 +149,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(pending.reject).toHaveBeenCalledOnce();
   });
 
+  // verifies: PROC-028
   it("automatically checks, calls, and acknowledges synchronous callbacks in order", async () => {
     const events: string[] = [];
     const first = token();
@@ -194,6 +200,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(stream.isDone).toBe(true);
   });
 
+  // verifies: PROC-028
   it("waits for an async callback before acknowledgement or the next read", async () => {
     const first = token();
     const second = token();
@@ -238,6 +245,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     }
   });
 
+  // verifies: PROC-028
   it("rejects a pending callback on close and does not acknowledge its later return", async () => {
     const pending = token();
     const release = deferred<undefined>();

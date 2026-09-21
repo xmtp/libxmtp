@@ -73,6 +73,7 @@ impl<T: ErrorCode + 'static> From<ErrorWrapper<T>> for napi::bindgen_prelude::Er
 
 #[cfg(test)]
 mod auth_error_tests {
+  // verifies: AUTH-026
   #[xmtp_common::test(unwrap_try = true)]
   fn auth_codes_reach_node_errors() {
     use xmtp_common::ErrorCode;

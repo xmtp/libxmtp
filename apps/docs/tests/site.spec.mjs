@@ -53,6 +53,25 @@ test("all search cases rank the expected page first", async ({ page }) => {
   }
 });
 
+test("specs stay searchable without the guide title boost", async ({
+  page,
+}) => {
+  await page.goto("/specs/join-joining-groups/");
+  const title = page.locator("h1#_top");
+  await expect(title).toHaveAttribute("data-pagefind-weight", "0.1");
+  await expect(title).not.toHaveAttribute("data-pagefind-meta", "guideTitle");
+  const urls = await page.evaluate(async (ranking) => {
+    const pagefind = await import("/pagefind/pagefind.js");
+    await pagefind.options({ ranking });
+    await pagefind.init();
+    const response = await pagefind.search("WelcomePointerWrapperAlgorithm");
+    return Promise.all(
+      response.results.map(async (result) => (await result.data()).url),
+    );
+  }, searchRanking);
+  expect(urls).toContain("/specs/join-joining-groups/");
+});
+
 test("the search UI uses the guide ranking", async ({ page }) => {
   await page.goto("/get-started/quickstart/");
   await page

@@ -227,6 +227,7 @@ mod tests {
         assert_eq!(result.unwrap().unwrap().as_slice(), &[10u8; 32]);
     }
 
+    // verifies: FORK-031
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_verify_commit_log_signature() {
         tester!(alix);
@@ -284,6 +285,7 @@ mod tests {
         );
     }
 
+    // verifies: FORK-012
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_derive_consensus_public_key_with_valid_signature() {
         tester!(alix);

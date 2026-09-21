@@ -104,6 +104,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         .next()
         .ok_or(ApiError::InvalidResponse("key package metadata"))
     }
+    // implements: API-245
     #[xmtp_common::rpc_span]
     pub async fn fetch_key_packages(&self, keys: &[InstallationId]) -> Result<KeyPackageMap> {
         let mut found: KeyPackageMap = keys.iter().cloned().map(|key| (key, None)).collect();

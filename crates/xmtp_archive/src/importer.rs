@@ -32,6 +32,7 @@ pub struct ArchiveImporter {
 impl Stream for ArchiveImporter {
     type Item = Result<BackupElement, ArchiveError>;
 
+    // implements: ARCH-002
     fn poll_next(
         self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,

@@ -479,7 +479,7 @@ where
         };
         // Removal is terminal for unaccepted outgoing work. Abandon it in the
         // same transaction that applies the removal, so no stranded intent can
-        // preempt publishing after a later re-add (STR-086).
+        // preempt publishing after a later re-add.
         if !outcome.group_active {
             let superseded =
                 db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;

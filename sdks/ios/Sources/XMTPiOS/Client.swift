@@ -276,8 +276,7 @@ public final class Client {
 		do {
 			// Build reads the stored server configuration and can fail with
 			// ConfigurationUnavailable, ConfigurationInvalid, BackendMismatch,
-			// ClientVersionTooOld or AuthRequired (spec 006 CFG-041, CFG-044,
-			// CFG-052, CFG-060, CFG-062). Surface each as its distinct type.
+			// ClientVersionTooOld or AuthRequired. Surface each as its distinct type.
 			(libxmtpClient, dbPath) = try await initFFiClient(
 				accountIdentifier: publicIdentity,
 				options: options,
@@ -556,8 +555,8 @@ public final class Client {
 	/// The error a failed signing round trip should surface.
 	///
 	/// A signature the deployment refuses because of its configuration — a smart
-	/// contract wallet chain outside ``ServerConfiguration/smartContractWalletChains``
-	/// (spec 006 CFG-069, CFG-070), or a client the deployment has since latched —
+	/// contract wallet chain outside ``ServerConfiguration/smartContractWalletChains``,
+	/// or a client the deployment has since latched —
 	/// keeps its distinct type, so an app can `catch is ChainNotAcceptedError`.
 	/// Anything else stays the generic creation failure it has always been.
 	static func signingFailure(_ error: Error) -> Error {
@@ -1225,7 +1224,7 @@ public final class Client {
 // MARK: - Server configuration (spec 006 §7)
 
 public extension Client {
-	/// The server configuration this client was built with (CFG-080).
+	/// The server configuration this client was built with.
 	///
 	/// The snapshot is read once at build and held for the life of the client,
 	/// so this makes no backend request and never fails. Use
@@ -1235,7 +1234,7 @@ public extension Client {
 		ServerConfiguration(ffiClient.serverConfiguration())
 	}
 
-	/// Fetch the deployment's configuration now and return it (CFG-082).
+	/// Fetch the deployment's configuration now and return it.
 	///
 	/// The fetch is validated and the stored copy is rewritten, but this
 	/// client's snapshot is unchanged: ``serverConfiguration()`` keeps
@@ -1254,7 +1253,7 @@ public extension Client {
 	}
 
 	/// Read one deployment's configuration with no database, no client and no
-	/// credential (CFG-081).
+	/// credential.
 	///
 	/// Call this before deciding how to build a client, to learn whether the
 	/// deployment requires authentication (``AuthConfiguration/enabled`` and

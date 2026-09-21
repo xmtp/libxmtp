@@ -3,6 +3,7 @@ use openmls::prelude::Credential;
 use prost::Message;
 use xmtp_proto::xmtp::identity::MlsCredential;
 
+// implements: JOIN-004
 pub fn create_credential(inbox_id: impl AsRef<str>) -> Credential {
     BasicCredential::new(
         MlsCredential {

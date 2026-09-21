@@ -43,6 +43,7 @@ fn every_key_requires_exp_and_each_configured_audience_and_issuer() {
     }
 }
 
+// verifies: AUTH-016
 #[xmtp_common::test(unwrap_try = true)]
 fn jwk_filter_rejects_bad_usage_algorithm_curve_and_key_material() {
     let config = AuthConfig::default();
@@ -69,6 +70,7 @@ fn jwk_filter_rejects_bad_usage_algorithm_curve_and_key_material() {
     }
 }
 
+// verifies: AUTH-027
 #[xmtp_common::test(unwrap_try = true)]
 fn skipped_key_logs_only_a_utf8_safe_bounded_id() {
     let capture = xmtp_logging::test_logging::LogCapture::new(xmtp_logging::Level::Warn);

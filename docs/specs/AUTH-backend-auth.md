@@ -28,12 +28,12 @@ flowchart TD
 
 In scope: which paths need a credential and which never do; the bearer form; how an API key is matched; how a JWT is verified, including the accepted algorithms, key selection, the claim types, and the time, audience, issuer, and scope claims; how the key set is loaded, refreshed, bounded, and retired; the checks an enabled `[auth]` table must pass at startup; the rejection vocabulary; how the client obtains, attaches, refreshes, and replaces a credential; when the client stops trying; and what the backend records about a credential.
 
-Out of scope: the presence rule for `auth.enabled` and what is published about auth (`CONF`); the status code table (`?API`); what an operator's identity provider does; and the metric families themselves (`OPS`).
+Out of scope: the presence rule for `auth.enabled` and what is published about auth (`CONF`); the general status code table ([API section 7](API-backend-api.md#7-bounds-errors-and-transport)); what an operator's identity provider does; and the metric families themselves (`OPS`).
 
 | Related | Relation |
 | --- | --- |
 | `CONF` | Owns whether an `[auth]` table must state `enabled` (CONF-005), that a disabled table is not validated (CONF-066), the published auth summary (CONF-068), the unauthenticated configuration read (CONF-010, CONF-029), and the deployment identifier (CONF-002). This spec owns every other check of an enabled table. |
-| `?API` | Owns the gRPC status codes and their general meaning. This spec uses `UNAUTHENTICATED` and `PERMISSION_DENIED` under SPEC-040. |
+| [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns general gRPC status codes. This spec owns the auth-specific `UNAUTHENTICATED` and `PERMISSION_DENIED` conditions under AUTH-014. |
 | `OPS` | Owns the metric catalogue, including `xmtp_auth_rejections_total` (OPS-017), and the drain that AUTH-019 triggers (OPS-007, OPS-008). This spec owns the reason vocabulary. |
 
 ## Terms

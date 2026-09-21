@@ -76,7 +76,7 @@ pub(crate) const MAX_MUTATE_BYTES: usize =
 /// Conservative protobuf overhead per topic, including cursor and length fields.
 const PER_ENTRY_OVERHEAD: usize = 64;
 
-/// The interest-update frame shapes one deployment accepts (CFG-064). Adds and
+/// The interest-update frame shapes one deployment accepts. Adds and
 /// removes have separate caps because the backend enforces them separately.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MutateLimits {
@@ -417,8 +417,7 @@ where
         Self::spawn(opener, initially_suspended, MutateLimits::default())
     }
 
-    /// Open lazily, chunking interest updates to what the deployment published
-    /// (CFG-064).
+    /// Open lazily, chunking interest updates to what the deployment published.
     pub fn new_within<O, Fut>(opener: O, initially_suspended: bool, mutate: MutateLimits) -> Self
     where
         O: Fn(B::Mutate) -> Fut + MaybeSend + MaybeSync + 'static,
@@ -1924,6 +1923,7 @@ where
             OpenOutcome::Failed(error) => {
                 self.outbox.clear();
                 self.ledger.reset_wire();
+                // implements: AUTH-025
                 if error.is_locked_out() {
                     // The cool-down clears on its own, so the wire must wait for
                     // it. A shutdown here would lose every subscription for the
@@ -2052,7 +2052,7 @@ where
         if !adds_only && !removes_only {
             return None;
         }
-        // CFG-064: the deployment caps adds and removes separately, so the
+        // The deployment caps adds and removes separately, so the
         // merged frame is bounded by the cap for the kind it carries. Merging a
         // removes-only prefix up to `add_cap` would build a frame the backend
         // rejects with INVALID_ARGUMENT wherever a deployment publishes a

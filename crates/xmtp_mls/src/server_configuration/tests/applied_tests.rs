@@ -1,7 +1,7 @@
-//! Spec 006 §6.4 through a real client (CFG-100).
+//! Published configuration through a real client.
 //!
-//! Every field §6.4 acts on is given a non-default value through the static
-//! provider of CFG-033, and the behaviour it changes is asserted. A provider
+//! Each applied field is given a non-default value through the static
+//! provider, and the behaviour it changes is asserted. A provider
 //! short-circuits the fetch, the store, the refresh, and the identifier check,
 //! so these tests name values no deployment has to publish and still run
 //! against the shared backend.
@@ -46,8 +46,8 @@ async fn build_with(provider: Arc<dyn ConfigProvider>) -> Result<(), ClientBuild
         .map(|_| ())
 }
 
-// CFG-100: every field of §5.2 the deployment publishes reaches
-// `serverConfiguration()` unchanged, including the ones §6.4 never reads.
+// Every field the deployment publishes reaches `serverConfiguration()` unchanged.
+// verifies: CONF-061
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_published_field_round_trips_to_the_client() {
     let expected = distinct_snapshot();
@@ -57,8 +57,9 @@ async fn every_published_field_round_trips_to_the_client() {
     assert_eq!(alix.server_configuration(), &expected);
 }
 
-// CFG-066: the deployment's ceiling is checked before the commit is built and
+// The deployment's ceiling is checked before the commit is built and
 // before anything is published.
+// verifies: CONF-043
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_lowered_group_member_limit_refuses_the_addition() {
     crate::tester!(bo);
@@ -112,8 +113,9 @@ async fn a_lowered_group_member_limit_refuses_the_addition() {
     assert_eq!(group.members().await?.len(), 3);
 }
 
-// CFG-067: the ceiling is read from the snapshot the client resolved before any
+// The ceiling is read from the snapshot the client resolved before any
 // identity work, and refuses the registration before it publishes.
+// verifies: CONF-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_lowered_installation_limit_refuses_the_registration() {
     // One installation exists after this build.
@@ -143,8 +145,9 @@ async fn a_lowered_installation_limit_refuses_the_registration() {
     assert_eq!(first.inbox_state(true).await?.installations().len(), 1);
 }
 
-// CFG-068: a deployment that keeps no commit log gets no commit-log entries,
+// A deployment that keeps no commit log gets no commit-log entries,
 // whatever the client's own worker switch says.
+// verifies: CONF-045
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_deployment_that_keeps_no_commit_log_writes_none() {
     crate::tester!(alix, config_provider: provider(|c| c.mls.commit_log_enabled = Some(false)));
@@ -176,8 +179,9 @@ async fn a_deployment_that_keeps_no_commit_log_writes_none() {
     );
 }
 
-// CFG-065: the snapshot's ceiling is what the publish path measures against, so
+// The snapshot's ceiling is what the publish path measures against, so
 // an envelope above it is refused before any network call.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_lowered_envelope_limit_refuses_the_publish() {
     // Large enough for registration, key packages, and the group commit; far
@@ -209,8 +213,9 @@ async fn a_lowered_envelope_limit_refuses_the_publish() {
     xmtp_api::PublishUnit::single(envelope)?;
 }
 
-// CFG-064: queries are chunked at the snapshot's `max_query_topics`, so a
+// Queries are chunked at the snapshot's `max_query_topics`, so a
 // deployment that publishes one still answers a read across several topics.
+// verifies: CONF-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_lowered_query_topic_limit_chunks_rather_than_truncates() {
     crate::tester!(alix, config_provider: provider(|c| c.limits.max_query_topics = 1));
@@ -237,8 +242,9 @@ async fn a_lowered_query_topic_limit_chunks_rather_than_truncates() {
     );
 }
 
-// CFG-062: a deployment that requires a credential refuses a client that has no
+// A deployment that requires a credential refuses a client that has no
 // way to produce one, and the error carries the scopes it wanted.
+// verifies: CONF-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_deployment_requiring_authentication_refuses_a_client_with_no_credential_source() {
     let error = build_with(provider(|c| {
@@ -256,15 +262,16 @@ async fn a_deployment_requiring_authentication_refuses_a_client_with_no_credenti
     assert_eq!(required_scopes, vec!["xmtp:write".to_owned()]);
 }
 
-// CFG-063: auth off with a callback configured is not an error. The client
+// Auth off with a callback configured is not an error. The client
 // still builds; the backend simply ignores the credential.
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_deployment_with_authentication_off_still_builds() {
     build_with(provider(|c| c.auth.enabled = false)).await?;
 }
 
-// CFG-060: the minimum-version check applies to the snapshot the client ends up
+// The minimum-version check applies to the snapshot the client ends up
 // holding, including one a provider supplied.
+// verifies: CONF-049
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_provider_snapshot_requiring_a_newer_client_refuses_the_build() {
     let error = build_with(provider(|c| {
@@ -278,7 +285,7 @@ async fn a_provider_snapshot_requiring_a_newer_client_refuses_the_build() {
     );
 }
 
-// CFG-069: every signature request the client hands back is bound to the chains
+// Every signature request the client hands back is bound to the chains
 // the deployment accepts, revocation included. Installing the default remote
 // verifier also ends the app-supplied-verifier exemption, so a caller that sets
 // its own verifier and then asks for the remote one is bound like anyone else.
@@ -310,8 +317,9 @@ async fn a_revocation_request_is_bound_to_the_accepted_chains() {
     );
 }
 
-// CFG-051 and CFG-061: once latched, every later call fails with the reason the
+// Once latched, every later call fails with the reason the
 // client latched, and the client's cancellation token closes its streams.
+// verifies: CONF-022
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_latched_client_fails_every_later_call() {
     use crate::context::XmtpSharedContext;
@@ -344,7 +352,7 @@ async fn a_latched_client_fails_every_later_call() {
 
     // Sending still fails; the sync driver reports it as a publish failure
     // rather than re-raising the latch, because the intent stays queued for a
-    // client that can publish it (CFG-061).
+    // client that can publish it.
     assert!(
         group
             .send_message(b"after", SendMessageOpts::default())

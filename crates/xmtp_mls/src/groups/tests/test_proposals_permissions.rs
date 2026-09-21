@@ -618,6 +618,7 @@ async fn test_admin_proposes_remove_committed_by_non_admin() {
 
 /// A raw registry mutation must not relax the constrained `ADMIN_LIST` entry.
 /// The shared constrained-component check rejects it before publication.
+// verifies: PERM-017
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_raw_registry_admin_list_allow_rejected_before_publish() {
     use crate::groups::{
@@ -1024,6 +1025,7 @@ async fn test_migrated_action_permission_updates_use_registry() {
 
 /// `Allow` would give every member authority to change the admin list. Reject
 /// it before queueing an intent or advancing the group epoch.
+// verifies: PERM-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_allow_admin_permission_updates_rejected_before_queueing() {
     use crate::groups::{

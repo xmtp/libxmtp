@@ -22,21 +22,21 @@ flowchart TD
 
 In scope: the identity update wire format and its actions, the association state and how each action changes it, the signature text and the signature kinds, which kind may sign for which member, inbox id derivation, replay protection, recovery authorization, smart contract wallet verification and chain binding, what an installation's registration and revocation mean, and how an identifier resolves to an inbox.
 
-Out of scope: how an identity update is published, stored, ordered, and read back as an envelope, the snapshot the backend validates against and what it does when that snapshot moves (API-232), duplicate publishes (API-222), the lookup RPC and its answer (API-270), the verifier RPC, and the error codes (`API`); the identity topic layout (`?TOPIC`); the published limits and chains (`CONF`); what a key package carries (`JOIN`); and how a group's membership follows a change of an inbox's installations (`?GMOD`).
+Out of scope: how an identity update is published, stored, ordered, and read back as an envelope, the snapshot the backend validates against and what it does when that snapshot moves (API-232), duplicate publishes (API-222), the lookup RPC and its answer (API-270), the verifier RPC, and the error codes (`API`); the identity topic layout (TOPIC-001); the published limits and chains (`CONF`); what a key package carries (`JOIN`); and how a group's membership follows a change of an inbox's installations (GMOD-029).
 
 | Related | Relation |
 | --- | --- |
 | `CONF` | Owns the published installation ceiling a client applies (CONF-044), the chains a deployment verifies (CONF-070), and the client's chain check before it signs (CONF-046, CONF-048). |
 | `JOIN` | Owns the key package an installation publishes (JOIN-001) and the check of a group's leaves against association state at a sequence id (JOIN-052, JOIN-053, JOIN-059). |
 | `API` | Owns the publish and query contract an identity update travels under, the sequence id it receives, the one-snapshot admission and its `ABORTED` (API-232), duplicates (API-222), the resolution RPC (API-270), the verifier RPC, and the error codes. This spec owns what the validation in API-232 checks. |
-| `?GMOD` | Owns how a member commits the installations an inbox gained or lost between two sequence ids. |
+| `GMOD-029` | Owns how a member commits the installations an inbox gained or lost between two sequence ids. |
 
 ## Terms
 
 | Term | Meaning |
 | --- | --- |
 | Association log | The identity updates stored for one inbox, in ascending sequence id order. |
-| Sequence id | The position the backend assigns to a stored identity update in its inbox's association log. Assigned under `?API`; greater than 0. |
+| Sequence id | The position the backend assigns to a stored identity update in its inbox's association log, under API-286 through API-289. |
 | Association state | The members, the recovery identifier, and the seen replay keys of an inbox after a prefix of its association log is applied. |
 | Member | An identifier or an installation key the association state holds for an inbox. |
 | Member kind | Ethereum, passkey, or installation. |
@@ -49,7 +49,7 @@ Out of scope: how an identity update is published, stored, ordered, and read bac
 
 ## 1. The identity update
 
-An identity update is one or more actions signed together. It is published as an envelope on the topic derived from its `inbox_id` and receives its sequence id from the backend; `API` owns that envelope's storage, order, and duplicates (API-222), and `?TOPIC` is expected to derive the identity topic from the 32 bytes the inbox id encodes. The log is validated the same way by the backend before it stores an update (API-232 names the snapshot it validates against) and by a client after it reads one. A validator is either of them. An update with no actions changes nothing, so accepting one would let anyone who can publish fill an inbox's log with signed-by-nobody entries.
+An identity update is one or more actions signed together. It is published as an envelope on the topic derived from its `inbox_id` and receives its sequence id from the backend; `API` owns that envelope's storage, order, and duplicates (API-222), and TOPIC-001 owns identity topic derivation. The log is validated the same way by the backend before it stores an update (API-232 names the snapshot it validates against) and by a client after it reads one. A validator is either of them. An update with no actions changes nothing, so accepting one would let anyone who can publish fill an inbox's log with signed-by-nobody entries.
 
 `client_timestamp_ns` is set by the sender and is not checked by anyone. It is covered by the signature text, and it is the time a member records as when it was added.
 
@@ -344,7 +344,7 @@ An installation is a member representing a single device/client database instanc
 
 The number of installations an inbox may hold is a client-side ceiling: CONF-044 stops a client from registering when the installation members in the association state it has resolved, at the highest sequence id it holds, number at least `max_installations_per_inbox`. No validator rejects an update for exceeding it, so two clients that register at once can leave an inbox above the ceiling, and a client that has not fetched the latest updates counts fewer than exist.
 
-Every party that decides whether an installation belongs to an inbox does so at a sequence id: a Welcome names one per inbox (JOIN-052, JOIN-053), a group's membership extension names one per inbox, and `?GMOD` is expected to require that a member commits the installations an inbox gained and lost between the sequence id a group holds and a later one. The state at a sequence id is one value for every party, and the installations an inbox has at that point are the members of kind installation in it. A sequence id that no update in the log carries names no state (JOIN-059). A client caches states it has derived; a cached state is one it derived itself.
+Every party that decides whether an installation belongs to an inbox does so at a sequence id: a Welcome names one per inbox (JOIN-052, JOIN-053), a group's membership component names one per inbox (GMOD-005), and GMOD-029 owns reconciliation with later identity state. The state at a sequence id is one value for every party, and the installations an inbox has at that point are the members of kind installation in it. A sequence id that no update in the log carries names no state (IDENT-070). A client caches states it has derived; a cached state is one it derived itself.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

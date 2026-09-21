@@ -33,7 +33,7 @@ pub enum WorkerKind {
     KeyPackageCleaner,
     CommitLog,
     TaskRunner,
-    /// Re-reads what the backend publishes about itself, hourly (CFG-046).
+    /// Re-reads what the backend publishes about itself, hourly.
     ConfigurationRefresh,
 }
 

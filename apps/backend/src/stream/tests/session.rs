@@ -51,6 +51,7 @@ async fn closed_request_pool_ends_the_session_with_one_database_failure() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-252, API-256, API-259
 async fn empty_session_acknowledges_updates_and_ping_then_ends_on_half_close() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::empty_session_acknowledges_updates_and_ping_then_ends_on_half_close",
@@ -99,6 +100,7 @@ async fn empty_session_acknowledges_updates_and_ping_then_ends_on_half_close() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-252, API-253, API-254, API-289
 async fn fixed_target_history_hands_off_to_live_in_order() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::fixed_target_history_hands_off_to_live_in_order",
@@ -204,6 +206,7 @@ async fn future_cursor_filters_history_and_future_rows_below_its_floor() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-253
 async fn removal_acknowledgement_separates_old_and_new_registrations() {
     let server = TestServer::new(|config| {
         config.streams.poll_interval_ms = 10;
@@ -482,6 +485,7 @@ async fn removed_history_stays_within_database_and_worker_bounds_under_churn() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-251
 async fn structural_update_errors_close_the_session() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::structural_update_errors_close_the_session",
@@ -540,6 +544,7 @@ async fn structural_update_errors_close_the_session() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-257
 async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::unmatched_server_challenge_expires_despite_other_inbound_traffic",
@@ -586,6 +591,7 @@ async fn unmatched_server_challenge_expires_despite_other_inbound_traffic() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-258
 async fn ping_and_update_use_independent_buckets() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::ping_and_update_use_independent_buckets",
@@ -656,6 +662,7 @@ fn large(topic: u8, value: u8) -> api::ClientEnvelope {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-261
 async fn byte_cutoff_preserves_unvisited_topic_priority() {
     let server = TestServer::new(|_| {}).await?;
     server
@@ -802,6 +809,7 @@ async fn pending_target_capture_does_not_block_ping_or_half_close() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-006
 async fn unknown_gap_capacity_fails_before_discarding_recovery_state() {
     let Some(metrics) = support::metrics::isolated(
         "stream::tests::session::unknown_gap_capacity_fails_before_discarding_recovery_state",

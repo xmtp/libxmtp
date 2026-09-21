@@ -247,6 +247,7 @@ mod tests {
         );
     }
 
+    // verifies: API-256
     #[xmtp_common::test(unwrap_try = true)]
     async fn auto_pongs_server_ping_without_surfacing_it() {
         let (api, mut server) = mock_pair();

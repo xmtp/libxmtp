@@ -7,6 +7,7 @@ use xmtp_proto::types::{Topic, TopicKind};
 mod tests;
 
 /// Parse a wire topic and reject unknown kinds or invalid identifier lengths.
+// implements: TOPIC-003
 pub(crate) fn topic(value: &api::Topic) -> Result<Topic, Status> {
     Topic::parse(&value.topic).map_err(|_| Status::invalid_argument("invalid topic"))
 }
@@ -36,6 +37,7 @@ impl api::query_service_server::QueryService for Backend {
     /// Duplicate topic inputs are coalesced at their lowest cursor before the
     /// primary read. The response converts stored rows only after the database
     /// has computed `has_more` from the same snapshot.
+    // implements: API-241
     async fn query(
         &self,
         request: Request<api::QueryRequest>,
@@ -66,6 +68,7 @@ impl api::query_service_server::QueryService for Backend {
     ///
     /// Metadata-only requests avoid payload loading. Full requests use the read
     /// pool and omit topics with no visible watermark.
+    // implements: API-244
     async fn query_newest(
         &self,
         request: Request<api::QueryNewestRequest>,
@@ -124,6 +127,7 @@ impl api::query_service_server::QueryService for Backend {
 /// The original input count is checked before coalescing. Every topic and
 /// cursor is still validated, and repeated topics use the lowest cursor so no
 /// requested history is skipped.
+// implements: API-242, API-243
 fn coalesce_queries(queries: Vec<api::TopicQuery>, max: usize) -> Result<Vec<TopicCursor>, Status> {
     count(queries.len(), max)?;
     let mut unique = HashMap::new();

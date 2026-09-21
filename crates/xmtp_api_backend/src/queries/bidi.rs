@@ -628,6 +628,7 @@ async fn run_actor<B, S, E>(
                     }
                     // Liveness is internal: auto-pong / probe-correlate here, never
                     // surface it to the consumer.
+                    // implements: API-256
                     Inbound::Ping(nonce) => {
                         // Auto-pong: hand it to the wire (or queue it FIFO behind a
                         // backlog). A busy wire delays but never drops the pong, and

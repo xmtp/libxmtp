@@ -12,6 +12,7 @@ pub struct PushPayload {
 
 impl PushPayload {
     /// Encode a topic and sequence identifier without loss of integer precision.
+    // implements: PUSH-259
     pub fn new(topic: &[u8], sequence_id: u64) -> Self {
         Self {
             topic: STANDARD.encode(topic),
@@ -29,6 +30,7 @@ pub fn hmac_epoch(unix_seconds: i64) -> i64 {
 }
 
 /// Topic kinds accepted by push subscriptions.
+// implements: PUSH-215
 pub fn is_push_topic(kind: xmtp_proto::types::TopicKind) -> bool {
     matches!(
         kind,
@@ -41,6 +43,7 @@ pub fn is_push_topic(kind: xmtp_proto::types::TopicKind) -> bool {
 mod tests {
     use super::*;
 
+    // verifies: PUSH-259
     #[xmtp_common::test(unwrap_try = true)]
     fn json_preserves_sequence_precision() {
         let payload = PushPayload::new(&[1, 2, 3], u64::MAX);
@@ -52,6 +55,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<PushPayload>(&json)?, payload);
     }
 
+    // verifies: PUSH-215
     #[xmtp_common::test(unwrap_try = true)]
     fn epoch_boundaries_and_topic_rules() {
         assert_eq!(hmac_epoch(HMAC_EPOCH_SECONDS - 1), 0);

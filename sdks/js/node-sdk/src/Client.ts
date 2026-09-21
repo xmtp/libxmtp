@@ -127,8 +127,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
     this.#identifier = identifier;
     // A build resolves the deployment configuration before any identity work,
-    // so its six failures (spec 006 CFG-041, CFG-044, CFG-052, CFG-060,
-    // CFG-062) surface here and are raised as their own types (CFG-083).
+    // so its six configuration failures surface here as distinct types.
     const { client, env } = await createClient(identifier, this.#options).catch(
       throwServerConfigurationError,
     );
@@ -374,8 +373,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     switch (finalSigner.type) {
       case "SCW":
         // The deployment publishes the chains it verifies on, so a signature
-        // for any other chain is rejected here, before any network call
-        // (spec 006 CFG-069, CFG-070).
+        // for any other chain is rejected here, before any network call.
         await signatureRequest
           .addScwSignature(
             identifier,
@@ -692,8 +690,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     switch (signer.type) {
       case "SCW":
         // Same chain restriction as the instance path: the deployment's
-        // accepted chains reject any other one here, before the network call
-        // (spec 006 CFG-069, CFG-070).
+        // accepted chains reject any other one here, before the network call.
         await signatureRequest
           .addScwSignature(
             identifier,
@@ -1059,7 +1056,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
   /**
    * What the deployment published about itself, as this client resolved it
-   * when it was built (spec 006 CFG-030, CFG-080).
+   * when it was built.
    *
    * Reads memory and makes no backend request. The value never changes for the
    * life of the client: a background refresh rewrites the stored copy, and a
@@ -1077,7 +1074,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
   /**
    * Fetch the deployment configuration now, rewrite the stored copy, and
-   * return what was fetched (spec 006 CFG-082).
+   * return what was fetched.
    *
    * The snapshot this client holds is unchanged; use it to observe a change an
    * operator has made without restarting.
@@ -1100,7 +1097,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
   /**
    * Read what a deployment publishes about itself with no database, no client,
-   * and no credential (spec 006 CFG-081, CFG-045).
+   * and no credential.
    *
    * Lets an app learn `auth.enabled`, `auth.requiredScopes`, and the accepted
    * smart contract wallet chains before it decides how to build a client.

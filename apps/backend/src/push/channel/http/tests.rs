@@ -136,6 +136,7 @@ fn delivery(url: String) -> Delivery {
     }
 }
 
+// verifies: PUSH-235, PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 fn signature_matches_an_independent_fixed_vector() {
     let body = body(&delivery("https://unused.invalid".into()))?;
@@ -149,6 +150,7 @@ fn signature_matches_an_independent_fixed_vector() {
     );
 }
 
+// verifies: PUSH-235
 #[xmtp_common::test(unwrap_try = true)]
 async fn tls_requests_use_pinned_dns_and_fresh_signed_headers_without_secrets() {
     let mut webhook = Webhook::start(vec![204, 201]).await?;
@@ -183,6 +185,7 @@ async fn tls_requests_use_pinned_dns_and_fresh_signed_headers_without_secrets() 
     assert_ne!(ids[0], ids[1]);
 }
 
+// verifies: PUSH-256
 #[xmtp_common::test(unwrap_try = true)]
 async fn invalid_delivery_urls_and_missing_signing_keys_send_no_request() {
     let mut webhook = Webhook::start(vec![]).await?;
@@ -204,6 +207,7 @@ async fn invalid_delivery_urls_and_missing_signing_keys_send_no_request() {
     assert!(webhook.requests.try_recv().is_err());
 }
 
+// verifies: PUSH-256
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_time_domain_allowlist_rechecks_registered_destinations() {
     let mut webhook = Webhook::start(vec![204, 204]).await?;
@@ -246,6 +250,7 @@ async fn empty_dns_answer_is_transient_and_private_ip_literals_are_rejected() {
     assert_eq!(resolver.calls.load(Ordering::SeqCst), 1);
 }
 
+// verifies: PUSH-256, PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 async fn response_classes_and_redirects_use_the_provider_contract() {
     let cases = [
@@ -273,6 +278,7 @@ async fn response_classes_and_redirects_use_the_provider_contract() {
     );
 }
 
+// verifies: PUSH-256
 #[xmtp_common::test(unwrap_try = true)]
 async fn send_time_dns_rejects_private_addresses_and_checks_every_answer() {
     let resolver = Arc::new(FixedResolver {

@@ -168,6 +168,7 @@ impl Identifier {
 
     /// Get the generated inbox_id for this public identifier.
     /// The same public identifier will always give the same inbox_id.
+    // implements: IDENT-010
     pub fn inbox_id(&self, nonce: u64) -> Result<String, AssociationError> {
         if !self.is_valid_address() {
             return Err(AssociationError::InvalidAccountAddress);

@@ -256,6 +256,7 @@ pub(crate) fn build_group_join_config() -> MlsGroupJoinConfig {
         .build()
 }
 
+// implements: JOIN-026
 fn deserialize_welcome(welcome_bytes: &Vec<u8>) -> Result<Welcome, GroupError> {
     if welcome_bytes
         .get(..2)

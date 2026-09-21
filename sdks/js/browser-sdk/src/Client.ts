@@ -166,7 +166,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       });
     } catch (error) {
       // A build resolves the server configuration first, so its failures are
-      // the typed ones of spec 006 (CFG-083).
+      // the typed ones of spec 006.
       const typedError = toServerConfigurationError(error);
       if (typedError) throw typedError;
       throw error;
@@ -960,7 +960,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
   /**
    * Gets what the backend published about itself, as resolved when this client
-   * was built (CFG-080)
+   * was built.
    *
    * A worker action cannot be synchronous, so the snapshot is captured from the
    * init result and answered from the main thread. A refresh rewrites the
@@ -977,8 +977,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   }
 
   /**
-   * Fetches the backend configuration now and rewrites the stored copy
-   * (CFG-082)
+   * Fetches the backend configuration now and rewrites the stored copy.
    *
    * The snapshot this client holds is unchanged; a new value takes effect at
    * the next build.
@@ -997,7 +996,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
 
   /**
    * Reads a backend's configuration with no database, no client, and no
-   * credential (CFG-081)
+   * credential.
    *
    * @param optionsOrUrl - The backend URL, or network options carrying it
    * @returns The configuration the backend publishes

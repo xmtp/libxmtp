@@ -19,6 +19,7 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
+    // implements: SYNC-020
     pub(crate) async fn sync_preferences(
         &self,
         updates: Vec<PreferenceUpdate>,
@@ -36,6 +37,7 @@ where
         Ok(updates)
     }
 
+    // implements: SYNC-015
     pub(crate) async fn cycle_hmac(&self) -> Result<(), ClientError> {
         tracing::info!(
             "[{}] Sending new HMAC key to sync group.",
@@ -52,6 +54,7 @@ where
     }
 }
 
+// implements: SYNC-023
 pub(super) fn store_preference_updates(
     updates: Vec<PreferenceUpdateProto>,
     conn: &impl DbQuery,
@@ -127,6 +130,7 @@ mod tests {
     use crate::{tester, worker::device_sync::worker::SyncMetric};
     use xmtp_db::user_preferences::StoredUserPreferences;
 
+    // verifies: SYNC-015
     #[rstest::rstest]
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_hmac_sync() {

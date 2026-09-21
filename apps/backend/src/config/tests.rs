@@ -238,6 +238,7 @@ fn framing_bound_covers_maximum_metadata_and_nested_messages() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-021
 fn every_cross_field_relationship_is_rejected() {
     let mut config: Config = toml::from_str(MINIMAL)?;
 
@@ -354,6 +355,7 @@ fn environment_reference_returns_variable_value() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-020
 fn finite_retention_must_fit_the_authoritative_database_clock() {
     const DATABASE_NS: i64 = 1_700_000_000_000_000_000;
     let maximum_seconds = ((i64::MAX - DATABASE_NS) / NS_IN_SEC) as u64;
@@ -480,6 +482,7 @@ fn telemetry_defaults_endpoint_precedence_and_export_options() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-022
 fn telemetry_rejects_unknown_reserved_and_invalid_values_without_endpoint_contents() {
     assert!(toml::from_str::<Config>(&format!("{MINIMAL}\n[telemetry]\nunknown = true")).is_err());
     for key in ["service.name", "service.version", "xmtp.backend.identifier"] {
@@ -562,6 +565,7 @@ fn malformed_inline_configuration_omits_document_contents() {
 /// A deployment that does not name itself cannot be bound to by a client
 /// database, so an unnamed or malformed identifier stops the process.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-002
 fn the_identifier_is_required_and_shaped() {
     let missing: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'\n")?;
     let error = missing.validate().unwrap_err();
@@ -605,6 +609,7 @@ fn the_identifier_is_required_and_shaped() {
 /// intent, so auth can never switch off by accident. A section that says it is
 /// off is not checked any further and loads no key material.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-005
 fn an_auth_section_must_state_whether_it_is_enabled() {
     let config: Config = toml::from_str(&format!(
         "{MINIMAL}\n[auth]\njwks_url = 'https://issuer.example/keys'\n"
@@ -642,6 +647,7 @@ fn an_auth_section_must_state_whether_it_is_enabled() {
 /// An operator states a minimum client version as a semantic version, or
 /// states none and admits every client version.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-067
 fn the_minimum_client_version_is_optional_and_semantic() {
     for version in ["1", "1.2", "v1.2.3", "latest", "1.2.3.4", ""] {
         let mut config: Config = toml::from_str(MINIMAL)?;
@@ -677,6 +683,7 @@ fn the_minimum_client_version_is_optional_and_semantic() {
 /// The transport ceiling is fixed, so a budget above it would promise a client
 /// something the transport cannot carry.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-008
 fn request_and_response_budgets_stop_at_the_transport_ceiling() {
     for field in ["limits.max_request_bytes", "limits.max_response_bytes"] {
         let mut config: Config = toml::from_str(MINIMAL)?;
@@ -700,6 +707,7 @@ fn request_and_response_budgets_stop_at_the_transport_ceiling() {
 /// The auth lists, the key list, and the chain list have no individual bound,
 /// so the assembled response is what is measured.
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: CONF-009
 fn an_oversized_published_response_stops_startup() {
     let mut config: Config = toml::from_str(MINIMAL)?;
     let chains = |config: &mut Config, count: u64| {

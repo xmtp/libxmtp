@@ -34,6 +34,7 @@ impl Store {
     /// transaction. The transaction timeout bounds database work; dropping the
     /// transaction rolls it back and releases its locks.
     #[xmtp_common::db_span]
+    // implements: API-220, API-222
     pub(crate) async fn commit_publish(
         &self,
         pending: &mut [PendingEnvelope],

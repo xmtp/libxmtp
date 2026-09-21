@@ -11,6 +11,7 @@ use xmtp_mls_validation::test_utils::{
 };
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-211
 async fn push_columns_follow_payload_kind_and_keep_the_original_envelope() {
     use xmtp_mls_validation::test_utils::{commit_log_envelope, key_package_envelope};
     let server = TestServer::new(|_| {}).await?;
@@ -119,6 +120,7 @@ async fn publish_topic_limit_accepts_exact_count_and_rejects_one_past() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-221, API-222, API-287, API-288
 async fn concurrent_retries_preserve_original_metadata_and_positions() {
     let Some(metrics) = support::metrics::isolated(
         concat!(
@@ -177,6 +179,7 @@ async fn concurrent_retries_preserve_original_metadata_and_positions() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220
 async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error() {
     let Some(metrics) = support::metrics::isolated(
         concat!(
@@ -241,6 +244,7 @@ async fn failed_batch_leaves_new_topics_empty_and_reports_first_original_error()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-223
 async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
     let server = TestServer::new(|_| {}).await?;
     let fixture = identity_history_with_passkey().await;
@@ -284,6 +288,7 @@ async fn publish_errors_keep_the_original_index_for_each_validation_reason() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-211, API-212
 async fn welcome_batch_commits_each_destination_and_canonical_payload() {
     let server = TestServer::new(|_| {}).await?;
     let envelopes: Vec<_> = (0..32)
@@ -324,6 +329,7 @@ async fn welcome_batch_commits_each_destination_and_canonical_payload() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-220
 async fn watermark_guard_failure_rolls_back_every_new_envelope() {
     let Some(metrics) = support::metrics::isolated(
         concat!(
@@ -383,6 +389,7 @@ async fn watermark_guard_failure_rolls_back_every_new_envelope() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-212, OPS-002
 async fn permanent_payloads_and_expired_metadata_remain_readable() {
     use xmtp_mls_validation::test_utils::{commit_log_envelope, group_message_envelope};
     let server = TestServer::new(|_| {}).await?;

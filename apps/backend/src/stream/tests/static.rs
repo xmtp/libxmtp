@@ -36,6 +36,7 @@ async fn oversized_static_targets_fail_without_a_partial_started_frame() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-260, API-254
 async fn static_targets_precede_ordered_history_and_live_delivery() {
     let server = TestServer::new(|config| config.streams.poll_interval_ms = 10).await?;
     let metas = server
@@ -99,6 +100,7 @@ async fn static_targets_precede_ordered_history_and_live_delivery() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-255, API-259
 async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
     let server = TestServer::new(|config| {
         config.streams.keepalive_interval_ms = 10;
@@ -130,6 +132,7 @@ async fn static_keepalives_are_one_way_and_do_not_expire_waiting_for_pong() {
 
 #[xmtp_common::timeout(std::time::Duration::from_secs(20))]
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-260
 async fn static_request_validates_its_own_limits_and_unique_topics() {
     let server = TestServer::new(|config| {
         config.limits.max_stream_topics = 1;

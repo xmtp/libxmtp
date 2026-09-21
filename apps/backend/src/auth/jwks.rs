@@ -19,6 +19,7 @@ pub(crate) const MAX_JWKS_ENTRIES: usize = 256;
 pub(crate) const JWKS_STARTUP_ATTEMPTS: usize = 3;
 pub(crate) const JWKS_STARTUP_RETRY_DELAY: Duration = Duration::from_secs(1);
 
+// implements: AUTH-027
 #[derive(Debug, thiserror::Error)]
 #[error("JWKS fetch failed for host {host}")]
 pub(crate) struct FetchError {
@@ -44,6 +45,7 @@ pub(crate) struct JwksSource {
 }
 impl JwksSource {
     /// Disable redirects and bound each fetch, including the response body.
+    // implements: AUTH-015, AUTH-033
     pub fn new(
         url: &str,
         config: AuthConfig,
@@ -74,6 +76,7 @@ impl JwksSource {
 
     /// Read at most the body cap. Never buffer an unbounded response.
     /// Every failure is reduced to a host-only error before retry or logging.
+    // implements: AUTH-033
     pub async fn fetch(&self) -> Result<Vec<VerifyingKey>, FetchError> {
         let response = self
             .client
@@ -125,6 +128,7 @@ impl JwksSource {
     }
 
     /// Try three times with one second between failures before startup can continue.
+    // implements: AUTH-017
     pub async fn startup(&self) -> Result<Vec<VerifyingKey>, FetchError> {
         let retry = Retry::builder()
             .retries(JWKS_STARTUP_ATTEMPTS - 1)
@@ -136,6 +140,7 @@ impl JwksSource {
     /// Keep the last successful snapshot until its monotonic deadline.
     /// Returning signals the caller to use the normal bounded shutdown drain.
     /// Canceling this future also cancels any fetch in progress.
+    // implements: AUTH-018, AUTH-019
     pub async fn refresh(&self, keys: &KeySet, mut last_success: Instant) {
         let period = Duration::from_secs(self.config.jwks_refresh_seconds);
         let max_stale = Duration::from_secs(self.config.jwks_max_stale_seconds);

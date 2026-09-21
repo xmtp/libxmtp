@@ -23,6 +23,7 @@ async fn empty_fanout_preserves_bounds_and_never_reads_payloads() {
     stop(&hub).await;
 }
 
+// verifies: PUSH-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn keyset_pages_keep_subscribers_and_start_commit_filters() {
     let fixture = Fixture::new().await?;
@@ -58,6 +59,7 @@ async fn keyset_pages_keep_subscribers_and_start_commit_filters() {
     assert!(cache.is_empty());
 }
 
+// verifies: PUSH-230
 #[xmtp_common::test(unwrap_try = true)]
 async fn hmac_uses_each_epoch_key_without_merging_other_messages() {
     let fixture = Fixture::new().await?;
@@ -108,6 +110,7 @@ async fn hmac_uses_each_epoch_key_without_merging_other_messages() {
     assert_eq!(own, ["4", "5"]);
 }
 
+// verifies: PUSH-234
 #[xmtp_common::test(unwrap_try = true)]
 async fn terminal_response_compares_every_delivery_field() {
     let fixture = Fixture::new().await?;
@@ -131,6 +134,7 @@ async fn terminal_response_compares_every_delivery_field() {
     assert_eq!(count, 0);
 }
 
+// verifies: PUSH-234
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_terminal_response_keeps_reregistered_recipient_and_subscriptions() {
     let fixture = Fixture::new().await?;

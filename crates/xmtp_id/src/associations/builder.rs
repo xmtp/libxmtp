@@ -179,7 +179,7 @@ pub enum SignatureRequestError {
     /// The deployment does not accept this chain.
     ///
     /// The smart contract wallet signature names a chain outside the list the
-    /// backend published (CFG-069, CFG-070). Not retryable.
+    /// backend published. Not retryable.
     #[error("the backend does not accept chain {chain}; it accepts {accepted:?}")]
     ChainNotAccepted {
         chain: String,
@@ -197,7 +197,7 @@ pub struct SignatureRequest {
     signature_text: String,
     signatures: HashMap<MemberIdentifier, UnverifiedSignature>,
     /// The chains app-supplied smart contract wallet signatures may name
-    /// (CFG-069, CFG-070). `None` restricts nothing, which is what a request
+    /// explicitly. `None` restricts nothing, which is what a request
     /// built without a client — or by a client whose app supplied its own
     /// verifier — keeps.
     accepted_chains: Option<std::sync::Arc<[String]>>,
@@ -241,7 +241,7 @@ impl SignatureRequest {
     /// This is for when you want to add a smart-contract wallet,
     /// and need the verifier to populate the latest block number for you.
     /// Restrict app-supplied smart contract wallet signatures to these chains
-    /// (CFG-069, CFG-070). Set by the client from the snapshot it resolved,
+    /// selected by the client from the snapshot it resolved,
     /// before the request is handed to the app.
     pub fn restrict_chains(&mut self, chains: std::sync::Arc<[String]>) {
         self.accepted_chains = Some(chains);
@@ -249,14 +249,15 @@ impl SignatureRequest {
 
     /// The chains this request was restricted to, or `None` when nothing
     /// restricted it. `Some(&[])` is a deployment that accepts no chain
-    /// (CFG-070), which is not the same as no restriction.
+    /// at all, which is not the same as no restriction.
     pub fn accepted_chains(&self) -> Option<&[String]> {
         self.accepted_chains.as_deref()
     }
 
-    /// CFG-069 and CFG-070: refuse a chain the deployment does not accept
+    /// Refuse a chain the deployment does not accept
     /// before the verifier reaches the network. An empty accepted list refuses
     /// every chain.
+    // implements: CONF-046
     fn check_chain(&self, account_id: &AccountId) -> Result<(), SignatureRequestError> {
         let Some(accepted) = self.accepted_chains.as_ref() else {
             return Ok(());
@@ -640,8 +641,9 @@ pub(crate) mod tests {
             .await
     }
 
-    // CFG-069 and CFG-105: a chain outside the published list is refused, and
+    // A chain outside the published list is refused, and
     // the error names both the chain and the list.
+    // verifies: CONF-046
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_chain_outside_the_accepted_list_is_refused() {
         let (mut request, address) = scw_request(Some(vec!["eip155:1", "eip155:8453"]));
@@ -657,7 +659,7 @@ pub(crate) mod tests {
         assert!(request.signatures.is_empty());
     }
 
-    // CFG-069: a chain the deployment named is accepted, so the restriction is
+    // A chain the deployment named is accepted, so the restriction is
     // the list and not a blanket refusal.
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_chain_inside_the_accepted_list_is_admitted() {
@@ -666,7 +668,8 @@ pub(crate) mod tests {
         assert_eq!(request.signatures.len(), 1);
     }
 
-    // CFG-070 and CFG-105: an empty list refuses every chain.
+    // An empty list refuses every chain.
+    // verifies: CONF-046
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_empty_accepted_list_refuses_every_chain() {
         let (mut request, address) = scw_request(Some(vec![]));
@@ -679,7 +682,7 @@ pub(crate) mod tests {
         }
     }
 
-    // CFG-069: a request no client restricted — one built without a client, or
+    // A request no client restricted — one built without a client, or
     // by a client whose app supplied its own verifier — restricts nothing.
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_unrestricted_request_accepts_any_chain() {
@@ -688,9 +691,10 @@ pub(crate) mod tests {
         assert_eq!(request.signatures.len(), 1);
     }
 
-    // CFG-097 and CFG-105: ordered processing never sees this check. It
+    // Ordered processing never sees this check. It
     // verifies an identity update that is already on the network, where a chain
     // with no route is the retryable `NoVerifier`, not `ChainNotAccepted`.
+    // verifies: IDENT-061
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_unknown_chain_stays_retryable_during_ordered_processing() {
         use crate::scw_verifier::{

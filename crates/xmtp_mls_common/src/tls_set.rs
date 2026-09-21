@@ -233,6 +233,7 @@ impl<K: Ord + Eq + Clone + Serialize + Size> TlsSet<K> {
     /// assert!(set.contains(&2));
     /// assert!(!set.contains(&1));
     /// ```
+    // implements: META-013
     pub fn apply_delta(&mut self, delta: TlsSetDelta<K>) -> Result<(), TlsSetError> {
         let has_hash_removal = delta
             .mutations
@@ -572,6 +573,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-013
     fn test_apply_delta_rollback_on_failure() {
         let mut set = TlsSet::from_keys([1_u8, 2]);
         // Try to add 3 then add 1 (duplicate) — should rollback
@@ -583,6 +585,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-013
     fn test_remove_by_hash() {
         let mut set = TlsSet::from_keys([10_u16, 20, 30]);
         let hash = TlsKeyHash::of(&20_u16).unwrap();
@@ -690,6 +693,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-013
     fn test_apply_delta_duplicate_hash() {
         let mut set = TlsSet::<CollidingKey>::new();
         // Distinct logical keys but identical TLS serialization → identical hashes.
@@ -703,6 +707,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-013
     fn test_apply_delta_remove_by_hash_not_found_in_index() {
         // Build the hash index successfully (no collisions), then look up a
         // hash that doesn't match any key. This exercises the

@@ -1,4 +1,4 @@
-//! P3-TST-002: client limit boundaries against the Docker backend.
+//! Client limit boundaries against the Docker backend.
 //!
 //! These tests use the same backend fixture as `integration`.
 use super::*;
@@ -59,7 +59,8 @@ enum Read {
     NewestFull,
 }
 
-/// P3-TST-002, P3-API-007: topic limits split reads without losing results.
+/// Topic limits split reads without losing results.
+// verifies: CONF-073
 #[rstest]
 #[case::query(Read::Query, BACKEND_DEFAULT_MAX_QUERY_TOPICS)]
 #[case::newest_metadata(Read::NewestMetadata, BACKEND_DEFAULT_MAX_NEWEST_METADATA_TOPICS)]
@@ -105,7 +106,8 @@ async fn read_topic_boundaries(#[case] read: Read, #[case] cap: usize) {
     }
 }
 
-/// P3-TST-002, P3-API-003: distinct publish topics split at the configured cap.
+/// Distinct publish topics split at the configured cap.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -130,7 +132,7 @@ async fn publish_topic_boundary(#[case] extra: usize) {
     );
 }
 
-/// P3-TST-002, API-031: envelope count alone does not split a publish.
+/// Envelope count alone does not split a publish.
 #[rstest]
 #[case(BACKEND_DEFAULT_MAX_PUBLISH_TOPICS)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -153,7 +155,8 @@ async fn publish_envelope_count_has_no_separate_cap(#[case] topic_cap: usize) {
     }
 }
 
-/// P3-TST-002, P3-API-003: measured request bytes split at the exact byte cap.
+/// Measured request bytes split at the exact byte cap.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -202,7 +205,8 @@ async fn publish_byte_boundary(#[case] extra: usize) {
     assert_eq!(api.api_client.mls_stats().publish.get_count(), 1 + extra);
 }
 
-/// P3-TST-002: envelope bytes are accepted at the cap and rejected once above it.
+/// Envelope bytes are accepted at the cap and rejected once above it.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -234,7 +238,8 @@ async fn envelope_byte_boundary(#[case] extra: usize) {
     assert_eq!(api.api_client.mls_stats().publish.get_count(), 1);
 }
 
-/// P3-TST-002, P3-API-012: lookup chunks retain all duplicate positions.
+/// Lookup chunks retain all duplicate positions.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -257,7 +262,8 @@ async fn inbox_identifier_boundary(#[case] extra: usize) {
     );
 }
 
-/// P3-TST-002, P3-API-007: SCW signature chunks preserve one result per input.
+/// SCW signature chunks preserve one result per input.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -296,7 +302,8 @@ async fn scw_signature_boundary(#[case] extra: usize) {
     );
 }
 
-/// P3-TST-002, P3-API-006: the server clamps rows and paging returns each row once.
+/// The server clamps rows and paging returns each row once.
+// verifies: API-240, API-241
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -386,7 +393,8 @@ async fn query_row_clamp_boundary(#[case] extra: usize) {
     );
 }
 
-/// P3-TST-002, P3-STR-010: static topic chunks deliver all requested topics.
+/// Static topic chunks deliver all requested topics.
+// verifies: CONF-073
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]
@@ -428,7 +436,8 @@ async fn static_topic_boundary(#[case] extra: usize) {
     assert_eq!(api.api_client.mls_stats().subscribe_static.get_count(), 1);
 }
 
-/// P3-TST-002: a full identity log rejects one more update without a retry.
+/// A full identity log rejects one more update without a retry.
+// verifies: API-234, API-284
 #[rstest]
 #[case(BACKEND_DEFAULT_MAX_IDENTITY_ENTRIES)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -495,7 +504,8 @@ async fn identity_entry_boundary(#[case] cap: usize) {
     );
 }
 
-/// P3-TST-002: response bytes succeed at the cap and surface the next byte once.
+/// Response bytes succeed at the cap and surface the next byte once.
+// verifies: API-282, API-283
 #[rstest]
 #[case::at_limit(0)]
 #[case::one_past(1)]

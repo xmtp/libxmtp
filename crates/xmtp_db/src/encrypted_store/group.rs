@@ -539,6 +539,7 @@ where
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
+    // implements: CONS-031
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -1652,6 +1653,7 @@ pub(crate) mod tests {
         });
     }
 
+    // verifies: CONS-031
     #[xmtp_common::test]
     fn test_find_group_default_excludes_denied() {
         with_connection(|conn| {

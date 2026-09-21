@@ -242,9 +242,10 @@ async fn coalescing_keeps_limits_boundaries_and_ack_ids(#[case] byte_limited: bo
     assert!(task.ledger.pending_updates.is_empty());
 }
 
-/// CFG-064: a deployment caps adds and removes separately and may publish a
+/// A deployment caps adds and removes separately and may publish a
 /// smaller removes cap. A merged removes-only frame is bounded by that cap, not
 /// by the adds cap, or the backend rejects it with INVALID_ARGUMENT.
+// verifies: CONF-073
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn coalescing_bounds_a_removes_prefix_by_the_removes_cap() {
     let mut ledger = Ledger::<BackendBinding>::default();

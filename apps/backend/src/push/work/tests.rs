@@ -87,6 +87,7 @@ fn retry_delays_release_permits_and_clamp_provider_delay() {
     }
 }
 
+// verifies: PUSH-234, PUSH-259
 #[xmtp_common::test(unwrap_try = true)]
 fn all_gone_is_terminal_but_one_unknown_outcome_keeps_the_recipient() {
     for mixed in [false, true] {
@@ -113,6 +114,7 @@ fn all_gone_is_terminal_but_one_unknown_outcome_keeps_the_recipient() {
     }
 }
 
+// verifies: PUSH-234
 #[xmtp_common::test(unwrap_try = true)]
 fn gone_then_success_and_mismatch_do_not_delete() {
     let mut work = Work::new(0);

@@ -64,7 +64,7 @@ pub fn build_mutable_metadata_extension_default(
     commit_log_enabled: bool,
 ) -> Result<Extension, GroupError> {
     let mut commit_log_signer = None;
-    // CFG-068: no signer is minted for a deployment that keeps no commit log.
+    // No signer is minted for a deployment that keeps no commit log.
     if commit_log_enabled {
         // Optional TODO(rich): Plumb in provider and use traits in commit_log_key.rs to generate and store secret
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
@@ -88,7 +88,7 @@ pub fn build_dm_mutable_metadata_extension_default(
     commit_log_enabled: bool,
 ) -> Result<Extension, MetadataPermissionsError> {
     let mut commit_log_signer = None;
-    // CFG-068: no signer is minted for a deployment that keeps no commit log.
+    // No signer is minted for a deployment that keeps no commit log.
     if commit_log_enabled {
         commit_log_signer = Some(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>());
     }
@@ -119,6 +119,7 @@ pub fn build_group_membership_extension(group_membership: &GroupMembership) -> E
     Extension::Unknown(GROUP_MEMBERSHIP_EXTENSION_ID, unknown_gc_extension)
 }
 
+// implements: META-002, JOIN-040
 pub(crate) fn build_group_config(
     dictionary: openmls::extensions::AppDataDictionary,
 ) -> Result<MlsGroupCreateConfig, GroupError> {

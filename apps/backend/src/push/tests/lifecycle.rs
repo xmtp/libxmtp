@@ -43,6 +43,7 @@ async fn a_shorter_deadline_interrupts_an_active_drain() {
     assert_eq!(sender.count(), 2);
 }
 
+// verifies: PUSH-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn only_settled_envelopes_send_and_above_boundary_requests_maintenance() {
     let fixture = Fixture::new().await?;
@@ -120,6 +121,7 @@ async fn drain_waits_for_first_attempts_and_restart_sends_no_duplicate() {
     stop(&next).await;
 }
 
+// verifies: PUSH-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_drain_replays_a_window_with_unfinished_first_attempts() {
     let fixture = Fixture::new().await?;
@@ -141,6 +143,7 @@ async fn expired_drain_replays_a_window_with_unfinished_first_attempts() {
     assert_eq!(fixture.cursor().await, 1100);
 }
 
+// verifies: PUSH-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn terminated_lock_session_stops_loading_and_successor_takes_over() {
     let fixture = Fixture::new().await?;
@@ -179,6 +182,7 @@ async fn terminated_lock_session_stops_loading_and_successor_takes_over() {
     assert_eq!(fixture.cursor().await, 2);
 }
 
+// verifies: PUSH-226
 #[xmtp_common::test(unwrap_try = true)]
 async fn expiry_removes_stale_recipients_and_their_subscriptions() {
     let fixture = Fixture::new().await?;
@@ -257,6 +261,7 @@ async fn real_https_all_gone_deletes_recipient_after_max_attempts() {
     assert_eq!(count, 0);
 }
 
+// verifies: PUSH-257
 #[xmtp_common::test(unwrap_try = true)]
 async fn crash_releases_lock_and_replays_the_unfinished_window() {
     let fixture = Fixture::new().await?;

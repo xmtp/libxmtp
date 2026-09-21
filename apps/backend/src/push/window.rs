@@ -38,6 +38,7 @@ pub(crate) struct Page {
 /// Read one page and suppress only matching senders. The cache belongs to the
 /// current row, including all of its pages. Ordered fan-out needs at most one
 /// cached payload. A database failure loads no work.
+// implements: PUSH-230
 #[xmtp_common::db_span]
 pub(crate) async fn load(
     store: &Store,

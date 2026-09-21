@@ -31,6 +31,7 @@ fn storing_twice_replaces_the_one_row() {
     });
 }
 
+// verifies: CONF-031
 #[xmtp_common::test(unwrap_try = true)]
 fn a_refresh_write_never_clears_a_recorded_conflict() {
     with_connection(|conn| {
@@ -46,8 +47,7 @@ fn a_refresh_write_never_clears_a_recorded_conflict() {
             Some("org.example.two".to_owned())
         );
 
-        // CFG-053: a matching refresh rewrites the copy and leaves the
-        // conflict in place.
+        // A matching refresh rewrites the copy and leaves the conflict in place.
         conn.store_server_configuration("org.example.one", "http://a:5050", b"third", 3)
             .unwrap();
         let stored = conn.server_configuration().unwrap().unwrap();

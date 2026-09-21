@@ -10,6 +10,7 @@ use xmtp_db::{
 };
 use xmtp_mls_common::group::GroupMetadataOptions;
 
+// verifies: ARCH-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn archive_stub_keeps_a_group_joined_by_another_writer() {
     tester!(alix, disable_workers);
@@ -33,6 +34,7 @@ async fn archive_stub_keeps_a_group_joined_by_another_writer() {
     group.test_can_talk_with(&bo_group).await?;
 }
 
+// verifies: SEND-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_intent_insert_rolls_back_optimistic_message() {
     tester!(alix, disable_workers);

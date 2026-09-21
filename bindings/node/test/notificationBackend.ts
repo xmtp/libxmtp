@@ -47,9 +47,9 @@ export async function notificationBackend() {
             .finish()
         )
       }
-      // Spec 006 CFG-040: `build` resolves the deployment's configuration
+      // `build` resolves the deployment's configuration
       // before any identity work, so this fake has to publish an identifier.
-      // Every other field is left at zero, which CFG-031 reads as "not
+      // Every other field is left at zero, which the client reads as "not
       // provided" and fills from the client's compiled defaults.
       if (String(headers[':path']).endsWith('/GetConfiguration')) {
         payload = Buffer.from(

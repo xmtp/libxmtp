@@ -23,6 +23,7 @@ fn events(capture: &LogCapture) -> Vec<serde_json::Value> {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-011, OPS-018
 async fn completion_counts_consumed_frames_and_uses_its_own_request_id() {
     let capture = LogCapture::new(Level::Info);
     let body = StreamBody::new(stream::iter(vec![
@@ -65,6 +66,7 @@ async fn completion_counts_consumed_frames_and_uses_its_own_request_id() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-018
 async fn streaming_completion_waits_for_body_drop_and_counts_later_input() {
     let capture = LogCapture::new(Level::Info);
     let (sender, receiver) = tokio::sync::mpsc::channel::<Result<Frame<Bytes>, Infallible>>(2);
@@ -100,6 +102,7 @@ async fn streaming_completion_waits_for_body_drop_and_counts_later_input() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-018
 async fn future_errors_and_cancellation_each_complete_once_before_headers() {
     let capture = LogCapture::new(Level::Info);
     let mut failing =
@@ -137,6 +140,7 @@ async fn future_errors_and_cancellation_each_complete_once_before_headers() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-018
 async fn response_body_failure_does_not_log_again_when_dropped() {
     let capture = LogCapture::new(Level::Info);
     let mut service =
@@ -430,6 +434,7 @@ async fn compressed_native_request_logs_compressed_body_size() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-017
 fn response_statuses_and_stream_types_have_bounded_complete_metrics() {
     use crate::test_support::metrics::value;
     for (path, content_type, header, trailer, expected, kind) in [
@@ -637,6 +642,7 @@ fn dropping_a_body_records_cancelled_once_even_when_logging_is_disabled() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-017
 fn health_and_preflight_are_excluded_and_unknown_paths_share_one_label_set() {
     use crate::test_support::metrics::value;
     const UNKNOWN_PATHS: usize = 1_000;
@@ -728,6 +734,7 @@ fn health_and_preflight_are_excluded_and_unknown_paths_share_one_label_set() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: OPS-012, OPS-019
 fn incoming_trace_parent_and_server_attributes_are_preserved_with_optional_export() {
     use xmtp_logging::test_logging::with_trace_layer;
     const TRACE_ID: &str = "12345678901234567890123456789012";
@@ -835,6 +842,7 @@ fn complete_immediately<F: Future>(future: F) -> F::Output {
     flavor = "multi_thread",
     worker_threads = 4
 )]
+// verifies: OPS-013, OPS-014, OPS-016, OPS-019
 async fn publish_and_subscribe_exclude_topic_and_inbox_bytes_from_all_telemetry() {
     use crate::{api, test_support as support};
     use support::native::{Native, terminal};

@@ -41,6 +41,7 @@ fn invalid(item: &'static str) -> ConversionError {
 /// Validate a complete ordered read without parsing or changing MLS bytes.
 /// Preserve each topic's input cursor as `after`; sequence gaps are valid.
 /// Advance only these in-memory cursors on success, never durable receipt `F`.
+// implements: PROC-001
 pub fn ordered_batches(
     cursors: &mut TopicCursor,
     envelopes: Vec<wire::ServerEnvelope>,
@@ -319,6 +320,7 @@ mod tests {
         }
     }
 
+    // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn ordered_batches_keep_sparse_positions_and_authoritative_bytes() {
         let a = Topic::new_group_message([1; 16]);
@@ -341,6 +343,7 @@ mod tests {
         assert_eq!(cursors[&b], types::Cursor(11));
     }
 
+    // verifies: PROC-001
     #[xmtp_common::test(unwrap_try = true)]
     fn failed_frame_does_not_advance_any_topic() {
         let a = Topic::new_group_message([1; 16]);

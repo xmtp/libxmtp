@@ -74,6 +74,7 @@ pub(crate) fn to_value<T: serde::ser::Serialize + ?Sized>(
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod auth_error_tests {
+  // verifies: AUTH-026
   #[xmtp_common::test(unwrap_try = true)]
   fn auth_codes_reach_js_errors() {
     use xmtp_common::ErrorCode;
@@ -100,9 +101,7 @@ mod auth_error_tests {
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod configuration_error_tests {
-  /// CFG-083: the six server-configuration failures reach JavaScript as
-  /// distinct types, carried by a distinct `code` property rather than by a
-  /// message an app would have to parse.
+  // verifies: CONF-064
   #[xmtp_common::test(unwrap_try = true)]
   fn configuration_codes_reach_js_errors() {
     use std::collections::BTreeSet;

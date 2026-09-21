@@ -1,4 +1,4 @@
-//! Spec 006 §6 tests.
+//! Client configuration tests.
 //!
 //! The pure-logic cases live here unconditionally. The cases that need a
 //! deployment answering with values chosen by the test use an ephemeral
@@ -18,7 +18,8 @@ fn requiring(minimum: &str) -> ServerConfiguration {
     }
 }
 
-// CFG-060: one patch below the published minimum is too old.
+// One patch below the published minimum is too old.
+// verifies: CONF-049
 #[xmtp_common::test(unwrap_try = true)]
 fn a_client_one_patch_below_the_minimum_is_refused() {
     let error = check_minimum_version(&requiring("1.2.4"), &version("1.2.3")).unwrap_err();
@@ -29,27 +30,29 @@ fn a_client_one_patch_below_the_minimum_is_refused() {
     assert_eq!(minimum, "1.2.4");
 }
 
-// CFG-060: equal is acceptable — the requirement is "higher than".
+// Equal is acceptable — the requirement is "higher than".
+// verifies: CONF-049
 #[xmtp_common::test(unwrap_try = true)]
 fn a_client_exactly_at_the_minimum_is_accepted() {
     check_minimum_version(&requiring("1.2.3"), &version("1.2.3")).unwrap();
 }
 
-// CFG-060: compared on major, minor, and patch only, so a prerelease tag can
+// Compared on major, minor, and patch only, so a prerelease tag can
 // never be the thing that makes a client too old.
+// verifies: CONF-050
 #[xmtp_common::test(unwrap_try = true)]
 fn a_prerelease_tag_never_makes_a_client_too_old() {
     check_minimum_version(&requiring("1.2.3"), &version("1.2.3-rc.1")).unwrap();
     check_minimum_version(&requiring("1.2.3-rc.4"), &version("1.2.3")).unwrap();
 }
 
-// CFG-060: an empty minimum publishes no requirement at all.
+// An empty minimum publishes no requirement at all.
 #[xmtp_common::test(unwrap_try = true)]
 fn an_empty_minimum_requires_nothing() {
     check_minimum_version(&ServerConfiguration::default(), &version("0.0.1")).unwrap();
 }
 
-// CFG-051 and CFG-061: the first latch is the one reported, and it is reported
+// The first latch is the one reported, and it is reported
 // by every later call.
 #[xmtp_common::test(unwrap_try = true)]
 fn the_first_latch_wins_and_fails_every_later_call() {
@@ -74,7 +77,7 @@ fn the_first_latch_wins_and_fails_every_later_call() {
     assert_eq!(received, "org.example.two");
 }
 
-// CFG-042: a stored copy that does not decode is a warning, not a failure. The
+// A stored copy that does not decode is a warning, not a failure. The
 // identifier survives so the binding check still works.
 #[xmtp_common::test(unwrap_try = true)]
 fn an_undecodable_stored_copy_falls_back_to_compiled_defaults() {
@@ -94,7 +97,8 @@ fn an_undecodable_stored_copy_falls_back_to_compiled_defaults() {
     );
 }
 
-// CFG-044: a response that fails validation is never stored or used.
+// A response that fails validation is never stored or used.
+// verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn an_invalid_response_is_rejected() {
     let response = backend_v1::GetConfigurationResponse {
@@ -104,7 +108,7 @@ fn an_invalid_response_is_rejected() {
     assert!(validated(&response).is_err());
 }
 
-// CFG-048: the refresh worker's three attempts are driven by this
+// The refresh worker's three attempts are driven by this
 // classification, so a transient failure must read as retryable through the
 // `ClientError` the fetch wraps it in, and a permanent one must not.
 #[xmtp_common::test(unwrap_try = true)]
@@ -130,7 +134,7 @@ fn a_transient_configuration_failure_stays_retryable() {
     );
 }
 
-// CFG-069, CFG-070, CFG-105: the handle binds a signature request to the
+// The handle binds a signature request to the
 // chains the snapshot names, and does not when the app supplied its verifier.
 #[xmtp_common::test(unwrap_try = true)]
 fn the_handle_binds_a_request_to_the_snapshot_chains() {
@@ -152,13 +156,13 @@ fn the_handle_binds_a_request_to_the_snapshot_chains() {
     handle.restrict(&mut bound);
     assert_eq!(bound.accepted_chains(), Some(&["eip155:1".to_owned()][..]));
 
-    // CFG-070: an empty list is a list, not an absence.
+    // An empty list is a list, not an absence.
     let handle = ServerConfigurationHandle::new(provider(vec![])).with_chain_restriction(false);
     let mut bound = request();
     handle.restrict(&mut bound);
     assert_eq!(bound.accepted_chains(), Some(&[][..]));
 
-    // CFG-069: an app-supplied verifier is exempt, so nothing binds.
+    // An app-supplied verifier is exempt, so nothing binds.
     let handle =
         ServerConfigurationHandle::new(provider(vec!["eip155:1"])).with_chain_restriction(true);
     let mut unbound = request();
@@ -166,10 +170,11 @@ fn the_handle_binds_a_request_to_the_snapshot_chains() {
     assert_eq!(unbound.accepted_chains(), None);
 }
 
-// CFG-031, CFG-033 and CFG-064: a snapshot an app built in Rust can carry a
+// A snapshot an app built in Rust can carry a
 // zero the wire conversion would have replaced. The handle sanitizes it once,
 // so the wrapper that chunks with these values and the app that reads them
 // back both see the compiled default rather than a `chunks(0)` panic.
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn a_zero_limit_from_a_provider_never_reaches_a_consumer() {
     use xmtp_configuration::{BACKEND_DEFAULT_MAX_QUERY_TOPICS, StaticConfigProvider};
@@ -195,8 +200,8 @@ fn a_zero_limit_from_a_provider_never_reaches_a_consumer() {
     assert_eq!(handle.configuration().limits.max_query_topics, 3);
 }
 
-/// CFG-100: every field §6.4 acts on, given a non-default value, and every
-/// other §5.2 field, given one too, so the round-trip assertion is real.
+/// Non-default values for every published field, so the round-trip assertion
+/// checks each field.
 #[cfg(test)]
 pub(crate) fn distinct_snapshot() -> ServerConfiguration {
     ServerConfiguration {
@@ -325,7 +330,7 @@ max_group_members = 23
             .map(|client| client.context.clone())
     }
 
-    // CFG-040, CFG-041, CFG-101: the client reads the deployment's values
+    // The client reads the deployment's values
     // before any identity work and stores the copy bound to the URL it used.
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_client_reads_and_stores_what_the_deployment_publishes() {
@@ -339,7 +344,7 @@ max_group_members = 23
         assert_eq!(configuration.limits.max_query_topics, 17);
         assert_eq!(configuration.mls.max_group_members, 23);
         assert!(!configuration.auth.enabled);
-        // CFG-101: the chain list round-trips too.
+        // The chain list round-trips too.
         assert_eq!(
             configuration.smart_contract_wallet_chains,
             vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
@@ -353,9 +358,10 @@ max_group_members = 23
         backend.stop().await?;
     }
 
-    // CFG-051, CFG-052, CFG-054, CFG-055: the same database pointed at a
+    // The same database pointed at a
     // different deployment is refused, the conflict is recorded, and every
     // later build fails on the record alone.
+    // verifies: CONF-030, CONF-031, CONF-072
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_database_bound_to_one_deployment_refuses_another() {
         let first = EphemeralBackend::start(DISTINCT).await?;
@@ -367,7 +373,7 @@ max_group_members = 23
         let context = build_at(first.url(), store.clone(), &owner, identity_setup(&owner)).await?;
         drop(context);
 
-        // CFG-055: the URL moved, so the identifier is checked again before
+        // The URL moved, so the identifier is checked again before
         // anything else happens.
         let Err(error) =
             build_at(second.url(), store.clone(), &owner, identity_setup(&owner)).await
@@ -379,7 +385,7 @@ max_group_members = 23
             "unexpected error: {error}"
         );
 
-        // CFG-052 and CFG-054: the conflict is on disk and fails the next
+        // The conflict is on disk and fails the next
         // build even back at the original deployment.
         let stored = store.db().server_configuration()?.unwrap();
         assert_eq!(
@@ -399,8 +405,9 @@ max_group_members = 23
         second.stop().await?;
     }
 
-    // CFG-042 and CFG-055: a URL change that keeps the identifier re-reads the
+    // A URL change that keeps the identifier re-reads the
     // configuration and rewrites the stored URL.
+    // verifies: CONF-033
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_url_change_that_keeps_the_identifier_is_accepted() {
         let first = EphemeralBackend::start(DISTINCT).await?;
@@ -424,8 +431,9 @@ max_group_members = 23
         second.stop().await?;
     }
 
-    // CFG-060: a deployment that requires a newer client refuses this one at
+    // A deployment that requires a newer client refuses this one at
     // build, before any identity work.
+    // verifies: CONF-049
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_deployment_requiring_a_newer_client_refuses_the_build() {
         let backend = EphemeralBackend::start(
@@ -453,8 +461,9 @@ max_group_members = 23
         xmtp_api::ApiClientWrapper::new(Arc::new(api_at("http://127.0.0.1:1")), Default::default())
     }
 
-    // CFG-043 and CFG-103: an offline start with no stored copy is the compiled
+    // An offline start with no stored copy is the compiled
     // defaults and an empty identifier, and reaches no network.
+    // verifies: CONF-034, CONF-027
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_offline_start_with_no_stored_copy_uses_compiled_defaults() {
         let store = TestDb::create_ephemeral_store().await;
@@ -466,7 +475,7 @@ max_group_members = 23
             &xmtp_configuration::ServerConfiguration::default()
         );
         assert!(handle.configuration().identifier.is_empty());
-        // CFG-043: nothing is written until a refresh succeeds.
+        // Nothing is written until a refresh succeeds.
         assert!(store.db().server_configuration()?.is_none());
 
         // The same start online does reach the network and fails, so the
@@ -479,8 +488,9 @@ max_group_members = 23
         );
     }
 
-    // CFG-043 and CFG-103: an offline start with a stored copy uses it and
+    // An offline start with a stored copy uses it and
     // skips the URL check, so a client with no network still starts.
+    // verifies: CONF-034
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_offline_start_uses_the_stored_copy_without_checking_the_url() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
@@ -499,8 +509,9 @@ max_group_members = 23
         assert_eq!(handle.configuration().mls.max_group_members, 23);
     }
 
-    // CFG-048, CFG-061 and CFG-104: a refresh rewrites the stored copy, and a
+    // A refresh rewrites the stored copy, and a
     // minimum this build no longer meets latches the client.
+    // verifies: CONF-036, CONF-040
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_refresh_that_raises_the_minimum_latches_the_client() {
         let backend = EphemeralBackend::start(
@@ -508,7 +519,7 @@ max_group_members = 23
         )
         .await?;
 
-        // CFG-033: a provider short-circuits the build, so this client starts
+        // A provider short-circuits the build, so this client starts
         // against a deployment whose published minimum would have refused it.
         let owner = generate_local_wallet();
         let store = TestDb::create_ephemeral_store().await;
@@ -531,12 +542,12 @@ max_group_members = 23
             crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone());
         worker.tick().await;
 
-        // CFG-048: the run rewrote the stored copy.
+        // The run rewrote the stored copy.
         let stored = store.db().server_configuration()?.unwrap();
         assert_eq!(stored.identifier, "org.example.future");
         assert_eq!(stored.backend_url, backend.url());
 
-        // CFG-061: the client latched, and every later call reports why.
+        // The client latched, and every later call reports why.
         let latch = client.context.server_configuration().latched().unwrap();
         assert!(
             matches!(
@@ -548,7 +559,7 @@ max_group_members = 23
         let error = client.create_group(None, None).unwrap_err().to_string();
         assert!(error.contains("9999.0.0"), "unexpected error: {error}");
 
-        // CFG-061 covers every later call, including the two client entry
+        // The latch covers every later call, including the two client entry
         // points that reach the network without going through a group: a
         // latched client neither looks an identifier up nor publishes a key
         // package.
@@ -564,8 +575,9 @@ max_group_members = 23
         backend.stop().await?;
     }
 
-    // CFG-051 and CFG-104: a refresh that meets a different deployment latches
+    // A refresh that meets a different deployment latches
     // the client and records the conflict, rather than replacing the copy.
+    // verifies: CONF-030
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_refresh_that_meets_another_deployment_latches_the_client() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
@@ -597,7 +609,7 @@ max_group_members = 23
             crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone());
         worker.tick().await;
 
-        // CFG-052: the conflict is recorded, and the bound identifier is kept.
+        // The conflict is recorded, and the bound identifier is kept.
         let stored = store.db().server_configuration()?.unwrap();
         assert_eq!(stored.identifier, "org.example.elsewhere");
         assert_eq!(
@@ -605,7 +617,7 @@ max_group_members = 23
             Some("org.example.distinct".to_owned())
         );
 
-        // CFG-051: the client latched on the mismatch.
+        // The client latched on the mismatch.
         let latch = client.context.server_configuration().latched().unwrap();
         assert!(
             matches!(
@@ -618,10 +630,11 @@ max_group_members = 23
         backend.stop().await?;
     }
 
-    // CFG-051 and CFG-082: an explicit refresh that meets a different
+    // An explicit refresh that meets a different
     // deployment closes the open streams too. The worker cancels after its
     // turn; the refresh has to cancel on its own way out, or a database known
     // to belong elsewhere keeps serving its subscriptions.
+    // verifies: CONF-022
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_explicit_refresh_that_meets_another_deployment_cancels_the_client() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
@@ -656,7 +669,7 @@ max_group_members = 23
             "expected a mismatch error, got {error}"
         );
 
-        // CFG-051: latched, and the context cancelled so every open stream closes.
+        // Latched, and the context cancelled so every open stream closes.
         let latch = client.context.server_configuration().latched().unwrap();
         assert!(
             matches!(
@@ -670,8 +683,9 @@ max_group_members = 23
         backend.stop().await?;
     }
 
-    // CFG-045 and CFG-107: the configuration read is unauthenticated, so a
+    // The configuration read is unauthenticated, so a
     // client with an auth callback never invokes it for this call.
+    // verifies: CONF-029
     #[xmtp_common::test(unwrap_try = true)]
     async fn reading_the_configuration_never_invokes_the_auth_callback() {
         use std::sync::atomic::{AtomicUsize, Ordering};

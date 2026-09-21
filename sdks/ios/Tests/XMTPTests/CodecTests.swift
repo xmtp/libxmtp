@@ -42,6 +42,7 @@ struct NumberCodec: ContentCodec {
 
 @available(iOS 15, *)
 class CodecTests: XCTestCase {
+	// verifies: CTYPE-007, CTYPE-017
 	func testCanRoundTripWithCustomContentType() async throws {
 		let fixtures = try await fixtures()
 
@@ -74,6 +75,7 @@ class CodecTests: XCTestCase {
 		}
 	}
 
+	// verifies: CTYPE-008
 	func testFallsBackToFallbackContentWhenCannotDecode() async throws {
 		let fixtures = try await fixtures()
 

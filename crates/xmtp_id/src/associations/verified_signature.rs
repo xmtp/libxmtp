@@ -236,6 +236,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // verifies: IDENT-030
     async fn test_recoverable_ecdsa() {
         let wallet = PrivateKeySigner::random();
         let signature_text = "test signature body";
@@ -255,6 +256,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // verifies: IDENT-030
     async fn test_recoverable_ecdsa_incorrect() {
         let wallet = PrivateKeySigner::random();
         let signature_text = "test signature body";
@@ -272,6 +274,7 @@ mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), tokio::test)]
+    // verifies: IDENT-030
     async fn test_installation_key() {
         let key = XmtpInstallationCredential::new();
         let verifying_key = key.verifying_key();

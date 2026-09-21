@@ -54,6 +54,7 @@ struct AuthState {
 }
 
 impl AuthState {
+    // implements: AUTH-023
     fn fail(&mut self) {
         self.failures = (self.failures + 1).min(MAX_CONSECUTIVE_AUTH_FAILURES);
         if self.failures == MAX_CONSECUTIVE_AUTH_FAILURES && self.locked_until.is_none() {
@@ -96,6 +97,7 @@ impl AuthHandle {
         Self::default()
     }
 
+    // implements: AUTH-024
     pub async fn set(&self, credential: Credential) {
         let mut state = self.inner.state.lock().await;
         self.inner.store(credential);
@@ -145,6 +147,7 @@ impl<C> AuthMiddleware<C> {
 
     /// Keep the credential and its generation together across each network call.
     /// Commit callback state only after the callback completes, including a probe.
+    // implements: AUTH-021
     async fn get_credential(&self) -> Result<(Arc<Credential>, u64), AuthError> {
         let inner = &self.handle.inner;
         // Take the refresh lock first so only one callback runs at a time. The
@@ -255,6 +258,7 @@ impl<C> AuthMiddleware<C> {
     }
 
     /// Rebuild all request parts. Replace the credential header instead of appending it.
+    // implements: AUTH-020
     fn request_builder(
         parts: &http::request::Parts,
         credential: &Credential,
@@ -273,7 +277,7 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
-    /// CFG-062: this middleware exists only when a callback or a handle was
+    /// This middleware exists only when a callback or a handle was
     /// configured, so its presence in the stack is the credential source.
     fn has_credential_source(&self) -> bool {
         true
@@ -283,15 +287,17 @@ impl<C: Client> Client for AuthMiddleware<C> {
         self.inner.host()
     }
 
+    // implements: AUTH-022
     async fn request(
         &self,
         request: http::request::Builder,
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError> {
-        // CFG-045: the configuration read carries no credential and never
+        // The configuration read carries no credential and never
         // invokes the app's callback. A client asks what the deployment
         // requires before it can know whether it needs one.
+        // implements: CONF-029
         if path.path() == GET_CONFIGURATION_PATH {
             return self.inner.request(request, path, body).await;
         }
@@ -317,6 +323,7 @@ impl<C: Client> Client for AuthMiddleware<C> {
         self.finish(generation, result).await.0
     }
 
+    // implements: AUTH-022
     async fn stream(
         &self,
         request: http::request::Builder,

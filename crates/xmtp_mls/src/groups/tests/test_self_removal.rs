@@ -2,6 +2,7 @@
 
 use super::*;
 
+// verifies: GMOD-031
 #[xmtp_common::test]
 async fn test_self_remove_dm_must_fail() {
     tester!(amal);
@@ -75,6 +76,7 @@ async fn test_self_remove_dm_must_fail() {
     assert_eq!(message.decrypted_message_bytes, b"test one");
 }
 
+// verifies: GMOD-031
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_remove_group_fail_with_one_member() {
     tester!(amal);
@@ -96,6 +98,7 @@ async fn test_self_remove_group_fail_with_one_member() {
     );
 }
 
+// verifies: GMOD-031
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_remove_super_admin_must_fail() {
     tester!(amal);
@@ -111,6 +114,7 @@ async fn test_self_remove_super_admin_must_fail() {
     );
 }
 
+// verifies: GMOD-031
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_non_member_cannot_leave_group() {
     tester!(amal);

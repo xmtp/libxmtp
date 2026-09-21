@@ -28,20 +28,20 @@ flowchart LR
 
 In scope: the entries a client records for each commit outcome; the per-group signing key and the consensus key; who publishes entries and in what order; how a client verifies and accepts remote entries; the fork state and how it is computed; readd requests, the one-shot groups that carry them, and who may act on them; the readd commit; the recovery policy an app sets; and what an app can read.
 
-Out of scope: commit validation, the membership extension, and the hold a client applies to a group whose minimum protocol version it does not meet (`?GMOD`), the ordered processing of a group's message topic and the terminal rejection of an envelope (`?PROC`), the publish and query contract, sequence ids, and the admission of a commit-log entry (`API`), the topic layout (`TOPIC`), retention (`OPS`), the super admin role and what a super admin may commit (`?PERM`), consent (`?CONS`), the metadata components this spec uses (`?META`), when a Welcome replaces existing group state (JOIN section 7), and the deployment switch that turns the log on (CONF-045).
+Out of scope: commit validation, the membership component, and the protocol-version hold (GMOD-021, GMOD-005, GMOD-025), ordered topic processing and terminal rejection (PROC-005, PROC-011), the publish and query contract, sequence ids, and the admission of a commit-log entry (`API`), the topic layout (`TOPIC`), retention (`OPS`), the super admin role and proposal authorization (`PERM`), consent (`CONS`), the metadata components this spec uses (`META`), when a Welcome replaces existing group state (JOIN section 7), and the deployment switch that turns the log on (CONF-045).
 
 | Related | Relation |
 | --- | --- |
 | `CONF` | Owns `commit_log_enabled` and CONF-045, the switch that turns publishing and reading off for a deployment. |
-| `JOIN` | Owns whether a Welcome replaces state the client already holds (JOIN-041 to JOIN-044), the adder read from the ratchet tree (JOIN-025), and the key package a sender fetches (section 1). A readd is repaired by that path. |
+| `JOIN` | Owns whether a Welcome replaces state the client already holds (JOIN-041 to JOIN-044), the adder read from the ratchet tree (JOIN-025), and key-package validation (JOIN-007, JOIN-008). A readd is repaired by that path. |
 | `API` | Owns `ClientEnvelope` and its `commit_log_entry` payload, sequence ids (API-286 through API-289), the prefix a read returns (API-201), and the admission of a commit-log entry (API-230). |
 | `TOPIC` | Owns the commit-log kind byte and its 16-byte group identifier (TOPIC-001, TOPIC-002). |
-| `OPS` | Owns retention. OPS-001 gives a commit-log entry no expiry. |
-| `?PERM` | Owns the super admin list. Expected to permit a super admin to remove and add one installation in one commit (FORK-062). |
-| `?CONS` | Owns the allowed consent state. Expected to define it for a conversation as the state FORK-020, FORK-030, and FORK-053 test. |
-| `?META` | Owns the `COMMIT_LOG_SIGNER` and `ONESHOT_MESSAGE` components and the minimum protocol version component. This spec states what they are used for. |
-| `?GMOD` | Owns commit validation, whose failure is `COMMIT_RESULT_INVALID`, and is expected to require that a client below a group's minimum protocol version holds rather than applies that group's commits. |
-| `?PROC` | Owns the terminal rejection of an envelope, which FORK-002 records, and the hold of one the client will process again, which it does not. |
+| `OPS` | Owns retention. API-212 assigns commit-log expiry; OPS-001 prevents deletion of an exempt envelope. |
+| PERM-001, GMOD-015 | Own the super admin role and the same-installation readd exception used by FORK-062. |
+| [CONS section 1](CONS-consent.md#1-states-and-entities) | Defines the conversation consent state tested by FORK-020, FORK-030, and FORK-053. |
+| [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `COMMIT_LOG_SIGNER`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
+| GMOD-021, GMOD-025 | Own commit validation and the hold below a group's minimum protocol version. |
+| PROC-011, PROC-012 | Own terminal rejection, which FORK-002 records, and unresolved work, which it does not. |
 
 ## Terms
 
@@ -69,7 +69,7 @@ Out of scope: commit validation, the membership extension, and the hold a client
 
 Every commit a client merges or rejects with a terminal outcome leaves one local entry. The entry records the commit's sequence id, the epoch authenticator before it, the result, and the epoch and authenticator after it. A commit that removes the recording installation is a removal entry: the member merges only the public part of that commit and cannot derive the new epoch's secrets, so the entry keeps the pre-commit epoch. A removal entry is neither published nor compared.
 
-A failure is recorded only when it is terminal. `?PROC` owns the line between an envelope the client rejects for good and one it holds for a later attempt; a held commit has no outcome yet, and recording one would publish a rejection the group never made.
+A failure is recorded only when it is terminal. PROC-011 and PROC-012 distinguish terminal rejection from unresolved work; a held commit has no outcome yet, and recording one would publish a rejection the group never made.
 
 CONF-045 forbids publishing and reading while a deployment's `commit_log_enabled` is `false`. This spec adds that such a client records no local entries and reports every fork state as `unknown` (FORK-004), so that a log that was never kept is not read as evidence.
 
@@ -91,17 +91,17 @@ The result a terminal failure records is the first row below whose condition hol
 | --- | --- |
 | The commit's `epoch` is not the group's current epoch | `COMMIT_RESULT_WRONG_EPOCH` |
 | The commit's payload cannot be decrypted or fails MLS processing for another reason | `COMMIT_RESULT_UNDECRYPTABLE` |
-| The commit decrypts and fails the validation `?GMOD` owns | `COMMIT_RESULT_INVALID` |
+| The commit decrypts and fails validation under GMOD-021 | `COMMIT_RESULT_INVALID` |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | FORK-001 | Record every applied commit | While `commit_log_enabled` is `true`, when the client merges a commit into a group's MLS state and its installation is a member after the merge, the client MUST record a local entry whose `commit_sequence_id` is the commit sequence id, whose `last_epoch_authenticator` is the group's epoch authenticator before the merge, whose `commit_result` is `COMMIT_RESULT_APPLIED`, and whose `applied_epoch_number` and `applied_epoch_authenticator` are the group's epoch and epoch authenticator after it. | A commit without an entry can never be compared, so a fork at that commit is read as `unknown` for ever, and a publisher that skips it ends the log for every member under FORK-032. |
-| FORK-002 | Record only a terminal failure | While `commit_log_enabled` is `true`, when the client records a terminal rejection for a commit under the rule `?PROC` states, it MUST record a local entry with the `commit_result` the table above gives and with `applied_epoch_number` and `applied_epoch_authenticator` equal to the group's current values, and MUST NOT record an entry for a commit it holds for a later attempt. | A held failure recorded as terminal publishes a rejection the group never made, and every member that applied the commit then reads itself as forked. |
+| FORK-002 | Record only a terminal failure | While `commit_log_enabled` is `true`, when the client records a terminal rejection for a commit under PROC-011, it MUST record a local entry with the `commit_result` the table above gives and with `applied_epoch_number` and `applied_epoch_authenticator` equal to the group's current values, and MUST NOT record an entry for a commit it holds for a later attempt. | A held failure recorded as terminal publishes a rejection the group never made, and every member that applied the commit then reads itself as forked. |
 | FORK-004 | No log, no evidence | While `commit_log_enabled` is `false`, the client MUST report every conversation's fork state as `unknown`. | A `not forked` read from an empty log tells an app a broken conversation is healthy. |
 
 ## 2. Keys and signatures
 
-Entries are signed but not encrypted. One Ed25519 key signs every entry of a group for the group's life. The creator generates it, for a group and for a DM alike, and places the private key in the group's `COMMIT_LOG_SIGNER` component, which travels inside the group's encrypted state, so that every member with permission to read it can sign and nobody outside the group can. `?PERM` decides who may write the component; `?META` owns its encoding.
+Entries are signed but not encrypted. One Ed25519 key signs every entry of a group for the group's life. The creator generates it, for a group and for a DM alike, and places the private key in the group's `COMMIT_LOG_SIGNER` component, which travels inside the group's encrypted state, so that every member with permission to read it can sign and nobody outside the group can. PERM-010 and PERM-011 govern write authorization; META-010 owns its encoding.
 
 The consensus key is the public key of the first entry on the topic whose signature verifies under its own `public_key`. It is chosen by backend order and never changes. That order is what the trust rests on, and it is thin: anyone who can reach the backend and knows a group id can publish a self-signed entry to its commit-log topic, and if that entry arrives before the creator's first entry, every member fixes the impostor's key and discards every entry the real publishers produce for the group's life. The key in `COMMIT_LOG_SIGNER` is not consulted when the consensus key is chosen. The Known limitations record this and it is open with the owner.
 
@@ -259,7 +259,7 @@ message ReaddRequest {
 
 A readder acts only from a state it can vouch for. It processes the group's message topic to the end first, then checks that it still consents, that its own state is active, that it is a permitted readder, and that it is not itself forked. A readder whose fork state is `unknown` waits: readding from an unverified state can readd the requester into a fork. A readder whose fork state is `forked` never acts. A readder that meets every condition acts; a request is not a suggestion.
 
-The repair is one commit that removes the requester's leaf node and adds the same installation back with the key package the backend serves for it, and the Welcome that commit produces. The requester processes the removal, becomes inactive, and accepts the Welcome under JOIN-042, keeping its messages under JOIN-044. Clients older than the version FORK-063 names do not accept a Welcome for a group they already hold, so the readder raises the group's minimum protocol version first; `?META` owns that component and `?GMOD` is expected to hold a client below the minimum rather than let it apply commits. `?PERM` is expected to permit a super admin to remove and add one installation in one commit. An installation the readder cannot add back is left in place: a readd that only removes puts a member out of the group with no Welcome and no notice.
+The repair is one commit that removes the requester's leaf node and adds the same installation back with the key package the backend serves for it, and the Welcome that commit produces. The requester processes the removal, becomes inactive, and accepts the Welcome under JOIN-042, keeping its messages under JOIN-044. Clients older than the version FORK-063 names do not accept a Welcome for a group they already hold, so the readder raises the group's minimum protocol version first. [META section 2](META-group-metadata.md#2-well-known-components) owns that component; GMOD-025 owns the hold below the minimum, and GMOD-015 owns the super-admin readd exception. An installation the readder cannot add back is left in place: a readd that only removes puts a member out of the group with no Welcome and no notice.
 
 After a readd commit, whoever published it, the readder records the commit's sequence id against each readded installation, so a request carrying a lower `latest_commit_sequence_id` is one already answered. A request for a group the readder no longer consents to, is no longer active in, or is no longer a permitted readder of is dropped.
 

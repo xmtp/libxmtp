@@ -3,7 +3,7 @@ import { createRegisteredClient, createUser, TEST_API_URL } from '@test/helpers'
 import { fetchServerConfiguration, type ServerConfiguration } from '../dist'
 
 /**
- * CFG-106: read every field of the published configuration, so a field that
+ * Read every field of the published configuration, so a field that
  * stops round-tripping fails here rather than in an app.
  */
 const expectEveryField = (configuration: ServerConfiguration) => {
@@ -61,10 +61,10 @@ const expectEveryField = (configuration: ServerConfiguration) => {
   ]) {
     expect(typeof value).toBe('number')
     expect(Number.isSafeInteger(value)).toBe(true)
-    // CFG-026: the backend fills every limit, so a client never reads zero.
+    // The backend fills every limit, so a client never reads zero.
     expect(value).toBeGreaterThan(0)
   }
-  // Never above the fixed 25 MiB transport ceiling (CFG-007, CFG-071).
+  // Never above the fixed 25 MiB transport ceiling.
   expect(limits.maxRequestBytes).toBeLessThanOrEqual(25 * 1024 * 1024)
   expect(limits.maxResponseBytes).toBeLessThanOrEqual(25 * 1024 * 1024)
 
@@ -87,7 +87,7 @@ const expectEveryField = (configuration: ServerConfiguration) => {
 }
 
 describe('ServerConfiguration', () => {
-  // CFG-080, CFG-106
+  // verifies: CONF-061
   it('should read every field of the snapshot the client resolved at build', async () => {
     const client = await createRegisteredClient(createUser())
     try {
@@ -102,14 +102,14 @@ describe('ServerConfiguration', () => {
     }
   })
 
-  // CFG-081, CFG-106: no database, no client, no credential.
+  // verifies: CONF-062
   it('should fetch the configuration without a client', async () => {
     const configuration = await fetchServerConfiguration(TEST_API_URL)
     expectEveryField(configuration)
     expect(configuration.identifier).toBe('org.xmtp.local')
   })
 
-  // CFG-081: the app version is the only other transport argument, and it is
+  // The app version is the only other transport argument, and it is
   // optional.
   it('should fetch the configuration with an app version', async () => {
     const configuration = await fetchServerConfiguration(
@@ -119,15 +119,14 @@ describe('ServerConfiguration', () => {
     expect(configuration.identifier).toBe('org.xmtp.local')
   })
 
-  // CFG-081: a deployment that does not answer rejects with a distinct code.
+  // verifies: CONF-064
   it('should reject with ConfigurationUnavailable when the backend is unreachable', async () => {
     await expect(
       fetchServerConfiguration('http://127.0.0.1:1')
     ).rejects.toThrow(/\[ClientError::ConfigurationUnavailable\]/)
   })
 
-  // CFG-082: the fetched copy matches the snapshot when nothing changed, and
-  // the running client's snapshot is untouched.
+  // verifies: CONF-074
   it('should refresh and return the fetched configuration', async () => {
     const client = await createRegisteredClient(createUser())
     try {

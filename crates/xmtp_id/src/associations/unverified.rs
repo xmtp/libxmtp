@@ -52,6 +52,7 @@ impl UnverifiedIdentityUpdate {
             .collect()
     }
 
+    // implements: IDENT-020
     pub async fn to_verified(
         &self,
         scw_verifier: impl SmartContractSignatureVerifier,
@@ -250,6 +251,7 @@ pub enum UnverifiedSignature {
 }
 
 impl UnverifiedSignature {
+    // implements: IDENT-030
     pub async fn to_verified<Text: AsRef<str>>(
         &self,
         signature_text: Text,

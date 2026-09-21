@@ -11,6 +11,7 @@ use crate::{
 use serde_json::json;
 use std::sync::Arc;
 
+// verifies: AUTH-017
 #[xmtp_common::test(unwrap_try = true)]
 async fn startup_waits_between_two_failures_then_loads_keys() {
     let key = TestKey::es256();
@@ -29,6 +30,7 @@ async fn startup_waits_between_two_failures_then_loads_keys() {
     server.stop().await?;
 }
 
+// verifies: AUTH-017, AUTH-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn startup_exhaustion_and_empty_key_sets_return_host_only_errors() {
     for reply in [
@@ -45,6 +47,7 @@ async fn startup_exhaustion_and_empty_key_sets_return_host_only_errors() {
     }
 }
 
+// verifies: AUTH-015, AUTH-027, AUTH-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn fetch_rejects_redirects_oversized_streams_parse_errors_and_plain_remote_http() {
     xmtp_cryptography::install_crypto_provider();
@@ -106,6 +109,7 @@ async fn a_document_of_unusable_entries_bounds_the_warnings() {
     );
 }
 
+// verifies: AUTH-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn fetch_keeps_first_64_usable_keys_and_skips_unsupported_entries() {
     xmtp_cryptography::install_crypto_provider();
@@ -124,6 +128,7 @@ async fn fetch_keeps_first_64_usable_keys_and_skips_unsupported_entries() {
     assert_eq!(loaded.last().unwrap().kid.as_deref(), Some("63"));
 }
 
+// verifies: AUTH-009, AUTH-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_swaps_success_keeps_failure_and_never_fetches_for_unknown_ids() {
     let Some(metrics) = metrics::isolated(
@@ -184,6 +189,7 @@ async fn refresh_swaps_success_keeps_failure_and_never_fetches_for_unknown_ids()
     assert_eq!(jwks.requests().len(), requests);
 }
 
+// verifies: AUTH-019
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_fetch_in_progress_cannot_extend_the_monotonic_stale_deadline() {
     use tracing::instrument::WithSubscriber;
@@ -215,6 +221,7 @@ async fn a_fetch_in_progress_cannot_extend_the_monotonic_stale_deadline() {
     assert!(capture.output().contains("127.0.0.1"));
 }
 
+// verifies: AUTH-019
 #[xmtp_common::test(unwrap_try = true)]
 async fn stale_keys_use_the_server_drain_and_return_a_typed_error() {
     use crate::{
@@ -344,6 +351,7 @@ async fn stale_keys_use_the_server_drain_and_return_a_typed_error() {
     server.stop().await?;
 }
 
+// verifies: AUTH-019
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_successful_refresh_moves_the_stale_deadline() {
     xmtp_cryptography::install_crypto_provider();

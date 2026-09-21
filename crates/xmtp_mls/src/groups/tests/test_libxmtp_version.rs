@@ -56,6 +56,7 @@ fn test_parse_and_compare_zero_versions() {
     assert!(v0_1_0 < v1_0_0);
 }
 
+// verifies: GMOD-027
 #[xmtp_common::test(unwrap_try = true)]
 fn test_numeric_pre_release_identifiers_compare_numerically() {
     // Per semver 2.0 §11.4.1: identifiers consisting only of digits

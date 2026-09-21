@@ -9,6 +9,7 @@ import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
 class StreamFailureTest {
+    // verifies: PROC-018
     @Test
     fun readsTypedDetailsFromThePublicErrorProperty() {
         val message =

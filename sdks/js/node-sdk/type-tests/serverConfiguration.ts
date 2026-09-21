@@ -113,7 +113,7 @@ export async function checkRefresh(client: Client): Promise<void> {
   void refreshed;
 }
 
-// The six failures of CFG-083 are distinct classes with one shared base.
+// The six failures are distinct classes with one shared base.
 export function checkErrors(error: unknown): string | undefined {
   const typed: ServerConfigurationError | undefined =
     toServerConfigurationError(error);

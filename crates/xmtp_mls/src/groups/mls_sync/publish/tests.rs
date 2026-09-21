@@ -413,6 +413,7 @@ async fn lost_publish_reply_retries_exact_prepared_envelopes() {
     );
 }
 
+// verifies: SEND-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn late_publish_reply_cannot_update_replacement_attempt() {
     tester!(alix, disable_workers);
@@ -557,6 +558,7 @@ async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
     );
 }
 
+// verifies: SEND-006, SEND-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn welcome_followup_retries_exact_bytes_after_restart() {
     tester!(alix, disable_workers);

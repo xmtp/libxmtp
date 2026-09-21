@@ -1,6 +1,6 @@
 # Specifications
 
-The approved specs in this folder are the promises libxmtp and the self-hosted backend keep. `SPEC-spec-format.md` defines the format, the admission test, the identifier scheme, and the backlink rules. `GLOSSARY.md` defines the actors and shared terms. Requirement identifiers are globally unique, such as `CONF-012` or `JOIN-034`.
+The approved specs in this folder are the promises libxmtp and the self-hosted backend keep. `SPEC-spec-format.md` defines the format, the admission test, the identifier scheme, and the backlink rules. `GLOSSARY.md` defines the actors and shared terms. Requirement identifiers are globally unique, such as `CONF-012` or `JOIN-046`.
 
 Specs supersede XIPs and the superseded documents under `docs/legacy-specs/`. A legacy document is source material and is deleted when its replacement is approved.
 
@@ -11,7 +11,7 @@ Specs supersede XIPs and the superseded documents under `docs/legacy-specs/`. A 
 | `SPEC` | [Specification format](SPEC-spec-format.md) | The format, admission, identifiers, backlinks, waivers, plans' spec-change section | approved |
 | `TOPIC` | [Topic format](TOPIC-topic-format.md) | The kind byte and identifier layout of every topic | draft |
 | `API` | [Backend API contract](API-backend-api.md) | The gRPC contract: ordering, publish, query, subscribe, identity RPCs, error codes, admission validation | draft |
-| `CONF` | [Backend configuration](CONF-backend-configuration.md) | The operator's configuration file, its validation, what is published, how the client applies it | draft |
+| `CONF` | [Backend configuration](CONF-backend-configuration.md) | Configuration validation, what is published, how the client applies it | draft |
 | `AUTH` | [Backend auth](AUTH-backend-auth.md) | Request authentication and authorization, client credentials, terminal auth failures | draft |
 | `OPS` | [Backend operations](OPS-backend-operations.md) | Retention and pruning, readiness and health, shutdown as observed, the metric catalogue | draft |
 | `PUSH` | [Push subscriptions and webhooks](PUSH-push-subscriptions.md) | Recipient registration, channels, subscription sync, dispatch, HMAC suppression, webhook signing | draft |

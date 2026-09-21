@@ -352,6 +352,7 @@ pub trait QueryDelivery: ConnectionExt + Sized {
     }
 
     /// Apply history filters before its limit, with history and cursor in one read transaction.
+    // implements: PROC-035
     fn delivery_history_snapshot_filtered(
         &self,
         scope: &DeliveryScope,

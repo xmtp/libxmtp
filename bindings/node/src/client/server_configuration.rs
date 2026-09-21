@@ -2,14 +2,14 @@
 //! (spec 006 §7).
 //!
 //! `Client#serverConfiguration()` reads the snapshot this client resolved at
-//! build (CFG-080). `fetchServerConfiguration` reads a deployment with no
-//! database, no client, and no credential (CFG-081).
+//! build. `fetchServerConfiguration` reads a deployment with no
+//! database, no client, and no credential.
 //! `Client#refreshServerConfiguration()` fetches now and rewrites the stored
-//! copy (CFG-082).
+//! copy.
 //!
 //! Every failure of §7 reaches JavaScript through `ErrorWrapper`, so
-//! `error.message` is `[ClientError::<Variant>] <message>`. The six codes of
-//! CFG-083 are distinct strings:
+//! `error.message` is `[ClientError::<Variant>] <message>`. The six configuration
+//! codes are distinct strings:
 //!
 //! - `[ClientError::ConfigurationUnavailable]`
 //! - `[ClientError::ConfigurationInvalid]`
@@ -186,6 +186,7 @@ pub struct ServerConfiguration {
   pub smart_contract_wallet_chains: Vec<String>,
 }
 
+// implements: CONF-061
 impl From<&xmtp_configuration::ServerConfiguration> for ServerConfiguration {
   fn from(configuration: &xmtp_configuration::ServerConfiguration) -> Self {
     Self {
@@ -203,8 +204,7 @@ impl From<&xmtp_configuration::ServerConfiguration> for ServerConfiguration {
 
 #[napi]
 impl Client {
-  /// What this deployment published about itself, as resolved at build
-  /// (CFG-030, CFG-080).
+  /// What this deployment published about itself, as resolved at build.
   ///
   /// A refresh rewrites the stored copy; it never changes this value. A new
   /// value takes effect at the next client build.
@@ -214,10 +214,10 @@ impl Client {
   }
 
   /// Fetch the deployment configuration now, rewrite the stored copy, and
-  /// return what was fetched (CFG-082).
+  /// return what was fetched.
   ///
-  /// Applies the same validation (CFG-044), storage (CFG-048), and identifier
-  /// binding (CFG-051) the hourly refresh worker applies. The snapshot this
+  /// Applies the same validation, storage, and identifier
+  /// binding the hourly refresh worker applies. The snapshot this
   /// client is holding is unchanged.
   ///
   /// Rejects with `[ClientError::ConfigurationUnavailable]`,
@@ -236,7 +236,7 @@ impl Client {
 }
 
 /// Read what a deployment publishes about itself with no database, no client,
-/// and no credential (CFG-081, CFG-045).
+/// and no credential.
 ///
 /// Lets an app learn `auth.enabled`, `auth.requiredScopes`, and the accepted
 /// smart contract wallet chains before it decides how to build a client.
@@ -283,8 +283,7 @@ mod tests {
   use xmtp_mls::client::ClientError;
   use xmtp_mls::server_configuration::ConfigurationFetchError;
 
-  /// CFG-083: the six configuration failures reach JavaScript as distinct
-  /// codes, not as message strings a caller has to match on.
+  // verifies: CONF-064
   #[xmtp_common::test(unwrap_try = true)]
   fn configuration_codes_reach_node_errors() {
     let cases = [

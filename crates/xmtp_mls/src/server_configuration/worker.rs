@@ -1,10 +1,10 @@
-//! The hourly refresh (CFG-046 to CFG-050).
+//! The hourly refresh.
 //!
 //! A run rewrites the stored row. It never changes the snapshot the client is
-//! holding — that is fixed at build (CFG-030) — so the only thing a refresh can
+//! holding — that is fixed at build — so the only thing a refresh can
 //! change about a running client is to latch a failure it must not ignore: a
-//! different deployment answering (CFG-051) or a minimum version this build no
-//! longer meets (CFG-061).
+//! different deployment answering or a minimum version this build no
+//! longer meets.
 
 use xmtp_common::{RetryableError, time::Duration};
 use xmtp_configuration::{
@@ -44,8 +44,8 @@ where
     }
 }
 
-/// The refresh worker never surfaces an error: CFG-047 says a failed run logs
-/// and leaves the stored copy alone. This exists only to satisfy the worker
+/// The refresh worker logs failures and leaves the stored copy alone.
+/// This exists only to satisfy the worker
 /// trait's error contract.
 #[derive(Debug, thiserror::Error)]
 #[error("the configuration refresh worker stopped")]
@@ -102,7 +102,7 @@ where
                 return;
             }
             self.tick().await;
-            // CFG-051 and CFG-061: a latch closes every open stream. Cancelling
+            // A latch closes every open stream. Cancelling
             // is what closes them; the streams read the latch to report why.
             if self.context.server_configuration().latched().is_some() {
                 self.context.cancellation_token().cancel();
@@ -141,7 +141,7 @@ where
             match self.attempt().await {
                 Ok(()) => return,
                 Err(error) => {
-                    // CFG-049: a server error never triggers another refresh.
+                    // A server error never triggers another refresh.
                     // The run's own schedule is the only thing driving this.
                     tracing::warn!(
                         attempt,
@@ -160,12 +160,13 @@ where
         }
     }
 
+    // implements: CONF-036
     async fn attempt(&mut self) -> Result<(), ClientError> {
         let handle = self.context.server_configuration();
         let db = self.context.db();
         let fetched = fetch_and_store(self.context.api(), &db, handle).await?;
 
-        // CFG-061: the copy is stored either way, and the client stops.
+        // The copy is stored either way, and the client stops.
         if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
             check_minimum_version(&fetched, self.context.version_info().pkg_semver().semver())
         {

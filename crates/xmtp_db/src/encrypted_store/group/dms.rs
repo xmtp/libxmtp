@@ -38,6 +38,7 @@ where
 
 impl<C: ConnectionExt> QueryDms for DbConnection<C> {
     /// Same behavior as fetched, but will stitch DM groups
+    // implements: DMS-007, DMS-013
     fn fetch_stitched(&self, key: &GroupId) -> Result<Option<StoredGroup>, ConnectionError> {
         let group = self.raw_query(|conn| {
             groups::table
@@ -178,6 +179,7 @@ pub(super) mod tests {
     /// or the group list over a row the client can act in, even when the
     /// placeholder holds the newer message and the higher id. With only
     /// `Restored` rows, the lookup still resolves.
+    // verifies: DMS-007, DMS-013
     #[xmtp_common::test]
     fn test_dm_winner_prefers_joined_over_restored() {
         with_connection(|conn| {
@@ -236,6 +238,7 @@ pub(super) mod tests {
         })
     }
 
+    // verifies: DMS-007, DMS-013
     #[xmtp_common::test]
     fn test_dm_deduplication() {
         with_connection(|conn| {

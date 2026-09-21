@@ -956,6 +956,7 @@ fn read_committed_metadata(
 
 /// Require each identity sequence `N` to precede group envelope sequence `S`.
 /// `N >= S` is invalid on every receiver, independent of cache or replica state.
+// implements: GMOD-007
 fn validate_identity_sequence_order(
     membership: &GroupMembership,
     envelope_sequence: u64,
@@ -1081,6 +1082,7 @@ impl ExpectedDiff {
 
 /// Superadmins are permitted to readd installations, e.g. for fork recovery
 /// We can take these readded installations out of the list of installations to validate
+// implements: GMOD-015
 pub(super) fn extract_readded_installations(
     actor: &CommitParticipant,
     added_installations: &mut HashSet<Vec<u8>>,
@@ -1116,6 +1118,7 @@ pub(super) fn extract_readded_installations(
 /// Compare the list of installations added and removed in the commit to the expected diff based on the changes
 /// to the inbox state.
 /// Satisfies Rule 3 and Rule 7
+// implements: GMOD-010, GMOD-011
 fn expected_diff_matches_commit(
     expected_diff: &InstallationDiff,
     added_installations: HashSet<Vec<u8>>,
@@ -1170,6 +1173,7 @@ fn get_current_group_members(openmls_group: &OpenMlsGroup) -> HashSet<Vec<u8>> {
 
 /// Validate that the new group membership is a valid state transition from the old group membership.
 /// Enforces Rule 1 from above
+// implements: GMOD-008
 fn validate_membership_diff(
     old_membership: &GroupMembership,
     new_membership: &GroupMembership,
@@ -1253,6 +1257,7 @@ fn validate_one_app_data_update(
 /// `update_group_min_version` is a friendlier UX layer over the same
 /// invariant. An attacker patching out the send-side gate still hits
 /// this one on every receiver.
+// implements: GMOD-026
 fn enforce_min_version_monotonicity(
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
     old_value: Option<&[u8]>,
@@ -1335,6 +1340,7 @@ fn permits_dm_participant_insert(
 /// Pure core of [`validate_one_app_data_update`] with `old_value`
 /// passed explicitly so unit tests can exercise the
 /// expand → per-change policy loop without a real MLS group.
+// implements: PERM-011, PERM-014
 pub(super) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
@@ -2325,6 +2331,7 @@ mod min_version_monotonicity_tests {
         enforce_min_version_monotonicity(&update_op("2.0.0"), Some(b"1.11.0-dev"))?;
     }
 
+    // verifies: GMOD-026
     #[xmtp_common::test(unwrap_try = true)]
     fn lower_version_is_rejected() {
         let err = enforce_min_version_monotonicity(&update_op("1.10.0"), Some(b"1.11.0-dev"))
@@ -2339,6 +2346,7 @@ mod min_version_monotonicity_tests {
         );
     }
 
+    // verifies: GMOD-026
     #[xmtp_common::test(unwrap_try = true)]
     fn remove_with_prior_floor_is_rejected() {
         let err =
@@ -2378,6 +2386,7 @@ mod min_version_monotonicity_tests {
         );
     }
 
+    // verifies: GMOD-027
     #[xmtp_common::test(unwrap_try = true)]
     fn prerelease_ordering_matches_semver() {
         // semver §11: pre-release sorts BEFORE the release. Bumping

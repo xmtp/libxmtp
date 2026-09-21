@@ -73,6 +73,7 @@ impl Rejection {
             Self::Scope => "scope",
         }
     }
+    // implements: AUTH-014
     pub(crate) fn status(self) -> tonic::Status {
         let message = match self {
             Self::Missing => MISSING,
@@ -117,6 +118,7 @@ impl Verifier {
 
     /// Match an API key first, or select exactly one trusted JWT signing key.
     /// Claims are checked only after the signature succeeds. No token data is logged.
+    // implements: AUTH-005, AUTH-006, AUTH-007, AUTH-008, AUTH-010
     pub fn verify(&self, headers: &http::HeaderMap) -> Result<AuthContext, Rejection> {
         let header = headers
             .get(http::header::AUTHORIZATION)
@@ -208,6 +210,7 @@ impl Verifier {
 
     /// Enforce strict JSON claim types and the documented error order.
     /// This must only receive claims whose signature has been verified.
+    // implements: AUTH-011, AUTH-012, AUTH-013
     fn check_claims(&self, value: Value) -> Result<AuthContext, Rejection> {
         let now = xmtp_common::time::now_secs() as u64;
         let exp = value

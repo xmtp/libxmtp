@@ -9,6 +9,7 @@ use tonic::Request;
 use xmtp_mls_validation::test_utils::inline_welcome_envelope;
 
 #[xmtp_common::test(unwrap_try = true)]
+// verifies: API-202, OPS-009
 async fn query_uses_primary_while_newest_and_lookup_use_read_pool() {
     let primary = TestServer::new(|_| {}).await?;
     let selected = TestServer::new(|_| {}).await?;

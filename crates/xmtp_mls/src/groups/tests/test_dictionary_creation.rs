@@ -3,6 +3,7 @@ use openmls::{extensions::ExtensionType, messages::proposals::ProposalType};
 use xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
 use xmtp_mls_common::app_data::component_id::ComponentId;
 
+// verifies: META-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_group_context_shape_at_creation() {
     tester!(alix, disable_workers);

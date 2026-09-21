@@ -34,6 +34,7 @@ fn configured_api_key_returns_its_name_for_every_bearer_case() {
     }
 }
 
+// verifies: AUTH-007
 #[xmtp_common::test(unwrap_try = true)]
 fn api_key_miss_without_jwt_source_is_untrusted() {
     let (_, config) = api_key("operator");
@@ -43,6 +44,7 @@ fn api_key_miss_without_jwt_source_is_untrusted() {
     }
 }
 
+// verifies: AUTH-007
 #[xmtp_common::test(unwrap_try = true)]
 fn api_key_miss_with_jwt_source_preserves_jwt_verification() {
     let (_, mut config) = api_key("operator");
@@ -59,6 +61,7 @@ fn api_key_miss_with_jwt_source_preserves_jwt_verification() {
     );
 }
 
+// verifies: AUTH-006
 #[xmtp_common::test(unwrap_try = true)]
 fn configured_jwt_shaped_value_is_admitted_as_an_api_key() {
     let key = TestKey::es256();
@@ -73,6 +76,7 @@ fn configured_jwt_shaped_value_is_admitted_as_an_api_key() {
     );
 }
 
+// verifies: AUTH-006
 #[xmtp_common::test(unwrap_try = true)]
 fn api_key_admission_does_not_apply_jwt_claim_checks() {
     let (value, mut config) = api_key("operator");
@@ -87,6 +91,7 @@ fn api_key_admission_does_not_apply_jwt_claim_checks() {
     );
 }
 
+// verifies: AUTH-005
 #[xmtp_common::test(unwrap_try = true)]
 fn oversized_bearer_is_malformed_even_when_it_matches_a_configured_key() {
     let (_, mut config) = api_key("operator");
@@ -98,6 +103,7 @@ fn oversized_bearer_is_malformed_even_when_it_matches_a_configured_key() {
     );
 }
 
+// verifies: AUTH-006
 #[xmtp_common::test(unwrap_try = true)]
 fn each_configured_api_key_returns_only_its_own_name() {
     let (last_value, mut config) = api_key("zulu");
@@ -112,6 +118,7 @@ fn each_configured_api_key_returns_only_its_own_name() {
     }
 }
 
+// verifies: AUTH-005
 #[xmtp_common::test(unwrap_try = true)]
 fn bearer_parsing_rejects_missing_malformed_and_oversized_tokens() {
     let key = TestKey::es256();
@@ -136,6 +143,7 @@ fn bearer_parsing_rejects_missing_malformed_and_oversized_tokens() {
     }
 }
 
+// verifies: AUTH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn all_supported_key_families_verify_with_independent_validations() {
     let mut rsa384 = TestKey::rsa();
@@ -172,6 +180,7 @@ fn all_supported_key_families_verify_with_independent_validations() {
     }
 }
 
+// verifies: AUTH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn symmetric_unsigned_and_unconfigured_algorithms_are_never_trusted() {
     use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -204,6 +213,7 @@ fn symmetric_unsigned_and_unconfigured_algorithms_are_never_trusted() {
     );
 }
 
+// verifies: AUTH-009, AUTH-010
 #[xmtp_common::test(unwrap_try = true)]
 fn key_selection_requires_a_unique_matching_id_or_algorithm() {
     let key = TestKey::es256();
@@ -237,6 +247,7 @@ fn key_selection_requires_a_unique_matching_id_or_algorithm() {
     assert_eq!(single.verify(&headers(&token)), Err(Rejection::Untrusted));
 }
 
+// verifies: AUTH-011, AUTH-012
 #[xmtp_common::test(unwrap_try = true)]
 fn time_audience_and_issuer_errors_follow_the_documented_order() {
     let key = TestKey::es256();
@@ -298,6 +309,7 @@ fn time_audience_and_issuer_errors_follow_the_documented_order() {
     }
 }
 
+// verifies: AUTH-013
 #[xmtp_common::test(unwrap_try = true)]
 fn scopes_accept_strings_or_string_arrays_and_require_every_configured_scope() {
     let key = TestKey::es256();
@@ -345,6 +357,7 @@ fn scopes_accept_strings_or_string_arrays_and_require_every_configured_scope() {
     }
 }
 
+// verifies: AUTH-009
 #[xmtp_common::test(unwrap_try = true)]
 fn key_selection_constructs_at_most_one_signature_verifier() {
     use jsonwebtoken::crypto::{CryptoProvider, JwtVerifier, rust_crypto::DEFAULT_PROVIDER};

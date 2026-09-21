@@ -157,6 +157,7 @@ impl Work {
 
     /// Release the channel before queuing a retry. Only the first completed
     /// attempt changes the durable low-water mark; retries are disposable.
+    // implements: PUSH-234, PUSH-259
     pub fn complete(
         &mut self,
         mut attempt: Attempt,

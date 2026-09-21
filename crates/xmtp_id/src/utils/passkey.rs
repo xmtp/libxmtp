@@ -174,6 +174,7 @@ mod tests {
     use crate::associations::test_utils::MockSmartContractSignatureVerifier;
 
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: IDENT-030
     async fn passkey_fixture_binds_the_signed_challenge() {
         let user = PasskeyUser::new().await;
         let verifier = MockSmartContractSignatureVerifier::new(false);

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The six server-configuration conditions of spec 006 CFG-083, surfaced as
+/// The six server-configuration conditions, surfaced as
 /// distinct Swift types.
 ///
 /// The uniffi binding declares `FfiError` as a flat error, so every one of
@@ -32,7 +32,7 @@ public extension ServerConfigurationError {
 	}
 }
 
-/// CFG-041: the backend did not serve its configuration, or the answer could
+/// The backend did not serve its configuration, or the answer could
 /// not be stored.
 public struct ConfigurationUnavailableError: ServerConfigurationError, Equatable,
 	Sendable
@@ -40,20 +40,20 @@ public struct ConfigurationUnavailableError: ServerConfigurationError, Equatable
 	public let message: String
 }
 
-/// CFG-044: the backend published a configuration this client cannot use.
+/// The backend published a configuration this client cannot use.
 public struct ConfigurationInvalidError: ServerConfigurationError, Equatable,
 	Sendable
 {
 	public let message: String
 }
 
-/// CFG-051: this database is bound to one backend and a different one answered.
+/// This database is bound to one backend and a different one answered.
 /// Read the bound identifier from ``ServerConfiguration/identifier``.
 public struct BackendMismatchError: ServerConfigurationError, Equatable, Sendable {
 	public let message: String
 }
 
-/// CFG-060 and CFG-061: the backend requires a newer libxmtp than this build.
+/// The backend requires a newer libxmtp than this build.
 /// Read the minimum from ``ServerConfiguration/minLibxmtpVersion`` and this
 /// build's version from ``Client/libXMTPVersion``.
 public struct ClientVersionTooOldError: ServerConfigurationError, Equatable,
@@ -62,13 +62,13 @@ public struct ClientVersionTooOldError: ServerConfigurationError, Equatable,
 	public let message: String
 }
 
-/// CFG-062: the backend requires a credential and none was configured. Read the
+/// The backend requires a credential and none was configured. Read the
 /// scopes from ``AuthConfiguration/requiredScopes``.
 public struct AuthRequiredError: ServerConfigurationError, Equatable, Sendable {
 	public let message: String
 }
 
-/// CFG-069 and CFG-070: the backend does not verify smart contract wallet
+/// The backend does not verify smart contract wallet
 /// signatures on this chain. Read the accepted list from
 /// ``ServerConfiguration/smartContractWalletChains``.
 public struct ChainNotAcceptedError: ServerConfigurationError, Equatable, Sendable {
@@ -84,6 +84,7 @@ public extension Error {
 	/// ``Client/fetchServerConfiguration(url:appVersion:)`` already throw the
 	/// distinct type. This property covers every other call, which still throws
 	/// the generated `FfiError`.
+	// implements: CONF-064
 	var serverConfigurationError: (any ServerConfigurationError)? {
 		if let alreadyMapped = self as? any ServerConfigurationError {
 			return alreadyMapped

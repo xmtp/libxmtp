@@ -1,10 +1,10 @@
-//! P3-TST-002: native stream limits use the Docker backend.
+//! Native stream limits use the Docker backend.
 use super::*;
 use futures::stream;
 use xmtp_common::time::timeout;
 use xmtp_proto::api_client::XmtpMlsBidiStreams;
 
-/// P3-TST-002, P3-API-008: stream limit statuses surface after one RPC.
+/// Stream limit statuses surface after one RPC.
 #[rstest]
 #[case::structural_limit(tonic::Code::InvalidArgument)]
 #[case::byte_limit(tonic::Code::OutOfRange)]
@@ -40,7 +40,7 @@ async fn limit_status_does_not_reopen_the_stream(#[case] code: tonic::Code) {
     assert!(inbound.next().await.is_none());
 }
 
-/// P3-TST-002: adds and removes accept the cap and reject one more entry.
+/// Adds and removes accept the cap and reject one more entry.
 #[rstest]
 #[case::adds(true, BACKEND_DEFAULT_MAX_UPDATE_ADDS)]
 #[case::removes(false, BACKEND_DEFAULT_MAX_UPDATE_REMOVES)]
@@ -131,7 +131,8 @@ async fn update_entry_boundary(#[case] adds: bool, #[case] cap: usize) {
     }
 }
 
-/// P3-TST-002: update and ping bursts accept the cap, then surface exhaustion.
+/// Update and ping bursts accept the cap, then surface exhaustion.
+// verifies: API-256, API-258
 #[rstest]
 #[case::updates(
     true,
@@ -236,7 +237,7 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
     }
 }
 
-/// P3-TST-002, API-132: requests above the HTTP/2 cap queue until a slot opens.
+/// Requests above the HTTP/2 cap queue until a slot opens.
 #[rstest]
 #[case(BACKEND_DEFAULT_MAX_HTTP2_STREAMS)]
 #[xmtp_common::test(unwrap_try = true)]

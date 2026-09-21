@@ -107,6 +107,7 @@ impl AdmissionError {
     ///
     /// Retryable verifier failures become `UNAVAILABLE`; validation and size
     /// failures remain indexed `INVALID_ARGUMENT` responses.
+    // implements: API-231
     fn status(&self, index: usize) -> Status {
         match self {
             Self::Validation(error) if error.is_retryable() => {

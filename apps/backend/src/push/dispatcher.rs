@@ -367,6 +367,7 @@ async fn hold(
 
 /// Compare the complete configuration, so a delayed provider response cannot
 /// delete a recipient that registered a new secret, key, channel, or target.
+// implements: PUSH-234
 #[xmtp_common::db_span]
 pub(super) async fn delete_dead(store: &Store, config: &DeliveryConfig) -> Result<bool, Error> {
     Ok(sqlx::query!("DELETE FROM push_recipient WHERE recipient_id = $1 AND channel = $2 AND delivery = $3 AND signing_key IS NOT DISTINCT FROM $4 AND secret_hash = $5",

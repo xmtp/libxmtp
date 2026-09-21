@@ -169,6 +169,7 @@ impl CommitLogStorer for MlsGroup {
         Ok(mls_group)
     }
 
+    // implements: FORK-001
     fn merge_staged_commit_logged(
         &mut self,
         provider: &impl MlsProviderExt,

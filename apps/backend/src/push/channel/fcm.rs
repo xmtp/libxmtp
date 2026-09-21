@@ -148,6 +148,7 @@ impl FcmSender {
         flight.await.value
     }
 
+    // implements: PUSH-259
     async fn attempt(&self, delivery: &Delivery, timeout_outcome: &mut Outcome) -> Outcome {
         let Ok(token) = self.token().await else {
             return Outcome::Transient { retry_after: None };

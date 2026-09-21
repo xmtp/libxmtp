@@ -1,5 +1,6 @@
 use super::*;
 
+// verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn identifier_rules_reject_empty_oversized_and_unprintable_names() {
     validate_server_identifier("org.example.xmtp")?;
@@ -23,6 +24,7 @@ fn identifier_rules_reject_empty_oversized_and_unprintable_names() {
     );
 }
 
+// verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn caip2_shape_accepts_known_namespaces_and_rejects_malformed_entries() {
     for good in [
@@ -51,6 +53,7 @@ fn caip2_shape_accepts_known_namespaces_and_rejects_malformed_entries() {
     }
 }
 
+// verifies: CONF-050
 #[xmtp_common::test(unwrap_try = true)]
 fn version_comparison_ignores_the_prerelease_tag() {
     let minimum = semver::Version::parse("1.2.3")?;
@@ -73,6 +76,7 @@ fn version_comparison_ignores_the_prerelease_tag() {
     ));
 }
 
+// verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn validation_names_the_field_that_failed() {
     let mut configuration = ServerConfiguration {
@@ -106,9 +110,10 @@ fn validation_names_the_field_that_failed() {
     );
 }
 
-// §7 and CFG-044: a `uint64` above `2^53 - 1` cannot reach a JavaScript app
+// A `uint64` above `2^53 - 1` cannot reach a JavaScript app
 // intact, so the client refuses the configuration instead of reading a rounded
 // value. The bound itself is acceptable.
+// verifies: CONF-071
 #[xmtp_common::test(unwrap_try = true)]
 fn a_value_a_javascript_number_would_round_is_refused() {
     let mut configuration = ServerConfiguration {
@@ -168,6 +173,7 @@ fn an_absent_minimum_admits_every_client_version() {
     assert!(configuration.minimum_version()?.is_none());
 }
 
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn commit_log_distinguishes_absent_from_false() {
     let mut mls = MlsConfiguration::default();
@@ -220,9 +226,10 @@ fn providers_return_the_value_they_were_built_with() {
     );
 }
 
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn zero_limits_fall_back_to_the_compiled_defaults() {
-    // A snapshot an app built in Rust never passes through the CFG-031 wire
+    // A snapshot an app built in Rust never passes through the wire
     // conversion, so it can carry a zero the transport would divide by.
     let supplied = LimitsConfiguration {
         max_static_topics: 0,

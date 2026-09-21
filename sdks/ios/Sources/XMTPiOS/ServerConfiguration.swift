@@ -133,6 +133,7 @@ public struct ServerConfiguration: Equatable, Sendable {
 	/// signatures on. Empty rejects every app-supplied signature.
 	public let smartContractWalletChains: [String]
 
+	// implements: CONF-061
 	init(_ ffi: FfiServerConfiguration) {
 		identifier = ffi.identifier
 		serverVersion = ffi.serverVersion
@@ -145,7 +146,7 @@ public struct ServerConfiguration: Equatable, Sendable {
 	}
 }
 
-/// Bridge to the generated module-level RPC of CFG-081.
+/// Bridge to the generated module-level configuration RPC.
 ///
 /// `Client.fetchServerConfiguration` shadows the generated global name inside
 /// the `Client` scope, so the call is made from module scope here, where the

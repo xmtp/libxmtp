@@ -11,6 +11,7 @@ impl Store {
     /// page is cut to the total limit. The page and `has_more` are computed by
     /// one SQL statement, so they describe the same read snapshot.
     #[xmtp_common::db_span]
+    // implements: API-202, API-240
     pub(crate) async fn query(
         &self,
         queries: &[TopicCursor],

@@ -11,7 +11,7 @@ import {
   toServerConfigurationError,
 } from "@/utils/errors";
 
-// Spec 006 CFG-083: each code is its own type, not a message string.
+// Each code is its own type, not a message string.
 const codes = [
   ["ClientError::ConfigurationUnavailable", ConfigurationUnavailableError],
   ["ClientError::ConfigurationInvalid", ConfigurationInvalidError],
@@ -22,6 +22,7 @@ const codes = [
 ] as const;
 
 describe("server configuration errors", () => {
+  // verifies: CONF-064
   it("should map every configuration error code to its own type", () => {
     for (const [code, ErrorClass] of codes) {
       // Only the message survives a worker error transfer.
@@ -35,6 +36,7 @@ describe("server configuration errors", () => {
     }
   });
 
+  // verifies: CONF-064
   it("should read the code property the bindings set", () => {
     const original = Object.assign(new Error("no credential configured"), {
       code: "ClientError::AuthRequired",

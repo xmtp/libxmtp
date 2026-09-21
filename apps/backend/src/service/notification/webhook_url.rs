@@ -15,6 +15,7 @@ pub(crate) struct WebhookUrlError;
 
 /// Validate the URL and all resolved addresses at registration. Delivery must
 /// repeat address classification and connect only to the checked addresses.
+// implements: PUSH-256
 pub(crate) async fn validate(url: &str, config: &HttpConfig) -> Result<(), WebhookUrlError> {
     let parsed = url::Url::parse(url).map_err(|_| WebhookUrlError)?;
     if parsed.scheme() != "https" || !parsed.username().is_empty() || parsed.password().is_some() {

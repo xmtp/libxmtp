@@ -99,8 +99,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) store: Option<Db>,
     pub(crate) identity_strategy: IdentityStrategy,
     pub(crate) scw_verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
-    /// Whether the app supplied its own verifier, which CFG-069 exempts from
-    /// the chain check.
+    /// Whether the app supplied its own verifier, exempt from the chain check.
     pub(crate) custom_scw_verifier: bool,
     pub(crate) device_sync_worker_mode: DeviceSyncMode,
     pub(crate) fork_recovery_opts: Option<ForkRecoveryOpts>,
@@ -115,7 +114,7 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) mls_storage: Option<S>,
     pub(crate) disable_workers: bool,
     pub(crate) worker_config: crate::worker::WorkerConfig,
-    /// CFG-033: a snapshot supplied by the caller. When present the client
+    /// A snapshot supplied by the caller. When present the client
     /// never fetches, stores, refreshes, or checks the identifier. Rust tests
     /// only; not exposed through the bindings.
     pub(crate) config_provider: Option<Arc<dyn xmtp_configuration::ConfigProvider>>,
@@ -339,9 +338,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
         let conn = store.db();
 
-        // Spec 006 §6.2: the configuration is resolved before any identity
+        // The configuration is resolved before any identity
         // work, so a deployment that refuses this client refuses it before the
-        // database gains an identity. A caller-supplied provider (CFG-033)
+        // database gains an identity. A caller-supplied provider
         // short-circuits every network and database path here, which is what
         // keeps `build_offline` free of a pending future.
         let has_config_provider = config_provider.is_some();
@@ -352,23 +351,24 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let server_configuration = server_configuration.with_chain_restriction(custom_scw_verifier);
 
-        // CFG-060: a deployment that requires a newer client refuses this build,
+        // A deployment that requires a newer client refuses this build,
         // whether the snapshot came from the backend or from a provider.
         crate::server_configuration::check_minimum_version(
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
 
-        // CFG-062: a deployment that requires a credential refuses a client
+        // A deployment that requires a credential refuses a client
         // that has no way to produce one.
         let configuration = server_configuration.configuration();
+        // implements: CONF-051
         if configuration.auth.enabled && !api_client.has_credential_source() {
             return Err(ClientBuilderError::ClientError(ClientError::AuthRequired {
                 required_scopes: configuration.auth.required_scopes.clone(),
             }));
         }
 
-        // CFG-064 and CFG-065: install the snapshot before any request is made,
+        // Install the snapshot before any request is made,
         // so even the identity work below chunks and pre-validates against the
         // shapes this deployment publishes. The transport is told separately,
         // because stream and interest-update chunking happens below the
@@ -387,7 +387,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .await?
         };
 
-        // CFG-069 and CFG-070: the registration request is handed to the app to
+        // The registration request is handed to the app to
         // sign, so bind it to the chains the deployment accepts before it
         // leaves the client.
         if let Some(request) = identity.signature_request.as_mut() {
@@ -496,7 +496,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     );
             }
             // Enable CommitLogWorker based on configuration
-            // CFG-068: the deployment decides whether the commit log runs,
+            // The deployment decides whether the commit log runs,
             // falling back to the compiled default when it says nothing.
             if enabled(WorkerKind::CommitLog)
                 && context
@@ -511,8 +511,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 _,
                 >(context.clone());
             }
-            // CFG-046: only a client that reads its configuration refreshes it.
-            // A caller-supplied provider (CFG-033) owns its own values.
+            // Only a client that reads its configuration refreshes it.
+            // A caller-supplied provider owns its own values.
             if enabled(WorkerKind::ConfigurationRefresh) && !has_config_provider {
                 workers
                     .register_new_worker::<crate::server_configuration::worker::ConfigurationWorker<
@@ -723,7 +723,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
-    /// Supply the server configuration instead of reading it (CFG-033).
+    /// Supply the server configuration instead of reading it.
     ///
     /// With a provider in place the client never fetches, stores, refreshes, or
     /// checks the deployment identifier. Rust callers only — the bindings do
@@ -935,8 +935,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_strategy: self.identity_strategy,
             scw_verifier: Some(Box::new(ApiClientWrapper::new(api, Retry::default()))
                 as Box<dyn SmartContractSignatureVerifier>),
-            // CFG-069 exempts an app-supplied verifier, and this replaces any
-            // the caller set with the default one, so the exemption ends here.
+            // The default verifier replaces the caller's verifier, so the
+            // exemption from the chain restriction ends here.
             custom_scw_verifier: false,
             store: self.store,
             device_sync_worker_mode: self.device_sync_worker_mode,

@@ -24,6 +24,7 @@ const HMAC_KEY_BYTES: usize = 42;
 pub(crate) const MALFORMED_REQUEST: &str = "request is malformed";
 const MALFORMED_SUBSCRIPTION: &str = "subscription is malformed";
 
+// implements: PUSH-253
 #[tonic::async_trait]
 impl api::notification_service_server::NotificationService for Backend {
     #[xmtp_common::rpc_span]
@@ -119,6 +120,7 @@ impl Backend {
     }
 
     /// Check channel availability, URL, and signing key in wire order.
+    // implements: PUSH-210, PUSH-256
     async fn validate_delivery(
         &self,
         request: &api::RegisterRequest,
@@ -180,6 +182,7 @@ fn authenticate(recipient: &PushRecipientRecord, hash: &[u8]) -> Result<(), Stat
 }
 
 /// Normalize the flat key slots and reject duplicate topics across both lists.
+// implements: PUSH-215
 fn validate_subscriptions(
     request: &api::UpdateSubscriptionsRequest,
 ) -> Result<Vec<PushSubscriptionRecord>, Status> {

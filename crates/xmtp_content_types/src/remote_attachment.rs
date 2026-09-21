@@ -37,6 +37,7 @@ pub struct EncryptedAttachment {
 }
 
 /// Encrypts an attachment for storage as a remote attachment.
+// implements: CTYPE-015
 pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment, CodecError> {
     let filename = attachment.filename.clone();
 
@@ -79,6 +80,7 @@ pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment,
 }
 
 /// Decrypts an attachment that was encrypted with [`encrypt_attachment`].
+// implements: CTYPE-015
 pub fn decrypt_attachment(
     encrypted_bytes: &[u8],
     remote_attachment: &RemoteAttachment,
@@ -226,6 +228,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-007
     fn test_encode_decode_remote_attachment() {
         let remote_attachment = RemoteAttachment {
             filename: Some("test.pdf".to_string()),
@@ -253,6 +256,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-015
     fn test_encrypt_decrypt_attachment_roundtrip() {
         let original_content = b"This is a test attachment content";
         let filename = Some("test.txt".to_string());
@@ -292,6 +296,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-015
     fn test_decrypt_with_wrong_digest_fails() {
         let attachment = Attachment {
             filename: None,
@@ -323,6 +328,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-015
     fn test_decrypt_with_wrong_secret_fails() {
         let attachment = Attachment {
             filename: None,
@@ -349,6 +355,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-014
     fn test_decode_with_invalid_salt_hex() {
         let encoded = EncodedContent {
             r#type: Some(RemoteAttachmentCodec::content_type()),
@@ -442,6 +449,7 @@ pub(crate) mod tests {
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
+    // verifies: CTYPE-014
     fn test_decode_with_invalid_content_length() {
         let encoded = EncodedContent {
             r#type: Some(RemoteAttachmentCodec::content_type()),

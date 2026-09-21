@@ -241,6 +241,7 @@ impl ComponentRegistry {
     /// touches, and the bootstrap encoder builds its `TlsMapDelta`-from-empty
     /// inline at the synthesis site (see
     /// `xmtp_mls::groups::app_data::migration::synthesize_initial_component_values`).
+    // implements: META-016
     pub fn to_bytes(&self) -> Result<Vec<u8>, ComponentRegistryError> {
         Ok(self.inner.tls_serialize_detached()?)
     }
@@ -301,6 +302,7 @@ impl ComponentRegistry {
     /// (their permissions are enforced in code), values that don't decode as
     /// `ComponentMetadata`, and metadata that is structurally incomplete or
     /// violates a constrained component's policy allowlist.
+    // implements: META-014
     fn decode_recognized(
         id: ComponentId,
         raw: &[u8],
@@ -696,6 +698,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-014
     fn test_rejects_missing_permissions() {
         let mut reg = ComponentRegistry::new();
         // Construct ComponentMetadata directly (bypassing new_component_metadata)
@@ -718,6 +721,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-014
     fn test_rejects_missing_policy_field() {
         let mut reg = ComponentRegistry::new();
         let meta = new_component_metadata(
@@ -986,6 +990,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-016
     fn test_from_bytes_tolerates_malformed_protobuf_value() {
         // The key is valid but the value bytes are not a parseable
         // ComponentMetadata (e.g. a future breaking re-encoding).
@@ -1008,6 +1013,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
+    // verifies: META-016
     fn test_from_bytes_mixed_valid_and_invalid_entries() {
         // One valid entry, one reserved-range entry: the valid one is
         // fully readable, the invalid one is preserved-but-invisible,
@@ -1051,6 +1057,7 @@ mod tests {
     // — belongs in xmtp_mls's group tests, where the commit pipeline
     // exists.
     #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-012
     fn test_poisoned_registry_still_validates_unrelated_writes() {
         use crate::app_data::validation::{
             ActorAuthority, ComponentChange, ComponentPermissionError, validate_component_write,

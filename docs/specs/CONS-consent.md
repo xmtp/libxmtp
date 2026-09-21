@@ -22,7 +22,7 @@ flowchart LR
 
 In scope: the consent states, the two entities a record names, the wire form of a record, the merge rule, the records a client stores on creation, on send, and on join, the precedence between a join default and an inherited record, how consent filters listings and streams, and what an SDK exposes to an app.
 
-Out of scope: how records travel between installations (`SYNC`), the DM identifier and how a record carries across the groups of one DM (`DMS`), how a stream is delivered (`PROC`), push suppression by consent (`PUSH`), readd requests gated by consent (`?FORK`), and archive import (`ARCH`).
+Out of scope: how records travel between installations (`SYNC`), the DM identifier and how a record carries across the groups of one DM (`DMS`), how a stream is delivered (`PROC`), push suppression by consent (`PUSH`), readd requests gated by consent (FORK-053, FORK-060), and archive import (`ARCH`).
 
 | Related | Relation |
 | --- | --- |
@@ -31,7 +31,7 @@ Out of scope: how records travel between installations (`SYNC`), the DM identifi
 | `DMS` | Owns the DM identifier and DMS-010, which carries a record across the groups of one DM. CONS-024 owns only its precedence against a join default. |
 | `META` | Owns `CREATOR_INBOX_ID` and `CONVERSATION_TYPE`, which CONS-023 reads, and META-018, which binds the creator to write its own inbox id. |
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
-| `?FORK` | Owns readd requests. It answers one only for a conversation whose consent is allowed. |
+| FORK-053, FORK-060 | Own acceptance and response to readd requests, including consent checks. |
 | `ARCH` | Owns the archive. An imported record is merged under CONS-010. |
 
 ## Terms
@@ -51,7 +51,7 @@ Out of scope: how records travel between installations (`SYNC`), the DM identifi
 
 A record is in one of three states. Unknown is both a stored state and the state of an entity with no record; the two are indistinguishable to an app and to a filter. Allowed and denied are decisions.
 
-A record names one of two entities. Conversation consent is what the client acts on: it gates listing and streaming (section 4), push notifications (`PUSH`), and readd requests (`?FORK`). Inbox consent is state an app reads and sets, and that the client reports for each member of a group; the client does not derive conversation consent from it, and no listing or stream reads it (Known limitations).
+A record names one of two entities. Conversation consent is what the client acts on: it gates listing and streaming (section 4), push notifications (`PUSH`), and readd requests (FORK-053, FORK-060). Inbox consent is state an app reads and sets, and that the client reports for each member of a group; the client does not derive conversation consent from it, and no listing or stream reads it (Known limitations).
 
 The record has one wire form. A peer installation reads it (`SYNC`) and an archive stores it (`ARCH`), so its encoding is a compatibility contract between installations and between versions.
 
@@ -110,7 +110,7 @@ A default carries no decision. It is stored at consent time 0, so under CONS-010
 
 A DM has one identifier for the pair of inboxes, and a client can hold more than one group for it. DMS-010 carries the record with the greatest consent time across those groups to a new one. Where a join qualifies for DMS-010 and for a rule in this section, the inherited record is the record this section's rules test (CONS-024).
 
-Leaving a group and being added back replaces previously set consent state with `unknown`. The reset is stored at the backend's timestamp on the Welcome, the time of the re-add, so a decision the user makes after the re-add on any installation wins, and the decision that preceded the leave does not. The leave request is owned by `?GMOD`, which is expected to define the request and the removal that follows it.
+Leaving a group and being added back replaces previously set consent state with `unknown`. The reset is stored at the backend's timestamp on the Welcome, the time of the re-add, so a decision the user makes after the re-add on any installation wins, and the decision that preceded the leave does not. GMOD-031 through GMOD-033 own the leave request and the removal that follows it.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

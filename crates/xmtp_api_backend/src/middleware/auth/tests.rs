@@ -226,6 +226,7 @@ async fn test_auth_middleware_with_no_callback_and_handle() {
     middleware.make_requests(Ok(())).await;
 }
 
+// verifies: AUTH-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_auth_middleware_with_callback_and_no_handle() {
     let credential = credential(-1);

@@ -22,17 +22,17 @@ flowchart LR
 
 In scope: registration and the bearer secret; the three channels and the safety of a webhook destination; how a subscription is added, replaced, and removed, and where it starts; which envelopes are pushed; the delivery condition and what survives a restart; sender suppression; the push body and the provider contract; when a recipient is deleted; webhook signing; retention; the client's desired set, its sync, and its recovery; and what an SDK exposes to an app.
 
-Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (`?API`); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the operator's configuration file, provider credentials, and the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
+Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (API-203); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the operator's configuration file, provider credentials, and the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
 
 | Related | Relation |
 | --- | --- |
 | `AUTH` | AUTH-001, AUTH-003, and AUTH-013 apply to the three notification RPCs as to every other path. No claim is read for ownership; the secret alone decides it. |
-| `API` | Owns sequence ids (API-286 through API-289), the envelope wire format including `GroupMessage` (API-210), and admission (API-230). `?API` is expected to own the closed allocation boundary this spec reads. |
+| `API` | Owns sequence ids (API-286 through API-289), the envelope wire format including `GroupMessage` (API-210), admission (API-230), and the closed allocation boundary (API-203). |
 | `TOPIC` | TOPIC-001 gives the kind byte and identifier of a group-message topic and a welcome topic, the two kinds a subscription may carry. |
 | `SYNC` | SYNC-015 and SYNC-022 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
 | `OPS` | OPS-014 keeps request data out of telemetry; OPS-017 owns the metric catalogue; OPS-007 and OPS-008 own shutdown as a client sees it. |
 
-`?API` is expected to require that the backend maintains a closed allocation boundary: a sequence id such that every envelope with a sequence id at or below it is either stored and visible or will never be stored, that the boundary never decreases, and that it can be read in the same transaction as a write.
+API-203 defines the closed allocation boundary; PUSH-216 requires that a new subscription reads it in the transaction that stores the subscription. `?API` is expected to require that the boundary never decreases.
 
 ## Terms
 
@@ -44,7 +44,7 @@ Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-00
 | Delivery target | The APNs device token, the FCM registration token, or the webhook URL with its signing key. |
 | Signing key | `HttpDelivery.signing_key`: 16 to 64 bytes a webhook recipient supplies, under which the backend signs every body sent to it. |
 | Subscription | One (recipient, topic) pair with its key window, its start position, and its `include_commits` flag. |
-| Start position | The closed allocation boundary (`?API`) read in the transaction that first stored a subscription. |
+| Start position | The closed allocation boundary (API-203) read in the transaction that first stored a subscription (PUSH-216). |
 | HMAC epoch | A 30-day period: the Unix time in seconds divided by 2592000, rounded down. |
 | Key window | The `hmac_keys` of a subscription: up to three 42-byte keys for consecutive HMAC epochs starting at `hmac_epoch_base`, so the key at index `n` is for epoch `hmac_epoch_base + n`. |
 | Root key | The inbox's 42-byte random key from which every group HMAC key derives (SYNC-015). |

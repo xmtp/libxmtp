@@ -26,6 +26,7 @@ impl KeySet {
 
 /// Parse SPKI and check the exact curve or key family before accepting the key.
 /// All parser errors are discarded so callers cannot disclose PEM contents.
+// implements: AUTH-017
 pub(crate) fn parse_public_key(pem: &str, alg: Algorithm) -> Result<DecodingKey, &'static str> {
     let failure = "invalid public key";
     if !pem.trim_start().starts_with("-----BEGIN PUBLIC KEY-----") {
@@ -91,6 +92,7 @@ pub(crate) fn inline(config: &AuthConfig) -> Result<Vec<VerifyingKey>, &'static 
 }
 
 /// Select one key without attempting a signature. Ambiguous IDs also fail closed.
+// implements: AUTH-009
 pub(crate) fn select<'a>(
     keys: &'a [VerifyingKey],
     kid: Option<&str>,
@@ -109,6 +111,7 @@ pub(crate) fn select<'a>(
 
 /// Filter one JWK before decoding it. Only supported signing keys are accepted.
 /// The warning includes at most 32 UTF-8 bytes of its ID and no other JWK values.
+// implements: AUTH-016, AUTH-027
 pub(crate) fn from_jwk(value: &serde_json::Value, config: &AuthConfig) -> Option<VerifyingKey> {
     let kid = value.get("kid").and_then(serde_json::Value::as_str);
     let parse = || {

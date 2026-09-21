@@ -68,7 +68,7 @@ export class OpfsInitializationError extends Error {
 }
 
 /**
- * Base class for the server configuration failures that spec 006 (CFG-083)
+ * Base class for the server configuration failures that spec 006
  * requires each SDK to surface as a distinct type.
  *
  * `code` is the binding error code. The WASM bindings set it as a property on
@@ -86,7 +86,7 @@ export class ServerConfigurationError extends Error {
   }
 }
 
-/** The backend configuration could not be fetched or stored (CFG-041). */
+/** The backend configuration could not be fetched or stored. */
 export class ConfigurationUnavailableError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::ConfigurationUnavailable", message, options);
@@ -94,7 +94,7 @@ export class ConfigurationUnavailableError extends ServerConfigurationError {
   }
 }
 
-/** The backend published a configuration the client rejects (CFG-044). */
+/** The backend published a configuration the client rejects. */
 export class ConfigurationInvalidError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::ConfigurationInvalid", message, options);
@@ -102,7 +102,7 @@ export class ConfigurationInvalidError extends ServerConfigurationError {
   }
 }
 
-/** The database is bound to a different backend identifier (CFG-051). */
+/** The database is bound to a different backend identifier. */
 export class BackendMismatchError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::BackendMismatch", message, options);
@@ -110,7 +110,7 @@ export class BackendMismatchError extends ServerConfigurationError {
   }
 }
 
-/** The backend requires a newer libxmtp version (CFG-060, CFG-061). */
+/** The backend requires a newer libxmtp version. */
 export class ClientVersionTooOldError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::ClientVersionTooOld", message, options);
@@ -118,7 +118,7 @@ export class ClientVersionTooOldError extends ServerConfigurationError {
   }
 }
 
-/** The backend requires a credential and none was configured (CFG-062). */
+/** The backend requires a credential and none was configured. */
 export class AuthRequiredError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::AuthRequired", message, options);
@@ -126,7 +126,7 @@ export class AuthRequiredError extends ServerConfigurationError {
   }
 }
 
-/** The backend does not accept the chain of a supplied signature (CFG-069). */
+/** The backend does not accept the chain of a supplied signature. */
 export class ChainNotAcceptedError extends ServerConfigurationError {
   constructor(message: string, options?: ErrorOptions) {
     super("ClientError::ChainNotAccepted", message, options);
@@ -172,11 +172,12 @@ export const getErrorCode = (error: unknown): string | undefined => {
 };
 
 /**
- * Maps a binding error onto its typed class (CFG-083).
+ * Maps a binding error onto its typed class.
  *
  * Returns `undefined` when the error carries no code this SDK types, so the
  * caller can rethrow the original error untouched.
  */
+// implements: CONF-064
 export const toServerConfigurationError = (
   error: unknown,
 ): ServerConfigurationError | undefined => {

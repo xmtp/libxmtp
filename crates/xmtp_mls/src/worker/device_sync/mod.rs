@@ -242,6 +242,7 @@ where
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
     )]
+    // implements: SYNC-004
     async fn send_device_sync_message(
         &self,
         content: ContentProto,
@@ -303,6 +304,7 @@ where
         Ok(message_id)
     }
 
+    // implements: SYNC-001
     #[instrument(level = "trace", skip_all)]
     pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
         let db = self.context.db();
@@ -354,6 +356,7 @@ where
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all)
     )]
+    // implements: SYNC-014
     pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),

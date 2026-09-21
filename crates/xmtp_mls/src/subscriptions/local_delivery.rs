@@ -72,7 +72,7 @@ impl LocalDeliveryControl {
         self.closer.close_delivery();
     }
 
-    /// Change selected groups without consuming excluded groups' backlog (STR-092).
+    /// Change selected groups without consuming excluded groups' backlog.
     pub fn update_scope(&self, scope: DeliveryScope) {
         let mut selection = self.selection.lock();
         selection.scope = scope;
@@ -80,7 +80,7 @@ impl LocalDeliveryControl {
         self.changed.notify_one();
     }
 
-    /// Change future selection; previously scanned rows stay consumed (STR-093).
+    /// Change future selection; previously scanned rows stay consumed.
     pub fn update_filter(&self, filter: LocalDeliveryFilter) {
         let mut selection = self.selection.lock();
         selection.filter = filter;
@@ -101,7 +101,7 @@ pub struct LocalDelivery<Context: XmtpSharedContext> {
     events: broadcast::Receiver<LocalEvents>,
     candidates: VecDeque<DeliveryMessage>,
     candidate_revision: u64,
-    /// At most one handoff can wait for acknowledgement (STR-094).
+    /// At most one handoff can wait for acknowledgement.
     pending: Option<Arc<PendingAcknowledgement>>,
     /// `Some` selects independent replay; it never reads or changes default D.
     replay_position: Option<DeliveryCursor>,
@@ -208,6 +208,7 @@ where
         result
     }
 
+    // implements: PROC-026, PROC-028, PROC-034
     async fn next_inner(&mut self) -> Result<Option<LocalDeliveryItem<Context>>> {
         if let Some(pending) = self.pending.clone() {
             loop {
@@ -347,6 +348,7 @@ where
     }
 
     /// Order filtered progress with scope changes. Excluded scopes never advance D.
+    // implements: PROC-032
     fn skip_candidate(&mut self, candidate: &DeliveryMessage, revision: u64) -> Result<bool> {
         let selection = self.control.selection.lock();
         if selection.revision != revision {
@@ -374,6 +376,7 @@ where
     }
 
     /// Cursor-bearing Rust replay/default iterator with the same acknowledgement boundary.
+    // implements: PROC-028
     pub fn into_cursor_stream(self) -> impl Stream<Item = Result<DeliveryMessage>> {
         futures::stream::unfold(
             Some((self, None::<DeliveryAcknowledgement<Context>>)),
@@ -408,7 +411,7 @@ where
         )
     }
 
-    /// Read history and its resume boundary in one database snapshot (STR-099).
+    /// Read history and its resume boundary in one database snapshot.
     pub fn history_snapshot(
         context: &Context,
         scope: &DeliveryScope,

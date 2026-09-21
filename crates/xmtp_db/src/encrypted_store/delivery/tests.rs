@@ -5,6 +5,7 @@ use crate::schema::group_messages;
 use crate::{Store, StoreOrIgnore, TestDb, XmtpTestDb, prelude::*};
 use xmtp_proto::types::Cursor;
 
+// verifies: PROC-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_order_survives_duplicates_deletion_and_lower_network_ids() {
     let store = TestDb::create_persistent_store(None).await;
@@ -29,6 +30,7 @@ async fn local_order_survives_duplicates_deletion_and_lower_network_ids() {
     assert!(rows[0].cursor.delivery_sequence > first_cursor.delivery_sequence);
 }
 
+// verifies: PROC-024, PROC-025
 #[xmtp_common::test(unwrap_try = true)]
 async fn optimistic_message_becomes_deliverable_only_after_publication() {
     let store = TestDb::create_persistent_store(None).await;
@@ -50,6 +52,7 @@ async fn optimistic_message_becomes_deliverable_only_after_publication() {
     assert_eq!(rows[0].message.id, message.id);
 }
 
+// verifies: PROC-026, PROC-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn scope_progress_and_replay_remain_independent() {
     let path = xmtp_common::tmp_path();
@@ -93,6 +96,7 @@ async fn scope_progress_and_replay_remain_independent() {
     );
 }
 
+// verifies: PROC-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_owner_cannot_acknowledge_or_scan_after_takeover() {
     let store = TestDb::create_persistent_store(None).await;
@@ -129,6 +133,7 @@ async fn expired_owner_cannot_acknowledge_or_scan_after_takeover() {
     );
 }
 
+// verifies: PROC-033, PROC-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_snapshot_cursor_and_restore_identity_prevent_gaps() {
     let store = TestDb::create_persistent_store(None).await;
@@ -152,6 +157,7 @@ async fn history_snapshot_cursor_and_restore_identity_prevent_gaps() {
     assert!(db.check_delivery_owner(owner, 1).is_err());
 }
 
+// verifies: PROC-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn allocator_exhaustion_rolls_back_message_insertion() {
     let store = TestDb::create_persistent_store(None).await;
@@ -228,6 +234,7 @@ impl<C: ConnectionExt> ConnectionExt for AdvanceClockOnConnection<C> {
     }
 }
 
+// verifies: PROC-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn delayed_connection_uses_the_new_clock_before_acknowledgement_and_renewal() {
     use std::sync::{
@@ -265,6 +272,7 @@ async fn delayed_connection_uses_the_new_clock_before_acknowledgement_and_renewa
     );
 }
 
+// verifies: PROC-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot() {
     use crate::consent_record::StoredConsentRecord;

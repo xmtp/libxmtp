@@ -238,7 +238,7 @@ async fn notification_failed_unregister_stays_disabled_without_background_retry(
         assert!(disabled.push_config.is_none());
         assert!(disabled.push_deadlines.is_none());
         assert!(client.db().uploaded_topics()?.is_empty());
-        // PUSH-081 forbids calls from later tasks while disabled. The backend
+        // Later tasks must not make calls while disabled. The backend
         // retains the recipient only until expiry unless the caller retries.
         notifications::wake(&client.context)?;
         assert_eq!(
