@@ -164,6 +164,22 @@ class RequirementForm(unittest.TestCase):
             self.assertIn("SPEC-037", rules(checker, "warning"))
             self.assertEqual(rules(checker, "error"), [])
 
+    def test_periods_inside_code_do_not_count_as_sentences(self):
+        # A cell may quote a row template whose periods belong to the example.
+        # Counting them as sentence ends made SPEC-034 report itself.
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                (
+                    "| JOIN-001 | Row form | A requirement MUST be one row in the "
+                    "form `\\| PREFIX-NNN \\| Title \\| Sentence. \\| Reason. \\|`. "
+                    "A cell MUST NOT contain a list. | |\n"
+                ),
+            )
+            checker = run(tmp)
+            self.assertNotIn("SPEC-037", rules(checker, "warning"))
+            self.assertEqual(rules(checker, "error"), [])
+
     def test_malformed_bullet_is_reported(self):
         with TemporaryDirectory() as d:
             tmp = build(Path(d), "| JOIN-001 | The client MUST discard it. | |\n")

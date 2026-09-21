@@ -230,13 +230,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A non-numeric exp is reported expired and a non-numeric nbf, scope, or sub is reported malformed, rather than one classification for every wrong-typed claim."
 
 [[waiver]]
-id = "AUTH-006"
-kind = "analysis"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test can establish machine-level timing resistance of the API key digest comparison. Admission, full-set processing, and bypass behaviour are covered by the verifier tests."
-
-[[waiver]]
 id = "API-259"
 kind = "gap"
 owner = "backend"
