@@ -30,10 +30,10 @@ export const stringify = (message: DecodedMessage): string => {
   switch (true) {
     case isReaction(message):
     case isTextReply(message):
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // oxlint-disable-next-line typescript/no-non-null-assertion
       return message.content!.content;
     case isText(message):
-      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      // oxlint-disable-next-line typescript/no-non-null-assertion
       return message.content!;
     case typeof message.content === "string":
       return message.content;

@@ -9,15 +9,12 @@
   "scripts": {
     "build": "pnpm -r run build",
     "typecheck": "pnpm -r --filter './sdks/js/*' --filter './apps/*' --filter './dev/*' run typecheck",
-    "lint": "pnpm --filter @xmtp/node-sdk exec eslint . ../browser-sdk ../agent-sdk && pnpm -r --filter './apps/*' --filter './dev/*' run lint",
+    "lint": "pnpm -r run lint",
     "test": "pnpm -r --filter './sdks/js/*' --filter './apps/*' --filter './dev/*' run test"
   },
   "devDependencies": {
-    "@eslint/compat": "catalog:",
-    "@eslint/js": "catalog:",
-    "eslint": "catalog:",
-    "globals": "catalog:",
-    "typescript": "catalog:",
-    "typescript-eslint": "catalog:"
+    "oxlint": "1.83.0",
+    "oxlint-tsgolint": "7.0.2001",
+    "typescript": "catalog:"
   }
 }

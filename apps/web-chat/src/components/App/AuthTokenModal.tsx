@@ -6,9 +6,12 @@ import {
   Stack,
   Text,
 } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { useAuthToken } from "@/contexts/AuthTokenContext";
+import {
+  useAuthToken,
+  type AuthTokenRequest,
+} from "@/contexts/AuthTokenContext";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useSettings } from "@/hooks/useSettings";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -16,20 +19,28 @@ import { ContentLayout } from "@/layouts/ContentLayout";
 export const AuthTokenModal: React.FC = () => {
   const { request } = useAuthToken();
   const { authToken } = useSettings();
-  const fullScreen = useCollapsedMediaQuery();
-  const [value, setValue] = useState("");
-
   // Start from the stored token so a rejected one can be corrected rather than
   // retyped, and reset between prompts.
-  useEffect(() => {
-    if (request) {
-      setValue(request.rejected ? authToken : "");
-    }
-  }, [request, authToken]);
+  const initialValue = request?.rejected ? authToken : "";
+  return request ? (
+    <AuthTokenForm
+      key={JSON.stringify([request.id, request.rejected, initialValue])}
+      request={request}
+      initialValue={initialValue}
+    />
+  ) : null;
+};
+
+const AuthTokenForm: React.FC<{
+  request: AuthTokenRequest;
+  initialValue: string;
+}> = ({ request, initialValue }) => {
+  const fullScreen = useCollapsedMediaQuery();
+  const [value, setValue] = useState(initialValue);
 
   const submit = () => {
     if (value.trim() === "") return;
-    request?.resolve(value);
+    request.resolve(value);
   };
 
   const footer = (
@@ -40,7 +51,7 @@ export const AuthTokenModal: React.FC = () => {
     </Group>
   );
 
-  return request ? (
+  return (
     <Modal
       opened
       // The backend holds its credential refresh lock while this is open, so
@@ -91,5 +102,5 @@ export const AuthTokenModal: React.FC = () => {
         </Stack>
       </ContentLayout>
     </Modal>
-  ) : null;
+  );
 };

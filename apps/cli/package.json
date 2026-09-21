@@ -43,7 +43,7 @@
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "dev": "tsx bin/dev.js",
-    "lint": "eslint .",
+    "lint": "oxlint .",
     "manifest": "oclif manifest",
     "prepack": "pnpm build && pnpm manifest",
     "start": "tsx bin/run.js",
@@ -95,17 +95,12 @@
     "viem": "catalog:"
   },
   "devDependencies": {
-    "@eslint/compat": "catalog:",
-    "@eslint/js": "catalog:",
     "@oclif/plugin-legacy": "^2.0.27",
     "@types/node": "catalog:node26",
-    "eslint": "catalog:",
     "execa": "^9.6.1",
-    "globals": "catalog:",
     "oclif": "^4.22.70",
     "tsx": "catalog:",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

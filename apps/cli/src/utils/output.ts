@@ -3,7 +3,7 @@ import { IdentifierKind } from "@xmtp/node-sdk";
 
 export function isTTY(): boolean {
   // isTTY can be undefined when stdout is not a TTY (e.g., piped output)
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  // oxlint-disable-next-line typescript/no-unnecessary-condition
   return stdout.isTTY ?? false;
 }
 

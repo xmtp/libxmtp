@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs";
 import { stringify } from "smol-toml";
-import { getSdkConfig } from "../lib/sdk-config";
+import { getSdkConfig } from "@/lib/sdk-config";
 
 export function scaffoldNotes(
   sdk: string,

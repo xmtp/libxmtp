@@ -1,8 +1,9 @@
 import { Badge, Box, Group, Stack, Text } from "@mantine/core";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { HelpCard } from "@/components/Conversations/HelpCard";
+import { createStreamSession } from "@/helpers/streamSession";
 import { useConversations } from "@/hooks/useConversations";
 import { useHelpDm } from "@/hooks/useHelpDm";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -18,48 +19,24 @@ export const ConversationsNavbar: React.FC = () => {
     syncAll,
   } = useConversations();
   const { exists: helpDmExists } = useHelpDm();
-  const stopConversationStreamRef = useRef<(() => void) | null>(null);
-  const stopAllMessagesStreamRef = useRef<(() => void) | null>(null);
-
-  const startStreams = useCallback(async () => {
-    stopConversationStreamRef.current = await stream();
-    stopAllMessagesStreamRef.current = await streamAllMessages();
-  }, [stream, streamAllMessages]);
-
-  const stopStreams = useCallback(() => {
-    stopConversationStreamRef.current?.();
-    stopConversationStreamRef.current = null;
-    stopAllMessagesStreamRef.current?.();
-    stopAllMessagesStreamRef.current = null;
-  }, []);
+  const streamSession = useMemo(
+    () => createStreamSession([stream, streamAllMessages]),
+    [stream, streamAllMessages],
+  );
 
   const handleSync = useCallback(async () => {
-    stopStreams();
-    await sync();
-    await startStreams();
-  }, [sync, startStreams, stopStreams]);
+    await streamSession.start(() => sync());
+  }, [streamSession, sync]);
 
   const handleSyncAll = useCallback(async () => {
-    stopStreams();
-    await syncAll();
-    await startStreams();
-  }, [syncAll, startStreams, stopStreams]);
+    await streamSession.start(syncAll);
+  }, [streamSession, syncAll]);
 
-  // loading conversations on mount, and start streaming
+  // The same session owns initial setup and user-requested refreshes.
   useEffect(() => {
-    const loadConversations = async () => {
-      await sync(true);
-      await startStreams();
-    };
-    void loadConversations();
-  }, []);
-
-  // stop streaming on unmount
-  useEffect(() => {
-    return () => {
-      stopStreams();
-    };
-  }, []);
+    void streamSession.start(() => sync(true));
+    return streamSession.stop;
+  }, [streamSession, sync]);
 
   return (
     <ContentLayout

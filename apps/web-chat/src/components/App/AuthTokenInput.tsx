@@ -1,5 +1,5 @@
 import { PasswordInput, Stack, Text } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useSettings } from "@/hooks/useSettings";
 import { useServerAuthConfig } from "@/hooks/useServerAuthConfig";
@@ -9,10 +9,12 @@ export const AuthTokenInput: React.FC = () => {
   const { authToken, backendUrl, setAuthToken } = useSettings();
   const { required, requiredScopes, loading } = useServerAuthConfig(backendUrl);
   const [value, setValue] = useState(authToken);
+  const [previousAuthToken, setPreviousAuthToken] = useState(authToken);
 
-  useEffect(() => {
+  if (authToken !== previousAuthToken) {
+    setPreviousAuthToken(authToken);
     setValue(authToken);
-  }, [authToken]);
+  }
 
   // The backend says it needs no credential. Keep the field when a token is
   // already stored, so a user can see and clear one they entered earlier.

@@ -81,7 +81,7 @@ export const ManageMembersModal: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation.id, addedMembers, removedMembers, navigate]);
+  }, [conversation, addedMembers, removedMembers, navigate, addConversation]);
 
   const footer = useMemo(() => {
     return (
@@ -99,7 +99,7 @@ export const ManageMembersModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [isLoading, handleUpdate]);
+  }, [handleClose, handleUpdate, isLoading]);
 
   return (
     <Modal

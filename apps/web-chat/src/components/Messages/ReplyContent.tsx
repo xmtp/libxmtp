@@ -24,11 +24,11 @@ export const ReplyContent: React.FC<ReplyContentProps> = ({
     void reply.contentType().then((contentType) => {
       setContentType(contentType);
     });
-  }, [reply.contentType]);
+  }, [reply]);
 
   const handleClick = useCallback(() => {
     scrollToMessage(reply.referenceId);
-  }, [scrollToMessage]);
+  }, [reply.referenceId, scrollToMessage]);
 
   return (
     <Stack gap="xs" align={align === "left" ? "flex-start" : "flex-end"}>

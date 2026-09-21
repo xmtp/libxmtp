@@ -43,6 +43,7 @@ export const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
                 />
               )}
               {fileType === "video" && (
+                // oxlint-disable-next-line jsx-a11y/media-has-caption -- User-provided media does not include a captions track.
                 <video
                   src={fileUrl}
                   controls
@@ -54,6 +55,7 @@ export const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
                 />
               )}
               {fileType === "audio" && (
+                // oxlint-disable-next-line jsx-a11y/media-has-caption -- User-provided media does not include a captions track.
                 <audio
                   src={fileUrl}
                   controls

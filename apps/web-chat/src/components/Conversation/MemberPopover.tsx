@@ -163,7 +163,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
       }
       await syncMembers(conversationId);
     },
-    [conversation, conversationId, syncMembers],
+    [conversation, conversationId, members, syncMembers],
   );
 
   const handleRemoveMember = useCallback(
@@ -187,7 +187,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
           permissionLevel === PermissionLevel.Admin)) ||
       (clientPermissions.canRemoveMembers && client.inboxId !== inboxId)
     );
-  }, [clientPermissions, permissionLevel]);
+  }, [clientPermissions, permissionLevel, client.inboxId, inboxId]);
   const canPromoteToSuperAdmin = useMemo(() => {
     return (
       clientPermissions.canPromoteMembers &&

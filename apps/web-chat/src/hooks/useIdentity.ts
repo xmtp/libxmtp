@@ -3,44 +3,47 @@ import type {
   KeyPackageStatus,
   Installation as XmtpInstallation,
 } from "@xmtp/browser-sdk";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useClient } from "@/contexts/XMTPContext";
 
 export type Installation = XmtpInstallation & {
   keyPackageStatus: KeyPackageStatus | undefined;
 };
 
+type Identity = {
+  inboxId: string | null;
+  recoveryIdentifier: Identifier | null;
+  accountIdentifiers: Identifier[];
+  installations: Installation[];
+};
+
+const EMPTY_IDENTITY: Identity = {
+  inboxId: null,
+  recoveryIdentifier: null,
+  accountIdentifiers: [],
+  installations: [],
+};
+
 export const useIdentity = (syncOnMount: boolean = false) => {
   const client = useClient();
-  const [syncing, setSyncing] = useState(false);
+  const [refreshingClient, setRefreshingClient] = useState<typeof client>();
   const [revoking, setRevoking] = useState(false);
-  const [inboxId, setInboxId] = useState<string | null>(null);
-  const [recoveryIdentifier, setRecoveryIdentifier] =
-    useState<Identifier | null>(null);
-  const [accountIdentifiers, setAccountIdentifiers] = useState<Identifier[]>(
-    [],
-  );
-  const [installations, setInstallations] = useState<Installation[]>([]);
+  const [result, setResult] = useState<{
+    client: typeof client;
+    identity: Identity;
+  }>();
+  const generation = useRef(0);
 
-  useEffect(() => {
-    if (syncOnMount) {
-      void sync();
-    }
-  }, []);
-
-  const sync = async () => {
-    setSyncing(true);
-
+  const loadIdentity = useCallback(async () => {
+    const request = ++generation.current;
+    let identity: Identity | undefined;
     try {
       const inboxState = await client.preferences.fetchInboxState();
-      setInboxId(inboxState.inboxId);
-      setAccountIdentifiers(inboxState.accountIdentifiers);
-      setRecoveryIdentifier(inboxState.recoveryIdentifier);
-      const installations = inboxState.installations.sort((a, b) => {
-        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      const installations = inboxState.installations.toSorted((a, b) => {
+        // oxlint-disable-next-line typescript/no-non-null-assertion
         if (a.clientTimestampNs! > b.clientTimestampNs!) {
           return -1;
-          // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+          // oxlint-disable-next-line typescript/no-non-null-assertion
         } else if (a.clientTimestampNs! < b.clientTimestampNs!) {
           return 1;
         }
@@ -49,16 +52,46 @@ export const useIdentity = (syncOnMount: boolean = false) => {
       const keyPackageStatuses = await client.fetchKeyPackageStatuses(
         installations.map((installation) => installation.id),
       );
-      setInstallations(
-        installations.map((installation) => ({
+      identity = {
+        inboxId: inboxState.inboxId,
+        accountIdentifiers: inboxState.accountIdentifiers,
+        recoveryIdentifier: inboxState.recoveryIdentifier,
+        installations: installations.map((installation) => ({
           ...installation,
           keyPackageStatus: keyPackageStatuses.get(installation.id),
         })),
-      );
+      };
     } finally {
-      setSyncing(false);
+      if (request === generation.current) {
+        setResult((current) => ({
+          client,
+          identity:
+            identity ??
+            (current?.client === client ? current.identity : EMPTY_IDENTITY),
+        }));
+      }
     }
-  };
+  }, [client]);
+
+  useEffect(() => {
+    if (syncOnMount) {
+      void loadIdentity().catch(console.error);
+    }
+    return () => {
+      generation.current += 1;
+    };
+  }, [loadIdentity, syncOnMount]);
+
+  const sync = useCallback(async () => {
+    setRefreshingClient(client);
+    try {
+      await loadIdentity();
+    } finally {
+      setRefreshingClient((current) =>
+        current === client ? undefined : current,
+      );
+    }
+  }, [client, loadIdentity]);
 
   const revokeInstallation = async (installationIdBytes: Uint8Array) => {
     setRevoking(true);
@@ -81,14 +114,12 @@ export const useIdentity = (syncOnMount: boolean = false) => {
   };
 
   return {
-    accountIdentifiers,
-    inboxId,
-    installations,
-    recoveryIdentifier,
+    ...(result?.client === client ? result.identity : EMPTY_IDENTITY),
     revokeAllOtherInstallations,
     revokeInstallation,
     revoking,
     sync,
-    syncing,
+    syncing:
+      refreshingClient === client || (syncOnMount && result?.client !== client),
   };
 };

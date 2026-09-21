@@ -20,11 +20,13 @@ export const useVirtualList = <T>({
   bottomThreshold = 50,
   initialScrollIndex,
 }: UseVirtualListOptions<T>) => {
+  "use no memo";
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const scrolledToBottomRef = useRef(true);
   const itemCountRef = useRef(items.length);
   const totalSizeRef = useRef(-1);
 
+  // oxlint-disable-next-line react/incompatible-library -- TanStack Virtual is excluded from React Compiler by "use no memo" above.
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => scrollContainerRef.current,

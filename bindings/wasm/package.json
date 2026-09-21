@@ -47,6 +47,7 @@
     "clean:release": "rm ./dist/.gitignore",
     "format": "prettier -w .",
     "format:check": "prettier -c .",
+    "lint": "oxlint .",
     "lint:clippy": "cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:clippy:macos": "CC_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/clang cargo clippy --locked --all-features --target wasm32-unknown-unknown --no-deps -- -D warnings",
     "lint:fmt": "cargo fmt --check",

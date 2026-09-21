@@ -1,6 +1,6 @@
 import { Button, Group } from "@mantine/core";
 import { Group as XmtpGroup } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import { Metadata } from "@/components/Conversation/Metadata";
@@ -13,19 +13,29 @@ import { useActions } from "@/stores/inbox/hooks";
 
 export const ManageMetadataModal: React.FC = () => {
   const { conversationId } = useOutletContext<ConversationOutletContext>();
+  return <MetadataForm key={conversationId} conversationId={conversationId} />;
+};
+
+const MetadataForm: React.FC<{ conversationId: string }> = ({
+  conversationId,
+}) => {
   const { conversation } = useConversation(conversationId);
   const clientPermissions = useClientPermissions(conversationId);
   const { addConversation } = useActions();
   const navigate = useNavigate();
   const fullScreen = useCollapsedMediaQuery();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
+  const [name, setName] = useState(
+    conversation instanceof XmtpGroup ? (conversation.name ?? "") : "",
+  );
+  const [description, setDescription] = useState(
+    conversation instanceof XmtpGroup ? (conversation.description ?? "") : "",
+  );
+  const [imageUrl, setImageUrl] = useState(
+    conversation instanceof XmtpGroup ? (conversation.imageUrl ?? "") : "",
+  );
   const [isLoading, setIsLoading] = useState(false);
   const contentHeight = fullScreen ? "auto" : 500;
-  const initialName = useRef("");
-  const initialDescription = useRef("");
-  const initialImageUrl = useRef("");
+  const [initial] = useState({ name, description, imageUrl });
 
   const handleClose = useCallback(() => {
     void navigate(`/conversations/${conversation.id}`);
@@ -36,15 +46,15 @@ export const ManageMetadataModal: React.FC = () => {
       setIsLoading(true);
       try {
         let hasUpdated = false;
-        if (name !== initialName.current) {
+        if (name !== initial.name) {
           await conversation.updateName(name);
           hasUpdated = true;
         }
-        if (description !== initialDescription.current) {
+        if (description !== initial.description) {
           await conversation.updateDescription(description);
           hasUpdated = true;
         }
-        if (imageUrl !== initialImageUrl.current) {
+        if (imageUrl !== initial.imageUrl) {
           await conversation.updateImageUrl(imageUrl);
           hasUpdated = true;
         }
@@ -58,15 +68,15 @@ export const ManageMetadataModal: React.FC = () => {
         setIsLoading(false);
       }
     }
-  }, [conversation, name, description, imageUrl, navigate]);
-
-  useEffect(() => {
-    if (conversation instanceof XmtpGroup) {
-      initialName.current = conversation.name ?? "";
-      initialDescription.current = conversation.description ?? "";
-      initialImageUrl.current = conversation.imageUrl ?? "";
-    }
-  }, [conversation]);
+  }, [
+    addConversation,
+    conversation,
+    description,
+    imageUrl,
+    initial,
+    name,
+    navigate,
+  ]);
 
   const footer = useMemo(() => {
     return (
@@ -77,9 +87,9 @@ export const ManageMetadataModal: React.FC = () => {
         <Button
           variant="filled"
           disabled={
-            name === initialName.current &&
-            description === initialDescription.current &&
-            imageUrl === initialImageUrl.current
+            name === initial.name &&
+            description === initial.description &&
+            imageUrl === initial.imageUrl
           }
           loading={isLoading}
           onClick={() => void handleUpdate()}
@@ -88,7 +98,15 @@ export const ManageMetadataModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [isLoading, handleUpdate, handleClose]);
+  }, [
+    description,
+    handleClose,
+    handleUpdate,
+    imageUrl,
+    initial,
+    isLoading,
+    name,
+  ]);
 
   return (
     <Modal

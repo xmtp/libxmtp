@@ -39,14 +39,12 @@ check-notification-surface: bindings
 build: bindings
     cd {{ root }} && pnpm -r --filter './sdks/js/*' run build
 
-# Lint (eslint) all SDKs (needs bindings for type-aware rules)
+# Lint all SDKs with their task dependencies. Native bindings are staged first.
 lint: bindings
-    pnpm --filter @xmtp/node-sdk run build
-    pnpm --filter @xmtp/node-sdk exec eslint . ../browser-sdk ../agent-sdk
+    cd {{ root }} && pnpm -r --filter './sdks/js/*' run lint
 
 lint-node: bindings-node
-    pnpm --filter @xmtp/node-sdk run build
-    pnpm --filter @xmtp/node-sdk exec eslint . ../agent-sdk
+    cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run lint
 
 build-node: bindings-node
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run build

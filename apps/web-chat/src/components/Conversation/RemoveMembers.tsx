@@ -22,7 +22,7 @@ export const RemoveMembers: React.FC<RemoveMembersProps> = ({
       }
       onMembersRemoved?.(newRemovedMembers);
     },
-    [removedMembers],
+    [onMembersRemoved, removedMembers],
   );
 
   return (

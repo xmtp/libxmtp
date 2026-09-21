@@ -21,6 +21,10 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs compose`: combine the site and generated references.
 - `just docs check`: check source links and the composed artifact.
 
+`just docs build` and `just docs check-examples` stage local Node and WASM
+bindings, then run their package tasks with the pnpm dependency graph. Do not
+add a separate SDK build before either command.
+
 ## Build and check scripts
 
 Keep scripts only when the site build, CI, or local checks need them.

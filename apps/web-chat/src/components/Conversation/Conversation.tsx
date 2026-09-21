@@ -36,11 +36,11 @@ export const Conversation: React.FC<ConversationProps> = ({
       await sync(true);
     };
     void loadMessages();
-  }, [conversationId]);
+  }, [sync]);
 
   const handleSync = useCallback(async () => {
     await sync(true);
-  }, [sync, conversationId]);
+  }, [sync]);
 
   return (
     <>

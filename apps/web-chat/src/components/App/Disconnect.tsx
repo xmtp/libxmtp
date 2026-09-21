@@ -15,7 +15,7 @@ export const Disconnect: React.FC = () => {
       disconnectClient();
       void navigate("/");
     });
-  }, []);
+  }, [disconnect, disconnectClient, navigate]);
 
   return (
     <CenteredLayout>

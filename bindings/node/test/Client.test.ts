@@ -15,10 +15,10 @@ import {
   fetchInboxStatesByInboxIds,
   GroupMessageKind,
   IdentifierKind,
-  Message,
   NotificationStateKind,
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
+  type Message,
 } from '../dist'
 import { notificationBackend } from './notificationBackend'
 

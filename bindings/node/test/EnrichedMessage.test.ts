@@ -1,21 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { createRegisteredClient, createUser, sleep } from '@test/helpers'
 import {
-  Actions,
   ActionStyle,
-  Attachment,
   DecodedMessageContentType,
   encodeAttachment,
   encodeText,
   IdentifierKind,
-  Intent,
-  MultiRemoteAttachment,
   ReactionAction,
   ReactionSchema,
-  RemoteAttachment,
   SortDirection,
-  TransactionReference,
-  WalletSendCalls,
+  type Actions,
+  type Attachment,
+  type Intent,
+  type MultiRemoteAttachment,
+  type RemoteAttachment,
+  type TransactionReference,
+  type WalletSendCalls,
 } from '../dist'
 
 describe.concurrent('EnrichedMessage', () => {

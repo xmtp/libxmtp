@@ -23,7 +23,7 @@ export const fetchServerConfiguration = async (
     typeof optionsOrUrl === "string"
       ? { backendUrl: optionsOrUrl }
       : optionsOrUrl;
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Validate options from JavaScript callers.
+  // oxlint-disable-next-line typescript/no-unnecessary-condition -- Validate options from JavaScript callers.
   if (!options?.backendUrl?.trim()) {
     throw new Error("backendUrl is required");
   }

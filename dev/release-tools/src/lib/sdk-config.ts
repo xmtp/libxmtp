@@ -1,4 +1,4 @@
-import { Sdk, type SdkConfig } from "../types";
+import { Sdk, type SdkConfig } from "@/types";
 import {
   createPodspecManifestProvider,
   createGradlePropertiesManifestProvider,
@@ -148,11 +148,10 @@ export const SDK_CONFIGS: Record<Sdk, SdkConfig> = {
 };
 
 export function getSdkConfig(sdk: string): SdkConfig {
-  const config = SDK_CONFIGS[sdk as Sdk];
-  if (!config) {
+  if (!Object.hasOwn(SDK_CONFIGS, sdk)) {
     throw new Error(
       `Unknown SDK: ${sdk}. Available: ${Object.keys(SDK_CONFIGS).join(", ")}`,
     );
   }
-  return config;
+  return SDK_CONFIGS[sdk as Sdk];
 }

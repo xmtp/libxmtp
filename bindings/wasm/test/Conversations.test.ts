@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import init, { createTestClient, DecodedMessage } from "../";
+import init, { createTestClient, type DecodedMessage } from "../";
 
 await init();
 

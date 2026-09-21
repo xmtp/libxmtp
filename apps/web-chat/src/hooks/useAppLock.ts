@@ -1,5 +1,5 @@
-import { useLocalStorage } from "@mantine/hooks";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { readLocalStorageValue, useLocalStorage } from "@mantine/hooks";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export const APP_LOCK_ID_KEY = "XMTP_APP_LOCK_ID";
 export const APP_LOCK_LAST_ACTIVE_KEY = "XMTP_APP_LOCK_LAST_ACTIVE";
@@ -27,7 +27,7 @@ const isLockStale = (lastActive: number | null) => {
 
 export const useAppLock = (onLockLost?: () => void) => {
   // random UUID to identify the lock
-  const lockIdRef = useRef(crypto.randomUUID());
+  const [sessionLockId] = useState(() => crypto.randomUUID());
   // flag to track if the lock has been acquired
   const hadLockRef = useRef(false);
   // lock ID stored in local storage
@@ -42,22 +42,18 @@ export const useAppLock = (onLockLost?: () => void) => {
     defaultValue: null,
     getInitialValueInEffect: false,
   });
-  // lastActive ref to avoid re-renders
-  const lastActiveRef = useRef(lastActive);
-  lastActiveRef.current = lastActive;
-
   const lockState: AppLockState = useMemo(() => {
     if (lockId === null) {
       return "available";
     }
-    if (lockId === lockIdRef.current) {
+    if (lockId === sessionLockId) {
       return "active";
     }
     if (isLockStale(lastActive)) {
       return "available";
     }
     return "locked";
-  }, [lockId, lastActive]);
+  }, [lockId, lastActive, sessionLockId]);
 
   /**
    * Acquire the lock
@@ -66,24 +62,33 @@ export const useAppLock = (onLockLost?: () => void) => {
    */
   const acquireLock = useCallback(
     (force?: boolean) => {
+      // Check storage at acquisition time, including changes from another tab.
+      const currentLockId = readLocalStorageValue<string | null>({
+        key: APP_LOCK_ID_KEY,
+        defaultValue: null,
+      });
+      const currentLastActive = readLocalStorageValue<number | null>({
+        key: APP_LOCK_LAST_ACTIVE_KEY,
+        defaultValue: null,
+      });
       // if the lock is not stale and acquired by another session, don't acquire it
       // unless force is true
       if (
-        !isLockStale(lastActiveRef.current) &&
-        lockId !== null &&
-        lockId !== lockIdRef.current &&
+        !isLockStale(currentLastActive) &&
+        currentLockId !== null &&
+        currentLockId !== sessionLockId &&
         !force
       ) {
         return false;
       }
       // acquire the lock
-      setLockId(lockIdRef.current);
+      setLockId(sessionLockId);
       setLastActive(Date.now());
       // lock acquired, set the flag to true
       hadLockRef.current = true;
       return true;
     },
-    [lockId, setLockId, setLastActive],
+    [sessionLockId, setLockId, setLastActive],
   );
 
   const releaseLock = useCallback((): void => {
@@ -105,7 +110,7 @@ export const useAppLock = (onLockLost?: () => void) => {
   useEffect(() => {
     // if the lock is not active or the lock ID is not the current session,
     // don't update the last active time
-    if (lockState !== "active" || lockId !== lockIdRef.current) {
+    if (lockState !== "active" || lockId !== sessionLockId) {
       return;
     }
 
@@ -117,13 +122,13 @@ export const useAppLock = (onLockLost?: () => void) => {
     return () => {
       clearInterval(interval);
     };
-  }, [lockState, lockId, setLastActive]);
+  }, [lockState, lockId, sessionLockId, setLastActive]);
 
   // release lock on pagehide event
   useEffect(() => {
     // if the lock is not active or the lock ID is not the current session,
     // don't release the lock
-    if (lockState !== "active" || lockId !== lockIdRef.current) {
+    if (lockState !== "active" || lockId !== sessionLockId) {
       return;
     }
 
@@ -135,7 +140,7 @@ export const useAppLock = (onLockLost?: () => void) => {
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
     };
-  }, [lockState, lockId, setLastActive]);
+  }, [lockState, lockId, releaseLock, sessionLockId]);
 
   return { lockState, acquireLock, releaseLock };
 };

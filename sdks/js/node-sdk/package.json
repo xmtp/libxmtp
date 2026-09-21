@@ -44,6 +44,7 @@
     "dev": "pnpm build --watch",
     "generate:accounts": "tsx scripts/accounts.ts",
     "generate:groups": "tsx scripts/groups.ts",
+    "lint": "oxlint .",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
     "typecheck": "tsc"
@@ -53,15 +54,11 @@
     "@xmtp/node-bindings": "workspace:*"
   },
   "devDependencies": {
-    "@eslint/compat": "catalog:",
-    "@eslint/js": "catalog:",
     "@rollup/plugin-json": "catalog:",
     "@rollup/plugin-typescript": "catalog:",
     "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
-    "eslint": "catalog:",
     "fast-glob": "catalog:",
-    "globals": "catalog:",
     "rimraf": "^6.1.2",
     "rollup": "catalog:",
     "rollup-plugin-dts": "catalog:",
@@ -69,7 +66,6 @@
     "tslib": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:",
     "uint8array-extras": "catalog:",
     "viem": "catalog:",
     "vite": "catalog:",

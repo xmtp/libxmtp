@@ -3,6 +3,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -37,6 +38,8 @@ export const withBearerPrefix = (token: string): string => {
 const EMPTY_TOKEN_PROBE = "";
 
 export type AuthTokenRequest = {
+  /** Identifies one prompt, including updates to its rejection notice. */
+  id: string;
   /** Set when the backend rejected a token we already supplied. */
   rejected: boolean;
   /** Resolves every callback waiting on this prompt. */
@@ -72,7 +75,9 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   // Read inside the callback so a token saved after the client was built is
   // picked up without rebuilding the callback identity.
   const authTokenRef = useRef(authToken);
-  authTokenRef.current = authToken;
+  useEffect(() => {
+    authTokenRef.current = authToken;
+  }, [authToken]);
   // Every callback waiting on the open prompt. Concurrent asks — a reconnect
   // and an inbox tools query, say — must all be answered by one submission;
   // keeping a single resolver would strand every ask but the newest.
@@ -92,9 +97,11 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
 
   const openPrompt = useCallback(
     (rejected: boolean) => {
+      const id = crypto.randomUUID();
       setRequest(
         (current) =>
           current ?? {
+            id,
             rejected,
             resolve: (token: string) => {
               const trimmed = token.trim();

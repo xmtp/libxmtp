@@ -10,16 +10,16 @@ import {
   ConsentState,
   contentTypeGroupUpdated,
   contentTypeText,
-  Conversation,
   ConversationType,
-  DecodedMessage,
   GroupMessageKind,
   GroupPermissionsOptions,
   IdentifierKind,
-  Message,
   MetadataField,
   PermissionPolicy,
   PermissionUpdateType,
+  type Conversation,
+  type DecodedMessage,
+  type Message,
 } from '../dist'
 
 // The connection-death test below uses the h2 transport keepalive to find a
@@ -48,13 +48,25 @@ const expectStreamedMessages = (
         message.id,
         new TextDecoder().decode(message.content.content),
       ])
-      .sort()
-  ).toEqual([...applicationMessages].sort())
+      .sort(
+        (left, right) =>
+          left[0].localeCompare(right[0]) || left[1].localeCompare(right[1])
+      )
+  ).toEqual(
+    [...applicationMessages].sort(
+      (left, right) =>
+        left[0].localeCompare(right[0]) || left[1].localeCompare(right[1])
+    )
+  )
   const membership = messages.filter(
     (message) => message.kind === GroupMessageKind.MembershipChange
   )
-  expect(membership.map((message) => message.convoId).sort()).toEqual(
-    [...membershipGroupIds].sort()
+  expect(
+    membership
+      .map((message) => message.convoId)
+      .sort((left, right) => left.localeCompare(right))
+  ).toEqual(
+    [...membershipGroupIds].sort((left, right) => left.localeCompare(right))
   )
   for (const message of membership) {
     expect(message.content.type).toEqual(contentTypeGroupUpdated())
@@ -517,7 +529,7 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    let groups: Conversation[] = []
+    const groups: Conversation[] = []
     const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
@@ -612,7 +624,7 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    let groups: Conversation[] = []
+    const groups: Conversation[] = []
     const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
@@ -655,7 +667,7 @@ describe('Conversations', () => {
     const client2 = await createRegisteredClient(user2)
     const client3 = await createRegisteredClient(user3)
     const client4 = await createRegisteredClient(user4)
-    let groups: Conversation[] = []
+    const groups: Conversation[] = []
     const stream = await client3.conversations().stream(
       (err, convo) => {
         groups.push(convo!)
@@ -845,7 +857,7 @@ describe('Conversations', () => {
 
     await sleep(2000)
 
-    let messages: Message[] = []
+    const messages: Message[] = []
     const errors: Error[] = []
     const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
@@ -915,7 +927,7 @@ describe('Conversations', () => {
 
     await sleep(2000)
 
-    let messages: Message[] = []
+    const messages: Message[] = []
     const errors: Error[] = []
     const stream = await client1.conversations().streamAllMessages(
       (err, message) => {
@@ -961,7 +973,7 @@ describe('Conversations', () => {
       identifierKind: IdentifierKind.Ethereum,
     })
 
-    let messages: Message[] = []
+    const messages: Message[] = []
     const errors: Error[] = []
     const stream = await agent_client.conversations().streamAllMessages(
       (err, message) => {

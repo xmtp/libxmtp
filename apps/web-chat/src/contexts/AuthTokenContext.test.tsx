@@ -39,6 +39,24 @@ describe("AuthTokenProvider", () => {
     expect(result.current.request).toBeNull();
   });
 
+  it("keeps one identity for an open prompt and changes it for a new prompt", () => {
+    const { result } = renderAuthToken();
+    act(() => {
+      result.current.promptForToken();
+    });
+    const firstId = result.current.request?.id;
+    expect(firstId).toBeDefined();
+    act(() => {
+      result.current.promptForToken();
+    });
+    expect(result.current.request?.id).toBe(firstId);
+    act(() => {
+      result.current.request?.resolve("token");
+      result.current.promptForToken();
+    });
+    expect(result.current.request?.id).not.toBe(firstId);
+  });
+
   it("prompts once the empty probe is refused", async () => {
     const { result } = renderAuthToken();
     const callback = result.current.createAuthCallback();

@@ -274,7 +274,7 @@ export class Conversations<ContentTypes = unknown> {
    */
   listGroups(options?: Omit<ListConversationsOptions, "conversationType">) {
     const groups = this.#conversations.list({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Group,
     });
     return groups.map((item) => {
@@ -296,7 +296,7 @@ export class Conversations<ContentTypes = unknown> {
    */
   listDms(options?: Omit<ListConversationsOptions, "conversationType">) {
     const groups = this.#conversations.list({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Dm,
     });
     return groups.map((item) => {
@@ -508,7 +508,7 @@ export class Conversations<ContentTypes = unknown> {
     },
   ) {
     return this.streamAllMessages({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Group,
       consentStates: options?.consentStates,
     });
@@ -530,7 +530,7 @@ export class Conversations<ContentTypes = unknown> {
     },
   ) {
     return this.streamAllMessages({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Dm,
       consentStates: options?.consentStates,
     });

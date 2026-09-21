@@ -7,7 +7,7 @@ import {
   Text,
   Title,
 } from "@mantine/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { InstallationTable } from "@/components/Identity/InstallationTable";
@@ -28,18 +28,11 @@ export const IdentityModal: React.FC = () => {
     sync,
     syncing,
   } = useIdentity(true);
-  const [accountIdentifier, setAccountIdentifier] = useState<string | null>(
-    null,
-  );
+  const accountIdentifier =
+    client.accountIdentifier?.identifier.toLowerCase() ?? null;
 
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : "70dvh";
-
-  useEffect(() => {
-    setAccountIdentifier(
-      client.accountIdentifier?.identifier.toLowerCase() ?? null,
-    );
-  }, [client.accountIdentifier]);
 
   const handleRevokeAllOtherInstallations = useCallback(async () => {
     await revokeAllOtherInstallations();
@@ -87,14 +80,14 @@ export const IdentityModal: React.FC = () => {
                   <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
                     Inbox ID
                   </Text>
-                  {/* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */}
+                  {/* oxlint-disable-next-line typescript/no-non-null-assertion */}
                   <BadgeWithCopy value={client.inboxId!} />
                 </Group>
                 <Group gap="md" wrap="nowrap">
                   <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
                     Installation ID
                   </Text>
-                  {/* eslint-disable-next-line @typescript-eslint/no-non-null-assertion */}
+                  {/* oxlint-disable-next-line typescript/no-non-null-assertion */}
                   <BadgeWithCopy value={client.installationId!} />
                 </Group>
               </Stack>
@@ -110,7 +103,7 @@ export const IdentityModal: React.FC = () => {
                 {installations.length > 0 && (
                   <>
                     <InstallationTable
-                      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                      // oxlint-disable-next-line typescript/no-non-null-assertion
                       clientInstallationId={client.installationId!}
                       installations={installations}
                       refreshInstallations={sync}

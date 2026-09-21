@@ -16,6 +16,8 @@ tasks:
     dependsOn: ["^build"]
   typecheck:
     dependsOn: ["^build"]
+  check:examples:
+    dependsOn: ["^build"]
   lint:
     dependsOn: ["^build"]
   format:
@@ -45,8 +47,6 @@ overrides:
   playwright-core: 1.61.1
 
 catalog:
-  "@eslint/compat": "^2.0.1"
-  "@eslint/js": "^9.39.2"
   "@ianvs/prettier-plugin-sort-imports": "^4.7.0"
   "@playwright/test": "1.61.1"
   "@rollup/plugin-json": "^6.1.0"
@@ -57,9 +57,7 @@ catalog:
   "@vitest/coverage-v8": "^4.1.10"
   "@xmtp/content-type-primitives": "3.0.1"
   "@xmtp/content-type-remote-attachment": "^2.0.3"
-  "eslint": "^9.39.2"
   "fast-glob": "^3.3.3"
-  "globals": "^17.1.0"
   "playwright": "1.61.1"
   "prettier": "^3.9.6"
   "prettier-plugin-packagejson": "^3.0.0"
@@ -69,7 +67,6 @@ catalog:
   "tslib": "^2.8.1"
   "tsx": "^4.23.1"
   "typescript": "^5.9.3"
-  "typescript-eslint": "^8.70.0"
   "uint8array-extras": "^1.5.0"
   "viem": "^2.55.10"
   "vite": "^8.3.0"

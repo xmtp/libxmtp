@@ -1,17 +1,11 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import {
-  Sdk,
-  BUMP_OPTIONS,
-  type BumpOption,
-  type BumpType,
-  type GlobalArgs,
-} from "../types";
+import { Sdk, BUMP_OPTIONS, type BumpType, type GlobalArgs } from "@/types";
 import { bumpVersion } from "./bump-version";
 import { setManifestVersion } from "./set-manifest-version";
 import { scaffoldNotes } from "./scaffold-notes";
-import { getSdkConfig } from "../lib/sdk-config";
-import { tagExists } from "../lib/git";
-import { execInherit } from "../lib/exec";
+import { getSdkConfig } from "@/lib/sdk-config";
+import { tagExists } from "@/lib/git";
+import { execInherit } from "@/lib/exec";
 
 type SdkBump = {
   sdk: Sdk;

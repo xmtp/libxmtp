@@ -68,8 +68,9 @@ const { messages, count } = Astro.props;
       this.controller?.abort();
       this.controller = new AbortController();
       const { signal } = this.controller;
-      const button = this.querySelector<HTMLButtonElement>("button")!;
-      const list = this.querySelector<HTMLElement>(".messages")!;
+      const button = this.querySelector<HTMLButtonElement>("button");
+      const list = this.querySelector<HTMLElement>(".messages");
+      if (!button || !list) return;
       const messages = [...this.querySelectorAll<HTMLElement>(".message")];
       button.hidden = false;
       button.addEventListener(

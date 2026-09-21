@@ -12,7 +12,7 @@
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
     "dev": "vite",
-    "lint": "eslint .",
+    "lint": "oxlint .",
     "test": "vitest run",
     "typecheck": "tsc"
   },
@@ -41,8 +41,6 @@
     "@tanstack/virtual-core": "^3.13.18"
   },
   "devDependencies": {
-    "@eslint/compat": "catalog:",
-    "@eslint/js": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "^16.3.2",
     "@types/node": "catalog:node26",
@@ -51,14 +49,11 @@
     "@vitejs/plugin-react": "^5.1.2",
     "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "catalog:",
-    "eslint": "catalog:",
-    "globals": "catalog:",
     "playwright": "catalog:",
     "postcss": "^8.5.6",
     "postcss-preset-mantine": "^1.18.0",
     "postcss-simple-vars": "^7.0.1",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:",
     "vite": "catalog:",
     "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"

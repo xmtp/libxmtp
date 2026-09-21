@@ -9,7 +9,7 @@ import {
   Text,
 } from "@mantine/core";
 import type { Client } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { AppMenu } from "@/components/App/AppMenu";
 import { backendHost } from "@/helpers/backend";
@@ -45,15 +45,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const navigate = useNavigate();
   const { backendUrl } = useSettings();
-  const [accountIdentifier, setAccountIdentifier] = useState<string | null>(
-    null,
-  );
-
-  useEffect(() => {
-    setAccountIdentifier(
-      client.accountIdentifier?.identifier.toLowerCase() ?? null,
-    );
-  }, [client.accountIdentifier]);
+  const accountIdentifier =
+    client.accountIdentifier?.identifier.toLowerCase() ?? null;
 
   const handleClick = () => {
     void navigate("/identity");

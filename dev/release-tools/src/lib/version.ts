@@ -1,5 +1,5 @@
 import semver from "semver";
-import type { ReleaseType } from "../types";
+import type { ReleaseType } from "@/types";
 
 /**
  * Normalize a version string by stripping prerelease and build metadata.

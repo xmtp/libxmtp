@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { BumpType, GlobalArgs } from "../types";
-import { parsePendingFromContext } from "../lib/git-cliff";
-import { capBumpKind } from "../lib/sdk-version";
-import { readInput } from "../lib/io";
+import type { BumpType, GlobalArgs } from "@/types";
+import { parsePendingFromContext } from "@/lib/git-cliff";
+import { capBumpKind } from "@/lib/sdk-version";
+import { readInput } from "@/lib/io";
 
 export const command = "pending-version";
 export const describe =

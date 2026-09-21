@@ -1111,7 +1111,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     target: string | NetworkOptions | Backend,
   ): Promise<ServerConfiguration> {
     const { backendUrl, appVersion } = resolveEndpoint(target);
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- Validate options from JavaScript callers.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- Validate options from JavaScript callers.
     if (!backendUrl?.trim()) {
       throw new Error("backendUrl is required");
     }

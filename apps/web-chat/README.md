@@ -27,7 +27,7 @@ dev/nix-shell 'just web-chat dev'
 ## Useful commands
 
 - `just web-chat check`: Typecheck the app against the in-tree SDK.
-- `just web-chat lint`: Run ESLint.
+- `just web-chat lint`: Run oxlint.
 - `just web-chat build`: Create a production build.
 - `just web-chat test`: Run browser tests against the worktree backend.
 

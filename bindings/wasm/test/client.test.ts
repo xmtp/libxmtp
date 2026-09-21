@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 import init, {
   AuthHandle,
-  Conversation,
   createAuthTestClient,
   createTestClient,
+  type Conversation,
 } from "../";
 
 await init();
@@ -23,8 +23,8 @@ test("streams groups local", async () => {
     .conversations()
     .createGroupByInboxIds([alix.inboxId, bo.inboxId]);
 
-  let groups: string[] = [];
-  let reader = stream.getReader();
+  const groups: string[] = [];
+  const reader = stream.getReader();
   let i = 0;
   while (i < 3) {
     const { value } = await reader.read();

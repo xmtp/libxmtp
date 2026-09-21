@@ -1,5 +1,5 @@
 import { Stack, Text, TextInput } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { isValidBackendUrl } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";
@@ -8,11 +8,13 @@ export const BackendUrlInput: React.FC = () => {
   const { lockState } = useXMTP();
   const { backendUrl, setBackendUrl } = useSettings();
   const [value, setValue] = useState(backendUrl);
+  const [previousBackendUrl, setPreviousBackendUrl] = useState(backendUrl);
   const valid = isValidBackendUrl(value);
 
-  useEffect(() => {
+  if (backendUrl !== previousBackendUrl) {
+    setPreviousBackendUrl(backendUrl);
     setValue(backendUrl);
-  }, [backendUrl]);
+  }
 
   return (
     <Stack gap="xs">

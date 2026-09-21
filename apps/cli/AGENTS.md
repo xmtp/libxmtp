@@ -8,13 +8,14 @@ They must share one native module instance for authenticated backends.
 
 - `just install`: install the root workspace dependencies.
 - `just cli check`: build the linked SDK and typecheck the CLI.
-- `just cli lint`: run ESLint.
+- `just cli lint`: run oxlint.
 - `just cli build`: build the linked SDK and CLI.
 - `just cli test`: build the linked SDK and run all tests.
 - `just cli test-ci --shard N/2`: run a CI test shard.
 
-Tests require `just backend up`. The `sdk` dependency stages Node bindings and builds
-`@xmtp/node-sdk` before checks that need its `dist` output.
+Tests require `just backend up`. The `sdk` dependency stages Node bindings.
+The pnpm task graph builds `@xmtp/node-sdk` before checks that need its `dist`
+output.
 
 ## Backend configuration
 

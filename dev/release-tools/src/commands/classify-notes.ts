@@ -1,11 +1,11 @@
 import path from "node:path";
 import fs from "node:fs";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types";
-import { Sdk } from "../types";
-import { classifyNoteFiles } from "../lib/classify-notes";
-import { SDK_CONFIGS } from "../lib/sdk-config";
-import { listTags } from "../lib/git";
+import type { GlobalArgs } from "@/types";
+import { Sdk } from "@/types";
+import { classifyNoteFiles } from "@/lib/classify-notes";
+import { SDK_CONFIGS } from "@/lib/sdk-config";
+import { listTags } from "@/lib/git";
 
 export const command = "classify-notes";
 export const describe =
@@ -15,7 +15,7 @@ export function builder(yargs: Argv<GlobalArgs>) {
   return yargs;
 }
 
-export async function handler(argv: ArgumentsCamelCase<GlobalArgs>) {
+export function handler(argv: ArgumentsCamelCase<GlobalArgs>) {
   const repoRoot = path.resolve(argv.repoRoot);
   const tags = new Set(listTags(repoRoot));
 
