@@ -231,10 +231,37 @@ jobs:
           VERSION: ${{ needs.build-and-package.outputs.version }}
         working-directory: sdks/ios
         run: |
-          # Check if version is already published
-          PUBLISHED=$(pod trunk info XMTP 2>/dev/null | grep -wc "$VERSION" || true)
-          if [ "$PUBLISHED" -gt 0 ]; then
+          # The podspec is published when the CocoaPods Specs repo serves it.
+          # `pod trunk push` can report a GitHub commit API timeout after the
+          # spec has already landed, so check the Specs repo, not the exit code.
+          # CocoaPods shards the Specs repo by the first three hex characters
+          # of the MD5 of the pod name. md5("XMTP") starts with "ab7".
+          SHARD="a/b/7"
+
+          spec_is_published() {
+            local url
+            url="https://raw.githubusercontent.com/CocoaPods/Specs/master/Specs/${SHARD}/XMTP/${VERSION}/XMTP.podspec.json"
+            [ "$(curl -sS -o /dev/null -w '%{http_code}' "$url")" = "200" ]
+          }
+
+          if spec_is_published; then
             echo "Version $VERSION already published to CocoaPods, skipping"
-          else
-            pod trunk push XMTP.podspec --allow-warnings --skip-tests
+            exit 0
           fi
+
+          if pod trunk push XMTP.podspec --allow-warnings --skip-tests; then
+            exit 0
+          fi
+
+          echo "pod trunk push reported a failure; checking whether the spec landed"
+          # The Specs repo is served through a CDN, so allow it to catch up.
+          for _ in 1 2 3 4 5 6; do
+            sleep 20
+            if spec_is_published; then
+              echo "Version $VERSION is published; treating the push failure as transient"
+              exit 0
+            fi
+          done
+
+          echo "Version $VERSION is not published to CocoaPods"
+          exit 1

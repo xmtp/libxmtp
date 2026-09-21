@@ -17,37 +17,28 @@ React Native is not included in this repository's self-hosted SDKs.
 ## Published dev releases for testing
 
 Use these published dev releases to test with a self-hosted backend. They are
-from [release run 35403812945](https://github.com/xmtp/libxmtp/actions/runs/35403812945)
-on `self-hosted`, at commit `43f235e`. Pin these versions instead of using an
+from [release run 35656273584](https://github.com/xmtp/libxmtp/actions/runs/35656273584)
+on `self-hosted`, at commit `4b7b477`. Pin these versions instead of using an
 unversioned install or a moving `dev` tag.
 
-| SDK     | Package or dependency         | Dev version                                                                                     |
-| ------- | ----------------------------- | ----------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.43f235e](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.43f235e)             |
-| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.43f235e](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.43f235e)                |
-| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.43f235e](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.43f235e)               |
-| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.43f235e](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.43f235e/) |
-| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.43f235e](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.43f235e)       |
+| SDK     | Package or dependency         | Dev version                                                                                                                   |
+| ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.4b7b477)                                           |
+| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.4b7b477)                                              |
+| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.4b7b477)                                             |
+| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.4b7b477](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.4b7b477/android-4.12.0-dev.4b7b477.pom) |
+| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.4b7b477](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.4b7b477)                                     |
 
 For example, install Node with
-`npm install @xmtp/node-sdk@6.2.0-dev.43f235e`. For Kotlin, use
-`implementation("org.xmtp:android:4.12.0-dev.43f235e")`. For Swift Package Manager,
-select the exact revision `ios-4.12.0-dev.43f235e` from
+`npm install @xmtp/node-sdk@6.2.0-dev.4b7b477`. For Kotlin, use
+`implementation("org.xmtp:android:4.12.0-dev.4b7b477")`. For Swift Package Manager,
+select the exact revision `ios-4.12.0-dev.4b7b477` from
 `https://github.com/xmtp/libxmtp.git` and add the `XMTPiOS` product. That release
 includes a manifest that downloads its matching native binaries.
 
 Node and Browser depend on matching `@xmtp/node-bindings` and
-`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.43f235e`. Let the SDK
+`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.4b7b477`. Let the SDK
 install these dependencies; do not replace them with bindings from `main`.
-
-:::caution[Auth callbacks require a newer build]
-
-These releases predate the consistent high-level `authCallback` APIs and mobile
-callback error fixes described below. To test those changes, build the SDK and
-its matching bindings from the updated source, or use a later release that
-includes them. The versions above do not include those fixes.
-
-:::
 
 ## Migration order
 
@@ -201,6 +192,15 @@ It is not a way to convert a pre-transition database.
 There is no server-side transfer of identities, groups, or message history from
 the previous network. Plan to create active conversations on the new backend.
 
+:::note[A one-time message import is coming soon]
+
+A one-time import of messages from pre-migration SDKs is in development. It is
+not available in the releases above. Until it ships, use the guidance in this
+section, and keep a recoverable copy of the old database and its encryption key
+so the import can use it later.
+
+:::
+
 Local archive APIs remain: `createArchive`, `archiveMetadata`, and
 `importArchive`. Node, Kotlin, and Swift use a file path. Browser uses archive
 bytes. See [Backups](/sdk/backups/) for API and encryption-key requirements.
@@ -223,9 +223,14 @@ SDK versions before promising history retention, and keep the original backup.
 
 ## Message streams and new delivery APIs
 
-Message streams now use stored delivery progress. They can deliver retained
-messages when opened, then continue with new messages. Do not assume a stream
-contains only messages sent after it starts. Make app side effects safe to repeat.
+Message streams now have tighter guarantees around delivery. Resuming a stream
+continues from the position of the last acknowledged message delivered. This is
+now true across sessions, network disconnects, and server restarts. A stream can
+also start from a particular cursor position.
+
+Because a stream resumes from stored progress, it can deliver retained messages
+when it opens, then continue with new messages. Do not assume a stream contains
+only messages sent after it starts. Make app side effects safe to repeat.
 
 | Consumer                           | When the SDK acknowledges a message                                                                           |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -244,6 +249,14 @@ JavaScript message streams keep the old retry options in their types but ignore
 `retry*`, `onFail`, `onRetry`, `onRestart`, and `disableSync`. The core handles
 retryable network recovery. This change applies to message streams; do not
 assume every conversation or preference stream has the same behavior.
+
+### Streams can replace manual syncing
+
+If your app streams messages, you no longer need to call `conversation.sync()` or
+`syncAllConversations` to receive them. The stream does the network catch-up and
+records its own progress. For most apps, streams fully replace manual syncing.
+Keep an explicit sync only for a specific case, such as a one-time read in a
+background handler where no stream runs. See [Sync](/sdk/sync/).
 
 | New API                                                                                                  | Use                                                                                                                                                             |
 | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
