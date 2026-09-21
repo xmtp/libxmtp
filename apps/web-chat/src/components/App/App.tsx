@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from "react-router";
 import { AppLayout } from "@/components/App/AppLayout";
+import { AuthTokenModal } from "@/components/App/AuthTokenModal";
 import { BasicLayout } from "@/components/App/BasicLayout";
 import { Disconnect } from "@/components/App/Disconnect";
 import { ErrorModal } from "@/components/App/ErrorModal";
@@ -25,6 +26,7 @@ export const App: React.FC = () => {
   return (
     <>
       <ErrorModal />
+      <AuthTokenModal />
       <SwitchBackendModal />
       <Routes>
         <Route path="/" element={<BasicLayout />}>

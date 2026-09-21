@@ -4,8 +4,10 @@ import { AppLockDisconnectModal } from "@/components/App/AppLockDisconnectModal"
 import { AppLockModal } from "@/components/App/AppLockModal";
 import { ConnectedAddress } from "@/components/App/ConnectedAddress";
 import { LoggingSelect } from "@/components/App/LoggingSelect";
+import { AuthTokenInput } from "@/components/App/AuthTokenInput";
 import { BackendUrlInput } from "@/components/App/BackendUrlInput";
 import { useXMTP } from "@/contexts/XMTPContext";
+import { isValidBackendUrl } from "@/helpers/backend";
 import { useConnectXmtp } from "@/hooks/useConnectXmtp";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useSettings } from "@/hooks/useSettings";
@@ -16,7 +18,9 @@ export const ConnectXMTP: React.FC = () => {
   const { isConnected, address, disconnect } = useWallet();
   const { address: ephemeralAddress } = useEphemeralSigner();
   const { connect, loading } = useConnectXmtp();
-  const { ephemeralAccountEnabled, setEphemeralAccountEnabled } = useSettings();
+  const { backendUrl, ephemeralAccountEnabled, setEphemeralAccountEnabled } =
+    useSettings();
+  const hasBackendUrl = isValidBackendUrl(backendUrl);
   const { lockState } = useXMTP();
   const [showLockModal, setShowLockModal] = useState(false);
   const [showDisconnectModal, setShowDisconnectModal] = useState(false);
@@ -55,6 +59,7 @@ export const ConnectXMTP: React.FC = () => {
         <Stack gap="xs">
           <Stack gap="md" p="md">
             <BackendUrlInput />
+            <AuthTokenInput />
             <LoggingSelect />
           </Stack>
           <Group
@@ -70,7 +75,9 @@ export const ConnectXMTP: React.FC = () => {
             />
             <Group gap="xs" align="center">
               <Button
-                disabled={!isConnected && !ephemeralAccountEnabled}
+                disabled={
+                  !hasBackendUrl || (!isConnected && !ephemeralAccountEnabled)
+                }
                 onClick={handleConnectClick}
                 loading={loading}
               >

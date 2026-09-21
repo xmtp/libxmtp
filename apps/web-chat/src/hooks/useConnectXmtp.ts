@@ -1,8 +1,11 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { hexToUint8Array } from "uint8array-extras";
 import { useAccount, useSignMessage } from "wagmi";
+import type { AuthCallback } from "@xmtp/browser-sdk";
+import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useXMTP } from "@/contexts/XMTPContext";
+import { isValidBackendUrl } from "@/helpers/backend";
 import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useSettings } from "@/hooks/useSettings";
@@ -11,6 +14,12 @@ export const useConnectXmtp = () => {
   const navigate = useNavigate();
   const { signer: ephemeralSigner } = useEphemeralSigner();
   const { initializing, client, initialize, lockState } = useXMTP();
+  const { createAuthCallback } = useAuthToken();
+  // One callback for this app's client, kept for the hook's lifetime so its
+  // memo of offered tokens matches that client's credential cache.
+  const authCallbackRef = useRef<AuthCallback | null>(null);
+  authCallbackRef.current ??= createAuthCallback();
+  const authCallback = authCallbackRef.current;
   const account = useAccount();
   const { signMessageAsync } = useSignMessage();
   const {
@@ -32,9 +41,20 @@ export const useConnectXmtp = () => {
       return;
     }
 
+    // Client.create throws "backendUrl is required" on an empty URL, which
+    // surfaces as an unhandled rejection in the application error modal. The
+    // deployed app ships with no default backend, so guard here as well as in
+    // the disabled Connect button: a stored autoConnect with a cleared URL
+    // reaches this path without a click.
+    if (!isValidBackendUrl(backendUrl)) {
+      setAutoConnect(false);
+      return;
+    }
+
     // connect ephemeral account if enabled
     if (ephemeralAccountEnabled) {
       initialize({
+        authCallback,
         backendUrl,
         dbEncryptionKey: encryptionKey
           ? hexToUint8Array(encryptionKey)
@@ -59,6 +79,7 @@ export const useConnectXmtp = () => {
     }
 
     initialize({
+      authCallback,
       backendUrl,
       dbEncryptionKey: encryptionKey
         ? hexToUint8Array(encryptionKey)
@@ -85,6 +106,7 @@ export const useConnectXmtp = () => {
   }, [
     account.address,
     account.chainId,
+    authCallback,
     client,
     blockchain,
     encryptionKey,

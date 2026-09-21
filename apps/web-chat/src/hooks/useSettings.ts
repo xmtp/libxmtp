@@ -33,6 +33,11 @@ export const useSettings = () => {
       defaultValue: null,
       getInitialValueInEffect: false,
     });
+  const [authToken, setAuthToken] = useLocalStorage({
+    key: "XMTP_AUTH_TOKEN",
+    defaultValue: "",
+    getInitialValueInEffect: false,
+  });
   const [encryptionKey, setEncryptionKey] = useLocalStorage({
     key: "XMTP_ENCRYPTION_KEY",
     defaultValue: "",
@@ -90,6 +95,7 @@ export const useSettings = () => {
   }, [loggingLevel]);
 
   return {
+    authToken,
     autoConnect,
     backendUrl,
     blockchain,
@@ -101,6 +107,7 @@ export const useSettings = () => {
     loggingLevel,
     useSCW,
     showDisclaimer,
+    setAuthToken,
     setAutoConnect,
     setBlockchain,
     setConnector,

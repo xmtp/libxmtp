@@ -91,6 +91,14 @@ jobs:
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
         working-directory: apps/web-chat
         run: |
+          # A project-scoped token (vcp_ prefix) can read the project over the
+          # REST API but cannot list teams or identify a user, and the CLI
+          # resolves scope before anything else. It fails with "Could not
+          # retrieve Project Settings", which does not name the real cause.
+          if [[ "$VERCEL_TOKEN" == vcp_* ]]; then
+            echo "::error::VERCEL_TOKEN looks project-scoped (vcp_). The Vercel CLI needs an account token from Account Settings > Tokens with access to the XMTP Labs team."
+            exit 1
+          fi
           npx --yes vercel@48 pull --yes --environment=production --token="$VERCEL_TOKEN"
           npx --yes vercel@48 build --prod --token="$VERCEL_TOKEN"
           url="$(npx --yes vercel@48 deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
