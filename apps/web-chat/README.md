@@ -33,8 +33,9 @@ dev/nix-shell 'just web-chat dev'
 
 ## Deployment
 
-A merge to `self-hosted` deploys this app to Vercel with
-`.github/workflows/deploy-web-chat.yml`. Pull requests do not deploy.
+The app is deployed at <https://self-hosted.xmtp.chat>. A merge to
+`self-hosted` deploys it with `.github/workflows/deploy-web-chat.yml`. Pull
+requests do not deploy.
 
 The build runs in GitHub Actions under Nix, not on Vercel. The app resolves
 `@xmtp/browser-sdk` through a `portal:` dependency, and that SDK resolves
@@ -44,8 +45,10 @@ toolchain, so the workflow builds `dist/` and uploads it with
 `vercel deploy --prebuilt`. Vercel serves static files only.
 
 The deployed app has no default backend URL. Each user enters one in the
-settings panel. `XMTP_BACKEND_URL` is inlined at build time, so a value set in
-the Vercel dashboard has no effect; change it in the workflow instead.
+settings panel. `XMTP_BACKEND_URL` and `VITE_PROJECT_ID` are inlined by Vite at
+build time, so values set in the Vercel dashboard have no effect; change them in
+the workflow instead. Both must be set on the deploy step as well as the build
+step, because `vercel build` re-runs Vite.
 
 The workflow needs these repository secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
 `VERCEL_PROJECT_ID`, and `WALLETCONNECT_PROJECT_ID`.

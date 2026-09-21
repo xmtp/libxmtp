@@ -66,12 +66,12 @@ jobs:
         run: |
           just js install-ci
           just web-chat install-ci
-      - name: Build the linked SDK and the app
+      # Builds the WASM bindings and the linked browser SDK, which `vercel
+      # build` below cannot do. It also produces dist/, which vercel rebuilds;
+      # that rebuild is cheap and reuses everything staged here.
+      - name: Build the linked SDK
         if: steps.current.outputs.deploy == 'true'
         env:
-          # Deliberately empty: the deployed app ships with no default backend
-          # and each user enters one in the settings panel. Vite inlines this
-          # at build time, so it cannot be set on the Vercel side.
           XMTP_BACKEND_URL: ""
           VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
         run: just web-chat build
@@ -82,11 +82,16 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          # `vercel build` re-runs Vite despite vercel.json's buildCommand:
+          # null, so these must be in scope here too. Without them the
+          # deployed bundle inlines an empty WalletConnect id and wallet
+          # connection silently breaks. Vite inlines both at build time, so
+          # setting them in the Vercel dashboard has no effect.
+          XMTP_BACKEND_URL: ""
+          VITE_PROJECT_ID: ${{ secrets.WALLETCONNECT_PROJECT_ID }}
         working-directory: apps/web-chat
         run: |
           npx --yes vercel@48 pull --yes --environment=production --token="$VERCEL_TOKEN"
-          # dist/ is already built above; `vercel build` only packages it into
-          # .vercel/output, because vercel.json sets no build command.
           npx --yes vercel@48 build --prod --token="$VERCEL_TOKEN"
           url="$(npx --yes vercel@48 deploy --prebuilt --prod --token="$VERCEL_TOKEN")"
           echo "url=$url" >> "$GITHUB_OUTPUT"
