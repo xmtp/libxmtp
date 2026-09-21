@@ -7,8 +7,13 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { Client, type Installation, type Signer } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useState } from "react";
+import {
+  Client,
+  type AuthCallback,
+  type Installation,
+  type Signer,
+} from "@xmtp/browser-sdk";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Outlet } from "react-router";
 import { useSignMessage } from "wagmi";
 import { ConnectedAddress } from "@/components/App/ConnectedAddress";
@@ -56,7 +61,12 @@ export const InboxTools: React.FC = () => {
     ephemeralAccountEnabled,
     setEphemeralAccountEnabled,
   } = useSettings();
-  const { authCallback } = useAuthToken();
+  const { createAuthCallback } = useAuthToken();
+  // The inbox tools statics build their own short-lived clients, separate from
+  // the app's client, so they get their own callback and their own memo.
+  const authCallbackRef = useRef<AuthCallback | null>(null);
+  authCallbackRef.current ??= createAuthCallback();
+  const authCallback = authCallbackRef.current;
   const [active, setActive] = useState(1);
 
   const handleFindInstallations = useCallback(async () => {

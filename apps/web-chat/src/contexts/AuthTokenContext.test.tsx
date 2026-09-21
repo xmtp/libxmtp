@@ -29,51 +29,59 @@ describe("AuthTokenProvider", () => {
     localStorage.clear();
   });
 
-  it("prompts when no token is stored and resolves what the user submits", async () => {
+  it("probes with an empty credential so an open backend connects untouched", async () => {
     const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
+
+    // The middleware asks before the first request whether or not the
+    // deployment requires auth, so the first ask must not interrupt the user.
+    await expect(callback()).resolves.toMatchObject({ value: "" });
+    expect(result.current.request).toBeNull();
+  });
+
+  it("prompts once the empty probe is refused", async () => {
+    const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
+    await callback();
 
     let credential: Promise<{ value: string }> | undefined;
     act(() => {
-      credential = result.current.authCallback();
+      credential = callback();
     });
-    // The promise stays pending so the backend waits rather than failing.
     expect(result.current.request).not.toBeNull();
+    // Nothing was supplied yet, so this is a first ask, not a rejection.
     expect(result.current.request?.rejected).toBe(false);
 
     act(() => {
       result.current.request?.resolve("abc123");
     });
-    await expect(credential).resolves.toMatchObject({
-      value: "Bearer abc123",
-    });
+    await expect(credential).resolves.toMatchObject({ value: "Bearer abc123" });
     expect(result.current.request).toBeNull();
   });
 
-  it("resolves from storage without prompting", async () => {
+  it("offers a stored token before prompting", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stored-token"));
     const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
 
-    const credential = result.current.authCallback();
-    await expect(credential).resolves.toMatchObject({
+    await expect(callback()).resolves.toMatchObject({
       value: "Bearer stored-token",
     });
     expect(result.current.request).toBeNull();
   });
 
-  it("prompts as rejected when the backend asks again for the same token", async () => {
+  it("reports a rejection when the same consumer is asked again", async () => {
     localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
     const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
 
-    // First ask is satisfied from storage.
-    await expect(result.current.authCallback()).resolves.toMatchObject({
+    await expect(callback()).resolves.toMatchObject({
       value: "Bearer stale-token",
     });
 
-    // A second ask for the same value means the backend rejected it, so the
-    // user is prompted rather than handed the known-bad token again.
     let credential: Promise<{ value: string }> | undefined;
     act(() => {
-      credential = result.current.authCallback();
+      credential = callback();
     });
     expect(result.current.request?.rejected).toBe(true);
 
@@ -81,6 +89,72 @@ describe("AuthTokenProvider", () => {
       result.current.request?.resolve("fresh-token");
     });
     await expect(credential).resolves.toMatchObject({
+      value: "Bearer fresh-token",
+    });
+  });
+
+  it("does not treat a new consumer's first ask as a rejection", async () => {
+    localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("good-token"));
+    const { result } = renderAuthToken();
+
+    // A reconnect, or an inbox tools query, builds a separate client with its
+    // own credential cache. Its first ask must be answered from storage.
+    const first = result.current.createAuthCallback();
+    await expect(first()).resolves.toMatchObject({
+      value: "Bearer good-token",
+    });
+
+    const second = result.current.createAuthCallback();
+    await expect(second()).resolves.toMatchObject({
+      value: "Bearer good-token",
+    });
+    expect(result.current.request).toBeNull();
+  });
+
+  it("resolves every concurrent waiter from one submission", async () => {
+    localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
+    const { result } = renderAuthToken();
+    const first = result.current.createAuthCallback();
+    const second = result.current.createAuthCallback();
+
+    // Both consumers offer the stale token and are refused.
+    await first();
+    await second();
+
+    let a: Promise<{ value: string }> | undefined;
+    let b: Promise<{ value: string }> | undefined;
+    act(() => {
+      a = first();
+      b = second();
+    });
+    expect(result.current.request).not.toBeNull();
+
+    act(() => {
+      result.current.request?.resolve("fresh-token");
+    });
+
+    // Neither call may be left pending: an unresolved callback holds the
+    // backend's refresh lock and never releases its client resources.
+    await expect(a).resolves.toMatchObject({ value: "Bearer fresh-token" });
+    await expect(b).resolves.toMatchObject({ value: "Bearer fresh-token" });
+  });
+
+  it("offers a newly entered token to a consumer that was already refused", async () => {
+    localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify("stale-token"));
+    const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
+    await callback();
+
+    act(() => {
+      void callback();
+    });
+    act(() => {
+      result.current.request?.resolve("fresh-token");
+    });
+
+    // The consumer already refused "stale-token"; the token entered since is
+    // newer, so it is offered rather than read as already refused.
+    await expect(callback()).resolves.toMatchObject({
       value: "Bearer fresh-token",
     });
   });
@@ -98,8 +172,8 @@ describe("AuthTokenProvider", () => {
     });
     expect(result.current.request).toBeNull();
 
-    // The token entered up front satisfies the first backend request.
-    await expect(result.current.authCallback()).resolves.toMatchObject({
+    const callback = result.current.createAuthCallback();
+    await expect(callback()).resolves.toMatchObject({
       value: "Bearer early-token",
     });
   });

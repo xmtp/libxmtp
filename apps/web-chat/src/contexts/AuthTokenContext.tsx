@@ -27,23 +27,38 @@ export const withBearerPrefix = (token: string): string => {
   return /^\S+\s/.test(trimmed) ? trimmed : `Bearer ${trimmed}`;
 };
 
-type PendingRequest = {
+/**
+ * The middleware asks for a credential before the first request on every
+ * client, whether or not the deployment requires one, because a client cannot
+ * know until it has asked. Answering the first ask with an empty credential
+ * lets an unauthenticated backend connect untouched; a deployment that does
+ * require auth rejects it and asks again, which is when we prompt.
+ */
+const EMPTY_TOKEN_PROBE = "";
+
+export type AuthTokenRequest = {
   /** Set when the backend rejected a token we already supplied. */
   rejected: boolean;
+  /** Resolves every callback waiting on this prompt. */
   resolve: (token: string) => void;
 };
 
 export type AuthTokenContextValue = {
-  /** Passed to the client. Resolves from storage, or prompts when it cannot. */
-  authCallback: AuthCallback;
+  /**
+   * Builds a callback for one consumer. Each SDK client keeps its own
+   * credential cache, so each gets its own memo of what it has offered:
+   * a memo shared across clients would read a fresh client's first ask as a
+   * rejection of a token that client never sent.
+   */
+  createAuthCallback: () => AuthCallback;
   /** Non-null while the modal should be open. */
-  request: PendingRequest | null;
+  request: AuthTokenRequest | null;
   /** Open the prompt from the settings panel, outside a backend request. */
   promptForToken: () => void;
 };
 
 export const AuthTokenContext = createContext<AuthTokenContextValue>({
-  authCallback: () =>
+  createAuthCallback: () => () =>
     Promise.reject(new Error("AuthTokenProvider not available")),
   request: null,
   promptForToken: () => {},
@@ -53,66 +68,107 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
   const { authToken, setAuthToken } = useSettings();
-  const [request, setRequest] = useState<PendingRequest | null>(null);
-  // The value last handed to the SDK. A second ask for the same value means the
-  // backend rejected it, so prompt instead of resubmitting a known-bad token.
-  const suppliedRef = useRef<string | null>(null);
+  const [request, setRequest] = useState<AuthTokenRequest | null>(null);
   // Read inside the callback so a token saved after the client was built is
   // picked up without rebuilding the callback identity.
   const authTokenRef = useRef(authToken);
   authTokenRef.current = authToken;
+  // Every callback waiting on the open prompt. Concurrent asks — a reconnect
+  // and an inbox tools query, say — must all be answered by one submission;
+  // keeping a single resolver would strand every ask but the newest.
+  const waitingRef = useRef<((token: string) => void)[]>([]);
+  // Bumped whenever the user submits a token. A consumer's memo is discarded
+  // when it is stale, so a token entered after a rejection is offered to every
+  // client rather than being treated as already refused.
+  const generationRef = useRef(0);
 
   const credentialFor = useCallback(
     (token: string): Credential => ({
-      value: withBearerPrefix(token),
+      value: token === "" ? "" : withBearerPrefix(token),
       expiresAtSeconds: Math.floor(Date.now() / 1000) + TOKEN_LIFETIME_SECONDS,
     }),
     [],
   );
 
-  const authCallback = useCallback<AuthCallback>(() => {
-    const stored = authTokenRef.current.trim();
-    const alreadyRejected = stored !== "" && suppliedRef.current === stored;
-    if (stored !== "" && !alreadyRejected) {
-      suppliedRef.current = stored;
-      return Promise.resolve(credentialFor(stored));
-    }
-    // Hold the promise until the user submits. Rejecting here would fail the
-    // request that triggered this and, repeated, reach the backend's
-    // consecutive-failure lockout; the middleware is built to await instead.
-    return new Promise<Credential>((resolve) => {
-      setRequest({
-        rejected: alreadyRejected,
-        resolve: (token: string) => {
-          suppliedRef.current = token.trim();
-          setAuthToken(token.trim());
-          setRequest(null);
+  const openPrompt = useCallback(
+    (rejected: boolean) => {
+      setRequest(
+        (current) =>
+          current ?? {
+            rejected,
+            resolve: (token: string) => {
+              const trimmed = token.trim();
+              generationRef.current += 1;
+              setAuthToken(trimmed);
+              setRequest(null);
+              const waiting = waitingRef.current;
+              waitingRef.current = [];
+              for (const resolve of waiting) resolve(trimmed);
+            },
+          },
+      );
+      // A prompt already open for a first ask becomes a rejection notice when a
+      // later ask proves the supplied credential was refused.
+      if (rejected) {
+        setRequest((current) =>
+          current && !current.rejected
+            ? { ...current, rejected: true }
+            : current,
+        );
+      }
+    },
+    [setAuthToken],
+  );
+
+  const createAuthCallback = useCallback<() => AuthCallback>(() => {
+    // Per consumer, matching one SDK credential cache.
+    let supplied = new Set<string>();
+    let generation = generationRef.current;
+
+    return () => {
+      if (generation !== generationRef.current) {
+        // A newer token exists than anything this consumer has offered.
+        supplied = new Set<string>();
+        generation = generationRef.current;
+      }
+      const stored = authTokenRef.current.trim();
+
+      // A token this consumer has not yet offered: hand it over and wait to
+      // see whether the backend accepts it.
+      if (stored !== "" && !supplied.has(stored)) {
+        supplied.add(stored);
+        return Promise.resolve(credentialFor(stored));
+      }
+
+      // No token stored, and this consumer has not probed yet. The deployment
+      // may not want one at all, so answer with an empty credential rather
+      // than interrupting the user. A deployment that needs auth rejects this
+      // and asks again.
+      if (stored === "" && !supplied.has(EMPTY_TOKEN_PROBE)) {
+        supplied.add(EMPTY_TOKEN_PROBE);
+        return Promise.resolve(credentialFor(EMPTY_TOKEN_PROBE));
+      }
+
+      // Everything this consumer has has been offered and refused. Hold the
+      // promise until the user submits: rejecting would fail the request that
+      // triggered this and, repeated, reach the backend's consecutive-failure
+      // lockout.
+      return new Promise<Credential>((resolve) => {
+        waitingRef.current.push((token: string) => {
           resolve(credentialFor(token));
-        },
+        });
+        openPrompt(stored !== "");
       });
-    });
-  }, [credentialFor, setAuthToken]);
+    };
+  }, [credentialFor, openPrompt]);
 
   const promptForToken = useCallback(() => {
-    setRequest(
-      (current) =>
-        current ?? {
-          rejected: false,
-          resolve: (token: string) => {
-            // Entered ahead of any backend request, so there is no pending
-            // credential to satisfy. Clear the rejection memo so the next ask
-            // uses this token.
-            suppliedRef.current = null;
-            setAuthToken(token.trim());
-            setRequest(null);
-          },
-        },
-    );
-  }, [setAuthToken]);
+    openPrompt(false);
+  }, [openPrompt]);
 
   const value = useMemo(
-    () => ({ authCallback, request, promptForToken }),
-    [authCallback, request, promptForToken],
+    () => ({ createAuthCallback, request, promptForToken }),
+    [createAuthCallback, request, promptForToken],
   );
 
   return (

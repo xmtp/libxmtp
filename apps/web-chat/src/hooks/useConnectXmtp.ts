@@ -1,7 +1,8 @@
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { hexToUint8Array } from "uint8array-extras";
 import { useAccount, useSignMessage } from "wagmi";
+import type { AuthCallback } from "@xmtp/browser-sdk";
 import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { isValidBackendUrl } from "@/helpers/backend";
@@ -13,7 +14,12 @@ export const useConnectXmtp = () => {
   const navigate = useNavigate();
   const { signer: ephemeralSigner } = useEphemeralSigner();
   const { initializing, client, initialize, lockState } = useXMTP();
-  const { authCallback } = useAuthToken();
+  const { createAuthCallback } = useAuthToken();
+  // One callback for this app's client, kept for the hook's lifetime so its
+  // memo of offered tokens matches that client's credential cache.
+  const authCallbackRef = useRef<AuthCallback | null>(null);
+  authCallbackRef.current ??= createAuthCallback();
+  const authCallback = authCallbackRef.current;
   const account = useAccount();
   const { signMessageAsync } = useSignMessage();
   const {
