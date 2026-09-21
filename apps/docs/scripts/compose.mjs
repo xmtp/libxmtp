@@ -73,20 +73,27 @@ export async function writeRedirects(siteRoot, redirects) {
   }
 }
 
-export async function installLlmsFull(siteRoot) {
-  const source = join(siteRoot, "_llms-txt/developer-guide.txt");
-  await stat(source);
-  await cp(source, join(siteRoot, "llms-full.txt"), { force: true });
+export async function installLlmsExports(siteRoot) {
   const indexPath = join(siteRoot, "llms.txt");
-  const index = await readFile(indexPath, "utf8");
-  const updated = index.replaceAll(
-    "/_llms-txt/developer-guide.txt",
-    "/llms-full.txt",
-  );
-  if (updated === index && !index.includes("/llms-full.txt")) {
-    throw new Error("llms.txt does not link to the full developer guide");
+  let index = await readFile(indexPath, "utf8");
+  for (const [source, target] of [
+    ["_llms-txt/developer-guide.txt", "llms-full.txt"],
+    ["_llms-txt/specs.txt", "llms-specs.txt"],
+  ]) {
+    if (!index.includes(`/${source}`)) {
+      throw new Error(`llms.txt does not link to ${source}`);
+    }
+    await cp(join(siteRoot, source), join(siteRoot, target), { force: true });
+    index = index.replaceAll(`/${source}`, `/${target}`);
   }
-  await writeFile(indexPath, updated);
+  // The plugin's default full set is replaced by the focused developer guide.
+  index = index
+    .replace(/^- \[Complete documentation\].*\n?/gm, "")
+    .replace(
+      "- The complete documentation includes all content from the official documentation",
+      "- Start with the developer guide. Load the specs separately for protocol requirements.",
+    );
+  await writeFile(indexPath, index);
 }
 
 export async function compose({
@@ -105,7 +112,7 @@ export async function compose({
   let backup;
   try {
     await copyTree(source, stage);
-    await installLlmsFull(stage);
+    await installLlmsExports(stage);
     if (installReferences) await installReferences({ siteRoot: stage });
     const redirects = JSON.parse(await readFile(redirectsPath, "utf8"));
     await writeRedirects(stage, redirects);

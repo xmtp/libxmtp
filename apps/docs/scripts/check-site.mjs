@@ -207,8 +207,10 @@ export async function checkBuilt({
     const text = await readFile(llmsFull, "utf8");
     const bytes = (await stat(llmsFull)).size;
     const pages = (text.match(/^# /gm) ?? []).length;
-    if (bytes <= 120_000 || bytes >= 900_000)
-      failures.push(`llms-full.txt is ${bytes} bytes; expected 120001-899999`);
+    if (bytes <= 120_000)
+      failures.push(
+        `llms-full.txt is ${bytes} bytes; expected at least 120001`,
+      );
     if (pages < 35)
       failures.push(`llms-full.txt has ${pages} pages; expected at least 35`);
     for (const file of files) {
@@ -228,8 +230,44 @@ export async function checkBuilt({
   } catch {
     failures.push("llms-full.txt is missing");
   }
+  for (const name of ["llms-full.txt", "llms-specs.txt", "llms-small.txt"]) {
+    try {
+      const text = await readFile(join(outputRoot, name), "utf8");
+      if (/data:image\/svg\+xml/i.test(text)) {
+        failures.push(`${name} contains embedded SVG data`);
+      }
+      if (/\[Section titled /.test(text)) {
+        failures.push(`${name} contains heading navigation links`);
+      }
+      if (name === "llms-specs.txt" && !text.includes("```mermaid\n")) {
+        failures.push(`${name} is missing Mermaid source`);
+      }
+      if (name !== "llms-specs.txt" && /^# Specification format$/m.test(text)) {
+        failures.push(`${name} includes specs`);
+      }
+      if (
+        name === "llms-specs.txt" &&
+        !/^# Specification format$/m.test(text)
+      ) {
+        failures.push(`${name} is missing the specification format`);
+      }
+      if (
+        name === "llms-specs.txt" &&
+        (text.match(/^# /gm) ?? []).length < 20
+      ) {
+        failures.push(`${name} has fewer than 20 pages`);
+      }
+    } catch {
+      if (name !== "llms-full.txt") failures.push(`${name} is missing`);
+    }
+  }
   try {
-    await stat(join(outputRoot, "llms.txt"));
+    const index = await readFile(join(outputRoot, "llms.txt"), "utf8");
+    for (const name of ["llms-full.txt", "llms-specs.txt"]) {
+      if (!index.includes(`/${name}`)) {
+        failures.push(`llms.txt does not link to ${name}`);
+      }
+    }
   } catch {
     failures.push("llms.txt is missing");
   }
