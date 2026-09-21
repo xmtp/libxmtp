@@ -2,15 +2,23 @@ import { PasswordInput, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useSettings } from "@/hooks/useSettings";
+import { useServerAuthConfig } from "@/hooks/useServerAuthConfig";
 
 export const AuthTokenInput: React.FC = () => {
   const { lockState } = useXMTP();
-  const { authToken, setAuthToken } = useSettings();
+  const { authToken, backendUrl, setAuthToken } = useSettings();
+  const { required, requiredScopes, loading } = useServerAuthConfig(backendUrl);
   const [value, setValue] = useState(authToken);
 
   useEffect(() => {
     setValue(authToken);
   }, [authToken]);
+
+  // The backend says it needs no credential. Keep the field when a token is
+  // already stored, so a user can see and clear one they entered earlier.
+  if (!required && authToken === "") {
+    return null;
+  }
 
   return (
     <Stack gap="xs">
@@ -21,7 +29,7 @@ export const AuthTokenInput: React.FC = () => {
         aria-label="Backend auth token"
         value={value}
         disabled={lockState !== "available"}
-        placeholder="Only for backends that require one"
+        placeholder={loading ? "Checking the backend…" : "Paste the token"}
         onChange={(event) => {
           setValue(event.currentTarget.value);
         }}
@@ -30,8 +38,11 @@ export const AuthTokenInput: React.FC = () => {
         }}
       />
       <Text size="sm">
-        Leave empty unless the backend requires a credential. You are prompted
-        if it does.
+        {!required
+          ? "This backend does not require a token. Clear the field to stop sending one."
+          : requiredScopes.length > 0
+            ? `This backend requires a token with: ${requiredScopes.join(", ")}`
+            : "This backend requires a token. You are prompted if it is missing or rejected."}
       </Text>
     </Stack>
   );
