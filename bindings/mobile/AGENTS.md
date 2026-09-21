@@ -54,3 +54,6 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 
 Auth callback bridges return only `auth callback failed` on failure. Never retain
 or log callback error text or credential values. The middleware owns retryability.
+`FfiAuthCallback` uses the non-flat `FfiAuthCallbackError` so UniFFI can lift
+foreign callback failures. Do not use the flat `FfiError` here; it cannot be
+lifted and aborts the process when a callback throws.

@@ -1,5 +1,6 @@
 import init, { BackendBuilder, type Backend } from "@xmtp/wasm-bindings";
 import type { NetworkOptions } from "@/types/options";
+import { readCredential } from "./auth";
 
 export const createBackend = async (
   options: NetworkOptions,
@@ -13,5 +14,17 @@ export const createBackend = async (
   if (options.env !== undefined) builder = builder.setEnv(options.env);
   if (options.appVersion !== undefined)
     builder = builder.setAppVersion(options.appVersion);
+  if (options.authCallback) {
+    const callback = options.authCallback;
+    builder.authCallback({
+      async on_auth_required() {
+        const credential = await readCredential(callback);
+        return {
+          ...credential,
+          expiresAtSeconds: BigInt(credential.expiresAtSeconds),
+        };
+      },
+    });
+  }
   return builder.build();
 };

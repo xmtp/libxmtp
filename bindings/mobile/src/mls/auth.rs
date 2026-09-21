@@ -41,10 +41,26 @@ impl From<FfiAuthHandle> for xmtp_api_backend::AuthHandle {
     }
 }
 
+/// Error returned by a foreign auth callback. It carries no app error text.
+/// This must not be a flat error: UniFFI must lift it back into Rust.
+#[derive(Debug, thiserror::Error, xmtp_common::ErrorCode, uniffi::Error)]
+#[error_code(internal)]
+pub enum FfiAuthCallbackError {
+    /// The callback failed. The auth middleware controls retries.
+    #[error("auth callback failed")]
+    Failed,
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for FfiAuthCallbackError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed
+    }
+}
+
 #[uniffi::export(with_foreign)]
 #[xmtp_common::async_trait]
 pub trait FfiAuthCallback: Send + Sync + 'static {
-    async fn on_auth_required(&self) -> Result<FfiCredential, FfiError>;
+    async fn on_auth_required(&self) -> Result<FfiCredential, FfiAuthCallbackError>;
 }
 
 impl TryFrom<FfiCredential> for xmtp_api_backend::Credential {

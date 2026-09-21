@@ -242,7 +242,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     this.#client = client;
   }
 
-  /** Create an agent and client. Device sync defaults to disabled for agents. */
+  /** Create an agent and client. `authCallback` supplies backend credentials. Device sync defaults to disabled. */
   static async create<ContentCodecs extends ContentCodec[] = []>(
     signer: Parameters<typeof Client.create>[0],
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
@@ -282,7 +282,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     return new Agent({ client });
   }
 
-  /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backendUrl`; one must be supplied. */
+  /** Create an agent from `XMTP_*` variables. `XMTP_BACKEND_URL` overrides `options.backendUrl`; one must be supplied. Pass `authCallback` in options for backend authentication. */
   static async createFromEnv<ContentCodecs extends ContentCodec[] = []>(
     // Note: we need to omit this so that "Client.create" can correctly infer the codecs.
     options?: Partial<AgentCreateOptions<ContentCodecs>>,

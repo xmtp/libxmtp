@@ -25,6 +25,18 @@ import type { HexString } from "./utils/validation";
 /**
  * Network options
  */
+/** A backend credential. Include the `Bearer ` prefix when required. */
+export type Credential = {
+  /** Header name. Defaults to `authorization`. */
+  name?: string;
+  value: string;
+  /** Expiration as Unix seconds. Must be a safe integer. */
+  expiresAtSeconds: number;
+};
+
+/** Called when the backend needs a credential, including credential refresh. */
+export type AuthCallback = () => Promise<Credential>;
+
 export type NetworkOptions = {
   /** Backend URL, including the HTTP or HTTPS scheme. */
   backendUrl: string;
@@ -32,6 +44,8 @@ export type NetworkOptions = {
   env?: string;
   /** Custom app version. */
   appVersion?: string;
+  /** Supply backend credentials. Separate from the XMTP identity signer. */
+  authCallback?: AuthCallback;
 };
 
 /**

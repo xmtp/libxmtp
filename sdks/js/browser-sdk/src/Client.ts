@@ -87,6 +87,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   #libxmtpVersion?: string;
   #options?: ClientOptions;
   #closePromise?: Promise<void>;
+  #hasAuthCallback = false;
   #preferences: Preferences;
   #serverConfiguration?: ServerConfiguration;
   #signer?: Signer;
@@ -101,6 +102,11 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * @param options - Optional configuration for the client
    */
   constructor(options?: ClientOptions) {
+    if (options && "backend" in options) {
+      throw new Error(
+        "Browser clients require backendUrl and optional authCallback; a pre-built Backend cannot be transferred to the worker",
+      );
+    }
     /*
      * The Browser SDK runs XMTP's WASM bindings inside a Web Worker.
      * The SDK sends options to the worker via postMessage(), which uses the
@@ -122,9 +128,17 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
     const enableLogging =
       options?.loggingLevel !== undefined &&
       options.loggingLevel !== LogLevel.Off;
-    this.#worker = new WorkerBridge<ClientWorkerAction>(worker, enableLogging);
+    this.#worker = new WorkerBridge<ClientWorkerAction>(
+      worker,
+      enableLogging,
+      options?.authCallback,
+    );
     this.#codecRegistry = new CodecRegistry([...(options?.codecs ?? [])]);
-    this.#options = options;
+    if (options) {
+      const { authCallback: _authCallback, ...workerOptions } = options;
+      this.#options = workerOptions;
+      this.#hasAuthCallback = _authCallback !== undefined;
+    }
     this.#conversations = new Conversations(
       this,
       this.#worker,
@@ -148,6 +162,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       result = await this.#worker.action("client.init", {
         identifier,
         options: this.#options,
+        hasAuthCallback: this.#hasAuthCallback,
       });
     } catch (error) {
       // A build resolves the server configuration first, so its failures are

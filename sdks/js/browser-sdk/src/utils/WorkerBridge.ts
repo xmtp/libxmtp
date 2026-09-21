@@ -12,6 +12,9 @@ import type {
   StreamActionErrorData,
 } from "@/types/actions/streams";
 import type { StreamOptions } from "@/utils/streams";
+import type { AuthCallback } from "@/types/options";
+import { readCredential } from "./auth";
+import type { AuthRequest, AuthResponse } from "./WorkerAuth";
 import { uuid } from "@/utils/uuid";
 
 /**
@@ -38,7 +41,11 @@ export class WorkerBridge<T extends UnknownAction> {
     }
   >();
 
-  constructor(worker: Worker, enableLogging?: boolean) {
+  constructor(
+    worker: Worker,
+    enableLogging?: boolean,
+    private readonly authCallback?: AuthCallback,
+  ) {
     this.#worker = worker;
     this.#worker.addEventListener("message", this.handleMessage);
     this.#worker.addEventListener("error", this.handleError);
@@ -79,9 +86,16 @@ export class WorkerBridge<T extends UnknownAction> {
    * @param event - The event to handle
    */
   handleMessage = (
-    event: MessageEvent<ActionWithoutData<T> | ActionErrorData<T>>,
+    event: MessageEvent<
+      ActionWithoutData<T> | ActionErrorData<T> | AuthRequest
+    >,
   ) => {
     const eventData = event.data;
+    // Credentials and callback failures must never enter diagnostic logging.
+    if (eventData.action === "auth.request") {
+      void this.#authenticate(eventData.id);
+      return;
+    }
     if (this.#enableLogging) {
       console.log("[worker] client received event data", eventData);
     }
@@ -91,10 +105,32 @@ export class WorkerBridge<T extends UnknownAction> {
       if ("error" in eventData) {
         promise.reject(eventData.error);
       } else {
-        promise.resolve(eventData.result);
+        promise.resolve("result" in eventData ? eventData.result : undefined);
       }
     }
   };
+
+  async #authenticate(id: string) {
+    if (this.#closed) return;
+    let response: AuthResponse;
+    try {
+      if (!this.authCallback) throw new Error();
+      response = {
+        action: "auth.response",
+        id,
+        credential: await readCredential(this.authCallback),
+      };
+    } catch {
+      response = { action: "auth.response", id, failed: true };
+    }
+    if (!this.isClosed) {
+      try {
+        this.#worker.postMessage(response);
+      } catch {
+        this.close(new Error("auth callback failed"));
+      }
+    }
+  }
 
   handleError = (event: ErrorEvent) => {
     console.error(`[worker] error: ${event.message}`);

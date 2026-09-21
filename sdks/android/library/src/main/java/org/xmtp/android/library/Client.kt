@@ -70,6 +70,7 @@ data class ClientOptions(
         val backendUrl: String,
         val env: String = "local",
         val appVersion: String? = null,
+        val authCallback: AuthCallback? = null,
     ) {
         init {
             require(backendUrl.isNotBlank()) { "A backend URL is required" }
@@ -287,6 +288,16 @@ class Client(
         }
 
         suspend fun connectToApiBackend(api: ClientOptions.Api): XmtpApiClient {
+            // Each authenticated connection owns its credential state.
+            api.authCallback?.let { callback ->
+                return connectToBackend(
+                    api.backendUrl,
+                    FfiClientMode.DEFAULT,
+                    api.appVersion,
+                    BackendAuthCallback(callback),
+                    null,
+                )
+            }
             val cacheKey = api.toCacheKey()
             return cacheLock.withLock {
                 val cached = apiClientCache[cacheKey]

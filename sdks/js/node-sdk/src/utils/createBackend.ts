@@ -1,5 +1,10 @@
-import { BackendBuilder, type Backend } from "@xmtp/node-bindings";
+import {
+  AuthCallback,
+  BackendBuilder,
+  type Backend,
+} from "@xmtp/node-bindings";
 import type { NetworkOptions } from "@/types";
+import { readCredential } from "./auth";
 
 export const createBackend = async (
   options: NetworkOptions,
@@ -12,5 +17,9 @@ export const createBackend = async (
   if (options.env !== undefined) builder.setEnv(options.env);
   if (options.appVersion !== undefined)
     builder.setAppVersion(options.appVersion);
+  if (options.authCallback) {
+    const callback = options.authCallback;
+    builder.authCallback(new AuthCallback(() => readCredential(callback)));
+  }
   return builder.build();
 };

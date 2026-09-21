@@ -29,6 +29,11 @@ import {
 } from "@/utils/errors";
 import { WorkerClient } from "@/WorkerClient";
 import { WorkerConversation } from "@/WorkerConversation";
+import { WorkerAuth, type AuthResponse } from "@/utils/WorkerAuth";
+
+const auth = new WorkerAuth((request) => {
+  self.postMessage(request);
+});
 
 let maybeClient: WorkerClient | undefined;
 let enableLogging = false;
@@ -91,8 +96,13 @@ const postStreamMessageError = (data: StreamActionErrorData) => {
 };
 
 self.onmessage = async (
-  event: MessageEvent<ActionWithoutResult<ClientWorkerAction>>,
+  event: MessageEvent<ActionWithoutResult<ClientWorkerAction> | AuthResponse>,
 ) => {
+  // Handle credentials before diagnostics and WASM initialization.
+  if (event.data.action === "auth.response") {
+    auth.receive(event.data);
+    return;
+  }
   const { action, id, data } = event.data;
 
   if (enableLogging) {
@@ -105,7 +115,13 @@ self.onmessage = async (
   try {
     // init is a special action that initializes the client
     if (action === "client.init" && !maybeClient) {
-      maybeClient = await WorkerClient.create(data.identifier, data.options);
+      const options = data.options;
+      maybeClient = await WorkerClient.create(
+        data.identifier,
+        options && data.hasAuthCallback
+          ? { ...options, authCallback: auth.request }
+          : options,
+      );
       enableLogging =
         data.options?.loggingLevel !== undefined &&
         data.options.loggingLevel !== LogLevel.Off;
@@ -145,6 +161,7 @@ self.onmessage = async (
 
     switch (action) {
       case "client.close": {
+        auth.close();
         for (const reader of messageReaders.values()) reader.close();
         messageReaders.clear();
         for (const readerId of deliveryTokens.keys())
