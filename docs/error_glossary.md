@@ -336,7 +336,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `SignatureRequestError::UnknownSigner` | Unknown signer. Signer not recognized for this request. Not retryable. |
 | `SignatureRequestError::MissingSigner` | Missing signer. Required signature was not provided. Not retryable. |
 | `SignatureRequestError::BlockNumber` | Unable to get block number. Block number not returned after successful SCW verification. May be retryable. |
-| `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published (CFG-069, CFG-070). Not retryable. |
+| `SignatureRequestError::ChainNotAccepted` | The deployment does not accept this chain. The smart contract wallet signature names a chain outside the list the backend published. Not retryable. |
 
 ### VerifierError <sub>enum</sub>
 
