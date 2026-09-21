@@ -1,5 +1,21 @@
 import { Client, type Identifier, type Signer } from "@xmtp/browser-sdk";
 
+export async function createAuthenticatedClient(
+  signer: Signer,
+  fetchToken: () => Promise<{ token: string; expiresAtSeconds: number }>,
+) {
+  // #region auth
+  const client = await Client.create(signer, {
+    backendUrl: "https://xmtp.example.com",
+    authCallback: async () => {
+      const { token, expiresAtSeconds } = await fetchToken();
+      return { value: `Bearer ${token}`, expiresAtSeconds };
+    },
+  });
+  // #endregion auth
+  return client;
+}
+
 export async function createClient(signer: Signer) {
   // #region create
   const client = await Client.create(signer, {

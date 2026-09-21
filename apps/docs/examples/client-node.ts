@@ -23,6 +23,22 @@ export async function buildClient(
   return client;
 }
 
+export async function createAuthenticatedClient(
+  signer: Signer,
+  fetchToken: () => Promise<{ token: string; expiresAtSeconds: number }>,
+) {
+  // #region auth
+  const client = await Client.create(signer, {
+    backendUrl: "https://xmtp.example.com",
+    authCallback: async () => {
+      const { token, expiresAtSeconds } = await fetchToken();
+      return { value: `Bearer ${token}`, expiresAtSeconds };
+    },
+  });
+  // #endregion auth
+  return client;
+}
+
 export async function deleteClient(client: Client) {
   // #region delete
   // The Node SDK has no database deletion method.
