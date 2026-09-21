@@ -108,6 +108,56 @@ test("built validation rejects incomplete llms exports and allows growth", async
   );
 });
 
+test("built validation checks focused exports and their index links", async () => {
+  const root = await fixture();
+  const content = join(root, "content");
+  const output = join(root, "site");
+  await mkdir(content);
+  await mkdir(output);
+  await writeFile(join(root, "redirects.json"), "{}");
+  const guide = Array.from(
+    { length: 35 },
+    (_, i) => `# Page ${i}\n${"x".repeat(3500)}`,
+  ).join("\n");
+  const specs =
+    "# Specification format\n```mermaid\nflowchart LR\nA --> B\n```\n" +
+    Array.from({ length: 20 }, (_, i) => `# Spec ${i}\n`).join("");
+  await writeFile(join(output, "llms-full.txt"), guide);
+  await writeFile(join(output, "llms-small.txt"), "# Guide");
+  await writeFile(join(output, "llms-specs.txt"), specs);
+  await writeFile(
+    join(output, "llms.txt"),
+    "[Guide](/llms-full.txt)\n[Specs](/llms-specs.txt)",
+  );
+  const check = () =>
+    checkBuilt({
+      contentRoot: content,
+      outputRoot: output,
+      redirectsPath: join(root, "redirects.json"),
+    });
+  assert.deepEqual(
+    (await check()).filter((failure) => failure.startsWith("llms")),
+    [],
+  );
+  await writeFile(
+    join(output, "llms-full.txt"),
+    `${guide}\n# Specification format\n![](<data:image/svg+xml,bloat>)\n[Section titled Test](#test)`,
+  );
+  await writeFile(join(output, "llms-specs.txt"), "# Incomplete");
+  await writeFile(join(output, "llms.txt"), "[Guide](/llms-full.txt)");
+  const failures = await check();
+  for (const expected of [
+    "llms-full.txt contains embedded SVG data",
+    "llms-full.txt contains heading navigation links",
+    "llms-full.txt includes specs",
+    "llms-specs.txt is missing Mermaid source",
+    "llms-specs.txt is missing the specification format",
+    "llms-specs.txt has fewer than 20 pages",
+    "llms.txt does not link to llms-specs.txt",
+  ])
+    assert.ok(failures.includes(expected), expected);
+});
+
 test("built validation rejects review records in composed specs", async () => {
   const root = await fixture();
   const content = join(root, "content");

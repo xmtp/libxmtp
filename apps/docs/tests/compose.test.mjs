@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { compose, installLlmsFull, validateDocC } from "../scripts/compose.mjs";
+import {
+  compose,
+  installLlmsExports,
+  validateDocC,
+} from "../scripts/compose.mjs";
 
 test("compose adds references, redirect stubs, and validates DocC CSS", async () => {
   const root = await mkdtemp(join(tmpdir(), "xmtp-compose-test-"));
@@ -15,9 +19,10 @@ test("compose adds references, redirect stubs, and validates DocC CSS", async ()
   await writeFile(join(dist, "index.html"), "home");
   await mkdir(join(dist, "_llms-txt"), { recursive: true });
   await writeFile(join(dist, "_llms-txt/developer-guide.txt"), "# guide");
+  await writeFile(join(dist, "_llms-txt/specs.txt"), "# specs");
   await writeFile(
     join(dist, "llms.txt"),
-    "- [Developer guide](/_llms-txt/developer-guide.txt)",
+    "- [Developer guide](/_llms-txt/developer-guide.txt)\n- [Specs](/_llms-txt/specs.txt)\n- [Complete documentation](/llms-full.txt)\n",
   );
   await writeFile(
     join(swift, "index.html"),
@@ -52,6 +57,10 @@ test("compose adds references, redirect stubs, and validates DocC CSS", async ()
   );
   assert.match(await validateDocC(site), /site\.css$/);
   assert.equal(await readFile(join(site, "llms-full.txt"), "utf8"), "# guide");
+  assert.equal(await readFile(join(site, "llms-specs.txt"), "utf8"), "# specs");
+  const index = await readFile(join(site, "llms.txt"), "utf8");
+  assert.match(index, /\/llms-specs\.txt/);
+  assert.doesNotMatch(index, /Complete documentation|_llms-txt/);
   assert.match(
     await readFile(join(site, "llms.txt"), "utf8"),
     /\/llms-full\.txt/,
@@ -63,7 +72,7 @@ test("llms install rejects an index that does not expose the full set", async ()
   await mkdir(join(root, "_llms-txt"));
   await writeFile(join(root, "_llms-txt/developer-guide.txt"), "# guide");
   await writeFile(join(root, "llms.txt"), "- [Small set](/small.txt)");
-  await assert.rejects(installLlmsFull(root), /does not link/);
+  await assert.rejects(installLlmsExports(root), /does not link/);
 });
 
 test("compose is repeatable and removes stale output", async () => {
@@ -73,9 +82,10 @@ test("compose is repeatable and removes stale output", async () => {
   await mkdir(join(dist, "_llms-txt"), { recursive: true });
   await writeFile(join(dist, "index.html"), "home");
   await writeFile(join(dist, "_llms-txt/developer-guide.txt"), "# guide");
+  await writeFile(join(dist, "_llms-txt/specs.txt"), "# specs");
   await writeFile(
     join(dist, "llms.txt"),
-    "- [Developer guide](/_llms-txt/developer-guide.txt)",
+    "- [Developer guide](/_llms-txt/developer-guide.txt)\n- [Specs](/_llms-txt/specs.txt)",
   );
   await writeFile(
     join(root, "redirects.json"),

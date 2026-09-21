@@ -7,6 +7,10 @@ import starlightLinksValidator from "starlight-links-validator";
 import { examplePlugins } from "./scripts/example-config.mjs";
 import { referencePlugins, referenceSidebar } from "./api-references.mjs";
 import { searchRanking } from "./scripts/search-config.mjs";
+import {
+  preserveMermaidSource,
+  restoreMermaidLanguage,
+} from "./scripts/llms-diagrams.mjs";
 
 function guidePages(section, pages) {
   return pages.split(" ").map((page) => ({ slug: `${section}/${page}` }));
@@ -19,6 +23,7 @@ export default defineConfig({
   markdown: {
     processor: unified({
       rehypePlugins: [
+        preserveMermaidSource,
         [
           rehypeMermaid,
           {
@@ -30,6 +35,7 @@ export default defineConfig({
             },
           },
         ],
+        restoreMermaidLanguage,
       ],
     }),
   },
@@ -169,14 +175,21 @@ export default defineConfig({
           // Other disclosures retain the existing compact export behavior.
           minify: { details: false },
           customSelectors: {
-            all: [".twoslash-popup-container", ".twoslash-error-box"],
+            all: [
+              ".twoslash-popup-container",
+              ".twoslash-error-box",
+              ".llms-rendered-diagram",
+              ".sl-anchor-link",
+            ],
             small: ["details:not(.home-disclosure)"],
           },
           promote: ["get-started/**", "sdk/**"],
-          exclude: ["reference/**"],
+          exclude: ["reference/**", "specs/**"],
           customSets: [
             {
               label: "Developer guide",
+              description:
+                "SDK guides, app examples, and deployment instructions. Start here for app development.",
               paths: [
                 "index",
                 "get-started/**",
@@ -186,9 +199,14 @@ export default defineConfig({
                 "agents/**",
                 "tools/**",
                 "protocol/**",
-                "specs/**",
                 "reference/limits",
               ],
+            },
+            {
+              label: "Specs",
+              description:
+                "Protocol requirements. Load only for protocol or implementation work.",
+              paths: ["specs/**"],
             },
           ],
         }),

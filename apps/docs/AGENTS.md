@@ -33,10 +33,16 @@ Do not keep one-time migration checks or copies of old page prose.
 - `check-search.mjs` and `search-config.mjs`: define search regression cases and ranking settings.
 - `check-ts-regions.mjs`, `example-config.mjs`, and `example-regions.mjs`: check SDK examples and render their source regions.
 - `typedoc-validation.mjs`: fail API reference builds on TypeDoc warnings or errors.
+- `llms-diagrams.mjs`: retain Mermaid source for text exports and rendered diagrams for website pages.
 - `agent-doc-coverage.mjs`: require TSDoc for reachable public Agent SDK declarations in CI.
 
 The files in `parity/` keep old URLs working and set Lighthouse score limits.
 They do not freeze page text or require access to the old site.
+
+The composed `llms-full.txt` contains the developer guide. Specs are in
+`llms-specs.txt`. Both are linked from `llms.txt`; `llms-small.txt` excludes
+specs. Text exports contain Mermaid source, not embedded SVG data or heading
+navigation links. Keep resolved SDK examples in the developer guide.
 
 The docs package has its own Prettier configuration. `nix fmt` continues to
 format the SDKs; `just docs format-check` checks the site, including Astro and MDX.
