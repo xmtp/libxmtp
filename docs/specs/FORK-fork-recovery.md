@@ -34,7 +34,7 @@ Out of scope: commit validation, the membership extension, and the hold a client
 | --- | --- |
 | `CONF` | Owns `commit_log_enabled` and CONF-045, the switch that turns publishing and reading off for a deployment. |
 | `JOIN` | Owns whether a Welcome replaces state the client already holds (JOIN-041 to JOIN-044), the adder read from the ratchet tree (JOIN-025), and the key package a sender fetches (section 1). A readd is repaired by that path. |
-| `API` | Owns `ClientEnvelope` and its `commit_log_entry` payload, sequence ids (API-200), the prefix a read returns (API-201), and the admission of a commit-log entry (API-230). |
+| `API` | Owns `ClientEnvelope` and its `commit_log_entry` payload, sequence ids (API-286 through API-289), the prefix a read returns (API-201), and the admission of a commit-log entry (API-230). |
 | `TOPIC` | Owns the commit-log kind byte and its 16-byte group identifier (TOPIC-001, TOPIC-002). |
 | `OPS` | Owns retention. OPS-001 gives a commit-log entry no expiry. |
 | `?PERM` | Owns the super admin list. Expected to permit a super admin to remove and add one installation in one commit (FORK-062). |
@@ -170,7 +170,7 @@ message RecoverableEd25519Signature {
 
 A publisher appends its local entries to the conversation's commit-log topic in the order it recorded them. A reader accepts an entry only when it continues the previous accepted entry (FORK-032), so a gap is not a missing data point: it ends the log for every member. A publish that fails, or whose response does not confirm an entry, is retried from that entry before anything later is sent. Removal entries are never published: a removal entry does not attest the epoch the remaining members moved to.
 
-The backend routes an entry by the `group_id` inside it (TOPIC-001), refuses one whose `group_id` is not 16 bytes (TOPIC-002) or whose bytes do not decode (API-230), assigns it a sequence id (API-200), and stores the signature without verifying it. A read returns a prefix of the topic in sequence id order (API-201), and a commit-log entry never expires (OPS-001), so the order every member reads is the order every member reads.
+The backend routes an entry by the `group_id` inside it (TOPIC-001), refuses one whose `group_id` is not 16 bytes (TOPIC-002) or whose bytes do not decode (API-230), assigns it a sequence id (API-286 through API-289), and stores the signature without verifying it. A read returns a prefix of the topic in sequence id order (API-201), and a commit-log entry never expires (OPS-001), so the order every member reads is the order every member reads.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

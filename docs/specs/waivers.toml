@@ -510,7 +510,7 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The reply encoder accepts an inner envelope that carries no type."
 
 [[waiver]]
-id = "CTYPE-013"
+id = "CTYPE-022"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"

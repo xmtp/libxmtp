@@ -340,7 +340,7 @@ Validation needs chain access. A deployment publishes the chains it verifies (CO
 
 ## 8. Installations
 
-An installation is a member of kind installation: a 32-byte Ed25519 public key that an app holds and that signs on the inbox's behalf. It is registered by an `AddAssociation` with the installation as the new member, in the same update as the `CreateInbox` for a new inbox or alone for an existing one, and it is revoked by a `RevokeAssociation` from the recovery identifier. What an installation may publish as a key package is JOIN-001.
+An installation is a member representing a single device/client database instance. Its identifier is a 32-byte Ed25519 public key, and its private key signs on the inbox's behalf. It is registered by an `AddAssociation` with the installation as the new member, in the same update as the `CreateInbox` for a new inbox or alone for an existing one, and it is revoked by a `RevokeAssociation` from the recovery identifier. What an installation may publish as a key package is JOIN-001.
 
 The number of installations an inbox may hold is a client-side ceiling: CONF-044 stops a client from registering when the installation members in the association state it has resolved, at the highest sequence id it holds, number at least `max_installations_per_inbox`. No validator rejects an update for exceeding it, so two clients that register at once can leave an inbox above the ceiling, and a client that has not fetched the latest updates counts fewer than exist.
 
@@ -353,11 +353,11 @@ Every party that decides whether an installation belongs to an inbox does so at 
 
 ## 9. Resolving an identifier
 
-An app reaches a user by identifier and needs the inbox it belongs to. The backend keeps that index from the updates it stores and answers under API-270, which resolves to the live association with the highest sequence id. In the terms of this spec, an identifier's association with an inbox is the `CreateInbox` or `AddAssociation` update that made it a member, its sequence id is that update's, and it is live while the identifier is a member of the inbox's association state at the head of the log. Because IDENT-040 rejects an add of a current member, an association's sequence id is that of the one update that made the identifier a member since it was last absent. An identifier can be a member of more than one inbox at once, because nothing in the log forbids it (Known limitations), so a revocation can move the answer to an older inbox.
-
-## Known limitations
+An app resolves an identifier to an inbox under API-270, which selects the live association with the highest sequence id. An identifier's association with an inbox is the `CreateInbox` or `AddAssociation` update that made it a member. The association's sequence id is that update's, and it is live while the identifier is a member of the inbox's association state at the head of the log. Because IDENT-040 rejects an add of a current member, an association's sequence id is that of the update that made the identifier a member since it was last absent.
 
 One identifier can be a live member of several inboxes at once: a user creates two inboxes from one wallet with two nonces, or links one wallet to two inboxes. No validator rejects this, and the identifier resolves to the inbox of its most recent live association (API-270). Revoking that association exposes the older inbox again.
+
+## Known limitations
 
 IDENT-013 replaces an earlier rule that stored an Ethereum identifier in whatever case it was given. A deployment of this backend holds no log written under that rule, because it accepts no data from the earlier networks, so no stored log becomes unreadable. A log imported from elsewhere would.
 

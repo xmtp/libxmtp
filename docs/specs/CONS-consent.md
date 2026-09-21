@@ -102,15 +102,15 @@ An app act is the user's decision on this installation now. It is stored with th
 
 ## 3. Defaults and inherited consent
 
-A conversation the user starts, or writes in, is one the user wants. Creating a group or a DM sets it to allowed, and sending a message in a conversation that is not allowed sets it to allowed. Each is a decision, stored with the current time.
+Consent is implied for conversations started by the user, and conversations the user has chosen to send messages in. Creating a group or a DM sets it to allowed, and sending a message in a conversation that is not allowed sets it to allowed. Each is a decision, stored with the current time.
 
-A conversation the user is added to is not: a join stores no record, so the conversation is unknown, unless the group was created by another installation of the user's own inbox. The group states its creator in `CREATOR_INBOX_ID` (`META`), and META-018 binds an honest creator to write its own inbox id; nothing binds a dishonest one, so the field alone is a claim by whoever created the group. The evidence the joiner has is the adder under JOIN-025: the inbox whose installation signed the `GroupInfo` in the Welcome, which an attacker cannot forge. Allowed is stored only when both name the own inbox. That proves an installation of the own inbox was a member and added this one; it does not prove the own inbox created the group (Known limitations).
+A conversation the user is added to starts with an unknown consent state. The exception is a group whose creator and adder both name the user's own inbox. The group states its creator in `CREATOR_INBOX_ID` (`META`), and META-018 binds an honest creator to write its own inbox id; nothing binds a dishonest one, so the field alone is a claim by whoever created the group. The evidence the joiner has is the adder under JOIN-025: the inbox whose installation signed the `GroupInfo` in the Welcome, which an attacker cannot forge. Allowed is stored only when both name the own inbox. That proves an installation of the own inbox was a member and added this one; it does not prove the own inbox created the group (Known limitations).
 
 A default carries no decision. It is stored at consent time 0, so under CONS-010 any record with a time replaces it, and it is stored only when the conversation has no record, because a record that arrived over the sync group before the Welcome is a decision. Neither `SYNC` nor an archive needs to carry a default: every installation derives it from its own Welcome.
 
 A DM has one identifier for the pair of inboxes, and a client can hold more than one group for it. DMS-010 carries the record with the greatest consent time across those groups to a new one. Where a join qualifies for DMS-010 and for a rule in this section, the inherited record is the record this section's rules test (CONS-024).
 
-Leaving a group and being added back is the one join that replaces a record. The user asked to leave, so the group is unknown again until the user decides. The reset is stored at the backend's timestamp on the Welcome, the time of the re-add, so a decision the user makes after the re-add on any installation wins, and the decision that preceded the leave does not. The leave request is owned by `?GMOD`, which is expected to define the request and the removal that follows it.
+Leaving a group and being added back replaces previously set consent state with `unknown`. The reset is stored at the backend's timestamp on the Welcome, the time of the re-add, so a decision the user makes after the re-add on any installation wins, and the decision that preceded the leave does not. The leave request is owned by `?GMOD`, which is expected to define the request and the removal that follows it.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -123,7 +123,7 @@ Leaving a group and being added back is the one join that replaces a record. The
 
 ## 4. Gating listing and streaming
 
-Consent is applied as a filter on conversation consent. An app passes the states it wants; the client returns or delivers only conversations in those states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing returns the conversations the user has allowed and the ones the user has not decided on, and never the denied ones. The same filter applies to a stream of conversations and to a stream of messages across conversations; PROC-032 owns what a message stream does with a candidate the filter excludes.
+An app can filter conversation listings and streams by consent state. The client returns or delivers only conversations in the requested states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing returns the conversations the user has allowed and the ones the user has not decided on, and never the denied ones. The same filter applies to a stream of conversations and to a stream of messages across conversations; PROC-032 owns what a message stream does with a candidate the filter excludes.
 
 A message listing within one conversation is not filtered: the app named the conversation. A sync group is never listed or streamed unless the app asks for sync groups (SYNC-005).
 

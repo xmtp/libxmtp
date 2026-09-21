@@ -22,12 +22,12 @@ flowchart LR
 
 In scope: registration and the bearer secret; the three channels and the safety of a webhook destination; how a subscription is added, replaced, and removed, and where it starts; which envelopes are pushed; the delivery condition and what survives a restart; sender suppression; the push body and the provider contract; when a recipient is deleted; webhook signing; retention; the client's desired set, its sync, and its recovery; and what an SDK exposes to an app.
 
-Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-200, API-210); the closed allocation boundary (`?API`); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the operator's configuration file, provider credentials, and the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
+Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-003, AUTH-013); sequence ids and the publish contract (API-286 through API-289, API-210); the closed allocation boundary (`?API`); the layout of a topic (TOPIC-001); how the root HMAC key is generated and reaches every installation of an inbox (SYNC-015, SYNC-022); consent states (`CONS` section 1); metrics, shutdown, and read routing (OPS-007, OPS-008, OPS-014, OPS-017); the operator's configuration file, provider credentials, and the backend's internal bounds, which belong to operator documentation; and the platform a deployment runs on.
 
 | Related | Relation |
 | --- | --- |
 | `AUTH` | AUTH-001, AUTH-003, and AUTH-013 apply to the three notification RPCs as to every other path. No claim is read for ownership; the secret alone decides it. |
-| `API` | Owns the sequence id (API-200), the envelope wire format including `GroupMessage` (API-210), and admission (API-230). `?API` is expected to own the closed allocation boundary this spec reads. |
+| `API` | Owns sequence ids (API-286 through API-289), the envelope wire format including `GroupMessage` (API-210), and admission (API-230). `?API` is expected to own the closed allocation boundary this spec reads. |
 | `TOPIC` | TOPIC-001 gives the kind byte and identifier of a group-message topic and a welcome topic, the two kinds a subscription may carry. |
 | `SYNC` | SYNC-015 and SYNC-022 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
 | `OPS` | OPS-014 keeps request data out of telemetry; OPS-017 owns the metric catalogue; OPS-007 and OPS-008 own shutdown as a client sees it. |
