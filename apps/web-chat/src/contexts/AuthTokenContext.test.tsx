@@ -159,6 +159,31 @@ describe("AuthTokenProvider", () => {
     });
   });
 
+  it("resolves both concurrent calls that share one consumer's callback", async () => {
+    // The InboxTools case: "Find installations" and "Check updates count"
+    // started together, with no stored token, both using that panel's single
+    // callback. Neither may be left pending.
+    const { result } = renderAuthToken();
+    const callback = result.current.createAuthCallback();
+
+    // The empty probe is refused, so the next asks must prompt.
+    await callback();
+
+    let a: Promise<{ value: string }> | undefined;
+    let b: Promise<{ value: string }> | undefined;
+    act(() => {
+      a = callback();
+      b = callback();
+    });
+    expect(result.current.request).not.toBeNull();
+
+    act(() => {
+      result.current.request?.resolve("one-token");
+    });
+    await expect(a).resolves.toMatchObject({ value: "Bearer one-token" });
+    await expect(b).resolves.toMatchObject({ value: "Bearer one-token" });
+  });
+
   it("accepts a token entered before any backend request", async () => {
     const { result } = renderAuthToken();
 
