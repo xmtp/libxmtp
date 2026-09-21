@@ -7,7 +7,7 @@ The Android, iOS, and Node SDKs register the installation and keep subscriptions
 current. The Browser SDK and WASM binding do not expose this API.
 
 Ask the backend operator which channels are configured. See
-[Push configuration](/get-started/push-configuration/) for server setup.
+[Push configuration](/deploy/push-configuration/) for server setup.
 The example apps do not include push registration or a notification receiver.
 
 ## Enable and control notifications

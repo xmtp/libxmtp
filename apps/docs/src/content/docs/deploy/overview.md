@@ -175,7 +175,7 @@ trusted load balancer. TLS protects transport; it does not restrict callers.
 
 ## Optional integrations
 
-Configure [push delivery](/get-started/push-configuration/) if your apps use
+Configure [push delivery](/deploy/push-configuration/) if your apps use
 APNs, FCM, or HTTPS notifications. Permit outbound access to the configured
 providers. JWT key discovery needs outbound HTTPS to the JWKS URL.
 Smart contract wallet verification needs outbound access to the RPC URLs in
