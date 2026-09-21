@@ -1,12 +1,13 @@
 ---
+import { isSearchReference } from "../../scripts/search-config.mjs";
 const { entry } = Astro.locals.starlightRoute;
-const generated = /^reference\/(node|browser|agent)-sdk\//.test(entry.id);
+const reference = isSearchReference(entry.id);
 ---
 
 <h1
   id="_top"
-  data-pagefind-weight={generated ? "0.1" : "10"}
-  data-pagefind-meta={generated ? undefined : "guideTitle"}
+  data-pagefind-weight={reference ? "0.1" : "10"}
+  data-pagefind-meta={reference ? undefined : "guideTitle"}
 >
   {entry.data.title}
 </h1>

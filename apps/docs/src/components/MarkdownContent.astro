@@ -1,12 +1,11 @@
 ---
 import MarkdownContent from "@astrojs/starlight/components/MarkdownContent.astro";
 import { isHomepage } from "../lib/homepage-route";
-const generated = /^reference\/(node|browser|agent)-sdk\//.test(
-  Astro.locals.starlightRoute.entry.id,
-);
+import { isSearchReference } from "../../scripts/search-config.mjs";
+const reference = isSearchReference(Astro.locals.starlightRoute.entry.id);
 ---
 
-<div data-pagefind-weight={generated ? "0.1" : "1"}>
+<div data-pagefind-weight={reference ? "0.1" : "1"}>
   {
     isHomepage(Astro.locals.starlightRoute.entry.id) ? (
       <slot />
