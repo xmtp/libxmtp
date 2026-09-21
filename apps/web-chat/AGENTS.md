@@ -19,3 +19,13 @@ Tests require `just backend up`.
 
 - `XMTP_BACKEND_URL` selects the backend directly.
 - Browser databases are separated with a label derived from the backend origin.
+
+## Deployment
+
+`.github/workflows/deploy-web-chat.yml` builds this app under Nix and deploys
+`dist/` to Vercel on a push to `self-hosted`. Vercel cannot build the app
+itself: the `portal:` dependency chain ends at a Nix-built Rust WASM crate.
+
+Secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`, `VERCEL_PROJECT_ID`,
+`WALLETCONNECT_PROJECT_ID`. `XMTP_BACKEND_URL` is inlined at build time and is
+deliberately empty in the deployed build.

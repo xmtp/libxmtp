@@ -30,3 +30,22 @@ dev/nix-shell 'just web-chat dev'
 - `just web-chat lint`: Run ESLint.
 - `just web-chat build`: Create a production build.
 - `just web-chat test`: Run browser tests against the worktree backend.
+
+## Deployment
+
+A merge to `self-hosted` deploys this app to Vercel with
+`.github/workflows/deploy-web-chat.yml`. Pull requests do not deploy.
+
+The build runs in GitHub Actions under Nix, not on Vercel. The app resolves
+`@xmtp/browser-sdk` through a `portal:` dependency, and that SDK resolves
+`@xmtp/wasm-bindings` through another one, whose `dist/` comes from a Nix build
+of a Rust crate. The Vercel build container has neither Nix nor a Rust
+toolchain, so the workflow builds `dist/` and uploads it with
+`vercel deploy --prebuilt`. Vercel serves static files only.
+
+The deployed app has no default backend URL. Each user enters one in the
+settings panel. `XMTP_BACKEND_URL` is inlined at build time, so a value set in
+the Vercel dashboard has no effect; change it in the workflow instead.
+
+The workflow needs these repository secrets: `VERCEL_TOKEN`, `VERCEL_ORG_ID`,
+`VERCEL_PROJECT_ID`, and `WALLETCONNECT_PROJECT_ID`.
