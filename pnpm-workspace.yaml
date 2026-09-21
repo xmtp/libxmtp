@@ -19,7 +19,8 @@ tasks:
   check:examples:
     dependsOn: ["^build"]
   lint:
-    dependsOn: ["^build"]
+    # Published-type probes read this package's output as well as dependencies.
+    dependsOn: ["build"]
   format:
     dependsOn: []
   format:check:
