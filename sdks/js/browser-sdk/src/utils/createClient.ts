@@ -11,7 +11,12 @@ import { createBackend } from "@/utils/createBackend";
 
 type CreateClientOptions = DistributiveOmit<ClientOptions, "codecs">;
 
-const networkOptionKeys = ["env", "backendUrl", "appVersion"] as const;
+const networkOptionKeys = [
+  "env",
+  "backendUrl",
+  "appVersion",
+  "authCallback",
+] as const;
 
 const hasBackend = (options: object): options is { backend: Backend } => {
   return "backend" in options;

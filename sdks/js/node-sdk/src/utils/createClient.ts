@@ -14,7 +14,12 @@ import { createBackend } from "@/utils/createBackend";
 import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
 import { isHexString } from "./validation";
 
-const networkOptionKeys = ["env", "backendUrl", "appVersion"] as const;
+const networkOptionKeys = [
+  "env",
+  "backendUrl",
+  "appVersion",
+  "authCallback",
+] as const;
 
 const hasBackend = (
   options: ClientOptions,

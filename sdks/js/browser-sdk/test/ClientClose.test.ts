@@ -84,6 +84,22 @@ describe("Client close after failure", () => {
     expect(worker.terminate).toHaveBeenCalledOnce();
   });
 
+  it("keeps auth callbacks on the app thread and sends only an availability flag", async () => {
+    const authCallback = vi.fn(async () => ({
+      value: "Bearer secret",
+      expiresAtSeconds: 1234567890,
+    }));
+    const client = await Client.build(identifier, { ...options, authCallback });
+    const request = TestWorker.instance.postMessage.mock.calls[0]![0];
+    expect(structuredClone(request)).toMatchObject({
+      action: "client.init",
+      data: { hasAuthCallback: true, options },
+    });
+    expect(request).not.toHaveProperty("data.options.authCallback");
+    expect(authCallback).not.toHaveBeenCalled();
+    await client.close();
+  });
+
   it.each(["create", "build"] as const)(
     "keeps the %s error if cleanup also rejects",
     async (method) => {

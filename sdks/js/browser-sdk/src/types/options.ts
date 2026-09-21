@@ -24,6 +24,18 @@ import type { DecodedMessage } from "@/DecodedMessage";
 
 export type VisibilityConfirmationOptions = WasmVisibilityConfirmationOptions;
 
+/** A backend credential. Include the `Bearer ` prefix when required. */
+export type Credential = {
+  /** Header name. Defaults to `authorization`. */
+  name?: string;
+  value: string;
+  /** Expiration as Unix seconds. Must be a safe integer. */
+  expiresAtSeconds: number;
+};
+
+/** Called on the app thread when the backend needs a credential. */
+export type AuthCallback = () => Promise<Credential>;
+
 export type NetworkOptions = {
   /** Backend URL, including the HTTP or HTTPS scheme. */
   backendUrl: string;
@@ -31,6 +43,8 @@ export type NetworkOptions = {
   env?: string;
   /** Custom app version. */
   appVersion?: string;
+  /** Supply backend credentials. Separate from the XMTP identity signer. */
+  authCallback?: AuthCallback;
 };
 
 /**

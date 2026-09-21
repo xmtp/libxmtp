@@ -105,11 +105,17 @@ public struct ClientOptions {
 		/// Label used only for the database file name.
 		public var env = "local"
 		public var appVersion: String?
+		/// Supplies backend credentials. Configuration discovery does not call it.
+		public var authCallback: AuthCallback?
 
-		public init(backendUrl: String, env: String = "local", appVersion: String? = nil) {
+		public init(
+			backendUrl: String, env: String = "local", appVersion: String? = nil,
+			authCallback: AuthCallback? = nil
+		) {
 			self.backendUrl = backendUrl
 			self.env = env
 			self.appVersion = appVersion
+			self.authCallback = authCallback
 		}
 	}
 
@@ -594,6 +600,16 @@ public final class Client {
 	public static func connectToApiBackend(api: ClientOptions.Api) async throws
 		-> XmtpApiClient
 	{
+		// Do not share a callback or its cached credential with another client.
+		if let authCallback = api.authCallback {
+			return try await connectToBackend(
+				backendUrl: api.backendUrl,
+				clientMode: FfiClientMode.default,
+				appVersion: api.appVersion,
+				authCallback: FfiAuthCallbackAdapter(authCallback),
+				authHandle: nil
+			)
+		}
 		let cacheKey = ApiCacheKey(api: api).stringValue
 
 		// Check for an existing connected client
@@ -618,22 +634,13 @@ public final class Client {
 	public static func getOrCreateInboxId(
 		api: ClientOptions.Api, publicIdentity: PublicIdentity
 	) async throws -> InboxId {
-		var inboxId: String
-		do {
-			inboxId =
-				try await getInboxIdForIdentifier(
-					api: connectToApiBackend(api: api),
-					accountIdentifier: publicIdentity.ffiPrivate
-				)
-				?? generateInboxId(
-					accountIdentifier: publicIdentity.ffiPrivate, nonce: 0
-				)
-		} catch {
-			inboxId = try generateInboxId(
+		try await getInboxIdForIdentifier(
+			api: connectToApiBackend(api: api),
+			accountIdentifier: publicIdentity.ffiPrivate
+		)
+			?? generateInboxId(
 				accountIdentifier: publicIdentity.ffiPrivate, nonce: 0
 			)
-		}
-		return inboxId
 	}
 
 	public static func revokeInstallations(

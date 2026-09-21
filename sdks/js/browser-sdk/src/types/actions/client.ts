@@ -34,6 +34,7 @@ export type ClientAction =
       data: {
         identifier: Identifier;
         options?: ClientOptions;
+        hasAuthCallback?: boolean;
       };
     }
   | {

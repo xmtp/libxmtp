@@ -980,7 +980,7 @@ open class FfiAuthCallbackImpl: FfiAuthCallback, @unchecked Sendable {
         completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
         freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
         liftFunc: FfiConverterTypeFfiCredential_lift,
-        errorHandler: FfiConverterTypeFfiError_lift
+        errorHandler: FfiConverterTypeFfiAuthCallbackError_lift
       )
   }
 
@@ -1048,7 +1048,7 @@ private struct UniffiCallbackInterfaceFfiAuthCallback {
           makeCall: makeCall,
           handleSuccess: uniffiHandleSuccess,
           handleError: uniffiHandleError,
-          lowerError: FfiConverterTypeFfiError_lower,
+          lowerError: FfiConverterTypeFfiAuthCallbackError_lower,
           droppedCallback: uniffiOutDroppedCallback
         )
       }
@@ -1666,17 +1666,7 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
   func processStreamedConversationMessage(envelopeBytes: Data) async throws -> [FfiMessage]
 
   /**
-   * Whether this group has migrated to AppData-proposal-based
-   * metadata updates (the `AppDataDictionary` group-context
-   * extension is present). `false` means the group is still on
-   * the legacy GroupContextExtensions path.
-   *
-   * Prefer this semantic bool over scanning
-   * [`FfiGroupMembershipCapabilities::context_extensions`] for
-   * `AppDataDictionary` — the capabilities snapshot answers
-   * "which members block migration", not "is this group migrated",
-   * and the marker extension is an internal protocol detail.
-   * Mirrors `proposalsEnabled` on the wasm and node bindings.
+   * Proposals are available on every group at creation.
    */
   func proposalsEnabled() throws -> Bool
 
@@ -1731,6 +1721,10 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
   func updatePermissionPolicy(
     permissionUpdateType: FfiPermissionUpdateType, permissionPolicyOption: FfiPermissionPolicy,
     metadataField: FfiMetadataField?) async throws
+
+  func notificationsEnabled() throws -> Bool
+
+  func setNotifications(value: FfiNotificationOverride) throws
 
 }
 open class FfiConversation: FfiConversationProtocol, @unchecked Sendable {
@@ -2350,17 +2344,7 @@ open class FfiConversation: FfiConversationProtocol, @unchecked Sendable {
   }
 
   /**
-   * Whether this group has migrated to AppData-proposal-based
-   * metadata updates (the `AppDataDictionary` group-context
-   * extension is present). `false` means the group is still on
-   * the legacy GroupContextExtensions path.
-   *
-   * Prefer this semantic bool over scanning
-   * [`FfiGroupMembershipCapabilities::context_extensions`] for
-   * `AppDataDictionary` — the capabilities snapshot answers
-   * "which members block migration", not "is this group migrated",
-   * and the marker extension is an internal protocol detail.
-   * Mirrors `proposalsEnabled` on the wasm and node bindings.
+   * Proposals are available on every group at creation.
    */
   open func proposalsEnabled() throws -> Bool {
     return try FfiConverterBool.lift(
@@ -2694,6 +2678,26 @@ open class FfiConversation: FfiConversationProtocol, @unchecked Sendable {
         liftFunc: { $0 },
         errorHandler: FfiConverterTypeFfiError_lift
       )
+  }
+
+  open func notificationsEnabled() throws -> Bool {
+    return try FfiConverterBool.lift(
+      try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+        uniffi_xmtpv3_fn_method_fficonversation_notifications_enabled(
+          self.uniffiCloneHandle(), uniffiCallStatus
+        )
+      })
+  }
+
+  open func setNotifications(value: FfiNotificationOverride) throws {
+    try rustCallWithError(FfiConverterTypeFfiError_lift) {
+      uniffiCallStatus in
+      uniffi_xmtpv3_fn_method_fficonversation_set_notifications(
+        self.uniffiCloneHandle(),
+        FfiConverterTypeFfiNotificationOverride_lower(value), uniffiCallStatus
+      )
+    }
   }
 
 }
@@ -6326,6 +6330,16 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
 
   func message(messageId: Data) throws -> FfiMessage
 
+  /**
+   * Fetch the deployment configuration now, rewrite the stored copy, and
+   * return what the backend answered (CFG-082).
+   *
+   * Applies the same validation, storage, and identifier binding the refresh
+   * worker applies. The snapshot [`FfiXmtpClient::server_configuration`]
+   * returns is unchanged: a new value takes effect at the next build.
+   */
+  func refreshServerConfiguration() async throws -> FfiServerConfiguration
+
   func registerIdentity(
     signatureRequest: FfiSignatureRequest,
     visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?) async throws
@@ -6348,6 +6362,15 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
    * * Revoke a list of installations
    */
   func revokeInstallations(installationIds: [Data]) async throws -> FfiSignatureRequest
+
+  /**
+   * What this deployment published about itself, as resolved at build
+   * (CFG-030, CFG-080).
+   *
+   * The snapshot is fixed for the life of the client. A refresh rewrites the
+   * stored copy and never changes this value.
+   */
+  func serverConfiguration() -> FfiServerConfiguration
 
   func setConsentStates(records: [FfiConsent]) async throws
 
@@ -6415,6 +6438,12 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
    * Manually sync all device sync groups.
    */
   func syncAllDeviceSyncGroups() async throws -> FfiGroupSyncSummary
+
+  func disableNotifications() async throws
+
+  func enableNotifications(config: FfiNotificationConfig) async throws -> FfiNotificationState
+
+  func notificationState() throws -> FfiNotificationState
 
 }
 open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
@@ -6853,6 +6882,30 @@ open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
       })
   }
 
+  /**
+   * Fetch the deployment configuration now, rewrite the stored copy, and
+   * return what the backend answered (CFG-082).
+   *
+   * Applies the same validation, storage, and identifier binding the refresh
+   * worker applies. The snapshot [`FfiXmtpClient::server_configuration`]
+   * returns is unchanged: a new value takes effect at the next build.
+   */
+  open func refreshServerConfiguration() async throws -> FfiServerConfiguration {
+    return
+      try await uniffiRustCallAsync(
+        rustFutureFunc: {
+          uniffi_xmtpv3_fn_method_ffixmtpclient_refresh_server_configuration(
+            self.uniffiCloneHandle()
+          )
+        },
+        pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+        completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+        freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+        liftFunc: FfiConverterTypeFfiServerConfiguration_lift,
+        errorHandler: FfiConverterTypeFfiError_lift
+      )
+  }
+
   open func registerIdentity(
     signatureRequest: FfiSignatureRequest,
     visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?
@@ -6940,6 +6993,23 @@ open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
         liftFunc: FfiConverterTypeFfiSignatureRequest_lift,
         errorHandler: FfiConverterTypeFfiError_lift
       )
+  }
+
+  /**
+   * What this deployment published about itself, as resolved at build
+   * (CFG-030, CFG-080).
+   *
+   * The snapshot is fixed for the life of the client. A refresh rewrites the
+   * stored copy and never changes this value.
+   */
+  open func serverConfiguration() -> FfiServerConfiguration {
+    return try! FfiConverterTypeFfiServerConfiguration_lift(
+      try! rustCall {
+        uniffiCallStatus in
+        uniffi_xmtpv3_fn_method_ffixmtpclient_server_configuration(
+          self.uniffiCloneHandle(), uniffiCallStatus
+        )
+      })
   }
 
   open func setConsentStates(records: [FfiConsent]) async throws {
@@ -7159,6 +7229,49 @@ open class FfiXmtpClient: FfiXmtpClientProtocol, @unchecked Sendable {
         liftFunc: FfiConverterTypeFfiGroupSyncSummary_lift,
         errorHandler: FfiConverterTypeFfiError_lift
       )
+  }
+
+  open func disableNotifications() async throws {
+    return
+      try await uniffiRustCallAsync(
+        rustFutureFunc: {
+          uniffi_xmtpv3_fn_method_ffixmtpclient_disable_notifications(
+            self.uniffiCloneHandle()
+          )
+        },
+        pollFunc: ffi_xmtpv3_rust_future_poll_void,
+        completeFunc: ffi_xmtpv3_rust_future_complete_void,
+        freeFunc: ffi_xmtpv3_rust_future_free_void,
+        liftFunc: { $0 },
+        errorHandler: FfiConverterTypeFfiError_lift
+      )
+  }
+
+  open func enableNotifications(config: FfiNotificationConfig) async throws -> FfiNotificationState
+  {
+    return
+      try await uniffiRustCallAsync(
+        rustFutureFunc: {
+          uniffi_xmtpv3_fn_method_ffixmtpclient_enable_notifications(
+            self.uniffiCloneHandle(), FfiConverterTypeFfiNotificationConfig_lower(config)
+          )
+        },
+        pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+        completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+        freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+        liftFunc: FfiConverterTypeFfiNotificationState_lift,
+        errorHandler: FfiConverterTypeFfiError_lift
+      )
+  }
+
+  open func notificationState() throws -> FfiNotificationState {
+    return try FfiConverterTypeFfiNotificationState_lift(
+      try rustCallWithError(FfiConverterTypeFfiError_lift) {
+        uniffiCallStatus in
+        uniffi_xmtpv3_fn_method_ffixmtpclient_notification_state(
+          self.uniffiCloneHandle(), uniffiCallStatus
+        )
+      })
   }
 
 }
@@ -7767,6 +7880,77 @@ public func FfiConverterTypeFfiAttachment_lift(_ buf: RustBuffer) throws -> FfiA
 #endif
 public func FfiConverterTypeFfiAttachment_lower(_ value: FfiAttachment) -> RustBuffer {
   return FfiConverterTypeFfiAttachment.lower(value)
+}
+
+/// What a client must present to be admitted. An app acts on `enabled` and
+/// `required_scopes`; the rest is there for operator tooling.
+public struct FfiAuthConfiguration: Equatable, Hashable {
+  public var enabled: Bool
+  public var keys: [FfiSigningKeyDescription]
+  public var audiences: [String]
+  public var issuers: [String]
+  public var requiredScopes: [String]
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    enabled: Bool, keys: [FfiSigningKeyDescription], audiences: [String], issuers: [String],
+    requiredScopes: [String]
+  ) {
+    self.enabled = enabled
+    self.keys = keys
+    self.audiences = audiences
+    self.issuers = issuers
+    self.requiredScopes = requiredScopes
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiAuthConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAuthConfiguration: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiAuthConfiguration
+  {
+    return
+      try FfiAuthConfiguration(
+        enabled: FfiConverterBool.read(from: &buf),
+        keys: FfiConverterSequenceTypeFfiSigningKeyDescription.read(from: &buf),
+        audiences: FfiConverterSequenceString.read(from: &buf),
+        issuers: FfiConverterSequenceString.read(from: &buf),
+        requiredScopes: FfiConverterSequenceString.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiAuthConfiguration, into buf: inout [UInt8]) {
+    FfiConverterBool.write(value.enabled, into: &buf)
+    FfiConverterSequenceTypeFfiSigningKeyDescription.write(value.keys, into: &buf)
+    FfiConverterSequenceString.write(value.audiences, into: &buf)
+    FfiConverterSequenceString.write(value.issuers, into: &buf)
+    FfiConverterSequenceString.write(value.requiredScopes, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthConfiguration_lift(_ buf: RustBuffer) throws
+  -> FfiAuthConfiguration
+{
+  return try FfiConverterTypeFfiAuthConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthConfiguration_lower(_ value: FfiAuthConfiguration) -> RustBuffer
+{
+  return FfiConverterTypeFfiAuthConfiguration.lower(value)
 }
 
 public struct FfiBackupMetadata: Equatable, Hashable {
@@ -9901,6 +10085,143 @@ public func FfiConverterTypeFfiLifetime_lower(_ value: FfiLifetime) -> RustBuffe
   return FfiConverterTypeFfiLifetime.lower(value)
 }
 
+/// Request shapes the deployment accepts. The client chunks its work to these
+/// values; an app reads them to size its own batches.
+public struct FfiLimitsConfiguration: Equatable, Hashable {
+  public var maxEnvelopeBytes: UInt64
+  public var maxRequestBytes: UInt64
+  public var maxResponseBytes: UInt64
+  public var maxPublishTopics: UInt64
+  public var maxQueryTopics: UInt64
+  public var maxQueryLimit: UInt64
+  public var defaultQueryLimit: UInt64
+  public var maxNewestMetadataTopics: UInt64
+  public var maxNewestFullTopics: UInt64
+  public var maxUpdateAdds: UInt64
+  public var maxUpdateRemoves: UInt64
+  public var maxStreamTopics: UInt64
+  public var maxStaticTopics: UInt64
+  public var maxLookupIdentifiers: UInt64
+  public var maxScwSignatures: UInt64
+  public var maxIdentityEntries: UInt64
+  public var maxUpdateFramesPerSecond: UInt32
+  public var maxUpdateBurst: UInt32
+  public var maxPingFramesPerSecond: UInt32
+  public var maxPingBurst: UInt32
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    maxEnvelopeBytes: UInt64, maxRequestBytes: UInt64, maxResponseBytes: UInt64,
+    maxPublishTopics: UInt64, maxQueryTopics: UInt64, maxQueryLimit: UInt64,
+    defaultQueryLimit: UInt64, maxNewestMetadataTopics: UInt64, maxNewestFullTopics: UInt64,
+    maxUpdateAdds: UInt64, maxUpdateRemoves: UInt64, maxStreamTopics: UInt64,
+    maxStaticTopics: UInt64, maxLookupIdentifiers: UInt64, maxScwSignatures: UInt64,
+    maxIdentityEntries: UInt64, maxUpdateFramesPerSecond: UInt32, maxUpdateBurst: UInt32,
+    maxPingFramesPerSecond: UInt32, maxPingBurst: UInt32
+  ) {
+    self.maxEnvelopeBytes = maxEnvelopeBytes
+    self.maxRequestBytes = maxRequestBytes
+    self.maxResponseBytes = maxResponseBytes
+    self.maxPublishTopics = maxPublishTopics
+    self.maxQueryTopics = maxQueryTopics
+    self.maxQueryLimit = maxQueryLimit
+    self.defaultQueryLimit = defaultQueryLimit
+    self.maxNewestMetadataTopics = maxNewestMetadataTopics
+    self.maxNewestFullTopics = maxNewestFullTopics
+    self.maxUpdateAdds = maxUpdateAdds
+    self.maxUpdateRemoves = maxUpdateRemoves
+    self.maxStreamTopics = maxStreamTopics
+    self.maxStaticTopics = maxStaticTopics
+    self.maxLookupIdentifiers = maxLookupIdentifiers
+    self.maxScwSignatures = maxScwSignatures
+    self.maxIdentityEntries = maxIdentityEntries
+    self.maxUpdateFramesPerSecond = maxUpdateFramesPerSecond
+    self.maxUpdateBurst = maxUpdateBurst
+    self.maxPingFramesPerSecond = maxPingFramesPerSecond
+    self.maxPingBurst = maxPingBurst
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiLimitsConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiLimitsConfiguration: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiLimitsConfiguration
+  {
+    return
+      try FfiLimitsConfiguration(
+        maxEnvelopeBytes: FfiConverterUInt64.read(from: &buf),
+        maxRequestBytes: FfiConverterUInt64.read(from: &buf),
+        maxResponseBytes: FfiConverterUInt64.read(from: &buf),
+        maxPublishTopics: FfiConverterUInt64.read(from: &buf),
+        maxQueryTopics: FfiConverterUInt64.read(from: &buf),
+        maxQueryLimit: FfiConverterUInt64.read(from: &buf),
+        defaultQueryLimit: FfiConverterUInt64.read(from: &buf),
+        maxNewestMetadataTopics: FfiConverterUInt64.read(from: &buf),
+        maxNewestFullTopics: FfiConverterUInt64.read(from: &buf),
+        maxUpdateAdds: FfiConverterUInt64.read(from: &buf),
+        maxUpdateRemoves: FfiConverterUInt64.read(from: &buf),
+        maxStreamTopics: FfiConverterUInt64.read(from: &buf),
+        maxStaticTopics: FfiConverterUInt64.read(from: &buf),
+        maxLookupIdentifiers: FfiConverterUInt64.read(from: &buf),
+        maxScwSignatures: FfiConverterUInt64.read(from: &buf),
+        maxIdentityEntries: FfiConverterUInt64.read(from: &buf),
+        maxUpdateFramesPerSecond: FfiConverterUInt32.read(from: &buf),
+        maxUpdateBurst: FfiConverterUInt32.read(from: &buf),
+        maxPingFramesPerSecond: FfiConverterUInt32.read(from: &buf),
+        maxPingBurst: FfiConverterUInt32.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiLimitsConfiguration, into buf: inout [UInt8]) {
+    FfiConverterUInt64.write(value.maxEnvelopeBytes, into: &buf)
+    FfiConverterUInt64.write(value.maxRequestBytes, into: &buf)
+    FfiConverterUInt64.write(value.maxResponseBytes, into: &buf)
+    FfiConverterUInt64.write(value.maxPublishTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxQueryTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxQueryLimit, into: &buf)
+    FfiConverterUInt64.write(value.defaultQueryLimit, into: &buf)
+    FfiConverterUInt64.write(value.maxNewestMetadataTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxNewestFullTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxUpdateAdds, into: &buf)
+    FfiConverterUInt64.write(value.maxUpdateRemoves, into: &buf)
+    FfiConverterUInt64.write(value.maxStreamTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxStaticTopics, into: &buf)
+    FfiConverterUInt64.write(value.maxLookupIdentifiers, into: &buf)
+    FfiConverterUInt64.write(value.maxScwSignatures, into: &buf)
+    FfiConverterUInt64.write(value.maxIdentityEntries, into: &buf)
+    FfiConverterUInt32.write(value.maxUpdateFramesPerSecond, into: &buf)
+    FfiConverterUInt32.write(value.maxUpdateBurst, into: &buf)
+    FfiConverterUInt32.write(value.maxPingFramesPerSecond, into: &buf)
+    FfiConverterUInt32.write(value.maxPingBurst, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLimitsConfiguration_lift(_ buf: RustBuffer) throws
+  -> FfiLimitsConfiguration
+{
+  return try FfiConverterTypeFfiLimitsConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiLimitsConfiguration_lower(_ value: FfiLimitsConfiguration)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiLimitsConfiguration.lower(value)
+}
+
 public struct FfiListConversationsOptions: Equatable, Hashable {
   public var createdAfterNs: Int64?
   public var createdBeforeNs: Int64?
@@ -10926,6 +11247,75 @@ public func FfiConverterTypeFfiMetadataFieldChange_lower(_ value: FfiMetadataFie
   return FfiConverterTypeFfiMetadataFieldChange.lower(value)
 }
 
+/// Advisory group shapes. The backend publishes them and does not enforce them.
+public struct FfiMlsConfiguration: Equatable, Hashable {
+  public var maxGroupMembers: UInt64
+  public var maxInstallationsPerInbox: UInt64
+  /**
+   * Absent means the client keeps its compiled default. `false` is distinct
+   * from absent, so an operator can switch the commit log off explicitly.
+   */
+  public var commitLogEnabled: Bool?
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    maxGroupMembers: UInt64, maxInstallationsPerInbox: UInt64,
+    /**
+     * Absent means the client keeps its compiled default. `false` is distinct
+     * from absent, so an operator can switch the commit log off explicitly.
+     */
+    commitLogEnabled: Bool?
+  ) {
+    self.maxGroupMembers = maxGroupMembers
+    self.maxInstallationsPerInbox = maxInstallationsPerInbox
+    self.commitLogEnabled = commitLogEnabled
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiMlsConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiMlsConfiguration: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiMlsConfiguration
+  {
+    return
+      try FfiMlsConfiguration(
+        maxGroupMembers: FfiConverterUInt64.read(from: &buf),
+        maxInstallationsPerInbox: FfiConverterUInt64.read(from: &buf),
+        commitLogEnabled: FfiConverterOptionBool.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiMlsConfiguration, into buf: inout [UInt8]) {
+    FfiConverterUInt64.write(value.maxGroupMembers, into: &buf)
+    FfiConverterUInt64.write(value.maxInstallationsPerInbox, into: &buf)
+    FfiConverterOptionBool.write(value.commitLogEnabled, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMlsConfiguration_lift(_ buf: RustBuffer) throws
+  -> FfiMlsConfiguration
+{
+  return try FfiConverterTypeFfiMlsConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiMlsConfiguration_lower(_ value: FfiMlsConfiguration) -> RustBuffer {
+  return FfiConverterTypeFfiMlsConfiguration.lower(value)
+}
+
 public struct FfiMultiRemoteAttachment: Equatable, Hashable {
   public var attachments: [FfiRemoteAttachment]
 
@@ -10975,6 +11365,77 @@ public func FfiConverterTypeFfiMultiRemoteAttachment_lower(_ value: FfiMultiRemo
   -> RustBuffer
 {
   return FfiConverterTypeFfiMultiRemoteAttachment.lower(value)
+}
+
+/// Notification delivery details and topic-selection rules.
+public struct FfiNotificationConfig: Equatable, Hashable {
+  public var channel: FfiNotificationChannel
+  public var consentStates: [FfiConsentState]?
+  public var includeWelcomes: Bool?
+  public var includeSyncGroups: Bool?
+  public var includeCommits: Bool?
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    channel: FfiNotificationChannel, consentStates: [FfiConsentState]? = nil,
+    includeWelcomes: Bool? = nil, includeSyncGroups: Bool? = nil, includeCommits: Bool? = nil
+  ) {
+    self.channel = channel
+    self.consentStates = consentStates
+    self.includeWelcomes = includeWelcomes
+    self.includeSyncGroups = includeSyncGroups
+    self.includeCommits = includeCommits
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiNotificationConfig: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNotificationConfig: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiNotificationConfig
+  {
+    return
+      try FfiNotificationConfig(
+        channel: FfiConverterTypeFfiNotificationChannel.read(from: &buf),
+        consentStates: FfiConverterOptionSequenceTypeFfiConsentState.read(from: &buf),
+        includeWelcomes: FfiConverterOptionBool.read(from: &buf),
+        includeSyncGroups: FfiConverterOptionBool.read(from: &buf),
+        includeCommits: FfiConverterOptionBool.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiNotificationConfig, into buf: inout [UInt8]) {
+    FfiConverterTypeFfiNotificationChannel.write(value.channel, into: &buf)
+    FfiConverterOptionSequenceTypeFfiConsentState.write(value.consentStates, into: &buf)
+    FfiConverterOptionBool.write(value.includeWelcomes, into: &buf)
+    FfiConverterOptionBool.write(value.includeSyncGroups, into: &buf)
+    FfiConverterOptionBool.write(value.includeCommits, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationConfig_lift(_ buf: RustBuffer) throws
+  -> FfiNotificationConfig
+{
+  return try FfiConverterTypeFfiNotificationConfig.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationConfig_lower(_ value: FfiNotificationConfig)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiNotificationConfig.lower(value)
 }
 
 /// OTLP trace export configuration.
@@ -11430,6 +11891,66 @@ public func FfiConverterTypeFfiReply_lower(_ value: FfiReply) -> RustBuffer {
   return FfiConverterTypeFfiReply.lower(value)
 }
 
+/// How long the deployment keeps each payload kind, in seconds.
+public struct FfiRetentionConfiguration: Equatable, Hashable {
+  public var groupMessageSeconds: UInt64
+  public var welcomeSeconds: UInt64
+  public var keyPackageSeconds: UInt64
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(groupMessageSeconds: UInt64, welcomeSeconds: UInt64, keyPackageSeconds: UInt64) {
+    self.groupMessageSeconds = groupMessageSeconds
+    self.welcomeSeconds = welcomeSeconds
+    self.keyPackageSeconds = keyPackageSeconds
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiRetentionConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiRetentionConfiguration: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiRetentionConfiguration
+  {
+    return
+      try FfiRetentionConfiguration(
+        groupMessageSeconds: FfiConverterUInt64.read(from: &buf),
+        welcomeSeconds: FfiConverterUInt64.read(from: &buf),
+        keyPackageSeconds: FfiConverterUInt64.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiRetentionConfiguration, into buf: inout [UInt8]) {
+    FfiConverterUInt64.write(value.groupMessageSeconds, into: &buf)
+    FfiConverterUInt64.write(value.welcomeSeconds, into: &buf)
+    FfiConverterUInt64.write(value.keyPackageSeconds, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRetentionConfiguration_lift(_ buf: RustBuffer) throws
+  -> FfiRetentionConfiguration
+{
+  return try FfiConverterTypeFfiRetentionConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiRetentionConfiguration_lower(_ value: FfiRetentionConfiguration)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiRetentionConfiguration.lower(value)
+}
+
 public struct FfiSendMessageOpts: Equatable, Hashable {
   public var shouldPush: Bool
   /**
@@ -11688,6 +12209,167 @@ public func FfiConverterTypeFfiSentryTag_lift(_ buf: RustBuffer) throws -> FfiSe
 #endif
 public func FfiConverterTypeFfiSentryTag_lower(_ value: FfiSentryTag) -> RustBuffer {
   return FfiConverterTypeFfiSentryTag.lower(value)
+}
+
+/// One immutable snapshot of what a deployment published.
+public struct FfiServerConfiguration: Equatable, Hashable {
+  /**
+   * Stable operator-chosen name. Empty only before a first fetch succeeds.
+   */
+  public var identifier: String
+  public var serverVersion: String
+  /**
+   * Empty when the operator published no minimum.
+   */
+  public var minLibxmtpVersion: String
+  public var auth: FfiAuthConfiguration
+  public var retention: FfiRetentionConfiguration
+  public var limits: FfiLimitsConfiguration
+  public var mls: FfiMlsConfiguration
+  /**
+   * CAIP-2 chain ids this deployment verifies smart contract wallet
+   * signatures on. Empty rejects every app-supplied signature.
+   */
+  public var smartContractWalletChains: [String]
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(
+    /**
+     * Stable operator-chosen name. Empty only before a first fetch succeeds.
+     */
+    identifier: String, serverVersion: String,
+    /**
+     * Empty when the operator published no minimum.
+     */
+    minLibxmtpVersion: String, auth: FfiAuthConfiguration, retention: FfiRetentionConfiguration,
+    limits: FfiLimitsConfiguration, mls: FfiMlsConfiguration,
+    /**
+     * CAIP-2 chain ids this deployment verifies smart contract wallet
+     * signatures on. Empty rejects every app-supplied signature.
+     */
+    smartContractWalletChains: [String]
+  ) {
+    self.identifier = identifier
+    self.serverVersion = serverVersion
+    self.minLibxmtpVersion = minLibxmtpVersion
+    self.auth = auth
+    self.retention = retention
+    self.limits = limits
+    self.mls = mls
+    self.smartContractWalletChains = smartContractWalletChains
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiServerConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiServerConfiguration: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiServerConfiguration
+  {
+    return
+      try FfiServerConfiguration(
+        identifier: FfiConverterString.read(from: &buf),
+        serverVersion: FfiConverterString.read(from: &buf),
+        minLibxmtpVersion: FfiConverterString.read(from: &buf),
+        auth: FfiConverterTypeFfiAuthConfiguration.read(from: &buf),
+        retention: FfiConverterTypeFfiRetentionConfiguration.read(from: &buf),
+        limits: FfiConverterTypeFfiLimitsConfiguration.read(from: &buf),
+        mls: FfiConverterTypeFfiMlsConfiguration.read(from: &buf),
+        smartContractWalletChains: FfiConverterSequenceString.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiServerConfiguration, into buf: inout [UInt8]) {
+    FfiConverterString.write(value.identifier, into: &buf)
+    FfiConverterString.write(value.serverVersion, into: &buf)
+    FfiConverterString.write(value.minLibxmtpVersion, into: &buf)
+    FfiConverterTypeFfiAuthConfiguration.write(value.auth, into: &buf)
+    FfiConverterTypeFfiRetentionConfiguration.write(value.retention, into: &buf)
+    FfiConverterTypeFfiLimitsConfiguration.write(value.limits, into: &buf)
+    FfiConverterTypeFfiMlsConfiguration.write(value.mls, into: &buf)
+    FfiConverterSequenceString.write(value.smartContractWalletChains, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiServerConfiguration_lift(_ buf: RustBuffer) throws
+  -> FfiServerConfiguration
+{
+  return try FfiConverterTypeFfiServerConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiServerConfiguration_lower(_ value: FfiServerConfiguration)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiServerConfiguration.lower(value)
+}
+
+/// Public identity of one accepted signing key. Never the key itself.
+public struct FfiSigningKeyDescription: Equatable, Hashable {
+  public var kid: String
+  public var alg: String
+
+  // Default memberwise initializers are never public by default, so we
+  // declare one manually.
+  public init(kid: String, alg: String) {
+    self.kid = kid
+    self.alg = alg
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiSigningKeyDescription: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSigningKeyDescription: FfiConverterRustBuffer {
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiSigningKeyDescription
+  {
+    return
+      try FfiSigningKeyDescription(
+        kid: FfiConverterString.read(from: &buf),
+        alg: FfiConverterString.read(from: &buf)
+      )
+  }
+
+  public static func write(_ value: FfiSigningKeyDescription, into buf: inout [UInt8]) {
+    FfiConverterString.write(value.kid, into: &buf)
+    FfiConverterString.write(value.alg, into: &buf)
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSigningKeyDescription_lift(_ buf: RustBuffer) throws
+  -> FfiSigningKeyDescription
+{
+  return try FfiConverterTypeFfiSigningKeyDescription.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSigningKeyDescription_lower(_ value: FfiSigningKeyDescription)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiSigningKeyDescription.lower(value)
 }
 
 /// Cause codes and fixed display text, without raw nested error data.
@@ -12942,6 +13624,72 @@ public func FfiConverterTypeFfiActionStyle_lift(_ buf: RustBuffer) throws -> Ffi
 #endif
 public func FfiConverterTypeFfiActionStyle_lower(_ value: FfiActionStyle) -> RustBuffer {
   return FfiConverterTypeFfiActionStyle.lower(value)
+}
+
+/// Error returned by a foreign auth callback. It carries no app error text.
+/// This must not be a flat error: UniFFI must lift it back into Rust.
+public
+  enum FfiAuthCallbackError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
+{
+
+  /**
+   * The callback failed. The auth middleware controls retries.
+   */
+  case Failed
+
+  public var errorDescription: String? {
+    String(reflecting: self)
+  }
+
+}
+
+#if compiler(>=6)
+  extension FfiAuthCallbackError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiAuthCallbackError: FfiConverterRustBuffer {
+  typealias SwiftType = FfiAuthCallbackError
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiAuthCallbackError
+  {
+    let variant: Int32 = try readInt(&buf)
+    switch variant {
+
+    case 1: return .Failed
+
+    default: throw UniffiInternalError.unexpectedEnumCase
+    }
+  }
+
+  public static func write(_ value: FfiAuthCallbackError, into buf: inout [UInt8]) {
+    switch value {
+
+    case .Failed:
+      writeInt(&buf, Int32(1))
+
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthCallbackError_lift(_ buf: RustBuffer) throws
+  -> FfiAuthCallbackError
+{
+  return try FfiConverterTypeFfiAuthCallbackError.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiAuthCallbackError_lower(_ value: FfiAuthCallbackError) -> RustBuffer
+{
+  return FfiConverterTypeFfiAuthCallbackError.lower(value)
 }
 
 public enum FfiBackupElementSelection: Equatable, Hashable {
@@ -14249,11 +14997,49 @@ public func FfiConverterTypeFfiDirection_lower(_ value: FfiDirection) -> RustBuf
 
 /// Keep the error code prefix and append structured details for processing failures.
 /// The flat error keeps existing callback interfaces compatible.
+///
+/// The six server-configuration conditions of CFG-083 are separate variants, so
+/// Kotlin and Swift match on a type instead of reading a message. Each one keeps
+/// the originating [`GenericError`] beside the structured fields, so its error
+/// code and message are exactly what they were before the variant existed.
 public
   enum FfiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
 {
 
   case Error(message: String)
+
+  /**
+   * CFG-041: the backend did not serve its configuration, or the answer
+   * could not be stored.
+   */
+  case ConfigurationUnavailable(message: String)
+
+  /**
+   * CFG-044: the backend published a configuration this client cannot use.
+   */
+  case ConfigurationInvalid(message: String)
+
+  /**
+   * CFG-051: this database is bound to one backend and a different one
+   * answered.
+   */
+  case BackendMismatch(message: String)
+
+  /**
+   * CFG-060 and CFG-061: the backend requires a newer libxmtp than this build.
+   */
+  case ClientVersionTooOld(message: String)
+
+  /**
+   * CFG-062: the backend requires a credential and none was configured.
+   */
+  case AuthRequired(message: String)
+
+  /**
+   * CFG-069 and CFG-070: the backend does not verify smart contract wallet
+   * signatures on this chain.
+   */
+  case ChainNotAccepted(message: String)
 
   public var errorDescription: String? {
     String(reflecting: self)
@@ -14280,6 +15066,36 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
         message: try FfiConverterString.read(from: &buf)
       )
 
+    case 2:
+      return .ConfigurationUnavailable(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
+    case 3:
+      return .ConfigurationInvalid(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
+    case 4:
+      return .BackendMismatch(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
+    case 5:
+      return .ClientVersionTooOld(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
+    case 6:
+      return .AuthRequired(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
+    case 7:
+      return .ChainNotAccepted(
+        message: try FfiConverterString.read(from: &buf)
+      )
+
     default: throw UniffiInternalError.unexpectedEnumCase
     }
   }
@@ -14289,6 +15105,18 @@ public struct FfiConverterTypeFfiError: FfiConverterRustBuffer {
 
     case .Error(_ /* message is ignored*/):
       writeInt(&buf, Int32(1))
+    case .ConfigurationUnavailable(_ /* message is ignored*/):
+      writeInt(&buf, Int32(2))
+    case .ConfigurationInvalid(_ /* message is ignored*/):
+      writeInt(&buf, Int32(3))
+    case .BackendMismatch(_ /* message is ignored*/):
+      writeInt(&buf, Int32(4))
+    case .ClientVersionTooOld(_ /* message is ignored*/):
+      writeInt(&buf, Int32(5))
+    case .AuthRequired(_ /* message is ignored*/):
+      writeInt(&buf, Int32(6))
+    case .ChainNotAccepted(_ /* message is ignored*/):
+      writeInt(&buf, Int32(7))
 
     }
   }
@@ -15321,6 +16149,331 @@ public func FfiConverterTypeFfiMlsExtensionType_lower(_ value: FfiMlsExtensionTy
   return FfiConverterTypeFfiMlsExtensionType.lower(value)
 }
 
+/**
+ * The notification delivery endpoint.
+ */
+
+public enum FfiNotificationChannel: Equatable, Hashable {
+
+  case apns(
+    token: String
+  )
+  case fcm(
+    token: String
+  )
+  case http(
+    url: String, signingKey: Data
+  )
+
+}
+
+#if compiler(>=6)
+  extension FfiNotificationChannel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNotificationChannel: FfiConverterRustBuffer {
+  typealias SwiftType = FfiNotificationChannel
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiNotificationChannel
+  {
+    let variant: Int32 = try readInt(&buf)
+    switch variant {
+
+    case 1:
+      return .apns(
+        token: try FfiConverterString.read(from: &buf)
+      )
+
+    case 2:
+      return .fcm(
+        token: try FfiConverterString.read(from: &buf)
+      )
+
+    case 3:
+      return .http(
+        url: try FfiConverterString.read(from: &buf),
+        signingKey: try FfiConverterData.read(from: &buf)
+      )
+
+    default: throw UniffiInternalError.unexpectedEnumCase
+    }
+  }
+
+  public static func write(_ value: FfiNotificationChannel, into buf: inout [UInt8]) {
+    switch value {
+
+    case .apns(let token):
+      writeInt(&buf, Int32(1))
+      FfiConverterString.write(token, into: &buf)
+
+    case .fcm(let token):
+      writeInt(&buf, Int32(2))
+      FfiConverterString.write(token, into: &buf)
+
+    case .http(let url, let signingKey):
+      writeInt(&buf, Int32(3))
+      FfiConverterString.write(url, into: &buf)
+      FfiConverterData.write(signingKey, into: &buf)
+
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationChannel_lift(_ buf: RustBuffer) throws
+  -> FfiNotificationChannel
+{
+  return try FfiConverterTypeFfiNotificationChannel.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationChannel_lower(_ value: FfiNotificationChannel)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiNotificationChannel.lower(value)
+}
+
+/**
+ * A terminal notification failure stored in the local notification state.
+ */
+
+public enum FfiNotificationFailure: Equatable, Hashable {
+
+  case permissionDenied
+  case invalidArgument
+  case outOfRange
+  case unimplemented
+  case channelNotConfigured
+
+}
+
+#if compiler(>=6)
+  extension FfiNotificationFailure: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNotificationFailure: FfiConverterRustBuffer {
+  typealias SwiftType = FfiNotificationFailure
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiNotificationFailure
+  {
+    let variant: Int32 = try readInt(&buf)
+    switch variant {
+
+    case 1: return .permissionDenied
+
+    case 2: return .invalidArgument
+
+    case 3: return .outOfRange
+
+    case 4: return .unimplemented
+
+    case 5: return .channelNotConfigured
+
+    default: throw UniffiInternalError.unexpectedEnumCase
+    }
+  }
+
+  public static func write(_ value: FfiNotificationFailure, into buf: inout [UInt8]) {
+    switch value {
+
+    case .permissionDenied:
+      writeInt(&buf, Int32(1))
+
+    case .invalidArgument:
+      writeInt(&buf, Int32(2))
+
+    case .outOfRange:
+      writeInt(&buf, Int32(3))
+
+    case .unimplemented:
+      writeInt(&buf, Int32(4))
+
+    case .channelNotConfigured:
+      writeInt(&buf, Int32(5))
+
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationFailure_lift(_ buf: RustBuffer) throws
+  -> FfiNotificationFailure
+{
+  return try FfiConverterTypeFfiNotificationFailure.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationFailure_lower(_ value: FfiNotificationFailure)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiNotificationFailure.lower(value)
+}
+
+/**
+ * A local notification override for one conversation.
+ */
+
+public enum FfiNotificationOverride: Equatable, Hashable {
+
+  case enabled
+  case disabled
+  case `default`
+
+}
+
+#if compiler(>=6)
+  extension FfiNotificationOverride: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNotificationOverride: FfiConverterRustBuffer {
+  typealias SwiftType = FfiNotificationOverride
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiNotificationOverride
+  {
+    let variant: Int32 = try readInt(&buf)
+    switch variant {
+
+    case 1: return .enabled
+
+    case 2: return .disabled
+
+    case 3: return .`default`
+
+    default: throw UniffiInternalError.unexpectedEnumCase
+    }
+  }
+
+  public static func write(_ value: FfiNotificationOverride, into buf: inout [UInt8]) {
+    switch value {
+
+    case .enabled:
+      writeInt(&buf, Int32(1))
+
+    case .disabled:
+      writeInt(&buf, Int32(2))
+
+    case .`default`:
+      writeInt(&buf, Int32(3))
+
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationOverride_lift(_ buf: RustBuffer) throws
+  -> FfiNotificationOverride
+{
+  return try FfiConverterTypeFfiNotificationOverride.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationOverride_lower(_ value: FfiNotificationOverride)
+  -> RustBuffer
+{
+  return FfiConverterTypeFfiNotificationOverride.lower(value)
+}
+
+/**
+ * The locally stored notification state.
+ */
+
+public enum FfiNotificationState: Equatable, Hashable {
+
+  case disabled
+  case enabled
+  case failed(
+    error: FfiNotificationFailure
+  )
+
+}
+
+#if compiler(>=6)
+  extension FfiNotificationState: Sendable {}
+#endif
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiNotificationState: FfiConverterRustBuffer {
+  typealias SwiftType = FfiNotificationState
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> FfiNotificationState
+  {
+    let variant: Int32 = try readInt(&buf)
+    switch variant {
+
+    case 1: return .disabled
+
+    case 2: return .enabled
+
+    case 3:
+      return .failed(
+        error: try FfiConverterTypeFfiNotificationFailure.read(from: &buf)
+      )
+
+    default: throw UniffiInternalError.unexpectedEnumCase
+    }
+  }
+
+  public static func write(_ value: FfiNotificationState, into buf: inout [UInt8]) {
+    switch value {
+
+    case .disabled:
+      writeInt(&buf, Int32(1))
+
+    case .enabled:
+      writeInt(&buf, Int32(2))
+
+    case .failed(let error):
+      writeInt(&buf, Int32(3))
+      FfiConverterTypeFfiNotificationFailure.write(error, into: &buf)
+
+    }
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationState_lift(_ buf: RustBuffer) throws
+  -> FfiNotificationState
+{
+  return try FfiConverterTypeFfiNotificationState.lift(buf)
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiNotificationState_lower(_ value: FfiNotificationState) -> RustBuffer
+{
+  return FfiConverterTypeFfiNotificationState.lower(value)
+}
+
 public enum FfiPermissionLevel: Equatable, Hashable {
 
   case member
@@ -16295,6 +17448,7 @@ public enum FfiWorkerKind: Equatable, Hashable {
   case keyPackageCleaner
   case commitLog
   case taskRunner
+  case configurationRefresh
 
 }
 
@@ -16323,6 +17477,8 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
 
     case 5: return .taskRunner
 
+    case 6: return .configurationRefresh
+
     default: throw UniffiInternalError.unexpectedEnumCase
     }
   }
@@ -16344,6 +17500,9 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
 
     case .taskRunner:
       writeInt(&buf, Int32(5))
+
+    case .configurationRefresh:
+      writeInt(&buf, Int32(6))
 
     }
   }
@@ -18368,6 +19527,33 @@ private struct FfiConverterSequenceTypeFfiSentryTag: FfiConverterRustBuffer {
 #if swift(>=5.8)
   @_documentation(visibility: private)
 #endif
+private struct FfiConverterSequenceTypeFfiSigningKeyDescription: FfiConverterRustBuffer {
+  typealias SwiftType = [FfiSigningKeyDescription]
+
+  public static func write(_ value: [FfiSigningKeyDescription], into buf: inout [UInt8]) {
+    let len = Int32(value.count)
+    writeInt(&buf, len)
+    for item in value {
+      FfiConverterTypeFfiSigningKeyDescription.write(item, into: &buf)
+    }
+  }
+
+  public static func read(from buf: inout (data: Data, offset: Data.Index)) throws
+    -> [FfiSigningKeyDescription]
+  {
+    let len: Int32 = try readInt(&buf)
+    var seq = [FfiSigningKeyDescription]()
+    seq.reserveCapacity(Int(len))
+    for _ in 0..<len {
+      seq.append(try FfiConverterTypeFfiSigningKeyDescription.read(from: &buf))
+    }
+    return seq
+  }
+}
+
+#if swift(>=5.8)
+  @_documentation(visibility: private)
+#endif
 private struct FfiConverterSequenceTypeFfiStreamBarrierFailure: FfiConverterRustBuffer {
   typealias SwiftType = [FfiStreamBarrierFailure]
 
@@ -19218,25 +20404,6 @@ public func setSentryUser(stableId: String?) {
     )
   }
 }
-/// * Static apply a signature request
-public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSignatureRequest)
-  async throws
-{
-  return
-    try await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_apply_signature_request(
-          FfiConverterTypeXmtpApiClient_lower(api),
-          FfiConverterTypeFfiSignatureRequest_lower(signatureRequest)
-        )
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_void,
-      completeFunc: ffi_xmtpv3_rust_future_complete_void,
-      freeFunc: ffi_xmtpv3_rust_future_free_void,
-      liftFunc: { $0 },
-      errorHandler: FfiConverterTypeFfiError_lift
-    )
-}
 /// Connect to the backend at the supplied URL.
 public func connectToBackend(
   backendUrl: String, clientMode: FfiClientMode?, appVersion: String?,
@@ -19257,6 +20424,89 @@ public func connectToBackend(
       completeFunc: ffi_xmtpv3_rust_future_complete_u64,
       freeFunc: ffi_xmtpv3_rust_future_free_u64,
       liftFunc: FfiConverterTypeXmtpApiClient_lift,
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+/// * Static Get the inbox state for each `inbox_id`.
+public func inboxStateFromInboxIds(api: XmtpApiClient, inboxIds: [String]) async throws
+  -> [FfiInboxState]
+{
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_inbox_state_from_inbox_ids(
+          FfiConverterTypeXmtpApiClient_lower(api), FfiConverterSequenceString.lower(inboxIds)
+        )
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+      completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+      freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+      liftFunc: FfiConverterSequenceTypeFfiInboxState.lift,
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+public func isConnected(api: XmtpApiClient) async -> Bool {
+  return
+    try! await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_is_connected(
+          FfiConverterTypeXmtpApiClient_lower(api)
+        )
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_i8,
+      completeFunc: ffi_xmtpv3_rust_future_complete_i8,
+      freeFunc: ffi_xmtpv3_rust_future_free_i8,
+      liftFunc: FfiConverterBool.lift,
+      errorHandler: nil
+
+    )
+}
+/// Resume all shared bidi wires; return before reconnect and processing complete.
+/// Use [`FfiXmtpClient::catch_up_to_live`] to wait for bounded fixed-target processing.
+public func resumeStreams() async throws {
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_resume_streams()
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_void,
+      completeFunc: ffi_xmtpv3_rust_future_complete_void,
+      freeFunc: ffi_xmtpv3_rust_future_free_void,
+      liftFunc: { $0 },
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+/// Suspend all shared bidi wires in this process until [`resume_streams`].
+/// Keep subscriptions and durable progress. New wires also start suspended.
+public func suspendStreams() async throws {
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_suspend_streams()
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_void,
+      completeFunc: ffi_xmtpv3_rust_future_complete_void,
+      freeFunc: ffi_xmtpv3_rust_future_free_void,
+      liftFunc: { $0 },
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+/// * Static apply a signature request
+public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSignatureRequest)
+  async throws
+{
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_apply_signature_request(
+          FfiConverterTypeXmtpApiClient_lower(api),
+          FfiConverterTypeFfiSignatureRequest_lower(signatureRequest)
+        )
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_void,
+      completeFunc: ffi_xmtpv3_rust_future_complete_void,
+      freeFunc: ffi_xmtpv3_rust_future_free_void,
+      liftFunc: { $0 },
       errorHandler: FfiConverterTypeFfiError_lift
     )
 }
@@ -19312,6 +20562,56 @@ public func createClient(
       liftFunc: FfiConverterTypeFfiXmtpClient_lift,
       errorHandler: FfiConverterTypeFfiError_lift
     )
+}
+public func getInboxIdForIdentifier(api: XmtpApiClient, accountIdentifier: FfiIdentifier)
+  async throws -> String?
+{
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_get_inbox_id_for_identifier(
+          FfiConverterTypeXmtpApiClient_lower(api),
+          FfiConverterTypeFfiIdentifier_lower(accountIdentifier)
+        )
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+      completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+      freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+      liftFunc: FfiConverterOptionString.lift,
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+public func getNewestMessageMetadata(api: XmtpApiClient, groupIds: [Data]) async throws -> [Data:
+  FfiMessageMetadata]
+{
+  return
+    try await uniffiRustCallAsync(
+      rustFutureFunc: {
+        uniffi_xmtpv3_fn_func_get_newest_message_metadata(
+          FfiConverterTypeXmtpApiClient_lower(api), FfiConverterSequenceData.lower(groupIds)
+        )
+      },
+      pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
+      completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
+      freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
+      liftFunc: FfiConverterDictionaryDataTypeFfiMessageMetadata.lift,
+      errorHandler: FfiConverterTypeFfiError_lift
+    )
+}
+/// * Static revoke a list of installations
+public func revokeInstallations(
+  api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data]
+) throws -> FfiSignatureRequest {
+  return try FfiConverterTypeFfiSignatureRequest_lift(
+    try rustCallWithError(FfiConverterTypeFfiError_lift) {
+      uniffiCallStatus in
+      uniffi_xmtpv3_fn_func_revoke_installations(
+        FfiConverterTypeXmtpApiClient_lower(api),
+        FfiConverterTypeFfiIdentifier_lower(recoveryIdentifier),
+        FfiConverterString.lower(inboxId),
+        FfiConverterSequenceData.lower(installationIds), uniffiCallStatus
+      )
+    })
 }
 public func decodeActions(bytes: Data) throws -> FfiActions {
   return try FfiConverterTypeFfiActions_lift(
@@ -19576,117 +20876,31 @@ public func encodeWalletSendCalls(walletSendCalls: FfiWalletSendCalls) throws ->
       )
     })
 }
-public func getInboxIdForIdentifier(api: XmtpApiClient, accountIdentifier: FfiIdentifier)
-  async throws -> String?
+/// Read a deployment's configuration with no database, no client, and no
+/// credential (CFG-081, CFG-045).
+///
+/// An app calls this before it decides how to build a client, so it can learn
+/// whether the deployment requires authentication, which scopes it wants, and
+/// which chains it accepts. Nothing is stored and no identifier binding is
+/// applied: there is no database to bind to.
+///
+/// `backend_url` and `app_version` are the transport arguments
+/// [`crate::connect_to_backend`] takes. No auth callback and no auth handle is
+/// attached, so the built client carries no auth middleware at all.
+public func fetchServerConfiguration(backendUrl: String, appVersion: String?) async throws
+  -> FfiServerConfiguration
 {
   return
     try await uniffiRustCallAsync(
       rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_get_inbox_id_for_identifier(
-          FfiConverterTypeXmtpApiClient_lower(api),
-          FfiConverterTypeFfiIdentifier_lower(accountIdentifier)
+        uniffi_xmtpv3_fn_func_fetch_server_configuration(
+          FfiConverterString.lower(backendUrl), FfiConverterOptionString.lower(appVersion)
         )
       },
       pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
       completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
       freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-      liftFunc: FfiConverterOptionString.lift,
-      errorHandler: FfiConverterTypeFfiError_lift
-    )
-}
-public func getNewestMessageMetadata(api: XmtpApiClient, groupIds: [Data]) async throws -> [Data:
-  FfiMessageMetadata]
-{
-  return
-    try await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_get_newest_message_metadata(
-          FfiConverterTypeXmtpApiClient_lower(api), FfiConverterSequenceData.lower(groupIds)
-        )
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
-      completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
-      freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-      liftFunc: FfiConverterDictionaryDataTypeFfiMessageMetadata.lift,
-      errorHandler: FfiConverterTypeFfiError_lift
-    )
-}
-/// * Static Get the inbox state for each `inbox_id`.
-public func inboxStateFromInboxIds(api: XmtpApiClient, inboxIds: [String]) async throws
-  -> [FfiInboxState]
-{
-  return
-    try await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_inbox_state_from_inbox_ids(
-          FfiConverterTypeXmtpApiClient_lower(api), FfiConverterSequenceString.lower(inboxIds)
-        )
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_rust_buffer,
-      completeFunc: ffi_xmtpv3_rust_future_complete_rust_buffer,
-      freeFunc: ffi_xmtpv3_rust_future_free_rust_buffer,
-      liftFunc: FfiConverterSequenceTypeFfiInboxState.lift,
-      errorHandler: FfiConverterTypeFfiError_lift
-    )
-}
-public func isConnected(api: XmtpApiClient) async -> Bool {
-  return
-    try! await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_is_connected(
-          FfiConverterTypeXmtpApiClient_lower(api)
-        )
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_i8,
-      completeFunc: ffi_xmtpv3_rust_future_complete_i8,
-      freeFunc: ffi_xmtpv3_rust_future_free_i8,
-      liftFunc: FfiConverterBool.lift,
-      errorHandler: nil
-
-    )
-}
-/// Resume all shared bidi wires; return before reconnect and processing complete.
-/// Use [`FfiXmtpClient::catch_up_to_live`] to wait for bounded fixed-target processing.
-public func resumeStreams() async throws {
-  return
-    try await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_resume_streams()
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_void,
-      completeFunc: ffi_xmtpv3_rust_future_complete_void,
-      freeFunc: ffi_xmtpv3_rust_future_free_void,
-      liftFunc: { $0 },
-      errorHandler: FfiConverterTypeFfiError_lift
-    )
-}
-/// * Static revoke a list of installations
-public func revokeInstallations(
-  api: XmtpApiClient, recoveryIdentifier: FfiIdentifier, inboxId: String, installationIds: [Data]
-) throws -> FfiSignatureRequest {
-  return try FfiConverterTypeFfiSignatureRequest_lift(
-    try rustCallWithError(FfiConverterTypeFfiError_lift) {
-      uniffiCallStatus in
-      uniffi_xmtpv3_fn_func_revoke_installations(
-        FfiConverterTypeXmtpApiClient_lower(api),
-        FfiConverterTypeFfiIdentifier_lower(recoveryIdentifier),
-        FfiConverterString.lower(inboxId),
-        FfiConverterSequenceData.lower(installationIds), uniffiCallStatus
-      )
-    })
-}
-/// Suspend all shared bidi wires in this process until [`resume_streams`].
-/// Keep subscriptions and durable progress. New wires also start suspended.
-public func suspendStreams() async throws {
-  return
-    try await uniffiRustCallAsync(
-      rustFutureFunc: {
-        uniffi_xmtpv3_fn_func_suspend_streams()
-      },
-      pollFunc: ffi_xmtpv3_rust_future_poll_void,
-      completeFunc: ffi_xmtpv3_rust_future_complete_void,
-      freeFunc: ffi_xmtpv3_rust_future_free_void,
-      liftFunc: { $0 },
+      liftFunc: FfiConverterTypeFfiServerConfiguration_lift,
       errorHandler: FfiConverterTypeFfiError_lift
     )
 }
@@ -19764,121 +20978,124 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_func_set_sentry_user() != 52914 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_apply_signature_request() != 53548 {
+  if uniffi_xmtpv3_checksum_func_connect_to_backend() != 51641 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_connect_to_backend() != 61897 {
+  if uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 44839 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_create_client() != 59600 {
+  if uniffi_xmtpv3_checksum_func_is_connected() != 54825 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_actions() != 30649 {
+  if uniffi_xmtpv3_checksum_func_resume_streams() != 44621 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_attachment() != 37970 {
+  if uniffi_xmtpv3_checksum_func_suspend_streams() != 19507 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_delete_message() != 27009 {
+  if uniffi_xmtpv3_checksum_func_apply_signature_request() != 22379 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_group_updated() != 11856 {
+  if uniffi_xmtpv3_checksum_func_create_client() != 41210 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_intent() != 49074 {
+  if uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 47087 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_leave_request() != 44609 {
+  if uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 33122 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_markdown() != 44207 {
+  if uniffi_xmtpv3_checksum_func_revoke_installations() != 47967 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 29124 {
+  if uniffi_xmtpv3_checksum_func_decode_actions() != 10298 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_reaction() != 26476 {
+  if uniffi_xmtpv3_checksum_func_decode_attachment() != 27856 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_read_receipt() != 57369 {
+  if uniffi_xmtpv3_checksum_func_decode_delete_message() != 23025 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 817 {
+  if uniffi_xmtpv3_checksum_func_decode_group_updated() != 37139 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_reply() != 11679 {
+  if uniffi_xmtpv3_checksum_func_decode_intent() != 23716 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_text() != 48799 {
+  if uniffi_xmtpv3_checksum_func_decode_leave_request() != 31303 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 48189 {
+  if uniffi_xmtpv3_checksum_func_decode_markdown() != 55357 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 49561 {
+  if uniffi_xmtpv3_checksum_func_decode_multi_remote_attachment() != 64436 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_actions() != 51036 {
+  if uniffi_xmtpv3_checksum_func_decode_reaction() != 12420 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_attachment() != 41349 {
+  if uniffi_xmtpv3_checksum_func_decode_read_receipt() != 47460 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_delete_message() != 5319 {
+  if uniffi_xmtpv3_checksum_func_decode_remote_attachment() != 45055 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_intent() != 7465 {
+  if uniffi_xmtpv3_checksum_func_decode_reply() != 62894 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_leave_request() != 54241 {
+  if uniffi_xmtpv3_checksum_func_decode_text() != 57601 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_markdown() != 1725 {
+  if uniffi_xmtpv3_checksum_func_decode_transaction_reference() != 51226 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 31636 {
+  if uniffi_xmtpv3_checksum_func_decode_wallet_send_calls() != 542 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_reaction() != 51165 {
+  if uniffi_xmtpv3_checksum_func_encode_actions() != 14489 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_read_receipt() != 21669 {
+  if uniffi_xmtpv3_checksum_func_encode_attachment() != 58654 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 12157 {
+  if uniffi_xmtpv3_checksum_func_encode_delete_message() != 47302 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_reply() != 47244 {
+  if uniffi_xmtpv3_checksum_func_encode_intent() != 52602 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_text() != 17788 {
+  if uniffi_xmtpv3_checksum_func_encode_leave_request() != 56266 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 16145 {
+  if uniffi_xmtpv3_checksum_func_encode_markdown() != 44897 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 12137 {
+  if uniffi_xmtpv3_checksum_func_encode_multi_remote_attachment() != 44690 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 50007 {
+  if uniffi_xmtpv3_checksum_func_encode_reaction() != 34245 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_get_newest_message_metadata() != 21088 {
+  if uniffi_xmtpv3_checksum_func_encode_read_receipt() != 48153 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_inbox_state_from_inbox_ids() != 17421 {
+  if uniffi_xmtpv3_checksum_func_encode_remote_attachment() != 16279 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_is_connected() != 32737 {
+  if uniffi_xmtpv3_checksum_func_encode_reply() != 10079 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_resume_streams() != 18798 {
+  if uniffi_xmtpv3_checksum_func_encode_text() != 12002 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_revoke_installations() != 57474 {
+  if uniffi_xmtpv3_checksum_func_encode_transaction_reference() != 38436 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_func_suspend_streams() != 11433 {
+  if uniffi_xmtpv3_checksum_func_encode_wallet_send_calls() != 17721 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_func_fetch_server_configuration() != 44715 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_func_get_stream_failure_details() != 20193 {
@@ -19938,500 +21155,164 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_method_ffidecodedmessage_sent_at_ns() != 4737 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 22770 {
+  if uniffi_xmtpv3_checksum_method_xmtpapiclient_cache_key() != 50985 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 36138 {
+  if uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 22626 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_close() != 51645 {
+  if uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 49095 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 7093 {
+  if uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 30533 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 30042 {
+  if uniffi_xmtpv3_checksum_method_ffiappdatachangecallback_on_app_data_changed() != 13210 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 40720 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 22268 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 24876 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 12264 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 5433 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 37075 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 26980 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 48942 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 26935 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 45246 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_beginning_delivery_cursor() != 25457 {
+  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 45890 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 18641 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 50609 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 51173 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 13094 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings()
-    != 56036
-  {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 14297 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 12915 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics() != 62476 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 3818 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 14017 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 53095 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 16904 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 15871 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 20431 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 60793 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_catch_up_to_live() != 42718 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 21695 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 18592 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 54404 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_clear_all_statistics() != 42391 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 43597 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 37406 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 38242 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 58685 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 39934 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 54496 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 34136 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 26208 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 16391 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 22738 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 6021 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 36832 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 4113 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 30818 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 64003 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 4636 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 59564 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 43542 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 16960 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_id() != 577 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 3985 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 37628 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled()
-    != 39911
-  {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 15598 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 32218 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 54597 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_membership_capabilities() != 57689 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 11549 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_message_history_snapshot() != 65260 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_message_reader() != 19318 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 62270 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 44666 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 35852
-  {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_proposals_enabled() != 39400 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 54477 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 58127 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 10971 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings()
-    != 55064
-  {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 38599 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 14303 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 16760 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_send() != 36977 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 104 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 17396 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_stream() != 19307 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 16019 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_sync() != 1314 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 3533 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 39880 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings()
-    != 8396
-  {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 13846 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 21755 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 44651 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 24446 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 4349 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 34278 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close() != 52540 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation() != 21746 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked() != 10746 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message() != 26016 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 49720 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 9294 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_beginning_delivery_cursor() != 28389 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 52386 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 40937 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 64295 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 60887 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 17852 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 57486 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_list() != 13407 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 28162 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 41881 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_message_history_snapshot() != 47804 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_message_reader() != 64374 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 38686 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream() != 5774 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_dm_messages() != 40275 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_group_messages() != 57122 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 55114 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_consent() != 53908 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_dms() != 2393 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_groups() != 35733 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_message_deletions() != 15757 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_messages() != 3731 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_stream_preferences() != 30056 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_sync() != 34733 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 21892 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 14185 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 53239 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 62206 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 31141 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 6882 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffimessagedeletioncallback_on_message_deleted() != 7263 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 63909 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 51465 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_close() != 62276 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_ecdsa_signature() != 32798 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_passkey_signature() != 54175 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_add_scw_signature() != 56515 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_is_ready() != 10746 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_missing_address_signatures() != 15942 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffisignaturerequest_signature_text() != 24155 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_catch_up_changed() != 13706 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_catch_up_snapshot() != 41610 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 30436 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 58659 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 9755 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_update_filter() != 46324 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_update_scope() != 35771 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffistreamcloser_wait_for_ready() != 1160 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_add_identity() != 27187 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_addresses_from_inbox_id() != 59590 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_aggregate_statistics() != 33055 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_identity_statistics() != 61921 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_api_statistics() != 52654 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_apply_signature_request() != 44565 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_can_message() != 5012 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_catch_up_to_live() != 31326 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_change_recovery_identifier() != 45303 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_clear_all_statistics() != 3073 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_conversation() != 45576 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_conversations() != 7592 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_db_reconnect() != 6255 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_delete_message() != 57560 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_dm_conversation() != 59645 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_enriched_message() != 30189 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_inbox_updates_count() != 9772 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_fetch_own_inbox_updates_count() != 51630 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_find_inbox_id() != 36401 {
-    return InitializationResult.apiChecksumMismatch
-  }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 10342 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_get_consent_state() != 9411 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffixmtpclient_get_key_package_statuses_for_installation_ids()
-    != 13256
+    != 39676
   {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 57778 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_get_latest_inbox_state() != 43487 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 37543 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_id() != 41907 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 25856 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_inbox_state() != 18340 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 23577 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_installation_id() != 47176 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 18328 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_message() != 47672 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 4695 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_refresh_server_configuration() != 9540 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 43905 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 33216 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 24481 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_all_other_installations_signature_request()
-    != 2713
+    != 15492
   {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 44511 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_identity() != 38093 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 34065 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_revoke_installations() != 53498 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 45705 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_server_configuration() != 34647 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_shutdown() != 28558 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_set_consent_states() != 25921 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 22429 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_shutdown() != 58876 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 286 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sign_with_installation_key() != 4568 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 51407 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_signature_request() != 54389 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 7717 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_preferences() != 20293 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 15617 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_installation_key() != 3466 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_wait_for_registration_visible() != 42932 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_verify_signed_with_public_key() != 11514 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_wait_for_registration_visible() != 12258 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffixmtpclient_archive_metadata() != 23305 {
@@ -20443,22 +21324,367 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_method_ffixmtpclient_import_archive() != 11460 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 13615 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_sync_all_device_sync_groups() != 52483 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_xmtpapiclient_cache_key() != 64586 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_disable_notifications() != 15589 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffiauthcallback_on_auth_required() != 55505 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_enable_notifications() != 54193 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffiauthhandle_id() != 49095 {
+  if uniffi_xmtpv3_checksum_method_ffixmtpclient_notification_state() != 19590 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffiauthhandle_set() != 30533 {
+  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_consent_update() != 28986 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffiappdatachangecallback_on_app_data_changed() != 13210 {
+  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_error() != 7114 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonsentcallback_on_close() != 8450 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_add_admin() != 52706 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_add_members() != 49720 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_add_members_by_identity() != 51032 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_add_super_admin() != 46810 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_added_by_inbox_id() != 24470 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_admin_list() != 40397 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_app_data() != 33766 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_beginning_delivery_cursor() != 44042 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_consent_state() != 5094 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_debug_info() != 6757 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_message_disappearing_settings()
+    != 33229
+  {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_conversation_type() != 12938 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_count_messages() != 29979 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_created_at_ns() != 41562 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_delete_message() != 10009 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 62747 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 31370 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 11846 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_find_enriched_messages() != 14492 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 10963 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 9506 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 43069 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_get_last_read_times() != 41732 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_group_description() != 6127 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_group_image_url_square() != 10506 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_group_metadata() != 63154 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_group_name() != 14980 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_group_permissions() != 56177 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_id() != 51388 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_is_active() != 12808 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_is_admin() != 19242 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_is_conversation_message_disappearing_enabled()
+    != 16790
+  {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_is_super_admin() != 45537 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_leave_group() != 34558 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_list_members() != 2626 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_membership_capabilities() != 48656 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_membership_state() != 10651 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_message_history_snapshot() != 52017 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_message_reader() != 37042 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_paused_for_version() != 54397 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_prepare_message() != 9015 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 53257
+  {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_proposals_enabled() != 47214 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 5110 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_publish_stored_message() != 28593 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_remove_admin() != 378 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_remove_conversation_message_disappearing_settings()
+    != 34601
+  {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_remove_members() != 40160 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_remove_members_by_identity() != 45358 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_remove_super_admin() != 12412 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_send() != 4427 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_send_optimistic() != 21398 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_send_text() != 55507 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_stream() != 29589 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_super_admin_list() != 63672 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_sync() != 40117 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_app_data() != 62315 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_consent_state() != 20595 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_conversation_message_disappearing_settings()
+    != 15508
+  {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_description() != 34489 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_image_url_square() != 7365 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_group_name() != 27577 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_update_permission_policy() != 22028 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_notifications_enabled() != 48009 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversation_set_notifications() != 16939 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_conversation() != 57734 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_error() != 14084 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationcallback_on_close() != 42062 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_conversation() != 25783 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_is_commit_log_forked() != 62774 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationlistitem_last_message() != 46715 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_message() != 2461 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_error() != 15962 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffimessagecallback_on_close() != 52125 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffimessagedeletioncallback_on_message_deleted() != 11249 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_preference_update() != 29293 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_error() != 24097 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffipreferencecallback_on_close() != 20685 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_catch_up_changed() != 28332 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_catch_up_snapshot() != 11690 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_end() != 49937 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_end_and_wait() != 6201 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_is_closed() != 335 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_update_filter() != 39719 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_update_scope() != 15982 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffistreamcloser_wait_for_ready() != 57255 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_beginning_delivery_cursor() != 25208 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_create_group() != 60313 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_create_group_by_identity() != 54366 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_create_group_optimistic() != 43185 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm() != 9509 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_find_or_create_dm_by_identity() != 27065 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_get_hmac_keys() != 44011 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_list() != 16789 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_list_dms() != 8766 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_list_groups() != 15671 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_message_history_snapshot() != 64475 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_message_reader() != 16893 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_process_streamed_welcome_message() != 42525 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream() != 8701 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_dm_messages() != 54897 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_group_messages() != 9532 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_all_messages() != 42485 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_consent() != 63848 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_dms() != 55827 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_groups() != 60617 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_message_deletions() != 27537 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_messages() != 13192 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_stream_preferences() != 12799 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_sync() != 28375 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversations_sync_all_conversations() != 28371 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffideliveryacknowledgement_acknowledge() != 50596 {
@@ -20482,10 +21708,22 @@ private let initializationResult: InitializationResult = {
   if uniffi_xmtpv3_checksum_method_ffimessagereader_next_delivery() != 37076 {
     return InitializationResult.apiChecksumMismatch
   }
-  if uniffi_xmtpv3_checksum_method_ffimessagereader_update_filter() != 22074 {
+  if uniffi_xmtpv3_checksum_method_ffimessagereader_update_filter() != 35691 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffimessagereader_update_scope() != 32657 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationmetadata_conversation_type() != 28774 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_fficonversationmetadata_creator_inbox_id() != 32591 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_set() != 58539 {
+    return InitializationResult.apiChecksumMismatch
+  }
+  if uniffi_xmtpv3_checksum_method_ffigrouppermissions_policy_type() != 7951 {
     return InitializationResult.apiChecksumMismatch
   }
   if uniffi_xmtpv3_checksum_method_ffisyncworker_wait() != 61589 {
