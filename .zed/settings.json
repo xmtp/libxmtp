@@ -16,8 +16,10 @@
     "JSON": {
       "formatter": "prettier",
     },
+    // nil is disabled: it prompts repeatedly to fetch missing flake inputs.
+    // nixd gives the same completion, diagnostics, and navigation.
     "Nix": {
-      "language_servers": ["nixd", "nil"],
+      "language_servers": ["nixd", "!nil"],
       "formatter": "language_server",
     },
     "Kotlin": {
