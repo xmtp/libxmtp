@@ -8,10 +8,7 @@ log_format = "json"
 url = "env:XMTP_DATABASE_URL"
 
 [auth]
-enabled = true
-
-[auth.api_keys]
-development = "env:XMTP_BACKEND_DEV_API_KEY"
+enabled = false
 
 [telemetry]
 metrics_listen = "0.0.0.0:9464"

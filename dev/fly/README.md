@@ -16,19 +16,11 @@ Never include these names in the iOS cleanup scripts.
 The backend identifier is `org.xmtp.backend.dev`. Do not change it after clients
 connect. The database and observability volumes persist across deployments.
 
-## API key
+## Backend access
 
-From the repository root, generate a 256-bit random key:
-
-```sh
-dev/nix-shell 'cargo run -p xdbg -- generate-api-key'
-```
-
-Store the output in repository Actions secret `XMTP_BACKEND_DEV_API_KEY`.
-The deployment workflow uses the existing `FLY_API_TOKEN` and imports the API
-key into Fly through standard input. Keys do not belong in TOML files or logs.
-For rotation, replace the GitHub secret and deploy again. Existing callers
-must receive the new key before they can reconnect.
+The client-facing backend is public and unauthenticated. Clients do not need an
+API key or JWT. The deployment still needs `FLY_API_TOKEN` to update Fly
+resources, and the backend still reads `XMTP_DATABASE_URL` from a Fly secret.
 
 ## Database
 
@@ -89,8 +81,8 @@ client traces; backend traces alone cannot populate them.
 
 Every push to `self-hosted` publishes an immutable backend image, then calls
 `deploy-backend-dev.yml`. That workflow serializes deploys and skips superseded
-commits. It deploys observability configuration, then the backend. Missing API
-keys fail deployment. There is no unauthenticated fallback.
+commits. It deploys observability configuration, then the unauthenticated
+backend.
 
 For a manual deployment from the repository root:
 
@@ -99,7 +91,6 @@ bash dev/fly/deploy-observability
 bash dev/fly/deploy-backend ghcr.io/xmtp/backend:sha-FULL_COMMIT
 ```
 
-The second command requires `XMTP_BACKEND_DEV_API_KEY` in the environment.
 The dashboard is generated from `dev/docker/grafana/dashboards/backend.json`.
 Edit that source, not the generated file. Fly queries are restricted to this
 backend app. Provisioned dashboard edits in the Grafana UI are disabled.
@@ -151,9 +142,8 @@ fly checks list --app xmtp-backend-dev
 grpc-health-probe -addr=backend-dev.xmtp.to:443 -tls
 ```
 
-Health and deployment configuration RPCs do not need authentication. Application
-RPCs require the key as a bearer token. Verify both rejected and accepted calls
-after a key change. Check the XMTP dashboard for metrics and traces after traffic.
+All backend RPCs are available without authentication. Check the XMTP dashboard
+for metrics and traces after traffic.
 
 Redeploy a previous immutable image to recover from a binary regression only
 when its database schema is compatible. Do not assume binary rollback reverses

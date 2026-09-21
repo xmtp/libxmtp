@@ -38,15 +38,6 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
         with:
           version: "0.4.104"
-      - name: Require the deployment API key
-        if: steps.current.outputs.deploy == 'true'
-        env:
-          XMTP_BACKEND_DEV_API_KEY: ${{ secrets.XMTP_BACKEND_DEV_API_KEY }}
-        run: |
-          if [[ ! "$XMTP_BACKEND_DEV_API_KEY" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "::error::Set XMTP_BACKEND_DEV_API_KEY using xdbg generate-api-key."
-            exit 1
-          fi
       - uses: ./.github/actions/setup-node
         if: steps.current.outputs.deploy == 'true'
       - name: Deploy private observability services
@@ -60,7 +51,6 @@ jobs:
         if: steps.current.outputs.deploy == 'true'
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          XMTP_BACKEND_DEV_API_KEY: ${{ secrets.XMTP_BACKEND_DEV_API_KEY }}
         run: bash dev/fly/deploy-backend "ghcr.io/xmtp/backend:sha-$GITHUB_SHA"
       - name: Check deployed services
         if: steps.current.outputs.deploy == 'true'
