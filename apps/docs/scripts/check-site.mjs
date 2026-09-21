@@ -207,8 +207,10 @@ export async function checkBuilt({
     const text = await readFile(llmsFull, "utf8");
     const bytes = (await stat(llmsFull)).size;
     const pages = (text.match(/^# /gm) ?? []).length;
-    if (bytes <= 120_000 || bytes >= 900_000)
-      failures.push(`llms-full.txt is ${bytes} bytes; expected 120001-899999`);
+    if (bytes <= 120_000)
+      failures.push(
+        `llms-full.txt is ${bytes} bytes; expected at least 120001`,
+      );
     if (pages < 35)
       failures.push(`llms-full.txt has ${pages} pages; expected at least 35`);
     for (const file of files) {

@@ -63,7 +63,7 @@ test("source validation requires the synchronized four-SDK tab set", async () =>
   ]);
 });
 
-test("built validation checks redirect targets and llms bounds", async () => {
+test("built validation rejects incomplete llms exports and allows growth", async () => {
   const root = await fixture();
   const content = join(root, "content");
   const output = join(root, "site");
@@ -84,10 +84,27 @@ test("built validation checks redirect targets and llms bounds", async () => {
   });
   assert.ok(failures.some((failure) => failure.includes("redirect target")));
   assert.ok(
-    failures.some((failure) => failure.includes("expected 120001-899999")),
+    failures.some((failure) => failure.includes("expected at least 120001")),
   );
   assert.ok(
     failures.some((failure) => failure.includes("expected at least 35")),
+  );
+
+  await writeFile(
+    join(output, "llms-full.txt"),
+    Array.from(
+      { length: 35 },
+      (_, index) => `# Page ${index}\n${"x".repeat(45_000)}`,
+    ).join("\n"),
+  );
+  const expandedFailures = await checkBuilt({
+    contentRoot: content,
+    outputRoot: output,
+    redirectsPath: join(root, "redirects.json"),
+  });
+  assert.ok(
+    !expandedFailures.some((failure) => failure.startsWith("llms-full.txt")),
+    expandedFailures.join("\n"),
   );
 });
 
