@@ -258,7 +258,9 @@ class Checker:
             rid = entry.get("id")
             reason = entry.get("reason")
             if not rid:
-                self.error(f"{SPECS_DIR}/waivers.toml", "SPEC-055", "a waiver has no id")
+                self.error(
+                    f"{SPECS_DIR}/waivers.toml", "SPEC-055", "a waiver has no id"
+                )
                 continue
             if not reason:
                 self.error(
