@@ -33,6 +33,8 @@ Run `just backend up` to build and load the backend image and start all services
 Use `just backend up [services...]` to select services and their dependencies.
 Use `just backend logs [services...]` for logs. Both `just backend down` and
 `just backend db-down` stop the entire stack and delete its temporary state.
+They preserve the disk-backed Tempo trace volume. `just backend release` also
+deletes that volume and frees the worktree's port slot.
 
 For migration from the old database project, run
 `docker compose -p xmtp-backend down` once. If Compose cannot find the old file,
@@ -83,7 +85,10 @@ the metric catalogue, span names, failure modes, alerts, and client walkthroughs
 
 Tempo generates service graphs and span metrics and sends them to Prometheus
 with exemplars. Client panels use sampled traces. Prometheus and Tempo are
-provisioned as Grafana datasources. All service data is temporary.
+provisioned as Grafana datasources. Tempo retains trace blocks for six hours on
+a worktree-scoped disk volume. The other services use temporary storage. See
+[local trace storage](../backend-observability.md#local-trace-storage) for
+retention timing, disk use, and volume cleanup.
 The backend exports traces to `http://tempo:4317` inside the stack.
 
 To check observability without a backend image, run:

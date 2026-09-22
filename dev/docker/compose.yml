@@ -75,8 +75,9 @@ services:
   tempo:
     image: grafana/tempo:3.0.1
     command: ["-config.file=/etc/tempo.yaml"]
-    volumes: ["./tempo/tempo.yaml:/etc/tempo.yaml:ro"]
-    tmpfs: [/var/tempo:mode=1777]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
     # Each binding is listed separately, and the OTLP HTTP host port is offset so
     # it is not adjacent to the gRPC one. Docker collapses adjacent, aligned
     # bindings into a range ("4317-4318->4317-4318") in `docker ps`, which the
@@ -118,3 +119,6 @@ services:
       interval: 1s
       timeout: 3s
       retries: 30
+
+volumes:
+  tempo-data:
