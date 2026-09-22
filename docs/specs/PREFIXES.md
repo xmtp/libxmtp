@@ -2,7 +2,7 @@
 
 Every requirement identifier begins with a prefix registered here. The checker reads this table: a prefix that is not listed is an error, and a requirement identifier whose prefix is listed but whose number does not resolve to a current requirement is a stray mention (SPEC-053).
 
-A prefix appears exactly once. A retired prefix stays listed while stale mentions of its identifiers remain in the tree, so the checker still reports them.
+A prefix appears exactly once. A prefix whose document was deleted is removed from this file once no mention of its identifiers remains in the tree, so a stale mention is fixed rather than hidden.
 
 ## Active
 
@@ -28,14 +28,6 @@ A prefix appears exactly once. A retired prefix stays listed while stale mention
 | `SYNC` | Device sync | `docs/specs/SYNC-device-sync.md` |
 | `ARCH` | Archive format | `docs/specs/ARCH-archive-format.md` |
 | `CTYPE` | Content types | `docs/specs/CTYPE-content-types.md` |
-
-## Retired
-
-These prefixes belonged to documents the specs above replace. The documents are deleted; a prefix stays listed only while stale references to its identifiers remain in the tree, so the checker keeps reporting them. A row is deleted once its last reference is gone.
-
-| Prefix | Replaced by | Why it is still listed |
-| --- | --- | --- |
-| `CFG` | `CONF` | `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift` is generated, and the checked-in copy predates the cleanup of these identifiers in the Rust doc comments it is generated from. The next iOS release regenerates it. |
 
 ## Reused prefixes and their floors
 
