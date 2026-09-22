@@ -17,9 +17,19 @@ afterEach(() => {
 });
 
 describe("worker strict delivery enrichment", () => {
-  it.each(["success", "selection", "storage"] as const)(
-    "uses the pending token and preserves the %s outcome",
-    async (outcome) => {
+  it("uses a fresh reader for each enrichment outcome", async () => {
+    const worker = {
+      postMessage: vi.fn(),
+      onmessage: undefined as
+        | undefined
+        | ((event: { data: unknown }) => Promise<void>),
+    };
+    vi.stubGlobal("self", worker);
+    await import("../src/workers/client");
+    const send = (action: string, data: unknown) =>
+      worker.onmessage!({ data: { id: action, action, data } });
+
+    for (const outcome of ["storage", "selection", "success"] as const) {
       const cause = new Error(
         "[StorageError::Connection] database unavailable",
       );
@@ -41,17 +51,8 @@ describe("worker strict delivery enrichment", () => {
       const lookup = vi.fn();
       mocks.create.mockResolvedValue({
         conversations: { messageReader: () => reader, getMessageById: lookup },
+        close: vi.fn(async () => {}),
       });
-      const worker = {
-        postMessage: vi.fn(),
-        onmessage: undefined as
-          | undefined
-          | ((event: { data: unknown }) => Promise<void>),
-      };
-      vi.stubGlobal("self", worker);
-      await import("../src/workers/client");
-      const send = (action: string, data: unknown) =>
-        worker.onmessage!({ data: { id: action, action, data } });
       await send("client.init", { identifier: {} });
       await send("messageReader.open", { readerId: "reader" });
       await send("messageReader.next", { readerId: "reader" });
@@ -71,6 +72,8 @@ describe("worker strict delivery enrichment", () => {
       await send("messageReader.close", { readerId: "reader" });
       expect(reader.close).toHaveBeenCalledOnce();
       expect(acknowledgement.free).toHaveBeenCalledOnce();
-    },
-  );
+      await send("client.close", undefined);
+      worker.postMessage.mockClear();
+    }
+  });
 });
