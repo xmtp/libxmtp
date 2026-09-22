@@ -50,6 +50,12 @@ readonly BASE_OTLP_HTTP_PORT=4328
 readonly BASE_PROMETHEUS_PORT=9090
 # Not 3000: that shares a residue with Tempo's 3200 (see above).
 readonly BASE_GRAFANA_PORT=3001
+# Eighteen installation slots and one process that shares a database.
+# Keep these ports separate and non-adjacent, including modulo PORT_STRIDE.
+readonly CHAOS_PROXY_BASE_PORTS=(
+  6003 6005 6007 6012 6014 6019 6021 6023 6025 6030
+  6035 6037 6039 6041 6043 6047 6052 6054 6056
+)
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly repo_root
@@ -195,7 +201,8 @@ base_ports() {
     "${BASE_OTLP_GRPC_PORT}" \
     "${BASE_OTLP_HTTP_PORT}" \
     "${BASE_PROMETHEUS_PORT}" \
-    "${BASE_GRAFANA_PORT}"
+    "${BASE_GRAFANA_PORT}" \
+    "${CHAOS_PROXY_BASE_PORTS[@]}"
 }
 
 slot_ports() {
@@ -436,6 +443,13 @@ main() {
     emit XMTP_OTLP_HTTP_PORT "${otlp_http_port}"
     emit XMTP_PROMETHEUS_PORT "${prometheus_port}"
     emit XMTP_GRAFANA_PORT "${grafana_port}"
+    local chaos_slot chaos_var chaos_port
+    for chaos_slot in "${!CHAOS_PROXY_BASE_PORTS[@]}"; do
+      chaos_var="XMTP_CHAOS_PROXY_${chaos_slot}_PORT"
+      chaos_port="$(effective "${chaos_var}" "$((CHAOS_PROXY_BASE_PORTS[chaos_slot] + offset))")"
+      emit "${chaos_var}" "${chaos_port}"
+      emit "XMTP_CHAOS_PROXY_${chaos_slot}_URL" "http://127.0.0.1:${chaos_port}"
+    done
     # Derived URLs, so no consumer rebuilds one from parts. Use 127.0.0.1, not
     # localhost: localhost can resolve to IPv6, where the Docker port forward
     # resets the connection.

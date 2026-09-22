@@ -1,5 +1,8 @@
 # Codex agent tools
 
+For runtime diagnosis, use the [Tempo trace query guide](querying-traces.md).
+It covers bounded programmatic searches and SDK/backend trace correlation.
+
 The project configuration in `.codex/config.toml` provides a Nix shell hook and
 read-only Rust tools through Serena. Start Codex from this worktree. Review and
 trust the project and its hook through the normal Codex trust flow. Restart an

@@ -286,6 +286,20 @@ pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
     consent_states: Option<Vec<ConsentState>>,
     deadline: Instant,
 ) -> GroupBarrierRun {
+    let (group_ids, snapshot, failure) =
+        receive_with_welcomes_snapshot_until(context, starting_groups, consent_states, deadline)
+            .await;
+    let result = finish_snapshot(snapshot, failure);
+    GroupBarrierRun { group_ids, result }
+}
+
+/// Keep complete and unfinished obligations for diagnostics at the same fixed targets.
+pub(crate) async fn receive_with_welcomes_snapshot_until<C: XmtpSharedContext>(
+    context: &C,
+    starting_groups: Vec<GroupId>,
+    consent_states: Option<Vec<ConsentState>>,
+    deadline: Instant,
+) -> (Vec<GroupId>, BarrierSnapshot, Option<BarrierFailure>) {
     let mut groups: HashSet<_> = starting_groups.into_iter().collect();
     let welcome_topic = Topic::new_welcome_message(context.installation_id());
     let mut topics: Vec<_> = groups.iter().map(Topic::new_group_message).collect();
@@ -301,7 +315,7 @@ pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
             target,
             consent_states,
         });
-    let result = wait_for_targets(
+    let (snapshot, failure) = wait_for_targets_snapshot(
         context,
         targets,
         unavailable,
@@ -313,7 +327,7 @@ pub async fn receive_with_welcomes_until<C: XmtpSharedContext>(
     .await;
     let mut group_ids: Vec<_> = groups.into_iter().collect();
     group_ids.sort();
-    GroupBarrierRun { group_ids, result }
+    (group_ids, snapshot, failure)
 }
 
 /// Settle all bounded head queries; keep successful targets when another query fails.
@@ -389,13 +403,52 @@ pub async fn wait_through<C: XmtpSharedContext>(
 // implements: PROC-015, PROC-016, PROC-018
 async fn wait_for_targets<C: XmtpSharedContext>(
     context: &C,
+    targets: TopicCursor,
+    unavailable: Vec<BarrierTopic>,
+    discovery: Option<WelcomeDiscovery>,
+    receive_policy: IncomingReceivePolicy,
+    deadline: Instant,
+    groups: &mut HashSet<GroupId>,
+) -> Result<BarrierSnapshot, BarrierError> {
+    let (snapshot, failure) = wait_for_targets_snapshot(
+        context,
+        targets,
+        unavailable,
+        discovery,
+        receive_policy,
+        deadline,
+        groups,
+    )
+    .await;
+    finish_snapshot(snapshot, failure)
+}
+
+fn finish_snapshot(
+    snapshot: BarrierSnapshot,
+    failure: Option<BarrierFailure>,
+) -> Result<BarrierSnapshot, BarrierError> {
+    match failure {
+        None => Ok(snapshot),
+        Some(reason) => Err(BarrierError::Incomplete {
+            reason,
+            unfinished: snapshot
+                .topics
+                .into_iter()
+                .filter(|topic| !topic.complete())
+                .collect(),
+        }),
+    }
+}
+
+async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
+    context: &C,
     mut targets: TopicCursor,
     mut unavailable: Vec<BarrierTopic>,
     discovery: Option<WelcomeDiscovery>,
     receive_policy: IncomingReceivePolicy,
     deadline: Instant,
     groups: &mut HashSet<GroupId>,
-) -> Result<BarrierSnapshot, BarrierError> {
+) -> (BarrierSnapshot, Option<BarrierFailure>) {
     let coordinator = IncomingCoordinator::for_context(context);
     let lease = coordinator.acquire(IncomingScope::Barrier {
         targets: targets.clone(),
@@ -491,7 +544,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
             }
         }
         if topics.iter().all(BarrierTopic::complete) {
-            return Ok(BarrierSnapshot { topics });
+            return (BarrierSnapshot { topics }, None);
         }
         let reason = if context.is_closed() {
             Some(BarrierFailure::Cancelled)
@@ -511,13 +564,7 @@ async fn wait_for_targets<C: XmtpSharedContext>(
             None
         };
         if let Some(reason) = reason {
-            return Err(BarrierError::Incomplete {
-                reason,
-                unfinished: topics
-                    .into_iter()
-                    .filter(|topic| !topic.complete())
-                    .collect(),
-            });
+            return (BarrierSnapshot { topics }, Some(reason));
         }
         tokio::select! {
             _ = context.cancellation_token().cancelled() => {},

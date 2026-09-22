@@ -67,7 +67,29 @@ services:
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.12.0
     depends_on: { backend: { condition: service_healthy } }
-    ports: ["127.0.0.1:${XMTP_TOXIPROXY_API_PORT:-8474}:8474", "127.0.0.1:${XMTP_TOXIPROXY_PORT:-6010}:6010"]
+    # Individual bindings keep Docker's port ownership output unambiguous.
+    ports:
+      - "127.0.0.1:${XMTP_TOXIPROXY_API_PORT:-8474}:8474"
+      - "127.0.0.1:${XMTP_TOXIPROXY_PORT:-6010}:6010"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_0_PORT:-6003}:6003"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_1_PORT:-6005}:6005"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_2_PORT:-6007}:6007"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_3_PORT:-6012}:6012"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_4_PORT:-6014}:6014"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_5_PORT:-6019}:6019"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_6_PORT:-6021}:6021"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_7_PORT:-6023}:6023"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_8_PORT:-6025}:6025"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_9_PORT:-6030}:6030"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_10_PORT:-6035}:6035"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_11_PORT:-6037}:6037"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_12_PORT:-6039}:6039"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_13_PORT:-6041}:6041"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_14_PORT:-6043}:6043"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_15_PORT:-6047}:6047"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_16_PORT:-6052}:6052"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_17_PORT:-6054}:6054"
+      - "127.0.0.1:${XMTP_CHAOS_PROXY_18_PORT:-6056}:6056"
     volumes: ["./toxiproxy/config.json:/etc/toxiproxy/config.json:ro"]
     entrypoint: ["/toxiproxy"]
     command: ["-host=0.0.0.0", "-config=/etc/toxiproxy/config.json"]

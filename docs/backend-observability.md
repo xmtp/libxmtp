@@ -1,5 +1,8 @@
 # Backend observability
 
+See [Query local traces](querying-traces.md) for bounded Tempo API queries,
+SDK/backend correlation, and commands for agent investigations.
+
 The local stack contains `db`, `replica`, `backend`, `anvil`, `toxiproxy`,
 `tempo`, `prometheus`, and `grafana`. Tempo stores local traces on disk. The
 other services use temporary storage.
