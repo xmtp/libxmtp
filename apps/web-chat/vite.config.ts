@@ -4,7 +4,6 @@ import { fileURLToPath } from "node:url";
 import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
 // https://vitejs.dev/config/
@@ -14,7 +13,10 @@ const viteConfig = defineConfig({
       process.env.XMTP_BACKEND_URL ?? "",
     ),
   },
-  plugins: [tsconfigPaths(), react()],
+  plugins: [react()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   optimizeDeps: {
     exclude: ["@xmtp/wasm-bindings"],
   },
