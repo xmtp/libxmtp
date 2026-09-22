@@ -199,10 +199,10 @@ export const InboxTools: React.FC = () => {
           backendUrl,
           env: await backendLabel(backendUrl),
         });
-        finishQuery({
-          installations: await fetchInstallations(),
-          selectedInstallationIds: [],
-        });
+        finishQuery({ selectedInstallationIds: [] });
+        finishQuery({ installations: await fetchInstallations() });
+      } catch (error) {
+        console.error(error);
       } finally {
         finishQuery({ loading: false });
       }

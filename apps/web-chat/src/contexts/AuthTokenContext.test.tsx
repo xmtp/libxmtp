@@ -177,6 +177,35 @@ describe("AuthTokenProvider", () => {
     });
   });
 
+  it.each(["", "stale-token"])(
+    "offers the submitted token before React commits (stored token: %j)",
+    async (storedToken) => {
+      localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify(storedToken));
+      const { result } = renderAuthToken();
+      const callback = result.current.createAuthCallback();
+      await callback();
+
+      let waiting: Promise<{ value: string }> | undefined;
+      act(() => {
+        waiting = callback();
+      });
+
+      let immediate: Promise<{ value: string }> | undefined;
+      act(() => {
+        result.current.request?.resolve("  fresh-token  ");
+        immediate = callback();
+      });
+
+      await expect(waiting).resolves.toMatchObject({
+        value: "Bearer fresh-token",
+      });
+      await expect(immediate).resolves.toMatchObject({
+        value: "Bearer fresh-token",
+      });
+      expect(result.current.request).toBeNull();
+    },
+  );
+
   it("resolves both concurrent calls that share one consumer's callback", async () => {
     // The InboxTools case: "Find installations" and "Check updates count"
     // started together, with no stored token, both using that panel's single

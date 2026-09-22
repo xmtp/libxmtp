@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { Client } from "@xmtp/browser-sdk";
+import { Client, IdentifierKind } from "@xmtp/browser-sdk";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxTools } from "./InboxTools";
@@ -15,12 +15,17 @@ const mocks = vi.hoisted(() => ({
   inboxId: "a".repeat(64),
   backendUrl: "https://one.example",
   authCallback: vi.fn(),
+  signMessageAsync: vi.fn(),
 }));
-vi.mock("@/hooks/useWallet", () => ({ useWallet: () => ({}) }));
+vi.mock("@/hooks/useWallet", () => ({
+  useWallet: () => ({ address: "0x1234", isConnected: true }),
+}));
 vi.mock("@/hooks/useEphemeralSigner", () => ({
   useEphemeralSigner: () => ({}),
 }));
-vi.mock("wagmi", () => ({ useSignMessage: () => ({}) }));
+vi.mock("wagmi", () => ({
+  useSignMessage: () => ({ signMessageAsync: mocks.signMessageAsync }),
+}));
 vi.mock("@/hooks/useMemberId", () => ({
   useMemberId: () => ({
     inboxId: mocks.inboxId,
@@ -47,7 +52,18 @@ vi.mock("@/components/App/WalletConnect", () => ({
   WalletConnect: () => null,
 }));
 vi.mock("@/layouts/ContentLayout", () => ({
-  ContentLayout: ({ children }: { children: React.ReactNode }) => children,
+  ContentLayout: ({
+    children,
+    footer,
+  }: {
+    children: React.ReactNode;
+    footer: React.ReactNode;
+  }) => (
+    <>
+      {children}
+      {footer}
+    </>
+  ),
 }));
 
 const view = () => (
@@ -65,6 +81,21 @@ beforeEach(() => {
 });
 
 describe("InboxTools query state", () => {
+  const installation = {
+    id: "installation-1",
+    bytes: new Uint8Array([1]),
+    clientTimestampNs: 1n,
+  };
+  const inboxState = {
+    inboxId: mocks.inboxId,
+    installations: [installation],
+    accountIdentifiers: [],
+    recoveryIdentifier: {
+      identifier: "0x1234",
+      identifierKind: IdentifierKind.Ethereum,
+    },
+  };
+
   it("resets results for a new inbox without replacing the input", async () => {
     vi.spyOn(Client, "fetchLatestInboxUpdatesCount").mockResolvedValue(
       new Map([[mocks.inboxId, 123]]),
@@ -107,6 +138,63 @@ describe("InboxTools query state", () => {
     });
     expect(screen.getByText("456")).toBeTruthy();
     expect(screen.queryByText("123")).toBeNull();
+    unmount();
+  });
+
+  it("clears the selection when refresh fails after a successful revoke", async () => {
+    const fetch = vi
+      .spyOn(Client, "fetchInboxStates")
+      .mockResolvedValueOnce([inboxState])
+      .mockRejectedValueOnce(new Error("refresh failed"));
+    const revoke = vi
+      .spyOn(Client, "revokeInstallations")
+      .mockResolvedValue(undefined);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { unmount } = render(view());
+    fireEvent.click(screen.getByRole("button", { name: "Find installations" }));
+    await screen.findByText(installation.id);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const revokeButton = screen.getByRole("button", {
+      name: "Revoke installations",
+    });
+    expect(revokeButton).not.toBeDisabled();
+    fireEvent.click(revokeButton);
+
+    await waitFor(() => {
+      expect(revoke).toHaveBeenCalledOnce();
+      expect(fetch).toHaveBeenCalledTimes(2);
+      expect(revokeButton).toBeDisabled();
+      expect(consoleError).toHaveBeenCalledWith(expect.any(Error));
+    });
+    unmount();
+  });
+
+  it("keeps the selection and logs when revoke fails", async () => {
+    vi.spyOn(Client, "fetchInboxStates").mockResolvedValue([inboxState]);
+    const revoke = vi
+      .spyOn(Client, "revokeInstallations")
+      .mockRejectedValue(new Error("revoke failed"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    const { unmount } = render(view());
+    fireEvent.click(screen.getByRole("button", { name: "Find installations" }));
+    await screen.findByText(installation.id);
+    fireEvent.click(screen.getByRole("checkbox"));
+    const revokeButton = screen.getByRole("button", {
+      name: "Revoke installations",
+    });
+    fireEvent.click(revokeButton);
+
+    await waitFor(() => {
+      expect(revoke).toHaveBeenCalledOnce();
+      expect(revokeButton).not.toBeDisabled();
+      expect(consoleError).toHaveBeenCalledWith(expect.any(Error));
+    });
     unmount();
   });
 });

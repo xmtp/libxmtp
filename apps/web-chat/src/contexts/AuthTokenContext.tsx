@@ -105,6 +105,8 @@ export const AuthTokenProvider: React.FC<React.PropsWithChildren> = ({
             rejected,
             resolve: (token: string) => {
               const trimmed = token.trim();
+              // Callbacks can run before React commits the saved token.
+              authTokenRef.current = trimmed;
               generationRef.current += 1;
               setAuthToken(trimmed);
               setRequest(null);
