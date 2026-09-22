@@ -12,6 +12,7 @@
   google-chrome,
   chromium,
   xmtp-pnpm,
+  nodejs_26,
   cargo-nextest,
   stdenv,
   test ? false,
@@ -112,6 +113,7 @@ let
         cargo-nextest
         chromedriver
         xmtp-pnpm
+        nodejs_26
       ]
       # chromium unsupported on darwin
       # google-chrome unsupported on aarch64-linux

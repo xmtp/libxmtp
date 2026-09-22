@@ -10,6 +10,7 @@
   just,
   sqlcipher,
   xmtp-pnpm,
+  nodejs_26,
   rust-analyzer,
   python311,
   uv,
@@ -59,6 +60,7 @@ mkShell {
       just
       sqlcipher
       xmtp-pnpm
+      nodejs_26
       rust-analyzer
       python311
       uv
