@@ -721,6 +721,6 @@ pub(crate) mod tests {
             matches!(error, VerifierError::NoVerifier(_)),
             "ordered processing must see a missing route, got {error}"
         );
-        assert!(error.is_retryable(), "STR-076: a missing route retries");
+        assert!(error.is_retryable(), "a missing route retries");
     }
 }

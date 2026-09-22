@@ -755,7 +755,10 @@ class Checker:
                 "states one obligation",
             )
 
-        sentences = [s for s in re.split(r"(?<=[.!?]) +", text.strip()) if s]
+        # Count sentences in `spoken`, not `text`: a cell may quote a row
+        # template such as `\| PREFIX-NNN \| Title \| Sentence. \| Reason. \|`,
+        # whose periods are part of the example and not sentence ends.
+        sentences = [s for s in re.split(r"(?<=[.!?]) +", spoken.strip()) if s]
         if len(sentences) > MAX_SENTENCES:
             self.warn(
                 where,

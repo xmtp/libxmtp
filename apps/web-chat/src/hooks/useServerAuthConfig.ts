@@ -13,7 +13,7 @@ export type ServerAuthConfig = {
 
 /**
  * Asks the backend whether it requires a credential, so the token field is
- * shown only when it matters. This read needs no credential itself (CFG-081).
+ * shown only when it matters. This read needs no credential itself.
  *
  * An unreachable or older backend leaves `required` true: hiding the field on a
  * failed read would strand a user on a backend that does need a token, with no

@@ -50,7 +50,7 @@ after request drain.
 ## Metric catalogue
 
 `apps/backend/src/telemetry.rs` defines `CATALOGUE`. The table preserves its names,
-types, and help text. The catalogue test checks both this table and spec 002.
+types, and help text. The catalogue test checks both this table and the OPS spec.
 “Automatic” means transport or shared logging collection. “Explicit” means a
 backend recording call. All families below are described by the backend.
 
