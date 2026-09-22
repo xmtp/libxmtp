@@ -1,11 +1,13 @@
 """Regression tests for the Nix wrapper and Codex hook. No Nix build required."""
 
+import hashlib
 import json
 import os
 from pathlib import Path
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -54,6 +56,108 @@ class NixWrapperTests(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines()
 
+    def fingerprint(self):
+        result = self.run_wrapper('printf "%s" "$XMTP_NIX_WRAPPER_ID"')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout.removeprefix(f"{self.root}:default:")
+
+    def test_batched_fingerprint_matches_per_file_hashes(self):
+        for name in [
+            "space name.nix",
+            "quote'file.nix",
+            "line\nbreak.nix",
+            "back\\slash.nix",
+            "tab\tfile.nix",
+            "雪.nix",
+            "-option.nix",
+        ]:
+            (self.root / name).write_text(name)
+        for index in range(130):
+            (self.root / f"input-{index:03}.nix").write_text(str(index))
+        missing = self.root / "removed.nix"
+        missing.write_text("removed")
+        subprocess.run(["git", "add", "removed.nix"], cwd=self.root, check=True)
+        missing.unlink()
+        (self.root / "directory.nix").mkdir()
+        (self.root / "broken.nix").symlink_to("missing")
+
+        paths = subprocess.check_output(
+            [
+                "git",
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "--",
+                "*.nix",
+                "flake.lock",
+                "dev/nix-shell",
+            ],
+            cwd=self.root,
+        ).split(b"\0")
+        hasher = shutil.which("shasum")
+        lines = b"".join(
+            subprocess.check_output(
+                [hasher, "-a", "256", "--", os.fsdecode(path)], cwd=self.root
+            )
+            for path in paths
+            if path and (self.root / os.fsdecode(path)).is_file()
+        )
+        expected = hashlib.sha256(lines).hexdigest() + "  -"
+
+        hash_log = self.root / "hash-calls"
+        fake = self.root / "bin/shasum"
+        fake.write_text(
+            '#!/usr/bin/env bash\nprintf "%s\\n" "$#" >> '
+            + shlex.quote(str(hash_log))
+            + "\nexec "
+            + shlex.quote(hasher)
+            + ' "$@"\n'
+        )
+        fake.chmod(0o755)
+        self.assertEqual(self.fingerprint(), expected)
+        calls = [int(line) for line in hash_log.read_text().splitlines()]
+        self.assertEqual(len(calls), 3)  # Two file batches and the final digest.
+        self.assertEqual(calls.count(2), 1)
+        self.assertTrue(all(count <= 131 for count in calls))
+
+    def test_empty_input_list_hashes_empty_output(self):
+        fake = self.root / "bin/git"
+        fake.write_text("#!/usr/bin/env bash\nexit 0\n")
+        fake.chmod(0o755)
+        self.assertEqual(self.fingerprint(), hashlib.sha256(b"").hexdigest() + "  -")
+
+    @unittest.skipUnless(sys.platform == "darwin", "macOS system tools")
+    def test_macos_system_bash_and_xargs(self):
+        (self.root / "line\nbreak.nix").write_text("portable")
+        expected = self.fingerprint()
+        self.env["PATH"] = f"{self.root}/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        self.assertEqual(self.fingerprint(), expected)
+
+    def test_input_listing_failure_does_not_enter_nix(self):
+        fake = self.root / "bin/git"
+        fake.write_text("#!/usr/bin/env bash\nexit 13\n")
+        fake.chmod(0o755)
+        result = self.run_wrapper("printf should-not-run")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(self.log.exists())
+
+    def test_file_hash_failure_does_not_enter_nix(self):
+        hasher = shutil.which("shasum")
+        fake = self.root / "bin/shasum"
+        fake.write_text(
+            '#!/usr/bin/env bash\nif [ "$#" -gt 2 ]; then exit 17; fi\nexec '
+            + shlex.quote(hasher)
+            + ' "$@"\n'
+        )
+        fake.chmod(0o755)
+        result = self.run_wrapper("printf should-not-run")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertFalse(self.log.exists())
+
     def test_exact_arguments_and_cwd(self):
         result = self.run_wrapper(
             "--command",
@@ -94,6 +198,24 @@ class NixWrapperTests(unittest.TestCase):
         result = self.run_wrapper(command)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(len(self.calls()), 2)
+
+    def test_added_input_reenters(self):
+        command = "printf new > added.nix; " + shlex.join([str(self.wrapper), "true"])
+        result = self.run_wrapper(command)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_removed_input_reenters(self):
+        command = "rm flake.lock; " + shlex.join([str(self.wrapper), "true"])
+        result = self.run_wrapper(command)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_unrelated_file_keeps_environment(self):
+        command = "printf note > notes.txt; " + shlex.join([str(self.wrapper), "true"])
+        result = self.run_wrapper(command)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.calls()), 1)
 
     def test_foreign_marker_is_not_reused(self):
         self.env["XMTP_NIX_WRAPPER_ID"] = "/other:default:old"
