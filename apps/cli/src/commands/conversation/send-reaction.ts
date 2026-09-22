@@ -1,6 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import { ReactionAction, ReactionSchema } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSendReaction extends BaseCommand {
   static description = `Send a reaction to a message in a conversation.

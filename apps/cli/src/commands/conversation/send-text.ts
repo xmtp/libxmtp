@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSendText extends BaseCommand {
   static description = `Send a text message to a conversation.

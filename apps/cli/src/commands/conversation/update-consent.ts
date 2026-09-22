@@ -1,6 +1,6 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { consentStateMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { consentStateMap } from "@/utils/enums";
 
 export default class ConversationUpdateConsent extends BaseCommand {
   static description = `Update the consent state of a conversation.

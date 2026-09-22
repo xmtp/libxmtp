@@ -4,11 +4,11 @@ import {
   SortDirection,
   type ListMessagesOptions,
 } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 import {
   buildMessageFilterOptions,
   messageFilterFlags,
-} from "../../utils/messageFilters.js";
+} from "@/utils/messageFilters";
 
 export default class ConversationMessages extends BaseCommand {
   static description = `List messages in a conversation.

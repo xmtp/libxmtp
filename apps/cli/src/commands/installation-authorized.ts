@@ -1,7 +1,7 @@
 import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
-import { BaseCommand } from "../baseCommand.js";
-import { hexToBytes } from "../utils/client.js";
+import { BaseCommand } from "@/baseCommand";
+import { hexToBytes } from "@/utils/client";
 
 export default class InstallationAuthorized extends BaseCommand {
   static description = `Check if an installation is authorized for an inbox.

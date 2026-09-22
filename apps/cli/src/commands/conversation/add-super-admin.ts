@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { requireGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { requireGroup } from "@/utils/conversation";
 
 export default class ConversationAddSuperAdmin extends BaseCommand {
   static description = `Add a super admin to a group conversation.

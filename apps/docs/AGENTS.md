@@ -18,6 +18,7 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs format`: format the site files.
 - `just docs test`: run the build-tool tests.
 - `just docs test-browser`: test the composed site in Chromium.
+- `just docs typecheck`: check the site and executable examples.
 - `just docs compose`: combine the site and generated references.
 - `just docs check`: check source links and the composed artifact.
 
@@ -73,8 +74,19 @@ GitHub certificate is issued. See `dev/fly/README.md` for deployment setup.
 
 ## TypeScript examples
 
-Run `just js build` before building the docs. The examples resolve the local
-SDK declaration files. The docs build runs TypeScript and Twoslash checks.
+Docs uses TypeScript 6 because Astro, TypeDoc, and Twoslash need its compiler
+API. The other workspace packages use TypeScript 7.
+
+`just docs build` stages the local bindings and builds the SDK dependencies.
+The examples resolve the local SDK declaration files. The docs build runs
+TypeScript and Twoslash checks. `just docs typecheck` runs the Astro check and
+the executable example checks.
+
+The site tsconfig excludes `examples/`. Astro's language server forces
+`isolatedModules`, which rejects the Node bindings' ambient const enums.
+`examples.tsconfig.json` checks every executable example against the real SDK
+declarations through `just docs check-examples` and the docs build. Keep both
+checks; do not add examples to the Astro program or disable their type checks.
 
 Put complete TypeScript programs in `examples/`. Mark a display region with
 `// #region name` and `// #endregion name`. Use an empty `ts` fence with

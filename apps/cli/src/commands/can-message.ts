@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
 import { Client, IdentifierKind } from "@xmtp/node-sdk";
-import { BaseCommand } from "../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class CanMessage extends BaseCommand {
   static description = `Check if one or more identifiers can receive XMTP messages.

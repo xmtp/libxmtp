@@ -39,10 +39,10 @@
     "src"
   ],
   "scripts": {
-    "build": "pnpm clean:dist && pnpm rollup -c",
+    "build": "tsdown",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
-    "dev": "pnpm clean:dist && pnpm rollup -c --watch",
+    "dev": "tsdown --watch",
     "lint": "oxlint .",
     "test": "vitest run",
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
@@ -65,19 +65,13 @@
     "@xmtp/wasm-bindings": "workspace:*"
   },
   "devDependencies": {
-    "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "catalog:",
     "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "^6.9.1",
     "@vitest/browser": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
-    "@web/rollup-plugin-copy": "^0.5.1",
     "playwright": "catalog:",
-    "rollup": "catalog:",
-    "rollup-plugin-dts": "catalog:",
-    "rollup-plugin-tsconfig-paths": "catalog:",
-    "tslib": "catalog:",
+    "tsdown": "catalog:",
     "typescript": "catalog:",
     "viem": "catalog:",
     "vite": "catalog:",

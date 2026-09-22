@@ -1,6 +1,6 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { identifierKindMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { identifierKindMap } from "@/utils/enums";
 
 export default class ClientChangeRecoveryIdentifier extends BaseCommand {
   static description = `Change the recovery identifier for the client's inbox.

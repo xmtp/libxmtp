@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { isDm, isGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { isDm, isGroup } from "@/utils/conversation";
 
 export default class ConversationsGet extends BaseCommand {
   static description = `Get a conversation by ID.

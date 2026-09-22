@@ -36,12 +36,12 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm clean:dist && rollup -c",
+    "build": "tsdown",
     "clean": "rimraf .turbo && pnpm clean:dbs && pnpm clean:dist && pnpm clean:deps",
     "clean:dbs": "rimraf **/*.db3* ||:",
     "clean:deps": "rimraf node_modules",
     "clean:dist": "rimraf dist",
-    "dev": "pnpm build --watch",
+    "dev": "tsdown --watch",
     "generate:accounts": "tsx scripts/accounts.ts",
     "generate:groups": "tsx scripts/groups.ts",
     "lint": "oxlint .",
@@ -54,16 +54,11 @@
     "@xmtp/node-bindings": "workspace:*"
   },
   "devDependencies": {
-    "@rollup/plugin-json": "catalog:",
-    "@rollup/plugin-typescript": "catalog:",
     "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
     "fast-glob": "catalog:",
     "rimraf": "^6.1.2",
-    "rollup": "catalog:",
-    "rollup-plugin-dts": "catalog:",
-    "rollup-plugin-tsconfig-paths": "catalog:",
-    "tslib": "catalog:",
+    "tsdown": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "uint8array-extras": "catalog:",

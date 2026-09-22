@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ClientSign extends BaseCommand {
   static description = `Sign a message with the client's installation key.

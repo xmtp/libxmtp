@@ -3,8 +3,8 @@ import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Command, Errors, Flags } from "@oclif/core";
 import { generatePrivateKey } from "viem/accounts";
-import { parseBackendUrl, parseEnvironmentLabel } from "../utils/backend.js";
-import { DEFAULT_ENV_PATH } from "../utils/config.js";
+import { parseBackendUrl, parseEnvironmentLabel } from "@/utils/backend";
+import { DEFAULT_ENV_PATH } from "@/utils/config";
 
 export default class Init extends Command {
   static description = `Initialize XMTP CLI configuration by generating wallet and encryption keys.

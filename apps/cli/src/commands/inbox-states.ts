@@ -1,7 +1,7 @@
 import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
-import { BaseCommand } from "../baseCommand.js";
-import { formatIdentifierKind, formatTimestampNs } from "../utils/output.js";
+import { BaseCommand } from "@/baseCommand";
+import { formatIdentifierKind, formatTimestampNs } from "@/utils/output";
 
 export default class InboxStates extends BaseCommand {
   static description = `Fetch inbox states for one or more inbox IDs.

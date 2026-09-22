@@ -1,8 +1,8 @@
 import { Flags } from "@oclif/core";
 import { ListConversationsOrderBy } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
-import { isDm, isGroup } from "../../utils/conversation.js";
-import { consentStateMap, conversationTypeMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { isDm, isGroup } from "@/utils/conversation";
+import { consentStateMap, conversationTypeMap } from "@/utils/enums";
 
 export default class ConversationsList extends BaseCommand {
   static description = `List all conversations.

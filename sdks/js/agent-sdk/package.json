@@ -52,13 +52,14 @@
     "dist"
   ],
   "scripts": {
-    "build": "pnpm clean:dist && rollup -c",
+    "build": "tsdown",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
     "demo:actions": "tsx watch src/demo/actions.ts",
     "demo:main": "tsx watch src/demo/main.ts",
     "demo:reconnect": "XMTP_FORCE_DEBUG_LEVEL=Error tsx src/demo/reconnect.ts",
     "demo:transactions": "tsx watch src/demo/transactions.ts",
+    "dev": "tsdown --watch",
     "gen:keys": "tsx src/bin/generateKeys.ts",
     "lint": "oxlint .",
     "start": "pnpm dev",
@@ -73,13 +74,9 @@
     "viem": "catalog:"
   },
   "devDependencies": {
-    "@rollup/plugin-json": "catalog:",
-    "@rollup/plugin-typescript": "catalog:",
     "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
-    "rollup": "catalog:",
-    "rollup-plugin-dts": "catalog:",
-    "rollup-plugin-tsconfig-paths": "catalog:",
+    "tsdown": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

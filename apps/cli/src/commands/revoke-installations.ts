@@ -1,7 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
-import { BaseCommand } from "../baseCommand.js";
-import { createEOASigner, hexToBytes } from "../utils/client.js";
+import { BaseCommand } from "@/baseCommand";
+import { createEOASigner, hexToBytes } from "@/utils/client";
 
 export default class RevokeInstallations extends BaseCommand {
   static description = `Revoke specific installations from an inbox.

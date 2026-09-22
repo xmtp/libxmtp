@@ -16,9 +16,11 @@
     "format": "prettier --write .",
     "format-check": "prettier --check .",
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "playwright test"
+    "test:browser": "playwright test",
+    "typecheck": "astro check && pnpm check:examples"
   },
   "dependencies": {
+    "@astrojs/check": "0.9.10",
     "@astrojs/markdown-remark": "^7.3.1",
     "@astrojs/starlight": "0.42.0",
     "astro": "7.3.2",
@@ -38,7 +40,7 @@
     "pinata": "^2.5.6",
     "prettier": "catalog:",
     "prettier-plugin-astro": "^0.14.1",
-    "typescript": "catalog:",
+    "typescript": "6.0.3",
     "@xmtp/node-sdk": "workspace:*",
     "@xmtp/browser-sdk": "workspace:*",
     "@xmtp/agent-sdk": "workspace:*",

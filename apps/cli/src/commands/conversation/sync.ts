@@ -1,5 +1,5 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSync extends BaseCommand {
   static description = `Sync a conversation from the network.

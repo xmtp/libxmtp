@@ -1,5 +1,5 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationPublishMessages extends BaseCommand {
   static description = `Publish optimistically sent messages in a conversation.

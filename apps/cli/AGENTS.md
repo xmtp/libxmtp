@@ -17,6 +17,10 @@ Tests require `just backend up`. The `sdk` dependency stages Node bindings.
 The pnpm task graph builds `@xmtp/node-sdk` before checks that need its `dist`
 output.
 
+The CLI bundle exports its command table from `src/commands.ts`. Add each new
+command with its stable colon-separated ID to that table. Oclif reads the table
+and `CustomHelp` from `dist/index.js` when it creates the manifest.
+
 ## Backend configuration
 
 - Use `XMTP_API_KEY` for a static backend bearer token. Do not put keys in argv.

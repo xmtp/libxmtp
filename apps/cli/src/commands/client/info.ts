@@ -1,5 +1,5 @@
-import { BaseCommand } from "../../baseCommand.js";
-import { formatSections } from "../../utils/output.js";
+import { BaseCommand } from "@/baseCommand";
+import { formatSections } from "@/utils/output";
 
 export default class ClientInfo extends BaseCommand {
   static description = `Display information about the current XMTP client.

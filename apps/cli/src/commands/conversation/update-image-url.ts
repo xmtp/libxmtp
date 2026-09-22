@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { requireGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { requireGroup } from "@/utils/conversation";
 
 export default class ConversationUpdateImageUrl extends BaseCommand {
   static description = `Update the image URL of a group conversation.

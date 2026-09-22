@@ -1,7 +1,7 @@
 import { createServer, type ServerHttp2Stream } from "node:http2";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { loadConfig, mergeConfig } from "../src/utils/config.js";
+import { loadConfig, mergeConfig } from "@/utils/config";
 import { runCommand } from "./helpers.js";
 
 afterEach(() => vi.unstubAllEnvs());

@@ -1,4 +1,4 @@
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsHmacKeys extends BaseCommand {
   static description = `Get HMAC keys for all conversations.

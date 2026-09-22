@@ -1,5 +1,5 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class PreferencesInboxState extends BaseCommand {
   static description = `Get the inbox state for this client.

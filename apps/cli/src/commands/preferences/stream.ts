@@ -4,7 +4,7 @@ import {
   ConsentState,
   type UserPreferenceUpdate,
 } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class PreferencesStream extends BaseCommand {
   static description = `Stream all preference changes.
