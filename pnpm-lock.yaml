@@ -54,9 +54,6 @@ catalogs:
     vite:
       specifier: ^8.3.0
       version: 8.3.0
-    vite-tsconfig-paths:
-      specifier: ^6.1.1
-      version: 6.1.1
     vitest:
       specifier: ^4.1.10
       version: 4.1.11
@@ -339,9 +336,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
@@ -381,9 +375,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
@@ -494,9 +485,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
@@ -540,9 +528,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
@@ -586,9 +571,6 @@ importers:
       vite:
         specifier: 'catalog:'
         version: 8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-      vite-tsconfig-paths:
-        specifier: 'catalog:'
-        version: 6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
       vitest:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
@@ -5824,9 +5806,6 @@ packages:
     resolution: {integrity: sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ==}
     engines: {node: '>=18'}
 
-  globrex@0.1.2:
-    resolution: {integrity: sha512-uHJgbwAMwNFf5mLst7IWLNg14x1CkeqglJb/K3doi4dw6q2IvAAmM/Y81kevy83wP+Sst+nutFTYOGg3d1lsxg==}
-
   gopd@1.2.0:
     resolution: {integrity: sha512-ZUKRh6/kUFoAiTAtTYPZJ3hw9wNxx+BIBOijnlG9PnrJsCcSjs1wyyD6vJpaYtgnzDrKYRSqf3OO6Rfa93xsRg==}
     engines: {node: '>= 0.4'}
@@ -8092,17 +8071,6 @@ packages:
     resolution: {integrity: sha512-+AHPUmAhr5bSRRK5CurE9kNH8gZlEHnCgusZ0zy2bjfatUBDX0h6vGQjiT0YrGwSDwRZmU+bapeX6mj55FOPvg==}
     engines: {node: '>=6'}
 
-  tsconfck@3.1.6:
-    resolution: {integrity: sha512-ks6Vjr/jEw0P1gmOVwutM3B7fWxoWBL2KRDb1JfqGVawBmO5UsvmWOQFGHBPl5yxYz4eERr19E6L7NMv+Fej4w==}
-    engines: {node: ^18 || >=20}
-    deprecated: unmaintained
-    hasBin: true
-    peerDependencies:
-      typescript: ^5.0.0
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   tsdown@0.23.0:
     resolution: {integrity: sha512-BaT+ep1xnj5hdyICLd5r5SYYE+TXnI1ATePLykv9vcKpHpFTWUWRH+x1AF/E2qcu3YB6+vI8IdyxIIIffEqw5Q==}
     engines: {node: ^22.18.0 || ^24.11.0 || >=26.0.0}
@@ -8514,11 +8482,6 @@ packages:
     peerDependenciesMeta:
       typescript:
         optional: true
-
-  vite-tsconfig-paths@6.1.1:
-    resolution: {integrity: sha512-2cihq7zliibCCZ8P9cKJrQBkfgdvcFkOOc3Y02o3GWUDLgqjWsZudaoiuOwO/gzTzy17cS5F7ZPo4bsnS4DGkg==}
-    peerDependencies:
-      vite: '*'
 
   vite@8.3.0:
     resolution: {integrity: sha512-lhZBVvEHefgE+HQZC9O7EBJgCU/nVzFNl7vkS4RE0APtWLP02/8QVIkQtzBxPquh7lq5/78NHipTj7ODQ6XuyQ==}
@@ -15399,8 +15362,6 @@ snapshots:
 
   globals@14.0.0: {}
 
-  globrex@0.1.2: {}
-
   gopd@1.2.0: {}
 
   got@13.0.0:
@@ -18348,10 +18309,6 @@ snapshots:
 
   ts-retry-promise@0.8.1: {}
 
-  tsconfck@3.1.6(typescript@7.0.2):
-    optionalDependencies:
-      typescript: 7.0.2
-
   tsdown@0.23.0(@volar/typescript@2.4.28(typescript@7.0.2))(tsx@4.23.13)(typescript@7.0.2):
     dependencies:
       cac: 7.0.0
@@ -18781,26 +18738,6 @@ snapshots:
       - bufferutil
       - utf-8-validate
       - zod
-
-  vite-tsconfig-paths@6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)):
-    dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
-      globrex: 0.1.2
-      tsconfck: 3.1.6(typescript@7.0.2)
-      vite: 8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-    transitivePeerDependencies:
-      - supports-color
-      - typescript
-
-  vite-tsconfig-paths@6.1.1(supports-color@10.2.2)(typescript@7.0.2)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)):
-    dependencies:
-      debug: 4.4.3(supports-color@10.2.2)
-      globrex: 0.1.2
-      tsconfck: 3.1.6(typescript@7.0.2)
-      vite: 8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1)
-    transitivePeerDependencies:
-      - supports-color
-      - typescript
 
   vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1):
     dependencies:

@@ -71,7 +71,6 @@
     "uint8array-extras": "catalog:",
     "viem": "catalog:",
     "vite": "catalog:",
-    "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
   },
   "engines": {

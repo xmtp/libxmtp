@@ -2,7 +2,6 @@ import { fileURLToPath } from "node:url";
 
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
-import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
 // Workspace-linked bindings live outside this package. Allow the repository
@@ -11,7 +10,9 @@ const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 // https://vitejs.dev/config/
 const viteConfig = defineConfig({
-  plugins: [tsconfigPaths()],
+  resolve: {
+    tsconfigPaths: true,
+  },
   define: {
     "import.meta.env.XMTP_BACKEND_URL": JSON.stringify(
       process.env.XMTP_BACKEND_URL,

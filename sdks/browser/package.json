@@ -70,7 +70,6 @@
     "typescript": "catalog:",
     "viem": "catalog:",
     "vite": "catalog:",
-    "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
