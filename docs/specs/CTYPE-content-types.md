@@ -21,15 +21,15 @@ flowchart LR
 
 In scope: the content type identifier and how a client matches one; the `EncodedContent` envelope and its parameters, fallback, and compression fields; the codec contract and the errors it reports; the push flag a type carries; content nested inside content; content type versions; what a client does with a type it cannot decode; and the catalogue of standard types with their schemas.
 
-Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an MLS message, the message id, and publishing (SEND); receipt, ordering, and storage of messages (PROC); the group metadata a commit changes and the transcript message a client derives from it (GMOD, META); the device sync payload (SYNC); what a push server does with the push flag (PUSH-219); the archive that carries stored content between installations (ARCH); and the effect of a delete or a leave request on group state (`?PROC`, GMOD).
+Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an MLS message, the message id, and publishing (SEND); receipt, ordering, and storage of messages (PROC); the group metadata a commit changes and the transcript message a client derives from it (GMOD, META); the device sync payload (SYNC); what a push server does with the push flag (PUSH-219); the archive that carries stored content between installations (ARCH); and the effect of a delete or a leave request on group state (PROC-037, GMOD).
 
 | Related | Relation |
 | --- | --- |
-| SEND section 1 | Owns the `PlaintextEnvelope` and message identity. `?SEND` needs the explicit push override and default text rules stated in sections 3 and 4. |
-| `?PROC` | Needs deletion authorization and application rules. CTYPE-018 owns type and message-kind eligibility. |
+| SEND section 1 | Owns the `PlaintextEnvelope` and message identity. SEND-021 owns the explicit push override and SEND-020 the default text type referenced in sections 3 and 4. |
+| `PROC-037` | Owns deletion authorization and application. CTYPE-018 owns type and message-kind eligibility. |
 | `PUSH-219` | Owns backend push eligibility. CTYPE-010 owns the default value for catalogue content; PUSH-218 needs to defer to it. |
 | SYNC | Owns the sync message, an `EncodedContent` of its own type whose schema it states. |
-| `?GMOD` | Needs the transcript publication restriction in section 7; GMOD owns group changes. |
+| `GMOD-034`, `GMOD-035` | Own transcript derivation and the publication restriction referenced in section 7; GMOD owns group changes. |
 | ARCH | Carries a stored message's `EncodedContent` bytes unchanged (ARCH-008), so a type a client does not decode survives export and import. |
 
 ## Terms
@@ -117,7 +117,7 @@ An SDK reports no matching codec, decode failure, encode failure, and malformed 
 
 For CTYPE-007, equality means the same strings, byte sequences, numeric values, optional-member presence, and sequence order; map-member order is irrelevant. An action timestamp is compared after conversion to UTC and truncation below millisecond precision, as required by its encoding in section 7.
 
-`?SEND` is expected to require an SDK that accepts string content without an explicit content type to encode it as the catalogue text type. This default applies to a send request, not to received content with a missing or unknown identifier.
+SEND-020 requires an SDK that accepts string content without an explicit content type to encode it as the catalogue text type. This default applies to a send request, not to received content with a missing or unknown identifier.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -128,11 +128,11 @@ For CTYPE-007, equality means the same strings, byte sequences, numeric values, 
 
 ## 4. The push value
 
-A type supplies a default push value. The client can obtain it from a codec or from the identifier of an app-supplied envelope. PUSH-219 owns backend push eligibility. `?SEND` is expected to require that an explicitly supplied `shouldPush` value, including false, overrides the type default. An omitted options object and an object with no `shouldPush` field both leave that default in effect. PUSH-218 needs to defer to CTYPE-010 for catalogue application messages instead of imposing a blanket true default.
+A type supplies a default push value. The client can obtain it from a codec or from the identifier of an app-supplied envelope. PUSH-219 owns backend push eligibility. SEND-021 requires that an explicitly supplied `shouldPush` value, including false, overrides the type default. An omitted options object and an object with no `shouldPush` field both leave that default in effect. PUSH-218 needs to defer to CTYPE-010 for catalogue application messages instead of imposing a blanket true default.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CTYPE-010 | Push value from the catalogue | When the client or an SDK publishes catalogue content without an explicit app push override under `?SEND`, it MUST set the push flag to the catalogue's Push value, including for an app-supplied raw envelope and for an options object with no push field. | Incorrect defaults suppress wanted notifications or send unwanted ones to recipients. |
+| CTYPE-010 | Push value from the catalogue | When the client or an SDK publishes catalogue content without an explicit app push override under SEND-021, it MUST set the push flag to the catalogue's Push value, including for an app-supplied raw envelope and for an options object with no push field. | Incorrect defaults suppress wanted notifications or send unwanted ones to recipients. |
 
 ## 5. Nested content
 
@@ -153,7 +153,7 @@ An incompatible encoding needs a different major version under CTYPE-016. A code
 
 ## 7. The catalogue
 
-The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. `?PROC` is expected to require that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
+The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. PROC-037 requires that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
 
 Catalogue presence does not promise a codec class in every SDK. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 
@@ -179,7 +179,7 @@ JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.ht
 | Delete message | `xmtp.org/deleteMessage:1.0` | Protobuf `DeleteMessage` | none | false | no |
 | Edit message (reserved) | `xmtp.org/editMessage:1.0` | Protobuf `EditMessage` | none | false | no |
 
-Group updated and legacy membership change represent commit transcripts. `?GMOD` is expected to require that the client derives transcript records from validated commits and never publishes either transcript type as an application message.
+Group updated and legacy membership change represent commit transcripts. GMOD-034 requires that the client derives transcript records from validated commits, and GMOD-035 that it never publishes either transcript type as an application message.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

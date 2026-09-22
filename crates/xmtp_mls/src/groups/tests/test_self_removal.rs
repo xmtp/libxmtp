@@ -403,6 +403,7 @@ async fn test_membership_state_after_readd() {
     );
 }
 
+// verifies: GMOD-034
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_group_update_message() {
     tester!(amal);

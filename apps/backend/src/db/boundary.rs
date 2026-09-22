@@ -22,6 +22,7 @@ pub(crate) async fn advance(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, 
     result
 }
 
+// implements: API-291
 async fn advance_boundary(pool: &PgPool, wait_ms: u64) -> Result<Option<i64>, Error> {
     let mut tx = pool
         .begin_with("BEGIN ISOLATION LEVEL READ COMMITTED")

@@ -19,6 +19,7 @@ class CodecRegistry {
 		codecs[codec.id] = codec
 	}
 
+	// implements: SEND-020
 	func find(for contentType: ContentTypeID?) -> any ContentCodec {
 		lock.lock()
 		defer { lock.unlock() }

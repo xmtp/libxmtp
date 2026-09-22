@@ -3,6 +3,7 @@ use crate::tester;
 
 /// Test that validates the `should_push` field is properly sent to the network
 /// when set to true
+// verifies: SEND-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_send_message_should_push() {
     tester!(alix);

@@ -879,6 +879,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
+    // implements: JOIN-080
     fn insert_or_replace_group(&self, group: StoredGroup) -> Result<StoredGroup, StorageError> {
         let maybe_inserted_group: Option<StoredGroup> = self.raw_query(|conn| {
             diesel::insert_into(dsl::groups)

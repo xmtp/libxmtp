@@ -266,6 +266,8 @@ enum ConversationType {
 
 The name, description, image URL, and app-data string are free text an app chooses; the client bounds them (META-010) and otherwise passes them through. A component that was never set is absent from the dictionary, and absent and empty are different bytes, so an app is given one answer for both: the empty string.
 
+An app can guard an `APP_DATA` write with the value it read before it computed the new one. The guard is compared with the committed `APP_DATA` string of the group state the commit is prepared on, so a value another member committed in the meantime is detected and not overwritten. SEND-017 owns what a guard miss does to the intent.
+
 A commit that changes a setting is recorded for the app as a membership-change message whose `GroupUpdated` payload lists each changed field by a stable name. The names below are what an app matches on, and an app written against them keeps working whatever the component id behind a name.
 
 | Component | `field_name` | `old_value` and `new_value` form |
@@ -301,6 +303,7 @@ message GroupUpdated {
 | --- | --- | --- | --- |
 | META-040 | Changes are recorded by name | When a commit changes the value of a component in the table above, the client MUST record in the membership-change message it stores for that commit a `GroupUpdated.MetadataFieldChange` as defined above, whose `field_name` and value form are the table's, with `old_value` absent when the component was absent before, and MUST NOT record a change for a component whose value the commit left equal. | An app reads the change log by field name, and a change recorded for an unchanged value shows the user an edit nobody made. |
 | META-041 | Absent reads as empty | An SDK MUST present an absent `GROUP_NAME`, `GROUP_DESCRIPTION`, `GROUP_IMAGE_URL`, or `APP_DATA` to an app as the empty string. | |
+| META-065 | A guard compares the committed app data | When an app supplies an expected value with an `APP_DATA` write, the client MUST compare it as a UTF-8 string with the `APP_DATA` value in the dictionary of the group state it prepares the commit on, and MUST NOT prepare the commit unless the two are equal. An absent `APP_DATA` component MUST NOT be equal to any expected value. | A write built on a value another member has since replaced overwrites that member's change, and neither app sees a conflict. |
 
 ## 6. Disappearing messages
 

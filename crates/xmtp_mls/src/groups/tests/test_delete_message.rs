@@ -59,6 +59,7 @@ async fn test_delete_message_by_sender() {
 }
 
 /// Test message deletion by super admin
+// verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_delete_message_by_super_admin() {
     tester!(alix);
@@ -355,6 +356,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
 }
 
 /// Test that unauthorized deletion records are rejected at query time.
+// verifies: PROC-037
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_out_of_order_unauthorized_deletion_rejected() {
     use xmtp_db::Store;

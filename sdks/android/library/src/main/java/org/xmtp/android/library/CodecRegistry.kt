@@ -12,6 +12,7 @@ data class CodecRegistry(
         codecs[codec.contentType.id] = codec
     }
 
+    // implements: SEND-020
     fun find(contentType: ContentTypeId?): ContentCodec<*> {
         contentType?.let {
             val codec = codecs[it.id]

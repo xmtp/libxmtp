@@ -7,6 +7,7 @@ where
     Context: XmtpSharedContext,
 {
     /// Validate the current prepared attempt using verified local proofs.
+    // implements: GMOD-036
     pub(super) fn stage_and_validate_intent(
         &self,
         db: &impl DbQuery,

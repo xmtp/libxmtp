@@ -344,12 +344,15 @@ An installation is a member representing a single device/client database instanc
 
 The number of installations an inbox may hold is a client-side ceiling: CONF-044 stops a client from registering when the installation members in the association state it has resolved, at the highest sequence id it holds, number at least `max_installations_per_inbox`. No validator rejects an update for exceeding it, so two clients that register at once can leave an inbox above the ceiling, and a client that has not fetched the latest updates counts fewer than exist.
 
+A registration is published to the inbox's identity topic and confirmed by the publish receipt, but the reads other parties use to find the installation can lag that receipt (OPS-009). A client that reports the registration complete on the receipt alone hands the app an installation that another client's `GetInboxIds` or `QueryNewest` does not yet show. The client therefore confirms visibility with a metadata-only `QueryNewest` on the identity topic before it reports completion; PROC-015 owns that read.
+
 Every party that decides whether an installation belongs to an inbox does so at a sequence id: a Welcome names one per inbox (JOIN-052, JOIN-053), a group's membership component names one per inbox (GMOD-005), and GMOD-029 owns reconciliation with later identity state. The state at a sequence id is one value for every party, and the installations an inbox has at that point are the members of kind installation in it. A sequence id that no update in the log carries names no state (IDENT-070). A client caches states it has derived; a cached state is one it derived itself.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | IDENT-070 | State at a sequence id | When a validator needs an inbox's association state at a sequence id, it MUST use the state produced under IDENT-004 by every update in that inbox's association log with a sequence id not greater than it, only when the log holds an update whose sequence id equals it, and MUST NOT substitute the state at any other sequence id. | Two members that check a leaf against different states disagree about whether the group is valid, and a reference no update carries names nothing. |
 | IDENT-071 | A client validates for itself | A client MUST derive every association state it uses by applying sections 2 to 7 to the updates it read, and MUST NOT use a member set it did not derive that way. | A client that trusts the backend's acceptance adds whatever installation a compromised backend inserts. |
+| IDENT-072 | Registration is visible before it is complete | When a client registers an installation, it MUST NOT report the registration complete until a `QueryNewest` on the inbox's identity topic with `include_full_envelope` false has returned a sequence id not less than the publish receipt of the identity update that added the installation. | An app that acts on the registration at once, for example by asking another client to add the installation, is answered from a read that does not show it yet. |
 
 ## 9. Resolving an identifier
 

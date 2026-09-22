@@ -71,6 +71,7 @@ where
     /// Record a supported invalid envelope after its trial state was discarded.
     /// The outer writer is still held, so the prefix cannot change between the
     /// failed attempt and this fresh load.
+    // implements: GMOD-036
     pub(super) fn record_rejected_message(
         &self,
         group: &mut OpenMlsGroup,

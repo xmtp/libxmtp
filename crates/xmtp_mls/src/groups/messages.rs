@@ -328,6 +328,7 @@ where
     /// * opts: Options for sending the message
     /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
     ///   timestamp attached to intent & stored message.
+    // implements: SEND-021
     #[tracing::instrument(skip_all, level = "trace")]
     pub(crate) fn prepare_message<F>(
         &self,

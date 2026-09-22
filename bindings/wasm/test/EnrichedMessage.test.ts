@@ -126,6 +126,7 @@ describe("EnrichedMessage", () => {
 
   describe("Content types", () => {
     describe("Text", () => {
+      // verifies: SEND-020
       it("should send and receive text message", async () => {
         const { client1, conversation, conversation2 } =
           await setupConversation();

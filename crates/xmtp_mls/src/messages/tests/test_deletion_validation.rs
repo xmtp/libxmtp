@@ -155,6 +155,7 @@ fn test_invalid_deletion_message_id_mismatch() {
     assert!(!is_deletion_valid(&deletion, &message, &group_id));
 }
 
+// verifies: PROC-037
 #[test]
 fn test_invalid_deletion_cross_group_deletion_group_mismatch() {
     let group_id = GroupId::from([0x01u8; 16]);

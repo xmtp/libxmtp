@@ -65,6 +65,7 @@ pub trait CommitLogStorer: std::marker::Sized {
 }
 
 impl CommitLogStorer for MlsGroup {
+    // implements: GMOD-037
     fn from_creation_logged(
         provider: &impl MlsProviderExt,
         identity: &Identity,

@@ -823,3 +823,4 @@ async fn test_membership_state() {
 }
 
 mod test_dictionary_creation;
+mod test_group_id;

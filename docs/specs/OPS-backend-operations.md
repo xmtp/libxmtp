@@ -82,7 +82,7 @@ A publish admitted before shutdown may commit and still get no response. That is
 
 ## 4. Lagged reads
 
-A deployment may answer some reads from a lagged copy of its store, so a client that just published can see an older point in time on those reads than on `Query`. The lag is safe because a lagged read is still a prefix of every topic (API-201) and because it equals what the current store would have answered earlier, never a reordering and never a gap. Only `Query` reads the client's own writes (API-202). A client that must confirm its own write is visible on a lagged read polls a metadata-only `QueryNewest` on the exact topic; `?IDENT` is expected to require that for installation registration. PROC-021 defines when a client uses `Query` to reach a target from its own publish receipt.
+A deployment may answer some reads from a lagged copy of its store, so a client that just published can see an older point in time on those reads than on `Query`. The lag is safe because a lagged read is still a prefix of every topic (API-201) and because it equals what the current store would have answered earlier, never a reordering and never a gap. Only `Query` reads the client's own writes (API-202). A client that must confirm its own write is visible on a lagged read polls a metadata-only `QueryNewest` on the exact topic; IDENT-072 requires that for installation registration. PROC-021 defines when a client uses `Query` to reach a target from its own publish receipt.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
