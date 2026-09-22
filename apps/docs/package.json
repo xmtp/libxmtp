@@ -13,8 +13,8 @@
     "check:agent-docs": "node scripts/agent-doc-coverage.mjs",
     "preview": "astro preview --host 127.0.0.1",
     "lint": "oxlint -c .oxlintrc.json . && markdownlint '**/*.md' '**/*.mdx' --ignore node_modules --ignore dist --ignore .astro --ignore generated --ignore '_site/**' --ignore 'src/content/docs/reference/*-sdk/**' --ignore CLAUDE.md",
-    "format": "prettier --write .",
-    "format-check": "prettier --check .",
+    "format": "oxfmt --write . && prettier --write '**/*.astro'",
+    "format:check": "oxfmt --check . && prettier --check '**/*.astro'",
     "test": "node --test tests/*.test.mjs",
     "test:browser": "playwright test",
     "typecheck": "astro check && pnpm check:examples"

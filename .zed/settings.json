@@ -8,13 +8,59 @@
       "format_on_save": "on",
     },
     "TypeScript": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
+        },
+      },
+    },
+    "TSX": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
+        },
+      },
     },
     "JavaScript": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
+        },
+      },
     },
     "JSON": {
-      "formatter": "prettier",
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
+        },
+      },
+    },
+    "JSONC": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
+        },
+      },
+    },
+    "Astro": {
+      "formatter": {
+        "external": {
+          "command": "pnpm",
+          "arguments": [
+            "--filter",
+            "@xmtp/docs",
+            "exec",
+            "prettier",
+            "--stdin-filepath",
+            "{buffer_path}",
+          ],
+        },
+      },
     },
     // nil is disabled: it prompts repeatedly to fetch missing flake inputs.
     // nixd gives the same completion, diagnostics, and navigation.

@@ -103,10 +103,17 @@ lint-markdown:
 [script("bash")]
 format:
     nix fmt
+    just format-js
     just android format
     just ios format
-    just node format
-    just wasm format
+
+# Format the root JavaScript files and every package through the pnpm task graph.
+format-js:
+    pnpm format
+
+# Check JavaScript formatting without changing files.
+lint-js-format:
+    pnpm format:check
 
 # --- TEST ---
 

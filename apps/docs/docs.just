@@ -29,7 +29,7 @@ lint:
     pnpm run lint
 
 format-check:
-    pnpm --filter @xmtp/docs run format-check
+    pnpm --filter @xmtp/docs run format:check
 
 format:
     pnpm --filter @xmtp/docs run format

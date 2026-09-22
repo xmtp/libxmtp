@@ -60,6 +60,8 @@
     "demo:reconnect": "XMTP_FORCE_DEBUG_LEVEL=Error tsx src/demo/reconnect.ts",
     "demo:transactions": "tsx watch src/demo/transactions.ts",
     "dev": "tsdown --watch",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "gen:keys": "tsx src/bin/generateKeys.ts",
     "lint": "oxlint .",
     "start": "pnpm dev",

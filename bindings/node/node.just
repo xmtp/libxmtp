@@ -17,13 +17,13 @@ _prepare-dist *extra_flags="":
 # Build Node.js NAPI bindings
 check: (_prepare-dist "--release")
 
-# Check TypeScript formatting
+# Check native source formatting and lint.
 lint:
-    pnpm --filter @xmtp/node-bindings exec prettier -c .
+    pnpm --filter @xmtp/node-bindings run lint:rust
 
 # Format TypeScript files
 format:
-    pnpm --filter @xmtp/node-bindings exec prettier -w .
+    pnpm --filter @xmtp/node-bindings run format
 
 # Run Node.js tests (builds NAPI bindings with test features + vitest)
 test: (_prepare-dist "--features test-utils")

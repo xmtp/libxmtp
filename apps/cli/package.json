@@ -43,6 +43,8 @@
   "scripts": {
     "build": "tsdown",
     "dev": "tsx bin/dev.js",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "manifest": "oclif manifest",
     "prepack": "pnpm build && pnpm manifest",

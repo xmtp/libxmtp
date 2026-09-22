@@ -12,6 +12,8 @@
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
     "dev": "vite",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "test": "vitest run",
     "typecheck": "tsc"

@@ -36,43 +36,6 @@
               "**/Dockerfile"
             ];
           };
-          # Formats the JS SDKs (sdks/js). This is the formatter of record for
-          # TypeScript/JS there; the SDK eslint config intentionally omits the
-          # prettier plugin so the two don't fight.
-          prettier = {
-            enable = true;
-            includes = [
-              "sdks/js/**/*.ts"
-              "sdks/js/**/*.tsx"
-              "sdks/js/**/*.js"
-              "sdks/js/**/*.cjs"
-              "sdks/js/**/*.mjs"
-              "sdks/js/**/*.json"
-              "sdks/js/**/*.md"
-              "apps/cli/**/*.ts"
-              "apps/cli/**/*.js"
-              "apps/cli/**/*.json"
-              "apps/cli/**/*.md"
-              "apps/web-chat/**/*.ts"
-              "apps/web-chat/**/*.tsx"
-              "apps/web-chat/**/*.js"
-              "apps/web-chat/**/*.json"
-              "apps/web-chat/**/*.md"
-            ];
-            excludes = [
-              "sdks/js/**/dist/**"
-              "sdks/js/.yarn/**"
-              "sdks/js/**/CHANGELOG.md"
-              "apps/cli/**/dist/**"
-              "apps/cli/.yarn/**"
-              "apps/cli/**/node_modules/**"
-              "apps/cli/CHANGELOG.md"
-              "apps/web-chat/**/dist/**"
-              "apps/web-chat/.yarn/**"
-              "apps/web-chat/**/node_modules/**"
-              "apps/web-chat/CHANGELOG.md"
-            ];
-          };
         };
         settings.formatter = {
           shellcheck.options = [

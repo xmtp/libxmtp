@@ -2,7 +2,7 @@ name: Lint JS
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: js-node
+  NIX_DEVSHELL: js
 jobs:
   lint:
     name: Lint (JS SDKs)
@@ -17,15 +17,11 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Build Node bindings (typecheck needs the .d.ts)
-        run: just js bindings-node
-      - name: Typecheck
-        run: just js check-node
-      - name: Oxlint SDKs
-        run: just js lint-node
-      - name: Build Node and agent SDKs
-        run: just js build-node
-      - name: Typecheck CLI
-        run: just cli check
-      - name: Oxlint CLI
-        run: just cli lint
+      - name: Stage native bindings
+        run: just js bindings
+      - name: Typecheck JavaScript workspace
+        run: dev/nix-shell 'pnpm typecheck'
+      - name: Oxlint JavaScript workspace
+        run: dev/nix-shell 'pnpm lint'
+      - name: Check JavaScript formatting
+        run: just lint-js-format

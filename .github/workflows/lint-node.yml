@@ -2,7 +2,7 @@ name: Lint Node
 on:
   workflow_call:
 env:
-  NIX_DEVSHELL: js
+  NIX_DEVSHELL: rust
 jobs:
   lint:
     name: Lint (Node)
@@ -16,5 +16,5 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Lint Node bindings
+      - name: Lint Node binding Rust
         run: just node lint

@@ -8,16 +8,13 @@ nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 check:
     cargo check --locked --target wasm32-unknown-unknown --manifest-path Cargo.toml
 
-# Check WASM Rust + TypeScript formatting
+# Check WASM Rust formatting and lint.
 lint:
-    cargo clippy --locked --target wasm32-unknown-unknown \
-      --manifest-path Cargo.toml --all-features --no-deps -- -Dwarnings && \
-    cargo fmt --manifest-path Cargo.toml --check && \
-    pnpm --filter @xmtp/wasm-bindings exec prettier -c .
+    pnpm --filter @xmtp/wasm-bindings run lint:rust
 
 # Format TypeScript files
 format:
-    pnpm --filter @xmtp/wasm-bindings exec prettier -w .
+    pnpm --filter @xmtp/wasm-bindings run format
 
 # Packages that support the WASM target
 

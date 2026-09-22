@@ -45,7 +45,8 @@ to run tsdown in watch mode from an SDK package.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just install`, and `just js bindings-node`.
 - Verify dependency changes with the root install. Declare required tools in the selected workspace and run them with `pnpm --filter <name> exec`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
-- Formatting is treefmt Prettier (`just lint-config`), not oxlint.
+- Formatting uses Oxfmt. Run `just format-js` to write package formatting, or
+  `just lint-js-format` to check it. Oxlint does not format files.
 
 ## Durable message delivery
 

@@ -42,6 +42,8 @@
     "clean:deps": "rimraf node_modules",
     "clean:dist": "rimraf dist",
     "dev": "tsdown --watch",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "generate:accounts": "tsx scripts/accounts.ts",
     "generate:groups": "tsx scripts/groups.ts",
     "lint": "oxlint .",

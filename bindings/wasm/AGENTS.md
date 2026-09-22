@@ -6,7 +6,7 @@ wasm-bindgen bindings for browsers. Feeds `sdks/js/browser-sdk`.
 
 ```bash
 just wasm check
-just wasm lint                          # clippy + rustfmt + prettier
+just wasm lint                          # clippy + rustfmt
 just wasm build                         # nix build .#wasm-bindings
 just wasm test                          # Rust tests on wasm32. Needs `just backend up`
 just wasm test backoff_retry             # one test

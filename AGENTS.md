@@ -48,6 +48,8 @@ just lint-rust          # Clippy, rustfmt, and Hakari
 just lint-config        # configuration and source formatting checks
 just lint-markdown      # excludes generated glossary and release changelogs
 just lint-proto         # Buf checks the local proto/ schemas
+just format-js          # format JavaScript workspace packages with Oxfmt
+just lint-js-format     # check JavaScript workspace package formatting
 just backend up         # shared services; most integration tests need them
 just backend status     # this worktree's identity, ports, and URLs
 just outline <paths...> # declarations and line ranges; upstream defaults
@@ -81,6 +83,10 @@ recommended type-checked rules. It also checks source aliases, type-only
 imports, and selected type-safety rules. Test overrides allow loose mocks and
 fixtures. Tests still check unused code and promise handling. Keep test
 exceptions in the shared config; do not copy rule lists into each package.
+
+JavaScript formatting does not run through `just lint-config` or treefmt. Run
+`just format-js` to write package formatting, or `just lint-js-format` to check
+it.
 
 ## Rules
 

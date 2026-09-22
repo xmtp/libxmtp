@@ -23,9 +23,6 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Oxlint docs
-        run: just docs lint
-      - run: just docs format-check
       - run: just docs test
       - name: Lint repository Markdown
         run: just lint-markdown
