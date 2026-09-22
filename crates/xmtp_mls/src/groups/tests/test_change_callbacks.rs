@@ -228,6 +228,7 @@ async fn test_callback_can_publish_back_into_the_same_group() {
 /// This pins the hazard rather than endorsing it — a host reconciling
 /// `app_data` must treat the callback as "state moved", not "state settled",
 /// and re-assert its merge after its own in-flight write lands.
+// verifies: GMOD-036
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_pending_local_intent_clobbers_a_remote_change() {
     let (recorder, callbacks) = recording();
@@ -291,6 +292,7 @@ async fn test_pending_local_intent_clobbers_a_remote_change() {
 /// but with a compare-and-swap guard. The guard is re-checked on every publish
 /// attempt — including the republish after the intent loses the epoch race —
 /// so the stale write is abandoned instead of overwriting bo's value.
+// verifies: META-065
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
     let (recorder, callbacks) = recording();
@@ -355,6 +357,7 @@ async fn test_guarded_update_is_abandoned_instead_of_clobbering() {
 /// The synchronous pre-flight: a guard that is already stale when the caller
 /// asks fails immediately with a typed error carrying the value that actually
 /// landed, so the host can re-derive without a network round trip.
+// verifies: META-065
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_guarded_update_reports_the_value_that_landed() {
     tester!(alix);

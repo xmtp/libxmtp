@@ -18,7 +18,7 @@ flowchart LR
 
 In scope: the kind byte of each topic kind, the length of its identifier and the payload field it is read from, the rule that the backend derives every stored envelope's topic from its payload, and the rejection of a topic a request names that does not match the table.
 
-Out of scope: what the backend does with an envelope once routed, the envelope wire format, and the publish rejection an unroutable payload receives (`API`); which topics a client reads and how it keeps its position on them ([PROC](PROC-message-processing.md)); which topic kinds a push subscription may name (PUSH-215); inbox id derivation (IDENT-010); installation keys ([IDENT section 8](IDENT-identity-updates.md#8-installations)); and group id generation (`?GMOD`).
+Out of scope: what the backend does with an envelope once routed, the envelope wire format, and the publish rejection an unroutable payload receives (`API`); which topics a client reads and how it keeps its position on them ([PROC](PROC-message-processing.md)); which topic kinds a push subscription may name (PUSH-215); inbox id derivation (IDENT-010); installation keys ([IDENT section 8](IDENT-identity-updates.md#8-installations)); and group id generation (GMOD-037).
 
 | Related | Relation |
 | --- | --- |

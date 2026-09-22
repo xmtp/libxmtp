@@ -61,6 +61,8 @@ MLS defines the proposal types a commit can carry ([RFC 9420 §12.1](https://www
 | `update` | Replaces the proposer's own leaf node. |
 | `app_data_update` | Writes one component of the dictionary. |
 
+A group is named by its MLS `group_id`, which the creator chooses when it creates the group and which never changes. TOPIC-001 derives the group's message topic from it, so its length is fixed by the topic layout and its value has to be one no other group carries.
+
 The MLS validation of a proposal and a commit under [RFC 9420 §12.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.2) and [§12.4.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4.2) is not restated here; the rules below are what XMTP adds. A commit references proposals that the group's members already hold, so the sender publishes the proposals it created and the commit that references them in one publish request, proposals first: a commit that arrives without its proposals is rejected by every member.
 
 | ID | Title | Requirement | Why |
@@ -69,6 +71,7 @@ The MLS validation of a proposal and a commit under [RFC 9420 §12.2](https://ww
 | GMOD-002 | Only members propose | When a proposal's or a commit's sender is not a `member` sender ([RFC 9420 §6.1](https://www.rfc-editor.org/rfc/rfc9420.html#section-6.1)) whose leaf node is in the group, the client MUST record a terminal rejection for it. | |
 | GMOD-003 | An update keeps its identity | When a standalone `update` proposal's credential names an inbox other than the proposer's, the client MUST record a terminal rejection for it. | A member could otherwise place its leaf under another member's inbox. |
 | GMOD-004 | Proposals travel with their commit | When a client publishes a commit that references proposals it created, it MUST publish those proposals and the commit in one publish request, the proposals first in the order it created them. | |
+| GMOD-037 | Group ids are random | When a client creates a group, it MUST set the MLS `group_id` to 16 bytes drawn from a cryptographically secure random generator, and MUST NOT derive it from any inbox, installation, or group content. | A predictable id lets anyone publish into a group's topic before it exists, and a repeated id merges two groups' topics. |
 
 The unsupported-proposal table gives the outcome after MLS validation has accepted the message. Earlier MLS failures follow PROC-011 and PROC-012. A held proposal is not retained as an accepted proposal for a later commit.
 
@@ -140,7 +143,7 @@ One exception exists for recovery. A super admin may remove and re-add an instal
 
 An app's operation becomes an intent the client holds until the group accepts it. The client builds proposals and a commit on the epoch it holds, publishes them, and then waits for the read-back. The commit is not applied from the sender's own copy: the sender processes the group's message topic in order like every other member, meets its own commit there, and validates it under section 5. A commit that fails validation on the sender fails on every member, and the operation is reported to the app as failed.
 
-Two commits built on the same epoch race. SEND-014 owns rebuilding the change after its commit loses that race.
+Two commits built on the same epoch race, and the backend's order decides the winner. The loser reads its own commit back after the group's epoch has moved past the epoch it was built on. That commit is stale: applying it would fork the sender from the members that applied the winning commit, so the sender discards it and builds the change again on the current state. SEND-014 owns when that recovery applies to an intent and when a rejection ends it instead.
 
 A commit that adds installations owes them a Welcome. The Welcome names the commit by its sequence id on the group's message topic (JOIN section 6), so it cannot be built until the read-back, and an installation that never receives it has no way to join. Welcomes are published after the commit is applied, and the operation is not complete until the backend has accepted every one of them.
 
@@ -149,6 +152,7 @@ A commit may reference proposals other members published. Every member keeps a r
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-016 | Apply only what the topic returns | A client MUST NOT apply a commit it built before it has read that commit back from the group's message topic at the sequence id the backend assigned, and MUST NOT exempt it from any check of section 5 because it built it. | A sender that applies first and loses the race, or built a commit the others reject, is forked from the group. |
+| GMOD-036 | A stale commit is rebuilt | If a client reads back a commit it published and the group's current `GroupContext.epoch` is greater than the epoch the commit was built on, then the client MUST NOT apply that commit and MUST build the change again on the current group state before it publishes again. | Applying a commit from a past epoch forks the sender from every member that applied the winning commit. |
 | GMOD-018 | Welcomes follow the commit | When a client has applied a commit it built that adds leaf nodes, it MUST publish a Welcome to every installation the commit added, with `message_cursor` equal to the commit's sequence id, and MUST NOT publish any Welcome for that commit before the read-back. | An installation that receives no Welcome cannot join the group. |
 | GMOD-019 | Received proposals are validated first | When the client receives a standalone proposal, it MUST check its type and sender under section 1, the same-inbox condition for Update, the Add or Remove authority under PERM-015, and the component structure and write authority under META and PERM for `AppDataUpdate`, before retaining it as an accepted proposal. | A proposal accepted by only some members can make a later commit fork the group. |
 
@@ -157,6 +161,8 @@ A commit may reference proposals other members published. Every member keeps a r
 A received commit passes through the checks in this spec and in `PERM`, and is applied only when every one passes. A commit that fails leaves the group's state and epoch unchanged. What happens next depends on why it failed. PROC-011 owns terminal rejection and advancement. PROC-012 owns holding after a storage failure, an unresolved identity dependency, or an unsupported proposal. The proposal table in section 1 distinguishes an unsupported standalone PSK from a terminal committed PSK.
 
 The floor is different from both. A client below the group's floor cannot be sure it can even parse what the group now carries, and a rejection it issues alone is a fork. So it pauses: it applies nothing further on that group, publishes nothing to it, and records no rejection, until its version reaches the floor and it reprocesses from where it stopped. While the committed floor is supported, a commit that raises it is validated before it can pause the client. A terminal validation failure rejects that commit; an unresolved dependency or storage failure holds it under PROC-012. A committed floor that is already unsupported pauses the client before further commit validation. Versions compare under [Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11), including its pre-release precedence, unlike the backend's minimum under CONF-050. The floor only rises, because a lowered floor lets a paused client apply commits it cannot interpret. A new group is created with a floor at the first version that supports the dictionary, and PERM-023 says when a release raises it.
+
+A commit the client applies is recorded for the app as a membership-change message whose payload is a `GroupUpdated` transcript (CTYPE-014, META-040). The transcript is derived from the validated commit: who committed it, which inboxes it added or removed, and which settings it changed. It is a record the client writes for itself, never content a member sends, so an application message that carries a transcript type is not a transcript and is not published.
 
 META-010 owns component encodings and byte limits. Standalone checks do not resolve a future commit's identity references, compare its aggregate leaf changes, or apply its proposed floor. The client repeats authorization at commit time under PERM-009 and checks the full change here.
 
@@ -167,6 +173,8 @@ META-010 owns component encodings and byte limits. Standalone checks do not reso
 | GMOD-025 | Pause below the floor | While the committed floor exceeds the client's version, or a commit that passes all other validation would raise it above that version, the client MUST hold before that commit under PROC-012 and MUST NOT publish a message, proposal, or commit in the group. When its version reaches the floor, it MUST resume from the first held envelope. | Rejecting or skipping a commit that newer members accept forks the group. |
 | GMOD-026 | The floor only rises | If a proposal sets the floor to a version lower than the committed floor, or removes the floor while one is committed, then the client MUST record a terminal rejection for it. | |
 | GMOD-027 | Version precedence | When the client compares its version with a floor, it MUST use [Semantic Versioning 2.0.0 §11](https://semver.org/spec/v2.0.0.html#spec-item-11), including pre-release precedence; a malformed committed floor MUST NOT cause a pause. | |
+| GMOD-034 | Transcripts come from validated commits | When the client applies a commit, it MUST derive the membership-change message it stores for that commit from the validated commit, with the committer and the added, removed, and changed entries taken from the commit's actor and its effect on the pre-commit state. | A transcript written from anything but the commit shows the app membership changes that did not happen. |
+| GMOD-035 | Transcripts are never published | The client MUST NOT publish an application message whose content type is `xmtp.org/group_updated` or `xmtp.org/group_membership_change`. | A member could send a forged transcript that other apps show as a membership change. |
 
 ## 6. Keeping membership current
 

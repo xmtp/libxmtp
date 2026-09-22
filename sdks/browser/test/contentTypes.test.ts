@@ -75,6 +75,7 @@ import {
 } from "@/utils/messages";
 
 describe("Content types", () => {
+  // verifies: SEND-020
   it("should send and receive text content", async () => {
     const { signer: signer1 } = createSigner();
     const { signer: signer2 } = createSigner();

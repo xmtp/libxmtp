@@ -126,6 +126,7 @@ where
     /// Process an incoming DeleteMessage from the network.
     ///
     /// Returns `Ok(())` for invalid deletions to avoid disrupting sync.
+    // implements: PROC-037
     #[cfg_attr(test, allow(dead_code))]
     pub(crate) fn process_delete_message(
         &self,

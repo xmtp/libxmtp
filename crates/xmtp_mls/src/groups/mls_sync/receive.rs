@@ -87,6 +87,7 @@ where
         Ok(updated)
     }
 
+    // implements: GMOD-034
     pub(super) fn save_transcript_message(
         &self,
         validated_commit: ValidatedCommit,

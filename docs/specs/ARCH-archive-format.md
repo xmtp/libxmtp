@@ -25,13 +25,13 @@ flowchart LR
 
 In scope: the container framing, its encryption, and its version; the element kinds and their wire form; what an export includes and excludes and the selection an app makes; the promise that an archive written under this version loads in every later client; what an app can read from an archive without importing it; and how an import merges each element with existing local state.
 
-Out of scope: what a consent record means and how two records merge (CONS-002, CONS-010); what a message's content means (CTYPE); what group metadata means (META); how a restored group becomes active again, which requires a validated Welcome (`?JOIN`); the device sync channel, which does not carry archives (SYNC); and where an app stores an archive and its key.
+Out of scope: what a consent record means and how two records merge (CONS-002, CONS-010); what a message's content means (CTYPE); what group metadata means (META); how a restored group becomes active again, which requires a validated Welcome (JOIN-080); the device sync channel, which does not carry archives (SYNC); and where an app stores an archive and its key.
 
 | Related | Relation |
 | --- | --- |
 | CONS-002, CONS-010 | Own the consent wire form and merge rule. |
 | CTYPE | Owns the `EncodedContent` a message element carries in `decrypted_message_bytes`. |
-| `?JOIN` | Needs an explicit rule for activation of a restored group; JOIN-042 applies only after a removal commit. |
+| `JOIN-080` | Owns activation of a restored group by a validated Welcome; JOIN-042 applies only after a removal commit. |
 | META | Owns the meaning of the metadata attributes and admin lists a group element carries. |
 | `SEND-002` | Owns the message id that an import uses for deduplication. |
 
@@ -266,7 +266,7 @@ An app reads an archive's metadata with the key alone, before it decides to impo
 
 An import is additive. Message ids deduplicate under ARCH-013. Existing groups retain their live state under ARCH-014. Consent merges under CONS-010. A new conversation exposes the historical metadata in ARCH-020 and remains inactive under ARCH-015. An internal placeholder does not confer membership or make imported admin lists authoritative.
 
-`?JOIN` is expected to permit a validated Welcome to activate a group created only by archive import, without comparing the Welcome's epoch to an internally generated placeholder epoch. It needs to retain all Welcome validation, preserve imported history under JOIN-044, and install positions from the validated join anchor. JOIN-042 continues to guard replacement of a group previously joined through MLS; missing archived secrets alone do not satisfy its removal-commit condition.
+JOIN-080 lets a validated Welcome activate a group created only by archive import, without comparing the Welcome's epoch to an internally generated placeholder epoch. It retains all Welcome validation, preserves imported history under JOIN-044, and installs positions from the validated join anchor. JOIN-042 continues to guard replacement of a group previously joined through MLS; missing archived secrets alone do not satisfy its removal-commit condition.
 
 Successful-import idempotence is separate from failure recovery. A failed import retains completed elements. Retrying after a transient read or storage failure can apply the remaining elements; repeating unchanged malformed input cannot repair it.
 
@@ -276,7 +276,7 @@ Successful-import idempotence is separate from failure recovery. A failed import
 | ARCH-012 | Key length | When an app supplies an archive key whose length is not 32 bytes, the client and SDK MUST reject it before reading or writing any archive byte. | Truncation makes keys with the same 32-byte prefix identical and discards all suffix entropy. |
 | ARCH-013 | Known messages are unchanged | When an imported `group_message` element's `id` equals the id of a stored message, the client MUST leave the stored message unchanged. | |
 | ARCH-014 | Known groups are unchanged | When an imported `group` element's `id` equals the id of a stored group, the client MUST leave the stored group's state, membership state, and metadata unchanged, and MUST set its last message time to the greater of the stored and the imported `last_message_ns`. | A live group overwritten from an archive loses its MLS state and the conversation with it. |
-| ARCH-015 | Restored groups are inactive | Until a validated Welcome activates a restored group under `?JOIN`, the client MUST NOT use import to authorize sending to that group or decrypting its subsequent traffic. It MUST reject send and sync requests for the restored group with an inactive-group error and MUST NOT publish to its topics. | Historical access does not prove current membership to the other members. |
+| ARCH-015 | Restored groups are inactive | Until a validated Welcome activates a restored group under JOIN-080, the client MUST NOT use import to authorize sending to that group or decrypting its subsequent traffic. It MUST reject send and sync requests for the restored group with an inactive-group error and MUST NOT publish to its topics. | Historical access does not prove current membership to the other members. |
 | ARCH-016 | Import is idempotent | After a successful import, and absent other writes or expiry under META-051, the client MUST leave groups, messages, and consent unchanged when the same archive is imported again. | Repeating a restore must not duplicate history or overwrite live state. |
 | ARCH-020 | Historical metadata stays visible | When the client creates a conversation from a `group` element, it MUST expose the archived group id, conversation type, DM identity where present, creation time, creator and adder inbox ids, mutable attributes, admin and super-admin lists, disappearing settings, and last-message time to the app as historical metadata. It MUST NOT replace these values with values generated for an internal placeholder. | The app would show a different conversation history after restore. |
 | ARCH-021 | Failure preserves completed work | When import fails, the client MUST return an error and retain the groups, messages, and consent already applied, without applying the failing element or later elements. After a transient read or storage failure has ended, it MUST allow a retry from the start using the same merge rules; a malformed recognized element or a still-missing required group MUST fail again, rather than be skipped or reported successful. | Idempotence alone does not recover a failed import. |

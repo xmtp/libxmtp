@@ -6,6 +6,7 @@ use xmtp_proto::types::Topic;
 mod deadlines;
 mod dictionary_creation;
 
+// verifies: GMOD-036
 #[rstest::rstest]
 #[case::name_first(true)]
 #[case::description_first(false)]

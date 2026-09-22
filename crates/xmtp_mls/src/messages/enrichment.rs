@@ -56,6 +56,7 @@ type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage
 type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 
 /// Validates if a deletion should be applied. Checks group membership and authorization.
+// implements: PROC-037
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,

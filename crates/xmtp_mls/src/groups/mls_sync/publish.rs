@@ -320,6 +320,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// `None` means that the intent makes no change to the current group.
     #[allow(clippy::type_complexity)]
     #[tracing::instrument(level = "trace", skip_all)]
+    // implements: META-065
     fn get_publish_intent_data(
         &self,
         storage: &impl XmtpMlsStorageProvider,

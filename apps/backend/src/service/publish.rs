@@ -51,7 +51,7 @@ impl api::publish_service_server::PublishService for Backend {
 
 impl Backend {
     /// Keep response origins until the whole request succeeds or fails.
-    // implements: API-221
+    // implements: API-221, API-290
     async fn publish_batch(
         &self,
         request: api::PublishRequest,

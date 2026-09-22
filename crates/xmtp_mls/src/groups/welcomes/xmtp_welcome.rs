@@ -337,6 +337,7 @@ where
     /// Restage and recheck the join against this writer's keys, proofs, and group.
     /// An active older group must process its removal before replacement.
     /// The caller commits the join and pending-row completion together.
+    // implements: JOIN-080
     fn commit(
         &self,
         tx: &mut impl TransactionalKeyStore,

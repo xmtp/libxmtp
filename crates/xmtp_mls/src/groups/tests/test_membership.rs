@@ -221,6 +221,7 @@ async fn test_remove_inbox() {
     assert_eq!(messages.len(), 6);
 }
 
+// verifies: GMOD-034
 #[xmtp_common::test]
 async fn test_remove_by_account_address() {
     tester!(amal);
