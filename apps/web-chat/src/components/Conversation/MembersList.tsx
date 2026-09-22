@@ -1,15 +1,17 @@
 import { ActionIcon, Badge, Group, Stack, Text, Tooltip } from "@mantine/core";
 import { Dm, PermissionLevel } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
+
 import { MemberListItem } from "@/components/Conversation/MemberListItem";
 import VirtualList from "@/components/VirtualList";
-import { useConversation } from "@/hooks/useConversation";
 import { toMemberProfile, type MemberProfile } from "@/helpers/member";
+import { useConversation } from "@/hooks/useConversation";
 import { IconX } from "@/icons/IconX";
 import {
   ContentLayoutContent,
   ContentLayoutHeader,
 } from "@/layouts/ContentLayout";
+
 import classes from "./MembersList.module.css";
 
 export type MembersListProps = {
@@ -40,8 +42,7 @@ const TitleCard: React.FC<TitleCardProps> = ({ title, count }) => {
       gap="xs"
       align="center"
       wrap="nowrap"
-      px="md"
-    >
+      px="md">
       <Text size="xs" fw={700}>
         {title.toUpperCase()}
       </Text>
@@ -117,8 +118,7 @@ export const MembersList: React.FC<MembersListProps> = ({
               <ActionIcon
                 variant="default"
                 onClick={toggle}
-                className={classes.hideMembers}
-              >
+                className={classes.hideMembers}>
                 <IconX />
               </ActionIcon>
             </Tooltip>
@@ -128,8 +128,7 @@ export const MembersList: React.FC<MembersListProps> = ({
       <ContentLayoutContent
         withScrollArea={false}
         withScrollFade
-        className={classes.content}
-      >
+        className={classes.content}>
         <VirtualList
           items={membersListItems}
           getItemKey={(item, index) =>

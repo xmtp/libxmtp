@@ -1,4 +1,5 @@
 import { ActionIcon, Menu, Stack, Text } from "@mantine/core";
+
 import { IconRefresh } from "@/icons/IconRefresh";
 
 export type ConversationsMenuProps = {
@@ -20,8 +21,7 @@ export const ConversationsMenu: React.FC<ConversationsMenuProps> = ({
         <ActionIcon
           variant="default"
           loading={loading}
-          aria-label="Sync Conversations"
-        >
+          aria-label="Sync Conversations">
           <IconRefresh />
         </ActionIcon>
       </Menu.Target>

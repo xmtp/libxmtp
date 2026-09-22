@@ -4,6 +4,7 @@ import {
   PermissionPolicy,
   PermissionUpdateType,
 } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { requireGroup } from "@/utils/conversation";
 

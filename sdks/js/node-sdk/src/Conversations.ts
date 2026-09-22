@@ -11,6 +11,7 @@ import {
   type Conversations as XmtpConversations,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/node-bindings";
+
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
 import {

@@ -1,6 +1,7 @@
 import { Box, Button, Group, TextInput } from "@mantine/core";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+
 import { Modal } from "@/components/Modal";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversations } from "@/hooks/useConversations";
@@ -49,8 +50,7 @@ export const CreateDmModal: React.FC = () => {
           variant="filled"
           disabled={loading || memberIdError !== null || !inboxId}
           loading={loading}
-          onClick={() => void handleCreate()}
-        >
+          onClick={() => void handleCreate()}>
           Create
         </Button>
       </Group>
@@ -67,14 +67,12 @@ export const CreateDmModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="600"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Create direct message"
         maxHeight={contentHeight}
         footer={footer}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Box p="md">
           <TextInput
             size="sm"

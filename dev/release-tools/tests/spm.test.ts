@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { updateSpmChecksum } from "../src/lib/spm";
 
 const SAMPLE_PACKAGE_SWIFT = `// swift-tools-version: 5.6

@@ -1,7 +1,10 @@
 import { access, readFile, writeFile } from "node:fs/promises";
+
 import { Errors } from "@oclif/core";
 import { describe, expect, it } from "vitest";
+
 import { formatStorageErrorMessage } from "@/baseCommand";
+
 import { createTestIdentity, runCommand } from "./helpers.js";
 
 function identityFlags() {

@@ -19,7 +19,9 @@ import {
   type WalletSendCalls,
   type WorkerConfigOptions,
 } from "@xmtp/node-bindings";
+
 import type { DecodedMessage } from "@/DecodedMessage";
+
 import type { HexString } from "./utils/validation";
 
 /**

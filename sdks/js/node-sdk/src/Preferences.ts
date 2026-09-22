@@ -5,6 +5,7 @@ import type {
   Conversations,
   UserPreferenceUpdate,
 } from "@xmtp/node-bindings";
+
 import {
   createStream,
   type StreamCallback,

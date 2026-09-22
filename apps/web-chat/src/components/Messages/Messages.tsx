@@ -1,5 +1,6 @@
 import { Box, Text } from "@mantine/core";
 import type { DecodedMessage } from "@xmtp/browser-sdk";
+
 import { MessageList } from "./MessageList";
 
 export type ConversationProps = {
@@ -14,8 +15,7 @@ export const Messages: React.FC<ConversationProps> = ({ messages }) => {
         flexGrow: 1,
         alignItems: "center",
         justifyContent: "center",
-      }}
-    >
+      }}>
       <Text>No messages</Text>
     </Box>
   ) : (

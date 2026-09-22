@@ -8,6 +8,7 @@ import {
   type ListConversationsOptions,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/wasm-bindings";
+
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
 import {
@@ -17,9 +18,9 @@ import {
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
 import { MessageStream } from "@/MessageStream";
-import { createMessageReader } from "@/utils/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
 import type { SafeConversation } from "@/utils/conversions";
+import { createMessageReader } from "@/utils/messageReader";
 import {
   createStream,
   type StreamCallback,

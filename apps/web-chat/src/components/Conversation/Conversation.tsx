@@ -3,6 +3,7 @@ import { useDisclosure } from "@mantine/hooks";
 import { Group as XmtpGroup } from "@xmtp/browser-sdk";
 import { useCallback, useEffect } from "react";
 import { Outlet, useNavigate } from "react-router";
+
 import { ConversationMenu } from "@/components/Conversation/ConversationMenu";
 import { MembersList } from "@/components/Conversation/MembersList";
 import { Messages } from "@/components/Messages/Messages";
@@ -11,6 +12,7 @@ import { useConversation } from "@/hooks/useConversation";
 import { IconInfo } from "@/icons/IconInfo";
 import { IconUsers } from "@/icons/IconUsers";
 import { ContentLayout } from "@/layouts/ContentLayout";
+
 import { Composer } from "./Composer";
 
 export type ConversationProps = {
@@ -46,8 +48,7 @@ export const Conversation: React.FC<ConversationProps> = ({
     <>
       <ConversationProvider
         key={conversationId}
-        conversationId={conversationId}
-      >
+        conversationId={conversationId}>
         <ContentLayout
           title={name || "Untitled"}
           loading={messages.length === 0 && conversationLoading}
@@ -58,8 +59,7 @@ export const Conversation: React.FC<ConversationProps> = ({
                   variant="default"
                   onClick={() =>
                     void navigate(`/conversations/${conversationId}/details`)
-                  }
-                >
+                  }>
                   <IconInfo />
                 </ActionIcon>
               </Tooltip>
@@ -76,14 +76,12 @@ export const Conversation: React.FC<ConversationProps> = ({
                   ) : (
                     <Text size="xs">Show members</Text>
                   )
-                }
-              >
+                }>
                 <ActionIcon
                   variant="default"
                   onClick={() => {
                     toggle();
-                  }}
-                >
+                  }}>
                   <IconUsers />
                 </ActionIcon>
               </Tooltip>
@@ -94,8 +92,7 @@ export const Conversation: React.FC<ConversationProps> = ({
           }
           asideOpened={opened}
           footer={<Composer conversationId={conversationId} />}
-          withScrollArea={false}
-        >
+          withScrollArea={false}>
           <Messages messages={messages} />
         </ContentLayout>
       </ConversationProvider>

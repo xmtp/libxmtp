@@ -1,8 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import { parse } from "smol-toml";
-import type { ManifestProvider } from "@/types";
+
 import { execSilent } from "@/lib/exec";
+import type { ManifestProvider } from "@/types";
 
 const WORKSPACE_VERSION_REGEX =
   /(\[workspace\.package\][\s\S]*?version\s*=\s*)"([^"]+)"/;

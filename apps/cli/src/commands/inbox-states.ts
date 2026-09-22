@@ -1,5 +1,6 @@
 import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { formatIdentifierKind, formatTimestampNs } from "@/utils/output";
 

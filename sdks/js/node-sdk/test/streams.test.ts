@@ -1,5 +1,6 @@
 import type { StreamCloser } from "@xmtp/node-bindings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { StreamFailedError } from "@/utils/errors";
 import { createStream, type StreamCallback } from "@/utils/streams";
 

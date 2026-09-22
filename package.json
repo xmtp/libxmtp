@@ -2,10 +2,6 @@
   "name": "@xmtp/workspace",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.27.1",
-  "engines": {
-    "node": ">=22.12.0"
-  },
   "scripts": {
     "build": "pnpm -r run build",
     "format": "oxfmt --config .oxfmtrc.json --write .oxfmtrc.json .oxlintrc.json .vscode/extensions.json .vscode/settings.json .zed/settings.json package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node.json tsconfig.web.json && pnpm -r run format",
@@ -15,9 +11,13 @@
     "test": "pnpm -r --filter './sdks/js/*' --filter './apps/*' --filter './dev/*' run test"
   },
   "devDependencies": {
+    "oxfmt": "catalog:",
     "oxlint": "1.83.0",
     "oxlint-tsgolint": "7.0.2001",
-    "oxfmt": "catalog:",
     "typescript": "catalog:"
-  }
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "pnpm@11.27.1"
 }

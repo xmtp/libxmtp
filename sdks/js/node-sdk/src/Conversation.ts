@@ -18,6 +18,7 @@ import {
   type WalletSendCalls,
   type Conversation as XmtpConversation,
 } from "@xmtp/node-bindings";
+
 import type { Client } from "@/Client";
 import type { CodecRegistry } from "@/CodecRegistry";
 import {

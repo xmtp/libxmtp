@@ -7,6 +7,7 @@ import {
   Text,
 } from "@mantine/core";
 import { useState } from "react";
+
 import { Modal } from "@/components/Modal";
 import {
   useAuthToken,
@@ -63,15 +64,13 @@ const AuthTokenForm: React.FC<{
       closeOnClickOutside={false}
       withCloseButton={false}
       padding={0}
-      centered
-    >
+      centered>
       <ContentLayout
         title="Backend auth token"
         maxHeight={fullScreen ? "auto" : 320}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Stack gap="md" p="md">
           {request.rejected && (
             <Alert color="red" title="Token rejected">

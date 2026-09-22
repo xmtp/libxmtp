@@ -5,6 +5,7 @@ import init, {
   type Identifier,
   type SignatureRequestHandle,
 } from "@xmtp/wasm-bindings";
+
 import type { Signer } from "@/utils/signer";
 
 /**

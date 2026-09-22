@@ -1,6 +1,7 @@
 import EventEmitter from "node:events";
 import fs from "node:fs";
 import path from "node:path";
+
 import type { ContentCodec } from "@xmtp/content-type-primitives";
 import {
   Client,
@@ -44,12 +45,14 @@ import {
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
-import { version as appVersion } from "~/package.json";
 import { retry } from "ts-retry-promise";
+
 import { filter } from "@/core/filter";
 import { getInstallationInfo } from "@/debug";
 import { getValidLogLevels, parseLogLevel } from "@/debug/log";
 import { createSigner, createUser } from "@/user/User";
+import { version as appVersion } from "~/package.json";
+
 import { AgentError, AgentStreamingError } from "./AgentError";
 import { ClientContext } from "./ClientContext";
 import { ConversationContext } from "./ConversationContext";

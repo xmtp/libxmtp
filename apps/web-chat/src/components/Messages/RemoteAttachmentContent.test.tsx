@@ -9,7 +9,9 @@ import {
 import type { RemoteAttachment } from "@xmtp/browser-sdk";
 import { StrictMode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type * as attachmentHelpers from "@/helpers/attachment";
+
 import { RemoteAttachmentContent } from "./RemoteAttachmentContent";
 
 const { download } = vi.hoisted(() => ({ download: vi.fn() }));

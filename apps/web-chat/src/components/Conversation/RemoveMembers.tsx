@@ -1,5 +1,6 @@
 import { Badge, Group, Stack, Text } from "@mantine/core";
 import { useCallback } from "react";
+
 import { Member } from "@/components/Conversation/Member";
 import type { MemberProfile } from "@/helpers/member";
 

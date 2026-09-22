@@ -1,3 +1,4 @@
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import {
   GroupPermissionsOptions,
   MetadataField,
@@ -5,7 +6,6 @@ import {
   PermissionUpdateType,
 } from "@xmtp/wasm-bindings";
 import { describe, expect, it } from "vitest";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("Group permissions", () => {
   it("should create a group with default permissions", async () => {

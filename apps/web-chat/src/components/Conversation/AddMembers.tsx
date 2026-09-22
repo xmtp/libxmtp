@@ -1,5 +1,6 @@
 import { Badge, Button, Group, Stack, Text, TextInput } from "@mantine/core";
 import { useCallback } from "react";
+
 import { Member } from "@/components/Conversation/Member";
 import type { Member as MemberCardMember } from "@/components/Conversation/MemberCard";
 import type { MemberProfile } from "@/helpers/member";
@@ -118,8 +119,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
             error !== null
           }
           loading={loading}
-          onClick={handleAddMember}
-        >
+          onClick={handleAddMember}>
           Add
         </Button>
       </Group>

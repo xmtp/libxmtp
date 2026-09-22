@@ -1,10 +1,12 @@
-import { ConsentEntityType, ConsentState } from "@xmtp/node-bindings";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, vi } from "vitest";
-import { uuid } from "@/utils/uuid";
+
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { ConsentEntityType, ConsentState } from "@xmtp/node-bindings";
+import { describe, expect, it, vi } from "vitest";
+
+import { uuid } from "@/utils/uuid";
 
 // Device sync hands work to background workers on both installations, so
 // cross-installation visibility converges rather than completing on any

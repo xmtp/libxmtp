@@ -1,5 +1,6 @@
 import type { MessageCatchUp } from "@xmtp/node-bindings";
 import { describe, expect, it, vi } from "vitest";
+
 import {
   MessageStream,
   type MessageAcknowledgement,

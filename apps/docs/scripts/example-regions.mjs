@@ -1,5 +1,6 @@
 import { readFile, realpath } from "node:fs/promises";
 import { resolve, sep } from "node:path";
+
 import ts from "typescript";
 
 export const examplesRoot = resolve(import.meta.dirname, "../examples");

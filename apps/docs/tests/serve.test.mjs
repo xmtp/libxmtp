@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
 import { serveStatic } from "../scripts/check-serve.mjs";
 
 test("static server serves directory indexes and returns 404", async () => {

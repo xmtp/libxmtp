@@ -1,4 +1,5 @@
 import { type Conversation, type DecodedMessage } from "@xmtp/browser-sdk";
+
 import type { ContentTypes } from "@/contexts/XMTPContext";
 
 /**

@@ -6,6 +6,7 @@ import type {
   KeyPackageStatus,
   ServerConfiguration,
 } from "@xmtp/wasm-bindings";
+
 import type {
   ClientOptions,
   VisibilityConfirmationOptions,

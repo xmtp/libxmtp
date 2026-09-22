@@ -1,5 +1,6 @@
 import { Button, Popover, Stack, Text } from "@mantine/core";
 import { useState } from "react";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { shortAddress } from "@/helpers/strings";
 
@@ -23,8 +24,7 @@ export const InboxIdBadge: React.FC<InboxIdBadgeProps> = ({
       shadow="md"
       trapFocus
       opened={opened}
-      onChange={setOpened}
-    >
+      onChange={setOpened}>
       <Popover.Target>
         <Button
           variant="default"
@@ -34,8 +34,7 @@ export const InboxIdBadge: React.FC<InboxIdBadgeProps> = ({
           onClick={(e) => {
             e.stopPropagation();
             setOpened((o) => !o);
-          }}
-        >
+          }}>
           {shortAddress(inboxId)}
         </Button>
       </Popover.Target>
@@ -43,8 +42,7 @@ export const InboxIdBadge: React.FC<InboxIdBadgeProps> = ({
         p="xs"
         onClick={(e) => {
           e.stopPropagation();
-        }}
-      >
+        }}>
         <Stack gap="xs">
           <Text truncate size="sm" ml="xs">
             Inbox ID

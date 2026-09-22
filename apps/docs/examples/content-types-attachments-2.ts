@@ -1,10 +1,10 @@
-import { Agent } from '@xmtp/agent-sdk';
+import { Agent } from "@xmtp/agent-sdk";
 const agent = await Agent.createFromEnv();
 
 // #region example2
-import { downloadRemoteAttachment } from '@xmtp/agent-sdk/util';
+import { downloadRemoteAttachment } from "@xmtp/agent-sdk/util";
 
-agent.on('attachment', async (ctx) => {
+agent.on("attachment", async (ctx) => {
   const receivedAttachment = await downloadRemoteAttachment(
     ctx.message.content,
   );

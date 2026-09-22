@@ -1,6 +1,8 @@
-import ts from "typescript";
 import { resolve } from "node:path";
+
 import twoslash from "expressive-code-twoslash";
+import ts from "typescript";
+
 import { exampleRegions } from "./example-regions.mjs";
 
 export const docsRoot = resolve(import.meta.dirname, "..");

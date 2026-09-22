@@ -1,6 +1,7 @@
 import { useDisclosure } from "@mantine/hooks";
 import { useEffect } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router";
+
 import { AppFooter } from "@/components/App/AppFooter";
 import { AppHeader } from "@/components/App/AppHeader";
 import { Disclaimer } from "@/components/App/Disclaimer";

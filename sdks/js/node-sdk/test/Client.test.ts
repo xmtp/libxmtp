@@ -1,20 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import {
-  flushTelemetry,
-  IdentifierKind,
-  LogLevel,
-  WorkerKind,
-} from "@xmtp/node-bindings";
-import { uint8ArrayToHex } from "uint8array-extras";
-import { describe, expect, it } from "vitest";
-import { Client } from "@/Client";
-import { createBackend } from "@/index";
-import {
-  ClientNotInitializedError,
-  SignerUnavailableError,
-} from "@/utils/errors";
-import { uuid } from "@/utils/uuid";
+
 import {
   buildClient,
   createClient,
@@ -23,6 +9,22 @@ import {
   createSigner,
   createUser,
 } from "@test/helpers";
+import {
+  flushTelemetry,
+  IdentifierKind,
+  LogLevel,
+  WorkerKind,
+} from "@xmtp/node-bindings";
+import { uint8ArrayToHex } from "uint8array-extras";
+import { describe, expect, it } from "vitest";
+
+import { Client } from "@/Client";
+import { createBackend } from "@/index";
+import {
+  ClientNotInitializedError,
+  SignerUnavailableError,
+} from "@/utils/errors";
+import { uuid } from "@/utils/uuid";
 
 describe("Client", () => {
   it("should reject client creation without backendUrl", async () => {

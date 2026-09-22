@@ -6,6 +6,7 @@ import {
   type Backend,
   type Identifier,
 } from "@xmtp/wasm-bindings";
+
 import type { ClientOptions, DistributiveOmit } from "@/types/options";
 import { createBackend } from "@/utils/createBackend";
 

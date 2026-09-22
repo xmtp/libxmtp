@@ -3,7 +3,9 @@ import {
   BackendBuilder,
   type Backend,
 } from "@xmtp/node-bindings";
+
 import type { NetworkOptions } from "@/types";
+
 import { readCredential } from "./auth";
 
 export const createBackend = async (

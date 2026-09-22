@@ -6,6 +6,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { intlFormat } from "date-fns";
 import { useMemo } from "react";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { nsToDate } from "@/helpers/date";
 

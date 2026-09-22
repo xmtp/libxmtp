@@ -5,6 +5,7 @@ import {
   type Conversations,
   type UserPreferenceUpdate,
 } from "@xmtp/wasm-bindings";
+
 import type { StreamCallback } from "@/utils/streams";
 
 export class WorkerPreferences {

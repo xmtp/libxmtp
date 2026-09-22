@@ -5,11 +5,13 @@ import {
   type Dm,
   type Group,
 } from "@xmtp/node-sdk";
+
 import { filter } from "@/core/filter";
 import {
   createRemoteAttachmentFromFile,
   type AttachmentUploadCallback,
 } from "@/util/AttachmentUtil";
+
 import { ClientContext } from "./ClientContext";
 
 /** Context for a conversation event and its client. */

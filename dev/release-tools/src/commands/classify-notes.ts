@@ -1,11 +1,13 @@
-import path from "node:path";
 import fs from "node:fs";
+import path from "node:path";
+
 import type { ArgumentsCamelCase, Argv } from "yargs";
+
+import { classifyNoteFiles } from "@/lib/classify-notes";
+import { listTags } from "@/lib/git";
+import { SDK_CONFIGS } from "@/lib/sdk-config";
 import type { GlobalArgs } from "@/types";
 import { Sdk } from "@/types";
-import { classifyNoteFiles } from "@/lib/classify-notes";
-import { SDK_CONFIGS } from "@/lib/sdk-config";
-import { listTags } from "@/lib/git";
 
 export const command = "classify-notes";
 export const describe =

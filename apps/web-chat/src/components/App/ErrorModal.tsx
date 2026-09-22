@@ -1,12 +1,13 @@
 import { Box, Button, Group, Tabs, Text } from "@mantine/core";
 import { Opfs } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
+
 import { CodeWithCopy } from "@/components/CodeWithCopy";
 import { Modal } from "@/components/Modal";
-import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
-import { ContentLayout } from "@/layouts/ContentLayout";
 import { backendLabel } from "@/helpers/backend";
+import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useSettings } from "@/hooks/useSettings";
+import { ContentLayout } from "@/layouts/ContentLayout";
 
 export const ErrorModal: React.FC = () => {
   const [unhandledRejectionError, setUnhandledRejectionError] =
@@ -85,24 +86,21 @@ export const ErrorModal: React.FC = () => {
         variant="default"
         component="a"
         href="https://github.com/xmtp/libxmtp/issues/new/choose"
-        target="_blank"
-      >
+        target="_blank">
         Report issue
       </Button>
       {canDeleteDatabase && (
         <Button
           color="red"
           loading={deleting}
-          onClick={() => void deleteLocalDatabase()}
-        >
+          onClick={() => void deleteLocalDatabase()}>
           Delete local database
         </Button>
       )}
       <Button
         onClick={() => {
           setUnhandledRejectionError(null);
-        }}
-      >
+        }}>
         OK
       </Button>
     </Group>
@@ -119,15 +117,13 @@ export const ErrorModal: React.FC = () => {
       closeOnClickOutside={false}
       withCloseButton={false}
       padding={0}
-      centered
-    >
+      centered>
       <ContentLayout
         title="Application error"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Box p="md">
           <Tabs defaultValue="message">
             <Tabs.List>

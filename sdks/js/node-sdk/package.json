@@ -3,26 +3,31 @@
   "version": "6.2.0-dev",
   "description": "XMTP Node client SDK for interacting with XMTP networks",
   "keywords": [
-    "xmtp",
-    "messaging",
-    "web3",
-    "js",
     "javascript",
+    "js",
+    "messaging",
     "node",
-    "nodejs"
+    "nodejs",
+    "web3",
+    "xmtp"
   ],
   "homepage": "https://github.com/xmtp/libxmtp",
   "bugs": {
     "url": "https://github.com/xmtp/libxmtp/issues"
   },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
     "directory": "sdks/js/node-sdk"
   },
-  "license": "MIT",
-  "author": "XMTP Labs <eng@xmtp.com>",
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -30,11 +35,11 @@
     },
     "./package.json": "./package.json"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsdown",
     "clean": "rimraf .turbo && pnpm clean:dbs && pnpm clean:dist && pnpm clean:deps",
@@ -71,10 +76,5 @@
   },
   "engines": {
     "node": ">=22.12.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
   }
 }

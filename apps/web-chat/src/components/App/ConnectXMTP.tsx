@@ -1,17 +1,19 @@
 import { Button, Group, Paper, Stack } from "@mantine/core";
 import { useCallback, useState } from "react";
+
 import { AppLockDisconnectModal } from "@/components/App/AppLockDisconnectModal";
 import { AppLockModal } from "@/components/App/AppLockModal";
-import { ConnectedAddress } from "@/components/App/ConnectedAddress";
-import { LoggingSelect } from "@/components/App/LoggingSelect";
 import { AuthTokenInput } from "@/components/App/AuthTokenInput";
 import { BackendUrlInput } from "@/components/App/BackendUrlInput";
+import { ConnectedAddress } from "@/components/App/ConnectedAddress";
+import { LoggingSelect } from "@/components/App/LoggingSelect";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { isValidBackendUrl } from "@/helpers/backend";
 import { useConnectXmtp } from "@/hooks/useConnectXmtp";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
+
 import classes from "./ConnectXMTP.module.css";
 
 export const ConnectXMTP: React.FC = () => {
@@ -66,8 +68,7 @@ export const ConnectXMTP: React.FC = () => {
             justify="space-between"
             align="center"
             p="md"
-            className={classes.actions}
-          >
+            className={classes.actions}>
             <ConnectedAddress
               size="sm"
               address={address ?? ephemeralAddress}
@@ -79,8 +80,7 @@ export const ConnectXMTP: React.FC = () => {
                   !hasBackendUrl || (!isConnected && !ephemeralAccountEnabled)
                 }
                 onClick={handleConnectClick}
-                loading={loading}
-              >
+                loading={loading}>
                 Connect
               </Button>
             </Group>

@@ -1,5 +1,6 @@
 import { LogLevel } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
+
 import { getValidLogLevels, parseLogLevel } from "@/debug/log";
 
 describe("parseLogLevel", () => {

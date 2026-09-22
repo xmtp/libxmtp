@@ -11,6 +11,7 @@ import {
   type Identifier,
   type ListConversationsOptions,
 } from "@xmtp/wasm-bindings";
+
 import { type HmacKeys } from "@/utils/conversions";
 import type { StreamCallback } from "@/utils/streams";
 import type { WorkerClient } from "@/WorkerClient";

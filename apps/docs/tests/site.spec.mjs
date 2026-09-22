@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+
 import { SEARCH_CASES } from "../scripts/check-search.mjs";
 import { searchRanking } from "../scripts/search-config.mjs";
 

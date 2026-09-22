@@ -12,6 +12,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { type ContentTypeId } from "@xmtp/content-type-primitives";
 import { describe, expect, it } from "vitest";
+
 import { stringify } from "./messages";
 
 const createDecodedMessage = <T>(

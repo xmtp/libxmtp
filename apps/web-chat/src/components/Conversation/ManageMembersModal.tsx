@@ -2,15 +2,16 @@ import { Button, Group } from "@mantine/core";
 import { IdentifierKind, Group as XmtpGroup } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+
 import type { PendingMember } from "@/components/Conversation/AddMembers";
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import { Members } from "@/components/Conversation/Members";
 import { Modal } from "@/components/Modal";
+import { toMemberProfile, type MemberProfile } from "@/helpers/member";
 import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
 import { useClientPermissions } from "@/hooks/useClientPermissions";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversation } from "@/hooks/useConversation";
-import { toMemberProfile, type MemberProfile } from "@/helpers/member";
 import { ContentLayout } from "@/layouts/ContentLayout";
 import { useActions } from "@/stores/inbox/hooks";
 
@@ -93,8 +94,7 @@ export const ManageMembersModal: React.FC = () => {
           variant="filled"
           disabled={isLoading}
           loading={isLoading}
-          onClick={() => void handleUpdate()}
-        >
+          onClick={() => void handleUpdate()}>
           Save
         </Button>
       </Group>
@@ -111,15 +111,13 @@ export const ManageMembersModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="600"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Manage members"
         maxHeight={contentHeight}
         footer={footer}
         loading={isLoading}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Members
           addedMembers={addedMembers}
           clientPermissions={clientPermissions}

@@ -1,17 +1,18 @@
 import {
+  createClient,
+  createRegisteredClient,
+  createSigner,
+  sleep,
+} from "@test/helpers";
+import {
   ConsentEntityType,
   ConsentState,
   type Consent,
   type UserPreferenceUpdate,
 } from "@xmtp/node-bindings";
 import { describe, expect, it, vi } from "vitest";
+
 import { uuid } from "@/utils/uuid";
-import {
-  createClient,
-  createRegisteredClient,
-  createSigner,
-  sleep,
-} from "@test/helpers";
 
 // Preference updates propagate through background sync-group workers;
 // poll until the expected state appears instead of pacing with fixed

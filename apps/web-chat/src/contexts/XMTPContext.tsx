@@ -13,8 +13,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
+
 import { backendLabel } from "@/helpers/backend";
+import { useAppLock, type AppLockState } from "@/hooks/useAppLock";
 import { useActions } from "@/stores/inbox/hooks";
 
 export type ContentTypes = BuiltInContentTypes;

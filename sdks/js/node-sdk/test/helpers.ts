@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import {
   type ContentCodec,
   type ContentTypeId,
@@ -13,6 +14,7 @@ import {
 import { createWalletClient, http, toBytes } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
+
 import { Client } from "@/Client";
 import type {
   ContentOptions,

@@ -1,4 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
+
 import { isHexString, validHex, type HexString } from "@/utils/validation";
 
 describe("validHex", () => {

@@ -1,6 +1,7 @@
 import { Button, Group, Stack, Text } from "@mantine/core";
 import { useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router";
+
 import { Modal } from "@/components/Modal";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { backendHost, isValidBackendUrl } from "@/helpers/backend";
@@ -39,8 +40,7 @@ export const SwitchBackendModal: React.FC = () => {
               disconnect();
               setBackendUrl(requestedUrl);
               close();
-            }}
-          >
+            }}>
             Switch backend
           </Button>
         </Group>

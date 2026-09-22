@@ -1,5 +1,6 @@
 import { Badge, Text, Tooltip, type MantineStyleProps } from "@mantine/core";
 import { forwardRef } from "react";
+
 import { useMemberPopover } from "@/components/Conversation/MemberPopover";
 import { shortAddress } from "@/helpers/strings";
 
@@ -16,8 +17,7 @@ export const IdentityBadge = forwardRef<HTMLDivElement, IdentityBadgeProps>(
     return (
       <Tooltip
         label={tooltip ? <Text size="xs">{tooltip}</Text> : null}
-        disabled={!tooltip}
-      >
+        disabled={!tooltip}>
         <Badge
           ref={ref}
           radius="md"
@@ -36,8 +36,7 @@ export const IdentityBadge = forwardRef<HTMLDivElement, IdentityBadgeProps>(
           onClick={(e) => {
             e.stopPropagation();
             setOpened((o) => !o);
-          }}
-        >
+          }}>
           {displayName || shortAddress(address)}
         </Badge>
       </Tooltip>

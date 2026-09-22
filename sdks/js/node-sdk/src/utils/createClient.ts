@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import process from "node:process";
+
 import {
   createClientWithBackend,
   LogLevel,
@@ -9,9 +10,11 @@ import {
   type Identifier,
   type LogOptions,
 } from "@xmtp/node-bindings";
+
 import type { ClientOptions } from "@/types";
 import { createBackend } from "@/utils/createBackend";
 import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
+
 import { isHexString } from "./validation";
 
 const networkOptionKeys = [

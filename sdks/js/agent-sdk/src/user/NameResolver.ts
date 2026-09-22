@@ -1,5 +1,7 @@
 import { escape } from "node:querystring";
+
 import { isAddress } from "viem";
+
 import { AgentError } from "@/core/AgentError";
 import { LimitedMap } from "@/util/LimitedMap";
 

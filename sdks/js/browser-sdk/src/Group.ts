@@ -4,6 +4,7 @@ import type {
   PermissionPolicy,
   PermissionUpdateType,
 } from "@xmtp/wasm-bindings";
+
 import type { CodecRegistry } from "@/CodecRegistry";
 import { Conversation } from "@/Conversation";
 import type { ClientWorkerAction } from "@/types/actions";

@@ -1240,7 +1240,6 @@ Delivers tools and features for debugging when building with XMTP, including gro
 
 ### Patch Changes
 
-
 ## 2.0.11
 
 ### Patch Changes
@@ -1334,13 +1333,9 @@ The database encryption key parameter was removed from the static `Client.create
 ```typescript
 import { Client, type Signer } from "@xmtp/browser-sdk";
 
-const clientOptions = {
-  /* client options */
-};
+const clientOptions = {/* client options */};
 const dbEncryptionKey = MY_ENCRYPTION_KEY;
-const signer: Signer = {
-  /* signer properties */
-};
+const signer: Signer = {/* signer properties */};
 const client = await Client.create(signer, dbEncryptionKey, clientOptions);
 ```
 
@@ -1365,13 +1360,9 @@ The `Client` constructor now only accepts a single parameter: client options. It
 ```typescript
 import { Client, type Signer } from "@xmtp/browser-sdk";
 
-const clientOptions = {
-  /* client options */
-};
+const clientOptions = {/* client options */};
 const dbEncryptionKey = MY_ENCRYPTION_KEY;
-const signer: Signer = {
-  /* signer properties */
-};
+const signer: Signer = {/* signer properties */};
 const client = new Client(signer, dbEncryptionKey, clientOptions);
 ```
 
@@ -1565,10 +1556,10 @@ The move to an inbox-based identity model means the following shift in approach 
 > These function changes (address → inbox ID) won't trigger errors since both parameters are strings. Your code will pass a type-check but may fail at runtime. Pay special attention to these changes when upgrading.
 
 - The previous methods that allowed the use of an inbox ID have been removed in favor of the above methods
-  - ~`addMembersByInboxIds(inboxIds)`~
-  - ~`removeMembersByInboxIds(inboxIds)`~
-  - ~`newGroupByInboxIds(inboxIds)`~
-  - ~`newDmByInboxId(inboxId)`~
+  - ~~`addMembersByInboxIds(inboxIds)`~~
+  - ~~`removeMembersByInboxIds(inboxIds)`~~
+  - ~~`newGroupByInboxIds(inboxIds)`~~
+  - ~~`newDmByInboxId(inboxId)`~~
 
 - New methods have been added to allow the use of addresses with the `Identifier` type
   - `addMembersByIdentifiers(Identifier[])`

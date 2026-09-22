@@ -1,4 +1,5 @@
 import { Anchor, Group, Paper, Stack, Text } from "@mantine/core";
+
 import { BlockchainSelect } from "@/components/App/BlockchainSelect";
 import { ConnectorSelect } from "@/components/App/ConnectorSelect";
 import { ConnectWallet } from "@/components/App/ConnectWallet";
@@ -17,8 +18,7 @@ export const WalletConnect = () => {
           New chains can be requested.{" "}
           <Anchor
             href="https://docs.xmtp.org/chat-apps/core-messaging/create-a-signer#create-a-smart-contract-wallet-signer"
-            target="_blank"
-          >
+            target="_blank">
             Learn how
           </Anchor>
           .

@@ -1,5 +1,6 @@
 import { ActionIcon, Box, Group, Paper, Text } from "@mantine/core";
 import type { DecodedMessage } from "@xmtp/browser-sdk";
+
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { AttachmentDetails } from "@/components/Messages/AttachmentDetails";
 import { BreakableText } from "@/components/Messages/BreakableText";
@@ -71,8 +72,7 @@ export const ReplyPreview: React.FC<ReplyPreviewProps> = ({
           variant="light"
           radius="xl"
           onClick={onCancel}
-          disabled={disabled}
-        >
+          disabled={disabled}>
           <IconX size={18} />
         </ActionIcon>
       </Box>

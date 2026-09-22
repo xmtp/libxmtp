@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
-import { createEOASigner } from "@/utils/signer";
 import { createClient, createRegisteredClient } from "@test/helpers";
+import { describe, expect, it } from "vitest";
+
+import { createEOASigner } from "@/utils/signer";
 
 describe("createEOASigner", () => {
   it("should create a client with the signer", async () => {

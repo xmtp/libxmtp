@@ -8,6 +8,7 @@ import {
   useMatches,
 } from "@mantine/core";
 import { formatDistanceToNow } from "date-fns";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { CodeWithCopy } from "@/components/CodeWithCopy";
 import { nsToDate } from "@/helpers/date";
@@ -93,8 +94,7 @@ const InstallationTableRow: React.FC<InstallationTableRowProps> = ({
           <Button
             size="xs"
             loading={revoking}
-            onClick={() => void handleRevokeInstallation(installation.bytes)}
-          >
+            onClick={() => void handleRevokeInstallation(installation.bytes)}>
             Revoke
           </Button>
         )}

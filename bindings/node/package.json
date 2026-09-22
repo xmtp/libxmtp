@@ -1,24 +1,29 @@
 {
   "name": "@xmtp/node-bindings",
   "version": "1.12.0-dev",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xmtp/libxmtp.git",
     "directory": "bindings/node"
   },
-  "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "artifacts": "napi artifacts",
     "build:clean": "rm -rf dist",
@@ -52,15 +57,10 @@
     "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
   },
-  "engines": {
-    "node": ">=22.12.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
-  },
   "napi": {
     "binaryName": "bindings_node"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   }
 }

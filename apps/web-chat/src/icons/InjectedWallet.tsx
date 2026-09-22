@@ -15,8 +15,7 @@ export const InjectedWallet = () => {
           x2="14"
           y1="6"
           y2="22"
-          gradientUnits="userSpaceOnUse"
-        >
+          gradientUnits="userSpaceOnUse">
           <stop stopColor="#174299" />
           <stop offset="1" stopColor="#001E59" />
         </linearGradient>

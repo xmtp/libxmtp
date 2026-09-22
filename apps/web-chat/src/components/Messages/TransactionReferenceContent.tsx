@@ -33,8 +33,7 @@ export const TransactionReferenceContent: React.FC<
       underline="hover"
       onClick={(event) => {
         event.stopPropagation();
-      }}
-    >
+      }}>
       View in explorer
     </Anchor>
   );

@@ -1,7 +1,9 @@
 import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { basename, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { docsLoader } from "@astrojs/starlight/loaders";
+
 import { prepareDocument } from "./prepare.mjs";
 
 // The specs live in docs/specs/ and are published under /specs/, with the

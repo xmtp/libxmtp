@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import { ConsentEntityType } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { consentStateMap } from "@/utils/enums";
 

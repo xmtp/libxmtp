@@ -2,6 +2,7 @@ import init, {
   fetchServerConfiguration as fetchServerConfigurationBinding,
   type ServerConfiguration,
 } from "@xmtp/wasm-bindings";
+
 import type { NetworkOptions } from "@/types/options";
 import { toServerConfigurationError } from "@/utils/errors";
 

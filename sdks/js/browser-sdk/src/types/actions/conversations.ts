@@ -7,6 +7,7 @@ import type {
   Identifier,
   ListConversationsOptions,
 } from "@xmtp/wasm-bindings";
+
 import type { HmacKeys, SafeConversation } from "@/utils/conversions";
 
 export type ConversationsAction =

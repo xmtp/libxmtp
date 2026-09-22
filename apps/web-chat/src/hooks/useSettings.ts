@@ -2,6 +2,7 @@ import { useLocalStorage } from "@mantine/hooks";
 import { LogLevel, type ClientOptions } from "@xmtp/browser-sdk";
 import { useEffect } from "react";
 import type { Hex } from "viem";
+
 import type { ConnectorString } from "@/hooks/useWallet";
 
 const legacyLoggingLevel = (value: string) => {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
 import { prepareDocument } from "../src/loaders/prepare.mjs";
 
 test("spec preparation removes a review record through the next H2", () => {

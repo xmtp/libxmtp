@@ -1,4 +1,5 @@
 import { Application } from "typedoc";
+
 import { assertTypeDocValidation } from "./validation-lib.mjs";
 
 export async function validateTypeDoc(options, label) {

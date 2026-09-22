@@ -19,6 +19,7 @@ import type {
   TransactionReference,
   WalletSendCalls,
 } from "@xmtp/wasm-bindings";
+
 import type {
   HmacKeys,
   LastReadTimes,

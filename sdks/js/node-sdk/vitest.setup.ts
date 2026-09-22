@@ -1,6 +1,7 @@
 import { unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+
 import { glob } from "fast-glob";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

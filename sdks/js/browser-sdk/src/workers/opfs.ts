@@ -9,6 +9,7 @@ import init, {
   opfsListFiles,
   opfsPoolCapacity,
 } from "@xmtp/wasm-bindings";
+
 import type {
   ActionErrorData,
   ActionName,

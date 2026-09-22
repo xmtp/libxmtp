@@ -1,5 +1,6 @@
 import { ConsentState } from "@xmtp/node-bindings";
 import { describe, expect, it } from "vitest";
+
 import { toBindingNotificationConfig } from "@/Notifications";
 
 describe("NotificationConfig", () => {

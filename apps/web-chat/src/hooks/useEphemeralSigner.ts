@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+
 import { createEphemeralSigner } from "@/helpers/createSigner";
 import { useSettings } from "@/hooks/useSettings";
 

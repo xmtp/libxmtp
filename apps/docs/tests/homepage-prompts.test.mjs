@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
 import { buildPrompt, prompts } from "../src/data/homepage-prompts.ts";
 
 test("empty backend fields preserve the prototype prompts", () => {

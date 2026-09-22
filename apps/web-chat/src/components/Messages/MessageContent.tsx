@@ -7,6 +7,7 @@ import type {
   WalletSendCalls,
 } from "@xmtp/browser-sdk";
 import type { ContentTypeId } from "@xmtp/content-type-primitives";
+
 import { ActionsContent } from "@/components/Messages/ActionsContent";
 import { FallbackContent } from "@/components/Messages/FallbackContent";
 import { MarkdownContent } from "@/components/Messages/MarkdownContent";
@@ -82,8 +83,7 @@ export const MessageContent = <T,>({
     <Code
       block
       w="100%"
-      style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}
-    >
+      style={{ whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
       {jsonStringify(content ?? fallback)}
     </Code>
   );

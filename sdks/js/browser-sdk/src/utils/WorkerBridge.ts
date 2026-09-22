@@ -11,11 +11,12 @@ import type {
   StreamAction,
   StreamActionErrorData,
 } from "@/types/actions/streams";
-import type { StreamOptions } from "@/utils/streams";
 import type { AuthCallback } from "@/types/options";
+import type { StreamOptions } from "@/utils/streams";
+import { uuid } from "@/utils/uuid";
+
 import { readCredential } from "./auth";
 import type { AuthRequest, AuthResponse } from "./WorkerAuth";
-import { uuid } from "@/utils/uuid";
 
 /**
  * Class that sets up a bridge for worker communications

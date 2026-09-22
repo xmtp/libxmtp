@@ -9,6 +9,7 @@ import {
 } from "@mantine/core";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
+
 import { Connect } from "@/components/App/Connect";
 
 export const Welcome = () => {
@@ -50,8 +51,7 @@ export const Welcome = () => {
             If you find any bugs or have suggestions, please let us know by{" "}
             <Anchor
               href="https://github.com/xmtp/libxmtp/issues/new/choose"
-              target="_blank"
-            >
+              target="_blank">
               filing an issue
             </Anchor>{" "}
             on GitHub.

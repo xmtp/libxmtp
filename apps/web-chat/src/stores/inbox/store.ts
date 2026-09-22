@@ -10,6 +10,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { contentTypesAreEqual } from "@xmtp/content-type-primitives";
 import { createStore } from "zustand";
+
 import type { ContentTypes } from "@/contexts/XMTPContext";
 import {
   getLastCreatedAt,

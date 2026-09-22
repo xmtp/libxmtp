@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { describe, expect, it } from "vitest";
 
 describe("DebugInformation", () => {
   it("should return network API statistics", async () => {

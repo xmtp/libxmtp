@@ -1,4 +1,5 @@
 import { Flags } from "@oclif/core";
+
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
 import { conversationTypeMap } from "@/utils/enums";

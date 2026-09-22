@@ -9,6 +9,7 @@ import {
   type ClientOptions,
   type NetworkOptions,
 } from "@xmtp/node-sdk";
+
 import { createSigner, createUser } from "@/user/User";
 
 export const createClient = async <ContentCodecs extends ContentCodec[] = []>(

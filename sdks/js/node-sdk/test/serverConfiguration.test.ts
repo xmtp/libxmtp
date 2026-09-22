@@ -1,5 +1,8 @@
 import process from "node:process";
+
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import { describe, expect, it } from "vitest";
+
 import { Client } from "@/Client";
 import {
   AuthRequiredError,
@@ -11,7 +14,6 @@ import {
   ServerConfigurationError,
   toServerConfigurationError,
 } from "@/ServerConfiguration";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 const backendUrl = () => process.env.XMTP_BACKEND_URL!;
 

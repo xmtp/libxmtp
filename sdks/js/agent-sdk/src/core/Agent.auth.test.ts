@@ -1,7 +1,9 @@
 import { Client } from "@xmtp/node-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Agent } from "./Agent";
+
 import { createSigner, createUser } from "@/user/User";
+
+import { Agent } from "./Agent";
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -7,6 +7,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { isAfter } from "date-fns";
 import { useCallback, useEffect, useState } from "react";
+
 import BreakableText from "@/components/Messages/BreakableText";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { nsToDate } from "@/helpers/date";
@@ -89,8 +90,7 @@ export const ActionsContent: React.FC<ActionsContentProps> = ({ content }) => {
                 if (!expiration || !isAfter(Date.now(), expiration)) {
                   handleActionClick(action.id);
                 }
-              }}
-            >
+              }}>
               {action.label}
             </Button>
           );

@@ -1,5 +1,7 @@
 import init, { BackendBuilder, type Backend } from "@xmtp/wasm-bindings";
+
 import type { NetworkOptions } from "@/types/options";
+
 import { readCredential } from "./auth";
 
 export const createBackend = async (

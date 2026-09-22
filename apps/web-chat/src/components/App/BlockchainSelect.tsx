@@ -13,6 +13,7 @@ import {
   worldchain,
   zksync,
 } from "wagmi/chains";
+
 import { useSettings } from "@/hooks/useSettings";
 
 const ALLOWED_CHAINS: number[] = [

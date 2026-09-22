@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { useAccount, useConnect, useConnectors, useDisconnect } from "wagmi";
+
 import { useSettings } from "@/hooks/useSettings";
 
 export type ConnectorString =

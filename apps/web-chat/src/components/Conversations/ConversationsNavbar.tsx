@@ -1,5 +1,6 @@
 import { Badge, Box, Group, Stack, Text } from "@mantine/core";
 import { useCallback, useEffect, useMemo } from "react";
+
 import { ConversationsList } from "@/components/Conversations/ConversationList";
 import { ConversationsMenu } from "@/components/Conversations/ConversationsMenu";
 import { HelpCard } from "@/components/Conversations/HelpCard";
@@ -60,8 +61,7 @@ export const ConversationsNavbar: React.FC = () => {
           disabled={syncing}
         />
       }
-      withScrollArea={false}
-    >
+      withScrollArea={false}>
       <Stack gap={0} style={{ flexGrow: 1, minHeight: 0 }}>
         {!helpDmExists && <HelpCard />}
         {conversations.length === 0 ? (
@@ -71,8 +71,7 @@ export const ConversationsNavbar: React.FC = () => {
               flexGrow: 1,
               alignItems: "center",
               justifyContent: "center",
-            }}
-          >
+            }}>
             <Text>No conversations found</Text>
           </Box>
         ) : (

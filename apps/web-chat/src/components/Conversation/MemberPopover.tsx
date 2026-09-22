@@ -19,6 +19,7 @@ import {
   useMemo,
   useState,
 } from "react";
+
 import BreakableText from "@/components/Messages/BreakableText";
 import { useClient } from "@/contexts/XMTPContext";
 import { shortAddress } from "@/helpers/strings";
@@ -27,6 +28,7 @@ import { useConversation } from "@/hooks/useConversation";
 import { useConversations } from "@/hooks/useConversations";
 import { IconDots } from "@/icons/IconDots";
 import { useActions } from "@/stores/inbox/hooks";
+
 import classes from "./MemberPopover.module.css";
 
 type MemberPopoverContextType = {
@@ -250,21 +252,18 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
         opened={opened}
         trapFocus
         onChange={setOpened}
-        position={position}
-      >
+        position={position}>
         <Popover.Target>{children}</Popover.Target>
         <Popover.Dropdown
           onClick={(e) => {
             e.stopPropagation();
-          }}
-        >
+          }}>
           <Stack
             gap="sm"
             align="center"
             maw={300}
             miw={260}
-            className={classes.profile}
-          >
+            className={classes.profile}>
             <Menu shadow="md" withArrow>
               <Menu.Target>
                 <ActionIcon
@@ -272,8 +271,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                   className={classes.menu}
                   onClick={(e) => {
                     e.stopPropagation();
-                  }}
-                >
+                  }}>
                   <IconDots />
                 </ActionIcon>
               </Menu.Target>
@@ -286,8 +284,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                         inboxId,
                         PermissionLevel.SuperAdmin,
                       );
-                    }}
-                  >
+                    }}>
                     Promote to super admin
                   </Menu.Item>
                 )}
@@ -299,8 +296,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                         inboxId,
                         PermissionLevel.Admin,
                       );
-                    }}
-                  >
+                    }}>
                     Promote to admin
                   </Menu.Item>
                 )}
@@ -313,8 +309,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                         inboxId,
                         PermissionLevel.Admin,
                       );
-                    }}
-                  >
+                    }}>
                     Demote to admin
                   </Menu.Item>
                 )}
@@ -327,8 +322,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                         inboxId,
                         PermissionLevel.Member,
                       );
-                    }}
-                  >
+                    }}>
                     Demote to member
                   </Menu.Item>
                 )}
@@ -337,16 +331,14 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCopy(address);
-                  }}
-                >
+                  }}>
                   Copy address
                 </Menu.Item>
                 <Menu.Item
                   onClick={(e) => {
                     e.stopPropagation();
                     handleCopy(inboxId);
-                  }}
-                >
+                  }}>
                   Copy inbox ID
                 </Menu.Item>
                 {canRemoveMember && <Menu.Divider />}
@@ -356,8 +348,7 @@ export const MemberPopover: React.FC<MemberPopoverProps> = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       void handleRemoveMember(inboxId);
-                    }}
-                  >
+                    }}>
                     Remove from group
                   </Menu.Item>
                 )}

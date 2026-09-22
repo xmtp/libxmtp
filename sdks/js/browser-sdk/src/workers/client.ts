@@ -9,6 +9,7 @@ import init, {
   type StreamCloser,
   type UserPreferenceUpdate,
 } from "@xmtp/wasm-bindings";
+
 import type {
   ActionErrorData,
   ActionName,
@@ -27,9 +28,9 @@ import {
   GroupNotFoundError,
   StreamNotFoundError,
 } from "@/utils/errors";
+import { WorkerAuth, type AuthResponse } from "@/utils/WorkerAuth";
 import { WorkerClient } from "@/WorkerClient";
 import { WorkerConversation } from "@/WorkerConversation";
-import { WorkerAuth, type AuthResponse } from "@/utils/WorkerAuth";
 
 const auth = new WorkerAuth((request) => {
   self.postMessage(request);

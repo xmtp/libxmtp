@@ -2,11 +2,13 @@ import { CloseButton, Group, Paper, Stack, Text } from "@mantine/core";
 import { ConsentState, Dm, GroupPermissionsOptions } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { Modal } from "@/components/Modal";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversation } from "@/hooks/useConversation";
 import { ContentLayout } from "@/layouts/ContentLayout";
+
 import type { ConversationOutletContext } from "./ConversationOutletContext";
 
 const consentStateLabel = (state: ConsentState) => {
@@ -69,8 +71,7 @@ export const ManageDetailsModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="600"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         maxHeight={contentHeight}
         withScrollAreaPadding={false}
@@ -81,8 +82,7 @@ export const ManageDetailsModal: React.FC = () => {
             </Text>
             <CloseButton size="md" onClick={handleClose} />
           </Group>
-        }
-      >
+        }>
         <Stack gap="md" p="md">
           <Paper p="md" radius="md" withBorder>
             <Stack gap="md">

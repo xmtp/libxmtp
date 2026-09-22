@@ -1,14 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   Group as XmtpGroup,
   GroupPermissionsOptions,
   type Conversation,
   type PermissionPolicySet,
 } from "@xmtp/browser-sdk";
-import { describe, expect, it, vi } from "vitest";
-import { adminPolicySet, defaultPolicySet, Permissions } from "./Permissions";
 import type { ComponentProps } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { adminPolicySet, defaultPolicySet, Permissions } from "./Permissions";
 
 const group = (
   permissions: Promise<{

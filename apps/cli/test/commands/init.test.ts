@@ -1,5 +1,7 @@
 import { readFile } from "node:fs/promises";
+
 import { describe, expect, it } from "vitest";
+
 import { getTestEnvPath, runCommand } from "../helpers.js";
 
 const backendUrl = "http://127.0.0.1:5050";

@@ -1,6 +1,8 @@
 import { ActionIcon, Badge, Text, Tooltip } from "@mantine/core";
 import { useClipboard } from "@mantine/hooks";
+
 import { IconCopy } from "@/icons/IconCopy";
+
 import classes from "./BadgeWithCopy.module.css";
 
 type CopyIconProps = {
@@ -32,15 +34,13 @@ const CopyIcon: React.FC<CopyIconProps> = ({ value }) => {
         )
       }
       withArrow
-      events={{ hover: true, focus: true, touch: true }}
-    >
+      events={{ hover: true, focus: true, touch: true }}>
       <ActionIcon
         variant="transparent"
         onClick={handleCopy}
         onKeyDown={handleKeyboardCopy}
         aria-label="Copy"
-        className={classes.button}
-      >
+        className={classes.button}>
         <IconCopy />
       </ActionIcon>
     </Tooltip>
@@ -65,8 +65,7 @@ export const BadgeWithCopy: React.FC<BadgeWithCopyProps> = ({ value }) => {
           textAlign: "left",
         },
       }}
-      rightSection={<CopyIcon value={value} />}
-    >
+      rightSection={<CopyIcon value={value} />}>
       {value}
     </Badge>
   );

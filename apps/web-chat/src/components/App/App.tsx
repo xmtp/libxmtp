@@ -1,12 +1,13 @@
 import { Navigate, Route, Routes } from "react-router";
+
 import { AppLayout } from "@/components/App/AppLayout";
 import { AuthTokenModal } from "@/components/App/AuthTokenModal";
 import { BasicLayout } from "@/components/App/BasicLayout";
 import { Disconnect } from "@/components/App/Disconnect";
 import { ErrorModal } from "@/components/App/ErrorModal";
-import { SwitchBackendModal } from "@/components/App/SwitchBackendModal";
 import { New } from "@/components/App/New";
 import { SelectConversation } from "@/components/App/SelectConversation";
+import { SwitchBackendModal } from "@/components/App/SwitchBackendModal";
 import { Welcome } from "@/components/App/Welcome";
 import { LoadConversation } from "@/components/Conversation/LoadConversation";
 import { LoadDM } from "@/components/Conversation/LoadDM";

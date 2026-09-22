@@ -1,5 +1,6 @@
 import { Group, NativeSelect, Stack, Text } from "@mantine/core";
 import { LogLevel } from "@xmtp/browser-sdk";
+
 import { useSettings } from "@/hooks/useSettings";
 
 const loggingLevelStringToEnum = {

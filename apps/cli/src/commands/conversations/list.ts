@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import { ListConversationsOrderBy } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { isDm, isGroup } from "@/utils/conversation";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";

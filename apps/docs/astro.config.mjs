@@ -1,16 +1,17 @@
-import { defineConfig } from "astro/config";
 import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
+import { defineConfig } from "astro/config";
 import rehypeMermaid from "rehype-mermaid";
-import starlightLlmsTxt from "starlight-llms-txt";
 import starlightLinksValidator from "starlight-links-validator";
-import { examplePlugins } from "./scripts/example-config.mjs";
+import starlightLlmsTxt from "starlight-llms-txt";
+
 import { referencePlugins, referenceSidebar } from "./api-references.mjs";
-import { searchRanking } from "./scripts/search-config.mjs";
+import { examplePlugins } from "./scripts/example-config.mjs";
 import {
   preserveMermaidSource,
   restoreMermaidLanguage,
 } from "./scripts/llms-diagrams.mjs";
+import { searchRanking } from "./scripts/search-config.mjs";
 
 function guidePages(section, pages) {
   return pages.split(" ").map((page) => ({ slug: `${section}/${page}` }));

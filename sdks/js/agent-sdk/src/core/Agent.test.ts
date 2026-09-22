@@ -15,8 +15,8 @@ import {
   type RemoteAttachment,
   type Reply,
 } from "@xmtp/node-sdk";
-import { version as appVersion } from "~/package.json";
 import { beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
+
 import {
   Agent,
   type AgentErrorMiddleware,
@@ -27,6 +27,7 @@ import { ConversationContext } from "@/core/ConversationContext";
 import { MessageContext } from "@/core/MessageContext";
 import { createSigner, createUser } from "@/user/User";
 import { createClient } from "@/util/test";
+import { version as appVersion } from "~/package.json";
 
 // These middleware fixtures exercise text and replies, not retained setup messages.
 const textOrReplyOnly: AgentMiddleware = async (context, next) => {

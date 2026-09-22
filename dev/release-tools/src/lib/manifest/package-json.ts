@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import { applyEdits, modify } from "jsonc-parser";
+
 import type { ManifestProvider } from "@/types";
 
 export function readPackageJsonVersion(packageJsonPath: string): string {

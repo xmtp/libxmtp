@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+
 import {
   isIntent,
   isText,
@@ -6,6 +7,7 @@ import {
   type Actions,
   type Conversation,
 } from "@xmtp/node-sdk";
+
 import type { AgentMiddleware } from "@/core/Agent";
 import type { MessageContext } from "@/core/MessageContext";
 

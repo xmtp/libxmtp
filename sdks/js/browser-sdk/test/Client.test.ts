@@ -1,14 +1,15 @@
-import { IdentifierKind } from "@xmtp/wasm-bindings";
-import { describe, expect, it } from "vitest";
-import { Client } from "@/Client";
-import { SignerUnavailableError } from "@/utils/errors";
-import { uuid } from "@/utils/uuid";
 import {
   buildClient,
   createClient,
   createRegisteredClient,
   createSigner,
 } from "@test/helpers";
+import { IdentifierKind } from "@xmtp/wasm-bindings";
+import { describe, expect, it } from "vitest";
+
+import { Client } from "@/Client";
+import { SignerUnavailableError } from "@/utils/errors";
+import { uuid } from "@/utils/uuid";
 
 describe("Client", () => {
   it("should reject client creation without backendUrl", async () => {

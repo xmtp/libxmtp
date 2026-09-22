@@ -33,6 +33,7 @@ import {
   metaMask,
   walletConnect,
 } from "wagmi/connectors";
+
 import { App } from "@/components/App/App";
 import { AuthTokenProvider } from "@/contexts/AuthTokenContext";
 import { XMTPProvider } from "@/contexts/XMTPContext";

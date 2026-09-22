@@ -1,13 +1,14 @@
 import { Flex, Group, Stack } from "@mantine/core";
 import { Dm } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
+
 import { DateLabel } from "@/components/DateLabel";
 import { Identity } from "@/components/Identity";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { nsToDate } from "@/helpers/date";
+import { combineProfiles, useAllProfiles } from "@/helpers/member";
 import { getMemberAddress } from "@/helpers/xmtp";
 import { useConversation } from "@/hooks/useConversation";
-import { combineProfiles, useAllProfiles } from "@/helpers/member";
 
 export type MessageContentAlign = "left" | "right";
 
@@ -39,8 +40,7 @@ export const MessageContentWrapper: React.FC<MessageContentWrapperProps> = ({
         <Flex
           gap="xs"
           direction={align === "right" ? "row" : "row-reverse"}
-          align="center"
-        >
+          align="center">
           <DateLabel date={nsToDate(sentAtNs)} />
           {senderMember && (
             <Identity
@@ -63,8 +63,7 @@ export const MessageContentWrapper: React.FC<MessageContentWrapperProps> = ({
             if (stopClickPropagation) {
               event.stopPropagation();
             }
-          }}
-        >
+          }}>
           {children}
         </Group>
       </Stack>

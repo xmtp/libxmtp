@@ -1,4 +1,5 @@
 import type { Command } from "@oclif/core";
+
 import AddressAuthorized from "@/commands/address-authorized";
 import CanMessage from "@/commands/can-message";
 import ClientAddAccount from "@/commands/client/add-account";

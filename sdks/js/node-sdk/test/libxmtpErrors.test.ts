@@ -1,7 +1,8 @@
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import { GroupPermissionsOptions } from "@xmtp/node-bindings";
 import { describe, expect, it } from "vitest";
+
 import { Group } from "@/Group";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("LibXMTP errors", () => {
   it("should throw when a non-admin tries to add members", async () => {

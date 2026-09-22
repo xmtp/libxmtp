@@ -1,6 +1,9 @@
 import { isPromise } from "node:util/types";
+
 import type { StreamCloser } from "@xmtp/node-bindings";
+
 import { AsyncStream, createAsyncStreamProxy } from "@/AsyncStream";
+
 import { StreamFailedError, StreamInvalidRetryAttemptsError } from "./errors";
 
 export const DEFAULT_RETRY_DELAY = 60_000; // milliseconds

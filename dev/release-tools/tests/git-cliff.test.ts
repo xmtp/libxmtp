@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { parsePendingFromContext } from "../src/lib/git-cliff";
 
 // `git cliff --bump --context` emits an array of release objects; the first

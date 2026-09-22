@@ -1,3 +1,9 @@
+import {
+  createRegisteredClient,
+  createSigner,
+  DecodeFailureCodec,
+  TestCodec,
+} from "@test/helpers";
 import { contentTypeToString } from "@xmtp/content-type-primitives";
 import {
   ActionStyle,
@@ -34,6 +40,7 @@ import {
   type Reply as XmtpReply,
 } from "@xmtp/node-bindings";
 import { describe, expect, expectTypeOf, it, type Mock } from "vitest";
+
 import type { DecodedMessage } from "@/DecodedMessage";
 import type { EnrichedReply } from "@/types";
 import {
@@ -52,12 +59,6 @@ import {
   isTransactionReference,
   isWalletSendCalls,
 } from "@/utils/messages";
-import {
-  createRegisteredClient,
-  createSigner,
-  DecodeFailureCodec,
-  TestCodec,
-} from "@test/helpers";
 
 describe("Content types", () => {
   it("should send and receive text content", async () => {

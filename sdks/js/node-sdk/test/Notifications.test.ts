@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
+
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import { describe, expect, it } from "vitest";
+
 import {
   ConsentState,
   NotificationError,
   WorkerKind,
   type NotificationConfig,
 } from "@/index";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 const httpConfig = (): NotificationConfig => ({
   channel: {

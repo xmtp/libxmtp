@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
   },
-  "main": "src/index.ts",
   "scripts": {
     "build": "vite build",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
@@ -26,6 +26,7 @@
     "@mantine/notifications": "^8.3.13",
     "@tanstack/react-query": "^5.90.20",
     "@tanstack/react-virtual": "^3.13.18",
+    "@tanstack/virtual-core": "^3.13.18",
     "@xmtp/browser-sdk": "workspace:*",
     "@xmtp/content-type-primitives": "catalog:",
     "date-fns": "^4.1.0",
@@ -39,8 +40,7 @@
     "viem": "catalog:",
     "wagmi": "^2.19.5",
     "zod": "^4.3.6",
-    "zustand": "^5.0.10",
-    "@tanstack/virtual-core": "^3.13.18"
+    "zustand": "^5.0.10"
   },
   "devDependencies": {
     "@testing-library/dom": "catalog:",

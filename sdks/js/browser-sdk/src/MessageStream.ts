@@ -4,6 +4,7 @@ import type {
   DeliveryCursor,
   MessageCatchUp,
 } from "@xmtp/wasm-bindings";
+
 import type { StreamOptions } from "@/utils/streams";
 
 export type MessageAcknowledgement = {

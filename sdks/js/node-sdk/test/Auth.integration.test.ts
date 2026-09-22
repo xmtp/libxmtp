@@ -1,7 +1,8 @@
+import { createSigner } from "@test/helpers";
 import { describe, expect, it, vi } from "vitest";
+
 import { Client } from "@/Client";
 import { createBackend } from "@/utils/createBackend";
-import { createSigner } from "@test/helpers";
 
 describe("Node backend authentication", () => {
   it("keeps credential sources separate for the same endpoint", async () => {

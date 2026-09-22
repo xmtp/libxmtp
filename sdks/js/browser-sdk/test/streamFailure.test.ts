@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { getStreamFailureDetails } from "../src/utils/streamFailure";
 
 const marker = "\n[XMTP_STREAM_FAILURE_V1]";

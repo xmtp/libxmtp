@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { WorkerBridge } from "../src/utils/WorkerBridge";
 
 type Action = { action: "read"; id: string; data: undefined; result: number };

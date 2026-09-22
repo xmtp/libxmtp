@@ -1,6 +1,8 @@
 import { once } from "node:events";
 import { setTimeout } from "node:timers/promises";
+
 import { describe, expect, it, vi } from "vitest";
+
 import { Agent } from "@/core/Agent";
 import { createSigner, createUser } from "@/user/User";
 import { createClient } from "@/util/test";

@@ -1,4 +1,5 @@
 import { Args } from "@oclif/core";
+
 import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsGetMessage extends BaseCommand {

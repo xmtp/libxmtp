@@ -1,5 +1,6 @@
 import { IdentifierKind } from "@xmtp/wasm-bindings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { Client } from "@/Client";
 import type { Signer } from "@/utils/signer";
 

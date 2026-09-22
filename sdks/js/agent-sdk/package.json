@@ -17,14 +17,18 @@
   "bugs": {
     "url": "https://github.com/xmtp/libxmtp/issues"
   },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
     "directory": "sdks/js/agent-sdk"
   },
-  "license": "MIT",
-  "author": "XMTP Labs <eng@xmtp.com>",
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "dist/index.js",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -47,10 +51,11 @@
       "import": "./dist/index.js"
     }
   },
-  "main": "dist/index.js",
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsdown",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
@@ -78,20 +83,15 @@
   "devDependencies": {
     "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
+    "fast-glob": "catalog:",
     "tsdown": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-tsconfig-paths": "catalog:",
-    "vitest": "catalog:",
-    "fast-glob": "catalog:"
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=22.12.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
   }
 }

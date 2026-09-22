@@ -6,6 +6,7 @@ import {
   type Client,
 } from "@xmtp/node-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { Agent } from "@/core/Agent";
 import { ActionWizard } from "@/middleware/ActionWizard";
 import { createClient } from "@/util/test";

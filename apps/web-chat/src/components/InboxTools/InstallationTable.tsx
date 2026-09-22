@@ -1,6 +1,7 @@
 import { Checkbox, Table, Text, Tooltip, useMatches } from "@mantine/core";
 import type { Installation } from "@xmtp/browser-sdk";
 import { formatDistanceToNow } from "date-fns";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { nsToDate } from "@/helpers/date";
 

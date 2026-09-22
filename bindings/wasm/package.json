@@ -3,37 +3,42 @@
   "version": "1.12.0-dev",
   "description": "WASM bindings for the libXMTP rust library",
   "keywords": [
-    "xmtp",
-    "messaging",
-    "web3",
-    "js",
     "javascript",
+    "js",
+    "messaging",
     "node",
     "nodejs",
-    "wasm"
+    "wasm",
+    "web3",
+    "xmtp"
   ],
   "homepage": "https://github.com/xmtp/libxmtp",
   "bugs": {
     "url": "https://github.com/xmtp/libxmtp/issues"
   },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/xmtp/libxmtp.git",
     "directory": "bindings/wasm"
   },
-  "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "main": "dist/bindings_wasm.js",
+  "types": "dist/bindings_wasm.d.ts",
   "exports": {
     ".": {
       "types": "./dist/bindings_wasm.d.ts",
       "default": "./dist/bindings_wasm.js"
     }
   },
-  "main": "dist/bindings_wasm.js",
-  "types": "dist/bindings_wasm.d.ts",
-  "files": [
-    "dist"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build:macos": "pnpm clean && pnpm build:web:macos && pnpm clean:release",
     "build:test": "RUSTFLAGS=\"-Ctarget-feature=+bulk-memory,+mutable-globals --cfg getrandom_backend=\\\"wasm_js\\\"\" wasm-pack build --no-opt --target web --out-dir ./dist --no-pack --release -- --features test-utils",
@@ -75,10 +80,5 @@
   },
   "engines": {
     "node": ">=22.12.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
   }
 }

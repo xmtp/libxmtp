@@ -11,6 +11,7 @@ import {
   type Reaction,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/wasm-bindings";
+
 import type { CodecRegistry } from "@/CodecRegistry";
 import {
   contentTypeActions,

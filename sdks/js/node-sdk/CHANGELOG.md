@@ -1184,7 +1184,6 @@ Delivers tools and features for debugging when building with XMTP, including gro
 
 ### Patch Changes
 
-
 ## 2.0.6
 
 ### Patch Changes

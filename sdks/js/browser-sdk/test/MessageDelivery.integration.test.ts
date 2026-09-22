@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { describe, expect, it } from "vitest";
 
 const nextWithin = async <T>(stream: {
   next(): Promise<IteratorResult<T, undefined>>;

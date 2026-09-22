@@ -1,7 +1,8 @@
 import type { DecodedMessage, DeliveryCursor } from "@xmtp/wasm-bindings";
+
 import type { MessageReaderSource } from "@/MessageStream";
-import type { MessageReaderSelection } from "@/types/actions/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
+import type { MessageReaderSelection } from "@/types/actions/messageReader";
 import type { WorkerBridge } from "@/utils/WorkerBridge";
 
 /** Keep tokens in the worker. Only one token can be in transit per reader. */

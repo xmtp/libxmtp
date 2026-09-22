@@ -11,6 +11,7 @@ import type {
   TransactionReference,
   WalletSendCalls,
 } from "@xmtp/node-bindings";
+
 import type { DecodedMessage } from "@/DecodedMessage";
 import type { EnrichedReply } from "@/types";
 

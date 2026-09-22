@@ -20,6 +20,7 @@ import type {
   WasmVisibilityConfirmationOptions,
   WorkerConfigOptions,
 } from "@xmtp/wasm-bindings";
+
 import type { DecodedMessage } from "@/DecodedMessage";
 
 export type VisibilityConfirmationOptions = WasmVisibilityConfirmationOptions;

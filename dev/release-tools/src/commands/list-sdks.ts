@@ -1,6 +1,7 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { Channel, GlobalArgs, VersionTrack } from "@/types";
+
 import { SDK_CONFIGS } from "@/lib/sdk-config";
+import type { Channel, GlobalArgs, VersionTrack } from "@/types";
 
 export interface SdkRow {
   sdk: string;

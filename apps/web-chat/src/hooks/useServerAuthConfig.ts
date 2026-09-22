@@ -1,5 +1,6 @@
 import { Client } from "@xmtp/browser-sdk";
 import { useEffect, useMemo, useState } from "react";
+
 import { isValidBackendUrl } from "@/helpers/backend";
 
 export type ServerAuthConfig = {

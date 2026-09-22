@@ -1,4 +1,5 @@
 import type { Credential } from "@/types/options";
+
 import { uuid } from "./uuid";
 
 export type AuthRequest = { action: "auth.request"; id: string };

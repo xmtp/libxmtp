@@ -1,51 +1,51 @@
 {
   "file_types": {
-    "Rust": ["**/*.rs"],
+    "Rust": ["**/*.rs"]
   },
   "languages": {
     "Rust": {
       "language_servers": ["rust-analyzer"],
-      "format_on_save": "on",
+      "format_on_save": "on"
     },
     "TypeScript": {
       "formatter": {
         "external": {
           "command": "pnpm",
-          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
-        },
-      },
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "TSX": {
       "formatter": {
         "external": {
           "command": "pnpm",
-          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
-        },
-      },
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "JavaScript": {
       "formatter": {
         "external": {
           "command": "pnpm",
-          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
-        },
-      },
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "JSON": {
       "formatter": {
         "external": {
           "command": "pnpm",
-          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
-        },
-      },
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "JSONC": {
       "formatter": {
         "external": {
           "command": "pnpm",
-          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"],
-        },
-      },
+          "arguments": ["exec", "oxfmt", "--stdin-filepath", "{buffer_path}"]
+        }
+      }
     },
     "Astro": {
       "formatter": {
@@ -57,40 +57,40 @@
             "exec",
             "prettier",
             "--stdin-filepath",
-            "{buffer_path}",
-          ],
-        },
-      },
+            "{buffer_path}"
+          ]
+        }
+      }
     },
     // nil is disabled: it prompts repeatedly to fetch missing flake inputs.
     // nixd gives the same completion, diagnostics, and navigation.
     "Nix": {
       "language_servers": ["nixd", "!nil"],
-      "formatter": "language_server",
+      "formatter": "language_server"
     },
     "Kotlin": {
       "language_servers": ["kotlin-language-server", "!kotlin-lsp"],
-      "format_on_save": "off",
-    },
+      "format_on_save": "off"
+    }
   },
   "lsp": {
     "kotlin-language-server": {
       "settings": {
         "compiler": {
           "jvm": {
-            "target": "17",
-          },
-        },
-      },
+            "target": "17"
+          }
+        }
+      }
     },
     "nixd": {
       "settings": {
         "nixd": {
           "formatting": {
-            "command": ["nixfmt"],
-          },
-        },
-      },
+            "command": ["nixfmt"]
+          }
+        }
+      }
     },
     "rust-analyzer": {
       "initialization_options": {
@@ -98,28 +98,28 @@
           "sysroot": "discover",
           "allTargets": true,
           "buildScripts": {
-            "enable": true,
+            "enable": true
           },
-          "features": ["bench", "test-utils"],
+          "features": ["bench", "test-utils"]
         },
         "check": {
           "command": "check",
           "allTargets": true,
-          "features": ["bench", "test-utils"],
+          "features": ["bench", "test-utils"]
         },
         "linkedProjects": ["Cargo.toml"],
         "procMacro": {
           "enable": true,
           "attributes": {
-            "enable": true,
+            "enable": true
           },
           "ignored": {
             "tracing": ["instrument"],
             "async-recursion": ["async_recursion"],
             "ctor": ["ctor"],
             "tokio": ["test"],
-            "async-stream": ["stream", "try_stream"],
-          },
+            "async-stream": ["stream", "try_stream"]
+          }
         },
         "diagnostics": {
           "enable": true,
@@ -127,13 +127,13 @@
             "unlinked-file",
             "unresolved-macro-call",
             "unresolved-proc-macro",
-            "macro-error",
-          ],
+            "macro-error"
+          ]
         },
         "files": {
-          "exclude": ["bindings/wasm"],
-        },
-      },
-    },
-  },
+          "exclude": ["bindings/wasm"]
+        }
+      }
+    }
+  }
 }

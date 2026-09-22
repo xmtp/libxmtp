@@ -1,6 +1,7 @@
 import { Box, Button, Group, Loader, Paper, Text } from "@mantine/core";
 import { type RemoteAttachment } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
+
 import { AttachmentDetails } from "@/components/Messages/AttachmentDetails";
 import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
 import {

@@ -1,12 +1,14 @@
 import { validHex } from "@xmtp/node-sdk";
 import { formatUnits, hexToNumber, parseUnits } from "viem";
 import { base } from "viem/chains";
+
 import { CommandRouter } from "@/middleware/CommandRouter";
 import {
   createERC20TransferCalls,
   getERC20Balance,
   getERC20Decimals,
 } from "@/util/TransactionUtil";
+
 import { getAgent } from "./getAgent";
 
 const CHAIN = base;

@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
 import semver from "semver";
+import { describe, it, expect, vi } from "vitest";
+
 import {
   computeVersion,
   filterAndSortTags,

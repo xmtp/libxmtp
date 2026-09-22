@@ -1,7 +1,8 @@
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import { describe, expect, it } from "vitest";
+
 import { createBackend } from "@/utils/createBackend";
 import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("generateInboxId", () => {
   it("should generate an inbox id", async () => {

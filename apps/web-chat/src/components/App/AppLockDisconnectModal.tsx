@@ -1,4 +1,5 @@
 import { Box, Button, Group, Text } from "@mantine/core";
+
 import { Modal } from "@/components/Modal";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -30,15 +31,13 @@ export const AppLockDisconnectModal: React.FC<AppLockDisconnectModalProps> = ({
       fullScreen={fullScreen}
       onClose={onClose}
       size="sm"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="xmtp.chat session disconnected"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Box p="md">
           <Text mb="md">
             Your other xmtp.chat session has been disconnected. You can now

@@ -1,10 +1,12 @@
 import { isHexString } from "@xmtp/node-sdk";
+
 import { AgentError } from "@/core/index";
 import { logDetails } from "@/debug/log";
 import { CommandRouter } from "@/middleware/CommandRouter";
 import { PerformanceMonitor } from "@/middleware/PerformanceMonitor";
 import { createNameResolver } from "@/user";
 import { downloadRemoteAttachment } from "@/util/AttachmentUtil";
+
 import { getAgent } from "./getAgent";
 
 const agent = await getAgent();

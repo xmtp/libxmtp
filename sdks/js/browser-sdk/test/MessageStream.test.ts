@@ -1,5 +1,6 @@
 import type { MessageCatchUp } from "@xmtp/wasm-bindings";
 import { describe, expect, it, vi } from "vitest";
+
 import { MessageStream } from "../src/MessageStream";
 
 const cursor = { databaseId: new Uint8Array(16), deliverySequence: 1n };

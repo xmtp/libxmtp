@@ -1,9 +1,10 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs, ReleaseType } from "@/types";
+
+import { getShortSha } from "@/lib/git";
 import { getSdkConfig } from "@/lib/sdk-config";
 import { resolveSdkVersion } from "@/lib/sdk-version";
 import { getTimestamp, validateTimestamp } from "@/lib/version";
-import { getShortSha } from "@/lib/git";
+import type { GlobalArgs, ReleaseType } from "@/types";
 
 export const command = "resolve-sdk-version";
 export const describe =

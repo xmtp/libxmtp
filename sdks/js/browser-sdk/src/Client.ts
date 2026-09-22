@@ -10,6 +10,7 @@ import {
   type Identifier,
   type ServerConfiguration,
 } from "@xmtp/wasm-bindings";
+
 import { CodecRegistry } from "@/CodecRegistry";
 import { Conversations } from "@/Conversations";
 import { DebugInformation } from "@/DebugInformation";

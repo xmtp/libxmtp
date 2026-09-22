@@ -1,7 +1,8 @@
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import { ConsentEntityType, ConsentState } from "@xmtp/wasm-bindings";
 import { describe, expect, it, vi } from "vitest";
+
 import { uuid } from "@/utils/uuid";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 // Device sync hands work to background workers on both installations, so
 // cross-installation visibility converges rather than completing on any

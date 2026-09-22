@@ -1,5 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { createEOASigner, hexToBytes } from "@/utils/client";
 

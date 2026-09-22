@@ -2,8 +2,8 @@
   "name": "@xmtp/release-tools",
   "version": "0.0.1",
   "private": true,
-  "type": "module",
   "bin": "./src/cli.ts",
+  "type": "module",
   "scripts": {
     "cli": "tsx src/cli.ts",
     "format": "oxfmt --write .",

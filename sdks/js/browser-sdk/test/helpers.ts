@@ -4,6 +4,7 @@ import type {
 } from "@xmtp/content-type-primitives";
 import { type ContentTypeId, type Identifier } from "@xmtp/wasm-bindings";
 import { afterEach } from "vitest";
+
 import { Client } from "@/Client";
 import type {
   ContentOptions,

@@ -1,8 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
-import { generatePrivateKey } from "viem/accounts";
 import type { Client } from "@xmtp/browser-sdk";
+import { generatePrivateKey } from "viem/accounts";
 import { describe, expect, it } from "vitest";
+
 import { createEphemeralSigner } from "@/helpers/createSigner";
+
 import { XMTPProvider, useXMTP } from "./XMTPContext";
 
 describe("XMTPProvider", () => {

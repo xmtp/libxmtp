@@ -1,7 +1,9 @@
 import { Avatar, Card, Group, Stack, Text } from "@mantine/core";
 import { forwardRef } from "react";
+
 import { useMemberPopover } from "@/components/Conversation/MemberPopover";
 import { shortAddress } from "@/helpers/strings";
+
 import classes from "./MemberCard.module.css";
 
 export type Member = {
@@ -41,8 +43,7 @@ export const MemberCard = forwardRef<HTMLDivElement, MemberCardProps>(
           setOpened((o) => !o);
         }}
         className={withClass ? classes.member : undefined}
-        tabIndex={0}
-      >
+        tabIndex={0}>
         <Group gap="xxs" align="center" wrap="nowrap">
           <Avatar src={avatar} size="md" radius="xl" variant="default" />
           <Stack gap="0" flex={1} style={{ overflow: "hidden" }}>

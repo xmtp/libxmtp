@@ -1,4 +1,5 @@
 import { fileURLToPath } from "node:url";
+
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";

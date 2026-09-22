@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import { type ConsentState, type ConversationType } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
 

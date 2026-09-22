@@ -1,8 +1,10 @@
 import { randomBytes } from "node:crypto";
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+
 import { Command, Errors, Flags } from "@oclif/core";
 import { generatePrivateKey } from "viem/accounts";
+
 import { parseBackendUrl, parseEnvironmentLabel } from "@/utils/backend";
 import { DEFAULT_ENV_PATH } from "@/utils/config";
 

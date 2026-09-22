@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+
 import type { ManifestProvider } from "@/types";
 
 const GRADLE_VERSION_REGEX = /^version\s*=\s*(.+)$/m;

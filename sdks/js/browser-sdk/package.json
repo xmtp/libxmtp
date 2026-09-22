@@ -3,28 +3,34 @@
   "version": "7.2.0-dev",
   "description": "XMTP client SDK for browsers written in TypeScript",
   "keywords": [
-    "xmtp",
-    "messaging",
-    "web3",
-    "sdk",
-    "js",
-    "ts",
     "javascript",
-    "typescript"
+    "js",
+    "messaging",
+    "sdk",
+    "ts",
+    "typescript",
+    "web3",
+    "xmtp"
   ],
   "homepage": "https://github.com/xmtp/libxmtp",
   "bugs": {
     "url": "https://github.com/xmtp/libxmtp/issues"
   },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com/xmtp/libxmtp.git",
     "directory": "sdks/js/browser-sdk"
   },
-  "license": "MIT",
-  "author": "XMTP Labs <eng@xmtp.com>",
-  "sideEffects": false,
+  "files": [
+    "dist",
+    "src"
+  ],
   "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -32,12 +38,11 @@
     },
     "./package.json": "./package.json"
   },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "files": [
-    "dist",
-    "src"
-  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsdown",
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
@@ -49,18 +54,6 @@
     "test": "vitest run",
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
     "typecheck": "tsc"
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 3 chrome versions",
-      "last 3 firefox versions",
-      "last 3 safari versions"
-    ]
   },
   "dependencies": {
     "@xmtp/content-type-primitives": "catalog:",
@@ -88,12 +81,19 @@
       "optional": true
     }
   },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome versions",
+      "last 3 firefox versions",
+      "last 3 safari versions"
+    ]
+  },
   "engines": {
     "node": ">=22.12.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
   }
 }

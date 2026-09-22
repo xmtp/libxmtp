@@ -4,8 +4,8 @@ import type { ConversationsAction } from "@/types/actions/conversations";
 import type { DebugInformationAction } from "@/types/actions/debugInformation";
 import type { DmAction } from "@/types/actions/dm";
 import type { GroupAction } from "@/types/actions/group";
-import type { PreferencesAction } from "@/types/actions/preferences";
 import type { MessageReaderAction } from "@/types/actions/messageReader";
+import type { PreferencesAction } from "@/types/actions/preferences";
 
 export type UnknownAction = {
   action: string;

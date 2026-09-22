@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { join, resolve } from "node:path";
+
 import { execa } from "execa";
 import { generatePrivateKey } from "viem/accounts";
 

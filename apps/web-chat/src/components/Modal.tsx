@@ -15,8 +15,7 @@ export const Modal: React.FC<ModalProps> = ({ children, ...props }) => {
           flexDirection: "column",
           flexGrow: 1,
         },
-      }}
-    >
+      }}>
       {children}
     </MantineModal>
   );

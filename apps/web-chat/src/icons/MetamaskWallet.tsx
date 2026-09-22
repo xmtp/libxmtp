@@ -5,8 +5,7 @@ export const MetamaskWallet = () => {
       height="28"
       viewBox="0 0 28 28"
       fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
+      xmlns="http://www.w3.org/2000/svg">
       <rect width="28" height="28" fill="white" />
       <path
         d="M24.0891 3.1199L15.3446 9.61456L16.9617 5.7828L24.0891 3.1199Z"

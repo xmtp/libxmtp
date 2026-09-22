@@ -25,6 +25,7 @@ import {
   type Reaction,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/node-bindings";
+
 import type { CodecRegistry } from "@/CodecRegistry";
 import { nsToDate } from "@/utils/date";
 

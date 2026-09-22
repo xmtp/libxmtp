@@ -1,10 +1,11 @@
+import { createRegisteredClient, createSigner } from "@test/helpers";
 import {
   ConversationType,
   ListConversationsOrderBy,
 } from "@xmtp/wasm-bindings";
 import { describe, expect, it } from "vitest";
+
 import { uuid } from "@/utils/uuid";
-import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("Conversations", () => {
   it("should have a topic", async () => {

@@ -1,5 +1,6 @@
 import { monitorEventLoopDelay, performance } from "node:perf_hooks";
 import v8 from "node:v8";
+
 import type { AgentMiddleware } from "@/core/Agent";
 
 /** CPU, event-loop, and memory measurements for one report interval. */

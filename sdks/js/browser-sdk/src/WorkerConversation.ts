@@ -26,6 +26,7 @@ import {
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/wasm-bindings";
+
 import type { LastReadTimes } from "@/utils/conversions";
 import type { WorkerClient } from "@/WorkerClient";
 

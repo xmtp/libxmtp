@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
+
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 type Account = [key: string, address: string];

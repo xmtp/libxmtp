@@ -1,4 +1,10 @@
 import {
+  createRegisteredClient,
+  createSigner,
+  sleep,
+  TestCodec,
+} from "@test/helpers";
+import {
   ConsentState,
   ContentType,
   ConversationType,
@@ -13,18 +19,13 @@ import {
   type MessageDisappearingSettings,
 } from "@xmtp/wasm-bindings";
 import { describe, expect, it, vi } from "vitest";
+
 import type { DecodedMessage } from "@/DecodedMessage";
 import {
   contentTypeGroupUpdated,
   contentTypeLeaveRequest,
 } from "@/utils/contentTypes";
 import { metadataFieldName } from "@/utils/metadata";
-import {
-  createRegisteredClient,
-  createSigner,
-  sleep,
-  TestCodec,
-} from "@test/helpers";
 
 // Background workers (self-remove, disappearing messages) complete
 // asynchronously; poll until the expected state appears instead of pacing

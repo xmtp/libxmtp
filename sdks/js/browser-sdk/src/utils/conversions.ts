@@ -4,6 +4,7 @@ import type {
   HmacKey,
   PermissionPolicySet,
 } from "@xmtp/wasm-bindings";
+
 import type { WorkerConversation } from "@/WorkerConversation";
 
 export type SafeConversation = {

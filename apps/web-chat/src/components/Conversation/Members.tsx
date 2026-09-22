@@ -1,6 +1,7 @@
 import { Badge, Group, Stack, Text } from "@mantine/core";
 import { PermissionLevel } from "@xmtp/browser-sdk";
 import { useCallback, useMemo } from "react";
+
 import {
   AddMembers,
   type AddMembersProps,
@@ -9,8 +10,8 @@ import {
 import { Member } from "@/components/Conversation/Member";
 import { RemoveMembers } from "@/components/Conversation/RemoveMembers";
 import { useClient } from "@/contexts/XMTPContext";
-import type { ClientPermissions } from "@/hooks/useClientPermissions";
 import { type MemberProfile } from "@/helpers/member";
+import type { ClientPermissions } from "@/hooks/useClientPermissions";
 
 export type MembersProps = {
   addedMembers: PendingMember[];

@@ -22,7 +22,9 @@ import {
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
+
 import { filter, type DecodedMessageWithContent } from "@/core/filter";
+
 import type { AgentBaseContext } from "./Agent";
 import { ConversationContext } from "./ConversationContext";
 

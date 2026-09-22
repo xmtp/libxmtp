@@ -1,12 +1,13 @@
-import { v4 } from 'uuid'
-import { toBytes } from 'viem'
-import { describe, expect, it } from 'vitest'
 import {
   createClient,
   createLocalBackend,
   createRegisteredClient,
   createUser,
-} from '@test/helpers'
+} from "@test/helpers";
+import { v4 } from "uuid";
+import { toBytes } from "viem";
+import { describe, expect, it } from "vitest";
+
 import {
   applySignatureRequest,
   ConsentEntityType,
@@ -18,371 +19,371 @@ import {
   revokeInstallationsSignatureRequest,
   verifySignedWithPublicKey,
   type Message,
-} from '../dist'
-import { notificationBackend } from './notificationBackend'
+} from "../dist";
+import { notificationBackend } from "./notificationBackend";
 
-describe('Client', () => {
-  it.each(['fcm', 'apns'])(
-    'should register the exact %s notification channel and token',
+describe("Client", () => {
+  it.each(["fcm", "apns"])(
+    "should register the exact %s notification channel and token",
     async (channel) => {
-      const backend = await notificationBackend()
-      const user = createUser()
-      let client: Awaited<ReturnType<typeof createClient>> | undefined
+      const backend = await notificationBackend();
+      const user = createUser();
+      let client: Awaited<ReturnType<typeof createClient>> | undefined;
       try {
-        client = await createClient(user, undefined, false, backend.url)
+        client = await createClient(user, undefined, false, backend.url);
         const state = await client.enableNotifications({
           channel,
           token: `${channel}-exact-token`,
           includeWelcomes: false,
-        })
-        expect(state.state).toBe(NotificationStateKind.Enabled)
+        });
+        expect(state.state).toBe(NotificationStateKind.Enabled);
         expect(client.notificationState().state).toBe(
-          NotificationStateKind.Enabled
-        )
-        expect(backend.registrations).toHaveLength(1)
+          NotificationStateKind.Enabled,
+        );
+        expect(backend.registrations).toHaveLength(1);
         expect(backend.registrations[0]).toMatchObject({
           [channel]: { token: `${channel}-exact-token` },
-        })
+        });
         expect(
-          backend.registrations[0][channel === 'fcm' ? 'apns' : 'fcm']
-        ).toBeUndefined()
-        await client.close()
-        client = await createClient(user, undefined, false, backend.url)
+          backend.registrations[0][channel === "fcm" ? "apns" : "fcm"],
+        ).toBeUndefined();
+        await client.close();
+        client = await createClient(user, undefined, false, backend.url);
         expect(client.notificationState().state).toBe(
-          NotificationStateKind.Enabled
-        )
+          NotificationStateKind.Enabled,
+        );
       } finally {
-        await client?.close()
-        await backend.close()
+        await client?.close();
+        await backend.close();
       }
-    }
-  )
+    },
+  );
 
   it.each([15, 16, 64, 65])(
-    'should validate a %i-byte HTTP notification signing key before registration',
+    "should validate a %i-byte HTTP notification signing key before registration",
     async (size) => {
-      const backend = await notificationBackend()
+      const backend = await notificationBackend();
       const client = await createClient(
         createUser(),
         undefined,
         false,
-        backend.url
-      )
+        backend.url,
+      );
       try {
         const config = {
-          channel: 'http',
-          url: 'https://example.test',
+          channel: "http",
+          url: "https://example.test",
           signingKey: Array(size).fill(7),
           includeWelcomes: false,
-        }
+        };
         if (size === 16 || size === 64) {
           expect((await client.enableNotifications(config)).state).toBe(
-            NotificationStateKind.Enabled
-          )
-          expect(backend.registrations).toHaveLength(1)
+            NotificationStateKind.Enabled,
+          );
+          expect(backend.registrations).toHaveLength(1);
           expect(backend.registrations[0].http).toEqual({
             url: config.url,
             signingKey: config.signingKey,
-          })
+          });
         } else {
           await expect(client.enableNotifications(config)).rejects.toThrow(
-            '[NotificationError::InvalidArgument] notification configuration is invalid'
-          )
-          expect(backend.registrations).toHaveLength(0)
+            "[NotificationError::InvalidArgument] notification configuration is invalid",
+          );
+          expect(backend.registrations).toHaveLength(0);
           expect(client.notificationState().state).toBe(
-            NotificationStateKind.Disabled
-          )
+            NotificationStateKind.Disabled,
+          );
         }
       } finally {
-        await client.close()
-        await backend.close()
+        await client.close();
+        await backend.close();
       }
-    }
-  )
+    },
+  );
 
-  it('should reject invalid notification channel configurations', async () => {
-    const client = await createClient(createUser(), undefined, true)
+  it("should reject invalid notification channel configurations", async () => {
+    const client = await createClient(createUser(), undefined, true);
 
     try {
       for (const config of [
-        { channel: 'unknown', token: 'token' },
-        { channel: 'fcm' },
+        { channel: "unknown", token: "token" },
+        { channel: "fcm" },
         {
-          channel: 'apns',
-          token: 'token',
-          url: 'https://example.test',
+          channel: "apns",
+          token: "token",
+          url: "https://example.test",
         },
       ]) {
         await expect(client.enableNotifications(config)).rejects.toThrow(
-          '[NotificationError::InvalidArgument] notification configuration is invalid'
-        )
+          "[NotificationError::InvalidArgument] notification configuration is invalid",
+        );
       }
     } finally {
-      await client.close()
+      await client.close();
     }
-  })
+  });
 
-  it('should not be registered at first', async () => {
-    const user = createUser()
-    const client = await createClient(user)
-    expect(client.isRegistered()).toBe(false)
-    expect(client.appVersion()).toBe('')
-  })
+  it("should not be registered at first", async () => {
+    const user = createUser();
+    const client = await createClient(user);
+    expect(client.isRegistered()).toBe(false);
+    expect(client.appVersion()).toBe("");
+  });
 
-  it('should return client versions', async () => {
-    const user = createUser()
-    const customVersion = 'test'
-    const client = await createClient(user, customVersion)
-    expect(client.appVersion()).toBe(customVersion)
-    expect(client.libxmtpVersion()).toBeDefined()
-  })
+  it("should return client versions", async () => {
+    const user = createUser();
+    const customVersion = "test";
+    const client = await createClient(user, customVersion);
+    expect(client.appVersion()).toBe(customVersion);
+    expect(client.libxmtpVersion()).toBeDefined();
+  });
 
-  it('should be registered after registration', async () => {
-    const user = createUser()
+  it("should be registered after registration", async () => {
+    const user = createUser();
     // must create 2 clients to get the expected value
     // this is currently a limitation in the rust implementation as the
     // underlying signature request does not mutate after registration
-    await createRegisteredClient(user)
-    const client = await createClient(user)
-    expect(client.isRegistered()).toBe(true)
-  })
+    await createRegisteredClient(user);
+    const client = await createClient(user);
+    expect(client.isRegistered()).toBe(true);
+  });
 
-  it('should be able to message registered identity', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
+  it("should be able to message registered identity", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
     const canMessage = await client.canMessage([
       {
         identifier: user.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
 
-    expect(canMessage).toEqual({ [user.account.address.toLowerCase()]: true })
-  })
+    expect(canMessage).toEqual({ [user.account.address.toLowerCase()]: true });
+  });
 
-  it('should find an inbox ID from an address', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
+  it("should find an inbox ID from an address", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
     const inboxId = await client.getInboxIdByIdentity({
       identifier: user.account.address,
       identifierKind: IdentifierKind.Ethereum,
-    })
-    expect(inboxId).toBe(client.inboxId())
-  })
+    });
+    expect(inboxId).toBe(client.inboxId());
+  });
 
-  it('should return the correct inbox state', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
-    const inboxState = await client.inboxState(false)
-    expect(inboxState.inboxId).toBe(client.inboxId())
-    expect(inboxState.installations.length).toBe(1)
-    expect(inboxState.installations[0].id).toBe(client.installationId())
+  it("should return the correct inbox state", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
+    const inboxState = await client.inboxState(false);
+    expect(inboxState.inboxId).toBe(client.inboxId());
+    expect(inboxState.installations.length).toBe(1);
+    expect(inboxState.installations[0].id).toBe(client.installationId());
     expect(inboxState.installations[0].bytes).toEqual(
-      client.installationIdBytes()
-    )
+      client.installationIdBytes(),
+    );
     expect(inboxState.identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
     expect(inboxState.recoveryIdentifier).toStrictEqual({
       identifier: user.account.address.toLowerCase(),
       identifierKind: IdentifierKind.Ethereum,
-    })
+    });
 
-    const user2 = createUser()
-    const client2 = await createRegisteredClient(user2)
-    const inboxState2 = await client2.inboxState(true)
-    expect(inboxState2.inboxId).toBe(client2.inboxId())
-    expect(inboxState2.installations.length).toBe(1)
-    expect(inboxState2.installations[0].id).toBe(client2.installationId())
+    const user2 = createUser();
+    const client2 = await createRegisteredClient(user2);
+    const inboxState2 = await client2.inboxState(true);
+    expect(inboxState2.inboxId).toBe(client2.inboxId());
+    expect(inboxState2.installations.length).toBe(1);
+    expect(inboxState2.installations[0].id).toBe(client2.installationId());
     expect(inboxState2.installations[0].bytes).toEqual(
-      client2.installationIdBytes()
-    )
+      client2.installationIdBytes(),
+    );
     expect(inboxState2.identifiers).toEqual([
       {
         identifier: user2.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
     expect(inboxState2.recoveryIdentifier).toEqual({
       identifier: user2.account.address.toLowerCase(),
       identifierKind: IdentifierKind.Ethereum,
-    })
-  })
+    });
+  });
 
-  it('should add a wallet association to the client', async () => {
-    const user = createUser()
-    const user2 = createUser()
-    const client = await createRegisteredClient(user)
+  it("should add a wallet association to the client", async () => {
+    const user = createUser();
+    const user2 = createUser();
+    const client = await createRegisteredClient(user);
     const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
-    })
-    expect(signatureRequest).toBeDefined()
+    });
+    expect(signatureRequest).toBeDefined();
 
     const signature2 = await user2.wallet.signMessage({
       message: await signatureRequest.signatureText(),
-    })
+    });
 
-    await signatureRequest.addEcdsaSignature(toBytes(signature2))
-    await client.applySignatureRequest(signatureRequest)
-    const inboxState = await client.inboxState(false)
-    expect(inboxState.identifiers.length).toEqual(2)
+    await signatureRequest.addEcdsaSignature(toBytes(signature2));
+    await client.applySignatureRequest(signatureRequest);
+    const inboxState = await client.inboxState(false);
+    expect(inboxState.identifiers.length).toEqual(2);
     expect(inboxState.identifiers).toContainEqual({
       identifier: user.account.address.toLowerCase(),
       identifierKind: IdentifierKind.Ethereum,
-    })
+    });
     expect(inboxState.identifiers).toContainEqual({
       identifier: user2.account.address.toLowerCase(),
       identifierKind: IdentifierKind.Ethereum,
-    })
-  })
+    });
+  });
 
-  it('should revoke a wallet association from the client', async () => {
-    const user = createUser()
-    const user2 = createUser()
-    const client = await createRegisteredClient(user)
+  it("should revoke a wallet association from the client", async () => {
+    const user = createUser();
+    const user2 = createUser();
+    const client = await createRegisteredClient(user);
     const signatureRequest = await client.addIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
-    })
-    expect(signatureRequest).toBeDefined()
+    });
+    expect(signatureRequest).toBeDefined();
 
     // sign message
     const signature2 = await user2.wallet.signMessage({
       message: await signatureRequest.signatureText(),
-    })
+    });
 
-    await signatureRequest.addEcdsaSignature(toBytes(signature2))
-    await client.applySignatureRequest(signatureRequest)
+    await signatureRequest.addEcdsaSignature(toBytes(signature2));
+    await client.applySignatureRequest(signatureRequest);
 
     const signatureRequest2 = await client.revokeIdentifierSignatureRequest({
       identifier: user2.account.address,
       identifierKind: IdentifierKind.Ethereum,
-    })
-    expect(signatureRequest2).toBeDefined()
+    });
+    expect(signatureRequest2).toBeDefined();
 
     // sign message
     const signature3 = await user.wallet.signMessage({
       message: await signatureRequest2.signatureText(),
-    })
+    });
 
-    await signatureRequest2.addEcdsaSignature(toBytes(signature3))
-    await client.applySignatureRequest(signatureRequest2)
-    const inboxState = await client.inboxState(false)
+    await signatureRequest2.addEcdsaSignature(toBytes(signature3));
+    await client.applySignatureRequest(signatureRequest2);
+    const inboxState = await client.inboxState(false);
     expect(inboxState.identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
-  })
+    ]);
+  });
 
-  it('should revoke all installations', async () => {
-    const user = createUser()
+  it("should revoke all installations", async () => {
+    const user = createUser();
 
-    const client = await createRegisteredClient(user)
-    user.uuid = v4()
-    const client2 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const client3 = await createRegisteredClient(user)
+    const client = await createRegisteredClient(user);
+    user.uuid = v4();
+    const client2 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const client3 = await createRegisteredClient(user);
 
-    const inboxState = await client3.inboxState(true)
-    expect(inboxState.installations.length).toBe(3)
+    const inboxState = await client3.inboxState(true);
+    expect(inboxState.installations.length).toBe(3);
 
-    const installationIds = inboxState.installations.map((i) => i.id)
-    expect(installationIds).toContain(client.installationId())
-    expect(installationIds).toContain(client2.installationId())
-    expect(installationIds).toContain(client3.installationId())
+    const installationIds = inboxState.installations.map((i) => i.id);
+    expect(installationIds).toContain(client.installationId());
+    expect(installationIds).toContain(client2.installationId());
+    expect(installationIds).toContain(client3.installationId());
 
     const signatureRequest =
-      await client3.revokeAllOtherInstallationsSignatureRequest()
-    expect(signatureRequest).toBeDefined()
+      await client3.revokeAllOtherInstallationsSignatureRequest();
+    expect(signatureRequest).toBeDefined();
 
     if (signatureRequest) {
       // sign message
       const signature = await user.wallet.signMessage({
         message: await signatureRequest.signatureText(),
-      })
+      });
 
-      await signatureRequest.addEcdsaSignature(toBytes(signature))
-      await client3.applySignatureRequest(signatureRequest)
-      const inboxState2 = await client3.inboxState(true)
+      await signatureRequest.addEcdsaSignature(toBytes(signature));
+      await client3.applySignatureRequest(signatureRequest);
+      const inboxState2 = await client3.inboxState(true);
 
-      expect(inboxState2.installations.length).toBe(1)
-      expect(inboxState2.installations[0].id).toBe(client3.installationId())
+      expect(inboxState2.installations.length).toBe(1);
+      expect(inboxState2.installations[0].id).toBe(client3.installationId());
     }
-  })
+  });
 
-  it('should revoke a specific installation using static_revoke_installations', async () => {
-    const user = createUser()
+  it("should revoke a specific installation using static_revoke_installations", async () => {
+    const user = createUser();
 
-    const client1 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const client2 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const _client3 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const _client4 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const _client5 = await createRegisteredClient(user)
+    const client1 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const client2 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const _client3 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const _client4 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const _client5 = await createRegisteredClient(user);
 
-    const state1 = await client1.inboxState(true)
-    const state2 = await client2.inboxState(true)
+    const state1 = await client1.inboxState(true);
+    const state2 = await client2.inboxState(true);
 
-    expect(state1.installations.length).toBe(5)
-    expect(state2.installations.length).toBe(5)
+    expect(state1.installations.length).toBe(5);
+    expect(state2.installations.length).toBe(5);
 
     // Revoke just client2's installation
-    const backend = await createLocalBackend()
+    const backend = await createLocalBackend();
     const signatureRequest = await revokeInstallationsSignatureRequest(
       backend,
       client1.accountIdentifier,
       client1.inboxId(),
-      [client2.installationIdBytes()]
-    )
-    expect(signatureRequest).toBeDefined()
+      [client2.installationIdBytes()],
+    );
+    expect(signatureRequest).toBeDefined();
 
     // Sign with the user's wallet
     const signature = await user.wallet.signMessage({
       message: await signatureRequest.signatureText(),
-    })
+    });
 
-    await signatureRequest.addEcdsaSignature(toBytes(signature))
+    await signatureRequest.addEcdsaSignature(toBytes(signature));
 
-    await applySignatureRequest(backend, signatureRequest)
+    await applySignatureRequest(backend, signatureRequest);
 
-    const stateAfter1 = await client1.inboxState(true)
-    const stateAfter2 = await client2.inboxState(true)
+    const stateAfter1 = await client1.inboxState(true);
+    const stateAfter2 = await client2.inboxState(true);
 
-    expect(stateAfter1.installations.length).toBe(4)
-    expect(stateAfter2.installations.length).toBe(4)
+    expect(stateAfter1.installations.length).toBe(4);
+    expect(stateAfter2.installations.length).toBe(4);
 
     // Ensure that the revoked installation is gone
-    const remainingIds = stateAfter1.installations.map((i) => i.id)
-    expect(remainingIds).not.toContain(client2.installationId())
-  })
+    const remainingIds = stateAfter1.installations.map((i) => i.id);
+    expect(remainingIds).not.toContain(client2.installationId());
+  });
 
-  it('should manage consent states', async () => {
-    const user1 = createUser()
-    const user2 = createUser()
-    const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+  it("should manage consent states", async () => {
+    const user1 = createUser();
+    const user2 = createUser();
+    const client1 = await createRegisteredClient(user1);
+    const client2 = await createRegisteredClient(user2);
     const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
 
-    await client2.conversations().sync()
-    const group2 = client2.conversations().getConversationById(group.id())
+    await client2.conversations().sync();
+    const group2 = client2.conversations().getConversationById(group.id());
 
     expect(
-      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
-    ).toBe(ConsentState.Unknown)
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id()),
+    ).toBe(ConsentState.Unknown);
 
     await client2.setConsentStates([
       {
@@ -390,182 +391,187 @@ describe('Client', () => {
         entity: group2.id(),
         state: ConsentState.Allowed,
       },
-    ])
+    ]);
 
     expect(
-      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
-    ).toBe(ConsentState.Allowed)
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id()),
+    ).toBe(ConsentState.Allowed);
 
-    expect(group2.consentState()).toBe(ConsentState.Allowed)
+    expect(group2.consentState()).toBe(ConsentState.Allowed);
 
-    group2.updateConsentState(ConsentState.Denied)
+    group2.updateConsentState(ConsentState.Denied);
 
     expect(
-      await client2.getConsentState(ConsentEntityType.GroupId, group2.id())
-    ).toBe(ConsentState.Denied)
-  })
+      await client2.getConsentState(ConsentEntityType.GroupId, group2.id()),
+    ).toBe(ConsentState.Denied);
+  });
 
-  it('should get inbox addresses', async () => {
-    const user = createUser()
-    const user2 = createUser()
-    const client = await createRegisteredClient(user)
-    const client2 = await createRegisteredClient(user2)
+  it("should get inbox addresses", async () => {
+    const user = createUser();
+    const user2 = createUser();
+    const client = await createRegisteredClient(user);
+    const client2 = await createRegisteredClient(user2);
     const inboxAddresses = await client.fetchInboxStatesByInboxIds(
       [client.inboxId()],
-      true
-    )
-    expect(inboxAddresses.length).toBe(1)
-    expect(inboxAddresses[0].inboxId).toBe(client.inboxId())
+      true,
+    );
+    expect(inboxAddresses.length).toBe(1);
+    expect(inboxAddresses[0].inboxId).toBe(client.inboxId());
     expect(inboxAddresses[0].identifiers).toEqual([
       {
         identifier: user.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
 
     const inboxAddresses2 = await client2.fetchInboxStatesByInboxIds(
       [client2.inboxId()],
-      true
-    )
-    expect(inboxAddresses2.length).toBe(1)
-    expect(inboxAddresses2[0].inboxId).toBe(client2.inboxId())
+      true,
+    );
+    expect(inboxAddresses2.length).toBe(1);
+    expect(inboxAddresses2[0].inboxId).toBe(client2.inboxId());
     expect(inboxAddresses2[0].identifiers).toEqual([
       {
         identifier: user2.account.address.toLowerCase(),
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
-  })
+    ]);
+  });
 
-  it('should get inbox state statically', async () => {
-    const user = createUser()
+  it("should get inbox state statically", async () => {
+    const user = createUser();
 
-    const client1 = await createRegisteredClient(user)
-    user.uuid = v4()
-    const _client2 = await createRegisteredClient(user)
-    user.uuid = v4()
+    const client1 = await createRegisteredClient(user);
+    user.uuid = v4();
+    const _client2 = await createRegisteredClient(user);
+    user.uuid = v4();
 
-    const backend = await createLocalBackend()
-    const state = await fetchInboxStatesByInboxIds(backend, [client1.inboxId()])
-    expect(state[0].inboxId).toBe(client1.inboxId())
-    expect(state[0].installations.length).toEqual(2)
-  })
+    const backend = await createLocalBackend();
+    const state = await fetchInboxStatesByInboxIds(backend, [
+      client1.inboxId(),
+    ]);
+    expect(state[0].inboxId).toBe(client1.inboxId());
+    expect(state[0].installations.length).toEqual(2);
+  });
 
-  it('should sign and verify with installation key', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
-    const text = 'gm!'
-    const signature = client.signWithInstallationKey(text)
-    expect(signature).toBeDefined()
+  it("should sign and verify with installation key", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
+    const text = "gm!";
+    const signature = client.signWithInstallationKey(text);
+    expect(signature).toBeDefined();
     expect(() =>
-      client.verifySignedWithInstallationKey(text, signature)
-    ).not.toThrow()
+      client.verifySignedWithInstallationKey(text, signature),
+    ).not.toThrow();
     expect(() =>
-      client.verifySignedWithInstallationKey(text, new Uint8Array())
-    ).toThrow()
+      client.verifySignedWithInstallationKey(text, new Uint8Array()),
+    ).toThrow();
     expect(() =>
-      verifySignedWithPublicKey(text, signature, client.installationIdBytes())
-    ).not.toThrow()
+      verifySignedWithPublicKey(text, signature, client.installationIdBytes()),
+    ).not.toThrow();
     expect(() =>
-      verifySignedWithPublicKey(text, signature, new Uint8Array())
-    ).toThrow()
-  })
+      verifySignedWithPublicKey(text, signature, new Uint8Array()),
+    ).toThrow();
+  });
 
-  it('should release and reconnect database connection', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
+  it("should release and reconnect database connection", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
 
     // Verify database operations work initially
-    expect(() => client.conversations().list()).not.toThrow()
+    expect(() => client.conversations().list()).not.toThrow();
 
     // Release the database connection
-    client.releaseDbConnection()
+    client.releaseDbConnection();
 
     // Verify database operations fail when connection is released
-    expect(() => client.conversations().list()).toThrow()
+    expect(() => client.conversations().list()).toThrow();
 
     // Reconnect the database
-    await client.dbReconnect()
+    await client.dbReconnect();
 
     // Verify database operations work again after reconnecting
-    expect(() => client.conversations().list()).not.toThrow()
-  })
+    expect(() => client.conversations().list()).not.toThrow();
+  });
 
-  it('should close cleanly and be idempotent', async () => {
-    const user = createUser()
-    const client = await createRegisteredClient(user)
+  it("should close cleanly and be idempotent", async () => {
+    const user = createUser();
+    const client = await createRegisteredClient(user);
 
     // Verify database operations work initially
-    expect(() => client.conversations().list()).not.toThrow()
+    expect(() => client.conversations().list()).not.toThrow();
 
     // Close the client: stops workers/streams and releases the DB
-    await expect(client.close()).resolves.toBeUndefined()
+    await expect(client.close()).resolves.toBeUndefined();
 
     // Database operations fail once the connection is released
-    expect(() => client.conversations().list()).toThrow()
+    expect(() => client.conversations().list()).toThrow();
 
     // A second close is a no-op and still resolves
-    await expect(client.close()).resolves.toBeUndefined()
+    await expect(client.close()).resolves.toBeUndefined();
 
     // Reconnecting after close is refused
-    await expect(client.dbReconnect()).rejects.toThrow()
-  })
-})
+    await expect(client.dbReconnect()).rejects.toThrow();
+  });
+});
 
-describe('Streams', () => {
-  it('should stream all messages', async () => {
-    const user = createUser()
-    const client1 = await createRegisteredClient(user)
+describe("Streams", () => {
+  it("should stream all messages", async () => {
+    const user = createUser();
+    const client1 = await createRegisteredClient(user);
 
-    const user2 = createUser()
-    const client2 = await createRegisteredClient(user2)
+    const user2 = createUser();
+    const client2 = await createRegisteredClient(user2);
 
     const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
-    ])
+    ]);
 
-    await client2.conversations().sync()
-    const group2 = client2.conversations().getConversationById(group.id())
+    await client2.conversations().sync();
+    const group2 = client2.conversations().getConversationById(group.id());
 
-    const messages: Message[] = []
-    const errors: Error[] = []
-    await client2.conversations().syncAll()
-    const history = await group2.listMessages()
+    const messages: Message[] = [];
+    const errors: Error[] = [];
+    await client2.conversations().syncAll();
+    const history = await group2.listMessages();
     expect(history.map((message) => message.kind)).toEqual([
       GroupMessageKind.MembershipChange,
-    ])
+    ]);
     const stream = client2.conversations().streamAllMessages(
       (error, message) => {
-        if (error) errors.push(error)
-        if (message) messages.push(message)
+        if (error) errors.push(error);
+        if (message) messages.push(message);
       },
       () => {
-        console.log('closed')
-      }
-    )
-    await stream.waitForReady()
-    const texts = ['Test1', 'Test2', 'Test3', 'Test4']
-    const messageIds: string[] = []
+        console.log("closed");
+      },
+    );
+    await stream.waitForReady();
+    const texts = ["Test1", "Test2", "Test3", "Test4"];
+    const messageIds: string[] = [];
     for (const text of texts) {
-      messageIds.push(await group.sendText(text))
+      messageIds.push(await group.sendText(text));
     }
-    const expectedIds = [...history.map((message) => message.id), ...messageIds]
+    const expectedIds = [
+      ...history.map((message) => message.id),
+      ...messageIds,
+    ];
     await expect
       .poll(() => messages.map((message) => message.id), { timeout: 15_000 })
-      .toEqual(expectedIds)
-    await stream.endAndWait()
-    expect(errors).toEqual([])
-    expect(messages.map((message) => message.id)).toEqual(expectedIds)
+      .toEqual(expectedIds);
+    await stream.endAndWait();
+    expect(errors).toEqual([]);
+    expect(messages.map((message) => message.id)).toEqual(expectedIds);
     expect(messages.slice(1).map((message) => message.kind)).toEqual(
-      texts.map(() => GroupMessageKind.Application)
-    )
+      texts.map(() => GroupMessageKind.Application),
+    );
     expect(
       messages
         .slice(1)
-        .map((message) => new TextDecoder().decode(message.content.content))
-    ).toEqual(texts)
-  })
-})
+        .map((message) => new TextDecoder().decode(message.content.content)),
+    ).toEqual(texts);
+  });
+});

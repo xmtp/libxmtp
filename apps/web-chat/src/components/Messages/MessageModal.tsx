@@ -1,11 +1,13 @@
 import { Center, Code, ScrollArea, Stack, Tabs, Text } from "@mantine/core";
 import { useNavigate, useOutletContext, useParams } from "react-router";
+
 import { CodeWithCopy } from "@/components/CodeWithCopy";
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import { Modal } from "@/components/Modal";
 import { jsonStringify } from "@/helpers/strings";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useMessage } from "@/stores/inbox/hooks";
+
 import { MessageProperties } from "./MessageProperties";
 
 export const MessageModal: React.FC = () => {
@@ -30,15 +32,13 @@ export const MessageModal: React.FC = () => {
         <Text size="lg" fw={700} c="text.primary">
           Message details
         </Text>
-      }
-    >
+      }>
       {message ? (
         <Stack
           h={contentHeight}
           flex={1}
           gap="xs"
-          style={{ overflow: "hidden" }}
-        >
+          style={{ overflow: "hidden" }}>
           <Tabs
             defaultValue="properties"
             flex={1}
@@ -46,8 +46,7 @@ export const MessageModal: React.FC = () => {
               overflow: "hidden",
               display: "flex",
               flexDirection: "column",
-            }}
-          >
+            }}>
             <Tabs.List>
               <Tabs.Tab value="properties">Properties</Tabs.Tab>
               <Tabs.Tab value="decodedContent">Decoded content</Tabs.Tab>
@@ -60,8 +59,7 @@ export const MessageModal: React.FC = () => {
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-              }}
-            >
+              }}>
               <ScrollArea>
                 <MessageProperties message={message} />
               </ScrollArea>
@@ -74,8 +72,7 @@ export const MessageModal: React.FC = () => {
                 overflow: "hidden",
                 display: "flex",
                 flexDirection: "column",
-              }}
-            >
+              }}>
               <ScrollArea>
                 {message.content !== undefined ? (
                   <CodeWithCopy code={jsonStringify(message.content)} />
@@ -86,8 +83,7 @@ export const MessageModal: React.FC = () => {
                     style={{
                       whiteSpace: "pre-wrap",
                       wordBreak: "break-word",
-                    }}
-                  >
+                    }}>
                     The contents of this message could not be decoded.
                   </Code>
                 )}

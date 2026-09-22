@@ -1,4 +1,10 @@
 import {
+  createRegisteredClient,
+  createSigner,
+  DecodeFailureCodec,
+  TestCodec,
+} from "@test/helpers";
+import {
   contentTypeToString,
   type ContentCodec,
   type EncodedContent,
@@ -29,6 +35,7 @@ import {
   vi,
   type Mock,
 } from "vitest";
+
 import type { DecodedMessage } from "@/DecodedMessage";
 import type { EnrichedReply } from "@/types/options";
 import {
@@ -66,12 +73,6 @@ import {
   isTransactionReference,
   isWalletSendCalls,
 } from "@/utils/messages";
-import {
-  createRegisteredClient,
-  createSigner,
-  DecodeFailureCodec,
-  TestCodec,
-} from "@test/helpers";
 
 describe("Content types", () => {
   it("should send and receive text content", async () => {

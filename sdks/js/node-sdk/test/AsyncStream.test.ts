@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+
 import { AsyncStream, createAsyncStreamProxy } from "@/AsyncStream";
 
 const testError = new Error("test");

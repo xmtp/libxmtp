@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type Ref,
 } from "react";
+
 import {
   useVirtualList,
   type UseVirtualListOptions,
@@ -55,23 +56,20 @@ const VirtualList = <T,>(
         position: "relative",
         minHeight: 0,
       }}
-      className={outerClassName}
-    >
+      className={outerClassName}>
       <div
         ref={scrollContainerRef}
         style={{
           position: "absolute",
           inset: 0,
           overflow: "auto",
-        }}
-      >
+        }}>
         <div
           className={innerClassName}
           style={{
             height: virtualizer.getTotalSize(),
             position: "relative",
-          }}
-        >
+          }}>
           {virtualizer.getVirtualItems().map((virtualItem) => (
             <div
               key={virtualItem.key}
@@ -83,8 +81,7 @@ const VirtualList = <T,>(
                 left: 0,
                 width: "100%",
                 transform: `translateY(${virtualItem.start}px)`,
-              }}
-            >
+              }}>
               {renderItem(items[virtualItem.index], virtualItem.index)}
             </div>
           ))}

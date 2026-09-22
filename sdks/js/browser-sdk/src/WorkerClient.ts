@@ -9,6 +9,7 @@ import {
   type ServerConfiguration,
   type SignatureRequestHandle,
 } from "@xmtp/wasm-bindings";
+
 import type {
   ClientOptions,
   DistributiveOmit,

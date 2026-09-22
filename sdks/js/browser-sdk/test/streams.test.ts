@@ -1,4 +1,6 @@
+import { sleep, waitFor } from "@test/helpers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import {
   StreamFailedError,
   StreamInvalidRetryAttemptsError,
@@ -10,7 +12,6 @@ import {
   type StreamCallback,
   type StreamFunction,
 } from "@/utils/streams";
-import { sleep, waitFor } from "@test/helpers";
 
 describe("createStream", () => {
   describe("basic functionality", () => {

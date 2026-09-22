@@ -1,5 +1,6 @@
 import { encryptAttachment, type Attachment } from "@xmtp/browser-sdk";
 import { describe, expect, it } from "vitest";
+
 import { downloadRemoteAttachment } from "./attachment";
 
 describe("remote attachments", () => {

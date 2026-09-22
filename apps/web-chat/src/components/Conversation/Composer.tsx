@@ -13,6 +13,7 @@ import {
   type RemoteAttachment,
 } from "@xmtp/browser-sdk";
 import { useCallback, useRef, useState } from "react";
+
 import { Modal } from "@/components/Modal";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import {
@@ -22,6 +23,7 @@ import {
 } from "@/helpers/attachment";
 import { useConversation } from "@/hooks/useConversation";
 import { IconPlus } from "@/icons/IconPlus";
+
 import { AttachmentPreview } from "./AttachmentPreview";
 import { ReplyPreview } from "./ReplyPreview";
 
@@ -137,8 +139,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
             gridTemplateColumns: "1fr auto",
             gap: "var(--mantine-spacing-xxs)",
             alignItems: "center",
-          }}
-        >
+          }}>
           {replyTarget && (
             <ReplyPreview
               message={replyTarget}
@@ -165,8 +166,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
                     variant="light"
                     size="lg"
                     radius="xl"
-                    disabled={isSending}
-                  >
+                    disabled={isSending}>
                     <IconPlus size={20} />
                   </ActionIcon>
                 </Menu.Target>
@@ -213,8 +213,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
             disabled={!hasContent}
             loading={isSending}
             size="md"
-            onClick={() => void handleSend()}
-          >
+            onClick={() => void handleSend()}>
             Send
           </Button>
         </Box>
@@ -230,8 +229,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
           title="Error"
           onClose={() => {
             setError(null);
-          }}
-        >
+          }}>
           <Text ta="center" size="sm">
             {error}
           </Text>
@@ -239,8 +237,7 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
             <Button
               onClick={() => {
                 setError(null);
-              }}
-            >
+              }}>
               OK
             </Button>
           </Group>

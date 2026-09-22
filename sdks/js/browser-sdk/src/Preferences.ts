@@ -4,6 +4,7 @@ import type {
   ConsentState,
   UserPreferenceUpdate,
 } from "@xmtp/wasm-bindings";
+
 import type { ClientWorkerAction } from "@/types/actions";
 import {
   createStream,

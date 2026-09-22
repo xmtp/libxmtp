@@ -1,5 +1,7 @@
-import { createStarlightTypeDocPlugin } from "starlight-typedoc";
 import { fileURLToPath } from "node:url";
+
+import { createStarlightTypeDocPlugin } from "starlight-typedoc";
+
 import { validateTypeDoc } from "./scripts/typedoc-validation.mjs";
 
 const sdkRoot = new URL("../../sdks/js/", import.meta.url);

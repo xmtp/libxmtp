@@ -1,5 +1,6 @@
 import { ActionIcon, Menu } from "@mantine/core";
 import { useNavigate } from "react-router";
+
 import { IconMessagePlus } from "@/icons/IconMessagePlus";
 
 export const AppMenu: React.FC = () => {

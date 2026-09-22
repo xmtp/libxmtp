@@ -4,6 +4,7 @@ import type {
   PermissionPolicy,
   PermissionUpdateType,
 } from "@xmtp/wasm-bindings";
+
 import type { SafeConversation } from "@/utils/conversions";
 
 export type GroupAction =

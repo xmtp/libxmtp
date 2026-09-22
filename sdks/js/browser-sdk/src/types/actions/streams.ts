@@ -3,6 +3,7 @@ import type {
   DecodedMessage,
   UserPreferenceUpdate,
 } from "@xmtp/wasm-bindings";
+
 import type { SafeConversation } from "@/utils/conversions";
 
 export type StreamAction =

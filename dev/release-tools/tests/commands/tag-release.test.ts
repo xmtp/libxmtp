@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { buildTag } from "../../src/commands/tag-release";
 
 describe("buildTag", () => {

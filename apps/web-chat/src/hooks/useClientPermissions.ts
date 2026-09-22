@@ -1,5 +1,6 @@
 import { PermissionLevel, PermissionPolicy } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
+
 import { useClient } from "@/contexts/XMTPContext";
 import { useConversation } from "@/hooks/useConversation";
 

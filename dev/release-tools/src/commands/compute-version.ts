@@ -1,12 +1,13 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs, ReleaseType } from "@/types";
+
+import { getShortSha } from "@/lib/git";
 import { getSdkConfig } from "@/lib/sdk-config";
 import {
   computeVersion as computeVersionFn,
   getTimestamp,
   validateTimestamp,
 } from "@/lib/version";
-import { getShortSha } from "@/lib/git";
+import type { GlobalArgs, ReleaseType } from "@/types";
 
 export const command = "compute-version";
 export const describe = "Compute the full version string for a release type";

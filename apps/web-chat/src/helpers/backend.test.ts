@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { backendHost, backendLabel, isValidBackendUrl } from "./backend";
 
 describe("backend helpers", () => {

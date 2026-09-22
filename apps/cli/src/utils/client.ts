@@ -1,5 +1,6 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
+
 import { Backend } from "@xmtp/node-bindings";
 import {
   Client,
@@ -10,6 +11,7 @@ import {
 } from "@xmtp/node-sdk";
 import { isHex, toBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+
 import type { XmtpConfig } from "./config.js";
 
 const LOG_LEVELS = {

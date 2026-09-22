@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+
 import { type ContentCodec } from "@xmtp/content-type-primitives";
 import {
   applySignatureRequest,
@@ -19,10 +20,10 @@ import {
   type ServerConfiguration,
   type SignatureRequestHandle,
 } from "@xmtp/node-bindings";
+
 import { CodecRegistry } from "@/CodecRegistry";
 import { Conversations } from "@/Conversations";
 import { DebugInformation } from "@/DebugInformation";
-import { Preferences } from "@/Preferences";
 import {
   throwNotificationError,
   toBindingNotificationConfig,
@@ -30,6 +31,7 @@ import {
   type NotificationConfig,
   type NotificationState,
 } from "@/Notifications";
+import { Preferences } from "@/Preferences";
 import { throwServerConfigurationError } from "@/ServerConfiguration";
 import type {
   ClientOptions,

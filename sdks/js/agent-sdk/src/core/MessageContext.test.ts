@@ -4,6 +4,7 @@ import {
   type EnrichedReply,
 } from "@xmtp/node-sdk";
 import { describe, expect, expectTypeOf, it } from "vitest";
+
 import { MessageContext } from "@/core/MessageContext";
 import { createClient } from "@/util/test";
 

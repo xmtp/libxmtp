@@ -16,16 +16,17 @@ import {
   type WalletSendCalls,
   type DecodedMessage as XmtpDecodedMessage,
 } from "@xmtp/wasm-bindings";
+
 import type { CodecRegistry } from "@/CodecRegistry";
 import {
   assertMessageDecodedForDelivery,
   DecodedMessage,
 } from "@/DecodedMessage";
 import { MessageStream } from "@/MessageStream";
-import { createMessageReader } from "@/utils/messageReader";
 import type { ClientWorkerAction } from "@/types/actions";
 import type { SafeConversation } from "@/utils/conversions";
 import { nsToDate } from "@/utils/date";
+import { createMessageReader } from "@/utils/messageReader";
 import type { StreamOptions } from "@/utils/streams";
 import type { WorkerBridge } from "@/utils/WorkerBridge";
 

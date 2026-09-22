@@ -4,6 +4,7 @@ import {
   GroupMessageKind,
   type ListMessagesOptions,
 } from "@xmtp/node-sdk";
+
 import { contentTypeMap, contentTypeOptions } from "./contentType.js";
 
 const deliveryStatusMap: Record<string, DeliveryStatus> = {

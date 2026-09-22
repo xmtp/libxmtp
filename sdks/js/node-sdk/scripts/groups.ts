@@ -1,9 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+
+import { createSigner, createUser, type User } from "@test/helpers";
 import { IdentifierKind } from "@xmtp/node-bindings";
+
 import { Client } from "@/Client";
 import type { NetworkOptions, StorageOptions } from "@/types";
-import { createSigner, createUser, type User } from "@test/helpers";
 
 export const createRegisteredClient = async (
   user: User,

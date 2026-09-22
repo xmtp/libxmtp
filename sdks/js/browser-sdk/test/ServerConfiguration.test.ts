@@ -1,12 +1,13 @@
+import { buildClient, createSigner } from "@test/helpers";
 import type {
   AuthConfiguration,
   LimitsConfiguration,
   RetentionConfiguration,
 } from "@xmtp/wasm-bindings";
 import { describe, expect, it } from "vitest";
+
 import { Client } from "@/Client";
 import { fetchServerConfiguration } from "@/utils/serverConfiguration";
-import { buildClient, createSigner } from "@test/helpers";
 
 const backendUrl = import.meta.env.XMTP_BACKEND_URL as string;
 

@@ -1,8 +1,10 @@
 import { act, renderHook } from "@testing-library/react";
 import type { Conversation } from "@xmtp/browser-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import type { ContentTypes } from "@/contexts/XMTPContext";
 import { inboxStore } from "@/stores/inbox/store";
+
 import { useConversation } from "./useConversation";
 import { useConversations } from "./useConversations";
 
