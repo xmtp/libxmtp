@@ -101,14 +101,14 @@ export default defineConfig({
           label: "Get started",
           items: guidePages(
             "get-started",
-            "quickstart install run-the-backend push-configuration migrate-to-self-hosted",
+            "quickstart install run-the-backend migrate-to-self-hosted",
           ),
         },
         {
           label: "Deploy",
           items: guidePages(
             "deploy",
-            "overview fly railway aws-ecs kubernetes",
+            "overview fly railway aws-ecs kubernetes push-configuration",
           ),
           collapsed: true,
         },
