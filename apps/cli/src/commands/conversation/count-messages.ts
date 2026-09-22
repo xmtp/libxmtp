@@ -1,9 +1,9 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 import {
   buildMessageFilterOptions,
   messageFilterFlags,
-} from "../../utils/messageFilters.js";
+} from "@/utils/messageFilters";
 
 export default class ConversationCountMessages extends BaseCommand {
   static description = `Count messages in a conversation.

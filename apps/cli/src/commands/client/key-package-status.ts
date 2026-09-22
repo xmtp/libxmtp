@@ -1,5 +1,5 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ClientKeyPackageStatus extends BaseCommand {
   static description = `Fetch key package statuses for installation IDs.

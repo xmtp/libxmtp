@@ -130,12 +130,6 @@
           }
         ]
       }
-    },
-    {
-      "files": ["**/apps/cli/**"],
-      "rules": {
-        "no-restricted-imports": "off"
-      }
     }
   ]
 }

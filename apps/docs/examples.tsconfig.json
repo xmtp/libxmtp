@@ -1,12 +1,8 @@
 {
+  "extends": "../../tsconfig.web.json",
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "strict": true,
-    "skipLibCheck": true,
+    "isolatedModules": false,
     "noEmit": true,
-    "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["node"],
     "paths": {
       "@xmtp/node-sdk": ["../../sdks/js/node-sdk/dist/index.d.ts"],

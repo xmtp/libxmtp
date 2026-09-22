@@ -1,6 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import { encodeMarkdown, encodeText } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSendReply extends BaseCommand {
   static description = `Send a text reply to a message in a conversation.

@@ -41,7 +41,7 @@
     "oclif.manifest.json"
   ],
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "tsdown",
     "dev": "tsx bin/dev.js",
     "lint": "oxlint .",
     "manifest": "oclif manifest",
@@ -53,9 +53,16 @@
   },
   "oclif": {
     "bin": "xmtp",
-    "commands": "./dist/commands",
+    "commands": {
+      "strategy": "explicit",
+      "target": "./dist/index.js",
+      "identifier": "COMMANDS"
+    },
     "dirname": "xmtp",
-    "helpClass": "./dist/help",
+    "helpClass": {
+      "target": "./dist/index.js",
+      "identifier": "CustomHelp"
+    },
     "plugins": [
       "@oclif/plugin-autocomplete",
       "@oclif/plugin-help",
@@ -99,6 +106,7 @@
     "@types/node": "catalog:node26",
     "execa": "^9.6.1",
     "oclif": "^4.22.70",
+    "tsdown": "catalog:",
     "tsx": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"

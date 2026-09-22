@@ -1,7 +1,7 @@
 import { Args } from "@oclif/core";
 import { IdentifierKind } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
-import { requireGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { requireGroup } from "@/utils/conversation";
 
 export default class ConversationRemoveMembers extends BaseCommand {
   static description = `Remove members from a group conversation.

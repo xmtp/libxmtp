@@ -4,7 +4,7 @@ import {
   IdentifierKind,
   type CreateGroupOptions,
 } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsCreateGroup extends BaseCommand {
   static description = `Create a new group conversation.

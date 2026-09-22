@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { isDm, isGroup } from "../../utils/conversation.js";
-import { conversationTypeMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { isDm, isGroup } from "@/utils/conversation";
+import { conversationTypeMap } from "@/utils/enums";
 
 export default class ConversationsStream extends BaseCommand {
   static description = `Stream new conversations.

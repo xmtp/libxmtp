@@ -1,5 +1,5 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsGetMessage extends BaseCommand {
   static description = `Get a message by ID.

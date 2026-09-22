@@ -1,11 +1,7 @@
 {
+  "extends": "../../../../tsconfig.web.json",
   "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "noEmit": true,
-    "skipLibCheck": true,
-    "strict": true,
-    "target": "ESNext"
+    "noEmit": true
   },
   "include": ["notifications.ts"]
 }

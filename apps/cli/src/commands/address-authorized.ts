@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
-import { BaseCommand } from "../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class AddressAuthorized extends BaseCommand {
   static description = `Check if a wallet address is authorized for an inbox.

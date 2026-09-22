@@ -1,4 +1,4 @@
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class PreferencesSync extends BaseCommand {
   static description = `Sync preferences from the network.

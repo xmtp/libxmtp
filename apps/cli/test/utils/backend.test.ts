@@ -6,7 +6,7 @@ import {
   defaultDbPath,
   parseBackendUrl,
   parseEnvironmentLabel,
-} from "../../src/utils/backend.js";
+} from "@/utils/backend";
 
 describe("backend utilities", () => {
   it.each([

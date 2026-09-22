@@ -1,4 +1,4 @@
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsSync extends BaseCommand {
   static description = `Sync conversations from the network.

@@ -1,5 +1,5 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ClientRevokeAllOtherInstallations extends BaseCommand {
   static description = `Revoke all other installations from the client's inbox.

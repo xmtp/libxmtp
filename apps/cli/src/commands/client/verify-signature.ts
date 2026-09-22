@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ClientVerifySignature extends BaseCommand {
   static description = `Verify a signature created with an installation key.

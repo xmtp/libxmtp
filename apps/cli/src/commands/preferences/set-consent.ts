@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
 import { ConsentEntityType } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
-import { consentStateMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { consentStateMap } from "@/utils/enums";
 
 export default class PreferencesSetConsent extends BaseCommand {
   static description = `Set consent state for an entity.

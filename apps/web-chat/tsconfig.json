@@ -1,20 +1,14 @@
 {
+  "extends": "../../tsconfig.web.json",
   "compilerOptions": {
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
     "jsx": "react-jsx",
     "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
     "noEmit": true,
     "paths": {
       "@/*": ["./src/*"]
     },
     "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "sourceMap": true,
-    "strict": true,
-    "target": "ESNext"
+    "sourceMap": true
   },
   "include": ["src", "vite.config.ts", "postcss.config.cjs"],
   "exclude": ["dist", "node_modules"]

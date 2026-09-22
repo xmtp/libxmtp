@@ -4,8 +4,8 @@ import {
   PermissionPolicy,
   PermissionUpdateType,
 } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
-import { requireGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { requireGroup } from "@/utils/conversation";
 
 const PERMISSION_UPDATE_TYPES = {
   "add-member": PermissionUpdateType.AddMember,

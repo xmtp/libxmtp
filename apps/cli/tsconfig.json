@@ -1,18 +1,21 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.node.json",
   "compilerOptions": {
+    "isolatedModules": false,
+    "target": "ESNext",
+    "lib": ["ESNext"],
     "noEmit": true,
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "target": "ES2022",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true,
-    "resolveJsonModule": true,
-    "lib": ["ES2022"],
-    "types": ["node"]
+    "rootDirs": ["src"],
+    "outDir": "dist",
+    "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src/**/*", "test/**/*", "vitest.config.ts", "vitest.setup.ts"],
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "tsdown.config.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

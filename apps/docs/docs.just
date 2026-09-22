@@ -40,6 +40,9 @@ test:
 test-browser:
     pnpm --filter @xmtp/docs run test:browser
 
+typecheck: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run typecheck
+
 compose:
     node scripts/compose.mjs
 

@@ -1,7 +1,7 @@
 import { Flags } from "@oclif/core";
 import { type ConsentState } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
-import { consentStateMap } from "../../utils/enums.js";
+import { BaseCommand } from "@/baseCommand";
+import { consentStateMap } from "@/utils/enums";
 
 export default class ConversationsSyncAll extends BaseCommand {
   static description = `Sync all conversations and messages from the network.

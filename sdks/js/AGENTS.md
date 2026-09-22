@@ -35,6 +35,9 @@ tasks. Recursive SDK commands select only `sdks/js/*`; they do not build the
 binding packages. Do not use `--parallel` or `--no-sort`, because either option
 can bypass task dependencies.
 
+SDK packages build with tsdown. Use `pnpm build` for one build and `pnpm dev`
+to run tsdown in watch mode from an SDK package.
+
 ## Gotchas
 
 - Tests require `XMTP_BACKEND_URL`. The `just js` recipes load this worktree's value.

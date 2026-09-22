@@ -1,26 +1,21 @@
 {
+  "extends": "../../../tsconfig.node.json",
   "compilerOptions": {
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "isolatedModules": false,
     "noEmit": true,
     "paths": {
       "@/*": ["./src/*"],
       "@test/*": ["./test/*"]
     },
     "preserveConstEnums": true,
-    "skipLibCheck": true,
     "sourceMap": true,
-    "strict": true,
-    "target": "ESNext",
-    "types": ["vitest/globals"]
+    "types": ["node", "vitest/globals"]
   },
   "include": [
-    "rollup.config.js",
     "scripts/**/*",
     "src/**/*",
     "test/**/*",
+    "tsdown.config.ts",
     "vitest.config.ts",
     "vitest.setup.ts"
   ]

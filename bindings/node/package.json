@@ -34,7 +34,8 @@
     "lint:fmt": "cargo fmt --check",
     "lint:rust": "pnpm lint:clippy && pnpm lint:fmt",
     "test": "pnpm build:clean && pnpm build:test && pnpm build:finish && vitest run",
-    "test:clean": "rm -rf test/*.db3*"
+    "test:clean": "rm -rf test/*.db3*",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
     "@ianvs/prettier-plugin-sort-imports": "catalog:",

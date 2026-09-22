@@ -1,6 +1,6 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { createEOASigner } from "../../utils/client.js";
+import { BaseCommand } from "@/baseCommand";
+import { createEOASigner } from "@/utils/client";
 
 export default class ClientAddAccount extends BaseCommand {
   static description = `Add a new account (wallet) to the client's inbox.

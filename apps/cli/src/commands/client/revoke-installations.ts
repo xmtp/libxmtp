@@ -1,6 +1,6 @@
 import { Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { hexToBytes } from "../../utils/client.js";
+import { BaseCommand } from "@/baseCommand";
+import { hexToBytes } from "@/utils/client";
 
 export default class ClientRevokeInstallations extends BaseCommand {
   static description = `Revoke specific installations from the client's inbox.

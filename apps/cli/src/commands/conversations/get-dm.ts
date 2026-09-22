@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
 import { IdentifierKind } from "@xmtp/node-sdk";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsGetDm extends BaseCommand {
   static description = `Get a DM conversation by address or inbox ID.

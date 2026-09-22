@@ -1,5 +1,5 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class PreferencesInboxStates extends BaseCommand {
   static description = `Get cached inbox states for specified inbox IDs.

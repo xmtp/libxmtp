@@ -10,6 +10,9 @@ on:
     paths:
       - "apps/docs/**"
       - "docs/**"
+      - "tsconfig.base.json"
+      - "tsconfig.node.json"
+      - "tsconfig.web.json"
       - "sdks/js/**"
       - "bindings/node/**"
       - "bindings/wasm/**"

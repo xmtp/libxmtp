@@ -1,5 +1,5 @@
 import { Args, Flags } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
+import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSendReadReceipt extends BaseCommand {
   static description = `Send a read receipt for a conversation.

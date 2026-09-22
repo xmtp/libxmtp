@@ -1,6 +1,6 @@
 import { Args } from "@oclif/core";
-import { BaseCommand } from "../../baseCommand.js";
-import { requireGroup } from "../../utils/conversation.js";
+import { BaseCommand } from "@/baseCommand";
+import { requireGroup } from "@/utils/conversation";
 
 export default class ConversationUpdateName extends BaseCommand {
   static description = `Update the name of a group conversation.
