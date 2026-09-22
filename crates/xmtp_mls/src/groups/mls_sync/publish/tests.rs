@@ -522,6 +522,55 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch() -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![bo.inbox_id().to_string()],
+            vec![],
+        ))?)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(proposal.id).await?;
+    let intent = QueueIntent::commit_pending_proposals().queue(&group)?;
+    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let intent = Fetch::<StoredGroupIntent>::fetch(&storage.db(), &intent.id)?
+                .ok_or(GroupError::UninitializedResult)?;
+            PublishRequirements::capture(mls, &intent).map(Continue)
+        })
+    })?
+    .into_continued();
+    let mut dependencies = group.resolve_publish_dependencies(&requirements).await?;
+    let original = group.with_group_snapshot(PreparedBase::capture)?;
+    let reference = group.with_group_snapshot(|mls| {
+        let pending = mls.pending_proposals().collect::<Vec<_>>();
+        assert!(pending.len() >= 2);
+        Ok(pending[0].proposal_reference_ref().clone())
+    })?;
+    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            mls.remove_pending_proposal(storage, &reference).unwrap();
+            Ok::<_, GroupError>(Continue(()))
+        })
+    })?;
+    let changed = group.with_group_snapshot(PreparedBase::capture)?;
+    assert_eq!(changed.epoch, original.epoch);
+    assert_eq!(changed.authenticator, original.authenticator);
+    assert_ne!(changed, original);
+    assert!(matches!(
+        group.prepare_publish_attempt(&requirements, &mut dependencies),
+        Err(GroupError::OutgoingPreparation(
+            OutgoingPreparationError::StateChanged
+        ))
+    ));
+    assert_eq!(group.with_group_snapshot(PreparedBase::capture)?, changed);
+    assert!(group.context.db().prepared_envelopes(intent.id)?.is_none());
+    Ok(())
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn preparation_fences_a_second_snapshot_of_the_same_intent() {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
