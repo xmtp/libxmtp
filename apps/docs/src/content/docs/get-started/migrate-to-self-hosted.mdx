@@ -17,27 +17,27 @@ React Native is not included in this repository's self-hosted SDKs.
 ## Published dev releases for testing
 
 Use these published dev releases to test with a self-hosted backend. They are
-from [release run 35656273584](https://github.com/xmtp/libxmtp/actions/runs/35656273584)
-on `self-hosted`, at commit `4b7b477`. Pin these versions instead of using an
+from [release run 35742600105](https://github.com/xmtp/libxmtp/actions/runs/35742600105)
+at commit `9f72722` on `nm/sdk-recovery`. Pin these versions instead of using an
 unversioned install or a moving `dev` tag.
 
 | SDK     | Package or dependency         | Dev version                                                                                                                   |
 | ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.4b7b477)                                           |
-| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.4b7b477)                                              |
-| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.4b7b477](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.4b7b477)                                             |
-| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.4b7b477](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.4b7b477/android-4.12.0-dev.4b7b477.pom) |
-| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.4b7b477](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.4b7b477)                                     |
+| Browser | `@xmtp/browser-sdk`           | [7.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/browser-sdk/7.2.0-dev.9f72722)                                           |
+| Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
+| Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
+| Kotlin  | `org.xmtp:android`            | [4.12.0-dev.9f72722](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.9f72722/android-4.12.0-dev.9f72722.pom) |
+| Swift   | `XMTPiOS` from `xmtp/libxmtp` | [4.12.0-dev.9f72722](https://github.com/xmtp/libxmtp/releases/tag/ios-4.12.0-dev.9f72722)                                     |
 
 For example, install Node with
-`npm install @xmtp/node-sdk@6.2.0-dev.4b7b477`. For Kotlin, use
-`implementation("org.xmtp:android:4.12.0-dev.4b7b477")`. For Swift Package Manager,
-select the exact revision `ios-4.12.0-dev.4b7b477` from
+`npm install @xmtp/node-sdk@6.2.0-dev.9f72722`. For Kotlin, use
+`implementation("org.xmtp:android:4.12.0-dev.9f72722")`. For Swift Package Manager,
+select the exact revision `ios-4.12.0-dev.9f72722` from
 `https://github.com/xmtp/libxmtp.git` and add the `XMTPiOS` product. That release
 includes a manifest that downloads its matching native binaries.
 
 Node and Browser depend on matching `@xmtp/node-bindings` and
-`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.4b7b477`. Let the SDK
+`@xmtp/wasm-bindings` versions, respectively: `1.12.0-dev.9f72722`. Let the SDK
 install these dependencies; do not replace them with bindings from `main`.
 
 ## Migration order
