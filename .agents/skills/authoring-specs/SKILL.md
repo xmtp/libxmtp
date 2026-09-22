@@ -10,7 +10,7 @@ Read `docs/specs/SPEC-spec-format.md` first: it is the rules, this skill is the 
 ## Sources
 
 1. The skeleton for this prefix, `docs/specs/README.md`, and `docs/specs/GLOSSARY.md`.
-2. The superseded spec named in the skeleton, the XIPs it cites (copies in `docs/legacy-specs/`), and its code anchors. Code is evidence of current behaviour, not authority for intended behaviour; XIPs have no authority of their own. When sources disagree, write the intended behaviour and record the disagreement.
+2. The superseded spec named in the skeleton, read from git history if it is deleted, the XIPs it cites, and its code anchors. Code is evidence of current behaviour, not authority for intended behaviour; XIPs have no authority of their own. When sources disagree, write the intended behaviour and record the disagreement.
 3. The sections of RFC 9420 and of any other standard the legacy spec or the code relies on. You will cite them by section (SPEC-074).
 4. `just spec-index`, for obligations that already exist. Reference them by ID; never restate them.
 

@@ -181,8 +181,8 @@ for configuration, metrics, traces, alerts, and the end-to-end check.
 
 #### 4.7: Push Subscriptions
 
-Status: complete. Spec `docs/legacy-specs/005_push_subscriptions.md`, approved
-2026-09-14. Delivered as a five-pull-request stack (#4119 to #4124).
+Status: complete. Spec `005_push_subscriptions.md` (since deleted; see git
+history), approved 2026-09-14. Delivered as a five-pull-request stack (#4119 to #4124).
 
 - Backend registration API and storage for push recipients and subscriptions.
 - A dispatcher that delivers signed HTTPS webhooks, plus direct APNs and FCM

@@ -398,7 +398,7 @@ CREATE INDEX idx_group_messages_expire_at_ns ON group_messages(expire_at_ns) WHE
 
 -- What the backend this database is bound to published about itself, and the
 -- URL that copy came from. One row: the client holds one snapshot. See
--- docs/legacy-specs/006_server_configuration.md section 6.2.
+-- docs/specs/CONF-backend-configuration.md.
 CREATE TABLE server_configuration (
     id INTEGER PRIMARY KEY NOT NULL DEFAULT 0 CHECK (id = 0),
     -- The deployment's stable name. The binding is on this, not on the URL.
