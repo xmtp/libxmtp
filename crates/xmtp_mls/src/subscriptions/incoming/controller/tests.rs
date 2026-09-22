@@ -1128,6 +1128,29 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
         stream.recovery_snapshot().terminal,
         Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
     ));
+    assert!(controller.receipt(&topic).blocked());
+    let joining = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .targets
+        .insert(topic.clone(), Cursor(1));
+    controller.start_read();
+    assert!(controller.read.is_none());
+    assert!(matches!(
+        joining.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
+    ));
     // Even after the retry delay, the same durable cursor must not send the
     // rejected Query again. The actor can still serve a changed request.
     let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
@@ -1159,6 +1182,12 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
         .unwrap()
         .topics
         .insert(topic.clone());
+    recreated
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .targets
+        .insert(topic.clone(), Cursor(1));
     recreated.read_queue.push_back(topic.clone());
     recreated.start_read();
     assert!(recreated.read.is_none());
@@ -1170,6 +1199,99 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
         panic!("the retained Query cause must terminate the fresh reader");
     };
     assert!(Arc::ptr_eq(&cause, &retained));
+}
+
+// verifies: API-284, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_fallback_query_does_not_end_a_covered_fresh_stream() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let original = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&original.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("query")),
+    )));
+    controller.read_finished((topic.clone(), Some(Cursor(0)), Err(error)));
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&fresh.id).unwrap();
+    scope.topics.insert(topic.clone());
+    scope.targets.insert(topic.clone(), Cursor(0));
+    controller.start_read();
+    assert!(controller.read.is_none());
+    assert!(fresh.recovery_snapshot().terminal.is_none());
+    assert_eq!(controller.receipt(&topic).rejected_at, Some(Cursor(0)));
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
+    )));
+    controller.read_finished((topic.clone(), Some(Cursor(0)), Err(error)));
+    assert!(controller.receipt(&topic).blocked());
+
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .incoming_limits(NetworkEntityKind::Group);
+    MlsStore::new(controller.context.clone()).admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: vec![wire::ServerEnvelope {
+                meta: Some(meta(&topic, 1)),
+                envelope: Some(wire::ClientEnvelope::default()),
+            }],
+        },
+        limits,
+    )?;
+    assert_eq!(
+        controller
+            .context
+            .db()
+            .topic_progress(&topic_key(&topic)?)?
+            .received,
+        Cursor(1)
+    );
+    controller.start_read();
+    assert_eq!(controller.receipt(&topic).rejected_at, None);
+    assert!(!controller.receipt(&topic).blocked());
 }
 
 // verifies: API-284

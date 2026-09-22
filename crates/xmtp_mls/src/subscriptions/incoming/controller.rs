@@ -943,10 +943,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 break;
             };
             self.read_queue.push_back(topic.clone());
-            if self.receipt(&topic).paused
-                || self.receipt(&topic).blocked()
-                || self.is_retired(&topic)
-            {
+            if self.receipt(&topic).paused || self.is_retired(&topic) {
                 continue;
             }
             let key = match topic_key(&topic) {
@@ -962,6 +959,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .lock()
                 .iter()
                 .any(|(request, _)| matches!(request, RequestKey::Query(rejected, _) if rejected == &topic));
+            let mut rejected_cause = None;
+            let mut rejected_cursor = None;
             if rejected_at.is_some() || has_rejected_query {
                 let current = match self.context.db().topic_progress(&key) {
                     Ok(progress) => progress.received,
@@ -970,17 +969,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         continue;
                     }
                 };
-                let cause = self
+                rejected_cause = self
                     .rejected_requests
                     .lock()
                     .iter()
                     .find(|(request, _)| request == &RequestKey::Query(topic.clone(), current))
                     .map(|(_, cause)| cause.clone());
-                if let Some(cause) = cause {
-                    self.apply_rejected_query(&topic, current, cause);
-                    continue;
-                }
-                if rejected_at.is_some() {
+                rejected_cursor = Some(current);
+                if rejected_cause.is_none() && rejected_at.is_some() {
                     self.topics
                         .entry(topic.clone())
                         .or_default()
@@ -989,6 +985,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     self.clear_receipt_failure(&topic);
                 }
             }
+            if self.receipt(&topic).blocked() && rejected_cause.is_none() {
+                continue;
+            }
             match self.read_due(&topic, &key, now) {
                 Ok(true) => {}
                 Ok(false) => continue,
@@ -996,6 +995,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     self.topic_error(topic, error);
                     continue;
                 }
+            }
+            if let Some(cause) = rejected_cause {
+                self.apply_rejected_query(&topic, rejected_cursor.expect("rejected cursor"), cause);
+                continue;
+            }
+            if self.receipt(&topic).blocked() {
+                continue;
             }
             self.topics
                 .entry(topic.clone())
