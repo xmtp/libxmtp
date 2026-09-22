@@ -43,12 +43,12 @@ describe("worker strict delivery enrichment", () => {
         reject: vi.fn(),
       };
       const cursor = { databaseId: new Uint8Array(16), deliverySequence: 1n };
-      const item = { acknowledgement, cursor, free: vi.fn() };
+      const item = { acknowledgement, cursor, message, free: vi.fn() };
       const reader = {
         nextDelivery: vi.fn(async () => item),
         close: vi.fn(),
       };
-      const lookup = vi.fn();
+      const lookup = vi.fn(async () => undefined);
       mocks.create.mockResolvedValue({
         conversations: { messageReader: () => reader, getMessageById: lookup },
         close: vi.fn(async () => {}),
@@ -56,9 +56,6 @@ describe("worker strict delivery enrichment", () => {
       await send("client.init", { identifier: {} });
       await send("messageReader.open", { readerId: "reader" });
       await send("messageReader.next", { readerId: "reader" });
-      expect(acknowledgement.enrichedMessage).toHaveBeenCalledOnce();
-      expect(lookup).not.toHaveBeenCalled();
-      expect(item.free).toHaveBeenCalledOnce();
       const response = worker.postMessage.mock.lastCall?.[0];
       if (outcome === "storage") {
         expect(response.error).toBe(cause);
@@ -69,6 +66,9 @@ describe("worker strict delivery enrichment", () => {
         );
         expect(response.result.cursor).toBe(cursor);
       }
+      expect(acknowledgement.enrichedMessage).toHaveBeenCalledOnce();
+      expect(lookup).not.toHaveBeenCalled();
+      expect(item.free).toHaveBeenCalledOnce();
       await send("messageReader.close", { readerId: "reader" });
       expect(reader.close).toHaveBeenCalledOnce();
       expect(acknowledgement.free).toHaveBeenCalledOnce();
