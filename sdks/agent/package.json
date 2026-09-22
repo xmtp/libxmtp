@@ -77,7 +77,6 @@
   "dependencies": {
     "@xmtp/content-type-primitives": "catalog:",
     "@xmtp/node-sdk": "workspace:*",
-    "ts-retry-promise": "^0.8.1",
     "viem": "catalog:"
   },
   "devDependencies": {

@@ -32,6 +32,29 @@ subscriber does not export traces. Chaos children export service `xmtp-chaos`,
 sample ratio `1.0`, and resource attributes `xmtp.chaos.run` and
 `xmtp.chaos.instance`. Other SDK hosts normally use `libxmtp`.
 
+## Trace Agent startup and recovery
+
+`Agent.reconnect.test.ts` can export the Agent SDK call path:
+
+```sh
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && XMTP_RECOVERY_TRACE_ENDPOINT="http://127.0.0.1:${XMTP_OTLP_GRPC_PORT}" XMTP_RECOVERY_TRACE_RUN="agent-recovery-local" just js test-agent-sdk-ci src/core/Agent.reconnect.test.ts'
+```
+
+Run this fault suite alone. Use a unique run label and a bounded time range:
+
+```traceql
+{ resource.service.name = "xmtp-agent-recovery" && resource.xmtp.recovery.run = "agent-recovery-local" }
+```
+
+If startup fails, inspect `sync_welcomes` and its transport spans. A barrier
+deadline with a null target can mean that target capture failed before a native
+stream opened. This differs from an active stream exhausting its recovery
+budget. Agent startup skips this separate sync by default. An explicit
+`disableSync: false` still requests it.
+
+The first client sets logging for its process. These resource attributes identify
+the test process, not one SDK client. The test flushes telemetry after cleanup.
+
 ## Search, then fetch one trace
 
 Run this block from the repository root. It returns at most five trace IDs.

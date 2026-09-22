@@ -45,7 +45,6 @@ import {
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
-import { retry } from "ts-retry-promise";
 
 import { filter } from "@/core/filter";
 import { getInstallationInfo } from "@/debug";
@@ -235,9 +234,11 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
   };
   #isLocked: boolean = false;
-  #isRestarting: boolean = false;
-  #stopped: boolean = false;
-  #streamOptions?: AgentStreamingOptions;
+  #streamGeneration = 0;
+  #closingStreams?: Promise<void>;
+  #openingStream?: Promise<
+    ConversationStream<ContentTypes> | MessageStream<ContentTypes>
+  >;
 
   /** Wrap an existing client without starting streams. */
   constructor({ client }: AgentOptions<ContentTypes>) {
@@ -364,186 +365,216 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   }
 
   async #stopStreams() {
+    // Detach before awaiting close. Old cleanup cannot clear a new stream.
+    const conversations = this.#conversationsStream;
+    const messages = this.#messageStream;
+    const opening = this.#openingStream;
+    this.#conversationsStream = undefined;
+    this.#messageStream = undefined;
+    this.#openingStream = undefined;
+    const previous = this.#closingStreams;
+    const closing = (async () => {
+      const results = await Promise.allSettled([
+        previous,
+        Promise.resolve().then(() => conversations?.end()),
+        Promise.resolve().then(() => messages?.end()),
+        opening?.then((stream) => stream.end()),
+      ]);
+      for (const result of results) {
+        if (result.status === "rejected") throw result.reason;
+      }
+    })();
+    this.#closingStreams = closing;
     try {
-      await this.#conversationsStream?.end();
+      await closing;
     } finally {
-      this.#conversationsStream = undefined;
+      if (this.#closingStreams === closing) this.#closingStreams = undefined;
     }
+  }
 
+  /** End this stream generation. Only an explicit start opens a new budget. */
+  async #handleStreamError(error: unknown, generation: number) {
+    if (generation !== this.#streamGeneration) return;
+    const stoppedGeneration = ++this.#streamGeneration;
+    this.#isLocked = true;
     try {
-      await this.#messageStream?.end();
-    } finally {
-      this.#messageStream = undefined;
+      await this.#stopStreams();
+    } catch {
+      // Keep the stream failure as the cause presented to the application.
     }
+    if (stoppedGeneration !== this.#streamGeneration) return;
+    this.#isLocked = false;
+    // Error middleware can explicitly start a fresh generation here. A
+    // handled error alone does not silently renew an exhausted retry budget.
+    await this.#runErrorChain(error, { client: this.#client });
   }
 
-  /**
-   * Closes all existing streams and restarts with exponential backoff.
-   */
-  async #handleStreamError(error: unknown) {
-    if (this.#isRestarting) return;
-    this.#isRestarting = true;
-
-    await this.#stopStreams();
-
-    const recovered = await this.#runErrorChain(error, {
-      client: this.#client,
-    });
-
-    if (recovered && !this.#stopped) {
-      await this.#retryStreams();
-      this.emit("start", new ClientContext({ client: this.#client }));
-      this.#isLocked = false;
-    } else {
-      this.#isLocked = false;
-    }
-
-    this.#isRestarting = false;
-  }
-
-  async #retryStreams() {
-    return retry(
-      async () => {
-        await this.#stopStreams();
-        await this.#setupStreams(this.#streamOptions);
-      },
-      {
-        retries: 10,
-        delay: 1000,
-        backoff: "EXPONENTIAL",
-        maxBackOff: 30_000,
-        timeout: "INFINITELY",
-        retryIf: () => !this.#stopped,
-      },
-    );
-  }
-
-  async #setupStreams(options?: AgentStreamingOptions) {
-    this.#conversationsStream = await this.#client.conversations.stream({
-      ...options,
-      onValue: async (conversation) => {
-        try {
-          if (!conversation) {
-            return;
-          }
-          this.emit(
-            "conversation",
-            new ConversationContext<ContentTypes, Conversation<ContentTypes>>({
-              conversation,
-              client: this.#client,
-            }),
-          );
-          if (conversation instanceof Group) {
+  async #setupStreams(generation: number, options?: AgentStreamingOptions) {
+    const isCurrent = () => generation === this.#streamGeneration;
+    // Record the open before it can invoke a callback. Cleanup owns its result.
+    const openingConversations = Promise.resolve().then(() =>
+      this.#client.conversations.stream({
+        ...options,
+        // Start the native recovery budget before any network operation.
+        disableSync: options?.disableSync ?? true,
+        onValue: async (conversation) => {
+          if (!isCurrent()) return;
+          try {
+            if (!conversation) {
+              return;
+            }
             this.emit(
-              "group",
-              new ConversationContext<ContentTypes, Group<ContentTypes>>({
-                conversation,
-                client: this.#client,
-              }),
+              "conversation",
+              new ConversationContext<ContentTypes, Conversation<ContentTypes>>(
+                {
+                  conversation,
+                  client: this.#client,
+                },
+              ),
             );
-          } else if (conversation instanceof Dm) {
-            this.emit(
-              "dm",
-              new ConversationContext<ContentTypes, Dm<ContentTypes>>({
-                conversation,
-                client: this.#client,
-              }),
+            if (conversation instanceof Group) {
+              this.emit(
+                "group",
+                new ConversationContext<ContentTypes, Group<ContentTypes>>({
+                  conversation,
+                  client: this.#client,
+                }),
+              );
+            } else if (conversation instanceof Dm) {
+              this.emit(
+                "dm",
+                new ConversationContext<ContentTypes, Dm<ContentTypes>>({
+                  conversation,
+                  client: this.#client,
+                }),
+              );
+            }
+          } catch (error) {
+            const recovered = await this.#runErrorChain(
+              new AgentError(
+                1001,
+                "Emitted value from conversation stream caused an error.",
+                error,
+              ),
+              new ClientContext({ client: this.#client }),
             );
+            if (!recovered && isCurrent()) await this.stop();
           }
-        } catch (error) {
-          const recovered = await this.#runErrorChain(
-            new AgentError(
-              1001,
-              "Emitted value from conversation stream caused an error.",
+        },
+        onError: async (error) => {
+          await this.#handleStreamError(
+            new AgentStreamingError(
+              1002,
+              "Error occurred during conversation streaming.",
               error,
             ),
-            new ClientContext({ client: this.#client }),
+            generation,
           );
-          if (!recovered) await this.stop();
-        }
-      },
-      onError: async (error) => {
-        await this.#handleStreamError(
-          new AgentStreamingError(
-            1002,
-            "Error occurred during conversation streaming.",
-            error,
-          ),
-        );
-      },
-    });
+        },
+      }),
+    );
+    this.#openingStream = openingConversations;
+    const conversations = await openingConversations;
+    if (!isCurrent()) return false;
+    this.#conversationsStream = conversations;
+    this.#openingStream = undefined;
 
-    this.#messageStream = await this.#client.conversations.streamAllMessages({
-      ...options,
-      onValue: async (message) => {
-        try {
-          switch (true) {
-            case isActions(message):
-              await this.#processMessage(message, "actions");
-              break;
-            case isAttachment(message):
-              await this.#processMessage(message, "inline-attachment");
-              break;
-            case isIntent(message):
-              await this.#processMessage(message, "intent");
-              break;
-            case isGroupUpdated(message):
-              await this.#processMessage(message, "group-update");
-              break;
-            case isLeaveRequest(message):
-              await this.#processMessage(message, "leave-request");
-              break;
-            case isMultiRemoteAttachment(message):
-              await this.#processMessage(message, "multi-attachment");
-              break;
-            case isRemoteAttachment(message):
-              await this.#processMessage(message, "attachment");
-              break;
-            case isReaction(message):
-              await this.#processMessage(message, "reaction");
-              break;
-            case isReadReceipt(message):
-              await this.#processMessage(message, "read-receipt");
-              break;
-            case isReply(message):
-              await this.#processMessage(message, "reply");
-              break;
-            case isTransactionReference(message):
-              await this.#processMessage(message, "transaction-reference");
-              break;
-            case isWalletSendCalls(message):
-              await this.#processMessage(message, "wallet-send-calls");
-              break;
-            case isMarkdown(message):
-              await this.#processMessage(message, "markdown");
-              break;
-            case isText(message):
-              await this.#processMessage(message, "text");
-              break;
-            default:
-              await this.#processMessage(message);
-              break;
+    const openingMessages = Promise.resolve().then(() =>
+      this.#client.conversations.streamAllMessages({
+        ...options,
+        onValue: async (message) => {
+          if (!isCurrent()) return;
+          try {
+            switch (true) {
+              case isActions(message):
+                await this.#processMessage(message, isCurrent, "actions");
+                break;
+              case isAttachment(message):
+                await this.#processMessage(
+                  message,
+                  isCurrent,
+                  "inline-attachment",
+                );
+                break;
+              case isIntent(message):
+                await this.#processMessage(message, isCurrent, "intent");
+                break;
+              case isGroupUpdated(message):
+                await this.#processMessage(message, isCurrent, "group-update");
+                break;
+              case isLeaveRequest(message):
+                await this.#processMessage(message, isCurrent, "leave-request");
+                break;
+              case isMultiRemoteAttachment(message):
+                await this.#processMessage(
+                  message,
+                  isCurrent,
+                  "multi-attachment",
+                );
+                break;
+              case isRemoteAttachment(message):
+                await this.#processMessage(message, isCurrent, "attachment");
+                break;
+              case isReaction(message):
+                await this.#processMessage(message, isCurrent, "reaction");
+                break;
+              case isReadReceipt(message):
+                await this.#processMessage(message, isCurrent, "read-receipt");
+                break;
+              case isReply(message):
+                await this.#processMessage(message, isCurrent, "reply");
+                break;
+              case isTransactionReference(message):
+                await this.#processMessage(
+                  message,
+                  isCurrent,
+                  "transaction-reference",
+                );
+                break;
+              case isWalletSendCalls(message):
+                await this.#processMessage(
+                  message,
+                  isCurrent,
+                  "wallet-send-calls",
+                );
+                break;
+              case isMarkdown(message):
+                await this.#processMessage(message, isCurrent, "markdown");
+                break;
+              case isText(message):
+                await this.#processMessage(message, isCurrent, "text");
+                break;
+              default:
+                await this.#processMessage(message, isCurrent);
+                break;
+            }
+          } catch (error) {
+            const recovered = await this.#runErrorChain(error, {
+              client: this.#client,
+            });
+            if (!recovered && isCurrent()) {
+              await this.stop();
+            }
           }
-        } catch (error) {
-          const recovered = await this.#runErrorChain(error, {
-            client: this.#client,
-          });
-          if (!recovered) {
-            await this.stop();
-          }
-          this.#isLocked = false;
-        }
-      },
-      onError: async (error) => {
-        await this.#handleStreamError(
-          new AgentStreamingError(
-            1004,
-            "Error occurred during message streaming.",
-            error,
-          ),
-        );
-      },
-    });
+        },
+        onError: async (error) => {
+          await this.#handleStreamError(
+            new AgentStreamingError(
+              1004,
+              "Error occurred during message streaming.",
+              error,
+            ),
+            generation,
+          );
+        },
+      }),
+    );
+    this.#openingStream = openingMessages;
+    const messages = await openingMessages;
+    if (!isCurrent()) return false;
+    this.#messageStream = messages;
+    this.#openingStream = undefined;
+    return true;
   }
 
   /** Start conversation and message streams. Calling this while running is a no-op. */
@@ -551,14 +582,17 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     if (this.#isLocked || this.#conversationsStream || this.#messageStream)
       return;
 
-    this.#stopped = false;
-    this.#streamOptions = options;
+    const generation = ++this.#streamGeneration;
     this.#isLocked = true;
 
     try {
-      await this.#setupStreams(options);
-      this.emit("start", new ClientContext({ client: this.#client }));
-      this.#isLocked = false;
+      if (
+        (await this.#setupStreams(generation, options)) &&
+        generation === this.#streamGeneration
+      ) {
+        this.#isLocked = false;
+        this.emit("start", new ClientContext({ client: this.#client }));
+      }
     } catch (error) {
       await this.#handleStreamError(
         new AgentStreamingError(
@@ -566,12 +600,14 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           "Error occurred during stream setup.",
           error,
         ),
+        generation,
       );
     }
   }
 
   async #processMessage(
     message: DecodedMessage<ContentTypes>,
+    isCurrent: () => boolean,
     topic: EventName<ContentTypes> = "unknownMessage",
   ) {
     // Skip messages with undefined content (failed to decode)
@@ -587,6 +623,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const conversation = await this.#client.conversations.getConversationById(
       message.conversationId,
     );
+    if (!isCurrent()) return;
 
     if (!conversation) {
       throw new AgentError(
@@ -710,14 +747,15 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   /** Stop both streams and emit the `stop` event. Calling this is safe repeatedly. */
   async stop() {
-    this.#stopped = true;
+    const generation = ++this.#streamGeneration;
     this.#isLocked = true;
 
-    await this.#stopStreams();
-
+    try {
+      await this.#stopStreams();
+    } finally {
+      if (generation === this.#streamGeneration) this.#isLocked = false;
+    }
     this.emit("stop", new ClientContext({ client: this.#client }));
-
-    this.#isLocked = false;
   }
 
   /** Create a DM with an Ethereum address. The address is converted to an identifier. */

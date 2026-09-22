@@ -1,7 +1,12 @@
+import { Group } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 import { filter } from "@/core/filter";
-import { createClient, TestCodec } from "@/util/test";
+import {
+  createClient,
+  createConversationAndWait,
+  TestCodec,
+} from "@/util/test";
 
 describe("Filters", () => {
   describe("fromSelf", () => {
@@ -90,10 +95,18 @@ describe("Filters", () => {
     it("should return true when sender is a group admin", async () => {
       const client = await createClient();
       const otherClient = await createClient();
-      const g = await client.conversations.createGroup([otherClient.inboxId]);
-      await g.addAdmin(otherClient.inboxId);
-      await otherClient.conversations.sync();
-      const group = otherClient.conversations.listGroups()[0]!;
+      const { created, received: group } = await createConversationAndWait(
+        otherClient,
+        async () => {
+          const created = await client.conversations.createGroup([
+            otherClient.inboxId,
+          ]);
+          await created.addAdmin(otherClient.inboxId);
+          return created;
+        },
+      );
+      expect(group).toBeInstanceOf(Group);
+      expect(group.id).toBe(created.id);
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[2]!;
@@ -104,9 +117,12 @@ describe("Filters", () => {
     it("should return false when sender is not a group admin", async () => {
       const client = await createClient();
       const otherClient = await createClient();
-      await client.conversations.createGroup([otherClient.inboxId]);
-      await otherClient.conversations.sync();
-      const group = otherClient.conversations.listGroups()[0]!;
+      const { created, received: group } = await createConversationAndWait(
+        otherClient,
+        () => client.conversations.createGroup([otherClient.inboxId]),
+      );
+      expect(group).toBeInstanceOf(Group);
+      expect(group.id).toBe(created.id);
       await group.sendText("Hello world");
       const messages = await group.messages();
       const message = messages[0]!;
