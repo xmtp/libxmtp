@@ -1,6 +1,11 @@
 server:
   http_listen_port: 3200
 
+backend_scheduler:
+  provider:
+    retention:
+      interval: 5m
+
 distributor:
   receivers:
     otlp:
@@ -30,5 +35,7 @@ metrics_generator:
 
 overrides:
   defaults:
+    compaction:
+      block_retention: 6h
     metrics_generator:
       processors: [service-graphs, span-metrics]

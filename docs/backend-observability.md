@@ -1,7 +1,8 @@
 # Backend observability
 
 The local stack contains `db`, `replica`, `backend`, `anvil`, `toxiproxy`,
-`tempo`, `prometheus`, and `grafana`. All local service data is temporary.
+`tempo`, `prometheus`, and `grafana`. Tempo stores local traces on disk. The
+other services use temporary storage.
 
 ```sh
 just backend up
@@ -16,6 +17,31 @@ and Grafana. Each assertion has a 60-second deadline. Failures name the assertio
 and exit non-zero. The amd64 backend image CI job runs the same check.
 
 ## Configuration
+
+### Local trace storage
+
+Tempo keeps trace blocks for six hours and checks retention every five minutes.
+Deletion is asynchronous. Block completion, queued work, and the unchanged
+one-hour compacted-block grace period can delay disk reclamation. Six hours is
+not an exact deletion deadline for each span.
+
+Each worktree uses its own Compose `tempo-data` named volume at `/var/tempo`.
+This is disk-backed storage, not tmpfs. There is no configured storage size or
+container memory limit. Large test runs can use the available Docker disk, so
+monitor free disk space. Trace sampling and ingestion limits are unchanged.
+
+The volume survives a normal restart, container recreation, `just backend down`,
+and `just backend db-down`. `just backend release` deletes it with the rest of
+this worktree's stack. It also frees the worktree's port slot. Use that command
+when you finish with a worktree; removing the checkout alone does not remove its
+Docker volume. Old traces cannot be recovered after the volume is deleted.
+
+When you first apply this change, recreate Tempo with `just backend up tempo`.
+This also runs the backend image build recipe. Recreation discards the old tmpfs
+trace history. Later recreations retain the named volume. A container restart
+alone does not change its storage mount.
+
+### Backend telemetry
 
 Set these keys in the backend TOML file. Unknown keys fail startup.
 
