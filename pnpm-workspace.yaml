@@ -1,7 +1,9 @@
 packages:
   - bindings/node
   - bindings/wasm
-  - sdks/js/*
+  - sdks/node
+  - sdks/browser
+  - sdks/agent
   - apps/cli
   - apps/web-chat
   - apps/docs

@@ -1,5 +1,5 @@
 {
-  "extends": "../../../../tsconfig.node.json",
+  "extends": "../../../dev/js/tsconfig.node.json",
   "compilerOptions": {
     "noEmit": true
   },

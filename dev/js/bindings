@@ -1,6 +1,6 @@
 #!/bin/bash
 # Build the test-utils JS bindings via Nix and populate bindings/<x>/dist so
-# the SDKs' portal: deps resolve real packages. 100% cache hit when the
+# the SDKs' workspace dependencies resolve real packages. Cache hit when the
 # node/wasm binding test jobs already built these.
 source "$(dirname "$0")/.setup"
 

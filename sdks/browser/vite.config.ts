@@ -5,11 +5,9 @@ import { defineConfig, mergeConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import { defineConfig as defineVitestConfig } from "vitest/config";
 
-// Repo root, three levels up from sdks/js/browser-sdk. @xmtp/wasm-bindings is a
-// Yarn `portal:` symlink into bindings/wasm, which lives outside the sdks/js
-// workspace root; Vite's dev server refuses to serve files outside its fs.allow
-// list, so the .wasm fetch fails without this. Allow the repo root.
-const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
+// Workspace-linked bindings live outside this package. Allow the repository
+// root so Vite can serve their WASM files.
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 // https://vitejs.dev/config/
 const viteConfig = defineConfig({

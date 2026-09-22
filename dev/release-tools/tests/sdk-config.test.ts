@@ -183,4 +183,16 @@ describe("SDK configs", () => {
       expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
     }
   });
+
+  it("uses the moved SDK directories", () => {
+    expect(getSdkConfig("browser-sdk").manifestPath).toBe(
+      "sdks/browser/package.json",
+    );
+    expect(getSdkConfig("node-sdk").manifestPath).toBe(
+      "sdks/node/package.json",
+    );
+    expect(getSdkConfig("agent-sdk").manifestPath).toBe(
+      "sdks/agent/package.json",
+    );
+  });
 });

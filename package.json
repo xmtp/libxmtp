@@ -4,11 +4,11 @@
   "type": "module",
   "scripts": {
     "build": "pnpm -r run build",
-    "format": "oxfmt --config .oxfmtrc.json --write .oxfmtrc.json .oxlintrc.json .vscode/extensions.json .vscode/settings.json .zed/settings.json package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node.json tsconfig.web.json && pnpm -r run format",
-    "format:check": "oxfmt --config .oxfmtrc.json --check .oxfmtrc.json .oxlintrc.json .vscode/extensions.json .vscode/settings.json .zed/settings.json package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.node.json tsconfig.web.json && pnpm -r run format:check",
+    "format": "oxfmt --config .oxfmtrc.json --write .oxfmtrc.json .oxlintrc.json .vscode/extensions.json .vscode/settings.json .zed/settings.json package.json pnpm-workspace.yaml dev/js/tsconfig.base.json dev/js/tsconfig.node.json dev/js/tsconfig.web.json && pnpm -r run format",
+    "format:check": "oxfmt --config .oxfmtrc.json --check .oxfmtrc.json .oxlintrc.json .vscode/extensions.json .vscode/settings.json .zed/settings.json package.json pnpm-workspace.yaml dev/js/tsconfig.base.json dev/js/tsconfig.node.json dev/js/tsconfig.web.json && pnpm -r run format:check",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
-    "test": "pnpm -r --filter './sdks/js/*' --filter './apps/*' --filter './dev/*' run test"
+    "test": "pnpm -r --filter './sdks/*' --filter './apps/*' --filter './dev/*' run test"
   },
   "devDependencies": {
     "oxfmt": "catalog:",

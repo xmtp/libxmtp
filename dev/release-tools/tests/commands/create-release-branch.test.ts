@@ -55,14 +55,14 @@ describe("create-release-branch", () => {
     );
 
     // Create JS SDK structures
-    fs.mkdirSync(path.join(tmpDir, "sdks/js/node-sdk"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "sdks/js/node-sdk/package.json"),
+      path.join(tmpDir, "sdks/node/package.json"),
       `{\n  "name": "@xmtp/node-sdk",\n  "version": "6.0.0"\n}\n`,
     );
-    fs.mkdirSync(path.join(tmpDir, "sdks/js/browser-sdk"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "sdks/browser"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
+      path.join(tmpDir, "sdks/browser/package.json"),
       `{\n  "name": "@xmtp/browser-sdk",\n  "version": "7.0.0"\n}\n`,
     );
     fs.mkdirSync(path.join(tmpDir, "apps/cli"), { recursive: true });
@@ -280,18 +280,12 @@ describe("create-release-branch", () => {
 
     // Check JS SDK versions were bumped off their own bases
     const nodeSdkPackageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "sdks/js/node-sdk/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "sdks/node/package.json"), "utf-8"),
     );
     expect(nodeSdkPackageJson.version).toBe("6.1.0");
 
     const browserSdkPackageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "sdks/browser/package.json"), "utf-8"),
     );
     expect(browserSdkPackageJson.version).toBe("7.0.1");
 
@@ -481,18 +475,12 @@ describe("create-release-branch", () => {
     expect(wasmPackageJson.version).toBe("2.0.0");
 
     const nodeSdkPackageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "sdks/js/node-sdk/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "sdks/node/package.json"), "utf-8"),
     );
     expect(nodeSdkPackageJson.version).toBe("7.0.0");
 
     const browserSdkPackageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "sdks/browser/package.json"), "utf-8"),
     );
     expect(browserSdkPackageJson.version).toBe("7.1.0");
 

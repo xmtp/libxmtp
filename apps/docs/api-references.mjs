@@ -4,11 +4,17 @@ import { createStarlightTypeDocPlugin } from "starlight-typedoc";
 
 import { validateTypeDoc } from "./scripts/typedoc-validation.mjs";
 
-const sdkRoot = new URL("../../sdks/js/", import.meta.url);
+const sdkRoot = new URL("../../sdks/", import.meta.url);
 
-function sdkReference(packageName, label, output, typeDoc = {}) {
+function sdkReference(
+  packageDirectory,
+  packageName,
+  label,
+  output,
+  typeDoc = {},
+) {
   const [plugin, sidebarGroup] = createStarlightTypeDocPlugin();
-  const packageRoot = new URL(`${packageName}/`, sdkRoot);
+  const packageRoot = new URL(`${packageDirectory}/`, sdkRoot);
 
   const entryPoints = [fileURLToPath(new URL("src/index.ts", packageRoot))];
   const tsconfig = fileURLToPath(new URL("tsconfig.json", packageRoot));
@@ -50,8 +56,8 @@ function sdkReference(packageName, label, output, typeDoc = {}) {
 }
 
 const references = [
-  sdkReference("node-sdk", "Node SDK", "node-sdk"),
-  sdkReference("browser-sdk", "Browser SDK", "browser-sdk", {
+  sdkReference("node", "node-sdk", "Node SDK", "node-sdk"),
+  sdkReference("browser", "browser-sdk", "Browser SDK", "browser-sdk", {
     // Worker implementation types are not package exports.
     intentionallyNotExported: [
       "WorkerConversation",
@@ -59,8 +65,8 @@ const references = [
       "ClientWorkerAction",
     ],
   }),
-  sdkReference("agent-sdk", "Agent SDK", "agent-sdk", {
-    exclude: [fileURLToPath(new URL("node-sdk/src/**", sdkRoot))],
+  sdkReference("agent", "agent-sdk", "Agent SDK", "agent-sdk", {
+    exclude: [fileURLToPath(new URL("node/src/**", sdkRoot))],
   }),
 ];
 

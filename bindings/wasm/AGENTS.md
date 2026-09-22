@@ -1,6 +1,6 @@
 # bindings_wasm
 
-wasm-bindgen bindings for browsers. Feeds `sdks/js/browser-sdk`.
+wasm-bindgen bindings for browsers. Feeds `sdks/browser`.
 
 ## Commands
 

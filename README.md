@@ -201,11 +201,15 @@ protocol buffers
 
 ├ sdks/
 
+│ ├ [`agent`](./sdks/agent): Agent SDK (TypeScript)
+
 │ ├ [`android`](./sdks/android): Android SDK (Kotlin)
+
+│ ├ [`browser`](./sdks/browser): Browser SDK (TypeScript)
 
 │ ├ [`ios`](./sdks/ios): iOS SDK (Swift)
 
-│ └ [`js`](./sdks/js): Browser and Node SDK (TypeScript)
+│ └ [`node`](./sdks/node): Node SDK (TypeScript)
 
 ### Run the benchmarks
 

@@ -113,7 +113,7 @@ importers:
         version: link:../../bindings/node
       '@xmtp/node-sdk':
         specifier: workspace:*
-        version: link:../../sdks/js/node-sdk
+        version: link:../../sdks/node
       viem:
         specifier: 'catalog:'
         version: 2.56.5(bufferutil@4.1.0)(typescript@7.0.2)(utf-8-validate@5.0.10)(zod@4.6.5)
@@ -184,16 +184,16 @@ importers:
         version: 26.5.1
       '@xmtp/agent-sdk':
         specifier: workspace:*
-        version: link:../../sdks/js/agent-sdk
+        version: link:../../sdks/agent
       '@xmtp/browser-sdk':
         specifier: workspace:*
-        version: link:../../sdks/js/browser-sdk
+        version: link:../../sdks/browser
       '@xmtp/content-type-primitives':
         specifier: 'catalog:'
         version: 3.0.1
       '@xmtp/node-sdk':
         specifier: workspace:*
-        version: link:../../sdks/js/node-sdk
+        version: link:../../sdks/node
       chrome-launcher:
         specifier: ^1.2.1
         version: 1.2.1(supports-color@10.2.2)
@@ -256,7 +256,7 @@ importers:
         version: 3.17.11
       '@xmtp/browser-sdk':
         specifier: workspace:*
-        version: link:../../sdks/js/browser-sdk
+        version: link:../../sdks/browser
       '@xmtp/content-type-primitives':
         specifier: 'catalog:'
         version: 3.0.1
@@ -458,14 +458,14 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
 
-  sdks/js/agent-sdk:
+  sdks/agent:
     dependencies:
       '@xmtp/content-type-primitives':
         specifier: 'catalog:'
         version: 3.0.1
       '@xmtp/node-sdk':
         specifier: workspace:*
-        version: link:../node-sdk
+        version: link:../node
       ts-retry-promise:
         specifier: ^0.8.1
         version: 0.8.1
@@ -501,14 +501,14 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@22.20.2)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@22.20.2)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
 
-  sdks/js/browser-sdk:
+  sdks/browser:
     dependencies:
       '@xmtp/content-type-primitives':
         specifier: 'catalog:'
         version: 3.0.1
       '@xmtp/wasm-bindings':
         specifier: workspace:*
-        version: link:../../../bindings/wasm
+        version: link:../../bindings/wasm
     devDependencies:
       '@testing-library/dom':
         specifier: 'catalog:'
@@ -547,14 +547,14 @@ importers:
         specifier: 'catalog:'
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@26.5.1)(@vitest/browser-playwright@4.1.11)(@vitest/coverage-v8@4.1.11)(vite@8.3.0(@types/node@26.5.1)(esbuild@0.28.2)(sugarss@5.0.1(postcss@8.5.28))(terser@5.51.2)(tsx@4.23.13)(yaml@2.9.1))
 
-  sdks/js/node-sdk:
+  sdks/node:
     dependencies:
       '@xmtp/content-type-primitives':
         specifier: 'catalog:'
         version: 3.0.1
       '@xmtp/node-bindings':
         specifier: workspace:*
-        version: link:../../../bindings/node
+        version: link:../../bindings/node
     devDependencies:
       '@types/node':
         specifier: catalog:node22

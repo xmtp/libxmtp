@@ -6,7 +6,7 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 set shell := ["../../dev/nix-shell"]
 
 bindings:
-    cd ../../sdks/js && ./dev/bindings wasm
+    ../../dev/js/bindings wasm
 
 sdk: bindings
     cd {{ root }} && pnpm -r --filter '@xmtp/browser-sdk...' run build

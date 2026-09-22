@@ -1,14 +1,13 @@
 {
-  "name": "@xmtp/browser-sdk",
-  "version": "7.2.0-dev",
-  "description": "XMTP client SDK for browsers written in TypeScript",
+  "name": "@xmtp/node-sdk",
+  "version": "6.2.0-dev",
+  "description": "XMTP Node client SDK for interacting with XMTP networks",
   "keywords": [
     "javascript",
     "js",
     "messaging",
-    "sdk",
-    "ts",
-    "typescript",
+    "node",
+    "nodejs",
     "web3",
     "xmtp"
   ],
@@ -20,15 +19,13 @@
   "author": "XMTP Labs <eng@xmtp.com>",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/xmtp/libxmtp.git",
-    "directory": "sdks/js/browser-sdk"
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "sdks/node"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "type": "module",
-  "sideEffects": false,
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -45,53 +42,37 @@
   },
   "scripts": {
     "build": "tsdown",
-    "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
-    "clean:dist": "rm -rf dist",
+    "clean": "rimraf .turbo && pnpm clean:dbs && pnpm clean:dist && pnpm clean:deps",
+    "clean:dbs": "rimraf **/*.db3* ||:",
+    "clean:deps": "rimraf node_modules",
+    "clean:dist": "rimraf dist",
     "dev": "tsdown --watch",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
+    "generate:accounts": "tsx scripts/accounts.ts",
+    "generate:groups": "tsx scripts/groups.ts",
     "lint": "oxlint .",
     "test": "vitest run",
-    "test:debug": "vitest run --inspect-brk --no-file-parallelism",
+    "test:cov": "vitest run --coverage",
     "typecheck": "tsc"
   },
   "dependencies": {
     "@xmtp/content-type-primitives": "catalog:",
-    "@xmtp/wasm-bindings": "workspace:*"
+    "@xmtp/node-bindings": "workspace:*"
   },
   "devDependencies": {
-    "@testing-library/dom": "catalog:",
-    "@testing-library/jest-dom": "^6.9.1",
-    "@vitest/browser": "catalog:",
-    "@vitest/browser-playwright": "catalog:",
+    "@types/node": "catalog:node22",
     "@vitest/coverage-v8": "catalog:",
-    "playwright": "catalog:",
+    "fast-glob": "catalog:",
+    "rimraf": "^6.1.2",
     "tsdown": "catalog:",
+    "tsx": "catalog:",
     "typescript": "catalog:",
+    "uint8array-extras": "catalog:",
     "viem": "catalog:",
     "vite": "catalog:",
     "vite-tsconfig-paths": "catalog:",
     "vitest": "catalog:"
-  },
-  "peerDependencies": {
-    "viem": ">=2"
-  },
-  "peerDependenciesMeta": {
-    "viem": {
-      "optional": true
-    }
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 3 chrome versions",
-      "last 3 firefox versions",
-      "last 3 safari versions"
-    ]
   },
   "engines": {
     "node": ">=22.12.0"

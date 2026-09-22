@@ -12,7 +12,6 @@ else
     echo "error: not in a git or jj working tree" >&2
     exit 1
 fi
-SDK_ROOT="${ROOT}/sdks/js"
 
 ensure_nix_shell() {
     if [[ "${XMTP_DEV_SHELL:-}" != "js" && "${XMTP_DEV_SHELL:-}" != "local" ]]; then

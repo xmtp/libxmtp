@@ -9,21 +9,21 @@ root := justfile_directory()
 # `localhost` can resolve to IPv6, where the Docker port forward resets.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-set shell := ["../../dev/nix-shell"]
+set shell := ["../dev/nix-shell"]
 
 # Build + stage the local bindings into bindings/<x>/dist via Nix
 bindings target="all":
-    ./dev/bindings {{ target }}
+    ../dev/js/bindings {{ target }}
 
 bindings-node:
-    ./dev/bindings node
+    ../dev/js/bindings node
 
 bindings-wasm:
-    ./dev/bindings wasm
+    ../dev/js/bindings wasm
 
 # Typecheck all SDKs with their task dependencies. Native bindings are staged first.
 check: bindings
-    cd {{ root }} && pnpm -r --filter './sdks/js/*' run typecheck
+    cd {{ root }} && pnpm -r --filter './sdks/*' run typecheck
 
 check-node: bindings-node
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run typecheck
@@ -37,11 +37,11 @@ check-notification-surface: bindings
 
 # Build all SDKs with their task dependencies. Native bindings are staged first.
 build: bindings
-    cd {{ root }} && pnpm -r --filter './sdks/js/*' run build
+    cd {{ root }} && pnpm -r --filter './sdks/*' run build
 
 # Lint all SDKs with their task dependencies. Native bindings are staged first.
 lint: bindings
-    cd {{ root }} && pnpm -r --filter './sdks/js/*' run lint
+    cd {{ root }} && pnpm -r --filter './sdks/*' run lint
 
 lint-node: bindings-node
     cd {{ root }} && pnpm -r --filter '@xmtp/agent-sdk...' run lint

@@ -1,6 +1,11 @@
-# XMTP JS SDKs
+# XMTP SDKs
 
-pnpm workspace: `node-sdk` (over `bindings/node`), `browser-sdk` (over `bindings/wasm`), `agent-sdk` (over `node-sdk`).
+The instructions below apply to the JavaScript SDKs in `node`, `browser`, and
+`agent`. See `android/AGENTS.md` and `ios/AGENTS.md` for the native SDKs.
+
+The JavaScript SDKs use the root pnpm workspace: `node` uses `bindings/node`,
+`browser` uses `bindings/wasm`, and `agent` uses `node`. Published package names
+stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 
 ## Commands
 
@@ -31,9 +36,9 @@ Native streams stay open during retryable network faults and resume in order.
 
 The root pnpm workspace runs package scripts through its task graph. SDK recipes
 first stage the Node or WASM bindings with Nix, then run the selected package
-tasks. Recursive SDK commands select only `sdks/js/*`; they do not build the
-binding packages. Do not use `--parallel` or `--no-sort`, because either option
-can bypass task dependencies.
+tasks. Recursive SDK commands select workspace packages under `sdks/*`; they do
+not build the binding packages. Do not use `--parallel` or `--no-sort`, because
+either option can bypass task dependencies.
 
 SDK packages build with tsdown. Use `pnpm build` for one build and `pnpm dev`
 to run tsdown in watch mode from an SDK package.
@@ -44,7 +49,7 @@ to run tsdown in watch mode from an SDK package.
 - Needs `just backend up`. Run `just install` and `just js bindings` once first for full local SDK work.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just install`, and `just js bindings-node`.
 - Verify dependency changes with the root install. Declare required tools in the selected workspace and run them with `pnpm --filter <name> exec`.
-- `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
+- `agent` reads types from `node/dist`. Build `node` first.
 - Formatting uses Oxfmt. Run `just format-js` to write package formatting, or
   `just lint-js-format` to check it. Oxlint does not format files.
 

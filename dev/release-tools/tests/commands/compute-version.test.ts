@@ -15,9 +15,9 @@ describe("compute-version --source-ref / --timestamp", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "release-tools-compute-"));
-    fs.mkdirSync(path.join(tmpDir, "sdks/js/node-sdk"), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
     fs.writeFileSync(
-      path.join(tmpDir, "sdks/js/node-sdk/package.json"),
+      path.join(tmpDir, "sdks/node/package.json"),
       `${JSON.stringify({ name: "@xmtp/node-sdk", version: "6.2.0" }, null, 2)}\n`,
     );
     execSync("git init", { cwd: tmpDir });

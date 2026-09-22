@@ -161,7 +161,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: agent_sdk_build
-          path: sdks/js/agent-sdk/dist
+          path: sdks/agent/dist
           retention-days: 1
 
   publish:
@@ -169,11 +169,11 @@ jobs:
     uses: ./.github/workflows/npm-publish.yml
     with:
       ref: ${{ inputs.ref || github.ref }}
-      package-dir: sdks/js/agent-sdk
+      package-dir: sdks/agent
       sdk: agent-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: agent_sdk_build
-      artifact-path: sdks/js/agent-sdk/dist
+      artifact-path: sdks/agent/dist
       ignore-scripts: true
       dep-name: "@xmtp/node-sdk"
       dep-version: ${{ needs.setup.outputs.node-sdk-version }}

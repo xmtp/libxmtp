@@ -26,7 +26,7 @@
     "bindings/wasm/dist/**",
     "bindings/wasm/target/**",
     "dev/release-tools/dist/**",
-    "sdks/js/*/dist/**"
+    "sdks/*/dist/**"
   ],
   "printWidth": 80,
   "proseWrap": "preserve",

@@ -105,7 +105,7 @@
       }
     },
     {
-      "files": ["**/agent-sdk/src/**/*.ts"],
+      "files": ["sdks/agent/src/**/*.ts"],
       "rules": {
         "typescript/no-misused-promises": [
           "error",
