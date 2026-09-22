@@ -86,18 +86,23 @@ where
         if !self.maybe_update_cursor(&db, envelope)? {
             return Ok(());
         }
-        if matches!(
-            error,
-            GroupMessageProcessingError::FutureEpoch(..)
-                | GroupMessageProcessingError::OpenMlsProcessMessage(
-                    ProcessMessageError::ValidationError(ValidationError::WrongEpoch)
-                )
-                | GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
-                    crate::groups::app_data::ProcessMessageWithAppDataError::OpenMls(
+        // implements: FORK-073
+        // A competing commit can arrive after another commit advanced the epoch.
+        // That stale rejection alone is not evidence of a fork.
+        let suspicious_epoch = envelope.message.epoch().as_u64() >= group.epoch().as_u64();
+        if matches!(error, GroupMessageProcessingError::FutureEpoch(..))
+            || (suspicious_epoch
+                && matches!(
+                    error,
+                    GroupMessageProcessingError::OpenMlsProcessMessage(
                         ProcessMessageError::ValidationError(ValidationError::WrongEpoch)
+                    ) | GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
+                        crate::groups::app_data::ProcessMessageWithAppDataError::OpenMls(
+                            ProcessMessageError::ValidationError(ValidationError::WrongEpoch)
+                        )
                     )
-                )
-        ) {
+                ))
+        {
             db.mark_group_as_maybe_forked(
                 &self.group_id,
                 format!(

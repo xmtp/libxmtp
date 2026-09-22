@@ -347,6 +347,106 @@ async fn test_publish_commit_log_to_remote() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn test_missing_signing_key_does_not_skip_group_when_other_group_publishes() {
+    tester!(alix, with_commit_log_worker: false);
+    let waiting_group = alix.create_group(None, None)?;
+    let ready_group = alix.create_group(None, None)?;
+    waiting_group.update_group_name("waiting".into()).await?;
+    ready_group.update_group_name("ready".into()).await?;
+
+    // The waiting group has a consensus key whose private key has not arrived.
+    let provider = alix.context.mls_provider();
+    let waiting_key = provider.crypto().generate_commit_log_key()?;
+    let waiting_public_key = xmtp_cryptography::signature::to_public_key(&waiting_key)?;
+    let db = alix.context.db();
+    db.set_group_commit_log_public_key(&waiting_group.group_id, &waiting_public_key)?;
+    let waiting_logs = waiting_group.local_commit_log().await?;
+    let waiting_tip = waiting_logs.last()?;
+    assert!(waiting_tip.commit_sequence_id > 0);
+
+    let mut worker = CommitLogWorker::new(alix.context.clone());
+    let result = worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+    let published = result.first()?.publish_commit_log_results.as_ref()?;
+    assert_eq!(
+        db.get_last_cursor(
+            waiting_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload
+        )?,
+        Cursor(0),
+        "publishing another group must not skip records that were not signed",
+    );
+    assert_eq!(published.len(), 1);
+    assert_eq!(
+        published[0].conversation_id,
+        ready_group.group_id.as_slice()
+    );
+    assert!(
+        db.get_last_cursor(
+            ready_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload
+        )? > Cursor(0)
+    );
+    let before = alix
+        .context
+        .api()
+        .query_commit_log(
+            [(
+                Topic::new_commit_log(waiting_group.group_id.to_vec()),
+                Cursor(0),
+            )]
+            .into(),
+        )
+        .await?;
+    assert!(before.is_empty());
+
+    provider
+        .key_store()
+        .write_commit_log_key(waiting_group.group_id, &waiting_key)?;
+    worker
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+    assert_eq!(
+        db.get_last_cursor(
+            waiting_group.group_id,
+            xmtp_db::refresh_state::EntityKind::CommitLogUpload
+        )?,
+        Cursor(waiting_tip.rowid as u64),
+    );
+    let downloaded = alix
+        .context
+        .api()
+        .query_commit_log(
+            [(
+                Topic::new_commit_log(waiting_group.group_id.to_vec()),
+                Cursor(0),
+            )]
+            .into(),
+        )
+        .await?;
+    let expected: Vec<_> = waiting_logs
+        .iter()
+        .filter(|record| record.commit_sequence_id > 0)
+        .collect();
+    assert_eq!(downloaded.len(), expected.len());
+    for (downloaded, expected) in downloaded.iter().zip(expected) {
+        assert_eq!(
+            downloaded.entry.commit_sequence_id,
+            expected.commit_sequence_id as u64
+        );
+        assert_eq!(
+            downloaded.entry.applied_epoch_authenticator,
+            expected.applied_epoch_authenticator
+        );
+        assert_eq!(
+            downloaded.entry.last_epoch_authenticator,
+            expected.last_epoch_authenticator
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn test_download_commit_log_from_remote() {
     // Disable background CommitLogWorker for deterministic testing
     tester!(alix, with_commit_log_worker: false);

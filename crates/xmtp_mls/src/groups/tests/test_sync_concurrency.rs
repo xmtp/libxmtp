@@ -523,10 +523,21 @@ async fn can_stream_out_of_order_without_forking() {
         .await;
     assert!(result.is_ok());
 
-    // All three installations must retain the intervening group-name commit.
-    group_a.sync().await.unwrap();
-    group_b.sync().await.unwrap();
-    group_c.sync().await.unwrap();
+    // All three installations must process the known last envelope before
+    // comparing epochs. A sampled network head can lag this envelope.
+    for group in [&group_a, group_b, group_c] {
+        crate::subscriptions::barrier::wait_through(
+            &group.context,
+            [(
+                Topic::new_group_message(group.group_id),
+                last_message.cursor,
+            )]
+            .into(),
+            None,
+        )
+        .await
+        .unwrap();
+    }
 
     assert_eq!(group_b.epoch().await.unwrap(), 4);
     assert_eq!(group_c.epoch().await.unwrap(), 4);

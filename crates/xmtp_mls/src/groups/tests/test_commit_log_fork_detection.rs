@@ -10,12 +10,157 @@ use xmtp_db::Store;
 use xmtp_db::TransactionOutcome::Rollback;
 use xmtp_db::encrypted_store::local_commit_log::NewLocalCommitLog;
 use xmtp_db::encrypted_store::remote_commit_log::{CommitResult, NewRemoteCommitLog};
+use xmtp_db::incoming_envelope::StreamTopic;
 use xmtp_db::local_commit_log::CommitType;
 use xmtp_db::prelude::*;
 use xmtp_db::{
     MlsProviderExt, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpOpenMlsProviderRef,
 };
-use xmtp_proto::types::Cursor;
+use xmtp_proto::types::{Cursor, Topic};
+
+// The fault is artificial. State changes, log writing, signatures, transport,
+// remote verification, and fork detection use the normal implementation.
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_real_divergence_detected_through_signed_commit_logs() {
+    use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;
+    use xmtp_db::consent_record::ConsentState;
+
+    tester!(alix, with_commit_log_worker: false);
+    tester!(bo, with_commit_log_worker: false);
+    let a = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let b = bo.sync_welcomes().await?.first()?.to_owned();
+    b.update_consent_state(ConsentState::Allowed)?;
+
+    // Start with a shared successful commit after Bo's Welcome anchor.
+    a.update_group_name("shared".into()).await?;
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await?;
+    assert_eq!(
+        b.context
+            .db()
+            .topic_progress(&StreamTopic::group(b.group_id))?
+            .processed,
+        target
+    );
+    assert_eq!(
+        a.context
+            .db()
+            .topic_progress(&StreamTopic::group(a.group_id))?
+            .processed,
+        target
+    );
+    let shared_epoch = b.epoch().await?;
+    let shared_authenticator = b.epoch_authenticator().await?;
+    assert_eq!(a.epoch().await?, shared_epoch);
+    assert_eq!(a.epoch_authenticator().await?, shared_authenticator);
+
+    a.update_group_name("diverged".into()).await?;
+    // Reject one valid commit on Bo. Always remove the injected fault before
+    // checking the result, so subsequent delivery uses real epoch validation.
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    set_test_mode_future_wrong_epoch(true);
+    let rejected_sync = crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await;
+    set_test_mode_future_wrong_epoch(false);
+    rejected_sync?;
+    assert_eq!(b.epoch().await?, shared_epoch);
+    assert_eq!(b.epoch_authenticator().await?, shared_authenticator);
+    assert!(a.epoch().await? > b.epoch().await?);
+    assert_ne!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    let rejected_logs = b.local_commit_log().await?;
+    let rejected = rejected_logs.last()?;
+    assert_eq!(rejected.commit_result, CommitResult::WrongEpoch);
+    assert_eq!(rejected.last_epoch_authenticator, shared_authenticator);
+    assert_eq!(rejected.applied_epoch_authenticator, shared_authenticator);
+    let applied_logs = a.local_commit_log().await?;
+    let applied = applied_logs.last()?;
+    assert_eq!(applied.commit_sequence_id, rejected.commit_sequence_id);
+    assert_eq!(applied.commit_result, CommitResult::Success);
+    assert_eq!(
+        applied.applied_epoch_authenticator,
+        a.epoch_authenticator().await?
+    );
+    assert_ne!(
+        applied.applied_epoch_authenticator,
+        rejected.applied_epoch_authenticator
+    );
+
+    // Clear only the synthetic fault's flag inside this test. A later commit
+    // now has a genuinely future epoch for Bo and must set the flag itself.
+    bo.context.db().clear_fork_flag_for_group(&b.group_id)?;
+    assert!(!b.debug_info().await?.maybe_forked);
+    a.update_group_name("future epoch".into()).await?;
+    let target = Cursor(a.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    crate::subscriptions::barrier::wait_through(
+        &b.context,
+        [(Topic::new_group_message(b.group_id), target)].into(),
+        None,
+    )
+    .await?;
+    // Both clients processed the same prefix, but their MLS states differ.
+    for group in [&a, &b] {
+        assert_eq!(
+            group
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group.group_id))?
+                .processed,
+            target
+        );
+    }
+    assert!(b.debug_info().await?.maybe_forked);
+    assert_eq!(b.epoch().await?, shared_epoch);
+    assert_eq!(b.epoch_authenticator().await?, shared_authenticator);
+    assert_ne!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    // Local divergence alone is not remote verification. Missing signed
+    // evidence must remain unknown until the publisher's records arrive.
+    let mut checker = CommitLogWorker::new(bo.context.clone());
+    let unknown = checker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(unknown[0].is_forked.as_ref()?[b.group_id.as_slice()], None);
+
+    let mut publisher = CommitLogWorker::new(alix.context.clone());
+    publisher
+        .run_test(CommitLogTestFunction::PublishCommitLogsToRemote, None)
+        .await?;
+    let saved = checker
+        .run_test(CommitLogTestFunction::SaveRemoteCommitLog, None)
+        .await?;
+    assert!(saved[0].save_remote_commit_log_results.as_ref()?[b.group_id.as_slice()] > 0);
+    let checked = checker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert_eq!(
+        checked[0].is_forked.as_ref()?[b.group_id.as_slice()],
+        Some(true)
+    );
+    assert_eq!(
+        bo.context
+            .db()
+            .get_group_commit_log_forked_status(&b.group_id)?,
+        Some(true)
+    );
+}
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::error::Error>> {
