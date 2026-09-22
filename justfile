@@ -50,6 +50,10 @@ _env := justfile_directory() + "/dev/worktree-env && . " + justfile_directory() 
 default:
     just --list --list-submodules
 
+# Install all JavaScript workspace dependencies from the root lockfile.
+install:
+    pnpm install --frozen-lockfile
+
 # --- CHECK ---
 
 # `just check`, `just check crate xmtp_mls`, `just check crate xmtp_mls xmtp_db`

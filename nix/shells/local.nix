@@ -16,14 +16,14 @@
   diesel-cli,
   foundry-bin,
   sqlcipher,
-  corepack,
+  xmtp-pnpm,
   gnused,
   swiftformat,
   swiftlint,
   kotlin-language-server,
   xmtp,
   rust-analyzer,
-  nodejs_24,
+  nodejs_26,
   just,
   python311,
   uv,
@@ -90,8 +90,8 @@ mkShell (
         rust-analyzer
         foundry-bin
         sqlcipher
-        corepack
-        nodejs_24
+        xmtp-pnpm
+        nodejs_26
 
         # Android
         androidEnv.devComposition.androidsdk

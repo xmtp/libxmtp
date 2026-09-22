@@ -1,12 +1,10 @@
 # XMTP Web Chat
 
-Standalone Yarn 4 project for xmtp.chat, linked to the in-tree browser SDK with
-`portal:../../sdks/js/browser-sdk`.
+pnpm workspace package for xmtp.chat, linked to the in-tree browser SDK.
 
 ## Commands
 
-- `just web-chat install`: install dependencies and update the lockfile.
-- `just web-chat install-ci`: install with the immutable lockfile.
+- `just install`: install the root workspace dependencies.
 - `just web-chat check`: build the linked SDK and typecheck the app.
 - `just web-chat lint`: run ESLint.
 - `just web-chat build`: build the linked SDK and app.

@@ -1,39 +1,36 @@
 export NIX_DEVSHELL := "docs"
 set shell := ["../../dev/nix-shell"]
 
-install:
-    npm ci
-
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
-    PLAYWRIGHT_SKIP_BROWSER_GC=1 npx playwright install chromium
+    PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm --filter @xmtp/docs exec playwright install chromium
 
 dev:
-    npm run dev
+    pnpm --filter @xmtp/docs run dev
 
 build:
-    npm run build
+    pnpm --filter @xmtp/docs run build
 
 check-examples:
-    npm run check:examples
+    pnpm --filter @xmtp/docs run check:examples
 
 check-agent-docs:
-    npm run check:agent-docs
+    pnpm --filter @xmtp/docs run check:agent-docs
 
 lint:
-    npm run lint
+    pnpm --filter @xmtp/docs run lint
 
 format-check:
-    npm run format-check
+    pnpm --filter @xmtp/docs run format-check
 
 format:
-    npm run format
+    pnpm --filter @xmtp/docs run format
 
 test:
-    npm test
+    pnpm --filter @xmtp/docs run test
 
 test-browser:
-    npm run test:browser
+    pnpm --filter @xmtp/docs run test:browser
 
 compose:
     node scripts/compose.mjs

@@ -12,16 +12,6 @@ on:
         description: 'Path to the npm package directory'
         required: true
         type: string
-      install-dir:
-        description: 'Directory to run `yarn` install from. For a Yarn workspace member this is the workspace root, not the package dir. Defaults to package-dir.'
-        required: false
-        type: string
-        default: ''
-      lockfile-path:
-        description: 'Path to the yarn.lock used for dependency caching. For a Yarn workspace member this is the workspace-root lockfile. Defaults to <package-dir>/yarn.lock.'
-        required: false
-        type: string
-        default: ''
       sdk:
         description: 'SDK name for release tools (e.g. node-bindings, wasm-bindings)'
         required: true
@@ -50,6 +40,16 @@ on:
         default: ''
       dep-version:
         description: 'Exact version to pin the dependency to (e.g. 1.2.3-nightly.20260604.abc1234)'
+        required: false
+        type: string
+        default: ''
+      dep-name-2:
+        description: 'Second dependency name to pin before publish'
+        required: false
+        type: string
+        default: ''
+      dep-version-2:
+        description: 'Exact version for the second dependency'
         required: false
         type: string
         default: ''
@@ -85,16 +85,7 @@ jobs:
           merge-multiple: true
           path: ${{ inputs.artifact-path }}
 
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "${{ inputs.lockfile-path != '' && inputs.lockfile-path || format('{0}/yarn.lock', inputs.package-dir) }}"
-
       - uses: ./.github/actions/setup-release-tools
-
-      - name: Install dependencies
-        working-directory: ${{ inputs.install-dir != '' && inputs.install-dir || inputs.package-dir }}
-        run: yarn
 
       - name: Set version
         run: xmtp-release set-manifest-version --sdk "${{ inputs.sdk }}" --version "${{ inputs.version }}"
@@ -102,6 +93,10 @@ jobs:
       - name: Pin binding dependency version
         if: ${{ inputs.dep-name != '' }}
         run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name }}" --version "${{ inputs.dep-version }}"
+
+      - name: Pin second dependency version
+        if: ${{ inputs.dep-name-2 != '' }}
+        run: xmtp-release set-dependency-version --sdk "${{ inputs.sdk }}" --dep "${{ inputs.dep-name-2 }}" --version "${{ inputs.dep-version-2 }}"
 
       - name: Determine NPM tag
         id: npm-tag
@@ -114,20 +109,35 @@ jobs:
             echo "tag=latest" >> $GITHUB_OUTPUT
           fi
 
-      # OIDC trusted publishing needs npm >= 11.5.1. Pinned to major 11 because
-      # npm 12 requires node >= 24.15, newer than the .node-version pin.
+      # OIDC trusted publishing needs npm >= 11.5.1. Keep the tested major
+      # stable instead of taking a new npm major from the runner image.
       - name: Update npm
         run: npm install -g npm@11
 
+      - name: Pack package
+        env:
+          IGNORE_SCRIPTS: ${{ inputs.ignore-scripts }}
+        run: |
+          pack_dir="$RUNNER_TEMP/npm-pack"
+          mkdir -p "$pack_dir"
+          pnpm --dir "${{ inputs.package-dir }}" pack \
+            --config.ignore-scripts="$IGNORE_SCRIPTS" \
+            --pack-destination "$pack_dir"
+          shopt -s nullglob
+          tarballs=("$pack_dir"/*.tgz)
+          if [ "${#tarballs[@]}" -ne 1 ]; then
+            echo "::error::expected one package tarball, found ${#tarballs[@]}"
+            exit 1
+          fi
+          echo "PACKAGE_TARBALL=${tarballs[0]}" >> "$GITHUB_ENV"
+
       - name: Publish to NPM
         if: ${{ inputs.dry-run != true }}
-        working-directory: ${{ inputs.package-dir }}
-        run: npm publish --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+        run: npm publish "$PACKAGE_TARBALL" --provenance ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
       - name: Preview NPM package
         if: ${{ inputs.dry-run == true }}
-        working-directory: ${{ inputs.package-dir }}
-        run: npm publish --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
+        run: npm publish "$PACKAGE_TARBALL" --dry-run ${{ inputs.ignore-scripts && '--ignore-scripts' || '' }} --tag ${{ steps.npm-tag.outputs.tag }}
 
       - name: Tag release
         if: ${{ inputs.dry-run != true }}

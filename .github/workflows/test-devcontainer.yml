@@ -156,7 +156,7 @@ jobs:
             Please update it by running this from the repo root, then commit the change:
 
             ```sh
-            ( cd dev/release-tools && yarn cli set-devcontainer-image --image '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}' )
+            pnpm --filter @xmtp/release-tools cli set-devcontainer-image --image '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.push.outputs.digest }}'
             ```
 
             [Failing run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})

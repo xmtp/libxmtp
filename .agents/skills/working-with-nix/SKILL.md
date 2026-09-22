@@ -43,7 +43,7 @@ After every nixpkgs (flake.lock) bump:
 ```bash
 nix eval --raw .#devShells.x86_64-linux.js.PLAYWRIGHT_VERSION
 # If it differs from the package.json pin: update the pin, then
-# (cd bindings/wasm && yarn install)
+# pnpm install
 ```
 
 ### iOS Shell is macOS Only
@@ -70,7 +70,7 @@ shell-common.nix   → shared building blocks (rustBase, wasmEnv, tool groups)
   ├── local.nix    → full local dev (default) = all targets + debug + misc
   ├── android.nix  → Android cross-compilation
   └── ios.nix      → iOS cross-compilation (macOS only)
-js.nix             → JavaScript/browser testing (no Rust)
+js.nix             → JavaScript/browser testing (Node.js 26 and pnpm 11; no Rust)
 package/wasm.nix   → WASM shell + package build
 ```
 
@@ -121,6 +121,7 @@ nix develop --show-trace  # Verbose error output
 | `nix/lib/android-env.nix` | Android SDK config, targets, emulator script |
 | `nix/lib/ios-env.nix` | iOS targets, dynamic Xcode resolution |
 | `nix/lib/node-env.nix` | Node targets, NAPI name mapping, cross-compilation |
+| `nix/lib/packages/pnpm.nix` | Workspace pnpm package; version comes from root `package.json` |
 | `nix/shells/rust.nix` | Focused Rust dev shell |
 | `nix/shells/local.nix` | Full local dev shell (default) |
 | `nix/shells/android.nix` | Android dev shell |
@@ -131,6 +132,16 @@ nix develop --show-trace  # Verbose error output
 | `nix/package/android.nix` | Android release build derivation |
 | `nix/package/ios.nix` | iOS release build derivation |
 | `dev/nix-up` | Installation script for Nix and direnv |
+| `.node-version`, `.nvmrc` | Node.js version for tools outside Nix |
+
+## Devcontainer Image Updates
+
+The devcontainer Dockerfile uses the NodeSource major-version setup script.
+After a Dockerfile change, the `test-devcontainer` workflow builds and pushes
+the image. It runs `xmtp-release set-devcontainer-image` with the new digest.
+If the committed digest is stale, the workflow comment gives the exact command
+to update `.devcontainer/devcontainer.json`. Do not publish an image from a
+local version update.
 
 ## Further Reference
 

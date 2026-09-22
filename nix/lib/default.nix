@@ -50,6 +50,7 @@ let
     # is broken/uncached on Linux in current nixpkgs.
     swiftformat = host.callPackage ./packages/swiftformat.nix { };
     rtk = host.callPackage ./packages/rtk.nix { };
+    xmtp-pnpm = host.callPackage ./packages/pnpm.nix { };
     xmtp = {
       inherit ffi-uniffi-bindgen;
       filesets = host.callPackage ./filesets.nix { };

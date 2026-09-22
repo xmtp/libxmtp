@@ -120,11 +120,9 @@ jobs:
           disk-key: web
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
       - name: Build the SDKs and both binding packages
-        env:
-          YARN_ENABLE_IMMUTABLE_INSTALLS: "true"
         run: just js build
-      - run: just docs install
       - run: just docs check-agent-docs
       - run: just docs build
       - uses: actions/upload-artifact@v7
@@ -158,7 +156,7 @@ jobs:
           disk-key: web
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
-      - run: just docs install
+      - uses: ./.github/actions/setup-js
       - uses: actions/download-artifact@v8
         with:
           name: docs-site

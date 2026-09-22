@@ -20,7 +20,8 @@ fi
 fingerprint="$(
   cd "$REPO_ROOT"
   git ls-files -z --cached --others --exclude-standard -- \
-    '*.nix' flake.lock Cargo.lock '*Cargo.toml' '*package.json' '*yarn.lock' \
+    '*.nix' flake.lock Cargo.lock '*Cargo.toml' '*package.json' package.json \
+    pnpm-lock.yaml pnpm-workspace.yaml \
     '*webdriver.json' dev/nix-shell |
     while IFS= read -r -d '' path; do
       if [[ -f "$path" ]]; then shasum -a 256 "$path"; fi

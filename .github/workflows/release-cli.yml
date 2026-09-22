@@ -19,6 +19,10 @@ on:
         required: false
         type: string
         description: "Published @xmtp/node-sdk version to pin (defaults to npm latest)"
+      node-binding-version:
+        required: false
+        type: string
+        description: "Published @xmtp/node-bindings version to pin (defaults to the selected node SDK dependency)"
       dry-run:
         required: false
         type: boolean
@@ -38,6 +42,9 @@ on:
         required: false
         type: string
       node-sdk-version:
+        required: false
+        type: string
+      node-binding-version:
         required: false
         type: string
       pending-version:
@@ -65,6 +72,7 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       node-sdk-version: ${{ steps.node-sdk-version.outputs.version }}
+      node-binding-version: ${{ steps.node-binding-version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -111,6 +119,23 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Resolve node-bindings version to pin
+        id: node-binding-version
+        env:
+          NODE_BINDING_VERSION: ${{ inputs.node-binding-version }}
+          NODE_SDK_VERSION: ${{ steps.node-sdk-version.outputs.version }}
+        run: |
+          if [ -n "$NODE_BINDING_VERSION" ]; then
+            VERSION="$NODE_BINDING_VERSION"
+          else
+            VERSION=$(npm view "@xmtp/node-sdk@$NODE_SDK_VERSION" dependencies.@xmtp/node-bindings)
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::invalid @xmtp/node-bindings version: $VERSION"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
   build:
     needs: setup
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -127,6 +152,8 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-release-tools
+        with:
+          nix: "true"
       - name: Stage node bindings
         run: just js bindings-node
       - name: Build CLI release artifact
@@ -134,15 +161,10 @@ jobs:
           VERSION: ${{ needs.setup.outputs.version }}
         run: |
           nix develop .#js --command bash -euc '
-            cd sdks/js
-            yarn install --immutable
-            yarn workspace @xmtp/node-sdk run build
-            cd ../..
+            pnpm --filter @xmtp/node-sdk build
             xmtp-release set-manifest-version --sdk cli --version "$VERSION"
-            cd apps/cli
-            yarn install --immutable
-            yarn build
-            yarn manifest'
+            pnpm --filter @xmtp/cli build
+            pnpm --filter @xmtp/cli manifest'
       - name: Upload build output
         uses: actions/upload-artifact@v7
         with:
@@ -158,8 +180,6 @@ jobs:
     with:
       ref: ${{ inputs.ref || github.ref }}
       package-dir: apps/cli
-      install-dir: apps/cli
-      lockfile-path: apps/cli/yarn.lock
       sdk: cli
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: cli_build
@@ -167,5 +187,7 @@ jobs:
       ignore-scripts: true
       dep-name: "@xmtp/node-sdk"
       dep-version: ${{ needs.setup.outputs.node-sdk-version }}
+      dep-name-2: "@xmtp/node-bindings"
+      dep-version-2: ${{ needs.setup.outputs.node-binding-version }}
       dry-run: ${{ inputs.dry-run }}
     secrets: inherit

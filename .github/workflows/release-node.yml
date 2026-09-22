@@ -139,7 +139,7 @@ jobs:
 
   build-js:
     needs: setup
-    # Must run on macOS: __noChroot (needed for yarn install) is only
+    # Must run on macOS: __noChroot (needed for the JS install) is only
     # supported on macOS. Linux enforces sandbox=true.
     runs-on: warp-macos-latest-arm64-6x
     steps:
@@ -229,20 +229,9 @@ jobs:
           echo "C:\Program Files (x86)\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin" >> $GITHUB_PATH
         shell: bash
 
-      - name: Setup node
-        uses: ./.github/actions/setup-node
-        with:
-          cache-dependency-path: "bindings/node/yarn.lock"
-
-      - name: Install dependencies
-        working-directory: bindings/node
-        run: |
-          yarn
-
       - name: Build target
-        working-directory: bindings/node
         run: |
-          yarn build:release --target ${{ matrix.target }}
+          pnpm --filter @xmtp/node-bindings build:release --target ${{ matrix.target }}
 
       - name: Upload binding
         uses: actions/upload-artifact@v7

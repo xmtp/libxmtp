@@ -33,6 +33,9 @@ jobs:
         with:
           filters: |
             workspace:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
               - 'proto/**'
               - 'crates/**'
               - 'bindings/**'
@@ -49,9 +52,15 @@ jobs:
               - '.github/workflows/lint.yml'
               - '.github/workflows/lint-workspace*'
             node:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
               - 'bindings/node/**'
               - '.github/workflows/lint-node*'
             js:
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'pnpm-workspace.yaml'
               - 'apps/cli/**'
               - 'sdks/js/**'
               - 'bindings/node/**'

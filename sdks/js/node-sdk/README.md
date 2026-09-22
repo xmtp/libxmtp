@@ -55,7 +55,7 @@ yarn add @xmtp/node-sdk
 
 ## Developing
 
-Run `yarn dev` to build the SDK and watch for changes, which will trigger a rebuild.
+For repository development, run `just install` once, then run `just js build`.
 
 ## Testing
 
@@ -63,10 +63,9 @@ For testing setup instructions, see our [testing guidelines](https://github.com/
 
 ### Useful commands
 
-- `yarn build`: Builds the SDK
-- `yarn clean`: Removes `node_modules`, `dist`, and `.turbo` folders
-- `yarn test`: Runs all tests
-- `yarn typecheck`: Runs `tsc`
+- `just js build`: Builds the SDKs.
+- `just js test`: Runs all SDK tests.
+- `just js check`: Runs TypeScript checks.
 
 ## Breaking revisions
 

@@ -25,7 +25,7 @@ read-only Rust navigation for this worktree. Its diagnostics are advisory; keep
 focused compiler checks and tests. See `docs/agent-tools.md` for setup and limits.
 
 Every `just` recipe runs inside `nix develop` (`dev/nix-shell`).
-Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix-shell '<cmd>'`.
+Never run `cargo`, `pnpm`, `./gradlew`, or `swift` bare. Use `just`, or `dev/nix-shell '<cmd>'`.
 
 `just` is not on your PATH outside the Nix shell, and each shell you get is
 fresh. Prefix every call: `dev/nix-shell 'just lint'`, not `just lint`.
@@ -69,6 +69,12 @@ and port block, so run `just backend status` for the checkout you are in. See th
 `just test` excludes backend database tests; run them with `just backend test`.
 
 `default-members` = `apps/backend`, `bindings/*`, `crates/*`. Other apps: see their `AGENTS.md`.
+
+JavaScript packages use one root pnpm workspace. Run `just install` once from
+the repository root. The root pnpm tasks run package scripts through their task
+graph. They do not build native bindings. Use the relevant `just js`, `just
+cli`, or `just web-chat` recipe first; it stages the required Node or WASM
+bindings before it runs JavaScript tasks.
 
 ## Rules
 

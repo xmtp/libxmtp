@@ -15,7 +15,7 @@ For JavaScript/Node.js development and browser testing. **No Rust toolchain** �
 
 ## Tools Included
 
-- `corepack` — Node.js package managers (yarn, pnpm)
+- `pnpm` 11 with Node.js 26
 - `playwright` — Browser automation
 - `playwright-driver.browsers` — Pre-built browsers
 - `geckodriver` — Firefox WebDriver
@@ -26,6 +26,6 @@ For JavaScript/Node.js development and browser testing. **No Rust toolchain** �
 
 ## Use Cases
 
-- Running `yarn` and Node.js scripts
+- Running `pnpm` and Node.js scripts
 - Browser-based testing with Playwright
 - Protocol buffer code generation

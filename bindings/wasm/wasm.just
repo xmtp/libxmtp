@@ -4,27 +4,20 @@ set shell := ["../../dev/nix-shell"]
 
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
-install:
-    yarn
-
-# Install JS dependencies
-install-ci:
-    yarn install --immutable
-
 # Verify WASM bindings compile
 check:
     cargo check --locked --target wasm32-unknown-unknown --manifest-path Cargo.toml
 
 # Check WASM Rust + TypeScript formatting
-lint: install
+lint:
     cargo clippy --locked --target wasm32-unknown-unknown \
       --manifest-path Cargo.toml --all-features --no-deps -- -Dwarnings && \
     cargo fmt --manifest-path Cargo.toml --check && \
-    yarn prettier -c .
+    pnpm --filter @xmtp/wasm-bindings exec prettier -c .
 
 # Format TypeScript files
-format: install
-    yarn prettier -w .
+format:
+    pnpm --filter @xmtp/wasm-bindings exec prettier -w .
 
 # Packages that support the WASM target
 
@@ -45,10 +38,10 @@ test-ci: nix-test
 
 # WASM JS integration tests
 [script("bash")]
-test-integration: _build-test install
+test-integration: _build-test
     set -euo pipefail
     cd {{ source_directory() }}
-    nix develop .#js --command bash -euc 'yarn tsc --noEmit && yarn vitest run'
+    nix develop .#js --command bash -euc 'pnpm --filter @xmtp/wasm-bindings exec tsc --noEmit && pnpm --filter @xmtp/wasm-bindings exec vitest run'
 
 # Build WASM bindings
 build:

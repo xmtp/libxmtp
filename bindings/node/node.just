@@ -4,14 +4,6 @@ set shell := ["../../dev/nix-shell"]
 
 nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
-# Install JS dependencies
-install:
-    yarn
-
-# Install JS dependencies (CI - frozen lockfile)
-install-ci:
-    yarn install --immutable
-
 # Build NAPI bindings and assemble dist (needs Rust — always uses default shell)
 [private]
 [script("bash")]
@@ -19,23 +11,23 @@ _prepare-dist *extra_flags="":
     set -euo pipefail
     nix develop .#default --command bash -euc '\
       rm -rf dist && \
-      yarn napi build --platform --esm {{ extra_flags }} && \
+      pnpm --filter @xmtp/node-bindings exec napi build --platform --esm {{ extra_flags }} && \
       mkdir -p dist && mv index.js dist && mv index.d.ts dist && mv *.node dist'
 
 # Build Node.js NAPI bindings
-check: install (_prepare-dist "--release")
+check: (_prepare-dist "--release")
 
 # Check TypeScript formatting
-lint: install
-    yarn prettier -c .
+lint:
+    pnpm --filter @xmtp/node-bindings exec prettier -c .
 
 # Format TypeScript files
-format: install
-    yarn prettier -w .
+format:
+    pnpm --filter @xmtp/node-bindings exec prettier -w .
 
 # Run Node.js tests (builds NAPI bindings with test features + vitest)
-test: install (_prepare-dist "--features test-utils")
-    yarn vitest run
+test: (_prepare-dist "--features test-utils")
+    pnpm --filter @xmtp/node-bindings exec vitest run
 
 # tests using built with nix. closer to ci but no local incremental compilation.
 test-ci:
@@ -44,7 +36,7 @@ test-ci:
     ../../dev/ci/warm-deps .#packages.{{ nix_system }}.node-bindings-test
     cp -r result/dist dist
     chmod -R u+w dist
-    yarn vitest run
+    pnpm --filter @xmtp/node-bindings exec vitest run
 
 # Build Node.js NAPI bindings (alias)
 build: check

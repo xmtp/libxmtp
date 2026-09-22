@@ -16,8 +16,7 @@ jobs:
           disk-key: web
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
-      - name: Install dependencies
-        run: just js install-ci
+      - uses: ./.github/actions/setup-js
       - name: Build Node bindings (typecheck needs the .d.ts)
         run: just js bindings-node
       - name: Typecheck
@@ -26,8 +25,6 @@ jobs:
         run: just js lint-node
       - name: Build Node and agent SDKs
         run: just js build-node
-      - name: Install CLI dependencies
-        run: just cli install-ci
       - name: Typecheck CLI
         run: just cli check
       - name: Lint CLI

@@ -1,14 +1,13 @@
 # XMTP JS SDKs
 
-Yarn workspace: `node-sdk` (over `bindings/node`), `browser-sdk` (over `bindings/wasm`), `agent-sdk` (over `node-sdk`).
+pnpm workspace: `node-sdk` (over `bindings/node`), `browser-sdk` (over `bindings/wasm`), `agent-sdk` (over `node-sdk`).
 
 ## Commands
 
 ```bash
-just js install
+just install                           # install the root pnpm workspace once
 just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
 just js bindings-node                    # build only Node bindings via Nix
-just js install-node-ci                  # install only Node and agent workspaces
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
 just js lint-node                        # lint Node and agent SDKs
@@ -28,12 +27,20 @@ just js test                            # needs `just backend up`
 
 Native streams stay open during retryable network faults and resume in order.
 
+## Task graph
+
+The root pnpm workspace runs package scripts through its task graph. SDK recipes
+first stage the Node or WASM bindings with Nix, then run the selected package
+tasks. Recursive SDK commands select only `sdks/js/*`; they do not build the
+binding packages. Do not use `--parallel` or `--no-sort`, because either option
+can bypass task dependencies.
+
 ## Gotchas
 
 - Tests require `XMTP_BACKEND_URL`. The `just js` recipes load this worktree's value.
-- Needs `just backend up`. Run `just js install` and `just js bindings` once first for full local SDK work.
-- Node and agent CI uses `NIX_DEVSHELL=js-node`, `just js install-node-ci`, and `just js bindings-node`.
-- Verify dependency changes with the focused CI install. It omits root development tools; declare required tools in the selected workspace and run them with `yarn workspace <name> exec`.
+- Needs `just backend up`. Run `just install` and `just js bindings` once first for full local SDK work.
+- Node and agent CI uses `NIX_DEVSHELL=js-node`, `just install`, and `just js bindings-node`.
+- Verify dependency changes with the root install. Declare required tools in the selected workspace and run them with `pnpm --filter <name> exec`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
 - Formatting is treefmt prettier (`just lint-config`), not eslint.
 
@@ -50,6 +57,6 @@ Native streams stay open during retryable network faults and resume in order.
 The pure delivery-boundary tests do not need a backend or generated bindings:
 
 ```bash
-NIX_DEVSHELL=js-node dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/node-sdk exec vitest run test/MessageStream.test.ts test/streamFailure.test.ts'
-NIX_DEVSHELL=js-node dev/nix-shell 'cd sdks/js && yarn workspace @xmtp/browser-sdk exec vitest run test/MessageStream.test.ts test/WorkerBridge.test.ts test/streamFailure.test.ts --browser.enabled=false'
+NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/node-sdk exec vitest run test/MessageStream.test.ts test/streamFailure.test.ts'
+NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/browser-sdk exec vitest run test/MessageStream.test.ts test/WorkerBridge.test.ts test/streamFailure.test.ts --browser.enabled=false'
 ```

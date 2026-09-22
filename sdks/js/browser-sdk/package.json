@@ -39,10 +39,10 @@
     "src"
   ],
   "scripts": {
-    "build": "yarn clean:dist && yarn rollup -c",
-    "clean": "rm -rf .turbo && rm -rf node_modules && yarn clean:dist",
+    "build": "pnpm clean:dist && pnpm rollup -c",
+    "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
-    "dev": "yarn clean:dist && yarn rollup -c --watch",
+    "dev": "pnpm clean:dist && pnpm rollup -c --watch",
     "test": "vitest run",
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
     "typecheck": "tsc"
@@ -60,28 +60,28 @@
     ]
   },
   "dependencies": {
-    "@xmtp/content-type-primitives": "3.0.0",
-    "@xmtp/wasm-bindings": "portal:../../../bindings/wasm"
+    "@xmtp/content-type-primitives": "catalog:",
+    "@xmtp/wasm-bindings": "workspace:*"
   },
   "devDependencies": {
     "@rollup/plugin-terser": "^0.4.4",
-    "@rollup/plugin-typescript": "^12.3.0",
-    "@testing-library/dom": "^10.4.1",
+    "@rollup/plugin-typescript": "catalog:",
+    "@testing-library/dom": "catalog:",
     "@testing-library/jest-dom": "^6.9.1",
-    "@vitest/browser": "^4.1.10",
-    "@vitest/browser-playwright": "^4.1.10",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "@web/rollup-plugin-copy": "^0.5.1",
-    "playwright": "=1.61.1",
-    "rollup": "^4.59.0",
-    "rollup-plugin-dts": "^6.3.0",
-    "rollup-plugin-tsconfig-paths": "^1.5.2",
-    "tslib": "^2.8.1",
-    "typescript": "^5.9.3",
-    "viem": "^2.44.4",
-    "vite": "^7.3.1",
-    "vite-tsconfig-paths": "^6.0.4",
-    "vitest": "^4.1.10"
+    "playwright": "catalog:",
+    "rollup": "catalog:",
+    "rollup-plugin-dts": "catalog:",
+    "rollup-plugin-tsconfig-paths": "catalog:",
+    "tslib": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:",
+    "vite": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "viem": ">=2"
@@ -92,7 +92,7 @@
     }
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   },
   "publishConfig": {
     "access": "public",

@@ -45,7 +45,7 @@
     "dev": "tsx bin/dev.js",
     "lint": "eslint .",
     "manifest": "oclif manifest",
-    "prepack": "yarn build && yarn manifest",
+    "prepack": "pnpm build && pnpm manifest",
     "start": "tsx bin/run.js",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -90,26 +90,23 @@
     "@oclif/plugin-help": "^6.2.37",
     "@oclif/plugin-not-found": "^3.2.74",
     "@oclif/plugin-warn-if-update-available": "^3.1.55",
-    "@xmtp/node-bindings": "portal:../../bindings/node",
-    "@xmtp/node-sdk": "portal:../../sdks/js/node-sdk",
-    "viem": "^2.44.4"
+    "@xmtp/node-bindings": "workspace:*",
+    "@xmtp/node-sdk": "workspace:*",
+    "viem": "catalog:"
   },
   "devDependencies": {
-    "@eslint/compat": "^2.0.1",
-    "@eslint/js": "^9.39.2",
+    "@eslint/compat": "catalog:",
+    "@eslint/js": "catalog:",
     "@oclif/plugin-legacy": "^2.0.27",
-    "@types/node": "^24.10.9",
-    "eslint": "^9.39.2",
+    "@types/node": "catalog:node26",
+    "eslint": "catalog:",
     "execa": "^9.6.1",
-    "globals": "^17.1.0",
+    "globals": "catalog:",
     "oclif": "^4.22.70",
-    "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.53.1",
-    "vitest": "^4.0.18"
-  },
-  "resolutions": {
-    "@xmtp/node-bindings": "portal:../../bindings/node"
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "typescript-eslint": "catalog:",
+    "vitest": "catalog:"
   },
   "engines": {
     "node": ">=24"
@@ -118,6 +115,5 @@
     "access": "public",
     "provenance": true,
     "registry": "https://registry.npmjs.org/"
-  },
-  "packageManager": "yarn@4.10.3"
+  }
 }

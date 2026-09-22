@@ -10,23 +10,11 @@
 
 ## Useful commands
 
-- `yarn`: Installs all dependencies (required before building)
-- `yarn build`: Build a release version of the WASM bindings for the current
-  platform
-- `yarn lint`: Run cargo clippy and fmt checks
-- `yarn format:check`: Check formatting of integration tests
-- `yarn typecheck`: Run typecheck on integration tests
-- `yarn test`: Run cargo test with `wasm32-unknown-unknown` target
-- `yarn test:integration`: Run integration tests using vitest
-
-### macOS commands
-
-These commands require Homebrew and `llvm` to be installed. See above.
-
-- `yarn check:macos`: Run cargo check
-- `yarn lint:macos`: Run cargo clippy and fmt checks
-- `yarn build:macos`: Build a release version of the WASM bindings
-- `yarn test:integration:macos`: Run integration tests using vitest
+- `just install`: Install root workspace dependencies before the first build.
+- `just wasm build`: Build a release version of the WASM bindings.
+- `just wasm lint`: Run cargo clippy, rustfmt, and Prettier checks.
+- `just wasm test`: Run cargo tests with the `wasm32-unknown-unknown` target.
+- `just wasm test-integration`: Run integration tests with Vitest.
 
 ## Publishing
 

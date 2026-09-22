@@ -73,7 +73,7 @@ export function checkServerConfiguration(client: Client): void {
   const maxInstallationsPerInbox: number = mls.maxInstallationsPerInbox;
   const commitLogEnabled: boolean | undefined = mls.commitLogEnabled;
 
-  void [
+  const _values = [
     identifier,
     serverVersion,
     minLibxmtpVersion,
@@ -108,9 +108,8 @@ export async function checkFetch(
 }
 
 export async function checkRefresh(client: Client): Promise<void> {
-  const refreshed: ServerConfiguration =
+  const _refreshed: ServerConfiguration =
     await client.refreshServerConfiguration();
-  void refreshed;
 }
 
 // The six failures are distinct classes with one shared base.

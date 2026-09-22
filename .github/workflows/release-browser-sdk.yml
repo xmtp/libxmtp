@@ -131,14 +131,14 @@ jobs:
 
       - uses: taiki-e/install-action@just
 
+      - uses: ./.github/actions/setup-js
+
       - name: Stage wasm bindings
         run: just js bindings
 
       - name: Install + build browser-sdk
         run: |
-          nix develop .#js --command bash -euc '
-            cd sdks/js && yarn install --immutable
-            yarn workspace @xmtp/browser-sdk run build'
+          dev/nix-shell 'pnpm --filter @xmtp/browser-sdk build'
 
       - name: Upload build output
         uses: actions/upload-artifact@v7
@@ -153,8 +153,6 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       package-dir: sdks/js/browser-sdk
-      install-dir: sdks/js
-      lockfile-path: sdks/js/yarn.lock
       sdk: browser-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: browser_sdk_build

@@ -96,15 +96,13 @@ const eoaSigner = createEOASigner();
 
 ## Developing
 
-Run `yarn dev` to build the SDK and watch for changes, which will trigger a rebuild.
+For repository development, run `just install` once, then run `just js build`.
 
 ### Useful commands
 
-- `yarn build`: Builds the SDK
-- `yarn clean`: Removes `node_modules`, `dist`, and `.turbo` folders
-- `yarn dev`: Builds the SDK and watches for changes, which will trigger a rebuild
-- `yarn test`: Runs all tests
-- `yarn typecheck`: Runs `tsc`
+- `just js build`: Builds the SDKs.
+- `just js test`: Runs all SDK tests.
+- `just js check`: Runs TypeScript checks.
 
 ## Breaking revisions
 

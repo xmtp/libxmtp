@@ -4,17 +4,17 @@ A TypeScript CLI for automating SDK release workflows in the libxmtp monorepo â€
 
 ## Setup
 
-**Prerequisites:** Node.js >= 22, Yarn 4
+Use Node.js 26 and pnpm from the Nix shell. Run the commands below with
+`dev/nix-shell '<command>'` from the repository root.
 
 ```bash
-cd dev/release-tools
-yarn install
+just install
 ```
 
 ## Usage
 
 ```bash
-yarn cli <command> [flags]
+pnpm --filter @xmtp/release-tools cli <command> [flags]
 ```
 
 ### `bump-version`
@@ -27,7 +27,7 @@ Bump the version in an SDK manifest (e.g., podspec).
 | `--type` | `major` \| `minor` \| `patch` | yes      | Version bump type |
 
 ```bash
-yarn cli bump-version --sdk ios --type minor
+pnpm --filter @xmtp/release-tools cli bump-version --sdk ios --type minor
 ```
 
 ### `compute-version`
@@ -41,9 +41,9 @@ Compute a full version string for dev, RC, or final releases. Dev builds append 
 | `--rc-number`    | number                   | for `rc` | RC number    |
 
 ```bash
-yarn cli compute-version --sdk ios --release-type dev
-yarn cli compute-version --sdk ios --release-type rc --rc-number 1
-yarn cli compute-version --sdk ios --release-type final
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type dev
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type rc --rc-number 1
+pnpm --filter @xmtp/release-tools cli compute-version --sdk ios --release-type final
 ```
 
 ### `update-spm-checksum`
@@ -57,7 +57,7 @@ Update the binary target URL and checksum in `Package.swift`.
 | `--checksum` | string | yes      | SHA-256 checksum of the artifact |
 
 ```bash
-yarn cli update-spm-checksum --sdk ios \
+pnpm --filter @xmtp/release-tools cli update-spm-checksum --sdk ios \
   --url "https://github.com/xmtp/libxmtp/releases/download/ios-1.0.0/LibXMTP.xcframework.zip" \
   --checksum "abc123..."
 ```
@@ -78,9 +78,9 @@ Orchestrate a full release branch â€” bumps versions, scaffolds release notes, a
 | `--base`        | string                                  | no       | Base ref to branch from (default: `HEAD`)       |
 
 ```bash
-yarn cli create-release-branch \
+pnpm --filter @xmtp/release-tools cli create-release-branch \
   --version "1.0.0" \
-  --base main \
+  --base self-hosted \
   --ios minor \
   --android patch \
   --node-sdk minor \
@@ -96,12 +96,12 @@ All seven SDKs are configured: `ios`, `android`, `node-bindings`, `wasm-bindings
 ## Development
 
 ```bash
-yarn test          # Run tests (Vitest)
-yarn test:watch    # Run tests in watch mode
-yarn format        # Format with Prettier
-yarn format:check  # Check formatting
+pnpm --filter @xmtp/release-tools run test          # Run tests (Vitest)
+pnpm --filter @xmtp/release-tools run test:watch    # Run tests in watch mode
+pnpm --filter @xmtp/release-tools run format        # Format with Prettier
+pnpm --filter @xmtp/release-tools run format:check  # Check formatting
 ```
 
 ## Nix
 
-These tools will be integrated into the Nix devShell for local development soon.
+Run commands through `dev/nix-shell` when you do not use a `just` recipe.

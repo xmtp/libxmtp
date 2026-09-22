@@ -25,7 +25,7 @@ shell for you, so run it bare.
     just test
     just lint
 
-Never run `cargo`, `yarn`, `./gradlew`, or `swift` bare. They are not installed
+Never run `cargo`, `pnpm`, `./gradlew`, or `swift` bare. They are not installed
 outside the Nix shell, and a bare invocation either fails or picks up the wrong
 toolchain. Anything that is not a `just` recipe goes through the wrapper:
 

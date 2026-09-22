@@ -2,8 +2,8 @@
   mkShell,
   lib,
   stdenv,
-  nodejs_24,
-  corepack,
+  nodejs_26,
+  xmtp-pnpm,
   just,
   markdownlint-cli,
   playwright-driver,
@@ -12,8 +12,8 @@
 mkShell {
   name = "xmtp-docs";
   packages = [
-    nodejs_24
-    corepack
+    nodejs_26
+    xmtp-pnpm
     just
     markdownlint-cli
   ];
