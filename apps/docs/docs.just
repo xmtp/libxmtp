@@ -6,7 +6,7 @@ set shell := ["../../dev/nix-shell"]
 
 # Build and stage the local Node and WASM bindings before docs package tasks.
 bindings:
-    cd ../../sdks/js && ./dev/bindings
+    ../../dev/js/bindings
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -29,7 +29,7 @@ lint:
     pnpm run lint
 
 format-check:
-    pnpm --filter @xmtp/docs run format-check
+    pnpm --filter @xmtp/docs run format:check
 
 format:
     pnpm --filter @xmtp/docs run format

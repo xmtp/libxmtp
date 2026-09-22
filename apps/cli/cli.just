@@ -6,7 +6,7 @@ _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 set shell := ["../../dev/nix-shell"]
 
 sdk:
-    cd ../../sdks/js && ./dev/bindings node
+    ../../dev/js/bindings node
 
 check: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run typecheck

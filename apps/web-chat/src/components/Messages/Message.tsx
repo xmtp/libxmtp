@@ -6,14 +6,17 @@ import {
 } from "@xmtp/browser-sdk";
 import { useCallback, useMemo } from "react";
 import { useNavigate } from "react-router";
+
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { useClient } from "@/contexts/XMTPContext";
 import { isActionable } from "@/helpers/messages";
 import { useConversation } from "@/hooks/useConversation";
-import classes from "./Message.module.css";
+
 import { MessageContentWithWrapper } from "./MessageContentWithWrapper";
 import { ReactionPopover } from "./ReactionPopover";
+
+import classes from "./Message.module.css";
 
 type Reaction = {
   count: number;
@@ -93,8 +96,7 @@ export const Message: React.FC<MessageProps> = ({
           void navigate(
             `/conversations/${message.conversationId}/message/${message.id}`,
           )
-        }
-      >
+        }>
         <ErrorBoundary key={message.id}>
           <MessageContentWithWrapper
             message={message}
@@ -107,8 +109,7 @@ export const Message: React.FC<MessageProps> = ({
       <Group
         justify={align === "left" ? "flex-start" : "flex-end"}
         mt="xs"
-        gap="xxxs"
-      >
+        gap="xxxs">
         {Object.entries(reactions).map(([reaction, { count, didAdd }]) => (
           <Badge
             className={classes.reaction}
@@ -122,8 +123,7 @@ export const Message: React.FC<MessageProps> = ({
             onClick={handleReaction(
               reaction,
               didAdd ? ReactionAction.Removed : ReactionAction.Added,
-            )}
-          >
+            )}>
             {reaction}
           </Badge>
         ))}
@@ -136,8 +136,7 @@ export const Message: React.FC<MessageProps> = ({
             variant="subtle"
             onClick={() => {
               setReplyTarget(message);
-            }}
-          >
+            }}>
             Reply
           </Button>
         </Group>

@@ -2,6 +2,7 @@ import { Button, Group } from "@mantine/core";
 import { Group as XmtpGroup } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import { Metadata } from "@/components/Conversation/Metadata";
 import { Modal } from "@/components/Modal";
@@ -92,8 +93,7 @@ const MetadataForm: React.FC<{ conversationId: string }> = ({
             imageUrl === initial.imageUrl
           }
           loading={isLoading}
-          onClick={() => void handleUpdate()}
-        >
+          onClick={() => void handleUpdate()}>
           Save
         </Button>
       </Group>
@@ -118,15 +118,13 @@ const MetadataForm: React.FC<{ conversationId: string }> = ({
       fullScreen={fullScreen}
       onClose={handleClose}
       size="md"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Manage metadata"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Metadata
           conversation={conversation}
           clientPermissions={clientPermissions}

@@ -6,6 +6,7 @@ import {
   type Identifier,
 } from "@xmtp/browser-sdk";
 import { useCallback, useState } from "react";
+
 import { useClient, type ContentTypes } from "@/contexts/XMTPContext";
 import { dateToNs } from "@/helpers/date";
 import { isReaction } from "@/helpers/messages";

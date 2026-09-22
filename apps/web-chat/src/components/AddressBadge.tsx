@@ -1,6 +1,7 @@
 import { Badge, Flex, Text, Tooltip } from "@mantine/core";
 import { useClipboard } from "@mantine/hooks";
 import { useCallback } from "react";
+
 import { shortAddress } from "@/helpers/strings";
 
 export type AddressTooltipLabelProps = {
@@ -62,8 +63,7 @@ export const AddressBadge: React.FC<AddressBadgeProps> = ({
         )
       }
       withArrow
-      events={{ hover: true, focus: true, touch: true }}
-    >
+      events={{ hover: true, focus: true, touch: true }}>
       <Badge
         variant="default"
         size={size}
@@ -76,8 +76,7 @@ export const AddressBadge: React.FC<AddressBadgeProps> = ({
           label: {
             textTransform: "none",
           },
-        }}
-      >
+        }}>
         {shortAddress(address)}
       </Badge>
     </Tooltip>

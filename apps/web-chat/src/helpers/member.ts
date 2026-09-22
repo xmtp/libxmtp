@@ -1,4 +1,5 @@
 import type { GroupMember } from "@xmtp/browser-sdk";
+
 import { getMemberAddress } from "@/helpers/xmtp";
 
 export type Profile = {

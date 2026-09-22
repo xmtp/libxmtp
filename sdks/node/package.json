@@ -1,0 +1,80 @@
+{
+  "name": "@xmtp/node-sdk",
+  "version": "6.2.0-dev",
+  "description": "XMTP Node client SDK for interacting with XMTP networks",
+  "keywords": [
+    "javascript",
+    "js",
+    "messaging",
+    "node",
+    "nodejs",
+    "web3",
+    "xmtp"
+  ],
+  "homepage": "https://github.com/xmtp/libxmtp",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://git@github.com/xmtp/libxmtp.git",
+    "directory": "sdks/node"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rimraf .turbo && pnpm clean:dbs && pnpm clean:dist && pnpm clean:deps",
+    "clean:dbs": "rimraf **/*.db3* ||:",
+    "clean:deps": "rimraf node_modules",
+    "clean:dist": "rimraf dist",
+    "dev": "tsdown --watch",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "generate:accounts": "tsx scripts/accounts.ts",
+    "generate:groups": "tsx scripts/groups.ts",
+    "lint": "oxlint .",
+    "test": "vitest run",
+    "test:cov": "vitest run --coverage",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@xmtp/content-type-primitives": "catalog:",
+    "@xmtp/node-bindings": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:node22",
+    "@vitest/coverage-v8": "catalog:",
+    "fast-glob": "catalog:",
+    "rimraf": "^6.1.2",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "uint8array-extras": "catalog:",
+    "viem": "catalog:",
+    "vite": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

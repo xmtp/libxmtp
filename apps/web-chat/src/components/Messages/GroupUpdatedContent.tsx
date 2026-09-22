@@ -1,15 +1,16 @@
 import { Group, Stack, Text } from "@mantine/core";
 import { Dm, PermissionLevel, type GroupUpdated } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
+
 import { DateLabel } from "@/components/DateLabel";
 import { Identity } from "@/components/Identity";
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { nsToDate } from "@/helpers/date";
+import { combineProfiles, useAllProfiles } from "@/helpers/member";
 import { MEMBER_NO_LONGER_IN_GROUP, shortAddress } from "@/helpers/strings";
 import { getMemberAddress } from "@/helpers/xmtp";
 import { useConversation } from "@/hooks/useConversation";
-import { combineProfiles, useAllProfiles } from "@/helpers/member";
 
 type GroupMembersAddedContentProps = {
   type: "added" | "removed";

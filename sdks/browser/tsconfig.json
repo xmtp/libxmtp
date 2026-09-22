@@ -1,0 +1,14 @@
+{
+  "extends": "../../dev/js/tsconfig.web.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    },
+    "preserveConstEnums": true,
+    "sourceMap": true,
+    "types": ["vitest/globals", "vite/client"]
+  },
+  "include": ["src", "test", "tsdown.config.ts", "vite.config.ts"]
+}

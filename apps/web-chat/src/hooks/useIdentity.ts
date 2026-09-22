@@ -4,6 +4,7 @@ import type {
   Installation as XmtpInstallation,
 } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
+
 import { useClient } from "@/contexts/XMTPContext";
 
 export type Installation = XmtpInstallation & {

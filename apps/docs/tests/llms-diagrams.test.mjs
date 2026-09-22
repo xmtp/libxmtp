@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
 import { createMarkdownProcessor } from "@astrojs/markdown-remark";
 import rehypeMermaid from "rehype-mermaid";
+
 import {
   preserveMermaidSource,
   restoreMermaidLanguage,

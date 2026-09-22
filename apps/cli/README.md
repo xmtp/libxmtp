@@ -46,18 +46,18 @@ to change how the file is written.
 
 ## Environment variables
 
-| Variable | Description | Required |
-| --- | --- | --- |
-| `XMTP_BACKEND_URL` | Backend URL including `http://` or `https://` | Yes for backend and client commands |
-| `XMTP_API_KEY` | Backend API key, sent as a bearer token | Only for an authenticated backend |
-| `XMTP_WALLET_KEY` | Ethereum private key | Yes for client commands |
-| `XMTP_DB_ENCRYPTION_KEY` | 32-byte database encryption key | Yes for client commands |
-| `XMTP_ENV` | Database label only | No, defaults to `local` |
-| `XMTP_DB_PATH` | Explicit database path | No |
-| `XMTP_LOG_LEVEL` | `off`, `error`, `warn`, `info`, `debug`, or `trace` | No |
-| `XMTP_STRUCTURED_LOGGING` | Enable structured logging when `true` | No |
-| `XMTP_DISABLE_DEVICE_SYNC` | Disable device sync when `true` | No |
-| `XMTP_APP_VERSION` | Custom app version | No |
+| Variable                   | Description                                         | Required                            |
+| -------------------------- | --------------------------------------------------- | ----------------------------------- |
+| `XMTP_BACKEND_URL`         | Backend URL including `http://` or `https://`       | Yes for backend and client commands |
+| `XMTP_API_KEY`             | Backend API key, sent as a bearer token             | Only for an authenticated backend   |
+| `XMTP_WALLET_KEY`          | Ethereum private key                                | Yes for client commands             |
+| `XMTP_DB_ENCRYPTION_KEY`   | 32-byte database encryption key                     | Yes for client commands             |
+| `XMTP_ENV`                 | Database label only                                 | No, defaults to `local`             |
+| `XMTP_DB_PATH`             | Explicit database path                              | No                                  |
+| `XMTP_LOG_LEVEL`           | `off`, `error`, `warn`, `info`, `debug`, or `trace` | No                                  |
+| `XMTP_STRUCTURED_LOGGING`  | Enable structured logging when `true`               | No                                  |
+| `XMTP_DISABLE_DEVICE_SYNC` | Disable device sync when `true`                     | No                                  |
+| `XMTP_APP_VERSION`         | Custom app version                                  | No                                  |
 
 Without `XMTP_DB_PATH`, the CLI stores the database at
 `~/.xmtp/<backend-label>/xmtp-db`. The label is derived from the backend origin,

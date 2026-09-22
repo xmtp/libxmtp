@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+
 import { getInboxIdForAddressQuery } from "@/helpers/inboxId";
 import { isValidEthereumAddress, isValidInboxId } from "@/helpers/strings";
 import { useSettings } from "@/hooks/useSettings";

@@ -4,6 +4,7 @@ import {
   type Reaction,
   type RemoteAttachment,
 } from "@xmtp/browser-sdk";
+
 import { jsonStringify } from "@/helpers/strings";
 
 export const isReaction = (m: DecodedMessage): m is DecodedMessage<Reaction> =>

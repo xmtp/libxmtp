@@ -1,4 +1,5 @@
 import { Box, Button, Group, Text } from "@mantine/core";
+
 import { Modal } from "@/components/Modal";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
@@ -30,8 +31,7 @@ export const AppLockModal: React.FC<AppLockModalProps> = ({
           setAutoConnect(false);
           releaseLock();
           onDisconnect();
-        }}
-      >
+        }}>
         Disconnect other session
       </Button>
       <Button onClick={onClose}>OK</Button>
@@ -48,15 +48,13 @@ export const AppLockModal: React.FC<AppLockModalProps> = ({
       fullScreen={fullScreen}
       onClose={onClose}
       size="sm"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="xmtp.chat session active"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Box p="md">
           <Text mb="md">
             This app is active in another browser tab or window. Close or

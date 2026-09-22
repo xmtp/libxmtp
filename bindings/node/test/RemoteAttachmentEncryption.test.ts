@@ -2,208 +2,209 @@ import {
   AttachmentCodec,
   RemoteAttachmentCodec,
   type Attachment,
-} from '@xmtp/content-type-remote-attachment'
-import { toHex } from 'viem'
-import { afterAll, describe, expect, it } from 'vitest'
-import { decryptAttachment, encryptAttachment } from '../dist/index'
+} from "@xmtp/content-type-remote-attachment";
+import { toHex } from "viem";
+import { afterAll, describe, expect, it } from "vitest";
 
-describe('RemoteAttachment encryption compatibility', () => {
-  const originalFetch = globalThis.fetch
+import { decryptAttachment, encryptAttachment } from "../dist/index";
+
+describe("RemoteAttachment encryption compatibility", () => {
+  const originalFetch = globalThis.fetch;
 
   afterAll(() => {
-    globalThis.fetch = originalFetch
-  })
+    globalThis.fetch = originalFetch;
+  });
 
   const mockFetch = (responseData: ArrayBuffer) => {
     globalThis.fetch = (async () => ({
       ok: true,
       status: 200,
-      statusText: 'OK',
+      statusText: "OK",
       arrayBuffer: async () => responseData,
-    })) as unknown as typeof fetch
-  }
+    })) as unknown as typeof fetch;
+  };
 
-  const testContent = 'foo'
-  const encodedContent = new TextEncoder().encode(testContent)
-  const testFilename = 'test.txt'
-  const testMimeType = 'text/plain'
+  const testContent = "foo";
+  const encodedContent = new TextEncoder().encode(testContent);
+  const testFilename = "test.txt";
+  const testMimeType = "text/plain";
 
   // verifies: CTYPE-015
-  it('should decrypt TS encrypted payload with Rust', async () => {
+  it("should decrypt TS encrypted payload with Rust", async () => {
     const encrypted = await RemoteAttachmentCodec.encodeEncrypted(
       {
         filename: testFilename,
         mimeType: testMimeType,
         data: encodedContent,
       },
-      new AttachmentCodec()
-    )
+      new AttachmentCodec(),
+    );
 
     const decrypted = decryptAttachment(encrypted.payload, {
-      url: 'https://example.com/test',
+      url: "https://example.com/test",
       contentDigest: encrypted.digest,
       secret: encrypted.secret,
       salt: encrypted.salt,
       nonce: encrypted.nonce,
-      scheme: 'https',
+      scheme: "https",
       contentLength: encrypted.payload.byteLength,
       filename: testFilename,
-    })
+    });
 
-    expect(new TextDecoder().decode(decrypted.content)).toBe(testContent)
-    expect(decrypted.filename).toBe(testFilename)
-    expect(decrypted.mimeType).toBe(testMimeType)
-  })
+    expect(new TextDecoder().decode(decrypted.content)).toBe(testContent);
+    expect(decrypted.filename).toBe(testFilename);
+    expect(decrypted.mimeType).toBe(testMimeType);
+  });
 
   // verifies: CTYPE-015
-  it('should decrypt Rust encrypted payload with TS', async () => {
+  it("should decrypt Rust encrypted payload with TS", async () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
       mimeType: testMimeType,
       content: encodedContent,
-    })
+    });
 
-    mockFetch(encrypted.payload.buffer as ArrayBuffer)
+    mockFetch(encrypted.payload.buffer as ArrayBuffer);
 
     const decrypted = await RemoteAttachmentCodec.load<Attachment>(
       {
-        url: 'https://example.com/rust-encrypted',
+        url: "https://example.com/rust-encrypted",
         contentDigest: encrypted.contentDigest,
         secret: encrypted.secret,
         salt: encrypted.salt,
         nonce: encrypted.nonce,
-        scheme: 'https',
+        scheme: "https",
         contentLength: encrypted.contentLength,
         filename: testFilename,
       },
       {
         codecFor: () => new AttachmentCodec(),
-      }
-    )
+      },
+    );
 
-    expect(new TextDecoder().decode(decrypted.data)).toBe(testContent)
-    expect(decrypted.filename).toBe(testFilename)
-    expect(decrypted.mimeType).toBe(testMimeType)
-  })
+    expect(new TextDecoder().decode(decrypted.data)).toBe(testContent);
+    expect(decrypted.filename).toBe(testFilename);
+    expect(decrypted.mimeType).toBe(testMimeType);
+  });
 
   // verifies: CTYPE-015
-  it('should fail with wrong content digest', () => {
+  it("should fail with wrong content digest", () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
       mimeType: testMimeType,
       content: encodedContent,
-    })
+    });
 
     expect(() =>
       decryptAttachment(encrypted.payload, {
-        url: 'https://example.com/test',
-        contentDigest: 'wrong_digest',
+        url: "https://example.com/test",
+        contentDigest: "wrong_digest",
         secret: encrypted.secret,
         salt: encrypted.salt,
         nonce: encrypted.nonce,
-        scheme: 'https',
+        scheme: "https",
         contentLength: encrypted.payload.byteLength,
         filename: testFilename,
-      })
-    ).toThrow('content digest mismatch')
-  })
+      }),
+    ).toThrow("content digest mismatch");
+  });
 
   // verifies: CTYPE-015
-  it('should fail with wrong secret', () => {
+  it("should fail with wrong secret", () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
       mimeType: testMimeType,
       content: encodedContent,
-    })
+    });
 
-    const wrongSecret = new Uint8Array(32)
-    crypto.getRandomValues(wrongSecret)
+    const wrongSecret = new Uint8Array(32);
+    crypto.getRandomValues(wrongSecret);
 
     expect(() =>
       decryptAttachment(encrypted.payload, {
-        url: 'https://example.com/test',
+        url: "https://example.com/test",
         contentDigest: encrypted.contentDigest,
         secret: wrongSecret,
         salt: encrypted.salt,
         nonce: encrypted.nonce,
-        scheme: 'https',
+        scheme: "https",
         contentLength: encrypted.payload.byteLength,
         filename: testFilename,
-      })
-    ).toThrow()
-  })
+      }),
+    ).toThrow();
+  });
 
   // verifies: CTYPE-015
-  it('should fail with corrupted payload', () => {
+  it("should fail with corrupted payload", () => {
     const encrypted = encryptAttachment({
       filename: testFilename,
       mimeType: testMimeType,
       content: encodedContent,
-    })
+    });
 
-    const corruptedPayload = new Uint8Array(encrypted.payload)
-    corruptedPayload[0] ^= 0xff
+    const corruptedPayload = new Uint8Array(encrypted.payload);
+    corruptedPayload[0] ^= 0xff;
 
     expect(() =>
       decryptAttachment(corruptedPayload, {
-        url: 'https://example.com/test',
+        url: "https://example.com/test",
         contentDigest: encrypted.contentDigest,
         secret: encrypted.secret,
         salt: encrypted.salt,
         nonce: encrypted.nonce,
-        scheme: 'https',
+        scheme: "https",
         contentLength: corruptedPayload.byteLength,
         filename: testFilename,
-      })
-    ).toThrow()
-  })
+      }),
+    ).toThrow();
+  });
 
   // verifies: CTYPE-015
-  it('should create a 32-byte secret', () => {
+  it("should create a 32-byte secret", () => {
     const encrypted = encryptAttachment({
-      filename: 'test.txt',
-      mimeType: 'text/plain',
+      filename: "test.txt",
+      mimeType: "text/plain",
       content: encodedContent,
-    })
-    expect(encrypted.secret.length).toBe(32)
-  })
+    });
+    expect(encrypted.secret.length).toBe(32);
+  });
 
   // verifies: CTYPE-015
-  it('should create a 32-byte salt', () => {
+  it("should create a 32-byte salt", () => {
     const encrypted = encryptAttachment({
-      filename: 'test.txt',
-      mimeType: 'text/plain',
+      filename: "test.txt",
+      mimeType: "text/plain",
       content: encodedContent,
-    })
-    expect(encrypted.salt.length).toBe(32)
-  })
+    });
+    expect(encrypted.salt.length).toBe(32);
+  });
 
   // verifies: CTYPE-015
-  it('should create a 12-byte nonce', () => {
+  it("should create a 12-byte nonce", () => {
     const encrypted = encryptAttachment({
-      filename: 'test.txt',
-      mimeType: 'text/plain',
+      filename: "test.txt",
+      mimeType: "text/plain",
       content: encodedContent,
-    })
-    expect(encrypted.nonce.length).toBe(12)
-  })
+    });
+    expect(encrypted.nonce.length).toBe(12);
+  });
 
   // verifies: CTYPE-015
-  it('should produce unique encryption each time', () => {
+  it("should produce unique encryption each time", () => {
     const encrypted1 = encryptAttachment({
-      filename: 'test.txt',
-      mimeType: 'text/plain',
+      filename: "test.txt",
+      mimeType: "text/plain",
       content: encodedContent,
-    })
+    });
     const encrypted2 = encryptAttachment({
-      filename: 'test.txt',
-      mimeType: 'text/plain',
+      filename: "test.txt",
+      mimeType: "text/plain",
       content: encodedContent,
-    })
+    });
 
-    expect(toHex(encrypted1.secret)).not.toBe(toHex(encrypted2.secret))
-    expect(toHex(encrypted1.salt)).not.toBe(toHex(encrypted2.salt))
-    expect(toHex(encrypted1.nonce)).not.toBe(toHex(encrypted2.nonce))
-    expect(encrypted1.contentDigest).not.toBe(encrypted2.contentDigest)
-  })
-})
+    expect(toHex(encrypted1.secret)).not.toBe(toHex(encrypted2.secret));
+    expect(toHex(encrypted1.salt)).not.toBe(toHex(encrypted2.salt));
+    expect(toHex(encrypted1.nonce)).not.toBe(toHex(encrypted2.nonce));
+    expect(encrypted1.contentDigest).not.toBe(encrypted2.contentDigest);
+  });
+});

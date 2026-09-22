@@ -1,4 +1,5 @@
 import { Args, Flags } from "@oclif/core";
+
 import { BaseCommand } from "@/baseCommand";
 import { identifierKindMap } from "@/utils/enums";
 

@@ -1,6 +1,7 @@
 import { Box, Button, Flex, Group, Text, Tooltip } from "@mantine/core";
 import { useClipboard } from "@mantine/hooks";
 import { useCallback } from "react";
+
 import { shortAddress } from "@/helpers/strings";
 
 const GlowingCircle = () => {
@@ -80,15 +81,13 @@ export const ConnectedAddress: React.FC<ConnectedAddressProps> = ({
           )
         }
         withArrow
-        events={{ hover: true, focus: true, touch: true }}
-      >
+        events={{ hover: true, focus: true, touch: true }}>
         <Text
           size={size}
           fw={700}
           onKeyDown={handleKeyboardCopy}
           onClick={handleCopy}
-          tabIndex={0}
-        >
+          tabIndex={0}>
           {shortAddress(address.toLowerCase())}
         </Text>
       </Tooltip>

@@ -1,4 +1,5 @@
 import { stdout } from "node:process";
+
 import { IdentifierKind } from "@xmtp/node-sdk";
 
 export function isTTY(): boolean {

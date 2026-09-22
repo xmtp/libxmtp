@@ -3,7 +3,7 @@ mod android 'sdks/android/android.just'
 mod ios 'sdks/ios/ios.just'
 mod node 'bindings/node/node.just'
 mod wasm 'bindings/wasm/wasm.just'
-mod js 'sdks/js/js.just'
+mod js 'sdks/js.just'
 mod docs 'apps/docs/docs.just'
 mod cli 'apps/cli/cli.just'
 mod web-chat 'apps/web-chat/web-chat.just'
@@ -96,17 +96,24 @@ lint-treefmt:
 
 # Exclude the generated error glossary and release changelogs.
 lint-markdown:
-    markdownlint "**/*.md" ".agents/**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "apps/cli/CHANGELOG.md" --ignore "sdks/js/*/CHANGELOG.md" --disable MD001 MD013
+    markdownlint "**/*.md" ".agents/**/*.md" --ignore "**/CLAUDE.md" --ignore "**/node_modules/**" --ignore "target/**" --ignore "**/dist/**" --ignore "**/_site/**" --ignore "apps/docs/generated/**" --ignore "apps/docs/src/content/docs/reference/*-sdk/**" --ignore "docs/error_glossary.md" --ignore "apps/cli/CHANGELOG.md" --ignore "sdks/{node,browser,agent}/CHANGELOG.md" --disable MD001 MD013
 
 # --- FORMAT ---
 
 [script("bash")]
 format:
     nix fmt
+    just format-js
     just android format
     just ios format
-    just node format
-    just wasm format
+
+# Format the root JavaScript files and every package through the pnpm task graph.
+format-js:
+    pnpm format
+
+# Check JavaScript formatting without changing files.
+lint-js-format:
+    pnpm format:check
 
 # --- TEST ---
 

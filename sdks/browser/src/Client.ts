@@ -1,0 +1,1010 @@
+import { type ContentCodec } from "@xmtp/content-type-primitives";
+import {
+  Backend,
+  BackupElementSelectionOption,
+  IdentifierKind,
+  LogLevel,
+  type ArchiveMetadata,
+  type ArchiveOptions,
+  type GroupSyncSummary,
+  type Identifier,
+  type ServerConfiguration,
+} from "@xmtp/wasm-bindings";
+
+import { CodecRegistry } from "@/CodecRegistry";
+import { Conversations } from "@/Conversations";
+import { DebugInformation } from "@/DebugInformation";
+import { Preferences } from "@/Preferences";
+import type { ClientWorkerAction } from "@/types/actions";
+import type {
+  ClientOptions,
+  DistributiveOmit,
+  ExtractCodecContentTypes,
+  NetworkOptions,
+} from "@/types/options";
+import { createBackend } from "@/utils/createBackend";
+import { createClient as createLowLevelClient } from "@/utils/createClient";
+import {
+  AccountAlreadyAssociatedError,
+  ClientNotInitializedError,
+  InboxReassignError,
+  SignerUnavailableError,
+  toServerConfigurationError,
+} from "@/utils/errors";
+import { getInboxIdForIdentifier } from "@/utils/inboxId";
+import { inboxStateFromInboxIds as utilsInboxStateFromInboxIds } from "@/utils/inboxState";
+import { revokeInstallations as utilsRevokeInstallations } from "@/utils/installations";
+import { fetchServerConfiguration as utilsFetchServerConfiguration } from "@/utils/serverConfiguration";
+import { toSafeSigner, type SafeSigner, type Signer } from "@/utils/signer";
+import { uuid } from "@/utils/uuid";
+import { WorkerBridge } from "@/utils/WorkerBridge";
+
+/** Resolve a backend from explicit network options or an existing backend. */
+const resolveBackend = async (
+  optionsOrBackend: NetworkOptions | Backend,
+): Promise<Backend> => {
+  if (optionsOrBackend instanceof Backend) {
+    return optionsOrBackend;
+  }
+  return createBackend(optionsOrBackend);
+};
+
+const createEphemeralIdentifier = (): Identifier => {
+  const bytes = new Uint8Array(20);
+  globalThis.crypto.getRandomValues(bytes);
+
+  return {
+    identifier: `0x${Array.from(bytes, (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join("")}`,
+    identifierKind: IdentifierKind.Ethereum,
+  };
+};
+
+const toInboxUpdatesCountMap = (
+  value: Map<string, number> | Record<string, number>,
+) => {
+  if (value instanceof Map) {
+    return value;
+  }
+
+  return new Map(Object.entries(value));
+};
+
+/**
+ * Client for interacting with the XMTP network
+ */
+export class Client<ContentTypes = ExtractCodecContentTypes> {
+  #appVersion?: string;
+  #codecRegistry: CodecRegistry;
+  #conversations: Conversations<ContentTypes>;
+  #debugInformation: DebugInformation;
+  #env?: string;
+  #identifier?: Identifier;
+  #inboxId?: string;
+  #installationId?: string;
+  #installationIdBytes?: Uint8Array;
+  #isReady = false;
+  #libxmtpVersion?: string;
+  #options?: ClientOptions;
+  #closePromise?: Promise<void>;
+  #hasAuthCallback = false;
+  #preferences: Preferences;
+  #serverConfiguration?: ServerConfiguration;
+  #signer?: Signer;
+  #worker: WorkerBridge<ClientWorkerAction>;
+
+  /**
+   * Creates a new XMTP client instance
+   *
+   * This class is not intended to be initialized directly.
+   * Use `Client.create` or `Client.build` instead.
+   *
+   * @param options - Optional configuration for the client
+   */
+  constructor(options?: ClientOptions) {
+    if (options && "backend" in options) {
+      throw new Error(
+        "Browser clients require backendUrl and optional authCallback; a pre-built Backend cannot be transferred to the worker",
+      );
+    }
+    /*
+     * The Browser SDK runs XMTP's WASM bindings inside a Web Worker.
+     * The SDK sends options to the worker via postMessage(), which uses the
+     * structured clone algorithm. Codecs contain functions that can't be
+     * cloned, so we mark the codecs property as non-enumerable to exclude
+     * it from serialization.
+     *
+     * @see https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm#things_that_dont_work_with_structured_clone
+     */
+    if (options) {
+      Object.defineProperty(options, "codecs", {
+        value: options.codecs,
+        enumerable: false,
+      });
+    }
+    const worker = new Worker(new URL("./workers/client", import.meta.url), {
+      type: "module",
+    });
+    const enableLogging =
+      options?.loggingLevel !== undefined &&
+      options.loggingLevel !== LogLevel.Off;
+    this.#worker = new WorkerBridge<ClientWorkerAction>(
+      worker,
+      enableLogging,
+      options?.authCallback,
+    );
+    this.#codecRegistry = new CodecRegistry([...(options?.codecs ?? [])]);
+    if (options) {
+      const { authCallback: _authCallback, ...workerOptions } = options;
+      this.#options = workerOptions;
+      this.#hasAuthCallback = _authCallback !== undefined;
+    }
+    this.#conversations = new Conversations(
+      this,
+      this.#worker,
+      this.#codecRegistry,
+    );
+    this.#debugInformation = new DebugInformation(this.#worker);
+    this.#preferences = new Preferences(this.#worker);
+  }
+
+  /**
+   * Initializes the client with the provided identifier
+   *
+   * This is not meant to be called directly.
+   * Use `Client.create` or `Client.build` instead.
+   *
+   * @param identifier - The identifier to initialize the client with
+   */
+  async init(identifier: Identifier) {
+    let result;
+    try {
+      result = await this.#worker.action("client.init", {
+        identifier,
+        options: this.#options,
+        hasAuthCallback: this.#hasAuthCallback,
+      });
+    } catch (error) {
+      // A build resolves the server configuration first, so its failures are
+      // the typed ones of spec 006.
+      const typedError = toServerConfigurationError(error);
+      if (typedError) throw typedError;
+      throw error;
+    }
+    this.#appVersion = result.appVersion;
+    this.#env = result.env;
+    this.#identifier = identifier;
+    this.#inboxId = result.inboxId;
+    this.#installationId = result.installationId;
+    this.#installationIdBytes = result.installationIdBytes;
+    this.#libxmtpVersion = result.libxmtpVersion;
+    this.#serverConfiguration = result.serverConfiguration;
+    this.#isReady = true;
+  }
+
+  /**
+   * Shutdown the client
+   */
+  close() {
+    if (this.#closePromise) return this.#closePromise;
+    if (this.#worker.isClosed) {
+      this.#isReady = false;
+      this.#closePromise = Promise.resolve();
+      return this.#closePromise;
+    }
+    if (!this.#isReady) {
+      this.#worker.close();
+      this.#closePromise = Promise.resolve();
+      return this.#closePromise;
+    }
+    this.#isReady = false;
+    try {
+      this.#closePromise = this.#worker.closeAfter(
+        this.#worker.action("client.close"),
+      );
+    } catch (error) {
+      this.#worker.close();
+      this.#closePromise = Promise.reject(
+        error instanceof Error
+          ? error
+          : new Error("Failed to close the client", { cause: error }),
+      );
+    }
+    return this.#closePromise;
+  }
+
+  /**
+   * Creates a new client instance with a signer
+   *
+   * @param signer - The signer to use for authentication
+   * @param options - Optional configuration for the client
+   * @returns A new client instance
+   */
+  static async create<ContentCodecs extends ContentCodec[] = []>(
+    signer: Signer,
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
+      codecs?: ContentCodecs;
+    },
+  ) {
+    const client = new Client<ExtractCodecContentTypes<ContentCodecs>>(options);
+    client.#signer = signer;
+
+    try {
+      await client.init(await signer.getIdentifier());
+      if (!options.disableAutoRegister) {
+        await client.register();
+      }
+      return client;
+    } catch (error) {
+      try {
+        await client.close();
+      } catch {
+        // Keep the creation error if cleanup also fails.
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Creates a new client instance with an identifier
+   *
+   * Clients created with this method must already be registered.
+   * Any methods called that require a signer will throw an error.
+   *
+   * @param identifier - The identifier to use
+   * @param options - Optional configuration for the client
+   * @returns A new client instance
+   */
+  static async build<ContentCodecs extends ContentCodec[] = []>(
+    identifier: Identifier,
+    options: DistributiveOmit<ClientOptions, "codecs"> & {
+      codecs?: ContentCodecs;
+    },
+  ) {
+    const client = new Client<ExtractCodecContentTypes<ContentCodecs>>({
+      ...options,
+      disableAutoRegister: true,
+    });
+    try {
+      await client.init(identifier);
+      return client;
+    } catch (error) {
+      try {
+        await client.close();
+      } catch {
+        // Keep the initialization error if cleanup also fails.
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Gets the client options
+   */
+  get options() {
+    return this.#options;
+  }
+
+  /**
+   * Gets the signer associated with this client
+   */
+  get signer() {
+    return this.#signer;
+  }
+
+  /**
+   * Gets whether the client has been initialized
+   */
+  get isReady() {
+    return this.#isReady;
+  }
+
+  /**
+   * Gets the inbox ID associated with this client
+   */
+  get inboxId() {
+    return this.#inboxId;
+  }
+
+  /**
+   * Gets the account identifier for this client
+   */
+  get accountIdentifier() {
+    return this.#identifier;
+  }
+
+  /**
+   * Gets the installation ID for this client
+   */
+  get installationId() {
+    return this.#installationId;
+  }
+
+  /**
+   * Gets the installation ID bytes for this client
+   */
+  get installationIdBytes() {
+    return this.#installationIdBytes;
+  }
+
+  /**
+   * Gets the conversations manager for this client
+   */
+  get conversations() {
+    return this.#conversations;
+  }
+
+  /**
+   * Gets the debug information helpers for this client
+   */
+  get debugInformation() {
+    return this.#debugInformation;
+  }
+
+  /**
+   * Gets the preferences manager for this client
+   */
+  get preferences() {
+    return this.#preferences;
+  }
+
+  /**
+   * Gets the version of libxmtp used in the bindings
+   */
+  get libxmtpVersion() {
+    return this.#libxmtpVersion;
+  }
+
+  /**
+   * Gets the app version used by the client
+   */
+  get appVersion() {
+    return this.#appVersion;
+  }
+
+  /**
+   * Gets the label used for the default database file name
+   */
+  get env() {
+    return this.#env;
+  }
+
+  /**
+   * Creates signature text for creating a new inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `register` method instead.
+   *
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_createInboxSignatureText() {
+    return this.#worker.action("client.createInboxSignatureText", {
+      signatureRequestId: uuid(),
+    });
+  }
+
+  /**
+   * Creates signature text for adding a new account to the client's inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `unsafe_addAccount` method instead.
+   *
+   * @param newIdentifier - The identifier of the new account
+   * @param allowInboxReassign - Whether to allow inbox reassignment
+   * @throws {InboxReassignError} if `allowInboxReassign` is false
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_addAccountSignatureText(
+    newIdentifier: Identifier,
+    allowInboxReassign: boolean = false,
+  ) {
+    if (!allowInboxReassign) {
+      throw new InboxReassignError();
+    }
+
+    return this.#worker.action("client.addAccountSignatureText", {
+      newIdentifier,
+      signatureRequestId: uuid(),
+    });
+  }
+
+  /**
+   * Creates signature text for removing an account from the client's inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `removeAccount` method instead.
+   *
+   * @param identifier - The identifier of the account to remove
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_removeAccountSignatureText(identifier: Identifier) {
+    return this.#worker.action("client.removeAccountSignatureText", {
+      identifier,
+      signatureRequestId: uuid(),
+    });
+  }
+
+  /**
+   * Creates signature text for revoking all other installations of the
+   * client's inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `revokeAllOtherInstallations` method instead.
+   *
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_revokeAllOtherInstallationsSignatureText() {
+    return this.#worker.action(
+      "client.revokeAllOtherInstallationsSignatureText",
+      {
+        signatureRequestId: uuid(),
+      },
+    );
+  }
+
+  /**
+   * Creates signature text for revoking specific installations of the
+   * client's inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `revokeInstallations` method instead.
+   *
+   * @param installationIds - The installation IDs to revoke
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_revokeInstallationsSignatureText(installationIds: Uint8Array[]) {
+    return this.#worker.action("client.revokeInstallationsSignatureText", {
+      installationIds,
+      signatureRequestId: uuid(),
+    });
+  }
+
+  /**
+   * Creates signature text for changing the recovery identifier for this
+   * client's inbox
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `changeRecoveryIdentifier` method instead.
+   *
+   * @param identifier - The new recovery identifier
+   * @returns The signature text and signature request ID
+   */
+  async unsafe_changeRecoveryIdentifierSignatureText(identifier: Identifier) {
+    return this.#worker.action("client.changeRecoveryIdentifierSignatureText", {
+      identifier,
+      signatureRequestId: uuid(),
+    });
+  }
+
+  /**
+   * Applies a signature request to the client
+   *
+   * WARNING: This function should be used with caution. It is only provided
+   * for use in special cases where the provided workflows do not meet the
+   * requirements of an application.
+   *
+   * It is highly recommended to use the `register`, `unsafe_addAccount`,
+   * `removeAccount`, `revokeAllOtherInstallations`, `revokeInstallations`,
+   * or `changeRecoveryIdentifier` method instead.
+   *
+   * @param signer - The signer to use
+   * @param signatureRequestId - The ID of the signature request to apply
+   */
+  async unsafe_applySignatureRequest(
+    signer: SafeSigner,
+    signatureRequestId: string,
+  ) {
+    return this.#worker.action("client.applySignatureRequest", {
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /**
+   * Registers the client with the XMTP network
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @throws {SignerUnavailableError} if no signer is available
+   */
+  async register() {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_createInboxSignatureText();
+
+    // if the signature text or request ID is not available, don't register
+    if (!signatureText || !signatureRequestId) {
+      return;
+    }
+
+    const signature = await this.#signer.signMessage(signatureText);
+    const signer = await toSafeSigner(this.#signer, signature);
+
+    return this.#worker.action("client.registerIdentity", {
+      signer,
+      signatureRequestId,
+      waitForRegistrationVisible: this.#options?.waitForRegistrationVisible,
+    });
+  }
+
+  /**
+   * Adds a new account to the client inbox
+   *
+   * WARNING: This function should be used with caution. Adding a wallet already
+   * associated with an inbox ID will cause the wallet to lose access to
+   * that inbox.
+   *
+   * The `allowInboxReassign` parameter must be true to reassign an inbox
+   * already associated with a different account.
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @param newAccountSigner - The signer for the new account
+   * @param allowInboxReassign - Whether to allow inbox reassignment
+   * @throws {SignerUnavailableError} if no signer is available
+   * @throws {InboxReassignError} if `allowInboxReassign` is false
+   * @throws {AccountAlreadyAssociatedError} if the account is already associated with an inbox ID
+   */
+  async unsafe_addAccount(
+    newAccountSigner: Signer,
+    allowInboxReassign: boolean = false,
+  ) {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    if (!allowInboxReassign) {
+      throw new InboxReassignError();
+    }
+
+    // check for existing inbox id
+    const existingInboxId = await this.fetchInboxIdByIdentifier(
+      await newAccountSigner.getIdentifier(),
+    );
+
+    if (existingInboxId) {
+      throw new AccountAlreadyAssociatedError(existingInboxId);
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_addAccountSignatureText(
+        await newAccountSigner.getIdentifier(),
+        true,
+      );
+    const signature = await newAccountSigner.signMessage(signatureText);
+    const signer = await toSafeSigner(newAccountSigner, signature);
+    return this.#worker.action("client.addAccount", {
+      identifier: signer.identifier,
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /**
+   * Removes an account from the client's inbox
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @param identifier - The identifier of the account to remove
+   * @throws {SignerUnavailableError} if no signer is available
+   */
+  async removeAccount(identifier: Identifier) {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_removeAccountSignatureText(identifier);
+    const signature = await this.#signer.signMessage(signatureText);
+    const signer = await toSafeSigner(this.#signer, signature);
+
+    return this.#worker.action("client.removeAccount", {
+      identifier,
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /**
+   * Revokes all other installations of the client's inbox
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @throws {SignerUnavailableError} if no signer is available
+   */
+  async revokeAllOtherInstallations() {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_revokeAllOtherInstallationsSignatureText();
+
+    // no other installations to revoke, nothing to do
+    if (!signatureText) {
+      return;
+    }
+
+    const signature = await this.#signer.signMessage(signatureText);
+    const signer = await toSafeSigner(this.#signer, signature);
+
+    return this.#worker.action("client.revokeAllOtherInstallations", {
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /**
+   * Revokes specific installations of the client's inbox
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @param installationIds - The installation IDs to revoke
+   * @throws {SignerUnavailableError} if no signer is available
+   */
+  async revokeInstallations(installationIds: Uint8Array[]) {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_revokeInstallationsSignatureText(installationIds);
+    const signature = await this.#signer.signMessage(signatureText);
+    const signer = await toSafeSigner(this.#signer, signature);
+
+    return this.#worker.action("client.revokeInstallations", {
+      installationIds,
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /** Revoke installations with an explicit backend or network options. */
+  static async revokeInstallations(
+    signer: Signer,
+    inboxId: string,
+    installationIds: Uint8Array[],
+    optionsOrBackend: NetworkOptions | Backend,
+  ) {
+    const backend = await resolveBackend(optionsOrBackend);
+    await utilsRevokeInstallations(backend, signer, inboxId, installationIds);
+  }
+
+  /** Fetch inbox states with an explicit backend or network options. */
+  static async fetchInboxStates(
+    inboxIds: string[],
+    optionsOrBackend: NetworkOptions | Backend,
+  ) {
+    const backend = await resolveBackend(optionsOrBackend);
+    return utilsInboxStateFromInboxIds(backend, inboxIds);
+  }
+
+  /**
+   * Changes the recovery identifier for the client's inbox
+   *
+   * Requires a signer, use `Client.create` to create a client with a signer.
+   *
+   * @param identifier - The new recovery identifier
+   * @throws {SignerUnavailableError} if no signer is available
+   */
+  async changeRecoveryIdentifier(identifier: Identifier) {
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
+    const { signatureText, signatureRequestId } =
+      await this.unsafe_changeRecoveryIdentifierSignatureText(identifier);
+    const signature = await this.#signer.signMessage(signatureText);
+    const signer = await toSafeSigner(this.#signer, signature);
+
+    return this.#worker.action("client.changeRecoveryIdentifier", {
+      identifier,
+      signer,
+      signatureRequestId,
+    });
+  }
+
+  /**
+   * Checks if the client is registered with the XMTP network
+   *
+   * @returns Whether the client is registered
+   */
+  async isRegistered() {
+    return this.#worker.action("client.isRegistered");
+  }
+
+  /**
+   * Checks if the client can message the specified identifiers
+   *
+   * @param identifiers - The identifiers to check
+   * @returns Whether the client can message the identifiers
+   */
+  async canMessage(identifiers: Identifier[]) {
+    return this.#worker.action("client.canMessage", { identifiers });
+  }
+
+  /**
+   * Fetches the latest inbox updates count for the specified inbox IDs
+   *
+   * @param inboxIds - The inbox IDs to check
+   * @returns Map of inbox IDs to their updates count
+   */
+  async fetchLatestInboxUpdatesCount(inboxIds: string[]) {
+    const result = await this.#worker.action(
+      "client.fetchLatestInboxUpdatesCount",
+      {
+        inboxIds,
+      },
+    );
+
+    return toInboxUpdatesCountMap(result);
+  }
+
+  /**
+   * Fetches the latest inbox updates count for the client's inbox
+   *
+   * @returns The latest inbox updates count
+   */
+  async fetchOwnInboxUpdatesCount() {
+    return this.#worker.action("client.fetchOwnInboxUpdatesCount", {});
+  }
+
+  /** Check identifiers with an explicit backend or network options. */
+  static async canMessage(
+    identifiers: Identifier[],
+    optionsOrBackend: NetworkOptions | Backend,
+  ) {
+    const backend = await resolveBackend(optionsOrBackend);
+    const canMessageMap = new Map<string, boolean>();
+    for (const identifier of identifiers) {
+      const inboxId = await getInboxIdForIdentifier(backend, identifier);
+      canMessageMap.set(
+        identifier.identifier.toLowerCase(),
+        inboxId !== undefined,
+      );
+    }
+    return canMessageMap;
+  }
+
+  /** Fetch inbox update counts with an explicit backend or network options. */
+  static async fetchLatestInboxUpdatesCount(
+    inboxIds: string[],
+    optionsOrBackend: NetworkOptions | Backend,
+  ) {
+    const backend = await resolveBackend(optionsOrBackend);
+    const { client } = await createLowLevelClient(createEphemeralIdentifier(), {
+      backend,
+      dbPath: null,
+      disableDeviceSync: true,
+    });
+    // The wasm-bindings Client holds WASM-linear-memory allocations that are
+    // not reclaimed by the JS GC. Free the ephemeral client in finally so the
+    // allocation is released even if the fetch rejects.
+    try {
+      const result = (await client.fetchLatestInboxUpdatesCount(
+        true,
+        inboxIds,
+      )) as Record<string, number> | Map<string, number>;
+
+      return toInboxUpdatesCountMap(result);
+    } finally {
+      client.free();
+    }
+  }
+
+  /**
+   * Fetches the inbox ID for a given identifier from the local database
+   * If not found, fetches from the network
+   *
+   * @param identifier - The identifier to look up
+   * @returns The inbox ID, if found
+   */
+  async fetchInboxIdByIdentifier(identifier: Identifier) {
+    return this.#worker.action("client.getInboxIdByIdentifier", { identifier });
+  }
+
+  /**
+   * Signs a message with the installation key
+   *
+   * @param signatureText - The text to sign
+   * @returns The signature
+   */
+  signWithInstallationKey(signatureText: string) {
+    return this.#worker.action("client.signWithInstallationKey", {
+      signatureText,
+    });
+  }
+
+  /**
+   * Verifies a signature was made with the installation key
+   *
+   * @param signatureText - The text that was signed
+   * @param signatureBytes - The signature bytes to verify
+   * @returns Whether the signature is valid
+   */
+  verifySignedWithInstallationKey(
+    signatureText: string,
+    signatureBytes: Uint8Array,
+  ) {
+    return this.#worker.action("client.verifySignedWithInstallationKey", {
+      signatureText,
+      signatureBytes,
+    });
+  }
+
+  /**
+   * Verifies a signature was made with a public key
+   *
+   * @param signatureText - The text that was signed
+   * @param signatureBytes - The signature bytes to verify
+   * @param publicKey - The public key to verify against
+   * @returns Whether the signature is valid
+   */
+  verifySignedWithPublicKey(
+    signatureText: string,
+    signatureBytes: Uint8Array,
+    publicKey: Uint8Array,
+  ) {
+    return this.#worker.action("client.verifySignedWithPublicKey", {
+      signatureText,
+      signatureBytes,
+      publicKey,
+    });
+  }
+
+  /**
+   * Fetches the key package statuses from the network for the specified
+   * installation IDs
+   *
+   * @param installationIds - The installation IDs to check
+   * @returns The key package statuses
+   */
+  async fetchKeyPackageStatuses(installationIds: string[]) {
+    return this.#worker.action("client.fetchKeyPackageStatuses", {
+      installationIds,
+    });
+  }
+
+  /**
+   * Get the default archive options (consent and messages)
+   */
+  #getDefaultArchiveOptions(): ArchiveOptions {
+    return {
+      elements: [
+        BackupElementSelectionOption.Consent,
+        BackupElementSelectionOption.Messages,
+      ],
+      excludeDisappearingMessages: false,
+    };
+  }
+
+  /**
+   * Export archive data to bytes for later restoration
+   *
+   * @param key - Encryption key for the archive
+   * @param opts - Archive options specifying what to include (defaults to consent and messages)
+   * @returns Promise that resolves with the archive data as bytes
+   */
+  async createArchive(
+    key: Uint8Array,
+    opts?: ArchiveOptions,
+  ): Promise<Uint8Array> {
+    const resolvedOpts = opts ?? this.#getDefaultArchiveOptions();
+
+    return this.#worker.action("client.createArchive", {
+      opts: resolvedOpts,
+      key,
+    });
+  }
+
+  /**
+   * Import an archive from bytes
+   *
+   * @param data - The archive data as bytes
+   * @param key - Encryption key for the archive
+   * @returns Promise that resolves when the archive is imported
+   */
+  async importArchive(data: Uint8Array, key: Uint8Array) {
+    return this.#worker.action("client.importArchive", {
+      data,
+      key,
+    });
+  }
+
+  /**
+   * Load the metadata for an archive to see what it contains
+   *
+   * @param data - The archive data as bytes
+   * @param key - Encryption key for the archive
+   * @returns Promise that resolves with the archive metadata
+   */
+  async archiveMetadata(
+    data: Uint8Array,
+    key: Uint8Array,
+  ): Promise<ArchiveMetadata> {
+    return this.#worker.action("client.archiveMetadata", {
+      data,
+      key,
+    });
+  }
+
+  /**
+   * Manually sync all device sync groups
+   *
+   * @returns Promise that resolves with a summary of the sync operation
+   */
+  async syncAllDeviceSyncGroups(): Promise<GroupSyncSummary> {
+    return this.#worker.action("client.syncAllDeviceSyncGroups");
+  }
+
+  /**
+   * Gets what the backend published about itself, as resolved when this client
+   * was built.
+   *
+   * A worker action cannot be synchronous, so the snapshot is captured from the
+   * init result and answered from the main thread. A refresh rewrites the
+   * stored copy; it never changes this value.
+   *
+   * @throws {ClientNotInitializedError} if the client is not initialized
+   * @returns The configuration snapshot this client holds
+   */
+  serverConfiguration(): ServerConfiguration {
+    if (!this.#serverConfiguration) {
+      throw new ClientNotInitializedError();
+    }
+    return this.#serverConfiguration;
+  }
+
+  /**
+   * Fetches the backend configuration now and rewrites the stored copy.
+   *
+   * The snapshot this client holds is unchanged; a new value takes effect at
+   * the next build.
+   *
+   * @returns The configuration that was fetched
+   */
+  async refreshServerConfiguration(): Promise<ServerConfiguration> {
+    try {
+      return await this.#worker.action("client.refreshServerConfiguration");
+    } catch (error) {
+      const typedError = toServerConfigurationError(error);
+      if (typedError) throw typedError;
+      throw error;
+    }
+  }
+
+  /**
+   * Reads a backend's configuration with no database, no client, and no
+   * credential.
+   *
+   * @param optionsOrUrl - The backend URL, or network options carrying it
+   * @returns The configuration the backend publishes
+   */
+  static async fetchServerConfiguration(
+    optionsOrUrl: NetworkOptions | string,
+  ): Promise<ServerConfiguration> {
+    return utilsFetchServerConfiguration(optionsOrUrl);
+  }
+}

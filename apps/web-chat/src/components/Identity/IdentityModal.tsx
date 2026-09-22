@@ -9,6 +9,7 @@ import {
 } from "@mantine/core";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
+
 import { BadgeWithCopy } from "@/components/BadgeWithCopy";
 import { InstallationTable } from "@/components/Identity/InstallationTable";
 import { Modal } from "@/components/Modal";
@@ -52,8 +53,7 @@ export const IdentityModal: React.FC = () => {
         fullScreen={fullScreen}
         onClose={handleClose}
         size="auto"
-        padding={0}
-      >
+        padding={0}>
         <ContentLayout
           maxHeight={contentHeight}
           loading={revoking || syncing}
@@ -65,8 +65,7 @@ export const IdentityModal: React.FC = () => {
               </Text>
               <CloseButton size="md" onClick={handleClose} />
             </Group>
-          }
-        >
+          }>
           <Stack gap="md" p="md">
             <Paper p="md" radius="md" withBorder>
               <Stack gap="md">
@@ -109,8 +108,9 @@ export const IdentityModal: React.FC = () => {
                       <Button
                         variant="outline"
                         color="red"
-                        onClick={() => void handleRevokeAllOtherInstallations()}
-                      >
+                        onClick={() =>
+                          void handleRevokeAllOtherInstallations()
+                        }>
                         Revoke all other installations
                       </Button>
                     </Group>

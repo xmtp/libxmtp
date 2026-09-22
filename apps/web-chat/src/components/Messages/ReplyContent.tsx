@@ -2,8 +2,10 @@ import { Group, Stack, Text, Tooltip } from "@mantine/core";
 import type { EnrichedReply } from "@xmtp/browser-sdk";
 import type { ContentTypeId } from "@xmtp/content-type-primitives";
 import { useCallback, useEffect, useState } from "react";
+
 import { MessageContent } from "@/components/Messages/MessageContent";
 import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
+
 import classes from "./ReplyContent.module.css";
 
 export type ReplyContentProps = {

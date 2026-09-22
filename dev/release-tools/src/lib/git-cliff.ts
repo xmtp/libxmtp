@@ -1,6 +1,8 @@
 import semver from "semver";
-import { diffBumpKind, type PendingRelease } from "./sdk-version";
+
 import type { BumpType } from "@/types";
+
+import { diffBumpKind, type PendingRelease } from "./sdk-version";
 
 interface CliffRelease {
   version?: string | null;

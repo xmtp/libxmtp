@@ -1,6 +1,7 @@
 import { IdentifierKind } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router";
+
 import { LoadingMessage } from "@/components/LoadingMessage";
 import { useClient } from "@/contexts/XMTPContext";
 import { isValidEthereumAddress } from "@/helpers/strings";

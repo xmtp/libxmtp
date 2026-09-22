@@ -1,5 +1,6 @@
 import { IdentifierKind } from "@xmtp/browser-sdk";
 import { useEffect, useState } from "react";
+
 import { useClient } from "@/contexts/XMTPContext";
 import { useConversations } from "@/stores/inbox/hooks";
 

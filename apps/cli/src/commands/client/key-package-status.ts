@@ -1,4 +1,5 @@
 import { Flags } from "@oclif/core";
+
 import { BaseCommand } from "@/baseCommand";
 
 export default class ClientKeyPackageStatus extends BaseCommand {

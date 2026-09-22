@@ -1,5 +1,6 @@
 import { Group, Switch, Text, Tooltip } from "@mantine/core";
 import React from "react";
+
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 
@@ -19,8 +20,7 @@ export const UseSCW: React.FC = () => {
       </Text>
       <Tooltip
         label="Enable this option if you're connecting with a smart contract wallet"
-        refProp="rootRef"
-      >
+        refProp="rootRef">
         <Switch
           size="md"
           disabled={

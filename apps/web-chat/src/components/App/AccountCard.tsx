@@ -1,5 +1,6 @@
 import { Box, CheckIcon, Group, Text } from "@mantine/core";
 import { useCallback } from "react";
+
 import classes from "./AccountCard.module.css";
 
 export type AccountCardProps = {
@@ -39,8 +40,7 @@ export const AccountCard: React.FC<AccountCardProps> = ({
       className={classNames.join(" ")}
       tabIndex={0}
       pos="relative"
-      onClick={handleClick}
-    >
+      onClick={handleClick}>
       {icon}
       <Text size="lg" flex={1} c={disabled ? "dimmed" : "inherit"}>
         {label}

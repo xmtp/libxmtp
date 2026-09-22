@@ -1,8 +1,10 @@
 import { LoadingOverlay } from "@mantine/core";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
+
 import { CenteredLayout } from "@/layouts/CenteredLayout";
 import { useActions, useLastSyncedAt } from "@/stores/inbox/hooks";
+
 import { Conversation } from "./Conversation";
 
 export const LoadConversation: React.FC = () => {

@@ -1,5 +1,6 @@
 import { Badge, Group, Text } from "@mantine/core";
 import type { Intent } from "@xmtp/browser-sdk";
+
 import { DateLabel } from "@/components/DateLabel";
 import { IdentityBadge } from "@/components/IdentityBadge";
 import { useConversationContext } from "@/contexts/ConversationContext";
@@ -40,8 +41,7 @@ export const IntentContent: React.FC<IntentContentProps> = ({
             label: {
               textTransform: "none",
             },
-          }}
-        >
+          }}>
           {content.actionId}
         </Badge>
         <Text size="sm">action</Text>

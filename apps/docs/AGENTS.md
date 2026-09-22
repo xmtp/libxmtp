@@ -49,8 +49,8 @@ The composed `llms-full.txt` contains the developer guide. Specs are in
 specs. Text exports contain Mermaid source, not embedded SVG data or heading
 navigation links. Keep resolved SDK examples in the developer guide.
 
-The docs package has its own Prettier configuration. `nix fmt` continues to
-format the SDKs; `just docs format-check` checks the site, including Astro and MDX.
+Oxfmt formats docs source except `.astro` files. Prettier with the Astro plugin
+formats `.astro` files. `just docs format-check` checks both formatters.
 
 ## Content
 

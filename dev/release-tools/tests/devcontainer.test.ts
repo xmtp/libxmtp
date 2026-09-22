@@ -1,8 +1,10 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
 import { parse as parseJsonc } from "jsonc-parser";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { setDevcontainerImage } from "../src/lib/devcontainer";
 
 const BUILD_SHAPE = `// For format details, see https://aka.ms/devcontainer.json.

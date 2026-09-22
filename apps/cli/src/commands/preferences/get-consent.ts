@@ -1,5 +1,6 @@
 import { Flags } from "@oclif/core";
 import { ConsentEntityType, ConsentState } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 
 export default class PreferencesGetConsent extends BaseCommand {

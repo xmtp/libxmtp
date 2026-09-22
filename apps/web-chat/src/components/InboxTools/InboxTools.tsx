@@ -16,16 +16,17 @@ import {
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Outlet } from "react-router";
 import { useSignMessage } from "wagmi";
-import { ConnectedAddress } from "@/components/App/ConnectedAddress";
+
 import { BackendUrlInput } from "@/components/App/BackendUrlInput";
+import { ConnectedAddress } from "@/components/App/ConnectedAddress";
 import { WalletConnect } from "@/components/App/WalletConnect";
 import { InstallationTable } from "@/components/InboxTools/InstallationTable";
-import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
+import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { backendLabel } from "@/helpers/backend";
+import { createEOASigner, createSCWSigner } from "@/helpers/createSigner";
 import { isValidInboxId } from "@/helpers/strings";
 import { useEphemeralSigner } from "@/hooks/useEphemeralSigner";
 import { useMemberId } from "@/hooks/useMemberId";
-import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 import { ContentLayout } from "@/layouts/ContentLayout";
@@ -261,19 +262,16 @@ export const InboxTools: React.FC = () => {
                   )
                   .map((installation) => installation.bytes);
                 void handleRevokeInstallations(installationBytes);
-              }}
-            >
+              }}>
               Revoke installations
             </Button>
           </Group>
-        }
-      >
+        }>
         <Stepper active={active} onStepClick={setActive} mt="md">
           <Stepper.Step
             label="Connect your wallet"
             allowStepSelect={false}
-            loading={walletLoading}
-          >
+            loading={walletLoading}>
             <WalletConnect />
           </Stepper.Step>
           <Stepper.Step label="Manage installations" allowStepSelect={false}>
@@ -317,8 +315,7 @@ export const InboxTools: React.FC = () => {
                     variant="default"
                     onClick={() => {
                       setMemberId(address ?? ephemeralAddress);
-                    }}
-                  >
+                    }}>
                     Use wallet address
                   </Button>
                   <Group gap="xs">
@@ -327,16 +324,14 @@ export const InboxTools: React.FC = () => {
                       disabled={!isValidInboxId(inboxId)}
                       onClick={() => {
                         void handleFetchInboxUpdatesCount();
-                      }}
-                    >
+                      }}>
                       Check updates count
                     </Button>
                     <Button
                       disabled={!isValidInboxId(inboxId)}
                       onClick={() => {
                         void handleFindInstallations();
-                      }}
-                    >
+                      }}>
                       Find installations
                     </Button>
                   </Group>

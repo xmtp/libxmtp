@@ -1,6 +1,7 @@
 import { Group, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Group as XmtpGroup, type Conversation } from "@xmtp/browser-sdk";
 import { useState } from "react";
+
 import { type ClientPermissions } from "@/hooks/useClientPermissions";
 
 type MetadataProps = {

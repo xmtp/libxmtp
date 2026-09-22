@@ -98,7 +98,7 @@ All seven SDKs are configured: `ios`, `android`, `node-bindings`, `wasm-bindings
 ```bash
 pnpm --filter @xmtp/release-tools run test          # Run tests (Vitest)
 pnpm --filter @xmtp/release-tools run test:watch    # Run tests in watch mode
-pnpm --filter @xmtp/release-tools run format        # Format with Prettier
+pnpm --filter @xmtp/release-tools run format        # Format with Oxfmt
 pnpm --filter @xmtp/release-tools run format:check  # Check formatting
 ```
 

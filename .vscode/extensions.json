@@ -2,7 +2,9 @@
   "recommendations": [
     "rust-lang.rust-analyzer",
     "tamasfe.even-better-toml",
+    "oxc.oxc-vscode",
     "esbenp.prettier-vscode",
+    "astro-build.astro-vscode",
     "ryanluker.vscode-coverage-gutters",
     "ms-vscode.live-server",
     "jnoortheen.nix-ide",

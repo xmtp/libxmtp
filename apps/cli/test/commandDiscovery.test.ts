@@ -1,5 +1,7 @@
 import { readdirSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
+
 import { COMMANDS } from "@/commands";
 import CustomHelp from "@/help";
 import * as entry from "@/index";

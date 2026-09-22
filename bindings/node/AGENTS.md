@@ -7,7 +7,7 @@ NAPI-RS bindings for Node. API tests are TypeScript (`test/*.test.ts`). Error co
 ```bash
 just install                            # install the root workspace once
 just node check                         # build release NAPI to dist/
-just node lint                          # prettier
+just node lint                          # clippy + rustfmt
 dev/nix-shell 'pnpm --filter @xmtp/node-bindings run lint:rust'   # clippy + rustfmt
 just node test                          # install + build with test-utils + vitest
 just node test-ci                       # what CI runs (Nix build)

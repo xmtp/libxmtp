@@ -1,0 +1,288 @@
+import type {
+  ArchiveMetadata,
+  ArchiveOptions,
+  GroupSyncSummary,
+  Identifier,
+  KeyPackageStatus,
+  ServerConfiguration,
+} from "@xmtp/wasm-bindings";
+
+import type {
+  ClientOptions,
+  VisibilityConfirmationOptions,
+} from "@/types/options";
+import type { SafeSigner } from "@/utils/signer";
+
+export type ClientAction =
+  | { action: "client.close"; id: string; data: undefined; result: undefined }
+  | {
+      action: "client.init";
+      id: string;
+      result: {
+        appVersion: string;
+        env: string;
+        inboxId: string;
+        installationId: string;
+        installationIdBytes: Uint8Array;
+        libxmtpVersion: string;
+        /**
+         * The snapshot the core resolved at build. A worker action cannot be
+         * synchronous, so the snapshot travels with the init result and the
+         * main thread answers `serverConfiguration()` from it.
+         */
+        serverConfiguration: ServerConfiguration;
+      };
+      data: {
+        identifier: Identifier;
+        options?: ClientOptions;
+        hasAuthCallback?: boolean;
+      };
+    }
+  | {
+      action: "client.applySignatureRequest";
+      id: string;
+      result: undefined;
+      data: {
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.createInboxSignatureText";
+      id: string;
+      result: {
+        signatureText?: string;
+        signatureRequestId?: string;
+      };
+      data: {
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.addAccountSignatureText";
+      id: string;
+      result: {
+        signatureText: string;
+        signatureRequestId: string;
+      };
+      data: {
+        newIdentifier: Identifier;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.removeAccountSignatureText";
+      id: string;
+      result: {
+        signatureText: string;
+        signatureRequestId: string;
+      };
+      data: {
+        identifier: Identifier;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.revokeAllOtherInstallationsSignatureText";
+      id: string;
+      result: {
+        signatureText: string | undefined;
+        signatureRequestId: string;
+      };
+      data: {
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.revokeInstallationsSignatureText";
+      id: string;
+      result: {
+        signatureText: string;
+        signatureRequestId: string;
+      };
+      data: {
+        installationIds: Uint8Array[];
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.changeRecoveryIdentifierSignatureText";
+      id: string;
+      result: {
+        signatureText: string;
+        signatureRequestId: string;
+      };
+      data: {
+        identifier: Identifier;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.registerIdentity";
+      id: string;
+      result: undefined;
+      data: {
+        signer: SafeSigner;
+        signatureRequestId: string;
+        waitForRegistrationVisible?: VisibilityConfirmationOptions;
+      };
+    }
+  | {
+      action: "client.addAccount";
+      id: string;
+      result: undefined;
+      data: {
+        identifier: Identifier;
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.removeAccount";
+      id: string;
+      result: undefined;
+      data: {
+        identifier: Identifier;
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.revokeAllOtherInstallations";
+      id: string;
+      result: undefined;
+      data: {
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.changeRecoveryIdentifier";
+      id: string;
+      result: undefined;
+      data: {
+        identifier: Identifier;
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.revokeInstallations";
+      id: string;
+      result: undefined;
+      data: {
+        installationIds: Uint8Array[];
+        signer: SafeSigner;
+        signatureRequestId: string;
+      };
+    }
+  | {
+      action: "client.isRegistered";
+      id: string;
+      result: boolean;
+      data: undefined;
+    }
+  | {
+      action: "client.canMessage";
+      id: string;
+      result: Map<string, boolean>;
+      data: {
+        identifiers: Identifier[];
+      };
+    }
+  | {
+      action: "client.fetchLatestInboxUpdatesCount";
+      id: string;
+      result: Record<string, number>;
+      data: {
+        inboxIds: string[];
+      };
+    }
+  | {
+      action: "client.fetchOwnInboxUpdatesCount";
+      id: string;
+      result: number;
+      data: Record<string, never>;
+    }
+  | {
+      action: "client.getInboxIdByIdentifier";
+      id: string;
+      result: string | undefined;
+      data: {
+        identifier: Identifier;
+      };
+    }
+  | {
+      action: "client.signWithInstallationKey";
+      id: string;
+      result: Uint8Array;
+      data: {
+        signatureText: string;
+      };
+    }
+  | {
+      action: "client.verifySignedWithInstallationKey";
+      id: string;
+      result: boolean;
+      data: {
+        signatureText: string;
+        signatureBytes: Uint8Array;
+      };
+    }
+  | {
+      action: "client.verifySignedWithPublicKey";
+      id: string;
+      result: boolean;
+      data: {
+        signatureText: string;
+        signatureBytes: Uint8Array;
+        publicKey: Uint8Array;
+      };
+    }
+  | {
+      action: "client.fetchKeyPackageStatuses";
+      id: string;
+      result: Map<string, KeyPackageStatus>;
+      data: {
+        installationIds: string[];
+      };
+    }
+  | {
+      action: "client.createArchive";
+      id: string;
+      result: Uint8Array;
+      data: {
+        opts: ArchiveOptions;
+        key: Uint8Array;
+      };
+    }
+  | {
+      action: "client.importArchive";
+      id: string;
+      result: undefined;
+      data: {
+        data: Uint8Array;
+        key: Uint8Array;
+      };
+    }
+  | {
+      action: "client.archiveMetadata";
+      id: string;
+      result: ArchiveMetadata;
+      data: {
+        data: Uint8Array;
+        key: Uint8Array;
+      };
+    }
+  | {
+      action: "client.syncAllDeviceSyncGroups";
+      id: string;
+      result: GroupSyncSummary;
+      data: undefined;
+    }
+  | {
+      action: "client.refreshServerConfiguration";
+      id: string;
+      result: ServerConfiguration;
+      data: undefined;
+    };

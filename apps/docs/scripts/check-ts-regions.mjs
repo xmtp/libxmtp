@@ -1,4 +1,5 @@
 import ts from "typescript";
+
 import { exampleConfig, docsRoot } from "./example-config.mjs";
 import { validateExample } from "./example-regions.mjs";
 

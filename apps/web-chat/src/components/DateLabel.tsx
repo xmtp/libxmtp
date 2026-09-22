@@ -57,8 +57,7 @@ export const DateLabel: React.FC<DateLabelProps> = ({
         )
       }
       withArrow
-      events={{ hover: true, focus: true, touch: true }}
-    >
+      events={{ hover: true, focus: true, touch: true }}>
       <Text
         p={padding}
         pt={0}
@@ -67,8 +66,7 @@ export const DateLabel: React.FC<DateLabelProps> = ({
         onKeyDown={handleKeyboardCopy}
         onClick={handleCopy}
         miw={100}
-        tabIndex={0}
-      >
+        tabIndex={0}>
         {intlFormat(date, {
           year: "numeric",
           month: "2-digit",

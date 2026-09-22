@@ -5,6 +5,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 import { useStore } from "zustand";
+
 import type { ContentTypes } from "@/contexts/XMTPContext";
 import { inboxStore, type ConversationMetadata } from "@/stores/inbox/store";
 

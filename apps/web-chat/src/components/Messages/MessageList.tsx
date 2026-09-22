@@ -1,7 +1,10 @@
 import type { DecodedMessage } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useRef } from "react";
+
 import VirtualList, { type VirtualListHandle } from "@/components/VirtualList";
+
 import { Message } from "./Message";
+
 import classes from "./MessageList.module.css";
 
 export type MessageListProps = {

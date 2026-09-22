@@ -1,9 +1,10 @@
-import ts from "typescript";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
+
 const sourceRoot = fileURLToPath(
-  new URL("../../../sdks/js/agent-sdk/src/", import.meta.url),
+  new URL("../../../sdks/agent/src/", import.meta.url),
 );
 const options = {
   noEmit: true,

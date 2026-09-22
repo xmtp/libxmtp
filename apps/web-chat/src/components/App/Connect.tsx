@@ -1,6 +1,7 @@
 import { Stepper } from "@mantine/core";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+
 import { ConnectXMTP } from "@/components/App/ConnectXMTP";
 import { WalletConnect } from "@/components/App/WalletConnect";
 import { useXMTP } from "@/contexts/XMTPContext";
@@ -32,8 +33,7 @@ export const Connect = () => {
       <Stepper.Step
         label="Connect your wallet"
         allowStepSelect={false}
-        loading={loading}
-      >
+        loading={loading}>
         <WalletConnect />
       </Stepper.Step>
       <Stepper.Step label="Connect to XMTP" allowStepSelect={false}>

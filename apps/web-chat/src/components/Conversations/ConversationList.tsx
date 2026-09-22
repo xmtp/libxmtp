@@ -1,10 +1,13 @@
 import type { Conversation } from "@xmtp/browser-sdk";
 import { useMemo } from "react";
 import { useParams } from "react-router";
+
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import VirtualList from "@/components/VirtualList";
 import type { ContentTypes } from "@/contexts/XMTPContext";
+
 import { ConversationCard } from "./ConversationCard";
+
 import classes from "./ConversationList.module.css";
 
 export type ConversationsListProps = {

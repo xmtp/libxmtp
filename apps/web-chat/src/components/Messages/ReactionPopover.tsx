@@ -14,6 +14,7 @@ import {
   type Reaction,
 } from "@xmtp/browser-sdk";
 import { useMemo, useState } from "react";
+
 import { useConversationContext } from "@/contexts/ConversationContext";
 import { useClient } from "@/contexts/XMTPContext";
 import { useConversation } from "@/hooks/useConversation";
@@ -95,8 +96,7 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
           variant="subtle"
           onClick={() => {
             setOpened((opened) => !opened);
-          }}
-        >
+          }}>
           React
         </Button>
       </Popover.Target>
@@ -128,8 +128,7 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
             height: 36,
             display: "flex",
             alignItems: "center",
-          }}
-        >
+          }}>
           {schema === ReactionSchema.Unicode ? (
             <Group gap={4}>
               {EMOJIS.map((emoji) => (
@@ -137,8 +136,7 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
                   key={emoji}
                   size="sm"
                   variant="light"
-                  onClick={() => void send(emoji)}
-                >
+                  onClick={() => void send(emoji)}>
                   {emoji}
                 </ActionIcon>
               ))}
@@ -172,8 +170,7 @@ export const ReactionPopover: React.FC<ReactionBarProps> = ({ message }) => {
               <ActionIcon
                 size="sm"
                 variant="filled"
-                onClick={() => void send(text)}
-              >
+                onClick={() => void send(text)}>
                 ➤
               </ActionIcon>
             </Group>

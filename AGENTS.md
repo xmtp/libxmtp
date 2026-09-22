@@ -1,6 +1,6 @@
 # libxmtp
 
-Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `sdks/{android,ios,js}`.
+Rust workspace. MLS messaging. Bindings: `bindings/{mobile,node,wasm}`. SDKs: `sdks/{agent,android,browser,ios,node}`.
 
 ## Read first
 
@@ -48,6 +48,8 @@ just lint-rust          # Clippy, rustfmt, and Hakari
 just lint-config        # configuration and source formatting checks
 just lint-markdown      # excludes generated glossary and release changelogs
 just lint-proto         # Buf checks the local proto/ schemas
+just format-js          # format JavaScript workspace packages with Oxfmt
+just lint-js-format     # check JavaScript workspace package formatting
 just backend up         # shared services; most integration tests need them
 just backend status     # this worktree's identity, ports, and URLs
 just outline <paths...> # declarations and line ranges; upstream defaults
@@ -76,11 +78,19 @@ graph. They do not build native bindings. Use the relevant `just js`, `just
 cli`, or `just web-chat` recipe first; it stages the required Node or WASM
 bindings before it runs JavaScript tasks.
 
-The root Oxlint config uses correctness rules and the supported TypeScript
+Shared TypeScript configs are in `dev/js/`. Oxlint and Oxfmt configs stay at the
+repository root for tool and editor discovery. Run workspace lint and formatting
+through the package scripts or the `just` recipes above.
+
+The shared Oxlint config uses correctness rules and the supported TypeScript
 recommended type-checked rules. It also checks source aliases, type-only
 imports, and selected type-safety rules. Test overrides allow loose mocks and
 fixtures. Tests still check unused code and promise handling. Keep test
 exceptions in the shared config; do not copy rule lists into each package.
+
+JavaScript formatting does not run through `just lint-config` or treefmt. Run
+`just format-js` to write package formatting, or `just lint-js-format` to check
+it.
 
 ## Rules
 

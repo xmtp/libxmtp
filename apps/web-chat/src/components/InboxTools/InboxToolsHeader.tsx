@@ -11,8 +11,7 @@ export const InboxToolsHeader: React.FC = () => {
         size="sm"
         onClick={() => {
           void navigate("/");
-        }}
-      >
+        }}>
         ← Back to messaging
       </Button>
     </Group>

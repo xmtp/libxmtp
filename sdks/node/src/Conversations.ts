@@ -1,0 +1,609 @@
+import {
+  ConversationType,
+  type ConsentState,
+  type Conversation,
+  type CreateDmOptions,
+  type CreateGroupOptions,
+  type DeliveryCursor,
+  type Identifier,
+  type ListConversationsOptions,
+  type Message,
+  type Conversations as XmtpConversations,
+  type DecodedMessage as XmtpDecodedMessage,
+} from "@xmtp/node-bindings";
+
+import type { Client } from "@/Client";
+import type { CodecRegistry } from "@/CodecRegistry";
+import {
+  assertMessageDecodedForDelivery,
+  DecodedMessage,
+} from "@/DecodedMessage";
+import { Dm } from "@/Dm";
+import { Group } from "@/Group";
+import { MessageStream } from "@/MessageStream";
+import {
+  createStream,
+  type StreamCallback,
+  type StreamOptions,
+} from "@/utils/streams";
+
+/**
+ * Manages conversations
+ *
+ * This class is not intended to be initialized directly.
+ */
+export class Conversations<ContentTypes = unknown> {
+  #client: Client<ContentTypes>;
+  #codecRegistry: CodecRegistry;
+  #conversations: XmtpConversations;
+
+  /**
+   * Creates a new conversations instance
+   *
+   * @param client - The client instance managing the conversations
+   * @param codecRegistry - The codec registry instance
+   * @param conversations - The underlying conversations instance
+   */
+  constructor(
+    client: Client<ContentTypes>,
+    codecRegistry: CodecRegistry,
+    conversations: XmtpConversations,
+  ) {
+    this.#client = client;
+    this.#codecRegistry = codecRegistry;
+    this.#conversations = conversations;
+  }
+
+  get topic() {
+    return `01${this.#client.installationId}`;
+  }
+
+  /**
+   * Retrieves a conversation by its ID
+   *
+   * @param id - The conversation ID to look up
+   * @returns The conversation if found, undefined otherwise
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  async getConversationById(id: string) {
+    try {
+      // getConversationById will throw if group is not found
+      const group = this.#conversations.getConversationById(id);
+      const metadata = await group.groupMetadata();
+      switch (metadata.conversationType()) {
+        case ConversationType.Group:
+          return new Group<ContentTypes>(
+            this.#client,
+            this.#codecRegistry,
+            group,
+          );
+        case ConversationType.Dm:
+          return new Dm<ContentTypes>(this.#client, this.#codecRegistry, group);
+        default:
+          return undefined;
+      }
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Retrieves a DM by inbox ID
+   *
+   * @param inboxId - The inbox ID to look up
+   * @returns The DM if found, undefined otherwise
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  getDmByInboxId(inboxId: string) {
+    try {
+      // getDmByInboxId will throw if group is not found
+      const group = this.#conversations.getDmByInboxId(inboxId);
+      return new Dm<ContentTypes>(this.#client, this.#codecRegistry, group);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Retrieves a DM by identifier
+   *
+   * @param identifier - The identifier to look up
+   * @returns Promise that resolves with the DM, if found
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  async fetchDmByIdentifier(identifier: Identifier) {
+    const inboxId = await this.#client.fetchInboxIdByIdentifier(identifier);
+    if (!inboxId) {
+      return undefined;
+    }
+    return this.getDmByInboxId(inboxId);
+  }
+
+  /**
+   * Retrieves a message by its ID
+   *
+   * @param id - The message ID to look up
+   * @returns The decoded message if found, undefined otherwise
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  getMessageById(id: string) {
+    try {
+      // getEnrichedMessageById will throw if message is not found
+      const message = this.#conversations.getEnrichedMessageById(id);
+      return new DecodedMessage<ContentTypes>(this.#codecRegistry, message);
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Creates a new group conversation without publishing to the network
+   *
+   * @param options - Optional group creation options
+   * @returns The new group
+   * @see https://docs.xmtp.org/sdk/conversations/#optimistically-create-a-group
+   */
+  createGroupOptimistic(options?: CreateGroupOptions) {
+    const group = this.#conversations.createGroupOptimistic(options);
+    return new Group<ContentTypes>(this.#client, this.#codecRegistry, group);
+  }
+
+  /**
+   * Creates a new group conversation with the specified identifiers
+   *
+   * @param identifiers - Array of identifiers for group members
+   * @param options - Optional group creation options
+   * @returns The new group
+   * @see https://docs.xmtp.org/sdk/conversations/#create-a-group
+   */
+  async createGroupWithIdentifiers(
+    identifiers: Identifier[],
+    options?: CreateGroupOptions,
+  ) {
+    const group = await this.#conversations.createGroupByIdentity(
+      identifiers,
+      options,
+    );
+    const conversation = new Group<ContentTypes>(
+      this.#client,
+      this.#codecRegistry,
+      group,
+    );
+    return conversation;
+  }
+
+  /**
+   * Creates a new group conversation with the specified inbox IDs
+   *
+   * @param inboxIds - Array of inbox IDs for group members
+   * @param options - Optional group creation options
+   * @returns The new group
+   * @see https://docs.xmtp.org/sdk/conversations/#create-a-group
+   */
+  async createGroup(inboxIds: string[], options?: CreateGroupOptions) {
+    const group = await this.#conversations.createGroup(inboxIds, options);
+    const conversation = new Group<ContentTypes>(
+      this.#client,
+      this.#codecRegistry,
+      group,
+    );
+    return conversation;
+  }
+
+  /**
+   * Creates a new DM conversation with the specified identifier
+   *
+   * @param identifier - Identifier for the DM recipient
+   * @param options - Optional DM creation options
+   * @returns The new DM
+   * @see https://docs.xmtp.org/sdk/conversations/#create-a-dm
+   */
+  async createDmWithIdentifier(
+    identifier: Identifier,
+    options?: CreateDmOptions,
+  ) {
+    const group = await this.#conversations.createDmByIdentity(
+      identifier,
+      options,
+    );
+    const conversation = new Dm<ContentTypes>(
+      this.#client,
+      this.#codecRegistry,
+      group,
+    );
+    return conversation;
+  }
+
+  /**
+   * Creates a new DM conversation with the specified inbox ID
+   *
+   * @param inboxId - Inbox ID for the DM recipient
+   * @param options - Optional DM creation options
+   * @returns The new DM
+   * @see https://docs.xmtp.org/sdk/conversations/#create-a-dm
+   */
+  async createDm(inboxId: string, options?: CreateDmOptions) {
+    const group = await this.#conversations.createDm(inboxId, options);
+    const conversation = new Dm<ContentTypes>(
+      this.#client,
+      this.#codecRegistry,
+      group,
+    );
+    return conversation;
+  }
+
+  /**
+   * Lists all conversations with optional filtering
+   *
+   * @param options - Optional filtering and pagination options
+   * @returns Array of conversations
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  async list(options?: ListConversationsOptions) {
+    const groups = this.#conversations.list(options);
+    const conversations = await Promise.all(
+      groups.map(async (item) => {
+        const metadata = await item.conversation.groupMetadata();
+        const conversationType = metadata.conversationType();
+        switch (conversationType) {
+          case ConversationType.Dm:
+            return new Dm<ContentTypes>(
+              this.#client,
+              this.#codecRegistry,
+              item.conversation,
+            );
+          case ConversationType.Group:
+            return new Group<ContentTypes>(
+              this.#client,
+              this.#codecRegistry,
+              item.conversation,
+            );
+          default:
+            return undefined;
+        }
+      }),
+    );
+    return conversations.filter((conversation) => conversation !== undefined);
+  }
+
+  /**
+   * Lists all groups with optional filtering
+   *
+   * @param options - Optional filtering and pagination options
+   * @returns Array of groups
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  listGroups(options?: Omit<ListConversationsOptions, "conversationType">) {
+    const groups = this.#conversations.list({
+      ...options,
+      conversationType: ConversationType.Group,
+    });
+    return groups.map((item) => {
+      const conversation = new Group<ContentTypes>(
+        this.#client,
+        this.#codecRegistry,
+        item.conversation,
+      );
+      return conversation;
+    });
+  }
+
+  /**
+   * Lists all DMs with optional filtering
+   *
+   * @param options - Optional filtering and pagination options
+   * @returns Array of DMs
+   * @see https://docs.xmtp.org/sdk/conversations/
+   */
+  listDms(options?: Omit<ListConversationsOptions, "conversationType">) {
+    const groups = this.#conversations.list({
+      ...options,
+      conversationType: ConversationType.Dm,
+    });
+    return groups.map((item) => {
+      const conversation = new Dm<ContentTypes>(
+        this.#client,
+        this.#codecRegistry,
+        item.conversation,
+      );
+      return conversation;
+    });
+  }
+
+  /**
+   * Synchronizes conversations for the current client from the network
+   *
+   * @returns Promise that resolves when sync is complete
+   * @see https://docs.xmtp.org/sdk/sync/
+   */
+  async sync() {
+    return this.#conversations.sync();
+  }
+
+  /**
+   * Synchronizes all conversations and messages from the network with optional
+   * consent state filtering
+   *
+   * @param consentStates - Optional array of consent states to filter by
+   * @returns Promise that resolves when sync is complete
+   * @see https://docs.xmtp.org/sdk/sync/
+   */
+  async syncAll(consentStates?: ConsentState[]) {
+    return this.#conversations.syncAll(consentStates);
+  }
+
+  /**
+   * Creates a stream for new conversations
+   *
+   * @param options - Optional stream options
+   * @param options.conversationType - Optional conversation type to filter by
+   * @returns Stream instance for new conversations
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async stream(
+    options?: StreamOptions<
+      Conversation,
+      Group<ContentTypes> | Dm<ContentTypes> | undefined
+    > & {
+      conversationType?: ConversationType;
+    },
+  ) {
+    const stream = async (
+      callback: StreamCallback<Conversation>,
+      onFail: () => void,
+    ) => {
+      if (!options?.disableSync) {
+        await this.sync();
+      }
+      return this.#conversations.stream(
+        callback,
+        onFail,
+        options?.conversationType,
+      );
+    };
+    const convertConversation = async (value: Conversation) => {
+      const metadata = await value.groupMetadata();
+      const conversationType = metadata.conversationType();
+      switch (conversationType) {
+        case ConversationType.Dm:
+          return new Dm<ContentTypes>(this.#client, this.#codecRegistry, value);
+        case ConversationType.Group:
+          return new Group<ContentTypes>(
+            this.#client,
+            this.#codecRegistry,
+            value,
+          );
+        default:
+          console.warn(`Unknown conversation type: ${conversationType}`);
+          return undefined;
+      }
+    };
+
+    return createStream(stream, convertConversation, options);
+  }
+
+  /**
+   * Creates a stream for new group conversations
+   *
+   * @param options - Optional stream options
+   * @returns Stream instance for new group conversations
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async streamGroups(
+    options?: StreamOptions<Conversation, Group<ContentTypes>>,
+  ) {
+    const stream = async (
+      callback: StreamCallback<Conversation>,
+      onFail: () => void,
+    ) => {
+      if (!options?.disableSync) {
+        await this.sync();
+      }
+      return this.#conversations.stream(
+        callback,
+        onFail,
+        ConversationType.Group,
+      );
+    };
+    const convertConversation = (value: Conversation) => {
+      return new Group<ContentTypes>(this.#client, this.#codecRegistry, value);
+    };
+
+    return createStream(stream, convertConversation, options);
+  }
+
+  /**
+   * Creates a stream for new DM conversations
+   *
+   * @param options - Optional stream options
+   * @returns Stream instance for new DM conversations
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async streamDms(options?: StreamOptions<Conversation, Dm<ContentTypes>>) {
+    const stream = async (
+      callback: StreamCallback<Conversation>,
+      onFail: () => void,
+    ) => {
+      if (!options?.disableSync) {
+        await this.sync();
+      }
+      return this.#conversations.stream(callback, onFail, ConversationType.Dm);
+    };
+    const convertConversation = (value: Conversation) => {
+      return new Dm<ContentTypes>(this.#client, this.#codecRegistry, value);
+    };
+
+    return createStream(stream, convertConversation, options);
+  }
+
+  /**
+   * Reads retained messages after each group's default acknowledgement position.
+   * Set `from` to replay after a cursor without changing default progress.
+   * Set `onValue` for callback mode, or request items with the iterator.
+   * Core owns network recovery. Legacy retry options and `disableSync` do not apply.
+   *
+   * @param options - Optional stream options
+   * @param options.conversationType - Optional conversation type to filter by
+   * @param options.consentStates - Optional array of consent states to filter by
+   * @returns Stream instance for new messages
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async streamAllMessages(
+    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+      conversationType?: ConversationType;
+      consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
+    },
+  ) {
+    const reader = await this.#conversations.messageReader(
+      options?.groupIds,
+      options?.conversationType,
+      options?.consentStates,
+      options?.from,
+    );
+    const convertMessage = (value: Message, cursor: DeliveryCursor) => {
+      const enrichedMessage = this.getMessageById(value.id);
+      if (enrichedMessage !== undefined) {
+        assertMessageDecodedForDelivery(enrichedMessage);
+        enrichedMessage.deliveryCursor = cursor;
+      }
+      return enrichedMessage;
+    };
+    return new MessageStream(reader, convertMessage, options);
+  }
+
+  messageHistorySnapshot(
+    limit: number,
+    options?: {
+      groupIds?: string[];
+      conversationType?: ConversationType;
+      consentStates?: ConsentState[];
+    },
+  ) {
+    return this.#conversations.messageHistorySnapshot(
+      limit,
+      options?.groupIds,
+      options?.conversationType,
+      options?.consentStates,
+    );
+  }
+
+  beginningDeliveryCursor() {
+    return this.#conversations.beginningDeliveryCursor();
+  }
+
+  /**
+   * Reads retained group messages with default progress or an explicit replay cursor.
+   *
+   * @param options - Optional stream options
+   * @param options.consentStates - Optional array of consent states to filter by
+   * @returns Stream instance for new group messages
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async streamAllGroupMessages(
+    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+      consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
+    },
+  ) {
+    return this.streamAllMessages({
+      ...options,
+      conversationType: ConversationType.Group,
+      consentStates: options?.consentStates,
+    });
+  }
+
+  /**
+   * Reads retained DM messages with default progress or an explicit replay cursor.
+   *
+   * @param options - Optional stream options
+   * @param options.consentStates - Optional array of consent states to filter by
+   * @returns Stream instance for new DM messages
+   * @see https://docs.xmtp.org/sdk/stream/#stream-methods
+   */
+  async streamAllDmMessages(
+    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+      consentStates?: ConsentState[];
+      groupIds?: string[];
+      from?: DeliveryCursor;
+    },
+  ) {
+    return this.streamAllMessages({
+      ...options,
+      conversationType: ConversationType.Dm,
+      consentStates: options?.consentStates,
+    });
+  }
+
+  /**
+   * Creates a stream for message deletions that streams the message IDs of
+   * deleted messages
+   *
+   * This is a local stream, does not require network sync, and will not fail
+   * like other streams.
+   *
+   * @param options - Optional stream options
+   * @returns Stream instance for message deletions
+   * @deprecated Use streamDeletedMessages instead
+   */
+  async streamMessageDeletions(
+    options?: Omit<
+      StreamOptions<XmtpDecodedMessage, string>,
+      | "disableSync"
+      | "onFail"
+      | "onRetry"
+      | "onRestart"
+      | "retryAttempts"
+      | "retryDelay"
+      | "retryOnFail"
+    >,
+  ) {
+    const stream = async (callback: StreamCallback<XmtpDecodedMessage>) => {
+      return this.#conversations.streamMessageDeletions(callback);
+    };
+    const convertMessage = (value: XmtpDecodedMessage) => value.id;
+    return createStream(stream, convertMessage, options);
+  }
+
+  /**
+   * Creates a stream for message deletions that streams the deleted messages
+   *
+   * This is a local stream, does not require network sync, and will not fail
+   * like other streams.
+   *
+   * @param options - Optional stream options
+   * @returns Stream instance for message deletions
+   */
+  async streamDeletedMessages(
+    options?: Omit<
+      StreamOptions<XmtpDecodedMessage, DecodedMessage<ContentTypes>>,
+      | "disableSync"
+      | "onFail"
+      | "onRetry"
+      | "onRestart"
+      | "retryAttempts"
+      | "retryDelay"
+      | "retryOnFail"
+    >,
+  ) {
+    const stream = async (callback: StreamCallback<XmtpDecodedMessage>) => {
+      return this.#conversations.streamMessageDeletions(callback);
+    };
+    const convertMessage = (value: XmtpDecodedMessage) => {
+      return new DecodedMessage<ContentTypes>(this.#codecRegistry, value);
+    };
+    return createStream(stream, convertMessage, options);
+  }
+
+  /**
+   * Gets the HMAC keys for all conversations
+   *
+   * @returns The HMAC keys for all conversations
+   * @see https://docs.xmtp.org/sdk/push-notifications/
+   */
+  hmacKeys() {
+    return this.#conversations.hmacKeys();
+  }
+}

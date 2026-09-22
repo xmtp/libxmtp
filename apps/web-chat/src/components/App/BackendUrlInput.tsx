@@ -1,5 +1,6 @@
 import { Stack, Text, TextInput } from "@mantine/core";
 import { useState } from "react";
+
 import { useXMTP } from "@/contexts/XMTPContext";
 import { isValidBackendUrl } from "@/helpers/backend";
 import { useSettings } from "@/hooks/useSettings";

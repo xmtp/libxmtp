@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import init, { createTestClient, type DecodedMessage } from "../";
 
 await init();

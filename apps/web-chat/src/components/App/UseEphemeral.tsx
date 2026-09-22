@@ -1,5 +1,6 @@
 import { Button, Group, Switch, Text, Tooltip } from "@mantine/core";
 import { useCallback } from "react";
+
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 
@@ -29,8 +30,7 @@ export const UseEphemeral: React.FC = () => {
       </Text>
       <Tooltip
         label="Enable this option to use a temporary wallet for signing messages"
-        refProp="rootRef"
-      >
+        refProp="rootRef">
         <Switch
           size="md"
           disabled={isConnected}
@@ -43,8 +43,7 @@ export const UseEphemeral: React.FC = () => {
         size="xs"
         onClick={handleResetEphemeralAccount}
         color="red.7"
-        variant="outline"
-      >
+        variant="outline">
         Reset
       </Button>
     </Group>

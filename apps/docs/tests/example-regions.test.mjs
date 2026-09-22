@@ -3,9 +3,11 @@ import { mkdtemp, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
 import { ExpressiveCode } from "expressive-code";
 import twoslash from "expressive-code-twoslash";
 import ts from "typescript";
+
 import {
   exampleRegions,
   extractRegion,

@@ -3,6 +3,7 @@ import {
   getInboxIdForIdentifier,
   IdentifierKind,
 } from "@xmtp/browser-sdk";
+
 import { backendLabel } from "@/helpers/backend";
 import { queryClient } from "@/helpers/queries";
 import { isValidEthereumAddress } from "@/helpers/strings";

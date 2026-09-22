@@ -1,10 +1,12 @@
 import { env } from "node:process";
 import { createInterface } from "node:readline";
+
 import { Command, Errors, Flags } from "@oclif/core";
 import { AuthHandle, BackendBuilder } from "@xmtp/node-bindings";
 import type { Backend, Client, NetworkOptions } from "@xmtp/node-sdk";
-import { createClient } from "./utils/client.js";
+
 import { parseBackendUrl, parseEnvironmentLabel } from "./utils/backend.js";
+import { createClient } from "./utils/client.js";
 import { loadConfig, mergeConfig, type XmtpConfig } from "./utils/config.js";
 import { formatHuman, isTTY, jsonStringify } from "./utils/output.js";
 

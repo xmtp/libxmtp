@@ -1,5 +1,6 @@
 import { Args, Flags } from "@oclif/core";
 import { ReactionAction, ReactionSchema } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationSendReaction extends BaseCommand {

@@ -3,34 +3,25 @@
   "version": "0.3.0",
   "description": "A command-line interface for XMTP",
   "keywords": [
-    "xmtp",
-    "messaging",
-    "web3",
-    "js",
     "javascript",
+    "js",
+    "messaging",
     "node",
-    "nodejs"
+    "nodejs",
+    "web3",
+    "xmtp"
   ],
   "homepage": "https://github.com/xmtp/libxmtp/tree/main/apps/cli",
   "bugs": {
     "url": "https://github.com/xmtp/libxmtp/issues"
   },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
   "repository": {
     "type": "git",
     "url": "git+https://git@github.com/xmtp/libxmtp.git",
     "directory": "apps/cli"
   },
-  "license": "MIT",
-  "author": "XMTP Labs <eng@xmtp.com>",
-  "type": "module",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
   "bin": {
     "xmtp": "./bin/run.js"
   },
@@ -40,9 +31,25 @@
     "skills",
     "oclif.manifest.json"
   ],
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
     "build": "tsdown",
     "dev": "tsx bin/dev.js",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
     "lint": "oxlint .",
     "manifest": "oclif manifest",
     "prepack": "pnpm build && pnpm manifest",
@@ -51,17 +58,37 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@oclif/core": "^4.8.0",
+    "@oclif/plugin-autocomplete": "^3.2.40",
+    "@oclif/plugin-help": "^6.2.37",
+    "@oclif/plugin-not-found": "^3.2.74",
+    "@oclif/plugin-warn-if-update-available": "^3.1.55",
+    "@xmtp/node-bindings": "workspace:*",
+    "@xmtp/node-sdk": "workspace:*",
+    "viem": "catalog:"
+  },
+  "devDependencies": {
+    "@oclif/plugin-legacy": "^2.0.27",
+    "@types/node": "catalog:node26",
+    "execa": "^9.6.1",
+    "oclif": "^4.22.70",
+    "tsdown": "catalog:",
+    "tsx": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  },
   "oclif": {
     "bin": "xmtp",
     "commands": {
+      "identifier": "COMMANDS",
       "strategy": "explicit",
-      "target": "./dist/index.js",
-      "identifier": "COMMANDS"
+      "target": "./dist/index.js"
     },
     "dirname": "xmtp",
     "helpClass": {
-      "target": "./dist/index.js",
-      "identifier": "CustomHelp"
+      "identifier": "CustomHelp",
+      "target": "./dist/index.js"
     },
     "plugins": [
       "@oclif/plugin-autocomplete",
@@ -91,32 +118,7 @@
       "timeoutInDays": 7
     }
   },
-  "dependencies": {
-    "@oclif/core": "^4.8.0",
-    "@oclif/plugin-autocomplete": "^3.2.40",
-    "@oclif/plugin-help": "^6.2.37",
-    "@oclif/plugin-not-found": "^3.2.74",
-    "@oclif/plugin-warn-if-update-available": "^3.1.55",
-    "@xmtp/node-bindings": "workspace:*",
-    "@xmtp/node-sdk": "workspace:*",
-    "viem": "catalog:"
-  },
-  "devDependencies": {
-    "@oclif/plugin-legacy": "^2.0.27",
-    "@types/node": "catalog:node26",
-    "execa": "^9.6.1",
-    "oclif": "^4.22.70",
-    "tsdown": "catalog:",
-    "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vitest": "catalog:"
-  },
   "engines": {
     "node": ">=24"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true,
-    "registry": "https://registry.npmjs.org/"
   }
 }

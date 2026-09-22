@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+
 import { listSdksForChannel } from "../../src/commands/list-sdks";
 
 describe("listSdksForChannel", () => {

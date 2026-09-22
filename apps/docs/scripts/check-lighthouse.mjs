@@ -1,8 +1,10 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import lighthouse from "lighthouse";
+
 import { launch } from "chrome-launcher";
+import lighthouse from "lighthouse";
 import { chromium } from "playwright";
+
 import { serveStatic } from "./check-serve.mjs";
 
 export function compareLighthouse(

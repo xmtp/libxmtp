@@ -1,4 +1,5 @@
 import { Stack, Text } from "@mantine/core";
+
 import type { MessageContentAlign } from "@/components/Messages/MessageContentWrapper";
 
 export type AttachmentDetailsProps = {

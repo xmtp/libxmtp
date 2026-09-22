@@ -6,6 +6,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+
 import type { ConversationOutletContext } from "@/components/Conversation/ConversationOutletContext";
 import {
   defaultPolicySet,
@@ -61,8 +62,7 @@ export const ManagePermissionsModal: React.FC = () => {
           variant="filled"
           disabled={isLoading}
           loading={isLoading}
-          onClick={() => void handleUpdate()}
-        >
+          onClick={() => void handleUpdate()}>
           Save
         </Button>
       </Group>
@@ -79,14 +79,12 @@ export const ManagePermissionsModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="auto"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Manage permissions"
         maxHeight={contentHeight}
         footer={footer}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Permissions
           conversation={conversation}
           onPermissionsPolicyChange={setPermissionsPolicy}

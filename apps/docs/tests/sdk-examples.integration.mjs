@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+
 import { ExpressiveCode } from "expressive-code";
+
 import { examplePlugins } from "../scripts/example-config.mjs";
 
 test("Twoslash resolves both local SDKs and renders all quickstart regions", async () => {

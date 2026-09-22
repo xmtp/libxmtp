@@ -1,40 +1,38 @@
 {
-    "rust-analyzer": {
-        "linkedProjects": [
-            "Cargo.toml"
-        ],
-        "cargo": {
-            "sysroot": "discover",
-            "allTargets": true,
-            "buildScripts": {
-                "enable": true
-            },
-        },
-        "procMacro": {
-            "enable": true,
-            "attributes.enable": true,
-            "ignored": {
-                "tracing": ["instrument"],
-                "napi-derive": ["napi"],
-                "async-recursion": ["async_recursion"],
-                "ctor": ["ctor"],
-                "tokio": ["test"],
-                "async-stream": ["stream", "try_stream"]
-            }
-        },
-        "diagnostics": {
-            "enable": true,
-            "disabled": [
-                "unlinked-file",
-                "unresolved-macro-call",
-                "unresolved-proc-macro",
-                "macro-error"
-            ]
-        },
-        "check": {
-            "command": "clippy"
-        },
+  "rust-analyzer": {
+    "linkedProjects": ["Cargo.toml"],
+    "cargo": {
+      "sysroot": "discover",
+      "allTargets": true,
+      "buildScripts": {
+        "enable": true
+      }
     },
+    "procMacro": {
+      "enable": true,
+      "attributes.enable": true,
+      "ignored": {
+        "tracing": ["instrument"],
+        "napi-derive": ["napi"],
+        "async-recursion": ["async_recursion"],
+        "ctor": ["ctor"],
+        "tokio": ["test"],
+        "async-stream": ["stream", "try_stream"]
+      }
+    },
+    "diagnostics": {
+      "enable": true,
+      "disabled": [
+        "unlinked-file",
+        "unresolved-macro-call",
+        "unresolved-proc-macro",
+        "macro-error"
+      ]
+    },
+    "check": {
+      "command": "clippy"
+    }
+  },
   "gitlens.blame.ignoreWhitespace": true,
   "coverage-gutters.coverageFileNames": ["coverage/lcov"],
   "coverage-gutters.coverageReportFileName": "coverage/html/index.html",
@@ -42,12 +40,24 @@
     "editor.defaultFormatter": "tamasfe.even-better-toml"
   },
   "[typescript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
   },
   "[javascript]": {
-    "editor.defaultFormatter": "esbenp.prettier-vscode"
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
   },
   "[json]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[jsonc]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode"
+  },
+  "[astro]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
   "nix.serverPath": "nixd",

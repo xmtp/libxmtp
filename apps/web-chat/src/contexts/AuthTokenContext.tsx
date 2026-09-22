@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+
 import { useSettings } from "@/hooks/useSettings";
 
 /**

@@ -1,0 +1,130 @@
+import { join } from "node:path";
+import process from "node:process";
+
+import {
+  createClientWithBackend,
+  LogLevel,
+  SyncWorkerMode,
+  UnstableChangeCallbacks,
+  type Backend,
+  type Identifier,
+  type LogOptions,
+} from "@xmtp/node-bindings";
+
+import type { ClientOptions } from "@/types";
+import { createBackend } from "@/utils/createBackend";
+import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
+
+import { isHexString } from "./validation";
+
+const networkOptionKeys = [
+  "env",
+  "backendUrl",
+  "appVersion",
+  "authCallback",
+] as const;
+
+const hasBackend = (
+  options: ClientOptions,
+): options is { backend: Backend } & ClientOptions => {
+  return "backend" in options;
+};
+
+const resolveBackend = async (options?: ClientOptions): Promise<Backend> => {
+  if (!options) {
+    throw new Error("backendUrl is required");
+  }
+
+  if (hasBackend(options)) {
+    // Validate that no NetworkOptions fields are also set
+    const conflicting = networkOptionKeys.filter(
+      (key) =>
+        key in options && (options as Record<string, unknown>)[key] != null,
+    );
+    if (conflicting.length > 0) {
+      throw new Error(
+        `Cannot specify both 'backend' and network options (${conflicting.join(", ")}). ` +
+          `Use either a pre-built Backend or network options, not both.`,
+      );
+    }
+    return options.backend;
+  }
+
+  // No backend provided — build one from NetworkOptions
+  return createBackend(options);
+};
+
+export const createClient = async (
+  identifier: Identifier,
+  options?: ClientOptions,
+) => {
+  const backend = await resolveBackend(options);
+
+  const inboxId =
+    (await getInboxIdForIdentifier(backend, identifier)) ||
+    generateInboxId(identifier, options?.nonce);
+
+  const env = backend.env ?? "default";
+  // `env` only labels the database file, so it must stay one path component.
+  // Without this a value such as "../other" would move the database outside
+  // the working directory.
+  if (env === "" || /[/\\]/.test(env) || env === "." || env === "..") {
+    throw new Error("env must be a single path component");
+  }
+
+  let dbPath: string | null;
+  if (options?.dbPath === undefined) {
+    // Default: auto-generated path
+    dbPath = join(process.cwd(), `xmtp-${env}-${inboxId}.db3`);
+  } else if (typeof options.dbPath === "function") {
+    // Callback function: call with inbox ID
+    dbPath = options.dbPath(inboxId);
+  } else {
+    // String or null: use as-is
+    dbPath = options.dbPath;
+  }
+
+  const logOptions: LogOptions = {
+    structured: options?.structuredLogging ?? false,
+    level: options?.loggingLevel ?? LogLevel.Off,
+    stdoutLevel: options?.stdoutLoggingLevel,
+    otelEndpoint: options?.otelEndpoint,
+    otelServiceName: options?.otelServiceName,
+    otelSampleRatio: options?.otelSampleRatio,
+    resourceAttributes: options?.resourceAttributes,
+  };
+  const deviceSyncWorkerMode = options?.disableDeviceSync
+    ? SyncWorkerMode.Disabled
+    : SyncWorkerMode.Enabled;
+
+  const dbEncryptionKey = isHexString(options?.dbEncryptionKey)
+    ? Buffer.from(options.dbEncryptionKey.replace(/^0x/, ""), "hex")
+    : options?.dbEncryptionKey;
+
+  // Only build the registry when something is actually registered — an empty
+  // one would make the core snapshot app_data on every processed message.
+  const changeCallbacks = options?.unstableChangeCallbacks?.appData
+    ? new UnstableChangeCallbacks(options.unstableChangeCallbacks.appData)
+    : undefined;
+
+  const client = await createClientWithBackend(
+    backend,
+    {
+      dbPath: dbPath ?? undefined,
+      encryptionKey: dbEncryptionKey,
+      maxDbPoolSize: options?.maxDbPoolSize,
+      minDbPoolSize: options?.minDbPoolSize,
+      useSingleConnection: options?.useSingleConnection,
+    },
+    inboxId,
+    identifier,
+    deviceSyncWorkerMode,
+    options?.workerConfig,
+    logOptions,
+    undefined, // allowOffline
+    options?.nonce,
+    changeCallbacks,
+  );
+
+  return { client, env };
+};

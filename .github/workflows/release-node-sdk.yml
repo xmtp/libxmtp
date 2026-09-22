@@ -140,7 +140,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: node_sdk_build
-          path: sdks/js/node-sdk/dist
+          path: sdks/node/dist
           retention-days: 1
 
   publish:
@@ -148,11 +148,11 @@ jobs:
     uses: ./.github/workflows/npm-publish.yml
     with:
       ref: ${{ inputs.ref }}
-      package-dir: sdks/js/node-sdk
+      package-dir: sdks/node
       sdk: node-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: node_sdk_build
-      artifact-path: sdks/js/node-sdk/dist
+      artifact-path: sdks/node/dist
       ignore-scripts: true
       dep-name: "@xmtp/node-bindings"
       dep-version: ${{ needs.bindings.outputs.version }}

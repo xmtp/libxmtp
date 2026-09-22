@@ -1,18 +1,19 @@
 #!/usr/bin/env tsx
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
+
 import * as bumpVersion from "./commands/bump-version";
-import * as setManifestVersion from "./commands/set-manifest-version";
-import * as computeVersion from "./commands/compute-version";
-import * as updateSpmChecksum from "./commands/update-spm-checksum";
-import * as createReleaseBranch from "./commands/create-release-branch";
 import * as classifyNotes from "./commands/classify-notes";
-import * as tagRelease from "./commands/tag-release";
-import * as setDevcontainerImage from "./commands/set-devcontainer-image";
+import * as computeVersion from "./commands/compute-version";
+import * as createReleaseBranch from "./commands/create-release-branch";
+import * as listSdks from "./commands/list-sdks";
 import * as pendingVersion from "./commands/pending-version";
 import * as resolveSdkVersion from "./commands/resolve-sdk-version";
-import * as listSdks from "./commands/list-sdks";
 import * as setDependencyVersion from "./commands/set-dependency-version";
+import * as setDevcontainerImage from "./commands/set-devcontainer-image";
+import * as setManifestVersion from "./commands/set-manifest-version";
+import * as tagRelease from "./commands/tag-release";
+import * as updateSpmChecksum from "./commands/update-spm-checksum";
 import { getRepoRoot } from "./lib/git";
 
 await yargs(hideBin(process.argv))

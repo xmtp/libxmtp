@@ -1,8 +1,9 @@
+import type { AuthCallback } from "@xmtp/browser-sdk";
 import { useCallback, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { hexToUint8Array } from "uint8array-extras";
 import { useAccount, useSignMessage } from "wagmi";
-import type { AuthCallback } from "@xmtp/browser-sdk";
+
 import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useXMTP } from "@/contexts/XMTPContext";
 import { isValidBackendUrl } from "@/helpers/backend";

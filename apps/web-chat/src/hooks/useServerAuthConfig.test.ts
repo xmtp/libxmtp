@@ -1,6 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { Client } from "@xmtp/browser-sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { useServerAuthConfig } from "./useServerAuthConfig";
 
 const mockConfiguration = (auth: {

@@ -4,6 +4,7 @@ import {
   SortDirection,
   type ListMessagesOptions,
 } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 import {
   buildMessageFilterOptions,

@@ -1,5 +1,6 @@
 import { ActionIcon, Box, Group, Paper, Text } from "@mantine/core";
 import { useMemo } from "react";
+
 import { IconX } from "@/icons/IconX";
 
 export type AttachmentPreviewProps = {
@@ -82,8 +83,7 @@ export const AttachmentPreview: React.FC<AttachmentPreviewProps> = ({
           variant="light"
           radius="xl"
           onClick={onCancel}
-          disabled={disabled}
-        >
+          disabled={disabled}>
           <IconX size={18} />
         </ActionIcon>
       </Box>

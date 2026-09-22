@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
 import react from "@vitejs/plugin-react";
 import { playwright } from "@vitest/browser-playwright";
 import { defineConfig, mergeConfig } from "vite";
@@ -20,7 +21,9 @@ const viteConfig = defineConfig({
   server: {
     allowedHosts: true,
     fs: {
-      allow: [path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../..")],
+      allow: [
+        path.resolve(fileURLToPath(new URL(".", import.meta.url)), "../.."),
+      ],
     },
   },
   build: {

@@ -9,6 +9,7 @@ import {
 import { Client, IdentifierKind } from "@xmtp/browser-sdk";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { InboxTools } from "./InboxTools";
 
 const mocks = vi.hoisted(() => ({

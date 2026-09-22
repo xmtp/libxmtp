@@ -1,0 +1,99 @@
+{
+  "name": "@xmtp/browser-sdk",
+  "version": "7.2.0-dev",
+  "description": "XMTP client SDK for browsers written in TypeScript",
+  "keywords": [
+    "javascript",
+    "js",
+    "messaging",
+    "sdk",
+    "ts",
+    "typescript",
+    "web3",
+    "xmtp"
+  ],
+  "homepage": "https://github.com/xmtp/libxmtp",
+  "bugs": {
+    "url": "https://github.com/xmtp/libxmtp/issues"
+  },
+  "license": "MIT",
+  "author": "XMTP Labs <eng@xmtp.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/xmtp/libxmtp.git",
+    "directory": "sdks/browser"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true,
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
+    "clean:dist": "rm -rf dist",
+    "dev": "tsdown --watch",
+    "format": "oxfmt --write .",
+    "format:check": "oxfmt --check .",
+    "lint": "oxlint .",
+    "test": "vitest run",
+    "test:debug": "vitest run --inspect-brk --no-file-parallelism",
+    "typecheck": "tsc"
+  },
+  "dependencies": {
+    "@xmtp/content-type-primitives": "catalog:",
+    "@xmtp/wasm-bindings": "workspace:*"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "catalog:",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@vitest/browser": "catalog:",
+    "@vitest/browser-playwright": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "playwright": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "viem": "catalog:",
+    "vite": "catalog:",
+    "vite-tsconfig-paths": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "viem": ">=2"
+  },
+  "peerDependenciesMeta": {
+    "viem": {
+      "optional": true
+    }
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome versions",
+      "last 3 firefox versions",
+      "last 3 safari versions"
+    ]
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  }
+}

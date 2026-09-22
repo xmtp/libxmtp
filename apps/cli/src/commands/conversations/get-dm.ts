@@ -1,5 +1,6 @@
 import { Args } from "@oclif/core";
 import { IdentifierKind } from "@xmtp/node-sdk";
+
 import { BaseCommand } from "@/baseCommand";
 
 export default class ConversationsGetDm extends BaseCommand {

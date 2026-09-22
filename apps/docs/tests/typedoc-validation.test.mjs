@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+
 import { validateTypeDoc } from "../scripts/typedoc-validation.mjs";
 
 test("TypeDoc rejects a missing documentation link during validation", async () => {

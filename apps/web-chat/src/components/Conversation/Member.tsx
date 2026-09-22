@@ -1,8 +1,10 @@
 import { Button, Group } from "@mantine/core";
+
 import {
   MemberCard,
   type Member as MemberCardMember,
 } from "@/components/Conversation/MemberCard";
+
 import classes from "./Member.module.css";
 
 export type MemberProps = MemberCardMember & {
@@ -24,8 +26,7 @@ export const Member: React.FC<MemberProps> = ({
       align="center"
       wrap="nowrap"
       p="xxxs"
-      className={classes.root}
-    >
+      className={classes.root}>
       <MemberCard
         address={address}
         displayName={displayName}

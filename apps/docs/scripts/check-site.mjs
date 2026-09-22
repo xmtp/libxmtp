@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+
 import { readRegion } from "./example-regions.mjs";
 import {
   contentRoute,

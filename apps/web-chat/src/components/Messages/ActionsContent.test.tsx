@@ -1,9 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MantineProvider } from "@mantine/core";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { Actions } from "@xmtp/browser-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { ConversationProvider } from "@/contexts/ConversationContext";
 import { dateToNs } from "@/helpers/date";
+
 import { ActionsContent } from "./ActionsContent";
 
 const mocks = vi.hoisted(() => ({ sendIntent: vi.fn() }));

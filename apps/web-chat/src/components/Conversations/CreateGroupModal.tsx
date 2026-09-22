@@ -6,6 +6,7 @@ import {
 } from "@xmtp/browser-sdk";
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
+
 import type { PendingMember } from "@/components/Conversation/AddMembers";
 import { Members } from "@/components/Conversation/Members";
 import { Metadata } from "@/components/Conversation/Metadata";
@@ -109,8 +110,7 @@ export const CreateGroupModal: React.FC = () => {
           variant="filled"
           disabled={loading}
           loading={loading}
-          onClick={() => void handleCreate()}
-        >
+          onClick={() => void handleCreate()}>
           Create
         </Button>
       </Group>
@@ -127,14 +127,12 @@ export const CreateGroupModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="600"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Create group"
         maxHeight={contentHeight}
         footer={footer}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Stack gap="sm" py="md">
           <Accordion
             defaultValue="metadata"
@@ -144,8 +142,7 @@ export const CreateGroupModal: React.FC = () => {
               content: {
                 padding: 0,
               },
-            }}
-          >
+            }}>
             <Accordion.Item value="metadata">
               <Accordion.Control>
                 <Text fw="bold">Metadata</Text>
@@ -166,8 +163,7 @@ export const CreateGroupModal: React.FC = () => {
               content: {
                 padding: 0,
               },
-            }}
-          >
+            }}>
             <Accordion.Item value="members">
               <Accordion.Control>
                 <Group justify="space-between" align="center" pr="md">
@@ -194,8 +190,7 @@ export const CreateGroupModal: React.FC = () => {
               content: {
                 padding: 0,
               },
-            }}
-          >
+            }}>
             <Accordion.Item value="permissions">
               <Accordion.Control>
                 <Group justify="space-between" align="center" pr="md">

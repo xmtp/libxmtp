@@ -53,8 +53,7 @@ export const Markdown: React.FC<MarkdownProps> = ({ markdown }) => {
       disallowedElements={["input", "img", "hr"]}
       components={components}
       skipHtml
-      remarkPlugins={[remarkBreaks, remarkGfm]}
-    >
+      remarkPlugins={[remarkBreaks, remarkGfm]}>
       {markdown}
     </ReactMarkdown>
   );

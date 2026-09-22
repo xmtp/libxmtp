@@ -1,4 +1,5 @@
 import type { DecodedMessage, GroupUpdated, Intent } from "@xmtp/browser-sdk";
+
 import { GroupUpdatedContent } from "@/components/Messages/GroupUpdatedContent";
 import { IntentContent } from "@/components/Messages/IntentContent";
 import { MessageContent } from "@/components/Messages/MessageContent";
@@ -40,8 +41,7 @@ export const MessageContentWithWrapper: React.FC<
     <MessageContentWrapper
       align={align}
       senderInboxId={senderInboxId}
-      sentAtNs={message.sentAtNs}
-    >
+      sentAtNs={message.sentAtNs}>
       <MessageContent
         content={message.content}
         contentType={message.contentType}

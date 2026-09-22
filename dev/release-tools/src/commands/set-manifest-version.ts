@@ -1,6 +1,7 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "@/types";
+
 import { getSdkConfig } from "@/lib/sdk-config";
+import type { GlobalArgs } from "@/types";
 
 export function setManifestVersion(
   sdk: string,

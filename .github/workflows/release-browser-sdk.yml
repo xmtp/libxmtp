@@ -144,7 +144,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: browser_sdk_build
-          path: sdks/js/browser-sdk/dist
+          path: sdks/browser/dist
           retention-days: 1
 
   publish:
@@ -152,11 +152,11 @@ jobs:
     uses: ./.github/workflows/npm-publish.yml
     with:
       ref: ${{ inputs.ref }}
-      package-dir: sdks/js/browser-sdk
+      package-dir: sdks/browser
       sdk: browser-sdk
       version: ${{ needs.setup.outputs.version }}
       artifact-pattern: browser_sdk_build
-      artifact-path: sdks/js/browser-sdk/dist
+      artifact-path: sdks/browser/dist
       ignore-scripts: true
       dep-name: "@xmtp/wasm-bindings"
       dep-version: ${{ needs.bindings.outputs.version }}

@@ -1,8 +1,10 @@
 import path from "node:path";
+
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "@/types";
-import { getSdkConfig } from "@/lib/sdk-config";
+
 import { setPackageJsonDependency } from "@/lib/manifest";
+import { getSdkConfig } from "@/lib/sdk-config";
+import type { GlobalArgs } from "@/types";
 
 export const command = "set-dependency-version";
 export const describe =

@@ -1,4 +1,5 @@
 import { Outlet } from "react-router";
+
 import { AppFooter } from "@/components/App/AppFooter";
 import { InboxToolsHeader } from "@/components/InboxTools/InboxToolsHeader";
 import {

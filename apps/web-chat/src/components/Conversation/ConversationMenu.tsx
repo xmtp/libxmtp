@@ -1,6 +1,7 @@
 import { ActionIcon, Menu, Tooltip } from "@mantine/core";
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
+
 import { useClientPermissions } from "@/hooks/useClientPermissions";
 import { IconSettings } from "@/icons/IconSettings";
 
@@ -46,8 +47,7 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
         <Menu.Item
           onClick={() =>
             void navigate(`/conversations/${conversationId}/manage/consent`)
-          }
-        >
+          }>
           Consent
         </Menu.Item>
         {type === "group" &&
@@ -61,8 +61,7 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
                     void navigate(
                       `/conversations/${conversationId}/manage/members`,
                     )
-                  }
-                >
+                  }>
                   Members
                 </Menu.Item>
               )}
@@ -72,8 +71,7 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
                     void navigate(
                       `/conversations/${conversationId}/manage/metadata`,
                     )
-                  }
-                >
+                  }>
                   Metadata
                 </Menu.Item>
               )}
@@ -83,8 +81,7 @@ export const ConversationMenu: React.FC<ConversationMenuProps> = ({
                     void navigate(
                       `/conversations/${conversationId}/manage/permissions`,
                     )
-                  }
-                >
+                  }>
                   Permissions
                 </Menu.Item>
               )}

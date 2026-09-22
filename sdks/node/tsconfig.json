@@ -1,0 +1,22 @@
+{
+  "extends": "../../dev/js/tsconfig.node.json",
+  "compilerOptions": {
+    "isolatedModules": false,
+    "noEmit": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@test/*": ["./test/*"]
+    },
+    "preserveConstEnums": true,
+    "sourceMap": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "scripts/**/*",
+    "src/**/*",
+    "test/**/*",
+    "tsdown.config.ts",
+    "vitest.config.ts",
+    "vitest.setup.ts"
+  ]
+}

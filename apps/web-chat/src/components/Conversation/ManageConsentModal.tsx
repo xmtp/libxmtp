@@ -8,10 +8,12 @@ import {
   type ChangeEvent,
 } from "react";
 import { useNavigate, useOutletContext } from "react-router";
+
 import { Modal } from "@/components/Modal";
 import { useCollapsedMediaQuery } from "@/hooks/useCollapsedMediaQuery";
 import { useConversation } from "@/hooks/useConversation";
 import { ContentLayout } from "@/layouts/ContentLayout";
+
 import type { ConversationOutletContext } from "./ConversationOutletContext";
 
 export const ManageConsentModal: React.FC = () => {
@@ -69,8 +71,7 @@ export const ManageConsentModal: React.FC = () => {
           variant="filled"
           disabled={consentState === initialConsentState}
           loading={consentStateLoading}
-          onClick={() => void handleConsentStateUpdate()}
-        >
+          onClick={() => void handleConsentStateUpdate()}>
           Save
         </Button>
       </Group>
@@ -93,15 +94,13 @@ export const ManageConsentModal: React.FC = () => {
       fullScreen={fullScreen}
       onClose={handleClose}
       size="xs"
-      padding={0}
-    >
+      padding={0}>
       <ContentLayout
         title="Manage consent"
         maxHeight={contentHeight}
         footer={footer}
         withScrollFade={false}
-        withScrollAreaPadding={false}
-      >
+        withScrollAreaPadding={false}>
         <Box p="md">
           <NativeSelect
             size="sm"

@@ -1,0 +1,247 @@
+import type { ContentCodec } from "@xmtp/content-type-primitives";
+import {
+  type Actions,
+  type AppDataChange,
+  type Attachment,
+  type Backend,
+  type ContentTypeId,
+  type DeletedMessage,
+  type GroupUpdated,
+  type Intent,
+  type LeaveRequest,
+  type LogLevel,
+  type MultiRemoteAttachment,
+  type Reaction,
+  type ReadReceipt,
+  type RemoteAttachment,
+  type TransactionReference,
+  type VisibilityConfirmationOptions,
+  type WalletSendCalls,
+  type WorkerConfigOptions,
+} from "@xmtp/node-bindings";
+
+import type { DecodedMessage } from "@/DecodedMessage";
+
+import type { HexString } from "./utils/validation";
+
+/**
+ * Network options
+ */
+/** A backend credential. Include the `Bearer ` prefix when required. */
+export type Credential = {
+  /** Header name. Defaults to `authorization`. */
+  name?: string;
+  value: string;
+  /** Expiration as Unix seconds. Must be a safe integer. */
+  expiresAtSeconds: number;
+};
+
+/** Called when the backend needs a credential, including credential refresh. */
+export type AuthCallback = () => Promise<Credential>;
+
+export type NetworkOptions = {
+  /** Backend URL, including the HTTP or HTTPS scheme. */
+  backendUrl: string;
+  /** Label used only for the default database file name. */
+  env?: string;
+  /** Custom app version. */
+  appVersion?: string;
+  /** Supply backend credentials. Separate from the XMTP identity signer. */
+  authCallback?: AuthCallback;
+};
+
+/**
+ * Device sync options
+ */
+export type DeviceSyncOptions = {
+  /**
+   * Disable device sync
+   */
+  disableDeviceSync?: boolean;
+};
+
+/**
+ * Storage options
+ */
+export type StorageOptions = {
+  /**
+   * Path to the local DB
+   *
+   * There are 4 value types that can be used to specify the database path:
+   *
+   * - `undefined` (or excluded from the client options)
+   *    The database will be created in the current working directory and is based on
+   *    the environment label and client inbox ID.
+   *    Example: `xmtp-default-<inbox-id>.db3`
+   *
+   * - `null`
+   *    No database will be created and all data will be lost once the client disconnects.
+   *
+   * - `string`
+   *    The given path will be used to create the database.
+   *    Example: `./my-db.db3`
+   *
+   * - `function`
+   *    A callback function that receives the inbox ID and returns a string path.
+   *    Example: `(inboxId) => string`
+   */
+  dbPath?: string | null | ((inboxId: string) => string);
+  /**
+   * Encryption key for the local DB (32 bytes, hex)
+   *
+   * @see https://docs.xmtp.org/sdk/client/#view-an-encrypted-database
+   */
+  dbEncryptionKey?: Uint8Array | HexString;
+  /**
+   * Maximum number of connections in the local DB connection pool.
+   *
+   * Defaults to 25 when unset. Ignored when `useSingleConnection` is `true`.
+   */
+  maxDbPoolSize?: number;
+  /**
+   * Minimum number of connections kept warm in the local DB connection pool.
+   *
+   * Defaults to 5 when unset. Ignored when `useSingleConnection` is `true`.
+   */
+  minDbPoolSize?: number;
+  /**
+   * When `true`, the native DB uses a single connection (one file descriptor)
+   * instead of a pool. The pool-size options above are ignored. Intended for
+   * services running many clients in one process.
+   *
+   * Defaults to `false` (pooled).
+   */
+  useSingleConnection?: boolean;
+};
+
+export type ContentOptions = {
+  /**
+   * Allow configuring codecs for additional content types
+   */
+  codecs?: ContentCodec[];
+};
+
+export type OtherOptions = {
+  /**
+   * Enable structured JSON logging
+   */
+  structuredLogging?: boolean;
+  /**
+   * Logging level. Also the level exported to OTLP when `otelEndpoint` is set.
+   */
+  loggingLevel?: LogLevel;
+  /**
+   * Level for the stdout console layer only. Defaults to `loggingLevel`. Set to
+   * `LogLevel.Warn` to quiet stdout below the OTLP export level — e.g. so a log
+   * shipper does not duplicate logs already exported via OTLP, while OTLP still
+   * receives `loggingLevel`.
+   */
+  stdoutLoggingLevel?: LogLevel;
+  /**
+   * OTLP endpoint (e.g. `"http://collector:4317"`) for exporting telemetry
+   * spans and logs. When set, spans (and `tracing` events as correlated logs)
+   * are exported via OTLP to this endpoint, where a downstream OpenTelemetry
+   * Collector can derive metrics from the spans and forward the logs.
+   *
+   * Call {@link flushTelemetry} on graceful shutdown to flush buffered spans.
+   */
+  otelEndpoint?: string;
+  /** Service name attached to exported telemetry. */
+  otelServiceName?: string;
+  /** Fraction of root spans sampled, from 0 to 1. */
+  otelSampleRatio?: number;
+  /**
+   * Resource attributes attached to all exported telemetry spans
+   * (e.g. `{ "service.instance.id": "herald-7", "deployment.environment": "prod" }`).
+   * Use these to attribute telemetry to its source.
+   */
+  resourceAttributes?: Record<string, string>;
+  /**
+   * Tuning for the background worker scheduler (intervals, jitter, per-worker
+   * overrides, and disabled workers). All fields are optional; omitting this
+   * object preserves the default worker behavior.
+   *
+   * Intervals are specified in nanoseconds.
+   */
+  workerConfig?: WorkerConfigOptions;
+  /**
+   * Disable automatic registration when creating a client
+   */
+  disableAutoRegister?: boolean;
+  /**
+   * The nonce to use when generating an inbox ID
+   * (default: undefined = 1)
+   */
+  nonce?: bigint;
+  /**
+   * Options for waiting until client registration is visible on the network.
+   *
+   * When set, `registerIdentity` waits until the backend can read the registration.
+   */
+  waitForRegistrationVisible?: VisibilityConfirmationOptions;
+  /**
+   * Unstable: notifications for group state changes, for clients that
+   * reconcile a group's `appData` themselves.
+   *
+   * Only `appData` exists today; callbacks for the other mutable fields will
+   * be added as further optional properties. Registered at client creation
+   * because the changes they report arrive from the stream and sync paths,
+   * where no SDK call is on the stack to carry them.
+   *
+   * The `appData` callback is awaited before message processing continues, so
+   * a semantic merge — including republishing via `updateAppData` — can finish
+   * first. It fires for changes this client made as well as remote ones, so
+   * the merge must be idempotent.
+   */
+  unstableChangeCallbacks?: {
+    appData?: (change: AppDataChange) => Promise<void>;
+  };
+};
+
+export type ClientOptions = (NetworkOptions | { backend: Backend }) &
+  DeviceSyncOptions &
+  StorageOptions &
+  ContentOptions &
+  OtherOptions;
+
+/**
+ * `Omit` that distributes over unions. The built-in `Omit` collapses a union
+ * (e.g. `ClientOptions`' `NetworkOptions | { backend }` arm) because
+ * `keyof (A | B)` only yields shared keys. This preserves each arm, so options
+ * like `{ backend }` survive `Omit<ClientOptions, "codecs">`.
+ */
+export type DistributiveOmit<T, K extends PropertyKey> = T extends unknown
+  ? Omit<T, K>
+  : never;
+
+export type EnrichedReply<T = unknown, U = unknown> = {
+  referenceId: string;
+  content: T;
+  contentType: ContentTypeId | undefined;
+  inReplyTo: DecodedMessage<U> | null;
+};
+
+export type BuiltInContentTypes =
+  | string // text, markdown
+  | LeaveRequest
+  | Reaction
+  | ReadReceipt
+  | Attachment
+  | RemoteAttachment
+  | TransactionReference
+  | WalletSendCalls
+  | Actions
+  | Intent
+  | MultiRemoteAttachment
+  | GroupUpdated
+  | DeletedMessage;
+
+export type ExtractCodecContentTypes<C extends ContentCodec[] = []> =
+  C extends readonly []
+    ? BuiltInContentTypes
+    : [...C][number] extends ContentCodec<infer T>
+      ?
+          | T
+          | BuiltInContentTypes
+          | EnrichedReply<T | BuiltInContentTypes, T | BuiltInContentTypes>
+      : BuiltInContentTypes;

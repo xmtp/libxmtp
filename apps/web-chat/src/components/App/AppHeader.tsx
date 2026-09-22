@@ -11,11 +11,13 @@ import {
 import type { Client } from "@xmtp/browser-sdk";
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
+
 import { AppMenu } from "@/components/App/AppMenu";
 import { backendHost } from "@/helpers/backend";
 import { shortAddress } from "@/helpers/strings";
 import { useSettings } from "@/hooks/useSettings";
 import { IconChevronDown } from "@/icons/IconChevronDown";
+
 import classes from "./AppHeader.module.css";
 
 const GlowingCircle = () => {
@@ -67,8 +69,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             variant="default"
             aria-label={accountIdentifier || ""}
             className={classes.button}
-            onClick={handleClick}
-          >
+            onClick={handleClick}>
             {accountIdentifier ? shortAddress(accountIdentifier) : "..."}
           </Button>
         </Flex>
@@ -81,8 +82,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               radius="md"
               variant="default"
               p={0}
-              style={{ cursor: "pointer" }}
-            >
+              style={{ cursor: "pointer" }}>
               <Group align="center" gap="xs" px="sm">
                 <GlowingCircle />
                 <Text size="xs" fw={700}>

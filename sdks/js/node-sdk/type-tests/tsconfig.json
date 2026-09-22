@@ -1,7 +1,0 @@
-{
-  "extends": "../../../../tsconfig.node.json",
-  "compilerOptions": {
-    "noEmit": true
-  },
-  "include": ["notifications.ts", "serverConfiguration.ts"]
-}

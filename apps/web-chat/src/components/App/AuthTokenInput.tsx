@@ -1,8 +1,9 @@
 import { PasswordInput, Stack, Text } from "@mantine/core";
 import { useState } from "react";
+
 import { useXMTP } from "@/contexts/XMTPContext";
-import { useSettings } from "@/hooks/useSettings";
 import { useServerAuthConfig } from "@/hooks/useServerAuthConfig";
+import { useSettings } from "@/hooks/useSettings";
 
 export const AuthTokenInput: React.FC = () => {
   const { lockState } = useXMTP();

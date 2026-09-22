@@ -9,8 +9,7 @@ export const AppFooter: React.FC = () => {
           underline="never"
           c="var(--mantine-color-text)"
           target="_blank"
-          flex={0}
-        >
+          flex={0}>
           <Flex align="center" py="md" display="inline-flex">
             <Image
               src="/xmtp-icon.png"
@@ -31,8 +30,7 @@ export const AppFooter: React.FC = () => {
           target="_blank"
           underline="hover"
           c="var(--mantine-color-text)"
-          href="https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md"
-        >
+          href="https://github.com/xmtp/libxmtp/blob/main/CONTRIBUTING.md">
           Contribute
         </Anchor>
         <Text size="sm" c="dimmed">
@@ -43,8 +41,7 @@ export const AppFooter: React.FC = () => {
           target="_blank"
           underline="hover"
           c="var(--mantine-color-text)"
-          href="https://github.com/xmtp/libxmtp/issues/new/choose"
-        >
+          href="https://github.com/xmtp/libxmtp/issues/new/choose">
           Report an issue
         </Anchor>
         <Text size="sm" c="dimmed">
@@ -55,8 +52,7 @@ export const AppFooter: React.FC = () => {
           target="_blank"
           href="https://docs.xmtp.org/"
           underline="hover"
-          c="var(--mantine-color-text)"
-        >
+          c="var(--mantine-color-text)">
           Documentation
         </Anchor>
         <Text size="sm" c="dimmed">
@@ -67,8 +63,7 @@ export const AppFooter: React.FC = () => {
           target="_blank"
           underline="hover"
           c="var(--mantine-color-text)"
-          href="https://community.xmtp.org/"
-        >
+          href="https://community.xmtp.org/">
           Forums
         </Anchor>
       </Group>

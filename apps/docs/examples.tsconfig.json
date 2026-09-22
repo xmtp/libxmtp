@@ -1,14 +1,14 @@
 {
-  "extends": "../../tsconfig.web.json",
+  "extends": "../../dev/js/tsconfig.web.json",
   "compilerOptions": {
     "isolatedModules": false,
     "noEmit": true,
     "types": ["node"],
     "paths": {
-      "@xmtp/node-sdk": ["../../sdks/js/node-sdk/dist/index.d.ts"],
-      "@xmtp/browser-sdk": ["../../sdks/js/browser-sdk/dist/index.d.ts"],
-      "@xmtp/agent-sdk": ["../../sdks/js/agent-sdk/dist/index.d.ts"],
-      "@xmtp/agent-sdk/*": ["../../sdks/js/agent-sdk/dist/index.d.ts"]
+      "@xmtp/node-sdk": ["../../sdks/node/dist/index.d.ts"],
+      "@xmtp/browser-sdk": ["../../sdks/browser/dist/index.d.ts"],
+      "@xmtp/agent-sdk": ["../../sdks/agent/dist/index.d.ts"],
+      "@xmtp/agent-sdk/*": ["../../sdks/agent/dist/index.d.ts"]
     }
   },
   "include": ["examples/**/*.ts"]

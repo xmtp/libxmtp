@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { cwd, env, loadEnvFile } from "node:process";
+
 import { defaultDbPath } from "./backend.js";
 
 export const DEFAULT_HOME_DIR = join(homedir(), ".xmtp");

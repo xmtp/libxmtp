@@ -1,4 +1,5 @@
 import { Paper, Text } from "@mantine/core";
+
 import classes from "./TextContent.module.css";
 
 export type FallbackContentProps = {
@@ -14,8 +15,7 @@ export const FallbackContent: React.FC<FallbackContentProps> = ({ text }) => {
           whiteSpace: "pre-wrap",
           wordBreak: "break-word",
           fontFamily: "inherit",
-        }}
-      >
+        }}>
         {text}
       </Text>
     </Paper>

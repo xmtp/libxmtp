@@ -7,6 +7,7 @@ import {
   Text,
   type MantineStyleProps,
 } from "@mantine/core";
+
 import classes from "./ContentLayout.module.css";
 
 export type ContentLayoutProps = React.PropsWithChildren<{
@@ -46,8 +47,7 @@ export const ContentLayoutHeader: React.FC<ContentLayoutHeaderProps> = ({
       gap="xs"
       p="md"
       wrap="nowrap"
-      className={headerClassNames.join(" ")}
-    >
+      className={headerClassNames.join(" ")}>
       {typeof title === "string" ? (
         <Text fw={700} size="lg" truncate>
           {title}
@@ -97,8 +97,7 @@ export const ContentLayoutContent: React.FC<ContentLayoutContentProps> = ({
         <ScrollArea
           type="scroll"
           className={classes.scrollArea}
-          px={withScrollAreaPadding ? "md" : 0}
-        >
+          px={withScrollAreaPadding ? "md" : 0}>
           <Box mah={maxHeight}>{children}</Box>
         </ScrollArea>
       ) : (
@@ -128,8 +127,7 @@ export const ContentLayoutFooter: React.FC<ContentLayoutFooterProps> = ({
       gap="xs"
       align="center"
       className={footerClassNames.join(" ")}
-      wrap="nowrap"
-    >
+      wrap="nowrap">
       {footer}
     </Group>
   );
@@ -171,8 +169,7 @@ export const ContentLayout: React.FC<ContentLayoutProps> = ({
         maxHeight={maxHeight}
         withScrollFade={withScrollFade}
         footer={footer}
-        withBorders={withBorders}
-      >
+        withBorders={withBorders}>
         {children}
       </ContentLayoutContent>
       {aside && <Box className={asideClassNames.join(" ")}>{aside}</Box>}

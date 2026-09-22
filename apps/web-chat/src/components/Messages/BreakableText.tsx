@@ -17,8 +17,7 @@ export const BreakableText: React.FC<BreakableTextProps> = ({
         wordBreak: "break-word",
         fontFamily: "inherit",
       }}
-      {...textProps}
-    >
+      {...textProps}>
       {children}
     </Text>
   );

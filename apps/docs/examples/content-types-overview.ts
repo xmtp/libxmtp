@@ -1,19 +1,19 @@
-import type { Signer } from '@xmtp/node-sdk';
+import type { Signer } from "@xmtp/node-sdk";
 declare const signer: Signer;
 const backendUrl = process.env.XMTP_BACKEND_URL;
-if (!backendUrl) throw new Error('Set XMTP_BACKEND_URL');
+if (!backendUrl) throw new Error("Set XMTP_BACKEND_URL");
 
 // #region example1
 import type {
   ContentCodec,
   ContentTypeId,
   EncodedContent,
-} from '@xmtp/content-type-primitives';
+} from "@xmtp/content-type-primitives";
 
 // Define the content type identifier
 export const CustomContentType: ContentTypeId = {
-  authorityId: 'your-domain.com',
-  typeId: 'your-custom-id',
+  authorityId: "your-domain.com",
+  typeId: "your-custom-id",
   versionMajor: 1,
   versionMinor: 0,
 };
@@ -45,7 +45,7 @@ export class CustomCodec implements ContentCodec<string> {
 // #endregion example1
 
 // #region example2
-import { Agent } from '@xmtp/agent-sdk';
+import { Agent } from "@xmtp/agent-sdk";
 
 const client = await Agent.create(signer, {
   backendUrl,

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+
 import { createRegisteredIdentity, runWithIdentity } from "../../helpers.js";
 
 describe("client revoke-installations", () => {

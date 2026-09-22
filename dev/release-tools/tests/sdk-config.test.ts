@@ -1,7 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import { getSdkConfig, SDK_CONFIGS } from "../src/lib/sdk-config";
 import { Sdk } from "../src/types";
 
@@ -180,5 +182,17 @@ describe("SDK configs", () => {
       expect(cfg.notesIncludeGlobs.length).toBeGreaterThan(0);
       expect(Array.isArray(cfg.notesExcludeGlobs)).toBe(true);
     }
+  });
+
+  it("uses the moved SDK directories", () => {
+    expect(getSdkConfig("browser-sdk").manifestPath).toBe(
+      "sdks/browser/package.json",
+    );
+    expect(getSdkConfig("node-sdk").manifestPath).toBe(
+      "sdks/node/package.json",
+    );
+    expect(getSdkConfig("agent-sdk").manifestPath).toBe(
+      "sdks/agent/package.json",
+    );
   });
 });

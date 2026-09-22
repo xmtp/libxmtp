@@ -1,6 +1,7 @@
 import { LoadingOverlay } from "@mantine/core";
 import { useEffect } from "react";
 import { useNavigate } from "react-router";
+
 import { useXMTP } from "@/contexts/XMTPContext";
 import { useWallet } from "@/hooks/useWallet";
 import { CenteredLayout } from "@/layouts/CenteredLayout";

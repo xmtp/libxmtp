@@ -1,4 +1,5 @@
 import { useClickOutside } from "@mantine/hooks";
+
 import classes from "./MainLayout.module.css";
 
 export const MainLayout: React.FC<React.PropsWithChildren> = ({ children }) => {
