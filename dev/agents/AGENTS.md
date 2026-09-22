@@ -1,8 +1,9 @@
 # Agent tools
 
 Run `dev/nix-shell 'just agent-test'` after changes to the wrapper, hook,
-navigation launcher, or command runner. This uses the locked Python environment
-and checks real ast-outline output without starting a language server.
+navigation launcher, command runner, or `dev/sccache-env`. This uses the locked
+Python environment and checks real ast-outline output without starting a
+language server or sccache server.
 Use `dev/nix-shell --shell rust 'uv lock --project dev/agents'` after dependency
 changes. Keep ast-outline and its grammar dependencies pinned in `uv.lock`.
 Run `dev/serena test` after changes to broker identity or shutdown.
