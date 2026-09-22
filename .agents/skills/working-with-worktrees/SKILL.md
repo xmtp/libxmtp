@@ -34,8 +34,12 @@ clone, so CI, are slot 0.
   `TOXIPROXY` static hardcodes its port). Scripts and SDK tests:
   `XMTP_BACKEND_URL`, `DATABASE_URL`.
 - **Share the compile cache.** Each worktree has its own `target/`. When
-  several build at once, `source dev/sccache-env` in each shell. It turns
-  incremental off, so skip it when hand-iterating on one crate in one worktree.
+  several build at once, `source dev/sccache-env` in each Nix shell. It unsets
+  `CARGO_INCREMENTAL` to keep Cargo's local incremental defaults and caches
+  eligible non-incremental dependencies. The default cache cap is 10 GiB.
+  A running sccache server keeps its cache settings; check `just cache-stats`.
+  Do not share a mutable `target/` directory across worktrees. See
+  `docs/nix-setup.md` for cache limits and how to disable the wrapper.
 - **The stash stack is shared** across worktrees. Never bare `git stash` /
   `git stash pop`; another session can pop your entry. Park work in a WIP
   commit instead.

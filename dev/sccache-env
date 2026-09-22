@@ -1,21 +1,18 @@
 #!/usr/bin/env bash
 # Opt-in shared Rust compilation cache for local development.
 #
-# Source this (do not execute it) in a shell before running cargo:
+# Source this (do not execute it) inside the Nix dev shell:
 #
 #   source dev/sccache-env
-#   cargo build
+#   dev/nix-shell 'dev/agent-run cargo build -p xmtp_common'
 #
-# Why: every git worktree keeps its own target/ directory, so N worktrees
-# rebuild the same dependencies N times. sccache gives them one shared cache
-# while each worktree keeps its own cargo lock, so parallel builds in
-# different worktrees still run at full width.
+# Each worktree keeps its own target/ directory and Cargo build lock.
+# A shared cache can reuse eligible dependency builds across worktrees.
 #
-# Trade-off: sccache cannot cache incremental compilation, so this turns
-# incremental off. That is the right default for fresh worktrees, where
-# incremental has nothing to reuse. When you are hand-iterating on one crate
-# in one worktree, prefer incremental instead: re-export CARGO_INCREMENTAL=1
-# and unset RUSTC_WRAPPER.
+# Keep Cargo's incremental defaults for local crates. sccache passes these
+# compilations through and caches eligible non-incremental dependencies.
+# Do not set CARGO_INCREMENTAL=1: sccache 0.16 rejects that explicit override.
+# Different worktree paths can still cause cache misses for local crates.
 #
 # This file is never sourced automatically. CI and Nix package builds must not
 # use it: `nix build` runs in a sandbox where the cache is unreachable, and CI
@@ -34,11 +31,13 @@ fi
 
 # Bounded, self-evicting cache (LRU). Unlike target/, this has a real ceiling.
 export SCCACHE_DIR="${SCCACHE_DIR:-${HOME}/.cache/sccache}"
-export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-60G}"
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"
 RUSTC_WRAPPER="$(command -v sccache)"
 export RUSTC_WRAPPER
-# Required: sccache cannot cache incremental artifacts.
-export CARGO_INCREMENTAL=0
+# Let Cargo profiles choose incremental mode, including local dev defaults.
+unset CARGO_INCREMENTAL
 
-echo "sccache enabled: dir=${SCCACHE_DIR} max=${SCCACHE_CACHE_SIZE}"
-echo "  stats: sccache --show-stats | disable: unset RUSTC_WRAPPER CARGO_INCREMENTAL"
+echo "sccache enabled: requested dir=${SCCACHE_DIR} max=${SCCACHE_CACHE_SIZE}"
+echo "  Cargo incremental defaults restored; eligible dependencies can be cached."
+echo "  A running server keeps its cache settings. Check: sccache --show-stats"
+echo "  disable: unset RUSTC_WRAPPER"
