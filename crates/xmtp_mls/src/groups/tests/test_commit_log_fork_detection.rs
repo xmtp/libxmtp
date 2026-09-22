@@ -20,6 +20,7 @@ use xmtp_proto::types::{Cursor, Topic};
 
 // The fault is artificial. State changes, log writing, signatures, transport,
 // remote verification, and fork detection use the normal implementation.
+// verifies: FORK-040, FORK-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_real_divergence_detected_through_signed_commit_logs() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;

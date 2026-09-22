@@ -361,6 +361,7 @@ async fn add_missing_installs_reentrancy() {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+// verifies: FORK-073
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_when_processing_message_return_future_wrong_epoch_group_marked_probably_forked() {
     use crate::utils::test_mocks_helpers::set_test_mode_future_wrong_epoch;

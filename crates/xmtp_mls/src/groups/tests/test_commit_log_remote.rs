@@ -346,6 +346,7 @@ async fn test_publish_commit_log_to_remote() {
     );
 }
 
+// verifies: FORK-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_missing_signing_key_does_not_skip_group_when_other_group_publishes() {
     tester!(alix, with_commit_log_worker: false);

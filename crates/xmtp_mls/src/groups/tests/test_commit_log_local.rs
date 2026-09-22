@@ -240,6 +240,7 @@ async fn test_commit_log_retriable_error() {
     .await;
 }
 
+// verifies: FORK-002, FORK-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_non_retriable_error() {
     tester!(alix);
