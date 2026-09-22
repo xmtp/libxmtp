@@ -623,6 +623,14 @@ impl SubscriptionFactory for SuspendedFactory {
     }
 }
 
+struct PendingFactory;
+
+impl SubscriptionFactory for PendingFactory {
+    fn open(&self, _: TopicCursor, _: IncomingBatchLimits) -> SubscriptionFuture {
+        Box::pin(futures::future::pending())
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
     tester!(alix, disable_workers);
@@ -1153,7 +1161,7 @@ async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
     let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
         xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("topics")),
     )));
-    controller.source_error(rejected);
+    controller.opened(Err(rejected));
     controller.transport.wake();
     controller.start_open();
     assert_eq!(controller.transport.generation, 1);
@@ -1169,11 +1177,11 @@ async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
     controller.start_open();
     assert_eq!(controller.transport.generation, 2);
 
-    controller.source_error(NetworkError::new(xmtp_api::ApiError::Api(
+    controller.opened(Err(NetworkError::new(xmtp_api::ApiError::Api(
         NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
             tonic::Status::unimplemented("topics"),
         )),
-    )));
+    ))));
     controller.transport.wake();
     controller.start_open();
     assert_eq!(controller.transport.generation, 2);
@@ -1192,6 +1200,142 @@ async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
         .extend([welcome, group]);
     controller.start_open();
     assert_eq!(controller.transport.generation, 3);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    let topic = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &topic);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+    controller.registered([(topic.clone(), Cursor(10))].into());
+
+    add_scope(&mut controller, 2, &topic);
+    controller.start_targets();
+    assert_eq!(
+        controller.targets_request.as_ref().map(HashSet::len),
+        Some(1)
+    );
+    controller.targets.take();
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("target")),
+    )));
+    controller.targets_finished((vec![(2, 2)], Err(rejected)));
+    assert!(controller.transport.rejected_open.is_none());
+    assert_eq!(controller.rejected_targets, Some([topic.clone()].into()));
+
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+    controller.transport.registered.insert(topic.clone());
+    controller.start_targets();
+    assert!(
+        controller.targets.is_none(),
+        "the same target query stays rejected"
+    );
+
+    let other = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 3, &other);
+    controller.transport.registered.insert(other);
+    controller.start_targets();
+    assert!(
+        controller.targets.is_some(),
+        "changed target set can be tried"
+    );
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_wire_open_stays_blocked_after_partial_or_full_registration() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let second = Topic::new_group_message(GroupId::generate());
+    let rejected = || {
+        NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("wire")),
+        )))
+    };
+    let mut initial = controller(alix.context.clone());
+    initial.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut initial, 1, &topic);
+    add_scope(&mut initial, 2, &second);
+    initial.start_open();
+    initial.registered([(topic.clone(), Cursor(10))].into());
+    initial.incoming(Some(Err(rejected())));
+    initial.transport.wake();
+    initial.start_open();
+    assert_eq!(initial.transport.generation, 1);
+
+    let mut registered = controller(alix.context.clone());
+    registered.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut registered, 1, &topic);
+    registered.start_open();
+    registered.registered([(topic, Cursor(10))].into());
+    registered.incoming(Some(Err(rejected())));
+    registered.transport.wake();
+    registered.start_open();
+    assert_eq!(registered.transport.generation, 1);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_shared_wire_rejection_holds_each_lease_until_a_new_caller() {
+    tester!(alix, disable_workers);
+    let (first_coordinator, mut first) = coordinated_controller(alix.context.clone());
+    let (second_coordinator, mut second) = coordinated_controller(alix.context.clone());
+    let first_topic = Topic::new_group_message(GroupId::generate());
+    let second_topic = Topic::new_group_message(GroupId::generate());
+    for (coordinator, controller, topic) in [
+        (&first_coordinator, &mut first, &first_topic),
+        (&second_coordinator, &mut second, &second_topic),
+    ] {
+        controller.transport.factory = Some(Arc::new(PendingFactory));
+        let caller = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+        while let Ok(command) = controller.commands.try_recv() {
+            controller.command(command);
+        }
+        controller
+            .scopes
+            .get_mut(&caller.id)
+            .unwrap()
+            .topics
+            .insert(topic.clone());
+        controller.start_open();
+        let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("shared wire")),
+        )));
+        controller.incoming(Some(Err(rejected)));
+        controller.refresh_statuses();
+        assert!(
+            controller.state.consumer_recovery.lock()[&caller.id]
+                .snapshot
+                .terminal
+                .is_some(),
+            "each affected app lease reports its terminal error"
+        );
+        controller.transport.wake();
+        controller.start_open();
+        assert_eq!(controller.transport.generation, 1);
+    }
+
+    let fresh = first_coordinator.acquire_stream(IncomingScope::Topics(vec![first_topic.clone()]));
+    while let Ok(command) = first.commands.try_recv() {
+        first.command(command);
+    }
+    first
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(first_topic);
+    first.start_open();
+    assert_eq!(first.transport.generation, 2);
+    second.start_open();
+    assert_eq!(second.transport.generation, 1);
 }
 
 // verifies: PROC-038

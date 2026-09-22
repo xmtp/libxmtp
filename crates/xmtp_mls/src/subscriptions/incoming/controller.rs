@@ -139,6 +139,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     transport: Transport,
     read: Option<ReadFuture>,
     targets: Option<TargetsFuture>,
+    targets_request: Option<HashSet<Topic>>,
+    rejected_targets: Option<HashSet<Topic>>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
@@ -171,6 +173,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             transport: Transport::new(factory, state.recovery.clone()),
             read: None,
             targets: None,
+            targets_request: None,
+            rejected_targets: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
@@ -279,6 +283,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     // An explicit new app stream owns a new request. The old
                     // worker still cannot repeat its rejected request alone.
                     self.transport.rejected_open = None;
+                    self.rejected_targets = None;
                 }
                 self.scopes.insert(id, Scope::new(id, scope));
             }
@@ -567,7 +572,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.transport.error = None;
                 self.transport.opened();
             }
-            Err(error) => self.source_error(error),
+            Err(error) => {
+                if crate::subscriptions::recovery::rejected_request(&error) {
+                    self.transport.rejected_open = self.transport.attempted_open.clone();
+                }
+                self.source_error(error);
+            }
         }
     }
 
@@ -609,6 +619,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if topics.is_empty() {
             return;
         }
+        // implements: API-284
+        if self.rejected_targets.as_ref() == Some(&topics) {
+            return;
+        }
+        self.rejected_targets = None;
+        self.targets_request = Some(topics.clone());
         let context = self.context.clone();
         self.targets = Some(Box::pin(async move {
             let result = context
@@ -624,6 +640,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         &mut self,
         (scopes, result): (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>),
     ) {
+        let request = self.targets_request.take();
         match result {
             Ok(targets) => {
                 for (id, generation) in scopes {
@@ -640,7 +657,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     }
                 }
             }
-            Err(error) => self.source_error(error),
+            Err(error) => {
+                if crate::subscriptions::recovery::rejected_request(&error) {
+                    self.rejected_targets = request;
+                }
+                self.source_error(error);
+            }
         }
     }
 
@@ -657,7 +679,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Err(error) => self.receive_error(topic, error),
                 }
             }
-            Some(Err(error)) => self.source_error(error),
+            Some(Err(error)) => {
+                // A shared wire error has no mutate ID. Hold each affected
+                // lease's unchanged request until its caller changes it.
+                if crate::subscriptions::recovery::rejected_request(&error) {
+                    self.transport.rejected_open = self.transport.attempted_open.clone();
+                }
+                self.source_error(error);
+            }
             None | Some(Ok(IncomingEvent::Disconnected)) => {
                 self.transport.ended();
                 self.transport.disconnect(
@@ -753,9 +782,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn source_error(&mut self, error: NetworkError) {
-        if crate::subscriptions::recovery::rejected_request(&error) {
-            self.transport.rejected_open = self.transport.attempted_open.clone();
-        }
         let policy = self.context.incoming_runtime().policy();
         self.transport.fail(
             error,

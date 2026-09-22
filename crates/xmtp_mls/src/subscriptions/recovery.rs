@@ -71,11 +71,21 @@ fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
 
 /// These replies prohibit an unchanged request.
 pub(crate) fn rejected_request(error: &(dyn std::error::Error + 'static)) -> bool {
+    use xmtp_proto::api::ApiClientError;
+
     if let Some(status) = error.downcast_ref::<tonic::Status>() {
         return matches!(
             status.code(),
             tonic::Code::InvalidArgument | tonic::Code::OutOfRange | tonic::Code::Unimplemented
         );
+    }
+    if let Some(error) = error.downcast_ref::<Box<ApiClientError>>() {
+        return rejected_request(error.as_ref());
+    }
+    match error.downcast_ref::<ApiClientError>() {
+        Some(ApiClientError::Other(inner)) => return rejected_request(inner.as_ref()),
+        Some(ApiClientError::OtherUnretryable(inner)) => return rejected_request(inner.as_ref()),
+        _ => {}
     }
     error.source().is_some_and(rejected_request)
 }
@@ -336,6 +346,11 @@ mod tests {
                 assert!(terminal_source(&subscribe));
                 assert!(rejected_request(&subscribe));
             }
+            let other = ApiClientError::other(xmtp_api_grpc::error::GrpcError::Status(
+                tonic::Status::new(code, ""),
+            ));
+            assert!(rejected_request(&other));
+            assert!(rejected_request(&Box::new(other)));
         }
     }
 
