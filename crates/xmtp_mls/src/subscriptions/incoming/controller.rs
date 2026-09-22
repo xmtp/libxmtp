@@ -186,6 +186,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.storage_error = self.reconcile().err().map(Arc::new);
             let progress = self.process_ready();
             self.refresh_statuses();
+            self.retire_exhausted_streams();
             self.start_open();
             self.start_read();
             self.start_targets();
@@ -245,6 +246,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             _ => true,
         }
+    }
+
+    fn retire_exhausted_streams(&mut self) {
+        // Exhaustion retires only an application stream's interest. Internal
+        // workers and barriers have no stream budget and remain registered.
+        self.scopes.retain(|id, _| {
+            self.state
+                .consumer_recovery
+                .lock()
+                .get(id)
+                .is_none_or(|status| status.terminal.is_none())
+        });
     }
 
     fn command(&mut self, command: Command) {
@@ -533,6 +546,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     fn registered(&mut self, targets: TopicCursor) {
         self.transport.registered.extend(targets.keys().cloned());
+        self.transport.registered();
         for scope in self.scopes.values_mut() {
             for (topic, target) in &targets {
                 if scope.topics.contains(topic) {
@@ -618,6 +632,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             Some(Err(error)) => self.source_error(error),
             None | Some(Ok(IncomingEvent::Disconnected)) => {
+                self.transport.ended();
                 self.transport.disconnect(
                     self.context
                         .incoming_runtime()

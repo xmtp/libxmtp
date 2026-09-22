@@ -37,6 +37,8 @@ A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a
 - `messageReader` returns one message and one opaque acknowledgement token.
 - Keep each token in the worker. Posting a message to the app does not acknowledge it.
 - Call `checkOwner` before the app callback. A false result requires a new read without acknowledgement.
+- Use `enrichedMessage` to read the pending message without hiding storage errors. A null result requires reselection. Run app codecs after this read; codec errors remain terminal.
+- Storage failures end the reader after the operation's normal retry policy. Preserve saved acknowledgement state and fence old tokens. The caller can open a new reader after storage is restored.
 - A callback acknowledges after the app returns. An iterator acknowledges when the app requests the next item.
 - `close` releases the default owner. Do not call `free` while an asynchronous reader method holds a borrow.
 - An explicit `DeliveryCursor` starts replay without changing default delivery progress.

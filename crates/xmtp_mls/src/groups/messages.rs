@@ -41,11 +41,22 @@ where
     /// OpenMLS blocks message creation when there are pending proposals,
     /// so we need to commit them first.
     async fn commit_pending_proposals_if_any(&self) -> Result<(), GroupError> {
-        let has_pending = self.with_group_snapshot(|openmls_group| {
-            Ok::<bool, GroupError>(openmls_group.pending_proposals().next().is_some())
+        let (has_pending, has_pending_add) = self.with_group_snapshot(|openmls_group| {
+            Ok((
+                openmls_group.pending_proposals().next().is_some(),
+                openmls_group.pending_proposals().any(|proposal| {
+                    matches!(proposal.proposal(), openmls::prelude::Proposal::Add(_))
+                }),
+            ))
         })?;
 
         if has_pending {
+            // A rejected commit can leave an accepted installation Add without
+            // its membership update. Refresh before committing that proposal,
+            // even when the regular installation-check interval has not elapsed.
+            if has_pending_add {
+                self.add_missing_installations().await?;
+            }
             tracing::debug!(
                 inbox_id = self.context.inbox_id(),
                 group_id = %self.group_id,

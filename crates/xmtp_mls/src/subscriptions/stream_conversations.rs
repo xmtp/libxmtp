@@ -106,21 +106,46 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             ..Default::default()
         })?);
         let coordinator = IncomingCoordinator::for_context(&context);
-        let lease = coordinator.acquire(IncomingScope::Topics(vec![Topic::new_welcome_message(
-            context.installation_id(),
-        )]));
+        let lease =
+            coordinator.acquire_stream(IncomingScope::Topics(vec![Topic::new_welcome_message(
+                context.installation_id(),
+            )]));
         let query = GroupQueryArgs {
             conversation_type,
             consent_states: Some(consent_states.unwrap_or_else(|| ALL_CONSENT_STATES.to_vec())),
             include_duplicate_dms,
             ..Default::default()
         };
+        let recovery = super::recovery::RecoveryBudget::new(
+            &lease.recovery_snapshot(),
+            xmtp_common::time::Instant::now(),
+        );
         let stream = futures::stream::unfold(
-            (context, events, lease, known, VecDeque::new(), query),
-            |(context, mut events, lease, mut known, mut ready, query)| async move {
+            Some((
+                context,
+                events,
+                lease,
+                known,
+                VecDeque::new(),
+                query,
+                recovery,
+            )),
+            |state| async move {
+                let (context, mut events, lease, mut known, mut ready, query, mut recovery) =
+                    state?;
                 loop {
+                    if let Err(error) = recovery.check(
+                        &lease.recovery_snapshot(),
+                        xmtp_common::time::Instant::now(),
+                    ) {
+                        lease.close();
+                        return Some((Err(error.error().into()), None));
+                    }
                     if let Some(group) = ready.pop_front() {
-                        return Some((Ok(group), (context, events, lease, known, ready, query)));
+                        return Some((
+                            Ok(group),
+                            Some((context, events, lease, known, ready, query, recovery)),
+                        ));
                     }
                     if context.is_closed() {
                         return None;
@@ -145,10 +170,10 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                             }
                         }
                         Err(error) => {
-                            return Some((
-                                Err(error.into()),
-                                (context, events, lease, known, ready, query),
-                            ));
+                            // The database operation has already used its normal
+                            // retry policy. Only the app can start another stream.
+                            lease.close();
+                            return Some((Err(error.into()), None));
                         }
                     }
                     if !ready.is_empty() {
@@ -194,6 +219,34 @@ mod test {
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    xmtp_common::if_native! {
+    // verifies: PROC-040
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn storage_error_ends_notifications_once_and_releases_the_lease() {
+        use xmtp_db::ConnectionExt;
+        tester!(alix, persistent_db, disable_workers);
+        let coordinator = IncomingCoordinator::for_context(&alix.context);
+        let baseline_owners = Arc::strong_count(&coordinator);
+        let mut stream = StreamConversations::new(&alix.context, None, false, None).await?;
+        assert_eq!(Arc::strong_count(&coordinator), baseline_owners + 1);
+        alix.context.db().disconnect()?;
+        let expected = alix.context.db().find_groups(GroupQueryArgs::default()).unwrap_err();
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), expected.to_string());
+        assert!(matches!(error, super::super::SubscribeError::Db(
+            xmtp_db::ConnectionError::Platform(xmtp_db::PlatformStorageError::PoolNeedsConnection)
+        )), "{error:?}");
+        assert_eq!(Arc::strong_count(&coordinator), baseline_owners);
+        assert!(stream.next().await.is_none());
+        assert!(!alix.context.is_closed());
+
+        alix.context.db().reconnect()?;
+        let mut replacement = StreamConversations::new(&alix.context, None, false, None).await?;
+        let group = alix.create_group(None, None)?;
+        assert_eq!(replacement.next().await.unwrap()?.group_id, group.group_id);
+    }
+    }
 
     #[xmtp_common::timeout(std::time::Duration::from_secs(10))]
     #[rstest::rstest]

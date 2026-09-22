@@ -6,6 +6,7 @@ use xmtp_db::group_intent::QueryPreparedEnvelope;
 mod dependencies;
 mod prepared;
 mod rejection;
+mod selection;
 #[cfg(test)]
 mod tests;
 mod welcomes;
@@ -95,8 +96,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             let (intent, attempt) = match next {
                 NextPublish::Prepared(intent, attempt) => (intent, attempt),
                 NextPublish::Resolve(requirements) => {
-                    let mut dependencies = self.resolve_publish_dependencies(&requirements).await?;
-                    let result = self.prepare_publish_attempt(&requirements, &mut dependencies);
+                    let result = match self.resolve_publish_dependencies(&requirements).await {
+                        Ok(mut dependencies) => {
+                            self.prepare_publish_attempt(&requirements, &mut dependencies)
+                        }
+                        Err(error) => Err(error),
+                    };
                     match result {
                         Err(GroupError::OutgoingPreparation(
                             OutgoingPreparationError::StateChanged,
@@ -110,7 +115,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     xmtp_api::ApiError::EnvelopeTooLarge
                                         | xmtp_api::ApiError::UnitTooLarge
                                         | xmtp_api::ApiError::InvalidRequest(_)
-                                )
+                                ) | GroupError::CommitValidation(
+                                    CommitValidationError::InsufficientPermissions
+                                ) | GroupError::InvalidGroupMembership
+                                    | GroupError::InvalidPublicKeys(_)
                             ) =>
                         {
                             if self.reject_unprepared_request(&requirements)? {
@@ -152,7 +160,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         requirements: &PublishRequirements,
     ) -> Result<bool, GroupError> {
         // The failed preparation transaction already rolled back its ratchets.
-        // Only definite local request-shape errors can enter this path.
+        // Only definite local request or authorization errors enter this path.
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             tx.with_group(self.group_id, |group, storage| {
                 let db = storage.db();
@@ -185,133 +193,162 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.with_group(self.group_id, |group, storage| {
-                let db = storage.db();
-                let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
-                else {
-                    return Ok(Continue(None));
-                };
-                if intent.state != IntentState::ToPublish {
-                    return Err(OutgoingPreparationError::StateChanged.into());
-                }
-                if intent.data != requirements.intent.data
-                    || intent.kind != requirements.intent.kind
-                    || intent.should_push != requirements.intent.should_push
-                    || PreparedBase::capture(group)? != requirements.base
-                {
-                    return Err(OutgoingPreparationError::StateChanged.into());
-                }
-                if db.prepared_envelopes(intent.id)?.is_some() {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                if group.pending_commit().is_some() {
-                    return Err(OutgoingPreparationError::UnexpectedPendingCommit.into());
-                }
-                let has_pending_change = db
-                    .find_group_intents(
-                        self.group_id,
-                        Some(vec![IntentState::Published]),
-                        Some(IntentKind::all().collect()),
-                    )?
-                    .iter()
-                    .any(|other| other.kind != IntentKind::SendMessage);
-                if has_pending_change {
-                    return Err(OutgoingPreparationError::StateChanged.into());
-                }
-                dependencies.validate_local(storage)?;
-                let original_proposals = group
-                    .pending_proposals()
-                    .map(|proposal| proposal.proposal_reference_ref().clone())
-                    .collect::<Vec<_>>();
-                let Some(data) =
-                    self.get_publish_intent_data(storage, group, &intent, dependencies)?
-                else {
-                    if Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)?
-                        .is_some_and(|current| current.state == IntentState::ToPublish)
-                    {
-                        db.set_group_intent_processed(intent.id)?;
+            let mut no_op = None;
+            let result = tx.savepoint(|tx| {
+                tx.with_group(self.group_id, |group, storage| {
+                    let db = storage.db();
+                    let Some(intent) =
+                        Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
+                    else {
+                        return Ok(Continue(None));
+                    };
+                    if intent.state != IntentState::ToPublish {
+                        return Err(OutgoingPreparationError::StateChanged.into());
                     }
-                    return Ok(Continue(None));
-                };
-                // Read the persisted proposal order under the same writer before
-                // recording the exact outgoing batch.
-                group.reload(storage)?;
-                let new_proposals = group
-                    .pending_proposals()
-                    .filter(|proposal| {
-                        !original_proposals.contains(proposal.proposal_reference_ref())
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let non_proposal_payloads = usize::from(data.staged_commit.is_some())
-                    + usize::from(intent.kind == IntentKind::SendMessage);
-                if new_proposals.len() + non_proposal_payloads != data.payloads_to_publish.len() {
-                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                }
-                // The pinned OpenMLS ProposalStore is insertion-ordered. The SQL
-                // proposal-reference list keeps the same order across reloads.
-                // Each sender emits standalone proposals first, in that order.
-                let proposals = new_proposals
-                    .iter()
-                    .zip(&data.payloads_to_publish)
-                    .map(|(proposal, payload)| {
-                        Ok(PreparedProposal {
-                            payload_hash: sha256(payload).to_vec(),
-                            proposal: xmtp_db::db_serialize(proposal)?,
+                    if intent.data != requirements.intent.data
+                        || intent.kind != requirements.intent.kind
+                        || intent.should_push != requirements.intent.should_push
+                        || PreparedBase::capture(group)? != requirements.base
+                    {
+                        return Err(OutgoingPreparationError::StateChanged.into());
+                    }
+                    if db.prepared_envelopes(intent.id)?.is_some() {
+                        return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+                    }
+                    if group.pending_commit().is_some() {
+                        return Err(OutgoingPreparationError::UnexpectedPendingCommit.into());
+                    }
+                    let has_pending_change = db
+                        .find_group_intents(
+                            self.group_id,
+                            Some(vec![IntentState::Published]),
+                            Some(IntentKind::all().collect()),
+                        )?
+                        .iter()
+                        .any(|other| other.kind != IntentKind::SendMessage);
+                    if has_pending_change {
+                        return Err(OutgoingPreparationError::StateChanged.into());
+                    }
+                    dependencies.validate_local(storage)?;
+                    let original_proposals = group.pending_proposals().cloned().collect::<Vec<_>>();
+                    let replacement_payloads = dependencies.selection.apply(
+                        group,
+                        storage,
+                        &self.context.identity().installation_keys,
+                    )?;
+                    let Some(mut data) =
+                        self.get_publish_intent_data(storage, group, &intent, dependencies)?
+                    else {
+                        let state = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)?
+                            .map_or(IntentState::ToPublish, |current| current.state);
+                        // A no-op may follow replacement signing. Roll back the
+                        // whole trial, including sender ratchets and generated keys.
+                        no_op = Some(state);
+                        return Ok(Rollback);
+                    };
+                    if dependencies.selection.active
+                        && let Some(staged) = &data.staged_commit
+                    {
+                        // implements: GMOD-038
+                        // Validate the selected set before publication.
+                        // Ordered read-back validation still applies to every commit.
+                        ValidatedCommit::from_staged_commit_local(
+                            &self.context,
+                            &db,
+                            &decode_staged_commit(staged)?,
+                            group.own_leaf_index(),
+                            group,
+                            u64::MAX,
+                        )?;
+                    }
+                    data.payloads_to_publish.splice(0..0, replacement_payloads);
+                    // Read the persisted proposal order under the same writer before
+                    // recording the exact outgoing batch.
+                    group.reload(storage)?;
+                    let new_proposals = group
+                        .pending_proposals()
+                        .filter(|proposal| {
+                            !original_proposals.iter().any(|original| {
+                                original.proposal_reference_ref()
+                                    == proposal.proposal_reference_ref()
+                            })
                         })
-                    })
-                    .collect::<Result<Vec<_>, GroupError>>()?;
-                for proposal in new_proposals {
-                    group
-                        .remove_pending_proposal(storage, proposal.proposal_reference_ref())
-                        .map_err(|error| match error {
-                            openmls::group::RemoveProposalError::Storage(error) => {
-                                GroupError::SqlKeyStore(error)
-                            }
-                            openmls::group::RemoveProposalError::ProposalNotFound => {
-                                OutgoingPreparationError::InvalidPreparedAttempt.into()
-                            }
-                        })?;
-                }
-                let payload = data
-                    .payloads_to_publish
-                    .last()
-                    .ok_or(GroupError::UninitializedResult)?;
-                let envelopes = self.prepare_group_envelopes_in(
-                    &db,
-                    data.payloads_to_publish
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    let non_proposal_payloads = usize::from(data.staged_commit.is_some())
+                        + usize::from(intent.kind == IntentKind::SendMessage);
+                    if new_proposals.len() + non_proposal_payloads != data.payloads_to_publish.len()
+                    {
+                        return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+                    }
+                    // The pinned OpenMLS ProposalStore is insertion-ordered. The SQL
+                    // proposal-reference list keeps the same order across reloads.
+                    // Each sender emits standalone proposals first, in that order.
+                    let proposals = new_proposals
                         .iter()
-                        .map(|payload| (payload.as_slice(), data.should_send_push_notification))
-                        .collect(),
-                )?;
-                let attempt = PreparedAttempt {
-                    version: 2,
-                    base: requirements.base.clone(),
-                    payload_hash: sha256(payload).to_vec(),
-                    envelopes: envelopes
-                        .iter()
-                        .map(prost::Message::encode_to_vec)
-                        .collect(),
-                    proposals,
-                    receipts: None,
-                    welcomes: None,
-                    rejection: None,
-                };
-                // Validate size and shape before any ratchet writes can commit.
-                attempt.publish_unit(self.context.api().limits())?;
-                let encoded = xmtp_db::db_serialize(&attempt)?;
-                if !db.compare_and_set_prepared_envelopes(intent.id, None, Some(&encoded))? {
-                    return Err(OutgoingPreparationError::StateChanged.into());
+                        .zip(&data.payloads_to_publish)
+                        .map(|(proposal, payload)| {
+                            Ok(PreparedProposal {
+                                payload_hash: sha256(payload).to_vec(),
+                                proposal: xmtp_db::db_serialize(proposal)?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, GroupError>>()?;
+                    selection::restore_proposals(group, storage, &original_proposals)?;
+                    let payload = data
+                        .payloads_to_publish
+                        .last()
+                        .ok_or(GroupError::UninitializedResult)?;
+                    let envelopes = self.prepare_group_envelopes_in(
+                        &db,
+                        data.payloads_to_publish
+                            .iter()
+                            .map(|payload| (payload.as_slice(), data.should_send_push_notification))
+                            .collect(),
+                    )?;
+                    let attempt = PreparedAttempt {
+                        version: 2,
+                        base: requirements.base.clone(),
+                        payload_hash: sha256(payload).to_vec(),
+                        envelopes: envelopes
+                            .iter()
+                            .map(prost::Message::encode_to_vec)
+                            .collect(),
+                        proposals,
+                        receipts: None,
+                        welcomes: None,
+                        rejection: None,
+                    };
+                    // Validate size and shape before any ratchet writes can commit.
+                    attempt.publish_unit(self.context.api().limits())?;
+                    let encoded = xmtp_db::db_serialize(&attempt)?;
+                    if !db.compare_and_set_prepared_envelopes(intent.id, None, Some(&encoded))? {
+                        return Err(OutgoingPreparationError::StateChanged.into());
+                    }
+                    db.set_group_intent_published(
+                        intent.id,
+                        &attempt.payload_hash,
+                        data.post_commit_action,
+                        data.staged_commit,
+                        data.group_epoch as i64,
+                    )?;
+                    Ok::<_, GroupError>(Continue(Some(attempt)))
+                })
+            })?;
+            match result {
+                Continue(attempt) => Ok(Continue(attempt)),
+                Rollback => {
+                    let state = no_op.ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    if state == IntentState::Superseded {
+                        db.set_group_intent_superseded(requirements.intent.id)?;
+                    } else if state == IntentState::ToPublish {
+                        db.set_group_intent_processed(requirements.intent.id)?;
+                    }
+                    Ok(Continue(None))
                 }
-                db.set_group_intent_published(
-                    intent.id,
-                    &attempt.payload_hash,
-                    data.post_commit_action,
-                    data.staged_commit,
-                    data.group_epoch as i64,
-                )?;
-                Ok::<_, GroupError>(Continue(Some(attempt)))
-            })
+            }
         })
         .map(TransactionOutcome::into_continued)
     }
@@ -366,12 +403,30 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        group.self_update(provider, &keys, LeafNodeParameters::default())
+                        let updates = crate::groups::app_data::pending_app_data_updates(group)?;
+                        let mut stage = group
+                            .commit_builder()
+                            .leaf_node_parameters(LeafNodeParameters::default())
+                            .consume_proposal_store(true)
+                            .load_psks(provider.storage())
+                            .map_err(CommitToPendingProposalsError::from)?;
+                        stage.with_app_data_dictionary_updates(updates);
+                        let bundle = stage
+                            .build(provider.rand(), provider.crypto(), &keys, |_| true)
+                            .map_err(CommitToPendingProposalsError::from)?
+                            .stage_commit(provider)
+                            .map_err(CommitToPendingProposalsError::from)?;
+                        Ok::<_, GroupError>(bundle)
                     })?;
+                let (commit, welcome, _group_info) = bundle.into_messages();
+                let post_commit_action = update_group_membership::welcome_post_commit_action(
+                    welcome,
+                    staged_commit.as_deref(),
+                )?;
                 Ok(Some(PublishIntentData {
-                    payloads_to_publish: vec![bundle.commit().tls_serialize_detached()?],
+                    payloads_to_publish: vec![commit.tls_serialize_detached()?],
                     staged_commit,
-                    post_commit_action: None,
+                    post_commit_action,
                     should_send_push_notification: intent.should_push,
                     group_epoch,
                 }))
@@ -454,17 +509,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     )?;
 
                 let (commit, welcome, _group_info) = bundle.into_messages();
-                debug_assert!(
-                    welcome.is_none(),
-                    "MetadataUpdate via AppDataUpdate must not produce a welcome"
-                );
+                let post_commit_action = update_group_membership::welcome_post_commit_action(
+                    welcome,
+                    staged_commit.as_deref(),
+                )?;
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![
                         proposal_msg.tls_serialize_detached()?,
                         commit.tls_serialize_detached()?,
                     ],
                     staged_commit,
-                    post_commit_action: None,
+                    post_commit_action,
                     should_send_push_notification: intent.should_push,
                     group_epoch,
                 }))
@@ -571,6 +626,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
                     // Generate add proposals for each key package
                     for key_package in &changes_with_kps.new_key_packages {
+                        if openmls_group.pending_proposals().any(|proposal| {
+                            matches!(proposal.proposal(), Proposal::Add(add) if add.key_package() == key_package)
+                        }) {
+                            continue;
+                        }
                         let (proposal_msg, _proposal_ref) = openmls_group
                             .propose_add_member(&provider, signer, key_package)
                             .map_err(GroupError::ProposeAddMember)?;
@@ -593,6 +653,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
                     // Generate remove proposals for collected members
                     for member_index in members_to_remove {
+                        if openmls_group.pending_proposals().any(|proposal| {
+                            matches!(proposal.proposal(), Proposal::Remove(remove) if remove.removed() == member_index)
+                        }) {
+                            continue;
+                        }
                         let (proposal_msg, _proposal_ref) = openmls_group
                             .propose_remove_member(&provider, signer, member_index)
                             .map_err(GroupError::ProposeRemoveMember)?;
@@ -604,17 +669,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                 }
 
-                if proposal_payloads.is_empty() {
-                    tracing::debug!(
-                        inbox_id = self.context.inbox_id(),
-                        group_id = %self.group_id,
-                        add_inbox_ids = ?intent_data.add_inbox_ids,
-                        remove_inbox_ids = ?intent_data.remove_inbox_ids,
-                        "ProposeMemberUpdate produced no proposals (members may already be in desired state)"
-                    );
-                    return Ok(None);
-                }
-
                 if old_group_membership != new_membership {
                     use crate::groups::mls_sync::update_group_membership::build_group_membership_app_data_payload;
 
@@ -624,18 +678,29 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         &old_group_membership,
                         &new_membership,
                     )?;
-                    let (proposal_msg, _) = openmls_group
-                        .propose_app_data_update(
-                            &provider,
-                            signer,
-                            xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
-                                .as_u16(),
-                            openmls::messages::proposals::AppDataUpdateOperation::Update(
-                                payload.into(),
-                            ),
-                        )
-                        .map_err(GroupError::Proposal)?;
-                    proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                    if !update_group_membership::has_pending_membership_delta(
+                        openmls_group,
+                        &payload,
+                    )? {
+                        let (proposal_msg, _) = openmls_group
+                            .propose_app_data_update(
+                                &provider,
+                                signer,
+                                xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
+                                    .as_u16(),
+                                openmls::messages::proposals::AppDataUpdateOperation::Update(
+                                    payload.into(),
+                                ),
+                            )
+                            .map_err(GroupError::Proposal)?;
+                        proposal_payloads.push(proposal_msg.tls_serialize_detached()?);
+                    }
+                }
+
+                // A repeated request can already be represented by accepted
+                // proposals. Keep their original references and proposers.
+                if proposal_payloads.is_empty() {
+                    return Ok(None);
                 }
 
                 Ok(Some(PublishIntentData {
@@ -672,51 +737,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 Ok(Some(publish))
             }
             IntentKind::CommitPendingProposals => {
-                use xmtp_id::key_package::VerifiedKeyPackageV2;
-
                 let _intent_data =
                     CommitPendingProposalsIntentData::try_from(intent.data.as_slice())?;
 
                 // Check if there are any pending proposals to commit
-                if openmls_group.pending_proposals().next().is_none() {
+                if openmls_group.pending_proposals().next().is_none()
+                    && !dependencies.selection.active
+                {
                     tracing::debug!("No pending proposals to commit");
                     return Ok(None);
                 }
 
                 let signer = &self.context.identity().installation_keys;
-
-                // Get current group membership
-                let current_extensions: Extensions<GroupContext> =
-                    openmls_group.extensions().clone();
-                let current_membership = extract_group_membership(&current_extensions)?;
-
-                // Collect installations for any Add proposals in the pending set.
-                let mut inbox_ids_to_add: Vec<String> = Vec::new();
-                let mut installations_to_welcome: Vec<Installation> = Vec::new();
-
-                for proposal_ref in openmls_group.pending_proposals() {
-                    if let Proposal::Add(add_proposal) = proposal_ref.proposal() {
-                        let key_package = add_proposal.key_package();
-                        let credential = BasicCredential::try_from(
-                            key_package.leaf_node().credential().clone(),
-                        )?;
-                        let inbox_id = parse_credential(credential.identity())?;
-                        if !inbox_ids_to_add.contains(&inbox_id)
-                            && current_membership.get(&inbox_id).is_none()
-                        {
-                            inbox_ids_to_add.push(inbox_id);
-
-                            // Extract installation info from the key package for welcome sending.
-                            if let Ok(verified_kp) =
-                                VerifiedKeyPackageV2::try_from(key_package.clone())
-                                && let Ok(installation) =
-                                    Installation::from_verified_key_package(&verified_kp)
-                            {
-                                installations_to_welcome.push(installation);
-                            }
-                        }
-                    }
-                }
 
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
@@ -727,18 +759,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let (commit, maybe_welcome, _group_info) = bundle.into_messages();
                 let staged_commit =
                     staged_commit.ok_or_else(|| GroupError::MissingPendingCommit)?;
-                let post_commit_action = match maybe_welcome {
-                    Some(welcome_message) => Some(PostCommitAction::from_welcome(
-                        welcome_message,
-                        installations_to_welcome,
-                    )?),
-                    None => None,
-                };
+                let post_commit_action = update_group_membership::welcome_post_commit_action(
+                    maybe_welcome,
+                    Some(&staged_commit),
+                )?;
 
                 Ok(Some(PublishIntentData {
                     payloads_to_publish: vec![commit.tls_serialize_detached()?],
                     staged_commit: Some(staged_commit),
-                    post_commit_action: post_commit_action.map(|action| action.to_bytes()),
+                    post_commit_action,
                     should_send_push_notification: intent.should_push,
                     group_epoch,
                 }))

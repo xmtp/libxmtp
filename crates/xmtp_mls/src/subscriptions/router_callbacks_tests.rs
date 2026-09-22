@@ -17,6 +17,61 @@ use crate::utils::MlsGroupExt;
 
 const WAIT: Duration = Duration::from_secs(20);
 
+// verifies: PROC-040
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_startup_storage_error_reaches_callback_once_before_close() {
+    use crate::subscriptions::{SubscribeError, incoming::IncomingCoordinator};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_db::{
+        ConnectionExt,
+        group::{GroupQueryArgs, QueryGroup},
+    };
+
+    tester!(alix, persistent_db, disable_workers);
+    let coordinator = IncomingCoordinator::for_context(&alix.context);
+    let baseline_owners = Arc::strong_count(&coordinator);
+    alix.context.db().disconnect()?;
+    let expected = alix
+        .context
+        .db()
+        .find_groups(GroupQueryArgs::default())
+        .unwrap_err();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let closed = Arc::new(AtomicUsize::new(0));
+    let closed_callback = Arc::clone(&closed);
+    let handle = Client::stream_conversations_with_callback_dispatch(
+        Arc::new(alix.client.clone()),
+        None,
+        false,
+        move |conversation| {
+            let _ = tx.send(conversation);
+        },
+        move || {
+            closed_callback.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+    let error = tokio::time::timeout(WAIT, rx.recv())
+        .await?
+        .unwrap()
+        .unwrap_err();
+    assert_eq!(error.to_string(), expected.to_string());
+    assert!(
+        matches!(
+            error,
+            SubscribeError::Db(xmtp_db::ConnectionError::Platform(
+                xmtp_db::PlatformStorageError::PoolNeedsConnection
+            ))
+        ),
+        "{error:?}"
+    );
+    tokio::time::timeout(WAIT, handle.join()).await???;
+    assert!(rx.recv().await.is_none());
+    assert_eq!(closed.load(Ordering::SeqCst), 1);
+    assert_eq!(Arc::strong_count(&coordinator), baseline_owners);
+    assert!(!alix.context.is_closed());
+    alix.context.db().reconnect()?;
+}
+
 async fn assert_retained_messages(
     receiver: &mut tokio::sync::mpsc::UnboundedReceiver<
         crate::subscriptions::Result<StoredGroupMessage>,

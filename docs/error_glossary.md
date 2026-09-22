@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **10 crates** with **404 total error codes**.
+**38 error types** across **10 crates** with **407 total error codes**.
 
 ## mobile
 
@@ -583,6 +583,9 @@ Errors that can occur when working with GroupMutablePermissions.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `LocalDeliveryError::EnrichedMessageUnavailable` | The retained item has no decoded message. Not retryable. |
+| `LocalDeliveryError::NetworkRecoveryExhausted` | This stream exhausted its network retry budget. Not retryable; a new stream may retry. |
+| `LocalDeliveryError::NetworkFailure` | A terminal transport error stopped this stream. Not retryable. |
 | `LocalDeliveryError::AcknowledgementRejected` | The callback failed or its token was dropped before acknowledgement. Not retryable. |
 | `LocalDeliveryError::AcknowledgementFailed` | A previous acknowledgement write failed. Reopen to retry delivery. Not retryable. |
 | `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |

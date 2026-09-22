@@ -2,6 +2,7 @@ use super::*;
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn refresh_statuses(&self) {
+        *self.state.recovery.lock() = self.transport.recovery.clone();
         let conn = self.context.db();
         let mut snapshots = self.state.statuses.lock();
         for (id, scope) in &self.scopes {
@@ -10,6 +11,46 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             };
             if snapshot.scope_generation != scope.generation {
                 continue;
+            }
+            {
+                let mut consumers = self.state.consumer_recovery.lock();
+                let recovery = consumers.entry(*id).or_default();
+                recovery.idle = scope.topics.is_empty();
+                let registered = !scope.topics.is_empty()
+                    && self.transport.connection() == IncomingConnection::Connected
+                    && scope.topics.iter().all(|topic| {
+                        self.transport.registered.contains(topic)
+                            || self.is_retired(topic)
+                            || self.receipt(topic).paused
+                            || self.receipt(topic).blocked()
+                    });
+                if !registered || recovery.failures != self.transport.recovery.failures {
+                    recovery.healthy_since = None;
+                    recovery.outage_since.get_or_insert_with(Instant::now);
+                }
+                if registered {
+                    recovery.healthy_since.get_or_insert_with(Instant::now);
+                }
+                if recovery.outage_since.is_some()
+                    && recovery.healthy_since.is_some_and(|since| {
+                        since.elapsed() >= crate::subscriptions::recovery::HEALTHY_PERIOD
+                    })
+                {
+                    recovery.healthy_generation = recovery.healthy_generation.saturating_add(1);
+                    recovery.healthy_failure_baseline = self.transport.recovery.failures;
+                    recovery.outage_since = None;
+                }
+                if recovery.idle {
+                    recovery.outage_since = None;
+                }
+                recovery.failures = self.transport.recovery.failures;
+                recovery.error = self.transport.recovery.error.clone();
+                if recovery.terminal.is_none()
+                    && let Some(budget) = self.state.consumer_budgets.lock().get_mut(id)
+                    && let Err(failure) = budget.check(recovery, Instant::now())
+                {
+                    recovery.terminal = Some(failure);
+                }
             }
             snapshot.error = self
                 .storage_error

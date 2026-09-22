@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+  Arc,
+  atomic::{AtomicBool, Ordering},
+};
 
 use napi::bindgen_prelude::{
   BigInt, Error, FnArgs, Function, Result, Uint8Array, within_runtime_if_available,
@@ -93,6 +96,19 @@ impl MessageAcknowledgement {
       .inner
       .acknowledge()
       .map_err(|error| ErrorWrapper::from(error).into())
+  }
+
+  /// Read the pending message without hiding storage errors. None means reselect.
+  #[napi]
+  #[xmtp_common::err_span]
+  pub fn enriched_message(
+    &self,
+  ) -> Result<Option<crate::messages::decoded_message::DecodedMessage>> {
+    match self.inner.enriched_message() {
+      Ok(message) => message.try_into().map(Some),
+      Err(LocalDeliveryError::SelectionChanged) => Ok(None),
+      Err(error) => Err(ErrorWrapper::from(error).into()),
+    }
   }
 
   #[napi]
@@ -383,6 +399,8 @@ fn filter(
 pub(crate) struct QueuedMessage {
   message: Message,
   acknowledgement: Arc<DeliveryAcknowledgement<MlsContext>>,
+  handed_off: Arc<AtomicBool>,
+  reselect: Arc<AtomicBool>,
 }
 
 struct CallbackClose(ThreadsafeFunction<(), ()>);
@@ -410,11 +428,20 @@ pub(crate) fn callback_stream(
     .callee_handled::<false>()
     .max_queue_size::<1>()
     .build_callback(|queued| match queued.value.acknowledgement.check_owner() {
-      Ok(()) => Ok(FnArgs::from((None::<Error>, Some(queued.value.message)))),
-      Err(error) => Ok(FnArgs::from((
-        Some(Error::from(ErrorWrapper::from(error))),
-        None::<Message>,
-      ))),
+      Ok(()) => {
+        queued.value.handed_off.store(true, Ordering::Release);
+        Ok(FnArgs::from((None::<Error>, Some(queued.value.message))))
+      }
+      Err(error) => {
+        queued.value.reselect.store(
+          matches!(error, LocalDeliveryError::SelectionChanged),
+          Ordering::Release,
+        );
+        Ok(FnArgs::from((
+          Some(Error::from(ErrorWrapper::from(error))),
+          None::<Message>,
+        )))
+      }
     })?;
   // The synchronous export runs on the JavaScript thread, outside Tokio.
   within_runtime_if_available(|| {
@@ -427,22 +454,35 @@ pub(crate) fn callback_stream(
       let result = async {
         while let Some(item) = reader.next_delivery().await? {
           let acknowledgement = Arc::new(item.acknowledgement);
+          let handed_off = Arc::new(AtomicBool::new(false));
+          let reselect = Arc::new(AtomicBool::new(false));
           let returned = callback
             .call_async_catch(QueuedMessage {
               message: item.message.into(),
               acknowledgement: Arc::clone(&acknowledgement),
+              handed_off: Arc::clone(&handed_off),
+              reselect: Arc::clone(&reselect),
             })
             .await;
-          match acknowledgement.check_owner() {
-            Err(LocalDeliveryError::SelectionChanged) => continue,
-            Err(error) => return Err(error),
-            Ok(()) => {}
+          if returned.is_ok() && reselect.load(Ordering::Acquire) {
+            continue;
           }
+          // An error callback returning normally is not a message handoff.
           if returned.is_err() {
             acknowledgement.reject();
             return Err(LocalDeliveryError::AcknowledgementRejected);
           }
-          acknowledgement.acknowledge()?;
+          if !handed_off.load(Ordering::Acquire) {
+            // The callback already received the ownership error. End without
+            // acknowledging or reporting a second error during cleanup.
+            acknowledgement.reject();
+            return Ok(());
+          }
+          match acknowledgement.acknowledge() {
+            Err(LocalDeliveryError::SelectionChanged) => continue,
+            Err(error) => return Err(error),
+            Ok(()) => {}
+          }
         }
         Ok::<_, LocalDeliveryError>(())
       }

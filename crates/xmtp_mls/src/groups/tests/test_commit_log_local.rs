@@ -262,6 +262,8 @@ async fn test_commit_log_non_retriable_error() {
 
     // Should successfully publish a MetadataUpdate commit
     a.update_group_name("foo".to_string()).await?;
+    let before_stale_epoch = a.epoch().await?;
+    let before_stale_authenticator = a.epoch_authenticator().await?;
     // B has not synced, so will publish a commit one epoch behind
     // When syncing, the commit should be marked as failed with a non-retriable epoch error
     // Then the commit should be re-published in the correct epoch
@@ -305,7 +307,44 @@ async fn test_commit_log_non_retriable_error() {
             &CommitResult::WrongEpoch,
             &CommitResult::Success
         ]
-    )
+    );
+
+    assert!(!a.debug_info().await?.maybe_forked);
+    assert!(!b.debug_info().await?.maybe_forked);
+
+    // A rejected stale commit records the state that survived the rollback.
+    // Read that state from MLS before the race, independently of the log writer.
+    for group in [&a, &b] {
+        let logs = group.local_commit_log().await?;
+        let rejected = logs
+            .iter()
+            .find(|entry| entry.commit_result == CommitResult::WrongEpoch)?;
+        assert_eq!(rejected.applied_epoch_number as u64, before_stale_epoch);
+        assert_eq!(
+            rejected.last_epoch_authenticator,
+            before_stale_authenticator
+        );
+        assert_eq!(
+            rejected.applied_epoch_authenticator,
+            before_stale_authenticator
+        );
+        let applied = logs.last()?;
+        assert_eq!(applied.commit_result, CommitResult::Success);
+        assert_eq!(applied.last_epoch_authenticator, before_stale_authenticator);
+        assert_ne!(
+            applied.applied_epoch_authenticator,
+            before_stale_authenticator
+        );
+        assert_eq!(
+            applied.applied_epoch_authenticator,
+            group.epoch_authenticator().await?
+        );
+        assert_eq!(applied.applied_epoch_number as u64, group.epoch().await?);
+    }
+    assert_eq!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
 }
 
 fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {

@@ -83,6 +83,17 @@ impl MessageAcknowledgement {
   pub fn acknowledge(&self) -> Result<(), JsError> {
     self.inner.acknowledge().map_err(ErrorWrapper::js)
   }
+  /// Read the pending message without hiding storage errors. None means reselect.
+  #[wasm_bindgen(js_name = enrichedMessage)]
+  pub fn enriched_message(
+    &self,
+  ) -> Result<Option<crate::enriched_message::DecodedMessage>, JsError> {
+    match self.inner.enriched_message() {
+      Ok(message) => message.try_into().map(Some),
+      Err(LocalDeliveryError::SelectionChanged) => Ok(None),
+      Err(error) => Err(ErrorWrapper::js(error)),
+    }
+  }
   /// Reject a current handoff without advancing D. A stale selection is discarded.
   pub fn reject(&self) {
     self.inner.reject();

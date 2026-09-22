@@ -216,6 +216,19 @@ The table below is exhaustive and its rows are exclusive. The shared commit is t
 | FORK-040 | The comparison | While `commit_log_enabled` is `true` and a conversation's fork state is not `forked`, the client MUST hold the fork state the table above gives for its local entries and accepted remote entries. | A state computed at an older commit than the newest shared one reports `not forked` for a member that diverged since. |
 | FORK-041 | Forked is sticky until replaced | While a conversation's fork state is `forked`, the client MUST NOT set it to another value, except that when it replaces the conversation's state from a Welcome under JOIN-042 it MUST set the fork state to `unknown`. | A state that clears itself when later entries happen to agree hides the fork the readders were asked to repair. One that survives the repair makes the repaired member ask again. |
 
+### 5.1 Epoch mismatch diagnostic
+
+`maybe_forked` is a separate diagnostic. It is not the three-state result above.
+A rejected old-epoch commit can be the normal loser of a commit race. Its epoch
+alone does not prove that members hold different state. Keep its rejection and
+commit-log entry for comparison. A future-epoch or unexpected equal-epoch
+failure remains suspicious. A clear diagnostic is not proof of agreement, and
+this rule does not clear a diagnostic saved by an earlier failure.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| FORK-073 | Distinguish stale epoch rejections | When the client records a terminal `WrongEpoch` rejection, it MUST NOT set `maybe_forked` solely from that rejection if the envelope epoch is strictly less than the current MLS epoch. It MUST retain the rejection and applicable commit-log entry. A future-epoch or unexpected equal-epoch mismatch MUST retain the diagnostic trigger. | A losing concurrent commit must not make a healthy group appear forked; the log must still expose real divergence. |
+
 ## 6. Readd requests
 
 A forked installation cannot send in the group, so the request travels outside it: as the `ONESHOT_MESSAGE` component in the immutable metadata of a new one-shot group whose members are the permitted readders. Their installations receive it as a Welcome and read the message from the metadata. A one-shot group is never a conversation: it is not listed, not streamed, and never carries an application message. JOIN-036 exempts it from carrying a join anchor. The requester's other installations receive the request too, because they are added with the requester's inbox.

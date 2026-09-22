@@ -45,7 +45,6 @@ import {
   type TransactionReference,
   type WalletSendCalls,
 } from "@xmtp/node-sdk";
-import { retry } from "ts-retry-promise";
 
 import { filter } from "@/core/filter";
 import { getInstallationInfo } from "@/debug";
@@ -235,9 +234,8 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     }
   };
   #isLocked: boolean = false;
-  #isRestarting: boolean = false;
+  #streamGeneration = 0;
   #stopped: boolean = false;
-  #streamOptions?: AgentStreamingOptions;
 
   /** Wrap an existing client without starting streams. */
   constructor({ client }: AgentOptions<ContentTypes>) {
@@ -364,64 +362,47 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
   }
 
   async #stopStreams() {
+    // Detach before awaiting close. Old cleanup cannot clear a new stream.
+    const conversations = this.#conversationsStream;
+    const messages = this.#messageStream;
+    this.#conversationsStream = undefined;
+    this.#messageStream = undefined;
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => conversations?.end()),
+      Promise.resolve().then(() => messages?.end()),
+    ]);
+    for (const result of results) {
+      if (result.status === "rejected") throw result.reason;
+    }
+  }
+
+  /** End this stream generation. Only an explicit start opens a new budget. */
+  async #handleStreamError(error: unknown, generation: number) {
+    if (generation !== this.#streamGeneration) return;
+    const stoppedGeneration = ++this.#streamGeneration;
+    this.#stopped = true;
+    this.#isLocked = true;
     try {
-      await this.#conversationsStream?.end();
-    } finally {
-      this.#conversationsStream = undefined;
+      await this.#stopStreams();
+    } catch {
+      // Keep the stream failure as the cause presented to the application.
     }
-
-    try {
-      await this.#messageStream?.end();
-    } finally {
-      this.#messageStream = undefined;
-    }
+    if (stoppedGeneration !== this.#streamGeneration) return;
+    this.#isLocked = false;
+    // Error middleware can explicitly start a fresh generation here. A
+    // handled error alone does not silently renew an exhausted retry budget.
+    await this.#runErrorChain(error, { client: this.#client });
   }
 
-  /**
-   * Closes all existing streams and restarts with exponential backoff.
-   */
-  async #handleStreamError(error: unknown) {
-    if (this.#isRestarting) return;
-    this.#isRestarting = true;
-
-    await this.#stopStreams();
-
-    const recovered = await this.#runErrorChain(error, {
-      client: this.#client,
-    });
-
-    if (recovered && !this.#stopped) {
-      await this.#retryStreams();
-      this.emit("start", new ClientContext({ client: this.#client }));
-      this.#isLocked = false;
-    } else {
-      this.#isLocked = false;
-    }
-
-    this.#isRestarting = false;
-  }
-
-  async #retryStreams() {
-    return retry(
-      async () => {
-        await this.#stopStreams();
-        await this.#setupStreams(this.#streamOptions);
-      },
-      {
-        retries: 10,
-        delay: 1000,
-        backoff: "EXPONENTIAL",
-        maxBackOff: 30_000,
-        timeout: "INFINITELY",
-        retryIf: () => !this.#stopped,
-      },
-    );
-  }
-
-  async #setupStreams(options?: AgentStreamingOptions) {
-    this.#conversationsStream = await this.#client.conversations.stream({
+  async #setupStreams(generation: number, options?: AgentStreamingOptions) {
+    const isCurrent = () =>
+      generation === this.#streamGeneration && !this.#stopped;
+    const conversations = await this.#client.conversations.stream({
       ...options,
+      // Start the native recovery budget before any network operation.
+      disableSync: options?.disableSync ?? true,
       onValue: async (conversation) => {
+        if (!isCurrent()) return;
         try {
           if (!conversation) {
             return;
@@ -459,7 +440,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             ),
             new ClientContext({ client: this.#client }),
           );
-          if (!recovered) await this.stop();
+          if (!recovered && isCurrent()) await this.stop();
         }
       },
       onError: async (error) => {
@@ -469,13 +450,20 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             "Error occurred during conversation streaming.",
             error,
           ),
+          generation,
         );
       },
     });
+    if (!isCurrent()) {
+      await conversations.end();
+      return false;
+    }
+    this.#conversationsStream = conversations;
 
-    this.#messageStream = await this.#client.conversations.streamAllMessages({
+    const messages = await this.#client.conversations.streamAllMessages({
       ...options,
       onValue: async (message) => {
+        if (!isCurrent()) return;
         try {
           switch (true) {
             case isActions(message):
@@ -528,10 +516,9 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           const recovered = await this.#runErrorChain(error, {
             client: this.#client,
           });
-          if (!recovered) {
+          if (!recovered && isCurrent()) {
             await this.stop();
           }
-          this.#isLocked = false;
         }
       },
       onError: async (error) => {
@@ -541,9 +528,16 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             "Error occurred during message streaming.",
             error,
           ),
+          generation,
         );
       },
     });
+    if (!isCurrent()) {
+      await messages.end();
+      return false;
+    }
+    this.#messageStream = messages;
+    return true;
   }
 
   /** Start conversation and message streams. Calling this while running is a no-op. */
@@ -552,13 +546,14 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       return;
 
     this.#stopped = false;
-    this.#streamOptions = options;
+    const generation = ++this.#streamGeneration;
     this.#isLocked = true;
 
     try {
-      await this.#setupStreams(options);
-      this.emit("start", new ClientContext({ client: this.#client }));
-      this.#isLocked = false;
+      if (await this.#setupStreams(generation, options)) {
+        this.#isLocked = false;
+        this.emit("start", new ClientContext({ client: this.#client }));
+      }
     } catch (error) {
       await this.#handleStreamError(
         new AgentStreamingError(
@@ -566,6 +561,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
           "Error occurred during stream setup.",
           error,
         ),
+        generation,
       );
     }
   }
@@ -710,14 +706,16 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   /** Stop both streams and emit the `stop` event. Calling this is safe repeatedly. */
   async stop() {
+    const generation = ++this.#streamGeneration;
     this.#stopped = true;
     this.#isLocked = true;
 
-    await this.#stopStreams();
-
+    try {
+      await this.#stopStreams();
+    } finally {
+      if (generation === this.#streamGeneration) this.#isLocked = false;
+    }
     this.emit("stop", new ClientContext({ client: this.#client }));
-
-    this.#isLocked = false;
   }
 
   /** Create a DM with an Ethereum address. The address is converted to an identifier. */

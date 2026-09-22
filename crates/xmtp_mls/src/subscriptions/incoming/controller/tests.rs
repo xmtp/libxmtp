@@ -1085,6 +1085,117 @@ fn a_permanent_source_error_retries_with_backoff_and_recovers() {
     );
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+fn recovery_health_requires_registration_and_eof_keeps_a_cause() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    controller.transport.request([topic.clone()].into());
+    controller.opened(Ok(Opened::Stream(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ))));
+    assert!(controller.transport.recovery.healthy_since.is_none());
+    controller.registered([(topic, Cursor(0))].into());
+    assert!(controller.transport.recovery.healthy_since.is_some());
+    controller.incoming(None);
+    assert!(controller.transport.recovery.healthy_since.is_none());
+    assert_eq!(controller.transport.recovery.failures, 1);
+    assert!(matches!(
+        controller.transport.recovery.error.as_deref(),
+        Some(IncomingError::ReceiverEnded)
+    ));
+}
+
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn recovery_health_is_scoped_and_new_selection_needs_registration() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let first = Topic::new_group_message(GroupId::generate());
+    let sibling = Topic::new_group_message(GroupId::generate());
+    let replacement = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &first);
+    add_scope(&mut controller, 2, &sibling);
+    controller
+        .transport
+        .request([first.clone(), sibling].into());
+    controller.opened(Ok(Opened::Stream(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ))));
+    controller.registered([(first, Cursor(0))].into());
+    controller.refresh_statuses();
+    assert!(
+        controller.state.consumer_recovery.lock()[&1]
+            .healthy_since
+            .is_some()
+    );
+    assert!(
+        controller.state.consumer_recovery.lock()[&2]
+            .healthy_since
+            .is_none()
+    );
+    controller.scopes.get_mut(&1).unwrap().topics = [replacement].into();
+    controller.refresh_statuses();
+    assert!(
+        controller.state.consumer_recovery.lock()[&1]
+            .healthy_since
+            .is_none()
+    );
+}
+
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn exhausted_application_stream_preserves_worker_and_barrier_interests() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id);
+    let (commands, receiver) = mpsc::unbounded_channel();
+    let state = Arc::new(SharedState::default());
+    let coordinator = Arc::new(IncomingCoordinator {
+        commands,
+        generations: AtomicU64::new(0),
+        state: state.clone(),
+    });
+    let mut controller = Controller::new(alix.context.clone(), receiver, state);
+    let application = coordinator.acquire_stream(IncomingScope::AllGroups);
+    let worker = coordinator.acquire(IncomingScope::DeviceSyncGroups);
+    let barrier = coordinator.acquire(IncomingScope::Barrier {
+        targets: [(topic.clone(), Cursor(0))].into(),
+        deadline: Instant::now() + Duration::from_secs(60),
+        receive_policy: IncomingReceivePolicy::ImmediateQuery,
+    });
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.transport.recovery.failures = 10;
+    controller.refresh_statuses();
+    controller.retire_exhausted_streams();
+    assert!(application.recovery_snapshot().terminal.is_some());
+    assert!(!controller.scopes.contains_key(&application.id));
+    assert!(worker.recovery_snapshot().terminal.is_none());
+    assert!(barrier.recovery_snapshot().terminal.is_none());
+    assert!(controller.scopes.contains_key(&worker.id));
+    assert!(controller.scopes.contains_key(&barrier.id));
+    assert!(controller.interested().contains(&topic));
+    assert!(
+        controller
+            .interested()
+            .contains(&Topic::new_welcome_message(alix.context.installation_id()))
+    );
+
+    let replacement = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.refresh_statuses();
+    controller.retire_exhausted_streams();
+    assert!(replacement.recovery_snapshot().terminal.is_none());
+    assert!(controller.scopes.contains_key(&replacement.id));
+}
+
 // verifies: PROC-002
 #[xmtp_common::test(unwrap_try = true)]
 async fn receipt_acknowledgement_follows_storage_and_never_uses_the_target() {

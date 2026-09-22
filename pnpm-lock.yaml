@@ -457,9 +457,6 @@ importers:
       '@xmtp/node-sdk':
         specifier: workspace:*
         version: link:../node
-      ts-retry-promise:
-        specifier: ^0.8.1
-        version: 0.8.1
       viem:
         specifier: 'catalog:'
         version: 2.56.5(bufferutil@4.1.0)(typescript@7.0.2)(utf-8-validate@5.0.10)(zod@4.6.5)
@@ -8066,10 +8063,6 @@ packages:
   ts-dedent@2.3.0:
     resolution: {integrity: sha512-JfJeIHke7y2egdGGgRAvpCwYFUsHlM2gPcrVOxFkznt/4uzQ7HFmvE63iFHVLBJNDuyDOQgijDK/tXH/f6Msjg==}
     engines: {node: '>=6.10'}
-
-  ts-retry-promise@0.8.1:
-    resolution: {integrity: sha512-+AHPUmAhr5bSRRK5CurE9kNH8gZlEHnCgusZ0zy2bjfatUBDX0h6vGQjiT0YrGwSDwRZmU+bapeX6mj55FOPvg==}
-    engines: {node: '>=6'}
 
   tsdown@0.23.0:
     resolution: {integrity: sha512-BaT+ep1xnj5hdyICLd5r5SYYE+TXnI1ATePLykv9vcKpHpFTWUWRH+x1AF/E2qcu3YB6+vI8IdyxIIIffEqw5Q==}
@@ -18306,8 +18299,6 @@ snapshots:
       typescript: 6.0.3
 
   ts-dedent@2.3.0: {}
-
-  ts-retry-promise@0.8.1: {}
 
   tsdown@0.23.0(@volar/typescript@2.4.28(typescript@7.0.2))(tsx@4.23.13)(typescript@7.0.2):
     dependencies:

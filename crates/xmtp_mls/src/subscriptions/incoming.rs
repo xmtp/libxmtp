@@ -40,6 +40,8 @@ pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
+    /// A closed reader's token whose release must be retried after storage recovers.
+    pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
 
 impl IncomingRuntime {
@@ -51,6 +53,7 @@ impl IncomingRuntime {
             policy,
             factory,
             coordinator: Mutex::new(None),
+            retired_delivery_owner: Mutex::new(None),
         }
     }
 
@@ -153,6 +156,9 @@ pub struct IncomingCoordinator {
 
 struct SharedState {
     statuses: Mutex<HashMap<u64, IncomingStatus>>,
+    recovery: Mutex<super::recovery::RecoverySnapshot>,
+    consumer_recovery: Mutex<HashMap<u64, super::recovery::RecoverySnapshot>>,
+    consumer_budgets: Mutex<HashMap<u64, super::recovery::RecoveryBudget>>,
     changed: watch::Sender<u64>,
 }
 
@@ -161,6 +167,9 @@ impl Default for SharedState {
         let (changed, _) = watch::channel(0);
         Self {
             statuses: Mutex::new(HashMap::new()),
+            recovery: Mutex::new(Default::default()),
+            consumer_recovery: Mutex::new(HashMap::new()),
+            consumer_budgets: Mutex::new(HashMap::new()),
             changed,
         }
     }
@@ -212,11 +221,33 @@ impl IncomingCoordinator {
 
     /// Keep this scope active until the returned lease closes or drops.
     pub fn acquire(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
+        self.acquire_with_recovery(scope, false)
+    }
+
+    /// Application streams own a finite outage budget. Internal workers and
+    /// bounded sync operations keep their existing lifetime and deadline rules.
+    pub(crate) fn acquire_stream(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
+        self.acquire_with_recovery(scope, true)
+    }
+
+    fn acquire_with_recovery(
+        self: &Arc<Self>,
+        scope: IncomingScope,
+        bounded: bool,
+    ) -> IncomingLease {
         let id = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
         self.state
             .statuses
             .lock()
             .insert(id, IncomingStatus::pending(id));
+        let recovery = self.state.recovery.lock().clone();
+        if bounded {
+            self.state.consumer_budgets.lock().insert(
+                id,
+                super::recovery::RecoveryBudget::new(&recovery, Instant::now()),
+            );
+        }
+        self.state.consumer_recovery.lock().insert(id, recovery);
         let _ = self.commands.send(Command::Acquire { id, scope });
         IncomingLease {
             id,
@@ -241,6 +272,28 @@ pub struct IncomingLease {
 }
 
 impl IncomingLease {
+    pub(crate) fn recovery_snapshot(&self) -> super::recovery::RecoverySnapshot {
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .get(&self.id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_recovery_for_test(&self, failure: super::recovery::RecoveryFailure) {
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .get_mut(&self.id)
+            .expect("test lease must have a recovery snapshot")
+            .terminal = Some(failure);
+        self.coordinator.state.notify();
+    }
+
     /// Read the latest status for this lease's current scope generation.
     pub fn snapshot(&self) -> IncomingStatus {
         self.coordinator
@@ -300,6 +353,16 @@ impl IncomingLease {
             return;
         }
         statuses.remove(&self.id);
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .remove(&self.id);
+        self.coordinator
+            .state
+            .consumer_budgets
+            .lock()
+            .remove(&self.id);
         let _ = self.coordinator.commands.send(Command::Release(self.id));
         drop(statuses);
         self.coordinator.state.notify();

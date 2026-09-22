@@ -30,7 +30,13 @@ just js test                            # needs `just backend up`
 - Keep the API-client cache key as `<backendUrl>|<appVersion>`.
 - Keep file archive export and import tests.
 
-Native streams stay open during retryable network faults and resume in order.
+Core keeps message and conversation streams open during recoverable network
+faults within a finite per-stream budget. Confirmed healthy transport resets
+that budget. Exhaustion ends the affected stream; explicitly opening another
+stream on the same client gets a fresh budget and retains saved progress.
+The Node notification wrapper has a separate finite lifetime fallback budget
+for unexpected native loop closure. It does not restart a native stream after
+Core reports budget exhaustion or a terminal network failure.
 
 ## Task graph
 
@@ -57,7 +63,9 @@ to run tsdown in watch mode from an SDK package.
 
 - Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
 - Supplying `onValue` selects callback mode and starts consumption. Successful callback return acknowledges delivery. Do not also iterate that stream.
-- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, `onRestart`, or `disableSync` options. These options still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
+- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, `onRestart`, or `disableSync` options. These options still apply to notification streams.
+- Storage failures end a message stream after the operation's normal retry policy. Enrichment must preserve the storage cause. Failed acknowledgements leave the item eligible; a caller-started replacement may repeat a completed callback. Callback and codec failures also remain terminal.
+- Terminal errors close and fence the old reader before `onError` runs. Iterator reads reject with the original cause. Error handlers can open a replacement on the same client. The Agent SDK reports terminal stream errors and requires an explicit `start()`; error middleware alone does not reopen streams.
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
 - `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.

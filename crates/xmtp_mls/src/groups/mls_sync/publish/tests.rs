@@ -5,6 +5,7 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 mod dictionary_creation;
+mod membership_recovery;
 
 // verifies: GMOD-036
 #[rstest::rstest]

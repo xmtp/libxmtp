@@ -32,6 +32,36 @@ subscriber does not export traces. Chaos children export service `xmtp-chaos`,
 sample ratio `1.0`, and resource attributes `xmtp.chaos.run` and
 `xmtp.chaos.instance`. Other SDK hosts normally use `libxmtp`.
 
+## Trace the public SDK recovery tests
+
+`streamRecovery.test.ts` can export the real Node SDK call path:
+
+```sh
+dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && XMTP_RECOVERY_TRACE_ENDPOINT="http://127.0.0.1:${XMTP_OTLP_GRPC_PORT}" XMTP_RECOVERY_TRACE_RUN="sdk-recovery-local" just js test-node-sdk-ci test/streamRecovery.test.ts --reporter verbose'
+```
+
+`Agent.reconnect.test.ts` accepts the same environment variables through
+`just js test-agent-sdk-ci src/core/Agent.reconnect.test.ts`. Its service name is
+`xmtp-agent-recovery`. Run either fault suite alone.
+
+Use a unique run label. Search a bounded time range with:
+
+```traceql
+{ resource.service.name = "xmtp-sdk-recovery" && resource.xmtp.recovery.run = "sdk-recovery-local" }
+```
+
+The first client configures logging for the process. These resource attributes
+identify the test process, not one SDK client. Use group IDs and span parents
+to follow a specific operation. The test flushes telemetry after cleanup.
+Set `XMTP_RECOVERY_TRACE_VERBOSE=1` for trace-level instrumentation in a short
+diagnostic run. Filter one case with a pattern without spaces, such as
+`-t callback.*blackhole-outbound`; Just forwards test arguments through a shell.
+
+The SDK exports both spans and log records. Direct Tempo export accepts spans
+but returns `Unimplemented` for the OTLP log service. This does not mean span
+export failed. Use an OpenTelemetry Collector with separate destinations when
+you also need exported logs. The recovery test keeps stdout logging off.
+
 ## Search, then fetch one trace
 
 Run this block from the repository root. It returns at most five trace IDs.
@@ -65,10 +95,11 @@ Useful replacements for `query`:
 { resource.xmtp.chaos.run = "RUN_DIRECTORY_NAME" && name = "chaos.stream" }
 { resource.xmtp.chaos.run = "RUN_DIRECTORY_NAME" && resource.xmtp.chaos.instance = "4" && status = error }
 { resource.service.name = "xmtp-chaos" } && { resource.service.name = "xmtp-backend" }
+{ resource.xmtp.recovery.run = "sdk-recovery-local" && name = "rpc.grpc.request" && status = error }
 ```
 
 Resource attribute names are not span attribute names. Chaos instance values
-are strings. The final query finds traces that contain both services. Finding
+are strings. The two-service query finds traces that contain both services. Finding
 two separate traces, each with one service, does not prove context propagation.
 
 Fetch a selected ID with `GET /api/traces/TRACE_ID`. This example keeps output
@@ -88,7 +119,7 @@ def attributes(items):
     return {a["key"]: next(iter(a["value"].values())) for a in items}
 fields = {"operation", "group_id", "sequence_id", "message_epoch",
           "current_epoch", "is_commit", "error_code", "rpc.method",
-          "generation", "eof", "error_count", "retryable", "lease_waits"}
+          "path", "generation", "eof", "error_count", "retryable", "lease_waits"}
 remaining = 60
 for batch in trace.get("batches", trace.get("resourceSpans", [])):
     if remaining == 0:
@@ -117,15 +148,31 @@ can arrive as strings, so convert epoch values before comparing them.
 - Empty search results can reflect export/index delay. Retry within a fixed
   deadline. Check the endpoint, sampling, and shutdown flush before concluding
   that an operation did not run. A forced kill can lose buffered spans.
+- Tempo shows recorded spans and their attached events. Missing error events
+  do not prove success. Pair traces with typed checkpoints and test assertions.
+- A catch-up checkpoint describes its captured target. `Complete` does not
+  prove that later received envelopes have been processed. Compare `received`,
+  `processed`, and `target` when a live stream stalls.
 - Inspect parent/child spans and both service resources to check propagation.
   In Grafana, select the Tempo data source in Explore and open the trace ID.
 - For a selected failed span, inspect its `status.message` and `events` after
   checking that those fields contain no private data. A database error can
   explain why an owned stream ended; distinguish EOF from a live stream stall.
+- The `rpc.grpc.request` span records the RPC route in `path`. Its exception
+  event can expose the nested transport cause. A `Cancelled` status can result
+  from a local timeout; the status code alone does not prove explicit caller
+  or server cancellation.
+- If startup stalls, inspect `sync_welcomes` as well as transport spans. A
+  barrier deadline with a null target can mean target capture failed before a
+  native stream opened. Distinguish that operation from an active stream that
+  exhausted its recovery budget. Agent startup now skips this separate sync
+  by default.
 - For `diagnostic.epoch_mismatch`, compare `message_epoch` with `current_epoch`.
-  A stale concurrent proposal or commit can produce `WrongEpoch` and set
-  `maybe_forked`. In the initial traced baseline, all 484 such spans were one
-  epoch stale; matching persisted histories showed no divergence.
+  Earlier builds set `maybe_forked` for stale competing commits. In the initial
+  traced baseline, all 484 such spans were one epoch stale; matching persisted
+  histories showed no divergence. Strictly older `WrongEpoch` rejections now
+  retain their rejection and commit-log evidence without setting the flag.
+  Future or unexpected equal-epoch failures remain suspicious.
 - Confirm state with `just chaos inspect --forks [--group GROUP_ID]` after the
   run stops. Compare authenticators, membership, metadata, commit history, and
   delivery. Preserve an unset commit-log flag as unknown.

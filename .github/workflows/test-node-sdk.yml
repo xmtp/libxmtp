@@ -7,7 +7,8 @@ jobs:
   test:
     name: Test (node-sdk) shard ${{ matrix.shard }}
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    timeout-minutes: 30
+    # The recovery matrix takes about 29 minutes before setup and CLI tests.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

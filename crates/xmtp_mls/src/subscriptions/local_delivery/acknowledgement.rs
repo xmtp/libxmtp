@@ -18,23 +18,23 @@ use crate::context::XmtpSharedContext;
 pub(super) struct DeliverySession<Context: XmtpSharedContext> {
     pub(super) context: Context,
     pub(super) owner: Option<DeliveryOwner>,
-    replay_database_id: Option<[u8; 16]>,
+    database_id: [u8; 16],
     pub(super) cancel: CancellationToken,
     closed: AtomicBool,
-    failure: Mutex<Option<LocalDeliveryError>>,
+    failure: Mutex<Option<Arc<LocalDeliveryError>>>,
 }
 
 impl<Context: XmtpSharedContext> DeliverySession<Context> {
     pub(super) fn new(
         context: Context,
         owner: Option<DeliveryOwner>,
-        replay_database_id: Option<[u8; 16]>,
+        database_id: [u8; 16],
     ) -> Self {
         let cancel = context.cancellation_token().child_token();
         Self {
             context,
             owner,
-            replay_database_id,
+            database_id,
             cancel,
             closed: AtomicBool::new(false),
             failure: Mutex::new(None),
@@ -47,22 +47,26 @@ impl<Context: XmtpSharedContext> DeliverySession<Context> {
 
     pub(super) fn check_owner(&self) -> Result<()> {
         if self.is_closed() {
-            return Err(LocalDeliveryError::Closed);
+            return Err(self
+                .background_error()
+                .unwrap_or(LocalDeliveryError::Closed));
+        }
+        if self.context.db().stream_database_id()? != self.database_id {
+            return Err(StorageError::from(
+                xmtp_db::stream_storage::StreamStorageError::ForeignCursor,
+            )
+            .into());
         }
         if let Some(owner) = self.owner {
             self.context
                 .db()
                 .check_delivery_owner_with_clock(owner, now_ns)?;
         }
-        if let Some(identity) = self.replay_database_id
-            && self.context.db().stream_database_id()? != identity
-        {
-            return Err(StorageError::from(
-                xmtp_db::stream_storage::StreamStorageError::ForeignCursor,
-            )
-            .into());
-        }
         Ok(())
+    }
+
+    pub(super) fn owner(&self) -> Option<DeliveryOwner> {
+        self.owner
     }
 
     pub(super) fn renew(&self, lease_ns: i64) -> std::result::Result<(), StorageError> {
@@ -88,6 +92,13 @@ impl<Context: XmtpSharedContext> DeliverySession<Context> {
                     }
                 }
                 Err(error) => {
+                    if *registered == Some(owner) {
+                        *self
+                            .context
+                            .incoming_runtime()
+                            .retired_delivery_owner
+                            .lock() = Some(owner);
+                    }
                     tracing::warn!(%error, "Failed to release the message delivery owner")
                 }
             }
@@ -95,12 +106,19 @@ impl<Context: XmtpSharedContext> DeliverySession<Context> {
     }
 
     pub(super) fn fail(&self, error: LocalDeliveryError) {
-        *self.failure.lock() = Some(error);
+        self.failure.lock().get_or_insert_with(|| Arc::new(error));
         self.close();
     }
 
+    fn background_error(&self) -> Option<LocalDeliveryError> {
+        self.failure
+            .lock()
+            .as_ref()
+            .map(|error| LocalDeliveryError::SessionFailure(Arc::clone(error)))
+    }
+
     pub(super) fn end_result<T>(&self) -> Result<Option<T>> {
-        match self.failure.lock().take() {
+        match self.background_error() {
             Some(error) => Err(error),
             None => Ok(None),
         }
@@ -164,10 +182,24 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
     /// Call on the host thread immediately before a callback that was queued earlier.
     /// SelectionChanged discards the queued item. Continue reading without acknowledging it.
     pub fn check_owner(&self) -> Result<()> {
-        self.begin_dispatch(&mut self.pending.state.lock())
+        self.check_dispatch(true)
     }
 
-    fn begin_dispatch(&self, state: &mut AcknowledgementState) -> Result<()> {
+    fn check_dispatch(&self, dispatch: bool) -> Result<()> {
+        if let Some(error) = self.session.background_error() {
+            return Err(error);
+        }
+        let result = self.begin_dispatch(&mut self.pending.state.lock(), dispatch);
+        if result
+            .as_ref()
+            .is_err_and(|error| !matches!(error, LocalDeliveryError::SelectionChanged))
+        {
+            self.session.close();
+        }
+        result
+    }
+
+    fn begin_dispatch(&self, state: &mut AcknowledgementState, dispatch: bool) -> Result<()> {
         match *state {
             AcknowledgementState::Reselect => return Err(LocalDeliveryError::SelectionChanged),
             AcknowledgementState::Rejected => {
@@ -195,14 +227,22 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             self.pending.changed.notify_one();
             return Err(LocalDeliveryError::SelectionChanged);
         }
-        *state = AcknowledgementState::Dispatched;
+        if dispatch {
+            *state = AcknowledgementState::Dispatched;
+        }
         Ok(())
     }
 
     /// Persist after the callback returns successfully, or at the next iterator request.
-    // implements: PROC-028, PROC-031
+    // implements: PROC-028, PROC-031, PROC-040
     pub fn acknowledge(&self) -> Result<()> {
         let mut state = self.pending.state.lock();
+        if matches!(*state, AcknowledgementState::Acknowledged) {
+            return Ok(());
+        }
+        if let Some(error) = self.session.background_error() {
+            return Err(error);
+        }
         match *state {
             AcknowledgementState::Acknowledged => return Ok(()),
             AcknowledgementState::Rejected => {
@@ -212,7 +252,7 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             AcknowledgementState::Reselect => return Err(LocalDeliveryError::SelectionChanged),
             AcknowledgementState::Waiting | AcknowledgementState::Dispatched => {}
         }
-        let result = self.begin_dispatch(&mut state).and_then(|()| {
+        let result = self.begin_dispatch(&mut state, true).and_then(|()| {
             self.session.check_owner()?;
             if let Some(owner) = self.session.owner {
                 self.session.context.db().acknowledge_delivery_with_clock(
@@ -238,6 +278,45 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
                 Err(error)
             }
         }
+    }
+
+    /// Read and enrich the queued item without starting dispatch or hiding storage errors.
+    /// The host must still call `check_owner` immediately before its handoff.
+    pub fn enriched_message(&self) -> Result<crate::messages::decoded_message::DecodedMessage> {
+        use crate::messages::{
+            decoded_message::DecodedMessage,
+            enrichment::{EnrichMessageError, enrich_messages},
+        };
+        use xmtp_db::group_message::QueryGroupMessage;
+        let result = (|| {
+            self.check_dispatch(false)?;
+            let db = self.session.context.db();
+            let message = db
+                .get_group_message(&self.message_id)
+                .map_err(StorageError::from)?
+                .ok_or(LocalDeliveryError::EnrichedMessageUnavailable)?;
+            // Enrichment filters failed decodes. Validate this required item first
+            // so a codec error cannot become an empty successful read.
+            DecodedMessage::try_from(message.clone()).map_err(LocalDeliveryError::Enrichment)?;
+            let mut messages = enrich_messages(db, &self.group_id, vec![message]).map_err(
+                |error| match error {
+                    EnrichMessageError::DbConnection(error) => {
+                        LocalDeliveryError::Storage(StorageError::Connection(error))
+                    }
+                    error => LocalDeliveryError::Enrichment(error),
+                },
+            )?;
+            messages
+                .pop()
+                .ok_or(LocalDeliveryError::EnrichedMessageUnavailable)
+        })();
+        if result
+            .as_ref()
+            .is_err_and(|error| !matches!(error, LocalDeliveryError::SelectionChanged))
+        {
+            self.session.close();
+        }
+        result
     }
 
     /// A failed callback stops this reader and leaves its default delivery position unchanged.

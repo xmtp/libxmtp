@@ -1,4 +1,5 @@
 import {
+  Dm,
   encodeText,
   isGroupUpdated,
   isReply,
@@ -7,7 +8,6 @@ import {
   SortDirection,
   type BuiltInContentTypes,
   type Client,
-  type Dm,
   type EnrichedReply,
   type Group,
   type GroupUpdated,
@@ -26,7 +26,7 @@ import type { ClientContext } from "@/core/ClientContext";
 import { ConversationContext } from "@/core/ConversationContext";
 import { MessageContext } from "@/core/MessageContext";
 import { createSigner, createUser } from "@/user/User";
-import { createClient } from "@/util/test";
+import { createClient, createConversationAndWait } from "@/util/test";
 import { version as appVersion } from "~/package.json";
 
 // These middleware fixtures exercise text and replies, not retained setup messages.
@@ -153,7 +153,7 @@ describe("Agent", () => {
       expect(startSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("should auto-restart after a startup failure", async () => {
+    it("requires an explicit start after a startup failure", async () => {
       const startupError = new Error("Stream setup failed");
       const originalStream = client.conversations.stream.bind(
         client.conversations,
@@ -172,11 +172,14 @@ describe("Agent", () => {
       const startSpy = vi.fn();
       agent.on("start", startSpy);
 
-      void agent.start();
-
-      await vi.waitFor(() => {
-        expect(startSpy).toHaveBeenCalledTimes(1);
-      });
+      const onError = vi.fn();
+      agent.on("unhandledError", onError);
+      await agent.start();
+      expect(onError).toHaveBeenCalledOnce();
+      expect(startSpy).not.toHaveBeenCalled();
+      expect(streamSpy).toHaveBeenCalledOnce();
+      await agent.start();
+      expect(startSpy).toHaveBeenCalledOnce();
 
       streamSpy.mockRestore();
       await agent.stop();
@@ -225,12 +228,12 @@ describe("Agent", () => {
       await agent.start();
 
       const otherClient = await createClient();
-      const dm = await otherClient.conversations.createDm(client.inboxId);
-
-      await agent.client.conversations.sync();
-      const agentDm = (await agent.client.conversations.getConversationById(
-        dm.id,
-      )) as Dm<BuiltInContentTypes>;
+      const { created: dm, received: agentDm } =
+        await createConversationAndWait(agent.client, () =>
+          otherClient.conversations.createDm(client.inboxId),
+        );
+      expect(agentDm).toBeInstanceOf(Dm);
+      expect(agentDm.id).toBe(dm.id);
       const messageId = await agentDm.sendText("gm");
 
       await agentDm.sendReaction({

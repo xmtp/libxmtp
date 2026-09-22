@@ -650,7 +650,10 @@ xmtp_common::if_native! {
         assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
         assert_eq!(peer.sent.lock().await.len(), 1);
         let mut lease = transport.lease(vec![(topic, 0)], 8).await?;
-        let mut server = servers.lock().expect("server queue").pop_front()?;
+        // A replacement lease keeps the backoff from the failed cold open.
+        let mut server = xmtp_common::wait_for_some(|| async {
+            servers.lock().expect("server queue").pop_front()
+        }).await?;
         let update = server.next_mutate().await;
         server.ack_empty(update.id);
         assert!(matches!(lease.next().await, Some(LeaseEvent::CatchUpComplete)));

@@ -1587,7 +1587,10 @@ where
             let _ = reply.send(Err(TransportError::TooManyTopics));
             return Flow::Continue;
         }
-        let cold = self.conn.is_none() && self.ledger.leases.is_empty() && !self.suspended;
+        let cold = self.conn.is_none()
+            && self.ledger.leases.is_empty()
+            && !self.suspended
+            && tokio::time::Instant::now() >= self.reconnect_at;
         let topics = subs.iter().map(|(topic, _)| topic.clone()).collect();
         let (tx, events) = mpsc::channel(depth.max(1));
         let id = self.ledger.register(&subs, tx);
@@ -1619,6 +1622,10 @@ where
                     self.ledger.deref(id);
                     self.ledger.reset_wire();
                     self.outbox.clear();
+                    if error.is_retryable() {
+                        self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
+                        self.arm_reconnect();
+                    }
                     let _ = reply.send(Err(TransportError::Open(error)));
                     return Flow::Continue;
                 }
@@ -1947,6 +1954,25 @@ where
                     }
                     return AfterReopen::Shutdown;
                 }
+                // Ordered consumers supervise their own finite outage budgets.
+                // Report failed opens even though this shared actor keeps its
+                // backoff and remains available to other consumers.
+                let failure = std::sync::Arc::new(super::bidi::ConnectionFailure::Wire(
+                    xmtp_proto::api::NetworkError::new(error),
+                ));
+                let mut dropped = Vec::new();
+                for (id, lease) in &self.ledger.leases {
+                    if let Some((sender, _)) = &lease.incoming
+                        && sender
+                            .try_send(Err(TransportError::Wire(failure.clone())))
+                            .is_err()
+                    {
+                        *lease.incoming_failure.lock() =
+                            Some(TransportError::Wire(failure.clone()));
+                        dropped.push(*id);
+                    }
+                }
+                self.drop_leases(dropped);
                 self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
                 self.arm_reconnect();
                 self.park_deferred_resumes();

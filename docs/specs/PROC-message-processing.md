@@ -41,6 +41,7 @@ Out of scope: backend wire formats and errors (API); commit and proposal validat
 | Default consumer | The one message reader per client database that advances `D`. |
 | Replay reader | A reader started from an app-supplied delivery cursor, independent of `D`. |
 | Acknowledgement | The app's callback returns normally, or the app requests the next iterator item. |
+| Recovery episode | The interval from a stream's initial connection or detected failure until sustained network recovery or termination. |
 
 ## 1. Durable receipt
 
@@ -129,12 +130,18 @@ The recovery rules below also cover silence and Query fallback. Silence is three
 
 AUTH-025 owns credential lockout and terminal credential failures. CONF-022 owns configuration latches. Those rules can close a stream; they are not retried by the general transport recovery rule. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
 
+Each app stream has its own recovery budget. Initial connection starts an episode. A later episode starts when that stream detects a failure. Ten failed recovery cycles or ten minutes without sustained recovery exhaust the budget. Sustained recovery means that the stream's selected registrations have remained active for 30 seconds under the wire-silence rules. Application messages are not required. Opening a socket alone does not reset the budget.
+
+Exhaustion ends that app stream and preserves stored receipt, processing, and delivery positions. Other operations can continue to use a shared receiver. A new stream on the same client starts with a fresh budget even when the network remains unavailable. Old timers and cleanup cannot end the new stream. Conversation notifications have no durable app delivery cursor; message readers resume under section 7.
+
 The connection states describe transport activity: `connecting` is the first open, `connected` has a receipt source, `reconnecting` is recovery after a retryable failure, `failed` is recovery after a non-retryable source response with delayed retries, and `closed` has no future automatic attempts. `failed` does not mean pending processing failed. Registration states are `pending`, `active`, and `removed`; processing states are `pending`, `complete`, `blocked`, and `cancelled`.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PROC-021 | Recover without losing progress | When a stream fails, becomes silent under the silence rule above, or needs replacement, the client MUST recover under the recovery rules in this section from current durable `F` and current interests, preserve pending work, discard obsolete registration results, and wait for a static replacement to be ready before cancelling replaced registrations. While `F < H`, it MUST use Query after `F` immediately for explicit sync or an uncovered target, and after the receipt wait above for a covered target, skipping that wait if it would reach the operation's deadline. It MUST NOT refetch a stored prefix or turn connection failure into processing completion. | Stream failure must not strand work that Query can supply. |
 | PROC-023 | Expose scope and progress | An SDK MUST expose a current catch-up snapshot and change notifications with the scope generation, connection state under the definitions above, each selected topic's registration and processing states, optional fixed target, durable progress, unresolved Welcome ids, and typed cause. It MUST expose pending discovery until its targets are enrolled and cancellations under the old generation, and MUST NOT report the current scope caught up while any registration, discovery, or processing obligation is unfinished. | An app otherwise cannot tell a missing target from an empty topic or a retry from completion. |
+| PROC-038 | Bound network recovery | While an app stream is active, the client MUST apply the recovery episode limits in this section and reset its budget only after sustained recovery. When the budget is exhausted, the SDK MUST end that stream with a typed exhaustion cause through its error callback, when supplied, and reject its pending iterator read, without treating a connection open alone as recovery. | A failed network must produce an actionable error instead of an unlimited wait. |
+| PROC-039 | Fresh streams recover independently | When an app opens a stream after another stream ended, the client MUST give the new stream a fresh recovery budget and preserve its saved receipt, processing, and delivery positions. Ending one stream MUST NOT exhaust another stream's budget, create a client-wide or database-wide exhaustion latch, or let its delayed work close a replacement stream. | An app must be able to recover on the same client after an extended outage. |
 
 ## 7. Local delivery
 
@@ -145,6 +152,8 @@ An app callback or iterator can sit behind a binding queue. A successful enqueue
 Scope and filter have different effects. A group outside scope keeps its backlog. A filter excludes a candidate inside scope and consumes it for default delivery. Conversation callbacks are live notifications; message replay does not replay conversation discovery or later message edits and deletions.
 
 A deletion is an application message (CTYPE-014) that names a target message id. It changes what the app is shown for the target, so the client checks it before it applies it: CTYPE-018 owns which targets are eligible, and the sender check below owns who may delete. The sender is the authenticated MLS sender of the deletion, never a field of its payload. A deletion the client rejects is kept as a message like any other and has no effect on the target.
+
+A database operation uses its normal retry and busy-wait policy. If a local read, acknowledgement write, or ownership operation then returns a storage error, that stream ends with the typed cause. There is no additional stream-level storage retry. The app decides when to open another stream. If the app completes an item but its acknowledgement write fails, a new stream can deliver the item again.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -158,6 +167,7 @@ A deletion is an application message (CTYPE-014) that names a target message id.
 | PROC-034 | Replay is independent | When an app opens a stream from a supplied cursor, the client MUST deliver every eligible message in scope strictly after that cursor in delivery-number order and then continue with new messages, without reading, changing, or acquiring ownership of `D`. | A replay must not consume the default consumer's backlog. |
 | PROC-035 | History and stream meet | An SDK MUST supply selected eligible history and a delivery cursor from one database snapshot, such that every message made deliverable after that snapshot has a greater delivery number. | Separate snapshots can leave messages between history and stream. |
 | PROC-037 | Apply only an authorized deletion | When the client processes a `xmtp.org/deleteMessage` message, it MUST change the target only when the target is a stored message of the same group that passes CTYPE-018, and the deletion's authenticated MLS sender inbox is the target's sender inbox or is in the group's `SUPER_ADMIN_LIST` when the deletion is processed. Otherwise it MUST leave the target and its delivery unchanged. | A member could erase another member's messages, and two installations that apply different rules show different histories. |
+| PROC-040 | End streams on storage failure | When a local read, acknowledgement write, or ownership operation returns a storage error, the SDK MUST end that stream with the typed cause, report the error once through the error callback when supplied, and reject iterator consumption with the cause. It MUST NOT perform another handoff or add a stream-level storage retry, and MUST preserve PROC-028 and PROC-031 when the app opens another stream. | The app must control retries without losing unacknowledged work. |
 
 ## Known limitations
 

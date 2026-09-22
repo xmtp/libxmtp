@@ -28,6 +28,7 @@ pub mod incoming;
 pub mod local_delivery;
 pub mod message_reader;
 pub(crate) mod policy;
+pub(crate) mod recovery;
 mod stream_all;
 mod stream_conversations;
 pub mod stream_failure;

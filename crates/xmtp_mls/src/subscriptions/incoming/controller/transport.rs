@@ -28,6 +28,7 @@ pub(super) struct Transport {
     pub(super) error: Option<Arc<IncomingError>>,
     /// Consecutive permanent failures. Only the retry delay grows with it.
     pub(super) permanent_failures: u32,
+    pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
 }
 
 pub(super) enum TransportState {
@@ -52,6 +53,7 @@ impl Transport {
             generation: 0,
             error: None,
             permanent_failures: 0,
+            recovery: Default::default(),
         }
     }
 
@@ -61,6 +63,7 @@ impl Transport {
             return;
         }
         self.requested = topics;
+        self.recovery.healthy_since = None;
         self.registered.clear();
         if !matches!(self.state, TransportState::Waiting(_)) {
             self.state = TransportState::Waiting(Instant::now());
@@ -129,6 +132,7 @@ impl Transport {
     /// per-topic failure must not erase a permanent-failure backoff and send
     /// the client back to reopening against a broken backend every second.
     pub(super) fn disconnect(&mut self, delay: Duration) {
+        self.recovery.healthy_since = None;
         self.registered.clear();
         let at = Instant::now() + delay;
         self.state = match self.state {
@@ -159,11 +163,24 @@ impl Transport {
         );
         self.disconnect(delay);
         self.error = Some(Arc::new(error.into()));
+        self.recovery.failures = self.recovery.failures.saturating_add(1);
+        self.recovery.error = self.error.clone();
     }
 
     /// Clear the permanent-failure streak after the source proves it works.
     pub(super) fn opened(&mut self) {
         self.permanent_failures = 0;
+    }
+
+    pub(super) fn registered(&mut self) {
+        if !self.requested.is_empty() && self.registered == self.requested {
+            self.recovery.healthy_since.get_or_insert_with(Instant::now);
+        }
+    }
+
+    pub(super) fn ended(&mut self) {
+        self.recovery.failures = self.recovery.failures.saturating_add(1);
+        self.recovery.error = Some(Arc::new(IncomingError::ReceiverEnded));
     }
 
     pub(super) fn connection(&self) -> IncomingConnection {
