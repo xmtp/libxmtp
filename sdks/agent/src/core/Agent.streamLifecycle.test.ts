@@ -2,9 +2,10 @@ import { setImmediate } from "node:timers/promises";
 
 import {
   MessageStream,
+  type BuiltInContentTypes,
   type Client,
-  type Conversation,
   type DecodedMessage,
+  type Group,
   type MessageReaderSource,
 } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
@@ -69,12 +70,13 @@ describe("Agent stream lifecycle", () => {
     await h.agent.stop();
   });
 
-  it("does not report readiness or unlock cleanup after an immediate native read failure", async () => {
+  it("reports an immediate native read failure after local readiness and cleanup", async () => {
     const h = harness();
     const closed = Promise.withResolvers<void>();
     const cause = new Error("first native read failed");
     const start = vi.fn();
     const error = vi.fn();
+    const nativeClose = vi.fn();
     h.agent.on("start", start);
     h.agent.on("unhandledError", error);
     h.stream.mockImplementationOnce(async (options) => {
@@ -86,8 +88,8 @@ describe("Agent stream lifecycle", () => {
       await Promise.resolve();
       const reader = {
         nextDelivery: vi.fn().mockRejectedValue(cause),
-        close: vi.fn(),
-      } as unknown as MessageReaderSource<DecodedMessage>;
+        close: nativeClose,
+      } as unknown as MessageReaderSource<DecodedMessage<BuiltInContentTypes>>;
       return new MessageStream(
         reader,
         (message) => message,
@@ -98,14 +100,16 @@ describe("Agent stream lifecycle", () => {
     await vi.waitFor(() =>
       expect(h.conversations[0]!.end).toHaveBeenCalledOnce(),
     );
-    expect(start).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledOnce();
+    expect(nativeClose).toHaveBeenCalledOnce();
     expect(error).not.toHaveBeenCalled();
     await h.agent.start();
     expect(h.stream).toHaveBeenCalledOnce();
     closed.resolve();
     await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
     expect(error.mock.calls[0]![0].cause).toBe(cause);
-    expect(start).not.toHaveBeenCalled();
+    expect(start).toHaveBeenCalledOnce();
+    expect(h.streamAllMessages).toHaveBeenCalledOnce();
     await h.agent.stop();
   });
 
@@ -128,7 +132,9 @@ describe("Agent stream lifecycle", () => {
           if (remaining > 0) {
             failAfter(remaining - 1);
           } else {
-            void options?.onError?.(cause);
+            void Promise.resolve(options?.onError?.(cause)).catch(
+              () => undefined,
+            );
           }
         });
       };
@@ -177,7 +183,7 @@ describe("Agent stream lifecycle", () => {
         expect((error as Error).cause).toBe(cause);
         expect(owner).toBe(false);
         await h.agent.start();
-        next();
+        await next();
       },
     );
     h.agent.errors.use(handler);
@@ -228,7 +234,9 @@ describe("Agent stream lifecycle", () => {
 
   it("does not dispatch an old message after its SDK lookup resumes", async () => {
     const h = harness();
-    const lookup = Promise.withResolvers<Conversation | undefined>();
+    const lookup = Promise.withResolvers<
+      Group<BuiltInContentTypes> | undefined
+    >();
     const getConversation = vi.mocked(
       h.client.conversations.getConversationById,
     );
@@ -237,7 +245,7 @@ describe("Agent stream lifecycle", () => {
     h.agent.on("message", message);
     h.agent.errors.use(async (_error, _context, next) => {
       await h.agent.start();
-      next();
+      await next();
     });
     await h.agent.start();
     const value = {
@@ -250,13 +258,13 @@ describe("Agent stream lifecycle", () => {
         versionMajor: 1,
         versionMinor: 0,
       },
-    } as DecodedMessage;
+    } as DecodedMessage<BuiltInContentTypes>;
     const delivery = h.messages[0]!.options?.onValue?.(value);
     expect(getConversation).toHaveBeenCalledOnce();
     await Promise.resolve(
       h.messages[0]!.options?.onError?.(new Error("terminal")),
     );
-    lookup.resolve({} as Conversation);
+    lookup.resolve({} as Group<BuiltInContentTypes>);
     await delivery;
     expect(message).not.toHaveBeenCalled();
     expect(h.streamAllMessages).toHaveBeenCalledTimes(2);
@@ -269,7 +277,7 @@ describe("Agent stream lifecycle", () => {
     const handle = vi.fn<AgentErrorMiddleware>(
       async (_error, _context, next) => {
         await Promise.resolve();
-        next();
+        await next();
       },
     );
     agent.errors.use(handle);
@@ -345,7 +353,7 @@ describe("Agent stream lifecycle", () => {
           expect(h.conversations[0]!.end).toHaveBeenCalledOnce();
           expect(h.messages[0]!.end).toHaveBeenCalledOnce();
           await h.agent.start();
-          next();
+          await next();
         },
       );
       h.agent.errors.use(handler);
@@ -377,7 +385,7 @@ describe("Agent stream lifecycle", () => {
         expect((error as Error).cause).toBe(cause);
         expect(h.conversations[0]!.end).toHaveBeenCalledOnce();
         await h.agent.start();
-        next();
+        await next();
       },
     );
     h.agent.errors.use(handler);
