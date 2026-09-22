@@ -474,3 +474,62 @@ async fn grpc_web_preserves_structured_publish_error_details() {
     assert_eq!(count, 0);
     server.stop().await?;
 }
+
+// verifies: API-290
+#[xmtp_common::test(unwrap_try = true)]
+async fn query_settles_each_envelope_after_out_of_range() {
+    let server = TestServer::new(|config| {
+        config.limits.max_envelope_bytes = 1_024;
+        config.limits.max_response_bytes = 66_560;
+    })
+    .await?;
+    let envelopes: Vec<_> = (0_u64..800)
+        .map(|id| {
+            let mut installation_key = [0_u8; 32];
+            installation_key[..8].copy_from_slice(&id.to_le_bytes());
+            inline_welcome_envelope(installation_key)
+        })
+        .collect();
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: envelopes.clone(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), Code::OutOfRange);
+
+    // The client may not resend the request, so a Query of each topic has to
+    // settle whether that envelope was stored. Sample the first, a middle, and
+    // the last, so a partial write would show.
+    for index in [0_usize, 400, 799] {
+        let mut installation_key = [0_u8; 32];
+        installation_key[..8].copy_from_slice(&(index as u64).to_le_bytes());
+        let topic = support::topic(
+            xmtp_proto::types::TopicKind::WelcomeMessagesV1,
+            &installation_key,
+        );
+        let results = server
+            .query()
+            .query(api::QueryRequest {
+                queries: vec![support::query_topic(topic, 0)],
+                limit: 0,
+            })
+            .await?
+            .into_inner()
+            .envelopes;
+        assert_eq!(results.len(), 1, "envelope {index} must be returned");
+        let returned = results.into_iter().next()?;
+        assert_eq!(returned.envelope, Some(envelopes[index].clone()));
+        let meta = returned.meta?;
+        assert!(
+            meta.cursor.is_some_and(|cursor| cursor.sequence_id > 0),
+            "envelope {index} must carry the sequence id the publish assigned"
+        );
+        assert!(
+            meta.message_hash.is_some(),
+            "envelope {index} must carry its message hash"
+        );
+    }
+    server.stop().await?;
+}

@@ -524,32 +524,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Deletion eligibility is read from the stored type enum without validating the target's authority and major version."
 
 [[waiver]]
-id = "API-290"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The publish transaction commits before the response is encoded, and Query reads the current store, so a Query after OUT_OF_RANGE returns each committed envelope. The only oversized-response test recovers with a resend of the same bytes and a QueryNewest, not with a Query, so no test establishes this read."
-
-[[waiver]]
-id = "API-291"
-kind = "gap"
-owner = "backend"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The stored boundary is written only under a condition that refuses a lower value. The push dispatcher reads it from the lagged copy and assigns it without a floor, so its view can move down after a replica change, and no test asserts that the boundary never decreases."
-
-[[waiver]]
 id = "GMOD-035"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The send path does not check the content type, so an app can publish an application message under the group_updated or group_membership_change type. A mobile binding test sends both types and expects success."
-
-[[waiver]]
-id = "GMOD-037"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The identifier type fixes the length at 16 bytes and the MLS library draws the id from its ChaCha20 random provider seeded from OS entropy. No test asserts the id of a created group is 16 random bytes; the only length test covers a test-only generator."
 
 [[waiver]]
 id = "IDENT-072"
