@@ -76,6 +76,12 @@ graph. They do not build native bindings. Use the relevant `just js`, `just
 cli`, or `just web-chat` recipe first; it stages the required Node or WASM
 bindings before it runs JavaScript tasks.
 
+The root Oxlint config uses correctness rules and the supported TypeScript
+recommended type-checked rules. It also checks source aliases, type-only
+imports, and selected type-safety rules. Test overrides allow loose mocks and
+fixtures. Tests still check unused code and promise handling. Keep test
+exceptions in the shared config; do not copy rule lists into each package.
+
 ## Rules
 
 - Rust tests use `#[xmtp_common::test(unwrap_try = true)]`, not `#[test]`, unless

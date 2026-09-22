@@ -581,7 +581,7 @@ describe("Group", () => {
     expect(groups.length).toBe(1);
     expect(groups[0].id).toBe(group.id);
 
-    const history = await groups[0].messageHistorySnapshot(1);
+    const history = groups[0].messageHistorySnapshot(1);
     const streamedMessages: unknown[] = [];
     const stream = await groups[0].stream({
       from: history.cursor,

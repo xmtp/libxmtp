@@ -80,14 +80,12 @@ export const IdentityModal: React.FC = () => {
                   <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
                     Inbox ID
                   </Text>
-                  {/* oxlint-disable-next-line typescript/no-non-null-assertion */}
                   <BadgeWithCopy value={client.inboxId!} />
                 </Group>
                 <Group gap="md" wrap="nowrap">
                   <Text flex="0 0 25%" style={{ whiteSpace: "nowrap" }}>
                     Installation ID
                   </Text>
-                  {/* oxlint-disable-next-line typescript/no-non-null-assertion */}
                   <BadgeWithCopy value={client.installationId!} />
                 </Group>
               </Stack>
@@ -103,7 +101,6 @@ export const IdentityModal: React.FC = () => {
                 {installations.length > 0 && (
                   <>
                     <InstallationTable
-                      // oxlint-disable-next-line typescript/no-non-null-assertion
                       clientInstallationId={client.installationId!}
                       installations={installations}
                       refreshInstallations={sync}

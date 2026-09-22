@@ -4,7 +4,7 @@ import {
 } from "@xmtp/node-bindings";
 import { describe, expect, it } from "vitest";
 import { uuid } from "@/utils/uuid";
-import { createRegisteredClient, createSigner, sleep } from "@test/helpers";
+import { createRegisteredClient, createSigner } from "@test/helpers";
 
 describe("Conversations", () => {
   it("should have a topic", async () => {
@@ -281,7 +281,7 @@ describe("Conversations", () => {
     const group1 = await client1.conversations.createGroup([client2.inboxId]);
     await client1.conversations.createDm(client3.inboxId);
 
-    const history = await client1.conversations.messageHistorySnapshot(1);
+    const history = client1.conversations.messageHistorySnapshot(1);
     const stream = await client1.conversations.streamAllMessages({
       from: history.cursor,
     });
@@ -330,7 +330,7 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
-    const history = await client1.conversations.messageHistorySnapshot(1);
+    const history = client1.conversations.messageHistorySnapshot(1);
     const stream = await client1.conversations.streamAllGroupMessages({
       from: history.cursor,
     });
@@ -386,7 +386,7 @@ describe("Conversations", () => {
     await client1.conversations.createGroup([client3.inboxId]);
     await client1.conversations.createDm(client4.inboxId);
 
-    const history = await client1.conversations.messageHistorySnapshot(1);
+    const history = client1.conversations.messageHistorySnapshot(1);
     const stream = await client1.conversations.streamAllDmMessages({
       from: history.cursor,
     });

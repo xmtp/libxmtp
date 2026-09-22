@@ -6,7 +6,6 @@ import {
   createLocalBackend,
   createRegisteredClient,
   createUser,
-  sleep,
 } from '@test/helpers'
 import {
   applySignatureRequest,
@@ -324,13 +323,12 @@ describe('Client', () => {
     user.uuid = v4()
     const client2 = await createRegisteredClient(user)
     user.uuid = v4()
-    const client3 = await createRegisteredClient(user)
+    const _client3 = await createRegisteredClient(user)
     user.uuid = v4()
-    const client4 = await createRegisteredClient(user)
+    const _client4 = await createRegisteredClient(user)
     user.uuid = v4()
-    const client5 = await createRegisteredClient(user)
+    const _client5 = await createRegisteredClient(user)
 
-    const inboxId = client1.inboxId()
     const state1 = await client1.inboxState(true)
     const state2 = await client2.inboxState(true)
 
@@ -444,7 +442,7 @@ describe('Client', () => {
 
     const client1 = await createRegisteredClient(user)
     user.uuid = v4()
-    const client2 = await createRegisteredClient(user)
+    const _client2 = await createRegisteredClient(user)
     user.uuid = v4()
 
     const backend = await createLocalBackend()

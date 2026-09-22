@@ -40,10 +40,8 @@ export const useIdentity = (syncOnMount: boolean = false) => {
     try {
       const inboxState = await client.preferences.fetchInboxState();
       const installations = inboxState.installations.toSorted((a, b) => {
-        // oxlint-disable-next-line typescript/no-non-null-assertion
         if (a.clientTimestampNs! > b.clientTimestampNs!) {
           return -1;
-          // oxlint-disable-next-line typescript/no-non-null-assertion
         } else if (a.clientTimestampNs! < b.clientTimestampNs!) {
           return 1;
         }

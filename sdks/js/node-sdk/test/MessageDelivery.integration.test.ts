@@ -30,7 +30,7 @@ describe("durable message delivery", () => {
       const firstId = await group.sendText("first retained message");
       const secondId = await group.sendText("second retained message");
       const thirdId = await group.sendText("third retained message");
-      const history = await group.messageHistorySnapshot(128);
+      const history = group.messageHistorySnapshot(128);
       const original = await group.stream();
       streams.push(original);
       const firstPosition = history.messages.findIndex(
@@ -81,7 +81,7 @@ describe("durable message delivery", () => {
     try {
       const group = await client.conversations.createGroup([]);
       const firstId = await group.sendText("history message");
-      const history = await group.messageHistorySnapshot(128);
+      const history = group.messageHistorySnapshot(128);
       expect(
         history.messages.some(({ message }) => message.id === firstId),
       ).toBe(true);

@@ -18,7 +18,7 @@ describe("Conversations", () => {
 
     // Set up the deletion stream
     const deletedMessages: DecodedMessage[] = [];
-    const stream = await client1.conversations().streamMessageDeletions({
+    const stream = client1.conversations().streamMessageDeletions({
       on_message_deleted: (message: DecodedMessage) => {
         deletedMessages.push(message);
       },

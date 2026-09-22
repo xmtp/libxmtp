@@ -162,7 +162,7 @@ describe('Conversations', () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+    const _client2 = await createRegisteredClient(user2)
     const group = await client1.conversations().createGroupByIdentity(
       [
         {
@@ -206,7 +206,7 @@ describe('Conversations', () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+    const _client2 = await createRegisteredClient(user2)
     const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
@@ -351,7 +351,7 @@ describe('Conversations', () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+    const _client2 = await createRegisteredClient(user2)
     const group = await client1.conversations().createGroupByIdentity([
       {
         identifier: user2.account.address,
@@ -634,7 +634,7 @@ describe('Conversations', () => {
       },
       ConversationType.Group
     )
-    const group3 = await client4.conversations().createDmByIdentity({
+    const _group3 = await client4.conversations().createDmByIdentity({
       identifier: user3.account.address,
       identifierKind: IdentifierKind.Ethereum,
     })
@@ -677,13 +677,13 @@ describe('Conversations', () => {
       },
       ConversationType.Dm
     )
-    const group1 = await client1.conversations().createGroupByIdentity([
+    const _group1 = await client1.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
-    const group2 = await client2.conversations().createGroupByIdentity([
+    const _group2 = await client2.conversations().createGroupByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
@@ -731,7 +731,7 @@ describe('Conversations', () => {
 
     const messages: Message[] = []
     const errors: Error[] = []
-    const stream = await client1.conversations().streamAllMessages(
+    const stream = client1.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages.push(message)
@@ -744,7 +744,7 @@ describe('Conversations', () => {
     )
 
     const messages2: Message[] = []
-    const stream2 = await client2.conversations().streamAllMessages(
+    const stream2 = client2.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages2.push(message)
@@ -757,7 +757,7 @@ describe('Conversations', () => {
     )
 
     const messages3: Message[] = []
-    const stream3 = await client3.conversations().streamAllMessages(
+    const stream3 = client3.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages3.push(message)
@@ -770,7 +770,7 @@ describe('Conversations', () => {
     )
 
     const messages4: Message[] = []
-    const stream4 = await client4.conversations().streamAllMessages(
+    const stream4 = client4.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages4.push(message)
@@ -859,7 +859,7 @@ describe('Conversations', () => {
 
     const messages: Message[] = []
     const errors: Error[] = []
-    const stream = await client1.conversations().streamAllMessages(
+    const stream = client1.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages.push(message)
@@ -929,7 +929,7 @@ describe('Conversations', () => {
 
     const messages: Message[] = []
     const errors: Error[] = []
-    const stream = await client1.conversations().streamAllMessages(
+    const stream = client1.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages.push(message)
@@ -975,7 +975,7 @@ describe('Conversations', () => {
 
     const messages: Message[] = []
     const errors: Error[] = []
-    const stream = await agent_client.conversations().streamAllMessages(
+    const stream = agent_client.conversations().streamAllMessages(
       (err, message) => {
         if (err) errors.push(err)
         if (message) messages.push(message)
@@ -1206,7 +1206,7 @@ describe('Conversations', () => {
     const user1 = createUser()
     const user2 = createUser()
     const client1 = await createRegisteredClient(user1)
-    const client2 = await createRegisteredClient(user2)
+    const _client2 = await createRegisteredClient(user2)
 
     // Create a group
     const group = await client1.conversations().createGroupByIdentity([

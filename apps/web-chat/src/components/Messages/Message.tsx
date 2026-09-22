@@ -60,7 +60,6 @@ export const Message: React.FC<MessageProps> = ({
           return acc;
         }
         const { content: reaction, action } = reactionContent;
-        // oxlint-disable-next-line typescript/no-unnecessary-condition
         const count = acc[reaction]?.count || 0;
         const isAdding = action === ReactionAction.Added;
         // oxlint-disable-next-line typescript/no-unnecessary-condition
