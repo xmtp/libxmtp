@@ -55,6 +55,11 @@ eval "$(direnv hook bash)"
 direnv automatically loads the default Nix dev shell when you `cd` into the
 repo. Run `direnv allow` to authorize it and `direnv deny` to revoke.
 
+The default shell is also used by Zed's Rust language server and default agent
+commands. This keeps native compiler, linker, and SDK settings consistent. Do not
+set `NIX_DEVSHELL=rust` globally. Use an explicit shell for a focused or cross-target
+command. See [Zed checks](agent-tools.md#zed-checks) for check scope and migration.
+
 ## Disabling direnv
 
 If direnv's shell integration is slowing down your terminal or you want to

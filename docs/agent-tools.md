@@ -37,6 +37,27 @@ when the worktree, shell selection, and shell inputs match. It enters Nix again
 after a relevant input changes. It does not infer reuse from `IN_NIX_SHELL` or
 from a direnv environment. Separate top-level commands still enter Nix.
 
+## Zed checks
+
+Open the repository root in Zed. The project settings start rust-analyzer through
+`dev/nix-shell --shell default`. This selects the same native toolchain environment
+as default agent commands, even when Zed has not loaded direnv. It needs Nix on
+Zed's `PATH`. The project must pass Zed's normal trust checks.
+
+Checks on save use the active package and its default features. They do not add
+`bench`, `test-utils`, or `--all-targets`. Build scripts and procedural macros stay
+enabled. SQLx uses the checked-in offline query data. Workspace loading can still
+build dependencies; this setting does not stop all background compilation.
+
+Zed and agents use the worktree's normal `target/` directory. Do not add a separate
+editor target directory. Different Cargo commands, features, profiles, or explicit
+cross-target shells can still need different artifacts. Keep focused checks during
+edits and run the required full lint and tests before completion.
+
+After this change, reload direnv through its normal authorization flow and restart
+the Rust language server in Zed. The first check can rebuild artifacts made with
+the previous compiler, SDK, or feature settings. No cache deletion is required.
+
 ## Code navigation
 
 Use these recipes inside `dev/nix-shell`:

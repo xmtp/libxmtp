@@ -93,19 +93,30 @@
       }
     },
     "rust-analyzer": {
+      "binary": {
+        "path": "/bin/bash",
+        "arguments": [
+          "-c",
+          "exec ./dev/nix-shell --shell default --command rust-analyzer"
+        ]
+      },
       "initialization_options": {
         "cargo": {
           "sysroot": "discover",
-          "allTargets": true,
+          "allTargets": false,
           "buildScripts": {
             "enable": true
           },
-          "features": ["bench", "test-utils"]
+          "features": [],
+          "extraEnv": {
+            "SQLX_OFFLINE": "true"
+          }
         },
         "check": {
           "command": "check",
-          "allTargets": true,
-          "features": ["bench", "test-utils"]
+          "workspace": false,
+          "allTargets": false,
+          "features": []
         },
         "linkedProjects": ["Cargo.toml"],
         "procMacro": {
