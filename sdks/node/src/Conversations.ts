@@ -20,7 +20,7 @@ import {
 } from "@/DecodedMessage";
 import { Dm } from "@/Dm";
 import { Group } from "@/Group";
-import { MessageStream } from "@/MessageStream";
+import { MessageStream, type MessageAcknowledgement } from "@/MessageStream";
 import {
   createStream,
   type StreamCallback,
@@ -462,12 +462,20 @@ export class Conversations<ContentTypes = unknown> {
       options?.consentStates,
       options?.from,
     );
-    const convertMessage = (value: Message, cursor: DeliveryCursor) => {
-      const enrichedMessage = this.getMessageById(value.id);
-      if (enrichedMessage !== undefined) {
-        assertMessageDecodedForDelivery(enrichedMessage);
-        enrichedMessage.deliveryCursor = cursor;
-      }
+    const convertMessage = (
+      _value: Message,
+      cursor: DeliveryCursor,
+      acknowledgement: MessageAcknowledgement,
+    ) => {
+      const retained = acknowledgement.enrichedMessage();
+      if (retained === null) return undefined;
+      // Keep storage failures distinct from application codec failures.
+      const enrichedMessage = new DecodedMessage<ContentTypes>(
+        this.#codecRegistry,
+        retained,
+      );
+      assertMessageDecodedForDelivery(enrichedMessage);
+      enrichedMessage.deliveryCursor = cursor;
       return enrichedMessage;
     };
     return new MessageStream(reader, convertMessage, options);

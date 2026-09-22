@@ -201,7 +201,6 @@ self.onmessage = async (
           break;
         }
         const acknowledgement = item.acknowledgement;
-        const message = item.message;
         const cursor = item.cursor;
         item.free();
         if (!messageReaders.has(data.readerId)) {
@@ -213,7 +212,7 @@ self.onmessage = async (
         clearDeliveryToken(data.readerId);
         const tokenId = crypto.randomUUID();
         deliveryTokens.set(data.readerId, { tokenId, acknowledgement });
-        const enriched = await client.conversations.getMessageById(message.id);
+        const enriched = acknowledgement.enrichedMessage() ?? undefined;
         postMessage({
           id,
           action,

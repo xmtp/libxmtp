@@ -63,7 +63,15 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
     pub async fn next_delivery(
         &mut self,
     ) -> Result<Option<LocalDeliveryItem<C>>, LocalDeliveryError> {
-        self.delivery.next_delivery().await
+        if self.control.lease.lock().is_none() {
+            return Ok(None);
+        }
+        let result = self.delivery.next_delivery().await;
+        if !matches!(&result, Ok(Some(_))) {
+            // Release ownership and receipt interests before the caller reopens.
+            self.close();
+        }
+        result
     }
 
     /// Report processing through fixed network heads, not application delivery progress.

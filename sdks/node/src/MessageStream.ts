@@ -2,6 +2,7 @@ import type {
   ConsentState,
   ConversationType,
   DeliveryCursor,
+  DecodedMessage as XmtpDecodedMessage,
   MessageCatchUp,
 } from "@xmtp/node-bindings";
 
@@ -10,6 +11,7 @@ import type { StreamOptions } from "@/utils/streams";
 export type MessageAcknowledgement = {
   checkOwner(): boolean | Promise<boolean>;
   acknowledge(): void | Promise<void>;
+  enrichedMessage(): XmtpDecodedMessage | null;
   reject(): void | Promise<void>;
 };
 
@@ -37,6 +39,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
   #convert: (
     message: T,
     cursor: DeliveryCursor,
+    acknowledgement: MessageAcknowledgement,
   ) => V | undefined | Promise<V | undefined>;
   #options: StreamOptions<T, V>;
   readonly #onValue?: (value: V) => void | Promise<void>;
@@ -51,6 +54,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     convert: (
       message: T,
       cursor: DeliveryCursor,
+      acknowledgement: MessageAcknowledgement,
     ) => V | undefined | Promise<V | undefined>,
     options: StreamOptions<T, V> = {},
   ) {
@@ -59,7 +63,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     this.#options = options;
     this.#onValue = options.onValue;
     if (this.#onValue) {
-      // Callback mode has no caller waiting on next(). Errors reach onError before cleanup.
+      // Callback mode has no caller waiting on next(). Errors reach onError after cleanup.
       void this.#read().catch(() => undefined);
     }
   }
@@ -120,8 +124,11 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
         const value: V | undefined = await this.#convert(
           item.message,
           item.cursor,
+          item.acknowledgement,
         );
         if (this.#hasEnded()) break;
+        // Native checkOwner is synchronous. A storage failure ends this stream;
+        // the caller can repair storage and open a new stream on the same client.
         const checked = item.acknowledgement.checkOwner();
         const valid = typeof checked === "boolean" ? checked : await checked;
         if (this.#hasEnded()) break;
@@ -150,14 +157,21 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
       return { done: true, value: undefined };
     } catch (error) {
       if (!this.#hasEnded()) {
+        // Release this reader before onError can open a replacement. Failed
+        // cleanup must not replace the error that stopped delivery.
         try {
-          // A handler that throws must not replace the real failure. The
-          // caller needs the original cause to know why the stream ended.
-          this.#options.onError?.(error as Error);
-        } catch {
-          // Reported through the rethrow below.
-        } finally {
           await this.return();
+        } catch {
+          // Native close fences this reader even when storage release fails.
+        }
+        try {
+          // Do not await application error handling. It may open and consume
+          // another stream. Its rejection must not escape the callback task.
+          void Promise.resolve(this.#options.onError?.(error as Error)).catch(
+            () => undefined,
+          );
+        } catch {
+          // Iterator mode reports the original cause below.
         }
       }
       throw error;
@@ -191,7 +205,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
       }
       return { done: true, value: undefined };
     } finally {
-      this.#options.onEnd?.();
+      void Promise.resolve(this.#options.onEnd?.()).catch(() => undefined);
     }
   }
 

@@ -40,6 +40,8 @@ pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
+    /// A closed reader whose owner token must be released after storage repair.
+    pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
 
 impl IncomingRuntime {
@@ -51,6 +53,7 @@ impl IncomingRuntime {
             policy,
             factory,
             coordinator: Mutex::new(None),
+            retired_delivery_owner: Mutex::new(None),
         }
     }
 
