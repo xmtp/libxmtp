@@ -5,6 +5,8 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 mod dictionary_creation;
+mod membership_component;
+mod membership_recovery;
 
 // verifies: GMOD-036
 #[rstest::rstest]
@@ -23,10 +25,20 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    bo.sync_welcomes().await?;
-    caro.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
-    let caro_group = caro.group(&group.group_id)?;
+    let bo_group = xmtp_common::wait_for_ok(|| async {
+        bo.sync_welcomes()
+            .await
+            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+    })
+    .await
+    .expect("the published Welcome must become visible");
+    let caro_group = xmtp_common::wait_for_ok(|| async {
+        caro.sync_welcomes()
+            .await
+            .and_then(|_| caro.group(&group.group_id).map_err(GroupError::from))
+    })
+    .await
+    .expect("the published Welcome must become visible");
     bo_group.receive().await?;
     caro_group.receive().await?;
     let name = QueueIntent::metadata_update()
@@ -56,8 +68,22 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     }
     group.sync_until_intent_resolved(name.id).await?;
     bo_group.sync_until_intent_resolved(description.id).await?;
+    let topic = Topic::new_group_message(group.group_id);
+    let key = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
+    let target = group
+        .context
+        .db()
+        .topic_progress(&key)?
+        .processed
+        .max(bo_group.context.db().topic_progress(&key)?.processed);
     for peer in [&group, &bo_group, &caro_group] {
-        peer.receive().await?;
+        crate::subscriptions::barrier::wait_through(
+            &peer.context,
+            [(topic.clone(), target)].into(),
+            None,
+        )
+        .await
+        .expect("all members must process both completed metadata changes");
         assert_eq!(peer.group_name()?, "competing name");
         assert_eq!(peer.group_description()?, "competing description");
         assert_eq!(peer.epoch().await?, first.base.epoch + 2);
@@ -75,8 +101,15 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
             .send_message(body, SendMessageOpts::default())
             .await?;
     }
+    let target = caro_group.context.db().topic_progress(&key)?.processed;
     for peer in [&group, &bo_group, &caro_group] {
-        peer.receive().await?;
+        crate::subscriptions::barrier::wait_through(
+            &peer.context,
+            [(topic.clone(), target)].into(),
+            None,
+        )
+        .await
+        .expect("all members must process the last confirmed send");
         let messages = peer.find_messages(&MsgQueryArgs::default())?;
         for body in [b"from alix".as_slice(), b"from bo", b"from caro"] {
             assert_eq!(
