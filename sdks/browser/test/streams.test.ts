@@ -250,6 +250,120 @@ describe("createStream", () => {
   });
 
   describe("error handling", () => {
+    it("ends a notification stream on a native storage error", async () => {
+      const storageError = new Error("[SubscribeError::Db] database is full");
+      const onError = vi.fn();
+      const onEnd = vi.fn();
+      const onFail = vi.fn();
+      let callback: StreamCallback<number> | undefined;
+      let nativeClose: (() => void) | undefined;
+      const close = vi.fn();
+      const streamFunction: StreamFunction<number> = vi.fn(
+        async (onMessage, onClose) => {
+          callback = onMessage;
+          nativeClose = onClose;
+          return close;
+        },
+      );
+      const stream = await createStream(streamFunction, undefined, {
+        onError,
+        onEnd,
+        onFail,
+        retryDelay: 1,
+      });
+      const pending = stream.next();
+
+      callback?.(storageError, undefined);
+      nativeClose?.();
+
+      await expect(pending).rejects.toBe(storageError);
+      await expect(stream.next()).resolves.toEqual({
+        done: true,
+        value: undefined,
+      });
+      await sleep(20);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(storageError);
+      expect(onEnd).toHaveBeenCalledTimes(1);
+      expect(onFail).not.toHaveBeenCalled();
+      expect(close).toHaveBeenCalledTimes(1);
+      expect(streamFunction).toHaveBeenCalledTimes(1);
+    });
+
+    it("ends on a storage error while opening without retrying", async () => {
+      const storageError = new Error("[ClientError::Storage] database is full");
+      const onError = vi.fn();
+      const streamFunction: StreamFunction<number> = vi.fn(async () => {
+        throw storageError;
+      });
+
+      const stream = await createStream(streamFunction, undefined, {
+        onError,
+        retryDelay: 1,
+      });
+
+      await expect(stream.next()).rejects.toBe(storageError);
+      await expect(stream.next()).resolves.toEqual({
+        done: true,
+        value: undefined,
+      });
+      await sleep(20);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(storageError);
+      expect(streamFunction).toHaveBeenCalledTimes(1);
+    });
+
+    it("ends on a structured incoming storage failure", async () => {
+      const storageError = new Error(
+        `[GroupError::Barrier] receive failed\n[XMTP_STREAM_FAILURE_V1]${JSON.stringify(
+          {
+            kind: "barrier",
+            code: "BarrierError::Deadline",
+            message: "The receive barrier failed",
+            retryable: true,
+            intentId: null,
+            publishedIntentIds: [],
+            summary: null,
+            barriers: [
+              {
+                reason: "deadline",
+                unfinished: [
+                  {
+                    topic: "00ff",
+                    target: "1",
+                    received: "0",
+                    processed: "0",
+                    unresolvedWelcomes: [],
+                    inactive: false,
+                    cause: {
+                      kind: "receiver",
+                      code: "incoming_storage",
+                      message: "database is full",
+                      retryable: true,
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        )}`,
+      );
+      let callback: StreamCallback<number> | undefined;
+      const streamFunction: StreamFunction<number> = vi.fn(
+        async (onMessage) => {
+          callback = onMessage;
+          return () => {};
+        },
+      );
+      const onError = vi.fn();
+      const stream = await createStream(streamFunction, undefined, { onError });
+      const pending = stream.next();
+
+      callback?.(storageError, undefined);
+
+      await expect(pending).rejects.toBe(storageError);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(storageError);
+      expect(streamFunction).toHaveBeenCalledTimes(1);
+    });
+
     it("should call onError when stream callback receives an error", async () => {
       const onErrorSpy = vi.fn<(error: Error) => void>();
       const streamError = new Error("Stream error");
