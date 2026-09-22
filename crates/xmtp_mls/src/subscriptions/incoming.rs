@@ -18,7 +18,7 @@ use tokio::sync::{mpsc, watch};
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, time::Instant};
 use xmtp_proto::{
     api::NetworkError,
-    types::{GroupId, IncomingBatchLimits, IncomingSubscription, Topic, TopicCursor},
+    types::{Cursor, GroupId, IncomingBatchLimits, IncomingSubscription, Topic, TopicCursor},
 };
 
 pub(crate) type SubscriptionFuture =
@@ -29,6 +29,9 @@ pub(crate) type SubscriptionFuture =
 pub(crate) enum RequestKey {
     Bidi(TopicCursor),
     QueryNewest(HashSet<Topic>),
+    /// Query can reduce its wire limit after a size error. Hold all limits at
+    /// this cursor because the caller cannot see the final attempted limit.
+    Query(Topic, Cursor),
 }
 
 pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>)>>>;

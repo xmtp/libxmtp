@@ -1136,6 +1136,82 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
     controller.start_read();
     assert!(controller.read.is_none());
     assert_eq!(controller.receipt(&topic).rejected_at, Some(Cursor(0)));
+
+    let retained = controller.rejected_requests.lock()[0].1.clone();
+    assert_eq!(
+        controller.rejected_requests.lock()[0].0,
+        RequestKey::Query(topic.clone(), Cursor(0))
+    );
+    drop(controller);
+    drop(coordinator);
+    drop(stream);
+
+    // A fresh stream on the same client receives the retained cause. Its new
+    // controller must not issue the same Query from durable cursor F.
+    let (coordinator, mut recreated) = coordinated_controller(alix.context.clone());
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = recreated.commands.try_recv() {
+        recreated.command(command);
+    }
+    recreated
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    recreated.read_queue.push_back(topic.clone());
+    recreated.start_read();
+    assert!(recreated.read.is_none());
+    assert_eq!(recreated.receipt(&topic).rejected_at, Some(Cursor(0)));
+    assert_eq!(fresh.recovery_snapshot().failures, 0);
+    let Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(cause)) =
+        fresh.recovery_snapshot().terminal
+    else {
+        panic!("the retained Query cause must terminate the fresh reader");
+    };
+    assert!(Arc::ptr_eq(&cause, &retained));
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_retained_rejection_does_not_poll_cursors_on_a_healthy_bidi_loop() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    controller.rejected_requests.lock().push((
+        RequestKey::QueryNewest([other].into()),
+        Arc::new(IncomingError::UnsupportedTopic),
+    ));
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    add_scope(&mut controller, 1, &topic);
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic.clone());
+    for _ in 0..100 {
+        controller.start_open();
+    }
+    assert_eq!(controller.open_cursor_reads, 0);
+
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(topic);
+    controller.start_open();
+    assert_eq!(controller.open_cursor_reads, 1);
+    for _ in 0..100 {
+        controller.start_open();
+    }
+    assert_eq!(controller.open_cursor_reads, 1);
 }
 
 // verifies: API-284
