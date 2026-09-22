@@ -25,6 +25,29 @@ jobs:
       - name: Start backend
         run: just backend up
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
-        run: just js test-node-sdk-ci --shard ${{ matrix.shard }}/2
+        run: just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts
       - name: Run CLI tests (shard ${{ matrix.shard }}/2)
         run: just cli test-ci --shard ${{ matrix.shard }}/2
+  recovery:
+    name: Test (node-sdk) recovery
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    # Preserve per-test production deadlines, including two full outage budgets.
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Start backend
+        run: just backend up
+      - name: Build backend for graceful restart
+        run: just backend build
+      - name: Run public recovery matrix
+        env:
+          XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend
+        run: just js test-node-sdk-ci test/streamRecovery.test.ts
