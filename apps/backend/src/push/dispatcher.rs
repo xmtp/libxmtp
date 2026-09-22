@@ -86,6 +86,15 @@ impl Drop for PushHub {
     }
 }
 
+/// Check whether push needs the closed allocation boundary to advance.
+/// The maximum uses the partial index even with a generic prepared plan.
+#[xmtp_common::db_span]
+pub(super) async fn has_unsettled_envelopes(store: &Store, boundary: i64) -> Result<bool, Error> {
+    Ok(sqlx::query_file_scalar!("src/push/unsettled.sql", boundary)
+        .fetch_one(&store.read)
+        .await?)
+}
+
 struct HolderGauge;
 impl Drop for HolderGauge {
     fn drop(&mut self) {
@@ -247,12 +256,7 @@ async fn hold(
                 )
                 .fetch_one(&store.read)
                 .await?;
-                let above: bool = sqlx::query_scalar!(
-                r#"SELECT EXISTS(SELECT 1 FROM envelopes WHERE push_eligible AND sequence_id > $1) AS "above!""#, next_boundary
-            )
-            .fetch_one(&store.read)
-            .await?;
-                if above {
+                if has_unsettled_envelopes(store, next_boundary).await? {
                     maintenance.notify_one();
                 }
                 if Instant::now() >= expiry {

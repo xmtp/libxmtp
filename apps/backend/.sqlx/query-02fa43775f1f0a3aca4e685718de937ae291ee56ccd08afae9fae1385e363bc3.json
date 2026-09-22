@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM envelopes WHERE push_eligible AND sequence_id > $1) AS \"above!\"",
+  "query": "SELECT COALESCE(\n    (SELECT max(sequence_id) FROM envelopes WHERE push_eligible) > $1,\n    false\n) AS \"above!\"\n",
   "describe": {
     "columns": [
       {
@@ -19,5 +19,5 @@
       null
     ]
   },
-  "hash": "ea4aef081198a4b611ee3c50e1215d94cf1d60dbe83776408bf2d00be1756877"
+  "hash": "02fa43775f1f0a3aca4e685718de937ae291ee56ccd08afae9fae1385e363bc3"
 }
