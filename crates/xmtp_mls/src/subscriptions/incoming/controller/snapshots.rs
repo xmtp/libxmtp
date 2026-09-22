@@ -2,6 +2,11 @@ use super::*;
 
 impl<C: XmtpSharedContext + 'static> Controller<C> {
     pub(super) fn refresh_statuses(&self) {
+        self.refresh_statuses_at(Instant::now());
+    }
+
+    pub(super) fn refresh_statuses_at(&self, now: Instant) {
+        *self.state.recovery.lock() = self.transport.recovery.clone();
         let conn = self.context.db();
         let mut snapshots = self.state.statuses.lock();
         for (id, scope) in &self.scopes {
@@ -10,6 +15,51 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             };
             if snapshot.scope_generation != scope.generation {
                 continue;
+            }
+            {
+                let mut consumers = self.state.consumer_recovery.lock();
+                let state = consumers.entry(*id).or_default();
+                if self.transport.recovery.failures > state.last_transport_failures {
+                    state.query_error = None;
+                }
+                state.last_transport_failures = self.transport.recovery.failures;
+                let failures = self
+                    .transport
+                    .recovery
+                    .failures
+                    .saturating_add(state.query_failures);
+                let recovery = &mut state.snapshot;
+                recovery.idle = scope.topics.is_empty();
+                let registered = !scope.topics.is_empty()
+                    && self.transport.connection() == IncomingConnection::Connected
+                    && scope.topics.iter().all(|topic| {
+                        self.transport.registered.contains(topic) || self.is_retired(topic)
+                    });
+                if !registered || recovery.failures != failures {
+                    recovery.healthy_since = None;
+                    recovery.outage_since.get_or_insert(now);
+                }
+                if registered {
+                    recovery.healthy_since.get_or_insert(now);
+                }
+                if recovery.outage_since.is_some()
+                    && recovery.healthy_since.is_some_and(|since| {
+                        now.saturating_duration_since(since)
+                            >= crate::subscriptions::recovery::HEALTHY_PERIOD
+                    })
+                {
+                    recovery.outage_since = None;
+                }
+                if recovery.idle {
+                    recovery.outage_since = None;
+                }
+                recovery.failures = failures;
+                recovery.error = state
+                    .query_error
+                    .as_ref()
+                    .map(|(_, error)| error.clone())
+                    .or_else(|| self.transport.recovery.error.clone());
+                let _ = state.check(now);
             }
             snapshot.error = self
                 .storage_error

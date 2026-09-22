@@ -456,6 +456,39 @@ describe("createStream lifecycle", () => {
     expect(onRestart).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the live replacement when the first native stream closes before ready", async () => {
+    const instances: StreamInstance[] = [];
+    let resolveFirstReady!: () => void;
+    const streamFunction = vi.fn(
+      (callback: StreamCallback<number>, onFail: () => void) => {
+        const closer = makeCloser();
+        if (instances.length === 0) {
+          closer.waitForReady = vi.fn(
+            () =>
+              new Promise<void>((resolve) => {
+                resolveFirstReady = resolve;
+              }),
+          );
+        }
+        instances.push({ callback, onFail, closer });
+        return Promise.resolve(closer as unknown as StreamCloser);
+      },
+    );
+    const opening = createStream<number>(streamFunction, undefined, {
+      retryDelay: 0,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(instances).toHaveLength(1);
+    instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(instances).toHaveLength(2);
+
+    resolveFirstReady();
+    const stream = await opening;
+    await stream.end();
+    expect(instances[1].closer.end).toHaveBeenCalledOnce();
+  });
+
   it("does not create a native stream when onRetry ends the stream", async () => {
     const { instances, streamFunction } = makeHarness();
     const streamRef: { end?: () => Promise<unknown> } = {};
@@ -508,11 +541,15 @@ describe("createStream", () => {
   });
 });
 
-describe("createStream terminal storage failures", () => {
+describe("createStream terminal native failures", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
   it.each([
+    "LocalDeliveryError::NetworkRecoveryExhausted",
+    "LocalDeliveryError::NetworkFailure",
+    "ClientError::BackendMismatch",
+    "ClientError::ClientVersionTooOld",
     "SubscribeError::Db",
     "SubscribeError::Storage",
     "GroupError::Db",
@@ -544,6 +581,35 @@ describe("createStream terminal storage failures", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("opens a fresh stream after iterator rejection and fences the old completion", async () => {
+    const h = makeHarness();
+    const old = await createStream(h.streamFunction);
+    const native = h.last();
+    const cause = new Error(
+      "[LocalDeliveryError::NetworkRecoveryExhausted] outage",
+    );
+    const pending = old.next();
+    native.callback(cause, undefined);
+    let replacement:
+      | Awaited<ReturnType<typeof createStream<number>>>
+      | undefined;
+    try {
+      await pending;
+      throw new Error("the iterator must reject");
+    } catch (error) {
+      expect(error).toBe(cause);
+      replacement = await createStream(h.streamFunction);
+    }
+    native.onFail();
+    native.callback(null, 99);
+    await old.end();
+    h.last().callback(null, 42);
+    expect(await replacement.next()).toEqual({ done: false, value: 42 });
+    expect(h.streamFunction).toHaveBeenCalledTimes(2);
+    expect(h.last().closer.end).not.toHaveBeenCalled();
+    await replacement.end();
+  });
+
   it("rejects the pending iterator when unexpected-close retries exhaust", async () => {
     const h = makeHarness();
     const stream = await createStream(h.streamFunction, undefined, {
@@ -557,7 +623,12 @@ describe("createStream terminal storage failures", () => {
     expect(stream.isDone).toBe(true);
   });
 
-  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
+  it.each([
+    "LocalDeliveryError::NetworkRecoveryExhausted",
+    "LocalDeliveryError::NetworkFailure",
+    "SubscribeError::Db",
+    "SubscribeError::Storage",
+  ])(
     "opens a fresh stream inside onError after %s and fences late old callbacks",
     async (code) => {
       const h = makeHarness();
@@ -588,6 +659,10 @@ describe("createStream terminal storage failures", () => {
   );
 
   it.each([
+    "LocalDeliveryError::NetworkRecoveryExhausted",
+    "LocalDeliveryError::NetworkFailure",
+    "ClientError::BackendMismatch",
+    "ClientError::ClientVersionTooOld",
     "SubscribeError::Db",
     "SubscribeError::Storage",
     "GroupError::Db",
@@ -613,7 +688,14 @@ describe("createStream terminal storage failures", () => {
     },
   );
 
-  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
+  it.each([
+    "LocalDeliveryError::NetworkRecoveryExhausted",
+    "LocalDeliveryError::NetworkFailure",
+    "ClientError::BackendMismatch",
+    "ClientError::ClientVersionTooOld",
+    "SubscribeError::Db",
+    "SubscribeError::Storage",
+  ])(
     "ends on a %s callback before initial native creation completes",
     async (code) => {
       const error = new Error(`[${code}] initial storage query failed`);
@@ -649,28 +731,32 @@ describe("createStream terminal storage failures", () => {
     await stream.end();
   });
 
-  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
-    "ends if a fallback opening fails with %s",
-    async (code) => {
-      const h = makeHarness();
-      const onError = vi.fn();
-      const stream = await createStream(h.streamFunction, undefined, {
-        retryDelay: 10,
-        onError,
-      });
-      const error = new Error(`[${code}] storage query failed`);
-      h.streamFunction.mockRejectedValueOnce(error);
-      const rejected = expect(stream.next()).rejects.toBe(error);
-      h.last().onFail();
-      await vi.advanceTimersByTimeAsync(10);
-      await rejected;
-      await vi.advanceTimersByTimeAsync(600_000);
-      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
-      expect(h.streamFunction).toHaveBeenCalledTimes(2);
-      expect(stream.isDone).toBe(true);
-      expect(vi.getTimerCount()).toBe(0);
-    },
-  );
+  it.each([
+    "LocalDeliveryError::NetworkRecoveryExhausted",
+    "LocalDeliveryError::NetworkFailure",
+    "ClientError::BackendMismatch",
+    "ClientError::ClientVersionTooOld",
+    "SubscribeError::Db",
+    "SubscribeError::Storage",
+  ])("ends if a fallback opening fails with %s", async (code) => {
+    const h = makeHarness();
+    const onError = vi.fn();
+    const stream = await createStream(h.streamFunction, undefined, {
+      retryDelay: 10,
+      onError,
+    });
+    const error = new Error(`[${code}] storage query failed`);
+    h.streamFunction.mockRejectedValueOnce(error);
+    const rejected = expect(stream.next()).rejects.toBe(error);
+    h.last().onFail();
+    await vi.advanceTimersByTimeAsync(10);
+    await rejected;
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+    expect(h.streamFunction).toHaveBeenCalledTimes(2);
+    expect(stream.isDone).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });
 
 const barrierError = (cause: Pick<StreamFailureCause, "kind" | "code">) =>

@@ -10,12 +10,12 @@ import { getStreamFailureDetails } from "./streamFailure";
 export const DEFAULT_RETRY_DELAY = 60_000; // milliseconds
 export const DEFAULT_RETRY_ATTEMPTS = 10;
 
-// Core reports storage failures as terminal.
+// Core reports storage failures and network exhaustion as terminal.
 // Reopening here would bypass that boundary and hide the original failure.
 const isTerminalNativeFailure = (error: unknown) => {
   if (
     error instanceof Error &&
-    /^\[(?:(?:SubscribeError|GroupError|ClientError)::(?:Db|Storage)|GroupError::SqlKeyStore)\]/.test(
+    /^\[(?:LocalDeliveryError::(?:NetworkRecoveryExhausted|NetworkFailure)|ClientError::(?:BackendMismatch|ClientVersionTooOld)|(?:SubscribeError|GroupError|ClientError)::(?:Db|Storage)|GroupError::SqlKeyStore)\]/.test(
       error.message,
     )
   )
@@ -152,6 +152,7 @@ export const createStream = async <T = unknown, V = T>(
   // set when a restart's native stream closes during its own creation, so the
   // completed attempt reschedules instead of installing an already-dead closer
   let closePendingDuringRestart = false;
+  let initialClosePending = false;
   // read through a call so no-unnecessary-condition cannot narrow the flag to
   // a constant; handleNativeClose mutates it across an await
   const isClosePending = () => closePendingDuringRestart;
@@ -381,6 +382,7 @@ export const createStream = async <T = unknown, V = T>(
     if (isStopped()) {
       return;
     }
+    if (generation === 1) initialClosePending = true;
     currentCloser = undefined;
     onFail?.();
     if (retryOnFail) {
@@ -410,20 +412,24 @@ export const createStream = async <T = unknown, V = T>(
     );
   };
 
+  const initialGeneration = generation + 1;
+  const initialWasClosed = () =>
+    initialClosePending || generation !== initialGeneration;
   try {
     // create the stream
     const streamCloser = await openNative();
-    if (isStopped()) {
+    if (isStopped() || initialWasClosed()) {
       streamCloser.end();
     } else {
       await streamCloser.waitForReady();
-      if (isStopped()) {
+      if (isStopped() || initialWasClosed()) {
         streamCloser.end();
       } else {
         currentCloser = streamCloser;
       }
     }
   } catch (error) {
+    if (initialWasClosed()) return createAsyncStreamProxy(asyncStream);
     lastError = error as Error;
     if (isTerminalNativeFailure(lastError)) fail(lastError);
     else if (retryOnFail) {

@@ -79,6 +79,20 @@ pub enum LocalDeliveryError {
     /// The retained item has no decoded message. Not retryable.
     #[error("The delivery item has no enriched message")]
     EnrichedMessageUnavailable,
+    /// This stream exhausted its network retry budget. Not retryable; a new stream may retry.
+    #[error("The message reader exhausted its network recovery budget after {attempts} attempts: {}", source.as_ref().map(|error| error.to_string()).unwrap_or_else(|| "the recovery deadline elapsed without a transport error".into()))]
+    NetworkRecoveryExhausted {
+        attempts: u32,
+        #[source]
+        source: Option<std::sync::Arc<crate::subscriptions::incoming::IncomingError>>,
+    },
+    /// A terminal transport error stopped this stream. Not retryable.
+    #[error("The message reader network failed: {0}")]
+    NetworkFailure(#[source] std::sync::Arc<crate::subscriptions::incoming::IncomingError>),
+    /// The client's server configuration changed. Not retryable on this client.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Configuration(Box<crate::client::ClientError>),
     /// Database receipt, lease, cursor, or acknowledgement failure. May be retryable.
     #[error(transparent)]
     #[error_code(inherit)]

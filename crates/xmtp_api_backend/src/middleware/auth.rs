@@ -194,11 +194,10 @@ impl<C> AuthMiddleware<C> {
                 Err(_) => {
                     state.fail();
                     *guard = state;
-                    // A callback failure that trips the lockout reports
-                    // `Exhausted`, like a rejection that trips it. The wire must
-                    // wait for the cool-down, not read this as permanent.
+                    // Distinguish this failed refresh from later refusals.
+                    // Both keep the same public error code and cool-down.
                     return Err(if state.locked_until.is_some() {
-                        AuthError::Exhausted
+                        AuthError::ExhaustedAfterAttempt
                     } else {
                         AuthError::CallbackFailed { retryable: true }
                     });
@@ -236,16 +235,14 @@ impl<C> AuthMiddleware<C> {
             }
         }
         if rejected {
-            // A rejection that trips the lockout reports `Exhausted`, the same
-            // error every later call gets, so the cool-down has one error. A
-            // long-lived transport can then tell a timed lockout apart from a
-            // permanent rejection and wait instead of shutting down.
+            // The failed request that starts lockout spends one recovery cycle.
+            // Later refusals spend none. Both keep the same public error code.
             if self.callback.is_some()
                 && state
                     .locked_until
                     .is_some_and(|until| until > Instant::now())
             {
-                return (Err(AuthError::Exhausted.into()), false);
+                return (Err(AuthError::ExhaustedAfterAttempt.into()), false);
             }
             let retryable = self.callback.is_some();
             (

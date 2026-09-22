@@ -11,7 +11,6 @@ use std::sync::{Arc, LazyLock};
 use parking_lot::Mutex;
 
 use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
 
 use xmtp_api_backend::{BackendBinding, BidiConnection, BidiTransport, OpenError, TransportError};
 use xmtp_common::{MaybeSend, StreamHandle};
@@ -24,7 +23,10 @@ use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_common::Event;
 use xmtp_macro::log_event;
 
-use super::{Result, StreamKind, SubscribeError};
+use super::{
+    Result, StreamKind, SubscribeError,
+    watchdog::{StreamCancel, close_reason},
+};
 use crate::Client;
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
@@ -202,7 +204,7 @@ impl<F: FnOnce()> Drop for StreamClosedGuard<F> {
 pub(crate) struct StreamOrigin {
     pub(crate) kind: StreamKind,
     pub(crate) installation: InstallationId,
-    pub(crate) cancel: CancellationToken,
+    pub(crate) cancel: StreamCancel,
 }
 
 impl StreamOrigin {
@@ -210,7 +212,7 @@ impl StreamOrigin {
         Self {
             kind,
             installation: context.installation_id(),
-            cancel: context.cancellation_token().clone(),
+            cancel: StreamCancel::new(context),
         }
     }
 }
@@ -242,10 +244,12 @@ where
             on_close: Some(on_close),
         };
         let mut stream = tokio::select! {
-            _ = cancel.cancelled() => return Ok(()),
+            biased;
+            _ = cancel.cancelled() => return close_reason(&cancel, true, &mut callback),
             result = subscribe => match result {
                 Ok(stream) => stream,
                 Err(error) => {
+                    close_reason(&cancel, true, &mut callback)?;
                     callback(Err(error));
                     return Ok(());
                 }
@@ -254,14 +258,23 @@ where
         let _ = tx.send(());
         loop {
             tokio::select! {
-                _ = cancel.cancelled() => break,
+                biased;
+                _ = cancel.cancelled() => return close_reason(&cancel, true, &mut callback),
                 next = stream.next() => match next {
-                    Some(item) => callback(item),
-                    None => break,
+                    Some(item) => {
+                        // A latch can arrive while the local read is in progress.
+                        // Report it before another item reaches the callback.
+                        close_reason(&cancel, true, &mut callback)?;
+                        let terminal = item.is_err();
+                        callback(item);
+                        if terminal {
+                            return Ok(());
+                        }
+                    },
+                    None => return close_reason(&cancel, true, &mut callback),
                 }
             }
         }
-        Ok(())
     };
     xmtp_common::spawn(Some(rx), xmtp_common::bind_task_hub(task))
 }

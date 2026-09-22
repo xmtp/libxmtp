@@ -171,6 +171,16 @@ where
         limits: IncomingLimits,
     ) -> Result<ReceivedPage, MlsStoreError> {
         let cursors = self.received_cursors(topics)?;
+        self.receive_topics_once_from(cursors, limits).await
+    }
+
+    /// Use the captured durable cursors so the caller can identify a rejected
+    /// Query and avoid sending the same request again.
+    pub(crate) async fn receive_topics_once_from(
+        &self,
+        cursors: TopicCursor,
+        limits: IncomingLimits,
+    ) -> Result<ReceivedPage, MlsStoreError> {
         let rows = limits
             .batch
             .rows

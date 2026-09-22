@@ -637,6 +637,26 @@ max_group_members = 23
     // verifies: CONF-022
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_explicit_refresh_that_meets_another_deployment_cancels_the_client() {
+        use crate::subscriptions::SubscribeError;
+        use futures::StreamExt;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use xmtp_common::{
+            ErrorCode, StreamHandle,
+            time::{Duration, timeout},
+        };
+
+        const WAIT: Duration = Duration::from_secs(10);
+        let assert_mismatch = |error: SubscribeError| {
+            assert_eq!(error.error_code(), "ClientError::BackendMismatch");
+            let SubscribeError::Configuration(error) = error else {
+                panic!("expected the configuration cause, got {error:?}");
+            };
+            assert!(matches!(
+                *error,
+                crate::client::ClientError::BackendMismatch { stored, received }
+                    if stored == "org.example.elsewhere" && received == "org.example.distinct"
+            ));
+        };
         let backend = EphemeralBackend::start(DISTINCT).await?;
 
         let owner = generate_local_wallet();
@@ -655,6 +675,26 @@ max_group_members = 23
             .await?;
         assert!(!client.context.cancellation_token().is_cancelled());
 
+        let messages = client.stream_all_messages_owned(None, None).await?;
+        futures::pin_mut!(messages);
+        let conversations = client.stream_conversations_owned(None, false).await?;
+        futures::pin_mut!(conversations);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let closed = Arc::new(AtomicUsize::new(0));
+        let on_close = Arc::clone(&closed);
+        let mut callback = Client::stream_conversations_with_callback_dispatch(
+            Arc::new(client.clone()),
+            None,
+            false,
+            move |item| {
+                let _ = tx.send(item);
+            },
+            move || {
+                on_close.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+        timeout(WAIT, callback.wait_for_ready()).await?;
+
         // A copy this database was bound to by an earlier, different deployment.
         store.db().store_server_configuration(
             "org.example.elsewhere",
@@ -663,11 +703,39 @@ max_group_members = 23
             xmtp_common::time::now_ns(),
         )?;
 
-        let error = client.refresh_server_configuration().await.unwrap_err();
-        assert!(
-            matches!(error, crate::client::ClientError::BackendMismatch { .. }),
-            "expected a mismatch error, got {error}"
-        );
+        {
+            let pending_message = messages.next();
+            let pending_conversation = conversations.next();
+            futures::pin_mut!(pending_message, pending_conversation);
+            assert!(futures::poll!(&mut pending_message).is_pending());
+            assert!(futures::poll!(&mut pending_conversation).is_pending());
+
+            // A real GetConfiguration response sets the latch and wakes each read.
+            let error = client.refresh_server_configuration().await.unwrap_err();
+            assert!(
+                matches!(error, crate::client::ClientError::BackendMismatch { .. }),
+                "expected a mismatch error, got {error}"
+            );
+            assert_mismatch(timeout(WAIT, pending_message).await?.unwrap().unwrap_err());
+            assert_mismatch(
+                timeout(WAIT, pending_conversation)
+                    .await?
+                    .unwrap()
+                    .unwrap_err(),
+            );
+        }
+        assert!(timeout(WAIT, messages.next()).await?.is_none());
+        assert!(timeout(WAIT, conversations.next()).await?.is_none());
+        assert_mismatch(timeout(WAIT, rx.recv()).await?.unwrap().unwrap_err());
+        assert_mismatch(timeout(WAIT, callback.join()).await??.unwrap_err());
+        assert!(timeout(WAIT, rx.recv()).await?.is_none());
+        assert_eq!(closed.load(Ordering::SeqCst), 1);
+
+        let reopened = client.stream_conversations_owned(None, false).await;
+        assert_mismatch(match reopened {
+            Err(error) => error,
+            Ok(_) => panic!("a latched client must not open another stream"),
+        });
 
         // Latched, and the context cancelled so every open stream closes.
         let latch = client.context.server_configuration().latched().unwrap();

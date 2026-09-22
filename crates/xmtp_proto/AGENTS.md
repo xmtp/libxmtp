@@ -35,3 +35,5 @@ just test workspace -p xmtp_proto types::   # one module
 - `api::AuthError` owns the four public auth codes and stores retryability at creation.
   Keep it in `ApiClientError::Auth`; `Other` erases its code.
   `xmtp_api::dyn_err` maps it to `ApiError::Auth` before network error erasure.
+  `ExhaustedAfterAttempt` marks the failure that starts lockout. It has the
+  same public code and message as `Exhausted`, which marks a later refusal.

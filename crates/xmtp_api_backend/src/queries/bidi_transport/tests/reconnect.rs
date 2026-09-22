@@ -193,12 +193,13 @@ async fn open_failure_surfaces_and_registers_nothing() {
     );
     let denied = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
     assert!(matches!(denied, Err(TransportError::Open(_))));
-    let again = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
-    assert!(matches!(again, Err(TransportError::Open(_))));
+    // A replacement waits for the scheduled retry instead of bypassing it.
+    let mut again = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+    assert!(recv(&mut again).await.is_none());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn unretryable_reconnect_closes_every_lease() {
+async fn unretryable_reconnect_ends_old_leases_but_a_fresh_lease_can_recover() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     let servers: Servers = Arc::default();
     let dials = Arc::new(AtomicUsize::new(0));
@@ -210,7 +211,7 @@ async fn unretryable_reconnect_closes_every_lease() {
                 let n = dials.fetch_add(1, Ordering::SeqCst);
                 let sink = sink.clone();
                 async move {
-                    if n > 0 {
+                    if n == 1 {
                         return Err(OpenError::new(Refused));
                     }
                     let (api, server) = mock_pair();
@@ -240,6 +241,14 @@ async fn unretryable_reconnect_closes_every_lease() {
         "an unretryable reconnect must end every lease, not redial forever"
     );
     assert_eq!(dials.load(Ordering::SeqCst), 2, "no dial after the refusal");
-    let denied = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await;
-    assert!(matches!(denied, Err(TransportError::Closed)));
+    let mut replacement = transport.lease(vec![(group_topic(b"g1"), 0)], 8).await?;
+    let mut recovered = wait_for_server(&servers).await;
+    let update = recovered.next_mutate().await;
+    recovered.ack_empty(update.id);
+    assert!(matches!(
+        recv(&mut replacement).await,
+        Some(LeaseEvent::CatchUpComplete)
+    ));
+    assert_eq!(dials.load(Ordering::SeqCst), 3);
+    assert!(recv(&mut alpha).await.is_none());
 }

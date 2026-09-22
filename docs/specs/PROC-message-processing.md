@@ -41,6 +41,7 @@ Out of scope: backend wire formats and errors (API); commit and proposal validat
 | Default consumer | The one message reader per client database that advances `D`. |
 | Replay reader | A reader started from an app-supplied delivery cursor, independent of `D`. |
 | Acknowledgement | The app's callback returns normally, or the app requests the next iterator item. |
+| Recovery episode | The interval from a stream's initial connection or detected failure until sustained network recovery or termination. |
 
 ## 1. Durable receipt
 
@@ -127,7 +128,11 @@ The app selects network interests, including denied conversations. Consent filte
 
 The recovery rules below also cover silence and Query fallback. Silence is three advertised keepalive intervals without an inbound frame while the client is able to read, using 30 seconds for an absent or zero interval. Client backpressure is not wire silence. For a send or supplied target, a healthy receiver has a receipt wait of 1 second from the operation's start of receipt waiting; partial receipt does not restart it. An explicit sync starts Query immediately. Once `F >= H`, only processing remains.
 
-AUTH-025 owns credential lockout and terminal credential failures. CONF-022 owns configuration latches. Those rules can close a stream; they are not retried by the general transport recovery rule. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
+AUTH-025 owns credential lockout and terminal credential failures. CONF-022 owns configuration latches. Terminal credential failures and configuration latches close a stream. A credential cool-down alone does not close it; the recovery episode limits still apply. An explicit remote cancellation ends the affected stream. A timeout or cancellation caused by the local transport uses normal recovery. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
+
+Each app stream has its own recovery budget. Initial connection starts an episode. A later episode starts when that stream detects a failure. Ten failed recovery cycles or ten minutes without sustained recovery exhaust the budget. A failed fallback Query spends one cycle only for streams that select its topic. Sustained recovery means that the stream's selected registrations have remained active for 30 seconds under the wire-silence rules. A selected topic that is paused or blocked does not prove recovery. Application messages are not required. Opening a socket alone does not reset the budget. Time spent in credential cool-down counts toward the episode deadline. Waiting alone adds no failed recovery cycle.
+
+Exhaustion ends that app stream and preserves stored receipt, processing, and delivery positions. Internal receipt, device-sync, and barrier operations keep their own lifecycle and can continue to use a shared receiver. A new stream on the same client starts with a fresh budget even when the network remains unavailable. Old timers and cleanup cannot end the new stream. Conversation notifications have no durable app delivery cursor; message readers resume under section 7.
 
 The connection states describe transport activity: `connecting` is the first open, `connected` has a receipt source, `reconnecting` is recovery after a retryable failure, `failed` is recovery after a non-retryable source response with delayed retries, and `closed` has no future automatic attempts. `failed` does not mean pending processing failed. Registration states are `pending`, `active`, and `removed`; processing states are `pending`, `complete`, `blocked`, and `cancelled`.
 
@@ -135,6 +140,8 @@ The connection states describe transport activity: `connecting` is the first ope
 | --- | --- | --- | --- |
 | PROC-021 | Recover without losing progress | When a stream fails, becomes silent under the silence rule above, or needs replacement, the client MUST recover under the recovery rules in this section from current durable `F` and current interests, preserve pending work, discard obsolete registration results, and wait for a static replacement to be ready before cancelling replaced registrations. While `F < H`, it MUST use Query after `F` immediately for explicit sync or an uncovered target, and after the receipt wait above for a covered target, skipping that wait if it would reach the operation's deadline. It MUST NOT refetch a stored prefix or turn connection failure into processing completion. | Stream failure must not strand work that Query can supply. |
 | PROC-023 | Expose scope and progress | An SDK MUST expose a current catch-up snapshot and change notifications with the scope generation, connection state under the definitions above, each selected topic's registration and processing states, optional fixed target, durable progress, unresolved Welcome ids, and typed cause. It MUST expose pending discovery until its targets are enrolled and cancellations under the old generation, and MUST NOT report the current scope caught up while any registration, discovery, or processing obligation is unfinished. | An app otherwise cannot tell a missing target from an empty topic or a retry from completion. |
+| PROC-038 | Bound network recovery | While an app stream is active, the client MUST apply the recovery episode limits in this section and reset its budget only after sustained recovery. When the budget is exhausted, the SDK MUST end that stream with a typed exhaustion cause through its error callback, when supplied, and reject its pending iterator read, without treating a connection open alone as recovery. | A failed network must produce an actionable error instead of an unlimited wait. |
+| PROC-039 | Fresh streams recover independently | When an app opens a stream after another stream ended, the client MUST give the new stream a fresh recovery budget and preserve its saved receipt, processing, and delivery positions. Ending one stream MUST NOT exhaust another stream's budget, create a client-wide or database-wide exhaustion latch, or let its delayed work close a replacement stream. | An app must be able to recover on the same client after an extended outage. |
 
 ## 7. Local delivery
 
@@ -171,5 +178,3 @@ A backend-sampled target includes replica lag. Completion through it does not cl
 Push-envelope entry points accept a backend `ServerEnvelope` and use its metadata as an ordered-fetch target. These entry points do not accept the PUSH JSON body containing `topic` and `sequence_id`; automatic Welcome discovery for an unknown group named by that body is not part of their interface.
 
 A held group or identity prefix has no retention deadline. Unsupported input can require a client upgrade; invalid identity history can require repair. Retrying a local failure does not make invalid history valid.
-
-The current connection state `failed` can accompany continued retries. Terminal credential handling still needs to be separated from general transport recovery to satisfy AUTH-025.

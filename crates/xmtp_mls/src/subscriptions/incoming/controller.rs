@@ -81,8 +81,12 @@ enum Opened {
 }
 
 type OpenFuture = BoxDynFuture<'static, Result<Opened, NetworkError>>;
-type ReadFuture =
-    BoxDynFuture<'static, (Topic, Result<ReceivedPage, crate::mls_store::MlsStoreError>)>;
+type ReadResult = (
+    Topic,
+    Option<Cursor>,
+    Result<ReceivedPage, crate::mls_store::MlsStoreError>,
+);
+type ReadFuture = BoxDynFuture<'static, ReadResult>;
 type TargetsFuture = BoxDynFuture<'static, (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>)>;
 
 /// Receipt can continue while processing waits for a dependency.
@@ -102,6 +106,8 @@ struct ReceiptSchedule {
     blocked_until: Option<Instant>,
     /// Consecutive permanent receipt errors, used to grow the retry delay.
     blocked_failures: u32,
+    /// A rejected Query must not repeat from this unchanged durable cursor.
+    rejected_at: Option<Cursor>,
     last_read: Option<Instant>,
 }
 
@@ -160,9 +166,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         Self {
             context,
             commands,
-            state,
+            state: state.clone(),
             scopes: HashMap::new(),
-            transport: Transport::new(factory),
+            transport: Transport::new(factory, state.recovery.clone()),
             read: None,
             targets: None,
             read_queue: VecDeque::new(),
@@ -186,6 +192,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.storage_error = self.reconcile().err().map(Arc::new);
             let progress = self.process_ready();
             self.refresh_statuses();
+            self.retire_exhausted_streams();
             self.start_open();
             self.start_read();
             self.start_targets();
@@ -245,6 +252,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             _ => true,
         }
+    }
+
+    fn retire_exhausted_streams(&mut self) {
+        // Exhaustion retires only an application stream's interest. Internal
+        // workers and barriers have no stream budget and remain registered.
+        self.scopes.retain(|id, _| {
+            self.state
+                .consumer_recovery
+                .lock()
+                .get(id)
+                .is_none_or(|state| state.snapshot.terminal.is_none())
+        });
     }
 
     fn command(&mut self, command: Command) {
@@ -533,6 +552,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     fn registered(&mut self, targets: TopicCursor) {
         self.transport.registered.extend(targets.keys().cloned());
+        self.transport.registered();
         for scope in self.scopes.values_mut() {
             for (topic, target) in &targets {
                 if scope.topics.contains(topic) {
@@ -618,6 +638,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             Some(Err(error)) => self.source_error(error),
             None | Some(Ok(IncomingEvent::Disconnected)) => {
+                self.transport.ended();
                 self.transport.disconnect(
                     self.context
                         .incoming_runtime()
@@ -725,6 +746,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
 
     /// Unary reads are independent of the stream receiver. A failing or
     /// backing-off stream must not stop bounded Query recovery.
+    // implements: API-284
     fn start_read(&mut self) {
         if self.read.is_some() {
             return;
@@ -748,6 +770,24 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     continue;
                 }
             };
+            if let Some(rejected_at) = self.receipt(&topic).rejected_at {
+                let current = match self.context.db().topic_progress(&key) {
+                    Ok(progress) => progress.received,
+                    Err(error) => {
+                        self.topic_error(topic, error.into());
+                        continue;
+                    }
+                };
+                if current == rejected_at {
+                    continue;
+                }
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .receipt
+                    .rejected_at = None;
+                self.clear_receipt_failure(&topic);
+            }
             match self.read_due(&topic, &key, now) {
                 Ok(true) => {}
                 Ok(false) => continue,
@@ -767,10 +807,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .policy()
                 .incoming_limits(key.kind);
             self.read = Some(Box::pin(async move {
-                let result = MlsStore::new(context)
-                    .receive_topics_once(std::slice::from_ref(&topic), limits)
-                    .await;
-                (topic, result)
+                let store = MlsStore::new(context);
+                let cursors = store.received_cursors(std::slice::from_ref(&topic));
+                match cursors {
+                    Ok(cursors) => {
+                        let cursor = cursors.get(&topic).copied();
+                        let result = store.receive_topics_once_from(cursors, limits).await;
+                        (topic, cursor, result)
+                    }
+                    Err(error) => (topic, None, Err(error)),
+                }
             }));
             break;
         }
@@ -883,13 +929,24 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .is_some_and(|factory| factory.is_suspended())
     }
 
-    fn read_finished(
-        &mut self,
-        (topic, result): (Topic, Result<ReceivedPage, crate::mls_store::MlsStoreError>),
-    ) {
+    fn read_finished(&mut self, (topic, cursor, result): ReadResult) {
         match result {
             Ok(page) => {
                 self.clear_receipt_failure(&topic);
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .receipt
+                    .rejected_at = None;
+                let mut consumers = self.state.consumer_recovery.lock();
+                for (id, scope) in &self.scopes {
+                    if scope.topics.contains(&topic)
+                        && let Some(state) = consumers.get_mut(id)
+                    {
+                        state.clear_query_error(&topic);
+                    }
+                }
+                drop(consumers);
                 if page.has_more {
                     self.topics
                         .entry(topic.clone())
@@ -907,12 +964,27 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
                 self.topics.entry(topic.clone()).or_default().error = None;
             }
-            Err(error) => self.receive_error(topic, error.into()),
+            Err(error) => {
+                if matches!(&error, crate::mls_store::MlsStoreError::Api(_))
+                    && crate::subscriptions::recovery::rejected_request(&error)
+                {
+                    self.topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .receipt
+                        .rejected_at = cursor;
+                }
+                self.receive_error(topic, error.into());
+            }
         }
     }
 
     /// Reopen from durable receipt after any failed admission. Keep pending work and scope targets.
     fn receive_error(&mut self, topic: Topic, error: IncomingError) {
+        let query_failure = matches!(
+            &error,
+            IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
+        );
         // The transport can advance its read cursor before storage commits. Drop
         // that registration even when reconciliation immediately clears a pause.
         self.transport.disconnect(
@@ -947,7 +1019,30 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         } else {
             self.clear_receipt_failure(&topic);
         }
-        self.topic_error(topic, error);
+        self.topic_error(topic.clone(), error);
+        if query_failure {
+            let cause = self.topics[&topic]
+                .error
+                .as_ref()
+                .expect("query error stored")
+                .clone();
+            let now = Instant::now();
+            let mut consumers = self.state.consumer_recovery.lock();
+            for (id, scope) in &self.scopes {
+                if scope.topics.contains(&topic)
+                    && let Some(state) = consumers.get_mut(id)
+                {
+                    state.record_query_failure(
+                        &topic,
+                        cause.clone(),
+                        self.transport.recovery.failures,
+                        now,
+                    );
+                }
+            }
+            drop(consumers);
+            self.state.notify();
+        }
     }
 
     fn receipt(&self, topic: &Topic) -> ReceiptSchedule {

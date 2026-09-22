@@ -628,6 +628,94 @@ async fn transport_registry_reuses_only_the_same_api_client() {
     );
 }
 
+// verifies: PROC-021, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
+    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
+    use futures::{StreamExt, stream::BoxStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_proto::{
+        api::ApiClientError,
+        backend_v1::SubscribeResponse,
+        types::{Cursor, IncomingBatchLimits, Topic, TopicCursor},
+    };
+
+    type SubscribeReceiver =
+        tokio::sync::mpsc::UnboundedReceiver<Result<SubscribeResponse, ApiClientError>>;
+
+    #[derive(Clone)]
+    struct ScriptedApi {
+        calls: Arc<AtomicUsize>,
+        first: Arc<parking_lot::Mutex<Option<SubscribeReceiver>>>,
+    }
+
+    #[xmtp_common::async_trait]
+    impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
+        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type Error = ApiClientError;
+
+        fn host(&self) -> &str {
+            "test://cached-factory-replacement"
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            _requests: BoxStream<'static, xmtp_proto::backend_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            match self.calls.fetch_add(1, Ordering::SeqCst) {
+                0 => {
+                    let receiver = self.first.lock().take().expect("first wire receiver");
+                    Ok(Box::pin(futures::stream::unfold(
+                        receiver,
+                        |mut receiver| async move {
+                            receiver.recv().await.map(|event| (event, receiver))
+                        },
+                    )))
+                }
+                1 => Err(ApiClientError::OtherUnretryable(
+                    "temporary invalid response".into(),
+                )),
+                _ => Ok(Box::pin(futures::stream::pending())),
+            }
+        }
+    }
+
+    let (wire, receiver) = tokio::sync::mpsc::unbounded_channel();
+    let api = Arc::new(ScriptedApi {
+        calls: Arc::new(AtomicUsize::new(0)),
+        first: Arc::new(parking_lot::Mutex::new(Some(receiver))),
+    });
+    let factory = BidiSubscriptionFactory { api: api.clone() };
+    let cursors: TopicCursor = [(Topic::new_group_message([7; 16]), Cursor(0))].into();
+    let limits = IncomingBatchLimits {
+        max_rows: 8,
+        max_bytes: 1024,
+    };
+    let mut old = factory.open(cursors.clone(), limits).await?;
+    assert_eq!(api.calls.load(Ordering::SeqCst), 1);
+    drop(wire);
+    xmtp_common::wait_for_ge(|| async { api.calls.load(Ordering::SeqCst) }, 2).await?;
+    let ended = xmtp_common::time::timeout(WAIT, async {
+        loop {
+            match old.events.next().await {
+                Some(Err(error)) => break error,
+                Some(Ok(_)) => {}
+                None => panic!("old consumer lost its terminal cause"),
+            }
+        }
+    })
+    .await?;
+    assert!(!xmtp_common::RetryableError::is_retryable(&ended));
+
+    let _replacement = factory.open(cursors, limits).await?;
+    xmtp_common::wait_for_ge(|| async { api.calls.load(Ordering::SeqCst) }, 3).await?;
+    assert!(
+        xmtp_common::time::timeout(WAIT, old.events.next())
+            .await?
+            .is_none()
+    );
+}
+
 /// Separate API clients at one host keep separate authentication and transport state.
 #[xmtp_common::test(unwrap_try = true)]
 async fn separate_api_clients_at_one_host_use_separate_wires() {
