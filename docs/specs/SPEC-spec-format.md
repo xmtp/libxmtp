@@ -39,7 +39,7 @@ Out of scope: the format and tooling of plans, design notes under `docs/` and in
 | Requirement | One row of a requirements table, in the form of SPEC-034. |
 | Normative text | Text that creates an obligation: a requirement row, and whatever a requirement points at (SPEC-041). |
 | Design note | A Markdown file under `docs/` or a module README that explains mechanisms and choices. Never normative. |
-| Legacy spec | A file under `docs/legacy-specs/` with `status: legacy`: being replaced. It stays binding for obligations whose replacement is not yet approved (SPEC-011). |
+| Legacy spec | A superseded document with `status: legacy`: being replaced. It stays binding for obligations whose replacement is not yet approved (SPEC-011), and is deleted under SPEC-012. |
 
 ## 1. Files
 
@@ -58,7 +58,7 @@ One spec is one file. The file name carries the prefix so a reader who sees `JOI
 | SPEC-009 | Legacy specs | A legacy spec MUST carry `status: legacy` and a banner naming the specs that replace it. | `status: legacy` means "being replaced", not "no longer binding". |
 | SPEC-010 | Prose style | Spec prose MUST be direct: it states what a mechanism is and what breaks without it, in short sentences with one term for each concept, and MUST NOT argue for the design, describe alternatives, or narrate decisions. Prose MUST name a thing in the term the protocol uses, without metaphor or a paraphrase of its effect. | A reader comes for the rules, and every sentence that defends a choice stands between the reader and them. |
 | SPEC-011 | Legacy authority | Until an obligation receives a disposition under SPEC-013, that obligation MUST remain binding, and a reviewer MUST treat the legacy spec as authoritative for it. | |
-| SPEC-013 | Legacy dispositions | Every obligation in a legacy document MUST receive one owner-approved disposition: carried into a replacement, retired, or moved out of the specs to a design note or a module README. An author MUST record the disposition of each one in the change summary. | some legacy clauses cannot be carried. A platform choice is barred from a replacement by SPEC-007, so without an explicit retirement it would either bind for ever or vanish when the file is deleted. |
+| SPEC-013 | Legacy dispositions | Every obligation in a legacy document MUST receive an owner-approved disposition: carried into a replacement, retired, or moved out of the specs to a design note or a module README. An author MUST record the disposition in the change summary, either per obligation or as one blanket disposition that names the replacing specs and covers every obligation the document holds. | some legacy clauses cannot be carried. A platform choice is barred from a replacement by SPEC-007, so without an explicit retirement it would either bind for ever or vanish when the file is deleted. |
 | SPEC-012 | Deleting a legacy spec | A legacy file MUST be deleted once every obligation in it has a disposition, and the deleting PR MUST move every consumer that reads it. | a build or a test that reads a legacy spec breaks the moment the file goes. |
 
 ## 2. Admission

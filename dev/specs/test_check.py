@@ -24,9 +24,9 @@ REGISTRY = """# Prefix registry
 
 ## Legacy
 
-| Prefix | Legacy document | Replaced by |
+| Prefix | Replaced by | Why it is still listed |
 | --- | --- | --- |
-| `CFG` | `docs/legacy-specs/006.md` | `CONF` |
+| `CFG` | `CONF` | a stale mention remains |
 """
 
 HEAD = """---
@@ -388,6 +388,24 @@ class Links(unittest.TestCase):
             tmp = build(
                 Path(d),
                 "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            self.code(tmp, "// CFG-051: the identifier is the binding\nfn f() {}\n")
+            checker = run(tmp)
+            self.assertIn("SPEC-053", rules(checker, "warning"))
+            self.assertEqual(rules(checker, "error"), [])
+
+    def test_retired_section_registers_prefixes_like_legacy(self):
+        """A renamed section must not unregister its prefixes silently.
+
+        An unregistered prefix is skipped outright, so a stale mention stops
+        being reported rather than being cleaned up.
+        """
+        registry = REGISTRY.replace("## Legacy", "## Retired")
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+                registry=registry,
             )
             self.code(tmp, "// CFG-051: the identifier is the binding\nfn f() {}\n")
             checker = run(tmp)

@@ -16,7 +16,7 @@ test conventions are in `writing-rust-tests`. Both are under `.agents/skills/`.
 4. `just lint` must pass before a PR is opened. Mid-phase commits may skip it.
 5. Work in one checkout. Add a worktree only for work that shares no files and has no dependency on other work.
 6. Every implementation task needs an approved plan in Ref before you write code.
-7. Approved specs go in `docs/specs/`, one file per capability, in the format `docs/specs/SPEC-spec-format.md` defines. Specs state behavior and errors, and name no files. The superseded specs in `docs/legacy-specs/` are source material. Plans may name files, modules, and lines, and carry a clearly marked "Spec changes" section listing the requirement IDs they implement and every ID they add, amend, or remove.
+7. Approved specs go in `docs/specs/`, one file per capability, in the format `docs/specs/SPEC-spec-format.md` defines. Specs state behavior and errors, and name no files. The specs they superseded are deleted; their history is in git. Plans may name files, modules, and lines, and carry a clearly marked "Spec changes" section listing the requirement IDs they implement and every ID they add, amend, or remove.
 8. Public API surface belongs in the plan. When a change adds or alters a type exposed through `bindings/*` or `sdks/*`, describe that surface in the plan so it is approved with the rest of the work. Default to constants - a configuration knob should name the caller that needs a non-default value.
 9. Ask when a rule here blocks you. Do not work around it.
 

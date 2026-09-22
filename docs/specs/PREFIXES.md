@@ -2,7 +2,7 @@
 
 Every requirement identifier begins with a prefix registered here. The checker reads this table: a prefix that is not listed is an error, and a requirement identifier whose prefix is listed but whose number does not resolve to a current requirement is a stray mention (SPEC-053).
 
-A prefix appears exactly once. A legacy prefix points at the legacy file it came from, so that stale mentions of its identifiers in code are still reported while that file is being retired.
+A prefix appears exactly once. A prefix whose document was deleted is removed from this file once no mention of its identifiers remains in the tree, so a stale mention is fixed rather than hidden.
 
 ## Active
 
@@ -29,26 +29,15 @@ A prefix appears exactly once. A legacy prefix points at the legacy file it came
 | `ARCH` | Archive format | `docs/specs/ARCH-archive-format.md` |
 | `CTYPE` | Content types | `docs/specs/CTYPE-content-types.md` |
 
-## Legacy
-
-These prefixes belong to documents under `docs/legacy-specs/` that the specs above replace. They are listed so the checker reports stale references to them. A row is deleted with its file.
-
-| Prefix | Legacy document | Replaced by |
-| --- | --- | --- |
-| `ARC` | `docs/legacy-specs/002_backend_architecture.md` | `API`, `OPS`, `AUTH` |
-| `SEC` | `docs/legacy-specs/003_message_security.md` | `API`, `IDENT`, `JOIN` |
-| `STR` | `docs/legacy-specs/004_streaming.md` | `API`, `PROC` |
-| `CFG` | `docs/legacy-specs/006_server_configuration.md` | `CONF` |
-
 ## Reused prefixes and their floors
 
-`API` and `PUSH` are reused by their replacements: the legacy documents `001_backend_api.md` and `005_push_subscriptions.md` used those prefixes, and the new specs take them over.
+`API` and `PUSH` are reused by their replacements: the deleted documents `001_backend_api.md` and `005_push_subscriptions.md` used those prefixes, and the new specs take them over.
 
 A reused prefix keeps its historical number space. An identifier that already meant something must never come to mean something else, or every past pull request, commit message, and review comment becomes ambiguous, and no cleanup of current code can repair that history. A replacement spec therefore allocates above the floor below, and reuses a historical number only when it carries the same obligation as before.
 
-| Prefix | Highest legacy number | First number a replacement may allocate |
+| Prefix | Highest number the deleted document used | First number a replacement may allocate |
 | --- | --- | --- |
 | `API` | `API-165` | `API-200` |
 | `PUSH` | `PUSH-105` | `PUSH-200` |
 
-The floors are round numbers above the legacy maximum, so a late correction to a legacy document cannot collide with a new requirement.
+The floors are round numbers above the highest number those documents used, so no replacement requirement can take a number that already meant something else.

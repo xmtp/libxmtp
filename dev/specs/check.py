@@ -139,7 +139,6 @@ MAX_SENTENCES = 3  # SPEC-037
 
 # Where the specs live, relative to the repository root.
 SPECS_DIR = "docs/specs"
-LEGACY_SPECS_DIR = "docs/legacy-specs"
 
 # Whether a missing verifies link fails the check. SPEC-058 keeps this at
 # "warn" while backlinks are being added, and an owner flips it to "error"
@@ -221,9 +220,11 @@ class Checker:
             if line.startswith("## "):
                 heading = line[3:].strip().lower()
                 # Only the two registry sections list prefixes; later sections
-                # (such as the reuse floors) reference them.
-                registry = heading in ("active", "legacy")
-                legacy = heading == "legacy"
+                # (such as the reuse floors) reference them. "Retired" is the
+                # name the section took once the legacy documents were deleted;
+                # its rows still report stale mentions as warnings.
+                registry = heading in ("active", "legacy", "retired")
+                legacy = heading in ("legacy", "retired")
             if not registry:
                 continue
             cells = [c.strip() for c in line.split("|")[1:-1]]
@@ -807,7 +808,7 @@ class Checker:
                 d for d in dirnames if d not in SKIP_DIRS and not d.startswith(".")
             ]
             rel_dir = Path(dirpath).relative_to(self.root).as_posix()
-            if rel_dir.startswith(SPECS_DIR) or rel_dir.startswith(LEGACY_SPECS_DIR):
+            if rel_dir.startswith(SPECS_DIR):
                 continue
             for name in filenames:
                 if Path(name).suffix not in SCAN_SUFFIXES:
