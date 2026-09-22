@@ -31,6 +31,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 let recovery = &mut state.snapshot;
                 recovery.idle = scope.topics.is_empty();
                 let registered = !scope.topics.is_empty()
+                    && scope.target_error.is_none()
                     && self.transport.connection() == IncomingConnection::Connected
                     && scope.topics.iter().all(|topic| {
                         self.transport.registered.contains(topic) || self.is_retired(topic)
@@ -64,6 +65,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             snapshot.error = self
                 .storage_error
                 .clone()
+                .or_else(|| scope.target_error.as_ref().map(|(_, error)| error.clone()))
                 .or_else(|| self.transport.error.clone());
             let mut topics = Vec::new();
             for topic in &scope.topics {
@@ -118,6 +120,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .topics
                     .get(topic)
                     .and_then(|state| state.error.clone())
+                    .or_else(|| {
+                        scope.target_error.as_ref().and_then(|(affected, error)| {
+                            affected.contains(topic).then(|| error.clone())
+                        })
+                    })
                     .or_else(|| self.storage_error.clone())
                     .or_else(|| self.transport.error.clone());
                 let runnable_welcome = key.kind == NetworkEntityKind::Welcome

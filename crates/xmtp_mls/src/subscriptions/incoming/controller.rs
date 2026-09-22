@@ -32,6 +32,7 @@ struct Scope {
     scope: ScopeKind,
     topics: HashSet<Topic>,
     targets: TopicCursor,
+    target_error: Option<(HashSet<Topic>, Arc<IncomingError>)>,
     receipt_wait_started: Instant,
 }
 
@@ -70,6 +71,7 @@ impl Scope {
             scope,
             topics: HashSet::new(),
             targets,
+            target_error: None,
             receipt_wait_started: Instant::now(),
         }
     }
@@ -141,6 +143,7 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     targets: Option<TargetsFuture>,
     targets_request: Option<HashSet<Topic>>,
     rejected_targets: Option<HashSet<Topic>>,
+    targets_retry_at: Option<Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
@@ -175,6 +178,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             targets: None,
             targets_request: None,
             rejected_targets: None,
+            targets_retry_at: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
@@ -284,6 +288,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     // worker still cannot repeat its rejected request alone.
                     self.transport.rejected_open = None;
                     self.rejected_targets = None;
+                    self.targets_retry_at = None;
                 }
                 self.scopes.insert(id, Scope::new(id, scope));
             }
@@ -596,7 +601,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     // A new scope can share an active registration. Capture its own fixed target
     // without replacing the connection or reusing an older scope's target.
     fn start_targets(&mut self) {
-        if self.targets.is_some() || self.live_suspended() || self.transport.backing_off() {
+        if self.targets.is_some()
+            || self.live_suspended()
+            || self.transport.backing_off()
+            || self.targets_retry_at.is_some_and(|at| Instant::now() < at)
+        {
             return;
         }
         let mut scopes = Vec::new();
@@ -643,25 +652,69 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         let request = self.targets_request.take();
         match result {
             Ok(targets) => {
+                self.targets_retry_at = None;
                 for (id, generation) in scopes {
                     if let Some(scope) = self
                         .scopes
                         .get_mut(&id)
                         .filter(|scope| scope.generation == generation)
                     {
+                        scope.target_error = None;
                         for (topic, target) in &targets {
                             if scope.topics.contains(topic) {
                                 scope.targets.entry(topic.clone()).or_insert(*target);
+                                if let Some(state) =
+                                    self.state.consumer_recovery.lock().get_mut(&id)
+                                {
+                                    state.clear_query_error(topic);
+                                }
                             }
                         }
                     }
                 }
             }
             Err(error) => {
-                if crate::subscriptions::recovery::rejected_request(&error) {
-                    self.rejected_targets = request;
+                let rejected = crate::subscriptions::recovery::rejected_request(&error);
+                if rejected {
+                    self.rejected_targets = request.clone();
+                } else {
+                    self.targets_retry_at = Some(
+                        Instant::now()
+                            + self
+                                .context
+                                .incoming_runtime()
+                                .policy()
+                                .receiver_fallback_interval,
+                    );
                 }
-                self.source_error(error);
+                let cause = Arc::new(IncomingError::Transport(error));
+                let now = Instant::now();
+                for (id, generation) in scopes {
+                    let Some(scope) = self
+                        .scopes
+                        .get_mut(&id)
+                        .filter(|scope| scope.generation == generation)
+                    else {
+                        continue;
+                    };
+                    let affected: HashSet<_> = request
+                        .as_ref()
+                        .into_iter()
+                        .flat_map(|topics| topics.intersection(&scope.topics).cloned())
+                        .collect();
+                    let Some(topic) = affected.iter().next() else {
+                        continue;
+                    };
+                    if let Some(state) = self.state.consumer_recovery.lock().get_mut(&id) {
+                        state.record_query_failure(
+                            topic,
+                            cause.clone(),
+                            self.transport.recovery.failures,
+                            now,
+                        );
+                    }
+                    scope.target_error = Some((affected, cause.clone()));
+                }
             }
         }
     }

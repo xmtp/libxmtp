@@ -1228,10 +1228,9 @@ async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
     assert!(controller.transport.rejected_open.is_none());
     assert_eq!(controller.rejected_targets, Some([topic.clone()].into()));
 
-    controller.transport.wake();
     controller.start_open();
-    assert_eq!(controller.transport.generation, 2);
-    controller.transport.registered.insert(topic.clone());
+    assert_eq!(controller.transport.generation, 1);
+    assert!(controller.transport.registered.contains(&topic));
     controller.start_targets();
     assert!(
         controller.targets.is_none(),
@@ -1246,6 +1245,96 @@ async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
         controller.targets.is_some(),
         "changed target set can be tried"
     );
+}
+
+// verifies: API-284, PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_new_scope_target_does_not_end_an_active_sibling() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let active = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&active.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.state = TransportState::Unary;
+    controller.registered([(topic.clone(), Cursor(10))].into());
+
+    let joining = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.start_targets();
+    assert!(controller.targets.is_some());
+    controller.targets.take();
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("target")),
+    )));
+    controller.targets_finished((vec![(joining.id, joining.id)], Err(rejected)));
+    controller.refresh_statuses();
+    assert_eq!(
+        controller.transport.connection(),
+        IncomingConnection::Connected
+    );
+    assert!(controller.transport.registered.contains(&topic));
+    assert!(
+        controller.state.consumer_recovery.lock()[&active.id]
+            .snapshot
+            .terminal
+            .is_none()
+    );
+    assert!(
+        controller.state.consumer_recovery.lock()[&joining.id]
+            .snapshot
+            .terminal
+            .is_some()
+    );
+    controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
+        OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: vec![wire::ServerEnvelope {
+                meta: Some(meta(&topic, 1)),
+                envelope: Some(wire::ClientEnvelope::default()),
+            }],
+        },
+    ))));
+    assert_eq!(
+        controller
+            .context
+            .db()
+            .topic_progress(&topic_key(&topic)?)?
+            .received,
+        Cursor(1),
+        "the active sibling still receives from the shared source"
+    );
+
+    controller.retire_exhausted_streams();
+    let replacement = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&replacement.id)
+        .unwrap()
+        .topics
+        .insert(topic);
+    controller.start_targets();
+    assert!(controller.targets.is_some());
 }
 
 // verifies: API-284
