@@ -123,9 +123,11 @@ can arrive as strings, so convert epoch values before comparing them.
   checking that those fields contain no private data. A database error can
   explain why an owned stream ended; distinguish EOF from a live stream stall.
 - For `diagnostic.epoch_mismatch`, compare `message_epoch` with `current_epoch`.
-  A stale concurrent proposal or commit can produce `WrongEpoch` and set
-  `maybe_forked`. In the initial traced baseline, all 484 such spans were one
-  epoch stale; matching persisted histories showed no divergence.
+  Earlier builds set `maybe_forked` for stale competing commits. In the initial
+  traced baseline, all 484 such spans were one epoch stale; matching persisted
+  histories showed no divergence. Strictly older `WrongEpoch` rejections now
+  retain their rejection and commit-log evidence without setting the flag.
+  Future or unexpected equal-epoch failures remain suspicious.
 - Confirm state with `just chaos inspect --forks [--group GROUP_ID]` after the
   run stops. Compare authenticators, membership, metadata, commit history, and
   delivery. Preserve an unset commit-log flag as unknown.

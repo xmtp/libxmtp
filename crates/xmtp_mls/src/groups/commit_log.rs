@@ -300,6 +300,7 @@ where
         Ok(conversation_cursor_info)
     }
 
+    // implements: FORK-021
     // Check each `conversation_id` for new commit log entries. Return a combined list of all entries for batch publishing,
     // along with the new cursor for each conversation on publication success
     fn prepare_publish_commit_log_info(
@@ -359,6 +360,11 @@ where
             if let Some(max_rowid) = max_rowid {
                 let signed_entries =
                     self.sign_group_logs(conversation, &plaintext_commit_log_entries)?;
+                // A missing signing key leaves this group's records pending.
+                // Another group's successful publish must not advance its cursor.
+                if signed_entries.is_empty() && !plaintext_commit_log_entries.is_empty() {
+                    continue;
+                }
                 all_entries.extend(signed_entries);
                 conversation_cursor_info.push(ConversationCursorInfo {
                     conversation_id: conversation.id.to_vec(),

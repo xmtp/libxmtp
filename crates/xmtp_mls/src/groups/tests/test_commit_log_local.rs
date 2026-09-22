@@ -1,3 +1,4 @@
+use crate::context::XmtpSharedContext;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::{
     groups::{
@@ -9,10 +10,13 @@ use crate::{
 };
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_common::toxiproxy_test;
+use xmtp_db::incoming_envelope::StreamTopic;
+use xmtp_db::prelude::*;
 use xmtp_db::{
     local_commit_log::{CommitType, LocalCommitLog},
     remote_commit_log::CommitResult,
 };
+use xmtp_proto::types::{Cursor, Topic};
 
 #[allow(dead_code)]
 async fn print_commit_log(group: &TestMlsGroup) {
@@ -236,6 +240,7 @@ async fn test_commit_log_retriable_error() {
     .await;
 }
 
+// verifies: FORK-002, FORK-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_non_retriable_error() {
     tester!(alix);
@@ -262,12 +267,30 @@ async fn test_commit_log_non_retriable_error() {
 
     // Should successfully publish a MetadataUpdate commit
     a.update_group_name("foo".to_string()).await?;
+    let before_stale_epoch = a.epoch().await?;
+    let before_stale_authenticator = a.epoch_authenticator().await?;
     // B has not synced, so will publish a commit one epoch behind
     // When syncing, the commit should be marked as failed with a non-retriable epoch error
     // Then the commit should be re-published in the correct epoch
     b.update_group_name("bar".to_string()).await?;
-    a.sync().await?;
-    b.sync().await?;
+    // Compare state only after both clients process the known final commit.
+    let target = Cursor(b.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    for group in [&a, &b] {
+        crate::subscriptions::barrier::wait_through(
+            &group.context,
+            [(Topic::new_group_message(group.group_id), target)].into(),
+            None,
+        )
+        .await?;
+        assert_eq!(
+            group
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group.group_id))?
+                .processed,
+            target
+        );
+    }
     assert_eq!(
         get_type(&a.local_commit_log().await?),
         &[
@@ -305,7 +328,80 @@ async fn test_commit_log_non_retriable_error() {
             &CommitResult::WrongEpoch,
             &CommitResult::Success
         ]
-    )
+    );
+
+    assert!(!a.debug_info().await?.maybe_forked);
+    assert!(!b.debug_info().await?.maybe_forked);
+
+    // A rejected stale commit records the state that survived the rollback.
+    // Read that state from MLS before the race, independently of the log writer.
+    for group in [&a, &b] {
+        let logs = group.local_commit_log().await?;
+        let rejected = logs
+            .iter()
+            .find(|entry| entry.commit_result == CommitResult::WrongEpoch)?;
+        assert_eq!(rejected.applied_epoch_number as u64, before_stale_epoch);
+        assert_eq!(
+            rejected.last_epoch_authenticator,
+            before_stale_authenticator
+        );
+        assert_eq!(
+            rejected.applied_epoch_authenticator,
+            before_stale_authenticator
+        );
+        let applied = logs.last()?;
+        assert_eq!(applied.commit_result, CommitResult::Success);
+        assert_eq!(applied.last_epoch_authenticator, before_stale_authenticator);
+        assert_ne!(
+            applied.applied_epoch_authenticator,
+            before_stale_authenticator
+        );
+        assert_eq!(
+            applied.applied_epoch_authenticator,
+            group.epoch_authenticator().await?
+        );
+        assert_eq!(applied.applied_epoch_number as u64, group.epoch().await?);
+    }
+    assert_eq!(
+        a.epoch_authenticator().await?,
+        b.epoch_authenticator().await?
+    );
+
+    // A later stale rejection must preserve an earlier diagnostic.
+    alix.context
+        .db()
+        .mark_group_as_maybe_forked(&a.group_id, "earlier independent failure".into())?;
+    a.update_group_name("next winner".into()).await?;
+    b.update_group_name("next contender".into()).await?;
+    // Compare state only after both clients process the known final commit.
+    let target = Cursor(b.local_commit_log().await?.last()?.commit_sequence_id as u64);
+    for group in [&a, &b] {
+        crate::subscriptions::barrier::wait_through(
+            &group.context,
+            [(Topic::new_group_message(group.group_id), target)].into(),
+            None,
+        )
+        .await?;
+        assert_eq!(
+            group
+                .context
+                .db()
+                .topic_progress(&StreamTopic::group(group.group_id))?
+                .processed,
+            target
+        );
+    }
+    let historical = a.debug_info().await?;
+    assert!(historical.maybe_forked);
+    assert_eq!(historical.fork_details, "earlier independent failure");
+    assert_eq!(
+        a.local_commit_log()
+            .await?
+            .iter()
+            .filter(|entry| entry.commit_result == CommitResult::WrongEpoch)
+            .count(),
+        2
+    );
 }
 
 fn get_type(logs: &[LocalCommitLog]) -> Vec<&Option<String>> {
