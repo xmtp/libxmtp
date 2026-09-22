@@ -21,7 +21,7 @@ mod dependencies;
 mod processing;
 mod snapshots;
 mod transport;
-use transport::{OpenRequest, RetryBackoff, Transport, TransportEvent, TransportState};
+use transport::{RetryBackoff, Transport, TransportEvent, TransportState};
 #[cfg(test)]
 mod tests;
 use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
@@ -142,7 +142,7 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     read: Option<ReadFuture>,
     targets: Option<TargetsFuture>,
     targets_request: Option<HashSet<Topic>>,
-    rejected_targets: Option<HashSet<Topic>>,
+    rejected_requests: RejectedRequests,
     targets_retry_at: Option<Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
@@ -168,6 +168,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         state: Arc<SharedState>,
     ) -> Self {
         let factory = context.incoming_runtime().factory.clone();
+        let rejected_requests = context.incoming_runtime().rejected_requests.clone();
         Self {
             context,
             commands,
@@ -177,7 +178,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             read: None,
             targets: None,
             targets_request: None,
-            rejected_targets: None,
+            rejected_requests,
             targets_retry_at: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
@@ -284,10 +285,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .get(&id)
                     .is_some_and(crate::subscriptions::recovery::RecoveryState::is_bounded)
                 {
-                    // An explicit new app stream owns a new request. The old
-                    // worker still cannot repeat its rejected request alone.
-                    self.transport.rejected_open = None;
-                    self.rejected_targets = None;
                     self.targets_retry_at = None;
                 }
                 self.scopes.insert(id, Scope::new(id, scope));
@@ -525,7 +522,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .filter(|topic| !self.receipt(topic).paused && !self.receipt(topic).blocked())
             .collect();
         self.transport.request(topics);
-        if !self.transport.can_open() {
+        let can_open = self.transport.can_open();
+        if self.transport.requested.is_empty()
+            || (!can_open && self.rejected_requests.lock().is_empty())
+        {
             return;
         }
         let topics = self.transport.requested.clone();
@@ -538,15 +538,24 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
         };
         let request = if self.transport.factory.is_some() {
-            OpenRequest::Bidi(cursors.clone())
+            RequestKey::Bidi(cursors.clone())
         } else {
-            OpenRequest::Unary(topics.iter().cloned().collect())
+            RequestKey::QueryNewest(topics.iter().cloned().collect())
         };
         // implements: API-284
-        if self.transport.rejected_open.as_ref() == Some(&request) {
+        let rejected = self
+            .rejected_requests
+            .lock()
+            .iter()
+            .find(|(key, _)| key == &request)
+            .map(|(_, cause)| cause.clone());
+        if let Some(cause) = rejected {
+            self.apply_rejected_open(cause);
             return;
         }
-        self.transport.rejected_open = None;
+        if !can_open {
+            return;
+        }
         let future: OpenFuture = if let Some(factory) = &self.transport.factory {
             let future = factory.open(cursors, self.fetched_limits());
             Box::pin(async move { future.await.map(Opened::Stream) })
@@ -578,10 +587,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.transport.opened();
             }
             Err(error) => {
-                if crate::subscriptions::recovery::rejected_request(&error) {
-                    self.transport.rejected_open = self.transport.attempted_open.clone();
-                }
-                self.source_error(error);
+                self.open_error(error);
             }
         }
     }
@@ -601,11 +607,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     // A new scope can share an active registration. Capture its own fixed target
     // without replacing the connection or reusing an older scope's target.
     fn start_targets(&mut self) {
-        if self.targets.is_some()
-            || self.live_suspended()
-            || self.transport.backing_off()
-            || self.targets_retry_at.is_some_and(|at| Instant::now() < at)
-        {
+        if self.targets.is_some() {
             return;
         }
         let mut scopes = Vec::new();
@@ -629,10 +631,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             return;
         }
         // implements: API-284
-        if self.rejected_targets.as_ref() == Some(&topics) {
+        let rejected = self
+            .rejected_requests
+            .lock()
+            .iter()
+            .find(|(key, _)| key == &RequestKey::QueryNewest(topics.clone()))
+            .map(|(_, cause)| cause.clone());
+        if let Some(cause) = rejected {
+            self.record_target_error(&scopes, &topics, cause, false);
             return;
         }
-        self.rejected_targets = None;
+        if self.live_suspended()
+            || self.transport.backing_off()
+            || self.targets_retry_at.is_some_and(|at| Instant::now() < at)
+        {
+            return;
+        }
         self.targets_request = Some(topics.clone());
         let context = self.context.clone();
         self.targets = Some(Box::pin(async move {
@@ -675,9 +689,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             Err(error) => {
                 let rejected = crate::subscriptions::recovery::rejected_request(&error);
-                if rejected {
-                    self.rejected_targets = request.clone();
-                } else {
+                if !rejected {
                     self.targets_retry_at = Some(
                         Instant::now()
                             + self
@@ -688,34 +700,62 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     );
                 }
                 let cause = Arc::new(IncomingError::Transport(error));
-                let now = Instant::now();
-                for (id, generation) in scopes {
-                    let Some(scope) = self
-                        .scopes
-                        .get_mut(&id)
-                        .filter(|scope| scope.generation == generation)
-                    else {
-                        continue;
-                    };
-                    let affected: HashSet<_> = request
-                        .as_ref()
-                        .into_iter()
-                        .flat_map(|topics| topics.intersection(&scope.topics).cloned())
-                        .collect();
-                    let Some(topic) = affected.iter().next() else {
-                        continue;
-                    };
-                    if let Some(state) = self.state.consumer_recovery.lock().get_mut(&id) {
-                        state.record_query_failure(
-                            topic,
-                            cause.clone(),
-                            self.transport.recovery.failures,
-                            now,
-                        );
+                if let Some(request) = request {
+                    let mut permanent = self.rejected_requests.lock();
+                    if rejected
+                        && !permanent
+                            .iter()
+                            .any(|(key, _)| key == &RequestKey::QueryNewest(request.clone()))
+                    {
+                        permanent.push((RequestKey::QueryNewest(request.clone()), cause.clone()));
                     }
-                    scope.target_error = Some((affected, cause.clone()));
+                    drop(permanent);
+                    self.record_target_error(&scopes, &request, cause, true);
                 }
             }
+        }
+    }
+
+    fn record_target_error(
+        &mut self,
+        scopes: &[(u64, u64)],
+        request: &HashSet<Topic>,
+        cause: Arc<IncomingError>,
+        attempted: bool,
+    ) {
+        let now = Instant::now();
+        for &(id, generation) in scopes {
+            let Some(scope) = self
+                .scopes
+                .get_mut(&id)
+                .filter(|scope| scope.generation == generation)
+            else {
+                continue;
+            };
+            let affected: HashSet<_> = request.intersection(&scope.topics).cloned().collect();
+            let Some(topic) = affected.iter().next() else {
+                continue;
+            };
+            if scope
+                .target_error
+                .as_ref()
+                .is_some_and(|(old, error)| old == &affected && Arc::ptr_eq(error, &cause))
+            {
+                continue;
+            }
+            if let Some(state) = self.state.consumer_recovery.lock().get_mut(&id) {
+                if attempted {
+                    state.record_query_failure(
+                        topic,
+                        cause.clone(),
+                        self.transport.recovery.failures,
+                        now,
+                    );
+                } else {
+                    state.reject(cause.clone());
+                }
+            }
+            scope.target_error = Some((affected, cause.clone()));
         }
     }
 
@@ -735,10 +775,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             Some(Err(error)) => {
                 // A shared wire error has no mutate ID. Hold each affected
                 // lease's unchanged request until its caller changes it.
-                if crate::subscriptions::recovery::rejected_request(&error) {
-                    self.transport.rejected_open = self.transport.attempted_open.clone();
-                }
-                self.source_error(error);
+                self.open_error(error);
             }
             None | Some(Ok(IncomingEvent::Disconnected)) => {
                 self.transport.ended();
@@ -845,6 +882,40 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             },
         );
         self.clear_read_times();
+    }
+
+    fn open_error(&mut self, error: NetworkError) {
+        let rejected = crate::subscriptions::recovery::rejected_request(&error);
+        self.source_error(error);
+        if rejected
+            && let (Some(request), Some(cause)) = (
+                self.transport.attempted_open.clone(),
+                self.transport.error.clone(),
+            )
+        {
+            let mut permanent = self.rejected_requests.lock();
+            if !permanent.iter().any(|(prior, _)| prior == &request) {
+                permanent.push((request, cause));
+            }
+        }
+    }
+
+    fn apply_rejected_open(&mut self, cause: Arc<IncomingError>) {
+        self.transport.error = Some(cause.clone());
+        self.transport.recovery.error = Some(cause.clone());
+        *self.state.recovery.lock() = self.transport.recovery.clone();
+        let mut consumers = self.state.consumer_recovery.lock();
+        for (id, scope) in &self.scopes {
+            if scope
+                .topics
+                .iter()
+                .any(|topic| self.transport.requested.contains(topic))
+                && let Some(state) = consumers.get_mut(id)
+            {
+                state.reject(cause.clone());
+            }
+        }
+        self.state.notify();
     }
 
     /// Unary reads are independent of the stream receiver. A failing or

@@ -34,7 +34,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     && scope.target_error.is_none()
                     && self.transport.connection() == IncomingConnection::Connected
                     && scope.topics.iter().all(|topic| {
-                        self.transport.registered.contains(topic) || self.is_retired(topic)
+                        (self.transport.registered.contains(topic)
+                            && scope.targets.contains_key(topic))
+                            || self.is_retired(topic)
                     });
                 if !registered || recovery.failures != failures {
                     recovery.healthy_since = None;

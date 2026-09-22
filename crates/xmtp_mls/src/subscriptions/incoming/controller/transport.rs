@@ -29,16 +29,8 @@ pub(super) struct Transport {
     /// Consecutive permanent failures. Only the retry delay grows with it.
     pub(super) permanent_failures: u32,
     pub(super) recovery: crate::subscriptions::recovery::RecoverySnapshot,
-    pub(super) attempted_open: Option<OpenRequest>,
-    pub(super) rejected_open: Option<OpenRequest>,
+    pub(super) attempted_open: Option<RequestKey>,
     shared_recovery: Arc<parking_lot::Mutex<crate::subscriptions::recovery::RecoverySnapshot>>,
-}
-
-/// Inputs that determine a receiver request. QueryNewest uses topics only.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum OpenRequest {
-    Bidi(TopicCursor),
-    Unary(HashSet<Topic>),
 }
 
 pub(super) enum TransportState {
@@ -68,7 +60,6 @@ impl Transport {
             permanent_failures: 0,
             recovery: Default::default(),
             attempted_open: None,
-            rejected_open: None,
             shared_recovery,
         }
     }
@@ -95,7 +86,7 @@ impl Transport {
             }
     }
 
-    pub(super) fn start(&mut self, future: OpenFuture, request: OpenRequest) {
+    pub(super) fn start(&mut self, future: OpenFuture, request: RequestKey) {
         self.generation += 1;
         self.attempted_open = Some(request);
         self.state = TransportState::Opening(future);

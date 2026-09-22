@@ -134,6 +134,14 @@ pub(crate) struct RecoveryState {
 }
 
 impl RecoveryState {
+    pub(crate) fn reject(&mut self, cause: Arc<IncomingError>) {
+        if self.budget.is_some() && self.snapshot.terminal.is_none() {
+            self.snapshot.error = Some(cause.clone());
+            self.snapshot.healthy_since = None;
+            self.snapshot.terminal = Some(RecoveryFailure::Terminal(cause));
+        }
+    }
+
     pub(crate) fn is_bounded(&self) -> bool {
         self.budget.is_some()
     }

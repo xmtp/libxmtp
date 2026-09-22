@@ -8,7 +8,7 @@ use controller::Controller;
 use parking_lot::Mutex;
 pub use status::*;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -23,6 +23,15 @@ use xmtp_proto::{
 
 pub(crate) type SubscriptionFuture =
     BoxDynFuture<'static, Result<IncomingSubscription<NetworkError>, NetworkError>>;
+
+/// Exact method and wire inputs for a permanent server rejection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RequestKey {
+    Bidi(TopicCursor),
+    QueryNewest(HashSet<Topic>),
+}
+
+pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>)>>>;
 
 pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture;
@@ -40,6 +49,8 @@ pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
+    /// A new controller on this client cannot resend a rejected wire request.
+    pub(crate) rejected_requests: RejectedRequests,
     /// A closed reader whose owner token must be released after storage repair.
     pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
@@ -53,6 +64,7 @@ impl IncomingRuntime {
             policy,
             factory,
             coordinator: Mutex::new(None),
+            rejected_requests: Arc::new(Mutex::new(Vec::new())),
             retired_delivery_owner: Mutex::new(None),
         }
     }
