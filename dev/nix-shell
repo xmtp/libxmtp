@@ -24,8 +24,12 @@ fingerprint="$(
     pnpm-lock.yaml pnpm-workspace.yaml \
     '*webdriver.json' dev/nix-shell |
     while IFS= read -r -d '' path; do
-      if [[ -f "$path" ]]; then shasum -a 256 "$path"; fi
-    done | shasum -a 256
+      if [[ -f "$path" ]]; then printf '%s\0' "$path"; fi
+    done |
+    # Keep the ordered hash output, but avoid one process per file.
+    # The guard preserves the empty-list fingerprint on BSD and GNU xargs.
+    xargs -0 -n 128 sh -c 'if [ "$#" -gt 0 ]; then exec shasum -a 256 -- "$@"; fi' sh |
+    shasum -a 256
 )"
 identity="$REPO_ROOT:$shell_name:$fingerprint"
 if [[ "${XMTP_NIX_WRAPPER_ID:-}" == "$identity" ]]; then
