@@ -11,8 +11,8 @@ sdk:
 check: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run typecheck
 
-lint:
-    pnpm --filter @xmtp/cli run lint
+lint: sdk
+    cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run lint
 
 build: sdk
     cd {{ root }} && pnpm -r --filter '@xmtp/cli...' run build

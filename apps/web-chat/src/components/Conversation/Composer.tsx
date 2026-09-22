@@ -119,8 +119,8 @@ export const Composer: React.FC<ComposerProps> = ({ conversationId }) => {
   }, [
     message,
     attachment,
-    sending,
-    uploadingAttachment,
+    hasContent,
+    isSending,
     replyTarget,
     sendText,
     sendReply,

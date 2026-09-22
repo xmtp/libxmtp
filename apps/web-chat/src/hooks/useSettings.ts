@@ -92,7 +92,7 @@ export const useSettings = () => {
     if (typeof loggingLevel === "string") {
       setLoggingLevel(legacyLoggingLevel(loggingLevel));
     }
-  }, [loggingLevel]);
+  }, [loggingLevel, setLoggingLevel]);
 
   return {
     authToken,

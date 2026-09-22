@@ -55,7 +55,14 @@ export const WalletSendCallsContent: React.FC<WalletSendCallsContentProps> = ({
       }
       await conversation.sendTransactionReference(transactionReference);
     }
-  }, [content, sendTransactionAsync, client, conversationId]);
+  }, [
+    client,
+    content,
+    conversationId,
+    sendTransactionAsync,
+    switchChainAsync,
+    wagmiChainId,
+  ]);
 
   return (
     <Box flex="flex">

@@ -1,7 +1,7 @@
 import path from "node:path";
 import type { ArgumentsCamelCase, Argv } from "yargs";
-import type { GlobalArgs } from "../types";
-import { setDevcontainerImage as setDevcontainerImageFn } from "../lib/devcontainer";
+import type { GlobalArgs } from "@/types";
+import { setDevcontainerImage as setDevcontainerImageFn } from "@/lib/devcontainer";
 
 const DEVCONTAINER_JSON_PATH = ".devcontainer/devcontainer.json";
 

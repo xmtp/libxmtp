@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parse } from "smol-toml";
-import type { ManifestProvider } from "../../types";
-import { execSilent } from "../exec";
+import type { ManifestProvider } from "@/types";
+import { execSilent } from "@/lib/exec";
 
 const WORKSPACE_VERSION_REGEX =
   /(\[workspace\.package\][\s\S]*?version\s*=\s*)"([^"]+)"/;
@@ -56,7 +56,8 @@ export function createCargoManifestProvider(
   return {
     readVersion: (repoRoot) =>
       readCargoVersion(path.join(repoRoot, relativePath)),
-    writeVersion: (repoRoot, version) =>
-      writeCargoVersion(path.join(repoRoot, relativePath), version, repoRoot),
+    writeVersion: (repoRoot, version) => {
+      writeCargoVersion(path.join(repoRoot, relativePath), version, repoRoot);
+    },
   };
 }

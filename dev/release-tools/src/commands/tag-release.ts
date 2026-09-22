@@ -1,8 +1,8 @@
 import type { ArgumentsCamelCase, Argv } from "yargs";
 import semver from "semver";
-import type { GlobalArgs } from "../types";
-import { getSdkConfig } from "../lib/sdk-config";
-import { createTag, pushTag } from "../lib/git";
+import type { GlobalArgs } from "@/types";
+import { getSdkConfig } from "@/lib/sdk-config";
+import { createTag, pushTag } from "@/lib/git";
 
 export const command = "tag-release";
 export const describe = "Create and push a git tag for an SDK release";

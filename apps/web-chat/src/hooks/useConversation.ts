@@ -9,12 +9,12 @@ import { useCallback, useState } from "react";
 import {
   useActions,
   useConversation as useConversationState,
-  useLastSentAt,
   useMembers,
   useMessages,
   useMetadata,
   usePermissions,
 } from "@/stores/inbox/hooks";
+import { inboxStore } from "@/stores/inbox/store";
 
 export const useConversation = (conversationId: string) => {
   const { addMessages } = useActions();
@@ -23,7 +23,6 @@ export const useConversation = (conversationId: string) => {
   const permissions = usePermissions(conversationId);
   const { name, description, imageUrl } = useMetadata(conversationId);
   const messages = useMessages(conversationId);
-  const lastSentAt = useLastSentAt(conversationId);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [sending, setSending] = useState(false);
@@ -34,33 +33,36 @@ export const useConversation = (conversationId: string) => {
     );
   }
 
-  const sync = async (fromNetwork: boolean = false) => {
-    if (fromNetwork) {
-      setSyncing(true);
+  const sync = useCallback(
+    async (fromNetwork: boolean = false) => {
+      if (fromNetwork) {
+        setSyncing(true);
+
+        try {
+          const isActive = await conversation.isActive();
+          // ensure group is active before syncing
+          if (isActive) {
+            await conversation.sync();
+          }
+        } finally {
+          setSyncing(false);
+        }
+      }
+
+      setLoading(true);
 
       try {
-        const isActive = await conversation.isActive();
-        // ensure group is active before syncing
-        if (isActive) {
-          await conversation.sync();
-        }
+        const msgs = await conversation.messages({
+          sentAfterNs: inboxStore.getState().lastSentAt.get(conversationId),
+        });
+        await addMessages(conversation.id, msgs);
+        return msgs;
       } finally {
-        setSyncing(false);
+        setLoading(false);
       }
-    }
-
-    setLoading(true);
-
-    try {
-      const msgs = await conversation.messages({
-        sentAfterNs: lastSentAt,
-      });
-      await addMessages(conversation.id, msgs);
-      return msgs;
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [addMessages, conversation, conversationId],
+  );
 
   const send = useCallback(
     async (content: EncodedContent, options?: SendMessageOpts) => {

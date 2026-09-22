@@ -15,7 +15,7 @@ import * as listSdks from "./commands/list-sdks";
 import * as setDependencyVersion from "./commands/set-dependency-version";
 import { getRepoRoot } from "./lib/git";
 
-yargs(hideBin(process.argv))
+await yargs(hideBin(process.argv))
   .scriptName("release-tools")
   .option("repoRoot", {
     type: "string",
@@ -38,4 +38,4 @@ yargs(hideBin(process.argv))
   .version(false)
   .strict()
   .help()
-  .parse();
+  .parseAsync();

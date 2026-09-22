@@ -220,28 +220,22 @@ export const Permissions: React.FC<PermissionsProps> = ({
   }, [permissionsPolicy]);
 
   useEffect(() => {
-    switch (permissionsPolicy) {
-      case GroupPermissionsOptions.Default:
-        setPolicySet(defaultPolicySet);
-        break;
-      case GroupPermissionsOptions.AdminOnly:
-        setPolicySet(adminPolicySet);
-        break;
-    }
     onPermissionsPolicyChange(permissionsPolicy);
-  }, [permissionsPolicy]);
+  }, [onPermissionsPolicyChange, permissionsPolicy]);
 
   useEffect(() => {
     onPolicySetChange(policySet);
-  }, [policySet]);
+  }, [onPolicySetChange, policySet]);
 
   useEffect(() => {
     if (!conversation || !(conversation instanceof XmtpGroup)) {
       return;
     }
 
+    let active = true;
     const loadPermissions = async () => {
       const permissions = await conversation.permissions();
+      if (!active) return;
       const policyType = permissions.policyType;
       switch (policyType) {
         case GroupPermissionsOptions.Default:
@@ -259,7 +253,10 @@ export const Permissions: React.FC<PermissionsProps> = ({
       }
     };
     void loadPermissions();
-  }, [conversation?.id]);
+    return () => {
+      active = false;
+    };
+  }, [conversation]);
 
   return (
     <Box p="md">
@@ -270,12 +267,16 @@ export const Permissions: React.FC<PermissionsProps> = ({
             <NativeSelect
               value={permissionsPolicy}
               onChange={(event) => {
-                setPermissionsPolicy(
-                  parseInt(
-                    event.currentTarget.value,
-                    10,
-                  ) as GroupPermissionsOptions,
-                );
+                const policy = parseInt(
+                  event.currentTarget.value,
+                  10,
+                ) as GroupPermissionsOptions;
+                setPermissionsPolicy(policy);
+                if (policy === GroupPermissionsOptions.Default) {
+                  setPolicySet(defaultPolicySet);
+                } else if (policy === GroupPermissionsOptions.AdminOnly) {
+                  setPolicySet(adminPolicySet);
+                }
               }}
               data={[
                 { value: "0", label: "Default" },

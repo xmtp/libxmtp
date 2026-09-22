@@ -51,7 +51,7 @@ export const ConnectXMTP: React.FC = () => {
     } else {
       setEphemeralAccountEnabled(false);
     }
-  }, [isConnected, disconnect]);
+  }, [isConnected, disconnect, setEphemeralAccountEnabled]);
 
   return (
     <>

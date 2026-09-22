@@ -1,6 +1,6 @@
 import { Group, Stack, Text, Textarea, TextInput } from "@mantine/core";
 import { Group as XmtpGroup, type Conversation } from "@xmtp/browser-sdk";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { type ClientPermissions } from "@/hooks/useClientPermissions";
 
 type MetadataProps = {
@@ -18,29 +18,15 @@ export const Metadata: React.FC<MetadataProps> = ({
   onDescriptionChange,
   onImageUrlChange,
 }) => {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-
-  useEffect(() => {
-    if (conversation instanceof XmtpGroup) {
-      setName(conversation.name ?? "");
-      setDescription(conversation.description ?? "");
-      setImageUrl(conversation.imageUrl ?? "");
-    }
-  }, [conversation?.id]);
-
-  useEffect(() => {
-    onNameChange(name);
-  }, [name, onNameChange]);
-
-  useEffect(() => {
-    onDescriptionChange(description);
-  }, [description, onDescriptionChange]);
-
-  useEffect(() => {
-    onImageUrlChange(imageUrl);
-  }, [imageUrl, onImageUrlChange]);
+  const [name, setName] = useState(
+    conversation instanceof XmtpGroup ? (conversation.name ?? "") : "",
+  );
+  const [description, setDescription] = useState(
+    conversation instanceof XmtpGroup ? (conversation.description ?? "") : "",
+  );
+  const [imageUrl, setImageUrl] = useState(
+    conversation instanceof XmtpGroup ? (conversation.imageUrl ?? "") : "",
+  );
 
   return (
     <Stack gap="xs" p="md">
@@ -59,7 +45,9 @@ export const Metadata: React.FC<MetadataProps> = ({
             !clientPermissions.canChangeGroupName
           }
           onChange={(event) => {
-            setName(event.target.value);
+            const value = event.target.value;
+            setName(value);
+            onNameChange(value);
           }}
         />
       </Group>
@@ -78,7 +66,9 @@ export const Metadata: React.FC<MetadataProps> = ({
             !clientPermissions.canChangeGroupDescription
           }
           onChange={(event) => {
-            setDescription(event.target.value);
+            const value = event.target.value;
+            setDescription(value);
+            onDescriptionChange(value);
           }}
         />
       </Group>
@@ -97,7 +87,9 @@ export const Metadata: React.FC<MetadataProps> = ({
             !clientPermissions.canChangeGroupImage
           }
           onChange={(event) => {
-            setImageUrl(event.target.value);
+            const value = event.target.value;
+            setImageUrl(value);
+            onImageUrlChange(value);
           }}
         />
       </Group>

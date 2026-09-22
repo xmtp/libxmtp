@@ -311,7 +311,7 @@ describe.concurrent('Conversation', () => {
     expect(conversations[0].conversation.id()).toBe(conversation.id())
 
     const streamedMessages: string[] = []
-    const stream = conversations[0].conversation.stream(
+    const _stream = conversations[0].conversation.stream(
       (_, message) => {
         streamedMessages.push(message!.id)
       },
@@ -510,7 +510,7 @@ describe.concurrent('Conversation', () => {
     ])
     const hmacKeys = group.hmacKeys()
     expect(hmacKeys).toBeDefined()
-    let keys = hmacKeys[group.id()]
+    const keys = hmacKeys[group.id()]
     expect(keys.length).toBe(3)
     for (const value of keys) {
       expect(value.key).toBeDefined()
@@ -540,7 +540,7 @@ describe.concurrent('Conversation', () => {
 
     // Sync client2 to receive the group
     await client2.conversations().sync()
-    const groups = await client2.conversations().list()
+    const groups = client2.conversations().list()
     expect(groups.length).toBe(1)
     const group2 = groups[0].conversation
 

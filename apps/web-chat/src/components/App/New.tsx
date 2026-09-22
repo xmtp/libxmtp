@@ -52,6 +52,8 @@ export const New = () => {
     ephemeralAccountEnabled,
     isConnected,
     navigate,
+    setEphemeralAccountEnabled,
+    setUseSCW,
   ]);
 
   return <LoadingMessage message="Connecting to XMTP..." />;

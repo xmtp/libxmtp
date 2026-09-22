@@ -4,7 +4,7 @@ import { uuid } from "@/utils/uuid";
 import { createRegisteredClient, createSigner } from "./helpers";
 
 describe.skip("Opfs", () => {
-  describe.sequential("with no files", () => {
+  describe("with no files", { concurrent: false }, () => {
     let opfs: Opfs;
 
     beforeEach(async () => {
@@ -45,7 +45,7 @@ describe.skip("Opfs", () => {
     });
   });
 
-  describe.sequential("with a client database", () => {
+  describe("with a client database", { concurrent: false }, () => {
     const dbPaths: string[] = [];
 
     it("should list files and get file count", async () => {

@@ -20,8 +20,8 @@ test: sdk
 check: bindings
     cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run typecheck
 
-lint:
-    pnpm --filter @xmtp/xmtp.chat run lint
+lint: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run lint
 
 build: bindings
     cd {{ root }} && pnpm -r --filter '@xmtp/xmtp.chat...' run build

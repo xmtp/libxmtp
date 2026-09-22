@@ -220,7 +220,7 @@ ci-failures job:
     esc=""; gh api --help | grep -q -- --allow-escape-sequences && esc="--allow-escape-sequences"
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
       | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //; s/\x1b\[[0-9;]*[mGKH]//g' \
-      | { rg -N '(^##\[error\]|^\s*FAIL |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error(\[[^]]+\])?:|Tests\s+[0-9]+ failed|test result: FAILED|^\s*\S+ FAILED\s*$)' || test $? -eq 1; } \
+      | { rg -N '(^##\[error\]|^\s*FAIL |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error(\[[^]]+\])?:|Tests\s+[0-9]+ failed|test result: FAILED|^\s*\S+ FAILED\s*$|^/.*\.(c|m)?[jt]sx?$|^\s*[0-9]+:[0-9]+\s+(error|warning)\s|[×✖]\s|\.(c|m)?[jt]sx?:[0-9]+:[0-9]+|ERR_PNPM|[Ee]rror:|Failed to load|^\[warn\] |Code style issues found)' || test $? -eq 1; } \
       | sort -u | sed -n '1,40p'
 
 # Annotations for a check run. Cheaper than logs when the job records them.

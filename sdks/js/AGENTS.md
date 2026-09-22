@@ -10,11 +10,11 @@ just js bindings                        # build node + wasm bindings via Nix, st
 just js bindings-node                    # build only Node bindings via Nix
 just js check-node                       # typecheck Node and agent SDKs
 just js check-notification-surface       # published Node types; Browser/WASM absence
-just js lint-node                        # lint Node and agent SDKs
+just js lint-node                        # lint Node bindings, Node, and agent SDKs
 just js build-node                       # build Node and agent SDKs
 just js check                           # typecheck all
 just js build
-just js lint                            # eslint
+just js lint                            # oxlint
 just js test                            # needs `just backend up`
 ```
 
@@ -42,7 +42,7 @@ can bypass task dependencies.
 - Node and agent CI uses `NIX_DEVSHELL=js-node`, `just install`, and `just js bindings-node`.
 - Verify dependency changes with the root install. Declare required tools in the selected workspace and run them with `pnpm --filter <name> exec`.
 - `agent-sdk` reads types from `node-sdk/dist`. Build `node-sdk` first.
-- Formatting is treefmt prettier (`just lint-config`), not eslint.
+- Formatting is treefmt Prettier (`just lint-config`), not oxlint.
 
 ## Durable message delivery
 

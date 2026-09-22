@@ -1,0 +1,32 @@
+{
+  "$schema": "../../node_modules/oxlint/configuration_schema.json",
+  "extends": ["../../.oxlintrc.json"],
+  "options": {
+    "typeAware": false
+  },
+  "env": {
+    "builtin": true,
+    "browser": true,
+    "node": true
+  },
+  "ignorePatterns": [
+    "dist/**",
+    ".astro/**",
+    "_site/**",
+    "._site-*/**",
+    "playwright-report/**",
+    "test-results/**",
+    "generated/**"
+  ],
+  "rules": {
+    "typescript/no-unnecessary-type-assertion": "off"
+  },
+  "overrides": [
+    {
+      "files": ["examples/**/*.ts"],
+      "rules": {
+        "no-unused-vars": "off"
+      }
+    }
+  ]
+}

@@ -43,6 +43,7 @@
     "clean": "rm -rf .turbo && rm -rf node_modules && pnpm clean:dist",
     "clean:dist": "rm -rf dist",
     "dev": "pnpm clean:dist && pnpm rollup -c --watch",
+    "lint": "oxlint .",
     "test": "vitest run",
     "test:debug": "vitest run --inspect-brk --no-file-parallelism",
     "typecheck": "tsc"

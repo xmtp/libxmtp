@@ -13,7 +13,7 @@ import {
   type Installation,
   type Signer,
 } from "@xmtp/browser-sdk";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Outlet } from "react-router";
 import { useSignMessage } from "wagmi";
 import { ConnectedAddress } from "@/components/App/ConnectedAddress";
@@ -29,6 +29,20 @@ import { useAuthToken } from "@/contexts/AuthTokenContext";
 import { useSettings } from "@/hooks/useSettings";
 import { useWallet } from "@/hooks/useWallet";
 import { ContentLayout } from "@/layouts/ContentLayout";
+
+type InboxToolsData = {
+  installations: Installation[];
+  inboxUpdatesCount: number | null;
+  selectedInstallationIds: string[];
+  loading: boolean;
+};
+
+const EMPTY_DATA: InboxToolsData = {
+  installations: [],
+  inboxUpdatesCount: null,
+  selectedInstallationIds: [],
+  loading: false,
+};
 
 export const InboxTools: React.FC = () => {
   const {
@@ -46,14 +60,6 @@ export const InboxTools: React.FC = () => {
     setMemberId,
     error: memberIdError,
   } = useMemberId();
-  const [installations, setInstallations] = useState<Installation[]>([]);
-  const [inboxUpdatesCount, setInboxUpdatesCount] = useState<number | null>(
-    null,
-  );
-  const [selectedInstallationIds, setSelectedInstallationIds] = useState<
-    string[]
-  >([]);
-  const [loading, setLoading] = useState(false);
   const {
     blockchain,
     backendUrl,
@@ -61,6 +67,47 @@ export const InboxTools: React.FC = () => {
     ephemeralAccountEnabled,
     setEphemeralAccountEnabled,
   } = useSettings();
+  const query = useMemo(() => ({ backendUrl, inboxId }), [backendUrl, inboxId]);
+  const [result, setResult] = useState<
+    InboxToolsData & { query: typeof query }
+  >();
+  const { installations, inboxUpdatesCount, selectedInstallationIds, loading } =
+    result?.query === query ? result : EMPTY_DATA;
+  const updateQuery = useCallback(
+    (update: Partial<InboxToolsData>) => {
+      setResult((current) => ({
+        ...(current?.query === query ? current : EMPTY_DATA),
+        query,
+        ...update,
+      }));
+    },
+    [query],
+  );
+  const finishQuery = useCallback(
+    (update: Partial<InboxToolsData>) => {
+      // A response from an older inbox or backend cannot replace a newer query.
+      setResult((current) =>
+        current?.query === query ? { ...current, ...update } : current,
+      );
+    },
+    [query],
+  );
+  const selectInstallations = useCallback(
+    (ids: React.SetStateAction<string[]>) => {
+      setResult((current) =>
+        current?.query === query
+          ? {
+              ...current,
+              selectedInstallationIds:
+                typeof ids === "function"
+                  ? ids(current.selectedInstallationIds)
+                  : ids,
+            }
+          : current,
+      );
+    },
+    [query],
+  );
   const { createAuthCallback } = useAuthToken();
   // The inbox tools statics build their own short-lived clients, separate from
   // the app's client, so they get their own callback and their own memo.
@@ -69,50 +116,53 @@ export const InboxTools: React.FC = () => {
   const authCallback = authCallbackRef.current;
   const [active, setActive] = useState(1);
 
+  const fetchInstallations = useCallback(async () => {
+    const inboxState = await Client.fetchInboxStates([inboxId], {
+      authCallback,
+      backendUrl,
+      env: await backendLabel(backendUrl),
+    });
+    return inboxState[0].installations.toSorted(
+      (a, b) =>
+        Number(b.clientTimestampNs ?? 0) - Number(a.clientTimestampNs ?? 0),
+    );
+  }, [inboxId, backendUrl, authCallback]);
+
   const handleFindInstallations = useCallback(async () => {
     if (!isValidInboxId(inboxId)) {
       return;
     }
-    setLoading(true);
-    setInstallations([]);
-    setSelectedInstallationIds([]);
+    updateQuery({
+      loading: true,
+      installations: [],
+      selectedInstallationIds: [],
+    });
     try {
-      const inboxState = await Client.fetchInboxStates([inboxId], {
-        authCallback,
-        backendUrl,
-        env: await backendLabel(backendUrl),
-      });
-      setInstallations(
-        inboxState[0].installations.sort(
-          (a, b) =>
-            Number(b.clientTimestampNs ?? 0) - Number(a.clientTimestampNs ?? 0),
-        ),
-      );
+      finishQuery({ installations: await fetchInstallations() });
     } catch (error) {
       console.error(error);
     } finally {
-      setLoading(false);
+      finishQuery({ loading: false });
     }
-  }, [inboxId, backendUrl, authCallback]);
+  }, [inboxId, updateQuery, finishQuery, fetchInstallations]);
 
   const handleFetchInboxUpdatesCount = useCallback(async () => {
     if (!isValidInboxId(inboxId)) {
       return;
     }
-    setLoading(true);
-    setInboxUpdatesCount(null);
+    updateQuery({ loading: true, inboxUpdatesCount: null });
     try {
       const inboxUpdatesCounts = await Client.fetchLatestInboxUpdatesCount(
         [inboxId],
         { authCallback, backendUrl, env: await backendLabel(backendUrl) },
       );
-      setInboxUpdatesCount(inboxUpdatesCounts.get(inboxId) ?? 0);
+      finishQuery({ inboxUpdatesCount: inboxUpdatesCounts.get(inboxId) ?? 0 });
     } catch (error) {
       console.error(error);
     } finally {
-      setLoading(false);
+      finishQuery({ loading: false });
     }
-  }, [inboxId, backendUrl, authCallback]);
+  }, [inboxId, backendUrl, authCallback, updateQuery, finishQuery]);
 
   const handleRevokeInstallations = useCallback(
     async (installationIds: Uint8Array[]) => {
@@ -142,17 +192,20 @@ export const InboxTools: React.FC = () => {
               signMessageAsync({ message }),
             );
       }
-      setLoading(true);
+      updateQuery({ loading: true });
       try {
         await Client.revokeInstallations(signer, inboxId, installationIds, {
           authCallback,
           backendUrl,
           env: await backendLabel(backendUrl),
         });
+        finishQuery({ selectedInstallationIds: [] });
+        finishQuery({ installations: await fetchInstallations() });
+      } catch (error) {
+        console.error(error);
       } finally {
-        setLoading(false);
+        finishQuery({ loading: false });
       }
-      void handleFindInstallations();
     },
     [
       authCallback,
@@ -162,9 +215,12 @@ export const InboxTools: React.FC = () => {
       useSCW,
       signMessageAsync,
       inboxId,
-      handleFindInstallations,
+      fetchInstallations,
+      updateQuery,
+      finishQuery,
       ephemeralAccountEnabled,
       ephemeralAddress,
+      ephemeralSigner,
     ],
   );
 
@@ -175,32 +231,8 @@ export const InboxTools: React.FC = () => {
       setEphemeralAccountEnabled(false);
     }
     setMemberId("");
-    setInboxUpdatesCount(null);
-    setInstallations([]);
-    setSelectedInstallationIds([]);
-  }, [
-    isConnected,
-    disconnect,
-    setInboxUpdatesCount,
-    setEphemeralAccountEnabled,
-    setMemberId,
-    setInstallations,
-    setSelectedInstallationIds,
-  ]);
-
-  useEffect(() => {
-    if (!isValidInboxId(inboxId)) {
-      setInboxUpdatesCount(null);
-      setInstallations([]);
-      setSelectedInstallationIds([]);
-    }
-  }, [inboxId]);
-
-  useEffect(() => {
-    setInboxUpdatesCount(null);
-    setInstallations([]);
-    setSelectedInstallationIds([]);
-  }, [backendUrl]);
+    setResult(undefined);
+  }, [isConnected, disconnect, setEphemeralAccountEnabled, setMemberId]);
 
   return (
     <>
@@ -325,7 +357,7 @@ export const InboxTools: React.FC = () => {
                   <InstallationTable
                     installations={installations}
                     selectedInstallationIds={selectedInstallationIds}
-                    setSelectedInstallationIds={setSelectedInstallationIds}
+                    setSelectedInstallationIds={selectInstallations}
                   />
                 )}
               </Stack>

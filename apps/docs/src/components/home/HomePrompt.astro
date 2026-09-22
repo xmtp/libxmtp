@@ -72,12 +72,12 @@ const { id, label, backendField = false, variant = "compact" } = Astro.props;
       const { signal } = this.controller;
       const id = this.dataset.prompt as PromptId;
       if (!(id in prompts)) return;
-      const button = this.querySelector<HTMLButtonElement>(".copy")!;
+      const button = this.querySelector<HTMLButtonElement>(".copy");
       const input = this.querySelector<HTMLInputElement>("input");
-      const preview = this.querySelector<HTMLPreElement>("pre")!;
-      const status = this.querySelector<HTMLElement>(".status")!;
-      const disclosure =
-        this.querySelector<HTMLDetailsElement>(".full-prompt")!;
+      const preview = this.querySelector<HTMLPreElement>("pre");
+      const status = this.querySelector<HTMLElement>(".status");
+      const disclosure = this.querySelector<HTMLDetailsElement>(".full-prompt");
+      if (!button || !preview || !status || !disclosure) return;
       const initialLabel = button.innerHTML;
       const update = () => {
         button.innerHTML = initialLabel;

@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import init, {
-  Actions,
   ActionStyle,
-  Attachment,
   contentTypeActions,
   contentTypeAttachment,
   contentTypeGroupUpdated,
@@ -24,17 +22,19 @@ import init, {
   encodeIntent,
   // Encode functions (for reply content and testing)
   encodeText,
-  EnrichedReply,
-  GroupUpdated,
-  Intent,
-  MultiRemoteAttachment,
-  Reaction,
   ReactionAction,
   ReactionSchema,
-  RemoteAttachment,
   SortDirection,
-  TransactionReference,
-  WalletSendCalls,
+  type Actions,
+  type Attachment,
+  type EnrichedReply,
+  type GroupUpdated,
+  type Intent,
+  type MultiRemoteAttachment,
+  type Reaction,
+  type RemoteAttachment,
+  type TransactionReference,
+  type WalletSendCalls,
 } from "../";
 
 await init();

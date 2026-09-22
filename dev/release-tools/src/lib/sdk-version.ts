@@ -1,5 +1,5 @@
 import semver from "semver";
-import type { BumpType, ReleaseType, VersionTrack } from "../types";
+import type { BumpType, ReleaseType, VersionTrack } from "@/types";
 import { computeVersion } from "./version";
 
 /** The pending libxmtp release: number from the git-cliff oracle, kind derived. */

@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type ChangeEvent,
 } from "react";
@@ -21,7 +20,9 @@ export const ManageConsentModal: React.FC = () => {
   const navigate = useNavigate();
   const fullScreen = useCollapsedMediaQuery();
   const contentHeight = fullScreen ? "auto" : 500;
-  const initialConsentState = useRef<ConsentState>(ConsentState.Unknown);
+  const [initialConsentState, setInitialConsentState] = useState<ConsentState>(
+    ConsentState.Unknown,
+  );
   const [consentState, setConsentState] = useState<ConsentState>(
     ConsentState.Unknown,
   );
@@ -30,11 +31,11 @@ export const ManageConsentModal: React.FC = () => {
   useEffect(() => {
     const loadConsentState = async () => {
       const consentState = await conversation.consentState();
-      initialConsentState.current = consentState;
+      setInitialConsentState(consentState);
       setConsentState(consentState);
     };
     void loadConsentState();
-  }, [conversation.id]);
+  }, [conversation]);
 
   const handleClose = useCallback(() => {
     void navigate(`/conversations/${conversation.id}`);
@@ -45,7 +46,7 @@ export const ManageConsentModal: React.FC = () => {
       const newValue = parseInt(event.currentTarget.value, 10) as ConsentState;
       setConsentState(newValue);
     },
-    [conversation.id],
+    [],
   );
 
   const handleConsentStateUpdate = useCallback(async () => {
@@ -56,7 +57,7 @@ export const ManageConsentModal: React.FC = () => {
     } finally {
       setConsentStateLoading(false);
     }
-  }, [conversation.id, consentState, handleClose]);
+  }, [consentState, conversation, handleClose]);
 
   const footer = useMemo(() => {
     return (
@@ -66,7 +67,7 @@ export const ManageConsentModal: React.FC = () => {
         </Button>
         <Button
           variant="filled"
-          disabled={consentState === initialConsentState.current}
+          disabled={consentState === initialConsentState}
           loading={consentStateLoading}
           onClick={() => void handleConsentStateUpdate()}
         >
@@ -74,7 +75,13 @@ export const ManageConsentModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [consentState, handleConsentStateUpdate]);
+  }, [
+    consentState,
+    consentStateLoading,
+    handleClose,
+    handleConsentStateUpdate,
+    initialConsentState,
+  ]);
 
   return (
     <Modal

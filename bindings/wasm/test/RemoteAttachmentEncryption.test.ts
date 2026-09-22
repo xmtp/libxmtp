@@ -1,7 +1,7 @@
 import {
-  Attachment,
   AttachmentCodec,
   RemoteAttachmentCodec,
+  type Attachment,
 } from "@xmtp/content-type-remote-attachment";
 import { toHex } from "viem";
 import { afterAll, describe, expect, it } from "vitest";

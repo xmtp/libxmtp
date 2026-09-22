@@ -36,7 +36,7 @@ export function prepareDocument(
           return route ? `](${route}${anchor})` : match;
         },
       );
-    if (!inReview && !(spec && !fence && /^Status:/u.test(line)))
+    if (!inReview && !(spec && !fence && line.startsWith("Status:")))
       kept.push(line);
   }
   const titleIndex = kept.findIndex((line) => /^#\s+/u.test(line));

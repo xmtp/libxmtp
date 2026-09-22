@@ -83,7 +83,8 @@
         );
       });
       select(0);
-      this.querySelector<HTMLElement>(".tabs")!.hidden = false;
+      const tabList = this.querySelector<HTMLElement>(".tabs");
+      if (tabList) tabList.hidden = false;
     }
     disconnectedCallback() {
       this.controller?.abort();

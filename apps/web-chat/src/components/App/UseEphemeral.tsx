@@ -20,7 +20,7 @@ export const UseEphemeral: React.FC = () => {
   const handleResetEphemeralAccount = useCallback(() => {
     setEphemeralAccountEnabled(false);
     setEphemeralAccountKey(null);
-  }, []);
+  }, [setEphemeralAccountEnabled, setEphemeralAccountKey]);
 
   return (
     <Group gap="sm" align="center" wrap="nowrap">

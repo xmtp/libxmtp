@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import init, { createTestClient, DecodedMessage } from "../";
+import init, { createTestClient, type DecodedMessage } from "../";
 
 await init();
 
@@ -18,7 +18,7 @@ describe("Conversations", () => {
 
     // Set up the deletion stream
     const deletedMessages: DecodedMessage[] = [];
-    const stream = await client1.conversations().streamMessageDeletions({
+    const stream = client1.conversations().streamMessageDeletions({
       on_message_deleted: (message: DecodedMessage) => {
         deletedMessages.push(message);
       },

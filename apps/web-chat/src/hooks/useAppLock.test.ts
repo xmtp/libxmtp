@@ -201,6 +201,25 @@ describe("useAppLock", () => {
   });
 
   describe("heartbeat", () => {
+    it("keeps acquisition stable across heartbeats and reads current ownership", () => {
+      const { result } = renderHook(() => useAppLock());
+      const acquireLock = result.current.acquireLock;
+      act(() => {
+        acquireLock();
+      });
+      act(() => {
+        vi.advanceTimersByTime(ACTIVE_INTERVAL);
+      });
+      expect(result.current.acquireLock).toBe(acquireLock);
+
+      // A storage event can arrive after a callback tries to acquire the lock.
+      localStorage.setItem(APP_LOCK_ID_KEY, JSON.stringify("another-tab"));
+      expect(acquireLock()).toBe(false);
+      expect(JSON.parse(localStorage.getItem(APP_LOCK_ID_KEY)!)).toBe(
+        "another-tab",
+      );
+    });
+
     it("updates lastActive at interval when lock is active", () => {
       const { result } = renderHook(() => useAppLock());
 

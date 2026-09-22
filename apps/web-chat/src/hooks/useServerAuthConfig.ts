@@ -1,5 +1,5 @@
 import { Client } from "@xmtp/browser-sdk";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { isValidBackendUrl } from "@/helpers/backend";
 
 export type ServerAuthConfig = {
@@ -19,41 +19,47 @@ export type ServerAuthConfig = {
  * way to enter one.
  */
 export const useServerAuthConfig = (backendUrl: string): ServerAuthConfig => {
-  const [config, setConfig] = useState<ServerAuthConfig>({
-    required: true,
-    requiredScopes: [],
-    loading: false,
-  });
+  const request = useMemo(() => ({ backendUrl }), [backendUrl]);
+  const [result, setResult] = useState<{
+    request: typeof request;
+    config: ServerAuthConfig;
+  }>();
 
   useEffect(() => {
-    if (!isValidBackendUrl(backendUrl)) {
-      setConfig({ required: true, requiredScopes: [], loading: false });
-      return;
-    }
+    if (!isValidBackendUrl(request.backendUrl)) return;
 
     // A slow backend must not leave a stale answer on screen, and a response
     // for a previous URL must not overwrite a newer one.
     let active = true;
-    setConfig((current) => ({ ...current, loading: true }));
-
-    Client.fetchServerConfiguration(backendUrl)
+    Client.fetchServerConfiguration(request.backendUrl)
       .then((configuration) => {
         if (!active) return;
-        setConfig({
-          required: configuration.auth.enabled,
-          requiredScopes: configuration.auth.requiredScopes,
-          loading: false,
+        setResult({
+          request,
+          config: {
+            required: configuration.auth.enabled,
+            requiredScopes: configuration.auth.requiredScopes,
+            loading: false,
+          },
         });
       })
       .catch(() => {
         if (!active) return;
-        setConfig({ required: true, requiredScopes: [], loading: false });
+        setResult({
+          request,
+          config: { required: true, requiredScopes: [], loading: false },
+        });
       });
 
     return () => {
       active = false;
     };
-  }, [backendUrl]);
+  }, [request]);
 
-  return config;
+  if (!isValidBackendUrl(backendUrl)) {
+    return { required: true, requiredScopes: [], loading: false };
+  }
+  return result?.request === request
+    ? result.config
+    : { required: true, requiredScopes: [], loading: true };
 };

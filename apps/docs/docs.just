@@ -1,5 +1,12 @@
 export NIX_DEVSHELL := "docs"
+
+root := justfile_directory()
+
 set shell := ["../../dev/nix-shell"]
+
+# Build and stage the local Node and WASM bindings before docs package tasks.
+bindings:
+    cd ../../sdks/js && ./dev/bindings
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
@@ -8,17 +15,18 @@ browsers:
 dev:
     pnpm --filter @xmtp/docs run dev
 
-build:
-    pnpm --filter @xmtp/docs run build
+build: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run build
 
-check-examples:
-    pnpm --filter @xmtp/docs run check:examples
+check-examples: bindings
+    cd {{ root }} && pnpm -r --filter '@xmtp/docs...' run check:examples
 
 check-agent-docs:
     pnpm --filter @xmtp/docs run check:agent-docs
 
 lint:
-    pnpm --filter @xmtp/docs run lint
+    # Docs lint is not type-aware and does not need SDK build output.
+    pnpm run lint
 
 format-check:
     pnpm --filter @xmtp/docs run format-check

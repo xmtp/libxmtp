@@ -102,7 +102,7 @@ export class WorkerConversations {
 
   listGroups(options?: Omit<ListConversationsOptions, "conversationType">) {
     const groups = this.#conversations.list({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Group,
     }) as ConversationListItem[];
     return groups.map(
@@ -112,7 +112,7 @@ export class WorkerConversations {
 
   listDms(options?: Omit<ListConversationsOptions, "conversationType">) {
     const groups = this.#conversations.list({
-      ...(options ?? {}),
+      ...options,
       conversationType: ConversationType.Dm,
     }) as ConversationListItem[];
     return groups.map(

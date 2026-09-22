@@ -49,7 +49,7 @@ export const ManagePermissionsModal: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [conversation.id, permissionsPolicy, policySet, navigate]);
+  }, [conversation, permissionsPolicy, policySet, navigate]);
 
   const footer = useMemo(() => {
     return (
@@ -67,7 +67,7 @@ export const ManagePermissionsModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [isLoading, handleUpdate]);
+  }, [handleClose, handleUpdate, isLoading]);
 
   return (
     <Modal

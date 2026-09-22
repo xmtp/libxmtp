@@ -1,9 +1,9 @@
-import claudeAvatar from "../assets/home/agents/claude.svg";
-import codexAvatar from "../assets/home/agents/codex.svg";
-import docAvatar from "../assets/home/agents/doc.png";
-import grokbotAvatar from "../assets/home/agents/grokbot.webp";
-import instinctAvatar from "../assets/home/agents/instinct.png";
-import museAvatar from "../assets/home/agents/muse.png";
+import claudeAvatar from "@/assets/home/agents/claude.svg";
+import codexAvatar from "@/assets/home/agents/codex.svg";
+import docAvatar from "@/assets/home/agents/doc.png";
+import grokbotAvatar from "@/assets/home/agents/grokbot.webp";
+import instinctAvatar from "@/assets/home/agents/instinct.png";
+import museAvatar from "@/assets/home/agents/muse.png";
 
 export const links = {
   quickstart: "/get-started/quickstart/",

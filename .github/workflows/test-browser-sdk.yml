@@ -30,7 +30,7 @@ jobs:
       - name: Check web-chat
         if: matrix.shard == 1
         run: just web-chat check
-      - name: Lint web-chat
+      - name: Oxlint web-chat
         if: matrix.shard == 1
         run: just web-chat lint
       - name: Build web-chat

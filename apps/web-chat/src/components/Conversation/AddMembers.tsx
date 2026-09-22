@@ -1,5 +1,5 @@
 import { Badge, Button, Group, Stack, Text, TextInput } from "@mantine/core";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback } from "react";
 import { Member } from "@/components/Conversation/Member";
 import type { Member as MemberCardMember } from "@/components/Conversation/MemberCard";
 import type { MemberProfile } from "@/helpers/member";
@@ -38,7 +38,12 @@ export const AddMembers: React.FC<AddMembersProps> = ({
     description: memberIdDescription,
     avatar: memberIdAvatar,
   } = useMemberId();
-  const [error, setError] = useState<string | null>(null);
+  const error =
+    memberIdInboxId &&
+    (hasInboxId(existingMembers, memberIdInboxId) ||
+      hasInboxId(addedMembers, memberIdInboxId))
+      ? "Duplicate address or inbox ID"
+      : null;
 
   const handleAddMember = useCallback(() => {
     if (hasInboxId(addedMembers, memberIdInboxId)) return;
@@ -59,6 +64,7 @@ export const AddMembers: React.FC<AddMembersProps> = ({
     memberIdDescription,
     memberIdAvatar,
     onMembersAdded,
+    setMemberId,
   ]);
 
   const handleRemoveAddedMember = useCallback(
@@ -68,18 +74,6 @@ export const AddMembers: React.FC<AddMembersProps> = ({
     },
     [addedMembers, onMembersAdded],
   );
-
-  useEffect(() => {
-    if (
-      memberIdInboxId &&
-      (hasInboxId(existingMembers, memberIdInboxId) ||
-        hasInboxId(addedMembers, memberIdInboxId))
-    ) {
-      setError("Duplicate address or inbox ID");
-    } else {
-      setError(null);
-    }
-  }, [existingMembers, memberIdInboxId, addedMembers]);
 
   return (
     <>

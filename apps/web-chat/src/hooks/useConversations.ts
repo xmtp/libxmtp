@@ -5,30 +5,29 @@ import {
   type DecodedMessage,
   type Identifier,
 } from "@xmtp/browser-sdk";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useClient, type ContentTypes } from "@/contexts/XMTPContext";
 import { dateToNs } from "@/helpers/date";
 import { isReaction } from "@/helpers/messages";
 import {
   useActions,
   useConversations as useConversationsState,
-  useLastCreatedAt,
 } from "@/stores/inbox/hooks";
+import { inboxStore } from "@/stores/inbox/store";
 
 export const useConversations = () => {
   const client = useClient();
   const { addConversations, addConversation, addMessage, setLastSyncedAt } =
     useActions();
   const conversations = useConversationsState();
-  const lastCreatedAt = useLastCreatedAt();
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
 
-  const refreshConversationsList = async () => {
+  const refreshConversationsList = useCallback(async () => {
     setLoading(true);
     try {
       const convos = await client.conversations.list({
-        createdAfterNs: lastCreatedAt,
+        createdAfterNs: inboxStore.getState().lastCreatedAt,
       });
       await addConversations(convos);
       setLastSyncedAt(dateToNs(new Date()));
@@ -36,23 +35,26 @@ export const useConversations = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [addConversations, client, setLastSyncedAt]);
 
-  const sync = async (fromNetwork: boolean = false) => {
-    if (fromNetwork) {
-      setSyncing(true);
+  const sync = useCallback(
+    async (fromNetwork: boolean = false) => {
+      if (fromNetwork) {
+        setSyncing(true);
 
-      try {
-        await client.conversations.sync();
-      } finally {
-        setSyncing(false);
+        try {
+          await client.conversations.sync();
+        } finally {
+          setSyncing(false);
+        }
       }
-    }
 
-    await refreshConversationsList();
-  };
+      await refreshConversationsList();
+    },
+    [client, refreshConversationsList],
+  );
 
-  const syncAll = async () => {
+  const syncAll = useCallback(async () => {
     setSyncing(true);
 
     try {
@@ -62,7 +64,7 @@ export const useConversations = () => {
     }
 
     await refreshConversationsList();
-  };
+  }, [client, refreshConversationsList]);
 
   const getConversationById = async (conversationId: string) => {
     setLoading(true);
@@ -160,7 +162,7 @@ export const useConversations = () => {
     }
   };
 
-  const stream = async () => {
+  const stream = useCallback(async () => {
     const onValue = (conversation: Conversation<ContentTypes>) => {
       const shouldAdd =
         conversation.metadata?.conversationType === ConversationType.Dm ||
@@ -177,9 +179,9 @@ export const useConversations = () => {
     return () => {
       void stream.end();
     };
-  };
+  }, [addConversation, client]);
 
-  const streamAllMessages = async () => {
+  const streamAllMessages = useCallback(async () => {
     const onValue = (message: DecodedMessage<ContentTypes>) => {
       if (isReaction(message) && message.content?.reference) {
         void client.conversations
@@ -201,7 +203,7 @@ export const useConversations = () => {
     return () => {
       void stream.end();
     };
-  };
+  }, [addMessage, client]);
 
   return {
     conversations,

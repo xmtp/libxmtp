@@ -25,8 +25,8 @@ describe('catchUpToLive', () => {
     const summary = await client2.catchUpToLive()
     expect(summary.completed).toBe(true)
     expect(summary.failed).toBe(0)
-    expect(Number(summary.conversations)).toBeGreaterThanOrEqual(1)
-    expect(Number(summary.messages)).toBeGreaterThanOrEqual(1)
+    expect(summary.conversations).toBeGreaterThanOrEqual(1)
+    expect(summary.messages).toBeGreaterThanOrEqual(1)
 
     // The group is now present locally...
     const groups = client2.conversations().list()
@@ -45,8 +45,8 @@ describe('catchUpToLive', () => {
     const again = await client2.catchUpToLive()
     expect(again.completed).toBe(true)
     expect(again.failed).toBe(0)
-    expect(Number(again.messages)).toBe(0)
-    expect(Number(again.conversations)).toBe(0)
+    expect(again.messages).toBe(0)
+    expect(again.conversations).toBe(0)
     expect(client2.conversations().list().length).toBe(1)
   })
 })

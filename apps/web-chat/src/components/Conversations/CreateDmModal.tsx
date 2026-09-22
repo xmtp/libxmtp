@@ -55,7 +55,7 @@ export const CreateDmModal: React.FC = () => {
         </Button>
       </Group>
     );
-  }, [handleClose, handleCreate, loading]);
+  }, [handleClose, handleCreate, inboxId, loading, memberIdError]);
 
   return (
     <Modal

@@ -158,7 +158,7 @@ describe("Dm", () => {
     const client2 = await createRegisteredClient(signer2);
     const dm = await client1.conversations.createDm(client2.inboxId);
 
-    const history = await dm.messageHistorySnapshot(1);
+    const history = dm.messageHistorySnapshot(1);
     const streamedMessages: unknown[] = [];
     const stream = await dm.stream({
       from: history.cursor,

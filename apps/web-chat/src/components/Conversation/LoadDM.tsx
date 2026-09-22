@@ -86,7 +86,7 @@ export const LoadDM: React.FC = () => {
     return () => {
       clearTimeout(timeout);
     };
-  }, [client, address]);
+  }, [addConversation, address, client, navigate]);
 
   return <LoadingMessage message={message} />;
 };

@@ -60,10 +60,9 @@ export const Message: React.FC<MessageProps> = ({
           return acc;
         }
         const { content: reaction, action } = reactionContent;
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
         const count = acc[reaction]?.count || 0;
         const isAdding = action === ReactionAction.Added;
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        // oxlint-disable-next-line typescript/no-unnecessary-condition
         const prevDidAdd = acc[reaction]?.didAdd ?? false;
         const didAdd =
           r.senderInboxId === client.inboxId ? isAdding : prevDidAdd;
@@ -77,7 +76,7 @@ export const Message: React.FC<MessageProps> = ({
           [reaction]: { count: newCount, didAdd },
         };
       }, {});
-  }, [message.reactions]);
+  }, [client.inboxId, message.reactions]);
 
   return (
     <Box p="md" tabIndex={0} className={classes.root}>

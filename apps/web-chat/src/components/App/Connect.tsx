@@ -1,5 +1,5 @@
 import { Stepper } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router";
 import { ConnectXMTP } from "@/components/App/ConnectXMTP";
 import { WalletConnect } from "@/components/App/WalletConnect";
@@ -14,7 +14,6 @@ export const Connect = () => {
   const { client } = useXMTP();
   const navigate = useNavigate();
   const { redirectUrl, setRedirectUrl } = useRedirect();
-  const [active, setActive] = useState(0);
 
   // redirect if there's already a client
   useEffect(() => {
@@ -28,16 +27,8 @@ export const Connect = () => {
     }
   }, [client, navigate, redirectUrl, setRedirectUrl]);
 
-  useEffect(() => {
-    if (isConnected || ephemeralAccountEnabled) {
-      setActive(1);
-    } else {
-      setActive(0);
-    }
-  }, [isConnected, ephemeralAccountEnabled]);
-
   return (
-    <Stepper active={active} onStepClick={setActive}>
+    <Stepper active={isConnected || ephemeralAccountEnabled ? 1 : 0}>
       <Stepper.Step
         label="Connect your wallet"
         allowStepSelect={false}

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { ManifestProvider } from "../../types";
+import type { ManifestProvider } from "@/types";
 
 const GRADLE_VERSION_REGEX = /^version\s*=\s*(.+)$/m;
 
@@ -32,7 +32,8 @@ export function createGradlePropertiesManifestProvider(
   return {
     readVersion: (repoRoot) =>
       readGradlePropertiesVersion(path.join(repoRoot, relativePath)),
-    writeVersion: (repoRoot, version) =>
-      writeGradlePropertiesVersion(path.join(repoRoot, relativePath), version),
+    writeVersion: (repoRoot, version) => {
+      writeGradlePropertiesVersion(path.join(repoRoot, relativePath), version);
+    },
   };
 }

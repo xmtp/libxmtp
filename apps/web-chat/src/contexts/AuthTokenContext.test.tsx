@@ -39,6 +39,24 @@ describe("AuthTokenProvider", () => {
     expect(result.current.request).toBeNull();
   });
 
+  it("keeps one identity for an open prompt and changes it for a new prompt", () => {
+    const { result } = renderAuthToken();
+    act(() => {
+      result.current.promptForToken();
+    });
+    const firstId = result.current.request?.id;
+    expect(firstId).toBeDefined();
+    act(() => {
+      result.current.promptForToken();
+    });
+    expect(result.current.request?.id).toBe(firstId);
+    act(() => {
+      result.current.request?.resolve("token");
+      result.current.promptForToken();
+    });
+    expect(result.current.request?.id).not.toBe(firstId);
+  });
+
   it("prompts once the empty probe is refused", async () => {
     const { result } = renderAuthToken();
     const callback = result.current.createAuthCallback();
@@ -158,6 +176,35 @@ describe("AuthTokenProvider", () => {
       value: "Bearer fresh-token",
     });
   });
+
+  it.each(["", "stale-token"])(
+    "offers the submitted token before React commits (stored token: %j)",
+    async (storedToken) => {
+      localStorage.setItem("XMTP_AUTH_TOKEN", JSON.stringify(storedToken));
+      const { result } = renderAuthToken();
+      const callback = result.current.createAuthCallback();
+      await callback();
+
+      let waiting: Promise<{ value: string }> | undefined;
+      act(() => {
+        waiting = callback();
+      });
+
+      let immediate: Promise<{ value: string }> | undefined;
+      act(() => {
+        result.current.request?.resolve("  fresh-token  ");
+        immediate = callback();
+      });
+
+      await expect(waiting).resolves.toMatchObject({
+        value: "Bearer fresh-token",
+      });
+      await expect(immediate).resolves.toMatchObject({
+        value: "Bearer fresh-token",
+      });
+      expect(result.current.request).toBeNull();
+    },
+  );
 
   it("resolves both concurrent calls that share one consumer's callback", async () => {
     // The InboxTools case: "Find installations" and "Check updates count"

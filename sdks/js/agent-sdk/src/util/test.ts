@@ -57,7 +57,7 @@ export class TestCodec implements ContentCodec {
   }
   decode(content: EncodedContent): Record<string, string> {
     const decoded = new TextDecoder().decode(content.content);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+    // oxlint-disable-next-line typescript/no-unsafe-return
     return JSON.parse(decoded);
   }
   fallback() {

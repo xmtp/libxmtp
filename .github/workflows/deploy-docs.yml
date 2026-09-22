@@ -121,8 +121,6 @@ jobs:
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - name: Build the SDKs and both binding packages
-        run: just js build
       - run: just docs check-agent-docs
       - run: just docs build
       - uses: actions/upload-artifact@v7
