@@ -124,6 +124,10 @@ pub(crate) struct RecoveryState {
 }
 
 impl RecoveryState {
+    pub(crate) fn is_bounded(&self) -> bool {
+        self.budget.is_some()
+    }
+
     pub(crate) fn new(snapshot: RecoverySnapshot, bounded: bool, now: Instant) -> Self {
         let budget = bounded.then(|| RecoveryBudget::new(&snapshot, now));
         let last_transport_failures = snapshot.failures;
@@ -330,6 +334,7 @@ mod tests {
                     )),
                 ));
                 assert!(terminal_source(&subscribe));
+                assert!(rejected_request(&subscribe));
             }
         }
     }

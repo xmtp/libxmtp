@@ -1130,6 +1130,70 @@ async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
     assert_eq!(controller.receipt(&topic).rejected_at, Some(Cursor(0)));
 }
 
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    controller.transport.factory = None;
+    let welcome = Topic::new_welcome_message(alix.context.installation_id());
+    let worker = coordinator.acquire(IncomingScope::DeviceSyncGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&worker.id)
+        .unwrap()
+        .topics
+        .insert(welcome.clone());
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("topics")),
+    )));
+    controller.source_error(rejected);
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+
+    // A new topic changes the request and lets the worker try again.
+    let group = Topic::new_group_message(GroupId::generate());
+    controller
+        .scopes
+        .get_mut(&worker.id)
+        .unwrap()
+        .topics
+        .insert(group.clone());
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+
+    controller.source_error(NetworkError::new(xmtp_api::ApiError::Api(
+        NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+            tonic::Status::unimplemented("topics"),
+        )),
+    )));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+
+    // A new app caller may start a distinct request with the same interests.
+    let fresh =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![welcome.clone(), group.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .extend([welcome, group]);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 3);
+}
+
 // verifies: PROC-038
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_blocked_selected_topic_cannot_reset_health_through_a_sibling() {

@@ -21,7 +21,7 @@ mod dependencies;
 mod processing;
 mod snapshots;
 mod transport;
-use transport::{RetryBackoff, Transport, TransportEvent, TransportState};
+use transport::{OpenRequest, RetryBackoff, Transport, TransportEvent, TransportState};
 #[cfg(test)]
 mod tests;
 use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
@@ -269,6 +269,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     fn command(&mut self, command: Command) {
         match command {
             Command::Acquire { id, scope } => {
+                if self
+                    .state
+                    .consumer_recovery
+                    .lock()
+                    .get(&id)
+                    .is_some_and(crate::subscriptions::recovery::RecoveryState::is_bounded)
+                {
+                    // An explicit new app stream owns a new request. The old
+                    // worker still cannot repeat its rejected request alone.
+                    self.transport.rejected_open = None;
+                }
                 self.scopes.insert(id, Scope::new(id, scope));
             }
             Command::Replace {
@@ -516,6 +527,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 return;
             }
         };
+        let request = if self.transport.factory.is_some() {
+            OpenRequest::Bidi(cursors.clone())
+        } else {
+            OpenRequest::Unary(topics.iter().cloned().collect())
+        };
+        // implements: API-284
+        if self.transport.rejected_open.as_ref() == Some(&request) {
+            return;
+        }
+        self.transport.rejected_open = None;
         let future: OpenFuture = if let Some(factory) = &self.transport.factory {
             let future = factory.open(cursors, self.fetched_limits());
             Box::pin(async move { future.await.map(Opened::Stream) })
@@ -530,7 +551,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .map_err(NetworkError::new)
             })
         };
-        self.transport.start(future);
+        self.transport.start(future, request);
     }
 
     fn opened(&mut self, result: Result<Opened, NetworkError>) {
@@ -732,6 +753,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn source_error(&mut self, error: NetworkError) {
+        if crate::subscriptions::recovery::rejected_request(&error) {
+            self.transport.rejected_open = self.transport.attempted_open.clone();
+        }
         let policy = self.context.incoming_runtime().policy();
         self.transport.fail(
             error,
