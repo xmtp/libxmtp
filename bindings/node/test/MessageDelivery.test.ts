@@ -184,7 +184,7 @@ describe("native durable callback storage errors", () => {
         const errors: Error[] = [];
         const messages: string[] = [];
         let expected: unknown;
-        const callback = (error: Error | null, message: Message | null) => {
+        const callback = (error?: Error | null, message?: Message | null) => {
           if (error) {
             errors.push(error);
             failed.resolve(error);
