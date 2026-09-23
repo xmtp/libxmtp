@@ -1,11 +1,6 @@
-import type { Client } from "@xmtp/node-sdk";
+import type { Client } from "@/Client";
 
-export async function checkStreamOptions(client: Client): Promise<void> {
-  // @ts-expect-error Node notification streams have no pre-sync switch.
-  await client.conversations.stream({ disableSync: true });
-  // @ts-expect-error Preferences use the same public option shape.
-  await client.preferences.streamPreferences({ disableSync: true });
-  // Durable message readers reject notification-only controls.
+export async function checkMessageStreamOptions(client: Client): Promise<void> {
   // @ts-expect-error No message-stream retry count.
   await client.conversations.streamAllMessages({ retryAttempts: 1 });
   // @ts-expect-error No message-stream retry delay.
@@ -22,5 +17,6 @@ export async function checkStreamOptions(client: Client): Promise<void> {
     retryDelay: 1,
     retryOnFail: false,
     onRetry: () => {},
+    disableSync: true,
   });
 }

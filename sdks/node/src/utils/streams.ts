@@ -81,6 +81,12 @@ export type StreamOptions<T = unknown, V = T> = {
   retryOnFail?: boolean;
 };
 
+/** Options for durable message delivery. Core owns recovery for these streams. */
+export type MessageStreamOptions<T = unknown, V = T> = Omit<
+  StreamOptions<T, V>,
+  "retryAttempts" | "retryDelay" | "retryOnFail" | "onRetry" | "disableSync"
+>;
+
 export type StreamCallback<T = unknown> = (
   error: Error | null,
   value: T | undefined,

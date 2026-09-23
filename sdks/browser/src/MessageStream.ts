@@ -5,7 +5,7 @@ import type {
   MessageCatchUp,
 } from "@xmtp/wasm-bindings";
 
-import type { StreamOptions } from "@/utils/streams";
+import type { MessageStreamOptions } from "@/utils/streams";
 
 export type MessageAcknowledgement = {
   checkOwner(): boolean | Promise<boolean>;
@@ -38,7 +38,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     message: T,
     cursor: DeliveryCursor,
   ) => V | undefined | Promise<V | undefined>;
-  #options: StreamOptions<T, V>;
+  #options: MessageStreamOptions<T, V>;
   readonly #onValue?: (value: V) => void | Promise<void>;
   #pending?: MessageAcknowledgement;
   #reading = false;
@@ -52,7 +52,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
       message: T,
       cursor: DeliveryCursor,
     ) => V | undefined | Promise<V | undefined>,
-    options: StreamOptions<T, V> = {},
+    options: MessageStreamOptions<T, V> = {},
   ) {
     this.#reader = reader;
     this.#convert = convert;
