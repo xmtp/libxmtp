@@ -230,9 +230,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     ),
                     _ => error,
                 };
-                if let GroupMessageProcessingError::CommitValidation(
-                    CommitValidationError::ProtocolVersionTooLow(version),
-                ) = &error
+                if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::ProtocolVersionTooLow(version),
+                )) = &error
                 {
                     tx.storage()
                         .db()
