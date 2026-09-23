@@ -1323,9 +1323,57 @@ async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
             .received,
         Cursor(1)
     );
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .last_read = None;
     controller.start_read();
+    let result = controller.read.take().expect("changed Query is due").await;
+    assert_eq!(result.1, Some(Cursor(1)));
+    assert!(matches!(&result.2, ReadOutcome::Fetched(_)));
+    controller.read_finished(result);
     assert_eq!(controller.receipt(&topic).rejected_at, None);
     assert!(!controller.receipt(&topic).blocked());
+}
+
+// verifies: API-284, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_covered_bidi_topic_does_not_poll_a_retained_query_cursor() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &topic);
+    controller.read_queue.push_back(topic.clone());
+    controller.rejected_requests.lock().push((
+        RequestKey::Query(topic.clone(), Cursor(0)),
+        Arc::new(IncomingError::UnsupportedTopic),
+    ));
+    let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
+    receipt.rejected_at = Some(Cursor(0));
+    receipt.blocked_until = Some(Instant::now() + Duration::from_secs(60));
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic);
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    for _ in 0..100 {
+        controller.start_read();
+    }
+    assert!(controller.read.is_none());
+    assert_eq!(
+        controller
+            .receipt_progress_reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "a covered topic must not read durable progress on each controller pass"
+    );
+    assert_eq!(
+        controller.receipt(&controller.read_queue[0]).rejected_at,
+        Some(Cursor(0))
+    );
 }
 
 // verifies: API-284

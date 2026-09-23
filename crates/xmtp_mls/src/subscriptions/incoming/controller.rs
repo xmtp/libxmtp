@@ -148,6 +148,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     classify_new_caller: bool,
     #[cfg(test)]
     open_cursor_reads: usize,
+    #[cfg(test)]
+    receipt_progress_reads: std::sync::atomic::AtomicUsize,
     targets_retry_at: Option<Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
@@ -187,6 +189,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             classify_new_caller: false,
             #[cfg(test)]
             open_cursor_reads: 0,
+            #[cfg(test)]
+            receipt_progress_reads: std::sync::atomic::AtomicUsize::new(0),
             targets_retry_at: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
@@ -943,7 +947,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 break;
             };
             self.read_queue.push_back(topic.clone());
-            if self.receipt(&topic).paused || self.is_retired(&topic) {
+            if self.receipt(&topic).paused
+                || self.is_retired(&topic)
+                || (self.receipt(&topic).blocked() && self.receipt(&topic).rejected_at.is_none())
+            {
                 continue;
             }
             let key = match topic_key(&topic) {
@@ -953,39 +960,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     continue;
                 }
             };
-            let rejected_at = self.receipt(&topic).rejected_at;
-            let has_rejected_query = self
-                .rejected_requests
-                .lock()
-                .iter()
-                .any(|(request, _)| matches!(request, RequestKey::Query(rejected, _) if rejected == &topic));
-            let mut rejected_cause = None;
-            if rejected_at.is_some() || has_rejected_query {
-                let current = match self.context.db().topic_progress(&key) {
-                    Ok(progress) => progress.received,
-                    Err(error) => {
-                        self.topic_error(topic, error.into());
-                        continue;
-                    }
-                };
-                rejected_cause = self
-                    .rejected_requests
-                    .lock()
-                    .iter()
-                    .find(|(request, _)| request == &RequestKey::Query(topic.clone(), current))
-                    .map(|(_, cause)| cause.clone());
-                if rejected_cause.is_none() && rejected_at.is_some() {
-                    self.topics
-                        .entry(topic.clone())
-                        .or_default()
-                        .receipt
-                        .rejected_at = None;
-                    self.clear_receipt_failure(&topic);
-                }
-            }
-            if self.receipt(&topic).blocked() && rejected_cause.is_none() {
-                continue;
-            }
             match self.read_due(&topic, &key, now) {
                 Ok(true) => {}
                 Ok(false) => continue,
@@ -993,9 +967,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     self.topic_error(topic, error);
                     continue;
                 }
-            }
-            if self.receipt(&topic).blocked() && rejected_cause.is_none() {
-                continue;
             }
             self.topics
                 .entry(topic.clone())
@@ -1077,6 +1048,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let received = match received {
                 Some(received) => received,
                 None => {
+                    #[cfg(test)]
+                    self.receipt_progress_reads
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let progress = self.context.db().topic_progress(key)?.received;
                     received = Some(progress);
                     progress
@@ -1151,6 +1125,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 return;
             }
         };
+        if self
+            .receipt(&topic)
+            .rejected_at
+            .is_some_and(|old| Some(old) != cursor)
+        {
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .rejected_at = None;
+            self.clear_receipt_failure(&topic);
+        }
         match result {
             Ok(page) => {
                 self.clear_receipt_failure(&topic);
