@@ -889,17 +889,20 @@ describe("structured notification startup failure", () => {
   it.each([
     { kind: "storage", code: "ConnectionError" },
     { kind: "receiver", code: "incoming_storage" },
-  ] as const)("does not retry a native startup $kind failure", async (details) => {
-    const cause = barrierError(details);
-    const streamFunction = vi.fn().mockRejectedValue(cause);
-    const onError = vi.fn();
-    const stream = await createStream(streamFunction, undefined, { onError });
-    await expect(stream.next()).rejects.toBe(cause);
-    await vi.advanceTimersByTimeAsync(600_000);
-    expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
-    expect(streamFunction).toHaveBeenCalledOnce();
-    expect(stream.isDone).toBe(true);
-  });
+  ] as const)(
+    "does not retry a native startup $kind failure",
+    async (details) => {
+      const cause = barrierError(details);
+      const streamFunction = vi.fn().mockRejectedValue(cause);
+      const onError = vi.fn();
+      const stream = await createStream(streamFunction, undefined, { onError });
+      await expect(stream.next()).rejects.toBe(cause);
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(streamFunction).toHaveBeenCalledOnce();
+      expect(stream.isDone).toBe(true);
+    },
+  );
 
   it.each(["none", "sync"] as const)(
     "retains an accepted onValue storage failure across reopen with %s mutation",
