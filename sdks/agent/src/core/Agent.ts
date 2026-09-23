@@ -411,6 +411,34 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
 
   async #setupStreams(generation: number, options?: AgentStreamingOptions) {
     const isCurrent = () => generation === this.#streamGeneration;
+    let conversationsEnded = false;
+    let conversationFailure: Error | undefined;
+    const finishConversations = async () => {
+      if (!isCurrent()) return;
+      if (conversationFailure) {
+        await this.#handleStreamError(
+          new AgentStreamingError(
+            1002,
+            "Error occurred during conversation streaming.",
+            conversationFailure,
+          ),
+          generation,
+        );
+      } else {
+        try {
+          await this.stop();
+        } catch (error) {
+          await this.#runErrorChain(
+            new AgentStreamingError(
+              1002,
+              "Error occurred while closing conversation streams.",
+              error,
+            ),
+            new ClientContext({ client: this.#client }),
+          );
+        }
+      }
+    };
     // Record the open before it can invoke a callback. Cleanup owns its result.
     const openingConversations = Promise.resolve().then(() =>
       this.#client.conversations.stream({
@@ -461,15 +489,19 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
             if (!recovered && isCurrent()) await this.stop();
           }
         },
-        onError: async (error) => {
-          await this.#handleStreamError(
-            new AgentStreamingError(
-              1002,
-              "Error occurred during conversation streaming.",
-              error,
-            ),
-            generation,
-          );
+        onError: (error) => {
+          // Node also reports errors that its notification wrapper will retry.
+          // A terminal report follows onEnd in the same turn.
+          if (isCurrent() && conversationsEnded) conversationFailure = error;
+        },
+        onEnd: () => {
+          if (isCurrent()) {
+            conversationsEnded = true;
+            // Let a same-turn terminal onError provide the original cause.
+            queueMicrotask(() => {
+              void finishConversations().catch(() => undefined);
+            });
+          }
         },
       }),
     );

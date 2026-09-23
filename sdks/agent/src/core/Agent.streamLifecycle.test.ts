@@ -1,9 +1,12 @@
 import { setImmediate } from "node:timers/promises";
 
 import {
+  Conversations as NodeConversations,
+  ConversationType,
   MessageStream,
   type BuiltInContentTypes,
   type Client,
+  type CodecRegistry,
   type DecodedMessage,
   type Group,
   type MessageReaderSource,
@@ -56,6 +59,11 @@ const harness = () => {
   };
 };
 
+const failNotification = (options: ConversationOptions, cause: Error) => {
+  options?.onEnd?.();
+  return Promise.resolve(options?.onError?.(cause));
+};
+
 describe("Agent stream lifecycle", () => {
   it("starts native recovery directly unless the caller requests pre-sync", async () => {
     const h = harness();
@@ -68,6 +76,99 @@ describe("Agent stream lifecycle", () => {
     await h.agent.start({ disableSync: false });
     expect(h.conversations[2]!.options?.disableSync).toBe(false);
     await h.agent.stop();
+  });
+
+  it("keeps the same streams through a retryable notification error", async () => {
+    const h = harness();
+    const callbacks: Array<(error: Error | null, value?: unknown) => void> = [];
+    const closes: Array<() => void> = [];
+    const nativeOpen = vi.fn(
+      async (
+        callback: (error: Error | null, value?: unknown) => void,
+        onClose: () => void,
+      ) => {
+        callbacks.push(callback);
+        closes.push(onClose);
+        return {
+          end: vi.fn(),
+          waitForReady: vi.fn(async () => undefined),
+        };
+      },
+    );
+    const native = {
+      stream: nativeOpen,
+    } as unknown as ConstructorParameters<typeof NodeConversations>[2];
+    const nodeConversations = new NodeConversations(
+      h.client,
+      {} as CodecRegistry,
+      native,
+    );
+    h.stream.mockImplementation(async (options) => {
+      const stream = await nodeConversations.stream(options);
+      const value = {
+        options,
+        end: vi.fn(async () => {
+          await stream.end();
+        }),
+      };
+      h.conversations.push(value);
+      return value;
+    });
+    const started = vi.fn();
+    const received = vi.fn();
+    const unhandled = vi.fn();
+    h.agent.on("start", started);
+    h.agent.on("conversation", received);
+    h.agent.on("unhandledError", unhandled);
+
+    await h.agent.start({ retryDelay: 0 });
+    callbacks[0]!(new Error("retryable notification callback error"));
+    await setImmediate();
+    expect(nativeOpen).toHaveBeenCalledOnce();
+    expect(h.conversations[0]!.end).not.toHaveBeenCalled();
+    expect(h.messages[0]!.end).not.toHaveBeenCalled();
+    expect(unhandled).not.toHaveBeenCalled();
+
+    closes[0]!();
+    await vi.waitFor(() => expect(nativeOpen).toHaveBeenCalledTimes(2));
+    callbacks[1]!(null, {
+      id: () => "recovered-group",
+      groupMetadata: async () => ({
+        conversationType: () => ConversationType.Group,
+      }),
+    });
+    await vi.waitFor(() => expect(received).toHaveBeenCalledOnce());
+    expect(received.mock.calls[0]![0].conversation.id).toBe("recovered-group");
+    expect(started).toHaveBeenCalledOnce();
+    expect(h.stream).toHaveBeenCalledOnce();
+    expect(h.streamAllMessages).toHaveBeenCalledOnce();
+    expect(unhandled).not.toHaveBeenCalled();
+
+    const terminal = new Error(
+      "[LocalDeliveryError::NetworkRecoveryExhausted] budget exhausted",
+    );
+    callbacks[1]!(terminal);
+    await vi.waitFor(() => expect(unhandled).toHaveBeenCalledOnce());
+    expect(unhandled.mock.calls[0]![0].cause).toBe(terminal);
+    expect(h.conversations[0]!.end).toHaveBeenCalledOnce();
+    expect(h.messages[0]!.end).toHaveBeenCalledOnce();
+    expect(started).toHaveBeenCalledOnce();
+    expect(h.stream).toHaveBeenCalledOnce();
+  });
+
+  it("closes both streams after a clean notification end", async () => {
+    const h = harness();
+    const stopped = vi.fn();
+    const unhandled = vi.fn();
+    h.agent.on("stop", stopped);
+    h.agent.on("unhandledError", unhandled);
+    await h.agent.start();
+
+    h.conversations[0]!.options?.onEnd?.();
+    await vi.waitFor(() => expect(stopped).toHaveBeenCalledOnce());
+    expect(h.conversations[0]!.end).toHaveBeenCalledOnce();
+    expect(h.messages[0]!.end).toHaveBeenCalledOnce();
+    expect(unhandled).not.toHaveBeenCalled();
   });
 
   it("reports an immediate native read failure after local readiness and cleanup", async () => {
@@ -132,6 +233,7 @@ describe("Agent stream lifecycle", () => {
           if (remaining > 0) {
             failAfter(remaining - 1);
           } else {
+            options?.onEnd?.();
             void Promise.resolve(options?.onError?.(cause)).catch(
               () => undefined,
             );
@@ -189,9 +291,7 @@ describe("Agent stream lifecycle", () => {
     h.agent.errors.use(handler);
     const opening = h.agent.start();
     await vi.waitFor(() => expect(h.streamAllMessages).toHaveBeenCalledOnce());
-    const failure = Promise.resolve(
-      h.conversations[0]!.options?.onError?.(cause),
-    );
+    const failure = failNotification(h.conversations[0]!.options, cause);
     await setImmediate();
     expect(handler).not.toHaveBeenCalled();
     const old = {
@@ -206,7 +306,7 @@ describe("Agent stream lifecycle", () => {
     expect(handler).not.toHaveBeenCalled();
     closed.resolve();
     await Promise.all([opening, failure]);
-    expect(handler).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
     expect(h.streamAllMessages).toHaveBeenCalledTimes(2);
     expect(h.messages[0]!.end).not.toHaveBeenCalled();
     await h.agent.stop();
@@ -222,12 +322,10 @@ describe("Agent stream lifecycle", () => {
     h.streamAllMessages.mockReturnValueOnce(pending.promise);
     const opening = h.agent.start();
     await vi.waitFor(() => expect(h.streamAllMessages).toHaveBeenCalledOnce());
-    const failure = Promise.resolve(
-      h.conversations[0]!.options?.onError?.(cause),
-    );
+    const failure = failNotification(h.conversations[0]!.options, cause);
     pending.reject(new Error("message open failed later"));
     await Promise.all([opening, failure]);
-    expect(error).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(error).toHaveBeenCalledOnce());
     expect(error.mock.calls[0]![0].cause).toBe(cause);
     await h.agent.stop();
   });
@@ -306,16 +404,18 @@ describe("Agent stream lifecycle", () => {
       });
       await h.agent.start();
       for (let i = 0; i < 2; i++) {
-        await Promise.resolve(
-          h[failed][i]!.options?.onError?.(new Error("budget exhausted")),
-        );
+        const cause = new Error("budget exhausted");
+        await (failed === "conversations"
+          ? failNotification(h.conversations[i]!.options, cause)
+          : Promise.resolve(h.messages[i]!.options?.onError?.(cause)));
         await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(i + 2));
         expect(h.conversations[i]!.end).toHaveBeenCalledOnce();
         expect(h.messages[i]!.end).toHaveBeenCalledOnce();
         // A delayed old error cannot stop or reopen the replacement.
-        await Promise.resolve(
-          h[failed][i]!.options?.onError?.(new Error("late old failure")),
-        );
+        const late = new Error("late old failure");
+        await (failed === "conversations"
+          ? failNotification(h.conversations[i]!.options, late)
+          : Promise.resolve(h.messages[i]!.options?.onError?.(late)));
         expect(h.messages[i + 1]!.end).not.toHaveBeenCalled();
         expect(h.streamAllMessages).toHaveBeenCalledTimes(i + 2);
       }
@@ -360,7 +460,10 @@ describe("Agent stream lifecycle", () => {
       await h.agent.start();
       h.conversations[0]!.end.mockReturnValue(conversationsClosed.promise);
       h.messages[0]!.end.mockReturnValue(messagesClosed.promise);
-      const failure = Promise.resolve(h[failed][0]!.options?.onError?.(cause));
+      const failure =
+        failed === "conversations"
+          ? failNotification(h.conversations[0]!.options, cause)
+          : Promise.resolve(h.messages[0]!.options?.onError?.(cause));
       await vi.waitFor(() => expect(h.messages[0]!.end).toHaveBeenCalledOnce());
       expect(handler).not.toHaveBeenCalled();
       conversationsClosed.resolve();
@@ -368,7 +471,7 @@ describe("Agent stream lifecycle", () => {
       expect(handler).not.toHaveBeenCalled();
       messagesClosed.resolve();
       await failure;
-      expect(handler).toHaveBeenCalledOnce();
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce());
       expect(h.streamAllMessages).toHaveBeenCalledTimes(2);
       expect(h.messages[1]!.end).not.toHaveBeenCalled();
       await h.agent.stop();
