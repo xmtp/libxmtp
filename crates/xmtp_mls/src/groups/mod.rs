@@ -47,7 +47,6 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
     validated_commit::LibXMTPVersion,
 };
-use crate::messages::enrichment::EnrichMessageError;
 use crate::state_tx::state_write;
 use crate::subscriptions::SyncWorkerEvent;
 use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
