@@ -27,6 +27,66 @@ describe("notification fallback budget", () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
+  it("reports a recoverable callback error without ending the wrapper", async () => {
+    const native = harness();
+    const onError = vi.fn();
+    const onEnd = vi.fn();
+    const onFail = vi.fn();
+    const onRestart = vi.fn();
+    const onRetry = vi.fn();
+    const stream = await createStream(native.open, undefined, {
+      retryAttempts: 1,
+      retryDelay: 10,
+      onError,
+      onEnd,
+      onFail,
+      onRestart,
+      onRetry,
+    });
+    const transient = new Error("temporary notification failure");
+    native.last().callback(transient, undefined);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(transient);
+    expect(onEnd).not.toHaveBeenCalled();
+    expect(stream.isDone).toBe(false);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(onFail).not.toHaveBeenCalled();
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(onRestart).not.toHaveBeenCalled();
+    expect(native.open).toHaveBeenCalledTimes(1);
+
+    native.last().close();
+    expect(onFail).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(onRestart).toHaveBeenCalledTimes(1);
+    native.last().callback(null, 42);
+    expect(await stream.next()).toEqual({ done: false, value: 42 });
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onEnd).not.toHaveBeenCalled();
+
+    await stream.end();
+    expect(onEnd).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ends before reporting exhaustion and rejects one pending read", async () => {
+    const native = harness();
+    const events: string[] = [];
+    const stream = await createStream(native.open, undefined, {
+      retryAttempts: 0,
+      onEnd: () => events.push("end"),
+      onError: (error) => {
+        expect(error).toBeInstanceOf(StreamFailedError);
+        events.push("error");
+      },
+    });
+    const pending = stream.next();
+    native.last().close();
+    expect(events).toEqual(["end", "error"]);
+    await expect(pending).rejects.toBeInstanceOf(StreamFailedError);
+    expect(await stream.next()).toEqual({ done: true, value: undefined });
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it("keeps one finite budget across quiet successful replacements", async () => {
     const native = harness();
     const onError = vi.fn();
