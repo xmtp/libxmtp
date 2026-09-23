@@ -393,6 +393,31 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 	}
 
+	/// Count the number of messages in the conversation according to the provided filters
+	public func countMessages(
+		beforeNs: Int64? = nil, afterNs: Int64? = nil, deliveryStatus: MessageDeliveryStatus = .all,
+		excludeContentTypes: [StandardContentType]? = nil,
+		excludeSenderInboxIds: [String]? = nil,
+		insertedAfterNs: Int64? = nil,
+		insertedBeforeNs: Int64? = nil
+	) throws -> Int64 {
+		try ffiConversation.countMessages(
+			opts: FfiListMessagesOptions(
+				sentBeforeNs: beforeNs,
+				sentAfterNs: afterNs,
+				limit: nil,
+				deliveryStatus: deliveryStatus.toFfi(),
+				direction: .descending,
+				contentTypes: nil,
+				excludeContentTypes: excludeContentTypes,
+				excludeSenderInboxIds: excludeSenderInboxIds,
+				sortBy: nil,
+				insertedAfterNs: insertedAfterNs,
+				insertedBeforeNs: insertedBeforeNs
+			)
+		)
+	}
+
 	/// Get messages with enriched metadata automatically included.
 	///
 	/// This method retrieves messages with reactions, replies, and other associated data
