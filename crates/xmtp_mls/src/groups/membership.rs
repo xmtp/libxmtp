@@ -199,13 +199,15 @@ where
         self.ensure_not_paused().await?;
 
         let readd_min_version =
-            LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)?;
+            LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
+                .map_err(super::validated_commit::CommitValidationError::from)?;
         let metadata = self.mutable_metadata()?;
         let group_version = metadata
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
         let group_min_version =
-            LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))?;
+            LibXMTPVersion::parse(group_version.unwrap_or(&"0.0.0".to_string()))
+                .map_err(super::validated_commit::CommitValidationError::from)?;
 
         if readd_min_version > group_min_version {
             self.update_group_min_version(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)

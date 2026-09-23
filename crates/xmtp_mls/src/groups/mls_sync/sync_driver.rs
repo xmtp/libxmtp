@@ -54,7 +54,8 @@ where
             );
             let current_version_str = self.context.version_info().pkg_version();
             let current_version = self.context.version_info().pkg_semver();
-            let required_min_version = LibXMTPVersion::parse(&required_min_version_str)?;
+            let required_min_version = LibXMTPVersion::parse(&required_min_version_str)
+                .map_err(CommitValidationError::from)?;
 
             if required_min_version <= *current_version {
                 tracing::info!(

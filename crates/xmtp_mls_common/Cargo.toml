@@ -19,6 +19,7 @@ openmls_libcrux_crypto.workspace = true
 openmls_traits.workspace = true
 parking_lot.workspace = true
 prost.workspace = true
+semver.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tls_codec.workspace = true

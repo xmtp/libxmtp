@@ -681,7 +681,7 @@ where
     /// `sync_all_welcomes_and_groups` filters out groups with no
     /// new messages on the server.
     pub async fn unstick_paused_groups(&self) -> Result<usize, GroupError> {
-        use crate::groups::validated_commit::LibXMTPVersion;
+        use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
         let paused = self.context.db().get_paused_groups_with_versions()?;
         if paused.is_empty() {

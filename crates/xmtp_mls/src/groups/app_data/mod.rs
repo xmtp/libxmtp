@@ -43,7 +43,7 @@ use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::C
 use self::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
-use crate::groups::validated_commit::LibXMTPVersion;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 #[cfg(any(test, feature = "test-utils"))]
 tokio::task_local! {

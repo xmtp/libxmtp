@@ -12433,6 +12433,7 @@ dependencies = [
  "parking_lot",
  "proptest",
  "prost",
+ "semver 1.0.28",
  "serde",
  "thiserror 2.0.19",
  "tls_codec 0.5.0",
