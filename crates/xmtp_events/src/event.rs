@@ -22,11 +22,12 @@ pub enum EventKind {
     ConversationForkDetected,
     NotificationsFailed,
     ArchiveRestored,
+    ConnectionStateChanged,
     Lagged,
 }
 
 impl EventKind {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 21] = [
         Self::ConversationJoined,
         Self::ConversationRemoved,
         Self::ConversationMembershipChanged,
@@ -46,6 +47,7 @@ impl EventKind {
         Self::ConversationForkDetected,
         Self::NotificationsFailed,
         Self::ArchiveRestored,
+        Self::ConnectionStateChanged,
         Self::Lagged,
     ];
 
@@ -70,6 +72,7 @@ impl EventKind {
             Self::ConversationForkDetected => "conversation.fork_detected",
             Self::NotificationsFailed => "notifications.failed",
             Self::ArchiveRestored => "archive.restored",
+            Self::ConnectionStateChanged => "connection.state_changed",
             Self::Lagged => "lagged",
         }
     }
@@ -225,6 +228,19 @@ pub struct NotificationsFailed {
 pub struct ArchiveRestored {
     pub complete: bool,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectionState {
+    Connecting,
+    Connected,
+    Reconnecting,
+    Failed,
+    Closed,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ConnectionStateChanged {
+    pub previous: ConnectionState,
+    pub current: ConnectionState,
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lagged {
     pub discarded: u64,
@@ -251,6 +267,7 @@ pub enum ClientEvent {
     ConversationForkDetected(GroupRef),
     NotificationsFailed(NotificationsFailed),
     ArchiveRestored(ArchiveRestored),
+    ConnectionStateChanged(ConnectionStateChanged),
     Lagged(Lagged),
 }
 
@@ -276,6 +293,7 @@ impl ClientEvent {
             Self::ConversationForkDetected(_) => EventKind::ConversationForkDetected,
             Self::NotificationsFailed(_) => EventKind::NotificationsFailed,
             Self::ArchiveRestored(_) => EventKind::ArchiveRestored,
+            Self::ConnectionStateChanged(_) => EventKind::ConnectionStateChanged,
             Self::Lagged(_) => EventKind::Lagged,
         }
     }

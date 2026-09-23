@@ -542,6 +542,7 @@ async fn rust_kinds_equal_the_approved_spec_kinds() {
         "conversation.fork_detected",
         "notifications.failed",
         "archive.restored",
+        "connection.state_changed",
         "lagged",
     ];
     let actual: Vec<_> = EventKind::ALL.into_iter().map(EventKind::name).collect();
