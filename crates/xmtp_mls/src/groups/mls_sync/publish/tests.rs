@@ -495,6 +495,10 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     group.key_update().await?;
+    let status_events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageStatusChanged]),
+        Some(10),
+    );
     let oversized = vec![42; xmtp_configuration::BACKEND_DEFAULT_MAX_ENVELOPE_BYTES + 1];
     let failed_id = group.send_message_optimistic(&oversized, Default::default())?;
     let later_id = group.send_message_optimistic(b"after rejected request", Default::default())?;
@@ -505,6 +509,14 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
 
     let failed: StoredGroupMessage = group.context.db().fetch(&failed_id)?.unwrap();
     assert_eq!(failed.delivery_status, DeliveryStatus::Failed);
+    assert!(matches!(
+        status_events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::MessageStatusChanged(change)), ..
+        }] if change.message_id == failed_id
+            && change.previous == xmtp_events::MessageStatus::Unpublished
+            && change.current == xmtp_events::MessageStatus::Failed
+    ));
     let later: StoredGroupMessage = group.context.db().fetch(&later_id)?.unwrap();
     assert!(later.envelope_hash.is_some());
     let rejected = group.context.db().find_group_intents(

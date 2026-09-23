@@ -2,6 +2,7 @@
 
 use super::*;
 
+// verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn process_messages_abort_on_retryable_error() {
     use crate::groups::mls_sync::GroupHeadOutcome;
@@ -45,6 +46,10 @@ async fn process_messages_abort_on_retryable_error() {
     )?;
     let db = bo.context.store().db();
     let received = db.topic_progress(&topic)?.received;
+    let message_events = bo.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageReceived]),
+        Some(10),
+    );
     let crypto_before = bo.context.mls_storage().hash_all()?;
     db.raw_query(|conn| {
         conn.batch_execute(
@@ -63,6 +68,10 @@ async fn process_messages_abort_on_retryable_error() {
         message_count
     );
     assert_eq!(bo.context.mls_storage().hash_all()?, crypto_before);
+    assert!(
+        message_events.drain().is_empty(),
+        "rolled-back emit escaped"
+    );
 
     db.raw_query(|conn| conn.batch_execute("DROP TRIGGER abort_pending_completion"))?;
     let head = db.first_pending_envelope(&topic)?.unwrap();
@@ -88,6 +97,17 @@ async fn process_messages_abort_on_retryable_error() {
         bo_group.find_messages(&MsgQueryArgs::default())?.len(),
         message_count + 2
     );
+    let published = message_events.drain();
+    assert_eq!(published.len(), 2);
+    assert!(published.iter().all(|event| matches!(
+        &event.client,
+        Some(xmtp_events::ClientEvent::MessageReceived(_))
+    )));
+    assert!(matches!(
+        bo_group.process_pending_group_head(None)?,
+        GroupHeadOutcome::Idle
+    ));
+    assert!(message_events.drain().is_empty());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

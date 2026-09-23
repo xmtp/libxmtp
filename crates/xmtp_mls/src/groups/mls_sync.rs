@@ -91,7 +91,9 @@ use xmtp_db::{
     group_message::MsgQueryArgs,
     pending_remove::{PendingRemove, QueryPendingRemove},
 };
+use xmtp_events::{ClientEvent, EventContext, EventWriter};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_common::mls_ext::payload_encryption::{
@@ -139,6 +141,193 @@ mod processing_policy;
 pub mod update_group_membership;
 pub(crate) use processing::GroupHeadOutcome;
 pub(crate) mod publish;
+
+impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    fn emit_message_status_changed(
+        &self,
+        message_id: Vec<u8>,
+        previous: xmtp_events::MessageStatus,
+        current: xmtp_events::MessageStatus,
+        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) {
+        if self.conversation_type.is_virtual() || previous == current {
+            return;
+        }
+        writer.emit_with_context(
+            Some(ClientEvent::MessageStatusChanged(
+                xmtp_events::MessageStatusChanged {
+                    group_id: self.group_id.to_vec(),
+                    message_id,
+                    previous,
+                    current,
+                },
+            )),
+            None,
+            EventContext {
+                dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+                references_own_messages: false,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// Queue the public changes of one applied commit in kind-table order.
+    fn emit_commit_events(
+        &self,
+        commit: &ValidatedCommit,
+        group_active: bool,
+        applied_intent: Option<ID>,
+        storage: &impl XmtpMlsStorageProvider,
+        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        if self.conversation_type.is_virtual() {
+            return Ok(());
+        }
+        let context = EventContext {
+            dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+            references_own_messages: false,
+            ..Default::default()
+        };
+        if !group_active {
+            let left = storage
+                .db()
+                .get_pending_remove_users(&self.group_id)?
+                .contains(&self.context.inbox_id().to_string());
+            writer.emit_with_context(
+                Some(ClientEvent::ConversationRemoved(
+                    xmtp_events::ConversationRemoved {
+                        group_id: self.group_id.to_vec(),
+                        cause: if left {
+                            xmtp_events::RemovalCause::Left
+                        } else {
+                            xmtp_events::RemovalCause::Removed
+                        },
+                    },
+                )),
+                None,
+                context.clone(),
+            );
+        }
+        if !commit.added_inboxes.is_empty() || !commit.removed_inboxes.is_empty() {
+            writer.emit_with_context(
+                Some(ClientEvent::ConversationMembershipChanged(
+                    xmtp_events::MembershipChanged {
+                        group_id: self.group_id.to_vec(),
+                        added_inbox_ids: commit
+                            .added_inboxes
+                            .iter()
+                            .map(|inbox| inbox.inbox_id.clone())
+                            .collect(),
+                        removed_inbox_ids: commit
+                            .removed_inboxes
+                            .iter()
+                            .map(|inbox| inbox.inbox_id.clone())
+                            .collect(),
+                    },
+                )),
+                None,
+                context.clone(),
+            );
+        }
+        let mut changed: Vec<String> = commit
+            .metadata_changes
+            .metadata_field_changes
+            .iter()
+            .map(|field| field.field_name.clone())
+            .collect();
+        for component_id in &commit.metadata_component_ids {
+            let name = match ComponentId::from(*component_id) {
+                ComponentId::COMPONENT_REGISTRY => "COMPONENT_REGISTRY".into(),
+                ComponentId::SUPER_ADMIN_LIST => "SUPER_ADMIN_LIST".into(),
+                ComponentId::ADMIN_LIST => "ADMIN_LIST".into(),
+                ComponentId::GROUP_MEMBERSHIP => "GROUP_MEMBERSHIP".into(),
+                ComponentId::GROUP_NAME => "group_name".into(),
+                ComponentId::GROUP_DESCRIPTION => "description".into(),
+                ComponentId::GROUP_IMAGE_URL => "group_image_url_square".into(),
+                ComponentId::MESSAGE_DISAPPEAR_FROM_NS => "message_disappear_from_ns".into(),
+                ComponentId::MESSAGE_DISAPPEAR_IN_NS => "message_disappear_in_ns".into(),
+                ComponentId::APP_DATA => "app_data".into(),
+                ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION => {
+                    "minimum_supported_protocol_version".into()
+                }
+                ComponentId::COMMIT_LOG_SIGNER => "_commit_log_signer".into(),
+                ComponentId::CONVERSATION_TYPE => "CONVERSATION_TYPE".into(),
+                ComponentId::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
+                ComponentId::DM_MEMBERS => "DM_MEMBERS".into(),
+                ComponentId::ONESHOT_MESSAGE => "ONESHOT_MESSAGE".into(),
+                id => format!("component:{:04x}", id.as_u16()),
+            };
+            if !changed.contains(&name) {
+                changed.push(name);
+            }
+        }
+        if !commit.metadata_changes.admins_added.is_empty()
+            || !commit.metadata_changes.admins_removed.is_empty()
+        {
+            let name = "ADMIN_LIST".to_string();
+            if !changed.contains(&name) {
+                changed.push(name);
+            }
+        }
+        if !commit.metadata_changes.super_admins_added.is_empty()
+            || !commit.metadata_changes.super_admins_removed.is_empty()
+        {
+            let name = "SUPER_ADMIN_LIST".to_string();
+            if !changed.contains(&name) {
+                changed.push(name);
+            }
+        }
+        if commit.permissions_changed {
+            let name = "COMPONENT_REGISTRY".to_string();
+            if !changed.contains(&name) {
+                changed.push(name);
+            }
+        }
+        if !changed.is_empty() {
+            writer.emit_with_context(
+                Some(ClientEvent::ConversationMetadataChanged(
+                    xmtp_events::MetadataChanged {
+                        group_id: self.group_id.to_vec(),
+                        changed,
+                    },
+                )),
+                None,
+                context,
+            );
+        }
+        if !group_active {
+            let db = storage.db();
+            for intent in db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::ToPublish, IntentState::Published]),
+                Some(IntentKind::all().collect()),
+            )? {
+                if Some(intent.id) == applied_intent {
+                    continue;
+                }
+                let message_id = calculate_message_id_for_intent(&intent)?;
+                let previous_status = message_id
+                    .as_ref()
+                    .map(|id| db.get_group_message(id))
+                    .transpose()?
+                    .flatten()
+                    .map(|message| message.delivery_status);
+                db.set_group_intent_error_and_fail_msg(&intent, message_id.clone())?;
+                if previous_status == Some(DeliveryStatus::Unpublished)
+                    && let Some(id) = message_id
+                {
+                    self.emit_message_status_changed(
+                        id,
+                        xmtp_events::MessageStatus::Unpublished,
+                        xmtp_events::MessageStatus::Failed,
+                        writer,
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {

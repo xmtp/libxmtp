@@ -170,6 +170,10 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
     let before = bo_group.epoch_authenticator().await?;
     let db_topic = xmtp_db::incoming_envelope::StreamTopic::group(bo_group.group_id);
     let processed = bo.context.db().topic_progress(&db_topic)?.processed;
+    let paused_events = bo.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationPaused]),
+        Some(10),
+    );
 
     // Alix raises the floor to her own version, which is above bo's.
     // Send-side clamp is satisfied (alix's pkg_version == requested
@@ -227,6 +231,13 @@ async fn test_steady_state_pause_on_min_version_bump_via_app_data_update() {
          the legacy GMM extension is absent, so the dict overlay is the \
          only floor signal the validator can read"
     );
+    assert!(matches!(
+        paused_events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationPaused(change)), ..
+        }] if change.group_id == bo_group.group_id.as_slice()
+            && change.floor == alix_pkg_version
+    ));
 }
 
 /// Downgrade safety: pausing normally happens at the floor-*bump* commit

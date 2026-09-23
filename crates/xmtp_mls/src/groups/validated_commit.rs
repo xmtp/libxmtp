@@ -171,6 +171,7 @@ pub struct ValidatedCommit {
     pub removed_inboxes: Vec<Inbox>,
     pub readded_installations: HashSet<Vec<u8>>,
     pub metadata_changes: MetadataChanges,
+    pub metadata_component_ids: Vec<u16>,
     pub installations_changed: bool,
     pub permissions_changed: bool,
     pub dm_members: Option<DmMembers<String>>,
@@ -462,10 +463,34 @@ impl ValidatedCommit {
             read_post_commit_mutable_metadata(openmls_group, staged_commit, &registry)?;
         let metadata_changes =
             metadata_changes_between(&immutable_metadata, &mutable_metadata, &post_metadata);
-        let permissions_changed = staged_commit.app_data_update_proposals().any(|queued| {
-            let id = queued.app_data_update_proposal().component_id();
-            id == xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16()
-        });
+        let mut proposed_component_ids: Vec<u16> = staged_commit
+            .app_data_update_proposals()
+            .map(|queued| queued.app_data_update_proposal().component_id())
+            .collect();
+        proposed_component_ids.sort_unstable();
+        proposed_component_ids.dedup();
+        let mut metadata_component_ids = Vec::new();
+        for raw_id in proposed_component_ids {
+            let id = xmtp_mls_common::app_data::component_id::ComponentId::from(raw_id);
+            let before = xmtp_mls_common::app_data::component_source::read_from_app_data_dict(
+                id,
+                openmls_group,
+            );
+            let after =
+                xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
+                    id,
+                    openmls_group,
+                    staged_commit,
+                    &registry,
+                )
+                .map_err(GroupMutableMetadataError::from)?;
+            if before != after {
+                metadata_component_ids.push(raw_id);
+            }
+        }
+        let permissions_changed = metadata_component_ids.contains(
+            &xmtp_mls_common::app_data::component_id::ComponentId::COMPONENT_REGISTRY.as_u16(),
+        );
         Ok(Self {
             actor,
             proposers,
@@ -473,6 +498,7 @@ impl ValidatedCommit {
             removed_inboxes,
             readded_installations,
             metadata_changes,
+            metadata_component_ids,
             installations_changed,
             permissions_changed,
             dm_members: immutable_metadata.dm_members.clone(),

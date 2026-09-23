@@ -290,6 +290,17 @@ where
                     processing_error: err,
                 })?;
 
+            self.emit_commit_events(
+                &validated_commit,
+                mls_group.is_active(),
+                Some(intent.id),
+                storage,
+                event_writer,
+            )
+            .map_err(|err| IntentResolutionError {
+                processing_error: err,
+            })?;
+
             // Clean up pending_remove list for removed members
             self.clean_pending_remove_list(storage, &validated_commit.removed_inboxes);
 
@@ -341,6 +352,13 @@ where
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.cursor);
         let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
+        let previous_status = storage
+            .db()
+            .get_group_message(&id)
+            .map_err(|err| IntentResolutionError {
+                processing_error: GroupMessageProcessingError::Storage(err.into()),
+            })?
+            .map(|message| message.delivery_status);
         storage
             .db()
             .set_delivery_status_to_published(
@@ -352,6 +370,14 @@ where
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Storage(err),
             })?;
+        if previous_status == Some(DeliveryStatus::Unpublished) {
+            self.emit_message_status_changed(
+                id.clone(),
+                xmtp_events::MessageStatus::Unpublished,
+                xmtp_events::MessageStatus::Published,
+                event_writer,
+            );
+        }
         self.process_own_leave_request_message(mls_group, storage, &id, event_writer);
         if !self.conversation_type.is_virtual() {
             event_writer.emit(

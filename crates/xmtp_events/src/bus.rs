@@ -39,6 +39,8 @@ pub struct EventContext {
     pub dm_identifier: Option<Vec<u8>>,
     /// The emitter sets this only after checking the stored reference and sender.
     pub references_own_messages: bool,
+    /// Used to decide whether a received message is live when the write commits.
+    pub message_expires_at_ns: Option<i64>,
 }
 
 /// One bus item. A write may carry a public event, an internal fact, or both.
@@ -205,7 +207,7 @@ impl<I> EventBus<I> {
         result
     }
 
-    fn publish(&self, event: EventEnvelope<I>)
+    fn publish(&self, mut event: EventEnvelope<I>)
     where
         I: Clone,
     {
@@ -214,6 +216,17 @@ impl<I> EventBus<I> {
         }
         self.assert_not_dispatching();
         let _dispatch = self.inner.dispatch_lock.lock();
+        if matches!(event.client.as_ref(), Some(ClientEvent::MessageReceived(_)))
+            && event
+                .context
+                .message_expires_at_ns
+                .is_some_and(|expiry| expiry <= xmtp_common::time::now_ns())
+        {
+            event.client = None;
+            if event.internal.is_none() {
+                return;
+            }
+        }
         if let Some(client) = &event.client {
             tracing::debug!(kind = client.kind().name(), "client event emitted");
         }

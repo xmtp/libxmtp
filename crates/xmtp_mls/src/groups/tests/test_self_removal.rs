@@ -258,6 +258,7 @@ async fn test_self_removal() {
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 }
 
+// verifies: EVENT-006, GMOD-031
 #[xmtp_common::test(flavor = "current_thread")]
 async fn test_self_removal_simple() {
     tester!(amal);
@@ -276,6 +277,10 @@ async fn test_self_removal_simple() {
         GroupMembershipState::Pending
     );
 
+    let removed = bola.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationRemoved]),
+        Some(10),
+    );
     bola_group.leave_group().await.unwrap();
 
     // Verify Bola's membership state is PendingRemove after requesting to leave
@@ -289,6 +294,13 @@ async fn test_self_removal_simple() {
     bola_group.sync().await.unwrap();
     xmtp_common::time::sleep(std::time::Duration::from_secs(2)).await;
     assert!(!bola_group.is_active().unwrap());
+    assert!(matches!(
+        removed.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationRemoved(event)), ..
+        }] if event.group_id == bola_group.group_id.as_slice()
+            && event.cause == xmtp_events::RemovalCause::Left
+    ));
     assert_eq!(amal_group.members().await.unwrap().len(), 1);
 
     // Verify Amal's membership state remains Allowed

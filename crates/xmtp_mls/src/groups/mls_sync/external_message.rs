@@ -18,6 +18,57 @@ where
         let was_stored = db.get_group_message(&message.id)?.is_some();
         message.store_or_ignore(&db)?;
         if !was_stored {
+            if !self.conversation_type.is_virtual()
+                && message.kind == GroupMessageKind::Application
+                && message.sender_installation_id != self.context.installation_id().as_slice()
+            {
+                let references_own_messages = if matches!(
+                    (
+                        message.authority_id.as_str(),
+                        message.content_type,
+                        message.version_major
+                    ),
+                    ("xmtp.org", ContentType::Reply, 1) | ("xmtp.org", ContentType::Reaction, 2)
+                ) {
+                    message
+                        .reference_id
+                        .as_ref()
+                        .map(|id| db.get_group_message(id))
+                        .transpose()?
+                        .flatten()
+                        .is_some_and(|target| target.sender_inbox_id == self.context.inbox_id())
+                } else {
+                    false
+                };
+                event_writer.emit_with_context(
+                    Some(xmtp_events::ClientEvent::MessageReceived(
+                        xmtp_events::MessageReceived {
+                            group_id: message.group_id.to_vec(),
+                            message_id: message.id.clone(),
+                            content_type:
+                                xmtp_proto::xmtp::mls::message_contents::EncodedContent::decode(
+                                    message.decrypted_message_bytes.as_slice(),
+                                )
+                                .ok()
+                                .and_then(|content| content.r#type)
+                                .map(|id| {
+                                    xmtp_events::ContentTypeId {
+                                        authority_id: id.authority_id,
+                                        type_id: id.type_id,
+                                        version_major: id.version_major,
+                                    }
+                                }),
+                            sender_inbox_id: message.sender_inbox_id.clone(),
+                        },
+                    )),
+                    None,
+                    xmtp_events::EventContext {
+                        dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+                        references_own_messages,
+                        message_expires_at_ns: message.expire_at_ns,
+                    },
+                );
+            }
             self.emit_pending_deletion_for_message(storage, message, event_writer)?;
         }
         Ok(())
@@ -375,6 +426,14 @@ where
                     envelope_timestamp_ns as u64,
                     *cursor,
                     storage,
+                )?;
+
+                self.emit_commit_events(
+                    &validated_commit,
+                    mls_group.is_active(),
+                    None,
+                    storage,
+                    event_writer,
                 )?;
 
                 // remove left/removed members from the pending_remove list

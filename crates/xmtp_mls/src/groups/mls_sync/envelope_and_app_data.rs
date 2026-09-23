@@ -79,6 +79,7 @@ where
         storage: &impl XmtpMlsStorageProvider,
         envelope: &GroupMessage,
         error: &GroupMessageProcessingError,
+        event_writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let db = storage.db();
         if !group.is_active() {
@@ -241,7 +242,24 @@ where
                 db.set_group_intent_to_publish(intent.id)?;
             } else {
                 Self::record_intent_rejection(&db, &intent, envelope, error)?;
-                db.set_group_intent_error(intent.id)?;
+                let message_id = calculate_message_id_for_intent(&intent)?;
+                let previous_status = message_id
+                    .as_ref()
+                    .map(|id| db.get_group_message(id))
+                    .transpose()?
+                    .flatten()
+                    .map(|message| message.delivery_status);
+                db.set_group_intent_error_and_fail_msg(&intent, message_id.clone())?;
+                if previous_status == Some(DeliveryStatus::Unpublished)
+                    && let Some(id) = message_id
+                {
+                    self.emit_message_status_changed(
+                        id,
+                        xmtp_events::MessageStatus::Unpublished,
+                        xmtp_events::MessageStatus::Failed,
+                        event_writer,
+                    );
+                }
             }
         }
         tracing::warn!(
