@@ -346,8 +346,8 @@ fn validate_only_allowed_proposal_types(
 /// seed's bytes are what the pre-flip state demands; this helper only
 /// decides pause-vs-compare.
 fn bootstrap_floor_exceeding(staged_commit: &StagedCommit, own_version: &str) -> Option<String> {
-    use crate::groups::validated_commit::LibXMTPVersion;
     use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
     let floor_bytes = staged_commit.queued_proposals().find_map(|queued| {
         if let Proposal::AppDataUpdate(p) = queued.proposal()

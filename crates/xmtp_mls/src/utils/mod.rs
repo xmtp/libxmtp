@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::groups::validated_commit::LibXMTPVersion;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 #[cfg(feature = "bench")]
 pub mod bench;

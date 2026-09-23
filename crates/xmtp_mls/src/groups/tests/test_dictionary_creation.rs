@@ -46,7 +46,7 @@ async fn test_group_context_shape_at_creation() {
             assert_eq!(
                 committed_floor_exceeding(
                     mls_group,
-                    &crate::groups::validated_commit::LibXMTPVersion::parse(env!(
+                    &xmtp_mls_common::libxmtp_version::LibXMTPVersion::parse(env!(
                         "CARGO_PKG_VERSION"
                     ))?,
                 ),
@@ -55,7 +55,7 @@ async fn test_group_context_shape_at_creation() {
             assert_eq!(
                 committed_floor_exceeding(
                     mls_group,
-                    &crate::groups::validated_commit::LibXMTPVersion::parse("999.0.0")?,
+                    &xmtp_mls_common::libxmtp_version::LibXMTPVersion::parse("999.0.0")?,
                 ),
                 None,
             );

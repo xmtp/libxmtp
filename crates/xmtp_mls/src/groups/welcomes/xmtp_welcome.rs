@@ -16,8 +16,7 @@ use crate::state_tx::state_write;
 use crate::{
     context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, ValidateGroupMembership, mls_ext::DecryptedWelcome,
-        validate_dm_group, validated_commit::LibXMTPVersion,
+        GroupError, MlsGroup, ValidateGroupMembership, mls_ext::DecryptedWelcome, validate_dm_group,
     },
     intents::ProcessIntentError,
     subscriptions::SyncWorkerEvent,
@@ -39,6 +38,7 @@ use xmtp_db::{
     refresh_state::EntityKind,
 };
 use xmtp_mls_common::group_metadata::extract_group_metadata;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 use crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;

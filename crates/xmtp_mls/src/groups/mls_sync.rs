@@ -7,9 +7,7 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
-    validated_commit::{
-        CommitValidationError, LibXMTPVersion, extract_group_membership, validate_proposal,
-    },
+    validated_commit::{CommitValidationError, extract_group_membership, validate_proposal},
 };
 use crate::{
     client::ClientError,
@@ -96,6 +94,7 @@ use xmtp_db::{
 };
 use xmtp_id::{InboxId, InboxIdRef};
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
 };

@@ -45,7 +45,6 @@ use crate::context::XmtpSharedContext;
 use crate::groups::{
     intents::{QueueIntent, ReaddInstallationsIntentData},
     mls_ext::CommitLogStorer,
-    validated_commit::LibXMTPVersion,
 };
 use crate::state_tx::state_write;
 use crate::subscriptions::SyncWorkerEvent;
@@ -114,6 +113,7 @@ use xmtp_db::{
 use xmtp_db::{group_message::LatestMessageTimeBySender, local_commit_log::LocalCommitLog};
 use xmtp_id::associations::Identifier;
 use xmtp_id::{AsIdRef, InboxId, InboxIdRef};
+use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_common::{
     app_data::components::{
         inbox_id_set::{AdminListComponent, SuperAdminListComponent},

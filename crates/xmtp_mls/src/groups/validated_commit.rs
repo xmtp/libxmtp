@@ -35,6 +35,7 @@ use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_common::{
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
+    libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
 };
 use xmtp_proto::xmtp::{
     identity::MlsCredential,
@@ -363,47 +364,9 @@ impl MetadataFieldChange {
     }
 }
 
-/// Wrapper around [`semver::Version`] used for the
-/// `MIN_SUPPORTED_PROTOCOL_VERSION` floor and related min-version checks.
-///
-/// Delegates parsing and ordering to the [`semver`] crate so behavior
-/// matches the semver 2.0 spec — most importantly:
-///
-/// * Pre-release versions sort *before* the release: `1.0.0-alpha <
-///   1.0.0-beta < 1.0.0`. The previous hand-rolled implementation got
-///   this backwards (`1.0.0 < 1.0.0-alpha`), which would silently
-///   pause clients running release builds against any group floor set
-///   by a caller passing a pre-release string.
-/// * Pre-release identifiers compare numerically when all-digits, so
-///   `rc2 < rc10` instead of lexicographic `rc10 < rc2`.
-/// * Multi-segment pre-release tags like `1.0.0-alpha.1` parse cleanly
-///   instead of failing with `InvalidVersionFormat`.
-/// * Build metadata (after `+`) parses cleanly. Note: the [`semver`]
-///   crate's `Ord` impl deliberately *includes* build metadata for
-///   total-ordering / `Hash` consistency, deviating from semver 2.0
-///   §10 ("build metadata MUST be ignored when determining version
-///   precedence"). Irrelevant in practice — `CARGO_PKG_VERSION` and
-///   the application-facing `update_group_min_version` callers never
-///   pass `+`-suffixed input.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LibXMTPVersion(semver::Version);
-
-impl LibXMTPVersion {
-    pub fn parse(version_str: &str) -> Result<Self, CommitValidationError> {
-        semver::Version::parse(version_str)
-            .map(Self)
-            .map_err(|_| CommitValidationError::InvalidVersionFormat(version_str.to_string()))
-    }
-
-    /// The parsed form. Spec 006 compares a published minimum against this.
-    pub fn semver(&self) -> &semver::Version {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for LibXMTPVersion {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Display::fmt(&self.0, f)
+impl From<InvalidVersionFormat> for CommitValidationError {
+    fn from(error: InvalidVersionFormat) -> Self {
+        Self::InvalidVersionFormat(error.0)
     }
 }
 
