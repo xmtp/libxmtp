@@ -648,11 +648,15 @@ max_group_members = 23
         const WAIT: Duration = Duration::from_secs(10);
         let assert_mismatch = |error: SubscribeError| {
             assert_eq!(error.error_code(), "ClientError::BackendMismatch");
-            let SubscribeError::Configuration(error) = error else {
-                panic!("expected the configuration cause, got {error:?}");
+            let cause = match error {
+                SubscribeError::Configuration(cause)
+                | SubscribeError::LocalDelivery(
+                    crate::subscriptions::local_delivery::LocalDeliveryError::Configuration(cause),
+                ) => cause,
+                error => panic!("expected the configuration cause, got {error:?}"),
             };
             assert!(matches!(
-                *error,
+                *cause,
                 crate::client::ClientError::BackendMismatch { stored, received }
                     if stored == "org.example.elsewhere" && received == "org.example.distinct"
             ));
