@@ -277,7 +277,7 @@ where
 
         tester.sync_welcomes().await;
         if self.stream {
-            tester.stream();
+            tester.stream().await;
         }
 
         if let Some(name) = &self.name {
@@ -349,16 +349,20 @@ where
         TesterBuilder::new().owner(owner).build().await
     }
 
-    fn stream(&mut self) {
-        let handle = FullXmtpClient::stream_all_messages_with_callback(
-            self.client.context.clone(),
-            None,
-            None,
-            |_| {},
-            || {},
-        );
-        let handle = Box::new(handle) as Box<_>;
-        self.stream_handle = Some(handle);
+    async fn stream(&mut self) {
+        let stream = self
+            .client
+            .stream_all_messages_owned(None, None)
+            .await
+            .unwrap();
+        let handle = xmtp_common::spawn(None, async move {
+            futures::pin_mut!(stream);
+            while let Some(message) = stream.next().await {
+                message?;
+            }
+            Ok(())
+        });
+        self.stream_handle = Some(Box::new(handle));
     }
 
     fn provider(&self) -> impl MlsProviderExt + use<'_, Owner> {

@@ -1,19 +1,14 @@
 use super::MlsGroup;
 use crate::{
     context::XmtpSharedContext,
-    subscriptions::{
-        Result, stream_messages::StreamGroupMessages, watchdog::spawn_watchdog_stream,
-    },
+    subscriptions::{Result, stream_messages::StreamGroupMessages},
 };
 use futures::Stream;
 use prost::Message;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
-use xmtp_common::MaybeSend;
-use xmtp_common::StreamHandle;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_proto::api_client::XmtpMlsStreams;
-use xmtp_proto::types::GroupId;
 
 impl<Context> MlsGroup<Context>
 where
@@ -74,52 +69,6 @@ where
     {
         StreamGroupMessages::new_owned(self.context.clone(), vec![self.group_id]).await
     }
-
-    pub fn stream_with_callback(
-        context: Context,
-        group_id: GroupId,
-        callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
-        on_close: impl FnOnce() + MaybeSend + 'static,
-    ) -> impl StreamHandle<StreamOutput = Result<()>>
-    where
-        Context: 'static,
-        Context::ApiClient: XmtpMlsStreams + 'static,
-    {
-        stream_messages_with_callback(
-            context.clone(),
-            vec![group_id].into_iter(),
-            callback,
-            on_close,
-        )
-    }
-}
-
-/// Deliver stored messages for these groups and share ordered network receipt.
-pub(crate) fn stream_messages_with_callback<Context>(
-    context: Context,
-    active_conversations: impl Iterator<Item = GroupId> + MaybeSend + 'static,
-    callback: impl FnMut(Result<StoredGroupMessage>) + MaybeSend + 'static,
-    on_close: impl FnOnce() + MaybeSend + 'static,
-) -> impl StreamHandle<StreamOutput = Result<()>>
-where
-    Context: XmtpSharedContext + 'static,
-    Context::ApiClient: XmtpMlsStreams + 'static,
-    Context::Db: 'static,
-{
-    let cancel = crate::subscriptions::watchdog::StreamCancel::new(&context);
-    let groups: Vec<GroupId> = active_conversations.collect();
-    // Reopening reads saved D. A dropped, unacknowledged item remains available.
-    spawn_watchdog_stream(
-        cancel,
-        "stream_messages",
-        move || {
-            let context = context.clone();
-            let groups = groups.clone();
-            async move { StreamGroupMessages::new_owned(context, groups).await }
-        },
-        callback,
-        on_close,
-    )
 }
 
 #[cfg(test)]

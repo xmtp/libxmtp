@@ -132,16 +132,8 @@ impl Watchdog {
     /// disabled — in which case the stream never trips and behaves exactly as it did before
     /// the watchdog existed.
     ///
-    /// When enabled this is the configured [`idle_timeout`](Self::idle_timeout) field. Tests
-    /// may force a (short) timeout via [`set_test_idle_timeout`] regardless of `enabled`, so
-    /// the stale-trip and reconnect paths can be exercised in seconds without setting env.
+    /// When enabled this is the configured [`idle_timeout`](Self::idle_timeout) field.
     fn idle_timeout(&self) -> Option<Duration> {
-        #[cfg(test)]
-        {
-            if let Some(timeout) = test_overrides::idle_timeout() {
-                return Some(timeout);
-            }
-        }
         self.enabled.then_some(self.idle_timeout)
     }
 
@@ -194,32 +186,6 @@ impl Watchdog {
 
 /// Process-wide watchdog configuration, read from the environment exactly once.
 static WATCHDOG: LazyLock<Watchdog> = LazyLock::new(Watchdog::from_env);
-
-#[cfg(test)]
-pub(crate) use test_overrides::set_idle_timeout as set_test_idle_timeout;
-
-/// Test-only knobs for the watchdog. The override is thread-local, so it only reaches a
-/// spawned stream task when that task runs on the setting thread — i.e. under a
-/// current-thread runtime such as `traced_test!`.
-#[cfg(test)]
-mod test_overrides {
-    use super::Duration;
-    use std::cell::Cell;
-
-    thread_local! {
-        static IDLE_TIMEOUT: Cell<Option<Duration>> = const { Cell::new(None) };
-    }
-
-    pub(crate) fn idle_timeout() -> Option<Duration> {
-        IDLE_TIMEOUT.with(Cell::get)
-    }
-
-    /// Override the watchdog idle timeout on the current thread (`None` restores the
-    /// production default).
-    pub(crate) fn set_idle_timeout(timeout: Option<Duration>) {
-        IDLE_TIMEOUT.with(|t| t.set(timeout));
-    }
-}
 
 /// A factory for the idle-deadline future. Expressed as a trait with a blanket impl —
 /// rather than two `cfg`-gated `Box<dyn Fn .. + Send>` aliases — so the `Send`-or-not split
@@ -422,11 +388,7 @@ pub(crate) fn close_reason<T>(
 /// Spawn a self-healing subscription: [`run_watchdog_stream`] as its own task, with
 /// readiness signaled once the first underlying stream is established.
 ///
-/// This is the single implementation behind `stream_messages_with_callback`,
-/// `stream_conversations_with_callback`, and `stream_all_messages_with_callback`; keeping it
-/// in one place is what stops those three from drifting apart. (The bidi pump's legacy
-/// fallback awaits [`run_watchdog_stream`] inside its own already-spawned task — same
-/// runner, same semantics, no second spawn.)
+/// This runner serves the legacy conversation callback stream.
 pub(crate) fn spawn_watchdog_stream<T, S, Fut, Sub, Cb, Close>(
     cancel: StreamCancel,
     label: &'static str,
