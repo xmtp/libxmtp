@@ -21,18 +21,16 @@ use crate::{
         validated_commit::ValidatedCommit,
     },
     identity::{IdentityError, parse_credential},
-    identity_updates::{IdentityUpdates, load_identity_updates},
+    identity_updates::{IdentityUpdates, load_identity_updates_for_client},
     intents::ProcessIntentError,
     messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
-    subscriptions::SyncWorkerEvent,
     traits::IntoWith,
     utils::{
         hash::sha256,
         id::{calculate_message_id, calculate_message_id_for_intent},
         time::hmac_epoch,
     },
-    worker::WorkerKind,
 };
 use hkdf::Hkdf;
 use hmac::{Hmac, Mac};
@@ -58,7 +56,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     mem::{Discriminant, discriminant},
     ops::RangeInclusive,
     time::Duration,
@@ -79,7 +77,7 @@ use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, StorageError, StoreOrIgnore, TransactionOutcome,
-    group::{ConversationType, StoredGroup},
+    group::ConversationType,
     group_intent::{ID, IntentKind, IntentState, StoredGroupIntent},
     group_message::{ContentType, DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     remote_commit_log::CommitResult,
@@ -492,7 +490,6 @@ pub(crate) struct ProcessedMessageOutcome {
     /// disappearing worker is re-armed *after* the storage transaction commits
     /// (see `process_message`), so the worker's `min_expire_at_ns`
     /// query is guaranteed to observe the newly written `expire_at_ns`.
-    pub(crate) disappearing_message_stored: bool,
     /// Set when processing this message changed the group's `app_data`.
     /// Carried out of the state writer so the host callback can be
     /// awaited after commit; `None` whenever no
@@ -505,7 +502,6 @@ impl ProcessedMessageOutcome {
     fn new(group_active: bool) -> Self {
         Self {
             group_active,
-            disappearing_message_stored: false,
             app_data_change: None,
         }
     }
@@ -924,49 +920,5 @@ pub(crate) mod tests {
             !decode_failure.is_retryable(),
             "wire-format violations must not be retriable"
         );
-    }
-}
-
-/// Collects events that should be sent after database transactions complete
-#[derive(Default)]
-pub struct DeferredEvents {
-    worker_events: VecDeque<SyncWorkerEvent>,
-    /// Workers to wake once the txn commits. Post-commit (not inline) is load-bearing:
-    /// a pre-commit nudge can race a worker's DB read and be lost, parking the work.
-    wake_workers: HashSet<WorkerKind>,
-}
-
-impl DeferredEvents {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn add_worker_event(&mut self, event: SyncWorkerEvent) {
-        self.worker_events.push_back(event);
-    }
-
-    /// Request a post-commit wake of `kind`. Idempotent within a txn.
-    pub fn wake_worker(&mut self, kind: WorkerKind) {
-        self.wake_workers.insert(kind);
-    }
-
-    /// Send all collected events to their respective channels
-    pub fn send_all<Context: XmtpSharedContext>(&mut self, context: &Context) {
-        while let Some(event) = self.worker_events.pop_front() {
-            let _ = context.worker_events().send(event);
-        }
-
-        for kind in self.wake_workers.drain() {
-            // Never nudge a disabled worker — it won't drain the signal.
-            if !context.worker_config().worker_enabled(kind) {
-                continue;
-            }
-            match kind {
-                WorkerKind::DisappearingMessages => context.disappearing_channels().rearm(),
-                WorkerKind::TaskRunner => context.task_channels().wake(),
-                // Other workers have no post-commit wake channel today.
-                _ => {}
-            }
-        }
     }
 }

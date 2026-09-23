@@ -562,3 +562,42 @@ async fn close_ends_reads_and_clears_queued_events() {
     bus.emit(Some(joined(2)), None);
     assert!(sub.drain().is_empty());
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn app_listeners_end_before_internal_listeners() {
+    let bus = EventBus::<()>::new();
+    let app = bus
+        .subscribe_app(EventFilter::new([EventKind::ConversationJoined]))
+        .unwrap();
+    let internal = bus.subscribe(EventFilter::new([EventKind::ConversationJoined]), Some(10));
+    bus.close_app_subscriptions();
+    assert_eq!(app.next().await, None);
+    assert!(
+        bus.subscribe_app(EventFilter::new([EventKind::ConversationJoined]))
+            .is_none()
+    );
+
+    bus.emit(Some(joined(1)), None);
+    assert_eq!(internal.next().await.unwrap().client, Some(joined(1)));
+    bus.close_internal_subscriptions();
+    assert_eq!(internal.next().await, None);
+    assert!(
+        bus.subscribe(EventFilter::new([EventKind::ConversationJoined]), Some(10))
+            .is_closed()
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg(not(target_arch = "wasm32"))]
+async fn concurrent_internal_close_and_subscribe_always_ends_the_listener() {
+    let bus = EventBus::<()>::new();
+    let closer = bus.clone();
+    let close = std::thread::spawn(move || closer.close_internal_subscriptions());
+    let listener = bus.subscribe(EventFilter::new([EventKind::ConversationJoined]), Some(10));
+    close.join().unwrap();
+    assert!(listener.is_closed());
+    assert!(
+        bus.subscribe(EventFilter::new([EventKind::ConversationJoined]), Some(10))
+            .is_closed()
+    );
+}

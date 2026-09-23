@@ -189,7 +189,6 @@ where
 
     /// Apply an own message with the current writer. The caller commits its intent
     /// only after all state changes succeed. Errors leave the trial state unchanged.
-    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn process_own_message(
         &self,
@@ -198,7 +197,6 @@ where
         intent: &StoredGroupIntent,
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
-        disappearing_stored: &mut bool,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
@@ -354,19 +352,18 @@ where
             .map_err(|err| IntentResolutionError {
                 processing_error: GroupMessageProcessingError::Storage(err),
             })?;
-        // Self-sent messages get their `expire_at_ns` filled in here (not at the
-        // incoming-message store site). Signal the caller so it re-arms the
-        // disappearing worker *after* this storage transaction commits — re-arming
-        // inline (pre-commit) would race the worker's `min_expire_at_ns`
-        // read against the not-yet-committed row.
-        if message_expire_at_ns.is_some() {
-            *disappearing_stored = true;
-        }
-        self.process_own_leave_request_message(mls_group, storage, &id);
+        self.process_own_leave_request_message(mls_group, storage, &id, event_writer);
         if !self.conversation_type.is_virtual() {
             event_writer.emit(
                 None,
-                Some(crate::subscriptions::internal::InternalEvent::MessagesStored),
+                Some(
+                    crate::subscriptions::internal::InternalEvent::MessageStored {
+                        group_id: self.group_id,
+                        message_id: id.clone(),
+                        expires_at_ns: message_expire_at_ns,
+                        is_sync: false,
+                    },
+                ),
             );
         }
         Ok(Some(id))

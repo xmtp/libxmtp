@@ -2,9 +2,119 @@ use super::*;
 use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_db::{
     ConnectionExt,
-    consent_record::ConsentState,
+    consent_record::{ConsentState, ConsentType, StoredConsentRecord},
     group::{ConversationType, StoredGroup},
 };
+
+// verifies: EVENT-024, SYNC-020
+#[rstest::rstest]
+#[timeout(std::time::Duration::from_secs(180))]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn thousand_local_consent_changes_publish_once_without_echo() {
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    tester!(alix1, sync_worker);
+    tester!(alix2, from: alix1);
+    alix1.test_has_same_sync_group_as(&alix2).await?;
+    alix1.worker().clear_metric(SyncMetric::ConsentSent);
+    alix2.worker().clear_metric(SyncMetric::ConsentSent);
+    alix2.worker().clear_metric(SyncMetric::ConsentReceived);
+
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    *worker::test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock() = Some((
+        alix1.installation_id.to_vec(),
+        entered.clone(),
+        release.clone(),
+    ));
+    let record = |index| {
+        StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Allowed,
+            format!("consent-burst-{index}"),
+        )
+    };
+    alix1.set_consent_states(&[record(0)]).await?;
+    xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
+    for index in 1..1_000 {
+        alix1.set_consent_states(&[record(index)]).await?;
+    }
+    release.notify_one();
+    xmtp_common::time::timeout(std::time::Duration::from_secs(160), async {
+        while alix1.worker().get(SyncMetric::ConsentSent) < 1_000
+            || alix2.worker().get(SyncMetric::ConsentReceived) < 1_000
+        {
+            xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    })
+    .await?;
+    assert_eq!(alix1.worker().get(SyncMetric::ConsentSent), 1_000);
+    assert_eq!(alix2.worker().get(SyncMetric::ConsentReceived), 1_000);
+    assert_eq!(alix2.worker().get(SyncMetric::ConsentSent), 0);
+}
+
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn failed_preference_publish_is_retried_after_worker_restart() {
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    tester!(alix, sync_worker);
+    alix.client.wait_for_sync_worker_init().await;
+    alix.worker().clear_metric(SyncMetric::ConsentSent);
+    let failed = Arc::new(Notify::new());
+    *worker::test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock() =
+        Some((alix.installation_id.to_vec(), failed.clone()));
+
+    alix.set_consent_states(&[StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "retry-after-failed-publish".into(),
+    )])
+    .await?;
+    xmtp_common::time::timeout(std::time::Duration::from_secs(10), failed.notified()).await?;
+    alix.worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 1);
+}
+
+#[rstest::rstest]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn reconnect_retries_preference_publish_aborted_in_flight() {
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    tester!(alix, persistent_db, sync_worker);
+    alix.client.wait_for_sync_worker_init().await;
+    alix.worker().clear_metric(SyncMetric::ConsentSent);
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    *worker::test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock() = Some((
+        alix.installation_id.to_vec(),
+        entered.clone(),
+        release.clone(),
+    ));
+    alix.set_consent_states(&[StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "reconnect-in-flight-publish".into(),
+    )])
+    .await?;
+    xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
+    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 0);
+    alix.client.reconnect_db()?;
+    alix.worker()
+        .register_interest(SyncMetric::ConsentSent, 1)
+        .wait()
+        .await?;
+    assert_eq!(alix.worker().get(SyncMetric::ConsentSent), 1);
+}
 
 // verifies: SYNC-023
 #[xmtp_common::test(unwrap_try = true)]
@@ -63,12 +173,21 @@ async fn test_hmac_and_consent_preference_sync() {
 
     // Stream consent
     alix1.worker().clear_metric(SyncMetric::ConsentSent);
+    let published = alix1.context.events().subscribe(
+        xmtp_events::EventFilter::default()
+            .with_internal(|event| matches!(event, InternalEvent::SyncMessagePublished)),
+        None,
+    );
     dm.update_consent_state(ConsentState::Denied)?;
     alix1
         .worker()
         .register_interest(SyncMetric::ConsentSent, 1)
         .wait()
         .await?;
+    assert!(matches!(
+        published.next().await.unwrap().internal,
+        Some(InternalEvent::SyncMessagePublished)
+    ));
 
     alix2
         .worker()

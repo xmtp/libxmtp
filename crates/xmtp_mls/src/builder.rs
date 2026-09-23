@@ -17,7 +17,6 @@ use futures::FutureExt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use thiserror::Error;
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use xmtp_api::ApiClientWrapper;
@@ -411,11 +410,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // Fold the legacy single-worker toggles into the unified enable map so
         // there is one source of truth for "is worker X enabled" that code paths
-        // (e.g. the disappearing-message store site) can consult before nudging a
-        // worker's channel. The old fields keep working; they just write here.
+        // when it registers worker subscriptions. The old fields keep working;
+        // they just write here.
         let mut worker_config = worker_config;
         if disable_workers {
-            // Global kill-switch: nothing runs, so mark every worker disabled.
+            // Disable optional workers. The HMAC epoch observer still runs for
+            // every open client.
             for kind in [
                 crate::worker::WorkerKind::DeviceSync,
                 crate::worker::WorkerKind::DisappearingMessages,
@@ -440,7 +440,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
 
         let events = xmtp_events::EventBus::new();
-        let (worker_tx, _) = broadcast::channel(32);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -454,7 +453,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             #[cfg(test)]
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             events,
-            worker_events: worker_tx.clone(),
             device_sync: DeviceSync {
                 mode: device_sync_worker_mode,
             },
@@ -468,8 +466,6 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
             worker_metrics: workers.metrics().clone(),
             task_channels: workers.task_channels().clone(),
-            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
-            ),
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
             delivery_owner: Default::default(),
@@ -547,11 +543,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             }
         }
 
+        // Every open client observes HMAC epoch changes, including clients
+        // that disable the other background workers.
+        workers.register_new_worker::<
+            crate::worker::hmac_epoch::HmacEpochWorker<ContextParts<ApiClient, S, Db>>,
+            _,
+        >(context.clone());
+
         let workers = Arc::new(workers);
 
-        if !disable_workers {
-            workers.spawn(context.clone());
-        }
+        workers.spawn(context.clone());
 
         log_event!(
             Event::ClientCreated,
@@ -975,5 +976,19 @@ mod worker_registration_tests {
             kinds.contains(&WorkerKind::TaskRunner),
             "un-disabled worker must still be registered, got {kinds:?}"
         );
+        let subscriptions = alix.client.workers.subscribed_kinds();
+        assert!(!subscriptions.contains(&WorkerKind::DisappearingMessages));
+        assert!(subscriptions.contains(&WorkerKind::TaskRunner));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    #[cfg_attr(target_arch = "wasm32", ignore)]
+    async fn disabled_optional_workers_keep_the_epoch_observer() {
+        tester!(alix, disable_workers);
+        assert_eq!(
+            alix.client.workers.registered_kinds(),
+            vec![WorkerKind::HmacEpoch]
+        );
+        assert!(alix.client.workers.is_running());
     }
 }

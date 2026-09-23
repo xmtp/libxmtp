@@ -127,8 +127,9 @@ where
         }
         // Subscribe before the first database read. Polling also covers missed and cross-process writes.
         let events = context.events().subscribe(
-            EventFilter::default()
-                .with_internal(|event| matches!(event, InternalEvent::MessagesStored)),
+            EventFilter::default().with_internal(|event| {
+                matches!(event, InternalEvent::MessageStored { is_sync: false, .. })
+            }),
             Some(10),
         );
         let now = now_ns();

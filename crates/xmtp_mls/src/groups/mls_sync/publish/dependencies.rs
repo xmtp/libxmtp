@@ -114,7 +114,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>();
-            load_identity_updates(self.context.api(), &self.context.db(), &inboxes).await?;
+            load_identity_updates_for_client(&self.context, &self.context.db(), &inboxes).await?;
             dependencies.latest_sequence_ids =
                 self.context.db().get_latest_sequence_id(&inboxes)?;
         }

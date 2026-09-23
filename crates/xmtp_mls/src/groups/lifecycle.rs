@@ -420,7 +420,6 @@ where
             stored_group.created_at_ns,
         );
 
-        context.task_channels().wake_notifications();
         Ok(new_group)
     }
 
@@ -462,6 +461,37 @@ where
         let group_config = build_group_config(dictionary)?;
 
         if !emit_created_event || conversation_type.is_virtual() {
+            if emit_created_event && conversation_type == ConversationType::Sync {
+                return crate::state_tx::state_write_with_events(
+                    context.mls_storage(),
+                    context.events(),
+                    |tx, events| {
+                        let (stored_group, created) = Self::insert_group_row(
+                            context,
+                            tx,
+                            existing_group_id,
+                            membership_state,
+                            conversation_type,
+                            &opts,
+                            &group_config,
+                            commit_log_enabled,
+                        )?;
+                        if created {
+                            context.task_channels().mark_notification_changed();
+                            events.emit(
+                                None,
+                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                                    group_id: stored_group.id,
+                                    is_sync: true,
+                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
+                                }),
+                            );
+                        }
+                        Ok::<_, GroupError>(Continue(stored_group))
+                    },
+                )
+                .map(TransactionOutcome::into_continued);
+            }
             return state_write(context.mls_storage(), |tx| {
                 let (stored_group, _) = Self::insert_group_row(
                     context,
@@ -478,7 +508,7 @@ where
             .map(TransactionOutcome::into_continued);
         }
 
-        let (result, consent_changes) = crate::state_tx::state_write_with_events(
+        let result = crate::state_tx::state_write_with_events(
             context.mls_storage(),
             context.events(),
             |tx, events| {
@@ -493,7 +523,7 @@ where
                     commit_log_enabled,
                 )?;
                 if !created {
-                    return Ok::<_, GroupError>(Continue((stored_group, Vec::new())));
+                    return Ok::<_, GroupError>(Continue(stored_group));
                 }
                 let storage = tx.storage();
                 let db = storage.db();
@@ -513,6 +543,7 @@ where
                     crate::subscriptions::internal::PreferenceOrigin::Local,
                     &db,
                 )?;
+                context.task_channels().mark_notification_changed();
                 events.emit(
                     Some(xmtp_events::ClientEvent::ConversationJoined(
                         xmtp_events::ConversationJoined {
@@ -522,24 +553,16 @@ where
                             adder_inbox_id: None,
                         },
                     )),
-                    Some(crate::subscriptions::internal::InternalEvent::GroupJoined(
-                        stored_group.id,
-                    )),
+                    Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                        group_id: stored_group.id,
+                        is_sync: false,
+                        origin: crate::subscriptions::internal::GroupOrigin::Created,
+                    }),
                 );
-                Ok::<_, GroupError>(Continue((stored_group, consent_changes)))
+                Ok::<_, GroupError>(Continue(stored_group))
             },
         )?
         .into_continued();
-        if !consent_changes.is_empty() {
-            let _ = context
-                .worker_events()
-                .send(SyncWorkerEvent::SyncPreferences(
-                    consent_changes
-                        .into_iter()
-                        .map(PreferenceUpdate::Consent)
-                        .collect(),
-                ));
-        }
         Ok(result)
     }
 
@@ -628,9 +651,7 @@ where
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
         let group_config = build_group_config(dictionary)?;
 
-        let (stored_group, created, consent_changes) = if membership_state
-            == GroupMembershipState::Restored
-        {
+        let stored_group = if membership_state == GroupMembershipState::Restored {
             state_write(context.mls_storage(), |tx| {
                 Ok::<_, GroupError>(Continue(Self::insert_dm_row(
                     context,
@@ -644,6 +665,7 @@ where
                 )?))
             })?
             .into_continued()
+            .0
         } else {
             crate::state_tx::state_write_with_events(
                 context.mls_storage(),
@@ -673,6 +695,7 @@ where
                             &db,
                         )?;
                         if existing_group_id.is_none() {
+                            context.task_channels().mark_notification_changed();
                             events.emit(
                                 Some(xmtp_events::ClientEvent::ConversationJoined(
                                     xmtp_events::ConversationJoined {
@@ -682,9 +705,11 @@ where
                                         adder_inbox_id: None,
                                     },
                                 )),
-                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined(
-                                    stored_group.id,
-                                )),
+                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined {
+                                    group_id: stored_group.id,
+                                    is_sync: false,
+                                    origin: crate::subscriptions::internal::GroupOrigin::Created,
+                                }),
                             );
                         }
                     }
@@ -692,6 +717,7 @@ where
                 },
             )?
             .into_continued()
+            .0
         };
         let new_group = Self::new_from_arc(
             context.clone(),
@@ -700,20 +726,6 @@ where
             ConversationType::Dm,
             stored_group.created_at_ns,
         );
-        if created
-            && !consent_changes.is_empty()
-            && membership_state != GroupMembershipState::Restored
-        {
-            context.task_channels().wake_notifications();
-            let _ = context
-                .worker_events()
-                .send(SyncWorkerEvent::SyncPreferences(
-                    consent_changes
-                        .into_iter()
-                        .map(PreferenceUpdate::Consent)
-                        .collect(),
-                ));
-        }
         Ok(new_group)
     }
 

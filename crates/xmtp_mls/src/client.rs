@@ -6,10 +6,13 @@ use crate::{
         welcome_sync::WelcomeService,
     },
     identity::{Identity, IdentityError, parse_credential},
-    identity_updates::{IdentityUpdateError, IdentityUpdates, load_identity_updates},
+    identity_updates::{
+        IdentityUpdateError, IdentityUpdates, load_identity_updates,
+        load_identity_updates_for_client,
+    },
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{
-        LocalEventError, SyncWorkerEvent,
+        LocalEventError,
         internal::{PreferenceOrigin, emit_deleted_messages, emit_preference_updates},
     },
     utils::VersionInfo,
@@ -425,15 +428,20 @@ where
         if self.context.shutdown_complete() {
             return Ok(());
         }
+        self.context.events().close_app_subscriptions();
         self.context.cancellation_token().cancel();
-        self.context.close_message_delivery()?;
+        let delivery_result = self.context.close_message_delivery();
         self.workers.shutdown().await;
-        self.context
+        self.context.events().close_internal_subscriptions();
+        let disconnect_result = self
+            .context
             .db()
             .disconnect()
-            .map_err(xmtp_db::StorageError::from)?;
+            .map_err(xmtp_db::StorageError::from);
+        disconnect_result?;
         self.context.mark_shutdown_complete();
         log_event!(Event::ClientClosed, self.installation_id);
+        delivery_result?;
         Ok(())
     }
 
@@ -618,7 +626,7 @@ where
         let conn = self.context.db();
         let inbox_id = self.inbox_id();
         if refresh_from_network {
-            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
+            load_identity_updates_for_client(&self.context, &conn, &[inbox_id]).await?;
         }
         let identity_service = IdentityUpdates::new(&self.context);
         let state = identity_service
@@ -635,7 +643,7 @@ where
     ) -> Result<Vec<AssociationState>, ClientError> {
         let conn = self.context.db();
         if refresh_from_network {
-            load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
+            load_identity_updates_for_client(&self.context, &conn, &inbox_ids).await?;
         }
         let identity_service = IdentityUpdates::new(&self.context);
         let state = identity_service
@@ -657,7 +665,7 @@ where
     ) -> Result<HashMap<InboxId, u32>, ClientError> {
         let conn = self.context.db();
         if refresh_from_network {
-            load_identity_updates(self.context.api(), &conn, &inbox_ids).await?;
+            load_identity_updates_for_client(&self.context, &conn, &inbox_ids).await?;
         }
         let inbox_id_strs = inbox_ids.to_vec();
         let counts = conn.count_inbox_updates(&inbox_id_strs)?;
@@ -698,7 +706,7 @@ where
 
         // Load the first identity update (creation update) for this inbox if requested
         if refresh_from_network {
-            load_identity_updates(self.context.api(), &conn, &[inbox_id]).await?;
+            load_identity_updates_for_client(&self.context, &conn, &[inbox_id]).await?;
         }
 
         let verifier = self.context.scw_verifier();
@@ -723,7 +731,7 @@ where
             .cloned()
             .collect();
         final_records.reverse();
-        let updates = crate::state_tx::state_write_with_events(
+        crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -731,18 +739,14 @@ where
                 let db = storage.db();
                 let changed = db.insert_or_replace_consent_records(&final_records)?;
                 let updates: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
-                emit_preference_updates(events, updates.clone(), PreferenceOrigin::Local, &db)?;
-                Ok::<_, StorageError>(Continue(updates))
+                if !updates.is_empty() {
+                    self.context.task_channels().mark_notification_changed();
+                }
+                emit_preference_updates(events, updates, PreferenceOrigin::Local, &db)?;
+                Ok::<_, StorageError>(Continue(()))
             },
         )?
         .into_continued();
-        if !updates.is_empty() {
-            self.context.task_channels().wake_notifications();
-            let _ = self
-                .context
-                .worker_events()
-                .send(SyncWorkerEvent::SyncPreferences(updates));
-        }
 
         Ok(())
     }
@@ -1179,6 +1183,32 @@ where
                 "key package publish cursor",
             ))?;
 
+        // Record the state before publication. A conflict retry can load
+        // another installation's update into this database before the final
+        // reload, so the event comparison must start here.
+        let _own_refresh = self
+            .context
+            .identity_resolution_registry()
+            .own_inbox_refresh()
+            .lock()
+            .await;
+        let inbox_id = self.inbox_id().to_string();
+        let previous_sequence = self
+            .context
+            .db()
+            .get_latest_sequence_id(&[inbox_id.as_str()])?
+            .get(&inbox_id)
+            .copied();
+        let before = if previous_sequence.is_some() {
+            Some(
+                self.identity_updates()
+                    .get_association_state(&self.context.db(), &inbox_id, None)
+                    .await?,
+            )
+        } else {
+            None
+        };
+
         // Step 4: Publish identity update (makes installation visible)
         let registration_cursor = crate::identity_updates::publish_with_conflict_retry(
             self.context.api(),
@@ -1189,7 +1219,6 @@ where
         .await?;
 
         // Step 5: Fetch and store in local DB (needed for group operations)
-        let inbox_id = self.inbox_id().to_string();
         retry_async!(
             Retry::default(),
             (async {
@@ -1197,6 +1226,9 @@ where
                     .await
             })
         )?;
+        self.identity_updates()
+            .emit_own_installation_updates(&self.context.db(), &inbox_id, before, previous_sequence)
+            .await?;
 
         // Backend publication order can differ from local generation order.
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {

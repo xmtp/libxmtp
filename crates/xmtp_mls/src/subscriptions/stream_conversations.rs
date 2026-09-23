@@ -105,8 +105,9 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             .check()
             .map_err(|error| super::SubscribeError::Configuration(Box::new(error)))?;
         let events = context.events().subscribe(
-            EventFilter::default()
-                .with_internal(|event| matches!(event, InternalEvent::GroupJoined(_))),
+            EventFilter::default().with_internal(|event| {
+                matches!(event, InternalEvent::GroupJoined { is_sync: false, .. })
+            }),
             Some(10),
         );
         let known = KnownConversations::from_groups(context.db().find_groups(GroupQueryArgs {

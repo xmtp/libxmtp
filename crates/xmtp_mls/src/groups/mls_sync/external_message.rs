@@ -29,7 +29,6 @@ where
         mls_group: &mut OpenMlsGroup,
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
-        deferred_events: &mut DeferredEvents,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
@@ -108,7 +107,6 @@ where
             envelope,
             validated_commit,
             storage,
-            deferred_events,
             event_writer,
         )
     }
@@ -167,10 +165,6 @@ where
 
     /// Process an external message
     /// returns a MessageIdentifier, identifying the message processed if any.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "Task 4 removes deferred worker events"
-    )]
     #[tracing::instrument(level = "trace", skip_all)]
     fn process_external_message(
         &self,
@@ -179,7 +173,6 @@ where
         message_envelope: &GroupMessage,
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
-        deferred_events: &mut DeferredEvents,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let GroupMessage { cursor, .. } = &message_envelope;
@@ -246,46 +239,27 @@ where
                         self.store_external_application_message(storage, &message, event_writer)?;
                         identifier.internal_id(message_id);
 
-                        if storage
-                            .db()
-                            .find_group(&self.group_id)?
-                            .is_some_and(|group| !group.conversation_type.is_virtual())
+                        if let Some(group) = storage.db().find_group(&self.group_id)?
+                            && group.conversation_type != ConversationType::Oneshot
                         {
                             event_writer.emit(
                                 None,
-                                Some(crate::subscriptions::internal::InternalEvent::MessagesStored),
+                                Some(
+                                    crate::subscriptions::internal::InternalEvent::MessageStored {
+                                        group_id: self.group_id,
+                                        message_id: message.id.clone(),
+                                        expires_at_ns: message.expire_at_ns,
+                                        is_sync: group.conversation_type == ConversationType::Sync,
+                                    },
+                                ),
                             );
-                        }
-
-                        // A disappearing message was just persisted with a known
-                        // future deadline; wake the disappearing worker after the
-                        // txn commits so it re-arms its timer to that deadline.
-                        if message.expire_at_ns.is_some() {
-                            deferred_events.wake_worker(WorkerKind::DisappearingMessages);
-                        }
-
-                        // If this message was sent by us on another installation, check if it
-                        // belongs to a sync group, and if it is - notify the worker.
-                        if sender_inbox_id == self.context.inbox_id() {
-                            tracing::info!(
-                                installation_id = hex::encode(self.context.installation_id()),
-                                "new sync group message event"
-                            );
-                            if let Some(StoredGroup {
-                                conversation_type: ConversationType::Sync,
-                                ..
-                            }) = storage.db().find_group(&self.group_id)?
-                            {
-                                // Send this event after the transaction completes
-                                deferred_events.add_worker_event(SyncWorkerEvent::NewSyncGroupMsg);
-                            }
                         }
                         if message.content_type == ContentType::LeaveRequest {
                             self.process_leave_request_message(
                                 mls_group,
                                 storage,
                                 &message,
-                                Some(deferred_events),
+                                event_writer,
                             )?;
                         }
 

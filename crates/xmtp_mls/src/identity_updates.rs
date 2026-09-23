@@ -4,7 +4,6 @@ use crate::{
     context::XmtpSharedContext,
     groups::group_membership::{GroupMembership, MembershipDiff},
     identity::{IdentityError, IdentityExt},
-    subscriptions::SyncWorkerEvent,
 };
 use futures::future::try_join_all;
 use std::collections::{HashMap, HashSet};
@@ -268,9 +267,72 @@ where
         conn: &DbConnection<<Context::Db as XmtpDb>::Connection>,
         inbox_id: InboxIdRef<'a>,
     ) -> Result<AssociationState, ClientError> {
-        load_identity_updates(self.context.api(), conn, &[inbox_id]).await?;
-
+        load_identity_updates_for_client(&self.context, conn, &[inbox_id]).await?;
         self.get_association_state(conn, inbox_id, None).await
+    }
+
+    fn emit_own_installation_changes(
+        &self,
+        inbox_id: InboxIdRef<'_>,
+        before: Option<&AssociationState>,
+        after: &AssociationState,
+    ) {
+        use xmtp_events::{ClientEvent, EventWriter, InstallationRef, InstallationRevoked};
+        if inbox_id != self.context.inbox_id() {
+            return;
+        }
+        let Some(before) = before else {
+            return;
+        };
+        let old: HashSet<_> = before.installation_ids().into_iter().collect();
+        let new: HashSet<_> = after.installation_ids().into_iter().collect();
+        for installation_key in new.difference(&old) {
+            self.context.events().emit(
+                Some(ClientEvent::IdentityOwnInstallationAdded(InstallationRef {
+                    installation_key: installation_key.clone(),
+                })),
+                None,
+            );
+        }
+        for installation_key in old.difference(&new) {
+            self.context.events().emit(
+                Some(ClientEvent::IdentityOwnInstallationRevoked(
+                    InstallationRevoked {
+                        installation_key: installation_key.clone(),
+                        is_this_installation: installation_key.as_slice()
+                            == self.context.installation_id().to_vec().as_slice(),
+                    },
+                )),
+                None,
+            );
+        }
+    }
+
+    pub(crate) async fn emit_own_installation_updates(
+        &self,
+        conn: &impl DbQuery,
+        inbox_id: InboxIdRef<'_>,
+        before: Option<AssociationState>,
+        previous_sequence: Option<i64>,
+    ) -> Result<(), ClientError> {
+        let (Some(mut state), Some(previous_sequence)) = (before, previous_sequence) else {
+            return Ok(());
+        };
+        if inbox_id != self.context.inbox_id() {
+            return Ok(());
+        }
+        let updates = conn.get_identity_updates(inbox_id, None, None)?;
+        for update in updates
+            .into_iter()
+            .filter(|update| update.sequence_id > previous_sequence)
+        {
+            let next = self
+                .get_association_state(conn, inbox_id, Some(update.sequence_id))
+                .await?;
+            self.emit_own_installation_changes(inbox_id, Some(&state), &next);
+            state = next;
+        }
+        Ok(())
     }
 
     /// Get the association state for a given inbox_id up to the (and inclusive of) the `to_sequence_id`
@@ -424,11 +486,6 @@ where
         // the deployment refuses.
         self.context.server_configuration().restrict(&mut result);
 
-        let _ = self
-            .context
-            .worker_events()
-            .send(SyncWorkerEvent::CycleHMAC);
-
         Ok(result)
     }
 
@@ -469,6 +526,31 @@ where
         // A client with a blocked connection publishes no identity update.
         self.context.server_configuration().check()?;
         let inbox_id = signature_request.inbox_id().to_string();
+        let _own_refresh = if inbox_id == self.context.inbox_id() {
+            Some(
+                self.context
+                    .identity_resolution_registry()
+                    .own_inbox_refresh()
+                    .lock()
+                    .await,
+            )
+        } else {
+            None
+        };
+        let previous_sequence = self
+            .context
+            .db()
+            .get_latest_sequence_id(&[inbox_id.as_str()])?
+            .get(&inbox_id)
+            .copied();
+        let before = if previous_sequence.is_some() {
+            Some(
+                self.get_association_state(&self.context.db(), &inbox_id, None)
+                    .await?,
+            )
+        } else {
+            None
+        };
 
         apply_signature_request_with_verifier(
             self.context.api(),
@@ -486,6 +568,14 @@ where
                     .await
             })
         )?;
+
+        self.emit_own_installation_updates(
+            &self.context.db(),
+            &inbox_id,
+            before,
+            previous_sequence,
+        )
+        .await?;
 
         Ok(())
     }
@@ -594,6 +684,45 @@ pub(crate) fn get_installation_diff_local(
         added_installations,
         removed_installations,
     })
+}
+
+/// Load identity updates and report changes to this client's own installations.
+pub(crate) async fn load_identity_updates_for_client<Context: XmtpSharedContext>(
+    context: &Context,
+    conn: &impl DbQuery,
+    inbox_ids: &[&str],
+) -> Result<HashMap<String, Vec<InboxUpdate>>, ClientError> {
+    let own_inbox = context.inbox_id();
+    let includes_own = inbox_ids.contains(&own_inbox);
+    let _own_refresh = if includes_own {
+        Some(
+            context
+                .identity_resolution_registry()
+                .own_inbox_refresh()
+                .lock()
+                .await,
+        )
+    } else {
+        None
+    };
+    let previous_sequence = if includes_own {
+        conn.get_latest_sequence_id(&[own_inbox])?
+            .get(own_inbox)
+            .copied()
+    } else {
+        None
+    };
+    let before = if previous_sequence.is_some() {
+        let verifier = context.scw_verifier();
+        Some(get_association_state_with_verifier(conn, own_inbox, None, &verifier).await?)
+    } else {
+        None
+    };
+    let updates = load_identity_updates(context.api(), conn, inbox_ids).await?;
+    IdentityUpdates::new(context)
+        .emit_own_installation_updates(conn, own_inbox, before, previous_sequence)
+        .await?;
+    Ok(updates)
 }
 
 /// For the given list of `inbox_id`s get all updates from the network that are newer than the last known `sequence_id`,
@@ -1265,6 +1394,7 @@ pub(crate) mod tests {
     #[rstest::rstest]
     #[xmtp_common::test]
     pub async fn revoke_installation() {
+        use xmtp_events::{ClientEvent, EventFilter, EventKind};
         let wallet = generate_local_wallet();
         let client1: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
         let client2: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
@@ -1272,6 +1402,10 @@ pub(crate) mod tests {
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         // Ensure there are two installations on the inbox
         assert_eq!(association_state.installation_ids().len(), 2);
+        let events = client1.context.events().subscribe(
+            EventFilter::new([EventKind::IdentityOwnInstallationRevoked]),
+            Some(10),
+        );
 
         // Now revoke the second client
         let mut revoke_installation_request = client1
@@ -1280,6 +1414,7 @@ pub(crate) mod tests {
             .await
             .unwrap();
         add_wallet_signature(&mut revoke_installation_request, &wallet).await;
+        assert!(events.drain().is_empty());
         client1
             .identity_updates()
             .apply_signature_request(revoke_installation_request)
@@ -1289,6 +1424,87 @@ pub(crate) mod tests {
         // Make sure there is only one installation on the inbox
         let association_state = get_association_state(&client1, client1.inbox_id()).await;
         assert_eq!(association_state.installation_ids().len(), 1);
+        let revoked = events.drain();
+        assert_eq!(revoked.len(), 1);
+        assert!(matches!(&revoked[0].client,
+            Some(ClientEvent::IdentityOwnInstallationRevoked(event))
+                if event.installation_key == client2.installation_public_key()
+                   && !event.is_this_installation));
+    }
+
+    // verifies: EVENT-001
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn direct_own_inbox_refresh_reports_each_installation_transition() {
+        use xmtp_events::{ClientEvent, EventFilter, EventKind};
+        let wallet = generate_local_wallet();
+        let observer: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        observer.inbox_state(false).await?;
+        let events = observer.context.events().subscribe(
+            EventFilter::new([
+                EventKind::IdentityOwnInstallationAdded,
+                EventKind::IdentityOwnInstallationRevoked,
+            ]),
+            Some(10),
+        );
+
+        let transient: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let actor: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        let mut request = actor
+            .identity_updates()
+            .revoke_installations(vec![transient.installation_public_key().to_vec()])
+            .await?;
+        add_wallet_signature(&mut request, &wallet).await;
+        actor
+            .identity_updates()
+            .apply_signature_request(request)
+            .await?;
+
+        observer.inbox_state(true).await?;
+        let changes = events.drain();
+        assert_eq!(changes.len(), 3);
+        assert!(changes.iter().any(|event| matches!(
+            &event.client,
+            Some(ClientEvent::IdentityOwnInstallationAdded(added))
+                if added.installation_key == transient.installation_public_key().to_vec()
+        )));
+        assert!(changes.iter().any(|event| matches!(
+            &event.client,
+            Some(ClientEvent::IdentityOwnInstallationRevoked(revoked))
+                if revoked.installation_key == transient.installation_public_key().to_vec()
+        )));
+        assert!(changes.iter().any(|event| matches!(
+            &event.client,
+            Some(ClientEvent::IdentityOwnInstallationAdded(added))
+                if added.installation_key == actor.installation_public_key().to_vec()
+        )));
+    }
+
+    // verifies: EVENT-001
+    #[rstest::rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn concurrent_own_inbox_refresh_emits_one_addition() {
+        use xmtp_events::{ClientEvent, EventFilter, EventKind};
+
+        let wallet = generate_local_wallet();
+        let observer: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+        observer.inbox_state(false).await?;
+        let events = observer.context.events().subscribe(
+            EventFilter::new([EventKind::IdentityOwnInstallationAdded]),
+            Some(10),
+        );
+        let added: FullXmtpClient = ClientBuilder::new_test_client(&wallet).await;
+
+        let (first, second) = tokio::join!(observer.inbox_state(true), observer.inbox_state(true));
+        first?;
+        second?;
+        let additions = events.drain();
+        assert!(matches!(additions.as_slice(), [event]
+            if matches!(&event.client,
+                Some(ClientEvent::IdentityOwnInstallationAdded(value))
+                    if value.installation_key == added.installation_public_key().to_vec()
+            )
+        ));
     }
 
     #[cfg(not(target_arch = "wasm32"))]

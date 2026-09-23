@@ -9,6 +9,7 @@ use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_db::incoming_envelope::{
     IncomingRetry, QueryIncomingEnvelope, StoredIncomingEnvelope, StreamTopic,
 };
+use xmtp_events::EventWriter;
 use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
@@ -155,7 +156,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let topic = StreamTopic::group(self.group_id);
         let watch_app_data = self.context.change_callbacks().watches_app_data();
-        let mut events = DeferredEvents::new();
         #[cfg(any(test, feature = "test-utils"))]
         let mut own_commit_epoch_conflict = false;
         let result = state_write_with_events(
@@ -187,7 +187,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 group,
                                 storage,
                                 envelope,
-                                &mut events,
                                 event_buffer,
                             )?;
                             if watch_app_data
@@ -210,11 +209,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     })
                 });
                 let error = match attempt {
-                    Ok(Continue(outcome)) => return Ok(Continue(Ok(outcome))),
+                    Ok(Continue(outcome)) => {
+                        if envelope.is_commit() {
+                            self.context.task_channels().mark_notification_changed();
+                            event_buffer.emit(
+                                None,
+                                Some(crate::subscriptions::internal::InternalEvent::NotificationSettingsChanged),
+                            );
+                        }
+                        return Ok(Continue(Ok(outcome)));
+                    }
                     Ok(Rollback) => unreachable!("processing does not request a rollback"),
                     Err(error) => error,
                 };
-                events = DeferredEvents::new();
                 let error = match (&error, missing_reference) {
                     (
                         GroupMessageProcessingError::CommitValidation(
@@ -279,20 +286,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             && matches!(&result, Err(GroupMessageProcessingError::OldEpoch(..)))
         {
             crate::diagnostics::record_own_commit_epoch_conflict();
-        }
-        if let Ok(outcome) = &result {
-            if envelope.is_commit() {
-                self.context.task_channels().wake_notifications();
-            }
-            events.send_all(&self.context);
-            if outcome.disappearing_message_stored
-                && self
-                    .context
-                    .worker_config()
-                    .worker_enabled(WorkerKind::DisappearingMessages)
-            {
-                self.context.disappearing_channels().rearm();
-            }
         }
         result
     }

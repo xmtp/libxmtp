@@ -33,3 +33,7 @@ retries = 0
 [[profile.ci.overrides]]
 filter = 'test(/bidi_fuzz/)'
 retries = 0
+
+[[profile.ci.overrides]]
+filter = 'test(thousand_local_consent_changes_publish_once_without_echo)'
+slow-timeout = "180sec"

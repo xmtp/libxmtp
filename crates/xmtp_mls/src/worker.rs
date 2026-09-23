@@ -1,11 +1,13 @@
 pub mod device_sync;
 pub mod disappearing_messages;
+pub mod hmac_epoch;
 pub mod key_package_maintenance;
 pub mod metrics;
 pub(crate) mod notifications;
 pub mod tasks;
 
 use crate::context::XmtpSharedContext;
+use crate::subscriptions::internal::InternalEvent;
 use device_sync::worker::SyncMetric;
 use futures::future::{AbortHandle, Abortable};
 use futures::{StreamExt, stream::FuturesUnordered};
@@ -20,11 +22,22 @@ use tracing::Instrument;
 use tracing::instrument::Instrumented;
 use xmtp_common::{MaybeSend, MaybeSync, StreamHandle, if_native, if_wasm, time::Duration};
 use xmtp_configuration::WORKER_RESTART_DELAY;
+use xmtp_events::{EventFilter, EventKind, Subscription};
 
 /// Hard cap on how long `WorkerRunner::shutdown` waits for the supervisor
 /// task to drain after cancellation. Anything beyond this gets logged and
 /// the task is allowed to detach — keeps `Client::close` bounded.
 const WORKER_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    type PauseHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
+    pub(crate) static PAUSE_NEXT_SPAWN: parking_lot::Mutex<Option<PauseHook>> =
+        parking_lot::Mutex::new(None);
+}
 
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
 pub enum WorkerKind {
@@ -35,6 +48,64 @@ pub enum WorkerKind {
     TaskRunner,
     /// Re-reads what the backend publishes about itself, hourly.
     ConfigurationRefresh,
+    HmacEpoch,
+}
+
+fn worker_event_filter(kind: WorkerKind) -> Option<(EventFilter<InternalEvent>, Option<usize>)> {
+    use InternalEvent as I;
+    let filter = match kind {
+        WorkerKind::DeviceSync => EventFilter::new([EventKind::IdentityOwnInstallationRevoked])
+            .with_internal(|event| {
+                matches!(
+                    event,
+                    I::GroupJoined {
+                        is_sync: true,
+                        origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
+                        ..
+                    } | I::MessageStored { is_sync: true, .. }
+                        | I::SyncMessagePublished
+                        | I::PreferencesChanged {
+                            origin: crate::subscriptions::internal::PreferenceOrigin::Local,
+                            ..
+                        }
+                )
+            }),
+        WorkerKind::DisappearingMessages => {
+            EventFilter::new([EventKind::ConversationMetadataChanged]).with_internal(|event| {
+                matches!(
+                    event,
+                    I::MessageStored {
+                        expires_at_ns: Some(_),
+                        ..
+                    }
+                )
+            })
+        }
+        WorkerKind::TaskRunner => EventFilter::new([
+            EventKind::ConsentChanged,
+            EventKind::ConversationJoined,
+            EventKind::ConversationRemoved,
+            EventKind::HmacKeysUpdated,
+        ])
+        .with_internal(|event| {
+            matches!(
+                event,
+                I::TaskScheduled
+                    | I::NotificationSettingsChanged
+                    | I::GroupJoined { .. }
+                    | I::PreferencesChanged { .. }
+            )
+        }),
+        _ => return None,
+    };
+    Some((
+        filter,
+        if kind == WorkerKind::DeviceSync {
+            None
+        } else {
+            Some(10)
+        },
+    ))
 }
 
 /// Configuration for the cadence and enablement of background workers.
@@ -103,6 +174,7 @@ pub struct WorkerRunner {
     // outer loop observed the cancellation token. Belt to the token's
     // suspenders for workers that don't yield to cancellation promptly.
     abort_handles: Mutex<Vec<AbortHandle>>,
+    subscriptions: HashMap<WorkerKind, Arc<Subscription<InternalEvent>>>,
 }
 
 impl Default for WorkerRunner {
@@ -119,6 +191,7 @@ impl WorkerRunner {
             task_channels: TaskWorkerChannels::default(),
             handle: Mutex::default(),
             abort_handles: Mutex::default(),
+            subscriptions: HashMap::new(),
         }
     }
 
@@ -150,6 +223,19 @@ impl WorkerRunner {
     pub(crate) fn registered_kinds(&self) -> Vec<WorkerKind> {
         self.factories.iter().map(|f| f.kind()).collect()
     }
+
+    #[cfg(test)]
+    pub(crate) fn subscribed_kinds(&self) -> Vec<WorkerKind> {
+        self.subscriptions.keys().copied().collect()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn subscription_for_test(
+        &self,
+        kind: WorkerKind,
+    ) -> Option<Arc<Subscription<InternalEvent>>> {
+        self.subscriptions.get(&kind).cloned()
+    }
 }
 
 impl WorkerRunner {
@@ -157,7 +243,13 @@ impl WorkerRunner {
     where
         C: XmtpSharedContext + 'static,
     {
+        let events = ctx.events().clone();
         let factory = W::factory(ctx);
+        let kind = factory.kind();
+        if let Some((filter, depth)) = worker_event_filter(kind) {
+            self.subscriptions
+                .insert(kind, Arc::new(events.subscribe(filter, depth)));
+        }
         self.factories.push(Arc::new(factory))
     }
 
@@ -180,7 +272,31 @@ impl WorkerRunner {
             None,
             async move {
                 while !ctx.identity().is_ready() {
-                    xmtp_common::time::sleep(Duration::from_millis(50)).await;
+                    tokio::select! {
+                        () = xmtp_common::time::sleep(Duration::from_millis(50)) => {},
+                        () = cancel.cancelled() => {
+                            this.close_subscriptions();
+                            return;
+                        }
+                    }
+                }
+
+                #[cfg(test)]
+                {
+                    let paused = {
+                        let mut hook = test_hooks::PAUSE_NEXT_SPAWN.lock();
+                        if hook.as_ref().is_some_and(|(installation, _, _)| {
+                            installation.as_slice() == ctx.installation_id().to_vec().as_slice()
+                        }) {
+                            hook.take()
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some((_, entered, release)) = paused {
+                        entered.notify_one();
+                        release.notified().await;
+                    }
                 }
 
                 let mut futs = FuturesUnordered::new();
@@ -188,7 +304,10 @@ impl WorkerRunner {
 
                 for factory in &this.factories {
                     let metric = this.metrics.lock().get(&factory.kind()).cloned();
-                    let (worker, metrics) = factory.create(metric);
+                    let (mut worker, metrics) = factory.create(metric);
+                    if let Some(subscription) = this.subscriptions.get(&factory.kind()) {
+                        worker.set_subscription(subscription.clone());
+                    }
 
                     if let Some(metrics) = metrics {
                         this.metrics.lock().insert(factory.kind(), metrics);
@@ -213,6 +332,9 @@ impl WorkerRunner {
                         Err(_aborted) => tracing::debug!("worker aborted during shutdown"),
                     }
                 }
+                if cancel.is_cancelled() {
+                    this.close_subscriptions();
+                }
             }
             .instrument(tracing::debug_span!("xmtp_worker_supervisor")),
         );
@@ -233,6 +355,7 @@ impl WorkerRunner {
         }
         let mut handle = self.handle.lock().take();
         let Some(handle) = handle.as_mut() else {
+            self.close_subscriptions();
             return;
         };
         match xmtp_common::time::timeout(WORKER_SHUTDOWN_TIMEOUT, handle.end_and_wait()).await {
@@ -242,6 +365,13 @@ impl WorkerRunner {
                 "worker supervisor did not drain within {:?}; abandoning",
                 WORKER_SHUTDOWN_TIMEOUT
             ),
+        }
+        self.close_subscriptions();
+    }
+
+    fn close_subscriptions(&self) {
+        for subscription in self.subscriptions.values() {
+            subscription.close();
         }
     }
 
@@ -269,6 +399,8 @@ if_wasm! {
 #[xmtp_common::async_trait]
 pub trait Worker: MaybeSend + MaybeSync + 'static {
     fn kind(&self) -> WorkerKind;
+
+    fn set_subscription(&mut self, _subscription: Arc<Subscription<InternalEvent>>) {}
 
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>>;
 
@@ -358,6 +490,74 @@ pub trait MetricsCasting {
 impl MetricsCasting for DynMetrics {
     fn as_sync_metrics(&self) -> Option<Arc<WorkerMetrics<SyncMetric>>> {
         self.clone().downcast().ok()
+    }
+}
+
+#[cfg(test)]
+mod event_subscription_tests {
+    use super::*;
+    use crate::subscriptions::internal::{GroupOrigin, PreferenceOrigin};
+    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
+    use xmtp_events::{EventBus, EventWriter};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn device_sync_keeps_all_local_changes_while_busy() {
+        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        assert_eq!(depth, None);
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        for value in 0..1_000 {
+            bus.emit(
+                None,
+                Some(InternalEvent::PreferencesChanged {
+                    updates: vec![PreferenceUpdate::Hmac {
+                        key: vec![value as u8],
+                        cycled_at_ns: value,
+                    }],
+                    origin: PreferenceOrigin::Local,
+                }),
+            );
+        }
+        bus.emit(
+            None,
+            Some(InternalEvent::PreferencesChanged {
+                updates: Vec::new(),
+                origin: PreferenceOrigin::Sync,
+            }),
+        );
+        assert_eq!(subscription.drain().len(), 1_000);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn only_a_welcomed_sync_group_requests_reconciliation() {
+        let (filter, depth) = worker_event_filter(WorkerKind::DeviceSync).unwrap();
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        let group_id = xmtp_proto::types::GroupId::from([9; 16]);
+        bus.emit(
+            None,
+            Some(InternalEvent::GroupJoined {
+                group_id,
+                is_sync: true,
+                origin: GroupOrigin::Created,
+            }),
+        );
+        assert!(subscription.drain().is_empty());
+        bus.emit(
+            None,
+            Some(InternalEvent::GroupJoined {
+                group_id,
+                is_sync: true,
+                origin: GroupOrigin::Welcomed,
+            }),
+        );
+        assert!(matches!(
+            subscription.next().await.unwrap().internal,
+            Some(InternalEvent::GroupJoined {
+                origin: GroupOrigin::Welcomed,
+                ..
+            })
+        ));
     }
 }
 

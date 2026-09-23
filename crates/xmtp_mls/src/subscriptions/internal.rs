@@ -13,13 +13,31 @@ use xmtp_events::{
 
 #[derive(Clone, Debug)]
 pub enum InternalEvent {
-    GroupJoined(GroupId),
-    MessagesStored,
+    GroupJoined {
+        group_id: GroupId,
+        is_sync: bool,
+        origin: GroupOrigin,
+    },
+    MessageStored {
+        group_id: GroupId,
+        message_id: Vec<u8>,
+        expires_at_ns: Option<i64>,
+        is_sync: bool,
+    },
+    SyncMessagePublished,
+    TaskScheduled,
+    NotificationSettingsChanged,
     PreferencesChanged {
         updates: Vec<PreferenceUpdate>,
         origin: PreferenceOrigin,
     },
     MessagesDeleted(Vec<StoredGroupMessage>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GroupOrigin {
+    Created,
+    Welcomed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

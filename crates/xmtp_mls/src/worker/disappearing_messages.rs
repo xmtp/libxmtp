@@ -1,4 +1,5 @@
 use crate::context::XmtpSharedContext;
+use crate::subscriptions::internal::InternalEvent;
 use crate::worker::{BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory};
 use crate::worker::{WorkerKind, WorkerResult};
 use futures::TryFutureExt;
@@ -7,51 +8,12 @@ use std::time::Duration;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
 use xmtp_db::{StorageError, XmtpMlsStorageProvider, prelude::*};
+use xmtp_events::Subscription;
 
 /// Default cap on how long the worker parks between deadline recomputes, used
 /// when [`WorkerConfig`](crate::worker::WorkerConfig) supplies no override. With
-/// the dedicated non-lossy re-arm channel this should never be the trigger in
-/// practice; it bounds the worst case only against a never-emitted or lost
-/// re-arm, and is the sleep when no disappearing messages are scheduled.
+/// the event subscription this is a fallback when no message is scheduled.
 const FALLBACK_INTERVAL: Duration = Duration::from_secs(24 * 3600);
-
-/// Dedicated wake channel for the disappearing-messages worker.
-///
-/// A **capacity-1** mpsc carrying unit `()` "recompute the next expiry deadline"
-/// nudges. Capacity 1 is deliberate: the worker drains and re-queries the DB on
-/// every wake, so a single pending nudge already captures "something changed" —
-/// more would be redundant. It also bounds memory to one slot even when no worker
-/// is consuming the channel (e.g. the disappearing worker is disabled or
-/// `disable_workers` is set), so `rearm()` can never accumulate without bound.
-#[derive(Clone)]
-pub struct DisappearingChannels {
-    sender: tokio::sync::mpsc::Sender<()>,
-    pub receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<()>>>,
-}
-
-impl Default for DisappearingChannels {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DisappearingChannels {
-    pub fn new() -> Self {
-        let (sender, receiver) = tokio::sync::mpsc::channel(1);
-        Self {
-            sender,
-            receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
-        }
-    }
-
-    /// Wake the worker to recompute its next-expiry deadline. Best-effort and
-    /// non-blocking: if a nudge is already queued (slot full) or no worker is
-    /// consuming, the send is dropped — the worker recomputes from the DB on its
-    /// next wake regardless, so a dropped duplicate nudge changes nothing.
-    pub fn rearm(&self) {
-        let _ = self.sender.try_send(());
-    }
-}
 
 #[derive(Debug, Error)]
 pub enum DisappearingMessagesCleanerError {
@@ -71,6 +33,7 @@ impl NeedsDbReconnect for DisappearingMessagesCleanerError {
 
 pub struct DisappearingMessagesWorker<Context> {
     context: Context,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
 }
 
 struct Factory<Context> {
@@ -103,6 +66,10 @@ where
         WorkerKind::DisappearingMessages
     }
 
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
+    }
+
     async fn run_tasks(&mut self) -> WorkerResult<()> {
         self.run().map_err(|e| Box::new(e) as Box<_>).await
     }
@@ -121,7 +88,10 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
-        Self { context }
+        Self {
+            context,
+            subscription: None,
+        }
     }
 }
 
@@ -130,20 +100,21 @@ where
     Context: XmtpSharedContext + 'static,
 {
     /// Event-driven loop: sleep until the soonest message expiry, deleting the
-    /// batch when the deadline arrives. A re-arm signal (sent post-commit when a
-    /// disappearing message is stored) wakes the loop early to recompute the
-    /// deadline. With no disappearing messages scheduled, parks for `FALLBACK_MAX`.
+    /// batch when the deadline arrives. A stored-message fact makes it read the
+    /// next deadline again.
     async fn run(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
         // Resolve the fallback cap (and optional jitter) from WorkerConfig, the
         // same knobs the other workers honor.
         let (fallback, jitter) = self
             .context
             .worker_interval(WorkerKind::DisappearingMessages, FALLBACK_INTERVAL);
-        let receiver = self.context.disappearing_channels().receiver.clone();
-        let mut receiver = receiver.lock().await;
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("runner installs subscription")
+            .clone();
         loop {
-            // Coalesce any pending re-arm signals so we recompute the deadline once.
-            while receiver.try_recv().is_ok() {}
+            subscription.drain();
 
             let next = self
                 .context
@@ -162,8 +133,9 @@ where
             };
 
             tokio::select! {
-                // A disappearing message was stored; loop to recompute the deadline.
-                _ = receiver.recv() => {}
+                event = subscription.next() => {
+                    if event.is_none() { break Ok(()); }
+                }
                 // Deadline reached (or fallback); delete whatever is now expired.
                 () = xmtp_common::time::sleep(dur) => {
                     self.delete_expired_messages().await?;
@@ -207,12 +179,32 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use xmtp_events::{EventBus, EventWriter};
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn rearm_delivers_a_signal() {
-        let ch = DisappearingChannels::new();
-        ch.rearm();
-        let mut rx = ch.receiver.lock().await;
-        assert!(rx.recv().await.is_some());
+    async fn stored_expiring_message_wakes_subscription_after_emit() {
+        let (filter, depth) =
+            crate::worker::worker_event_filter(WorkerKind::DisappearingMessages).unwrap();
+        let bus = EventBus::new();
+        let subscription = bus.subscribe(filter, depth);
+        let group_id = xmtp_proto::types::GroupId::from([7; 16]);
+        bus.emit(
+            None,
+            Some(InternalEvent::MessageStored {
+                group_id,
+                message_id: vec![1],
+                expires_at_ns: Some(now_ns() + 1_000_000),
+                is_sync: false,
+            }),
+        );
+        let event =
+            xmtp_common::time::timeout(Duration::from_millis(100), subscription.next()).await?;
+        assert!(matches!(
+            event.unwrap().internal,
+            Some(InternalEvent::MessageStored {
+                expires_at_ns: Some(_),
+                ..
+            })
+        ));
     }
 }

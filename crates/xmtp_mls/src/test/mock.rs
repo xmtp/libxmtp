@@ -15,7 +15,6 @@ use crate::{
     utils::VersionInfo,
 };
 use mockall::mock;
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_backend::MockBackendClient;
@@ -79,15 +78,12 @@ impl Clone for NewMockContext {
             version_info: self.version_info.clone(),
             server_configuration: self.server_configuration.clone(),
             events: self.events.clone(),
-            worker_events: self.worker_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
             change_callbacks: self.change_callbacks.clone(),
             worker_config: self.worker_config.clone(),
             task_channels: self.task_channels.clone(),
-            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
-            ),
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
@@ -150,10 +146,6 @@ impl XmtpSharedContext for NewMockContext {
         &self.server_configuration
     }
 
-    fn worker_events(&self) -> &broadcast::Sender<crate::subscriptions::SyncWorkerEvent> {
-        &self.worker_events
-    }
-
     fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
         &self.events
     }
@@ -169,10 +161,6 @@ impl XmtpSharedContext for NewMockContext {
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
-    }
-
-    fn disappearing_channels(&self) -> &crate::worker::disappearing_messages::DisappearingChannels {
-        &self.disappearing_channels
     }
 
     fn change_callbacks(&self) -> &crate::groups::change_callbacks::UnstableChangeCallbacks {

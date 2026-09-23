@@ -1,6 +1,8 @@
 //! Exact, verified identity proofs for synchronous MLS state changes.
 
-use super::{get_association_state_with_verifier, load_identity_updates};
+#[cfg(test)]
+use super::load_identity_updates;
+use super::{get_association_state_with_verifier, load_identity_updates_for_client};
 use crate::{client::ClientError, context::XmtpSharedContext};
 use futures::{StreamExt, stream};
 use std::{
@@ -86,9 +88,15 @@ pub struct IdentityResolutionRegistry {
     active: parking_lot::Mutex<HashMap<IdentityRequirement, Weak<Resolution>>>,
     /// One request limit shared by single-proof and batch callers.
     permits: OnceLock<Arc<tokio::sync::Semaphore>>,
+    /// Serializes own-inbox loads and their event emission for one client.
+    own_inbox_refresh: tokio::sync::Mutex<()>,
 }
 
 impl IdentityResolutionRegistry {
+    pub(crate) fn own_inbox_refresh(&self) -> &tokio::sync::Mutex<()> {
+        &self.own_inbox_refresh
+    }
+
     fn permits(&self, limit: usize) -> Arc<tokio::sync::Semaphore> {
         self.permits
             .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(limit)))
@@ -201,7 +209,7 @@ async fn resolve_identity_requirement_with_wait(
             Err(error) => return Err(error),
         }
         // Query uses the primary and returns the complete retained prefix.
-        load_identity_updates(context.api(), &conn, &[requirement.inbox_id.as_str()]).await?;
+        load_identity_updates_for_client(&context, &conn, &[requirement.inbox_id.as_str()]).await?;
         match get_association_state_with_verifier(
             &conn,
             &requirement.inbox_id,

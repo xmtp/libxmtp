@@ -492,8 +492,9 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn sync_group_messages_are_intercepted_not_delivered() {
     use crate::context::XmtpSharedContext;
-    use crate::subscriptions::SyncWorkerEvent;
+    use crate::subscriptions::internal::InternalEvent;
     use xmtp_db::prelude::*;
+    use xmtp_events::EventFilter;
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
@@ -515,7 +516,12 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
         || {},
     );
     handle.wait_for_ready().await;
-    let mut worker_events = alix.client.context.worker_events().subscribe();
+    let sync_events = alix.client.context.events().subscribe(
+        EventFilter::default().with_internal(|event| {
+            matches!(event, InternalEvent::MessageStored { is_sync: true, .. })
+        }),
+        Some(10),
+    );
 
     // Into the sync group first — a leak would arrive ahead of the normal
     // message below.
@@ -533,12 +539,17 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
     // The intercepted message became a worker nudge instead.
     let nudged = tokio::time::timeout(WAIT, async {
         loop {
-            match worker_events.recv().await {
-                Ok(SyncWorkerEvent::NewSyncGroupMsg) => break,
-                Ok(_) => continue,
-                // Lagged is recoverable — keep draining for the nudge.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(e) => panic!("worker events channel closed: {e}"),
+            match sync_events.next().await {
+                Some(event)
+                    if matches!(
+                        event.internal,
+                        Some(InternalEvent::MessageStored { is_sync: true, .. })
+                    ) =>
+                {
+                    break;
+                }
+                Some(_) => continue,
+                None => panic!("worker subscription closed"),
             }
         }
     })
