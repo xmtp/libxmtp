@@ -333,7 +333,7 @@ pub enum BootstrapCommitError<StorageError: std::error::Error> {
     /// decode under the component's own apply rules) — fail loud here
     /// rather than ship a commit with sender/receiver dict divergence.
     #[error("bootstrap precondition: dict apply failed: {0}")]
-    DictApply(#[from] super::component_source::ComponentSourceError),
+    DictApply(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
 }
 
 /// Build and stage the bootstrap migration commit.
@@ -461,13 +461,14 @@ pub fn stage_bootstrap_commit<Provider: OpenMlsProvider>(
     let empty_registry = xmtp_mls_common::app_data::component_registry::ComponentRegistry::new();
     let mut updater = stage.app_data_dictionary_updater();
     for (component_id, wire_bytes) in component_values.iter() {
-        let dict_bytes = super::component_source::apply_app_data_update_payload(
-            *component_id,
-            wire_bytes,
-            None,
-            &empty_registry,
-        )
-        .map_err(BootstrapCommitError::DictApply)?;
+        let dict_bytes =
+            xmtp_mls_common::app_data::component_source::apply_app_data_update_payload(
+                *component_id,
+                wire_bytes,
+                None,
+                &empty_registry,
+            )
+            .map_err(BootstrapCommitError::DictApply)?;
         updater.set(ComponentData::from_parts(
             component_id.as_u16(),
             dict_bytes.into(),

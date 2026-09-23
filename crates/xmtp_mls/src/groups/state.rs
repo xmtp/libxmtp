@@ -203,11 +203,11 @@ where
     /// CREATOR_INBOX_ID, DM_MEMBERS, and ONESHOT_MESSAGE.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
         self.with_group_snapshot(|mls_group| {
-            let seed = self::app_data::component_source::read_group_metadata_from_dict(mls_group)
-                .map_err(MetadataPermissionsError::from)?
-                .ok_or_else(|| {
-                    MetadataPermissionsError::from(GroupMetadataError::MissingExtension)
-                })?;
+            let seed = xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(
+                mls_group,
+            )
+            .map_err(MetadataPermissionsError::from)?
+            .ok_or_else(|| MetadataPermissionsError::from(GroupMetadataError::MissingExtension))?;
             use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
             let proto = GroupMetadataProto {
                 conversation_type: seed.conversation_type,
@@ -242,9 +242,9 @@ where
     ///
     /// The AppData dictionary contains all mutable metadata.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        use self::app_data::component_source::ComponentSourceError;
+        use xmtp_mls_common::app_data::component_source::ComponentSourceError;
         let ctx = self.load_group_context()?;
-        self::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(
+        xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(
             ctx.extensions(),
         )
         .map_err(|e| match e {
@@ -264,9 +264,9 @@ where
     pub(crate) fn mutable_metadata_via_full_load(
         &self,
     ) -> Result<GroupMutableMetadata, GroupError> {
-        use self::app_data::component_source::ComponentSourceError;
+        use xmtp_mls_common::app_data::component_source::ComponentSourceError;
         self.load_mls_group_with_lock(self.context.mls_storage(), |mls_group| {
-            self::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+            xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 &mls_group,
             )
             .map_err(|e| match e {
@@ -290,7 +290,7 @@ where
     /// Capability-aware single-component read.
     ///
     /// Reads the group's `GroupContext` (via [`Self::load_group_context`]),
-    /// then uses the [`self::app_data::typed_facade::MlsGroupAppData`] facade to
+    /// then uses the [`xmtp_mls_common::app_data::typed_facade::MlsGroupAppData`] facade to
     /// read exactly one [`Component`](xmtp_mls_common::app_data::typed::Component)
     /// out of its extensions — avoiding both the full `OpenMlsGroup::load` and
     /// the full `GroupMutableMetadata` composite parse that a naive read would
@@ -305,9 +305,10 @@ where
     where
         C: xmtp_mls_common::app_data::typed::Component,
     {
-        use self::app_data::component_source::ComponentSourceError;
+        use xmtp_mls_common::app_data::component_source::ComponentSourceError;
         let ctx = self.load_group_context()?;
-        let facade = self::app_data::typed_facade::MlsGroupAppData::new(ctx.extensions());
+        let facade =
+            xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(ctx.extensions());
         facade.get::<C>().map_err(|e| match e {
             ComponentSourceError::GroupMutableMetadata(inner) => {
                 GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner))

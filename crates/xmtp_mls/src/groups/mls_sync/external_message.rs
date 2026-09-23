@@ -100,7 +100,7 @@ where
         group: &OpenMlsGroup,
         proposal: &openmls::group::QueuedProposal,
     ) -> Result<(), GroupMessageProcessingError> {
-        if let Some(version) = crate::groups::app_data::committed_floor_exceeding(
+        if let Some(version) = xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding(
             group,
             self.context.version_info().pkg_semver(),
         ) {
@@ -113,13 +113,14 @@ where
                         CommitValidationError::GroupMutablePermissions(error),
                     )
                 })?;
-        let seed = crate::groups::app_data::component_source::read_group_metadata_from_dict(group)
-            .map_err(CommitValidationError::installed_state)?
-            .ok_or_else(|| {
-                CommitValidationError::installed_state(
-                    xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
-                )
-            })?;
+        let seed =
+            xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)
+                .map_err(CommitValidationError::installed_state)?
+                .ok_or_else(|| {
+                    CommitValidationError::installed_state(
+                        xmtp_mls_common::group_metadata::GroupMetadataError::MissingExtension,
+                    )
+                })?;
         let immutable = xmtp_mls_common::group_metadata::GroupMetadata::try_from(
             xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
                 conversation_type: seed.conversation_type,
@@ -131,7 +132,7 @@ where
         )
         .map_err(CommitValidationError::installed_state)?;
         let mutable =
-            crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+            xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 group,
             )
             .map_err(|error| {

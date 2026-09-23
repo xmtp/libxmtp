@@ -467,12 +467,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // Publish a standalone AppDataUpdate proposal followed by a
                 // commit that references it. Both wire messages go in one
                 // publish batch, with the proposal first.
-                use crate::groups::app_data::{
-                    component_source::{
-                        ComponentMutation, ComponentSourceError, encode_app_data_update_payload,
-                        metadata_field_to_component_id,
-                    },
-                    stage_app_data_propose_and_commit,
+                use crate::groups::app_data::stage_app_data_propose_and_commit;
+                use xmtp_mls_common::app_data::component_source::{
+                    ComponentMutation, ComponentSourceError, encode_app_data_update_payload,
+                    metadata_field_to_component_id,
                 };
 
                 let component_id = metadata_field_to_component_id(&metadata_intent.field_name)

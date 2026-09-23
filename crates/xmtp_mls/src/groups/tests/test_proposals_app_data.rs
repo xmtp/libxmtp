@@ -820,9 +820,10 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
 /// several AppDataUpdate proposals in one batch.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_accumulate_app_data_updates_chains_intra_batch() {
-    use crate::groups::app_data::{accumulate_app_data_updates, component_source};
+    use crate::groups::app_data::accumulate_app_data_updates;
     use openmls::messages::proposals::AppDataUpdateOperation;
     use tls_codec::Deserialize;
+    use xmtp_mls_common::app_data::component_source;
     use xmtp_mls_common::{
         app_data::component_id::ComponentId, inbox_id::InboxId, tls_set::TlsSet,
     };

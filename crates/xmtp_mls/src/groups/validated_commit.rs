@@ -136,7 +136,7 @@ pub enum CommitValidationError {
     /// rejected rather than silently downgraded to "empty registry"
     /// (which would let a permissive validator state slip in).
     #[error(transparent)]
-    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
 
     /// All bootstrap-commit-validator failures. The bootstrap path runs
     /// only during the one-time AppData migration; isolating its many
@@ -464,10 +464,12 @@ impl ValidatedCommit {
         // post-policy check at the end of this function, after its
         // super-admin permission has been verified. See
         // `committed_floor_exceeding` for the full rationale.
-        if let Some(min_version) = super::app_data::committed_floor_exceeding(
-            openmls_group,
-            context.version_info().pkg_semver(),
-        ) {
+        if let Some(min_version) =
+            xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding(
+                openmls_group,
+                context.version_info().pkg_semver(),
+            )
+        {
             return Err(CommitValidationError::ProtocolVersionTooLow(min_version));
         }
         if staged_commit
@@ -495,7 +497,7 @@ impl ValidatedCommit {
         let registry = super::app_data::load_component_registry(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
         let min_version_bytes =
-                super::app_data::component_source::read_post_commit_component_bytes(
+                xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
                     xmtp_mls_common::app_data::component_id::ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION,
                     openmls_group,
                     staged_commit,
@@ -881,12 +883,14 @@ fn read_post_commit_mutable_metadata(
         .map(|(_, id)| *id)
         .chain([ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST])
     {
-        if let Some(bytes) = super::app_data::component_source::read_post_commit_component_bytes(
-            id,
-            group,
-            staged_commit,
-            registry,
-        )? {
+        if let Some(bytes) =
+            xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
+                id,
+                group,
+                staged_commit,
+                registry,
+            )?
+        {
             dictionary.insert(id.as_u16(), bytes);
         }
     }
@@ -902,7 +906,7 @@ fn read_post_commit_mutable_metadata(
 fn read_committed_metadata(
     group: &OpenMlsGroup,
 ) -> Result<(GroupMetadata, GroupMutableMetadata), CommitValidationError> {
-    let seed = super::app_data::component_source::read_group_metadata_from_dict(group)?
+    let seed = xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)?
         .ok_or(GroupMetadataError::MissingExtension)?;
     let immutable =
         GroupMetadata::try_from(xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 {
@@ -913,7 +917,10 @@ fn read_committed_metadata(
             oneshot_message: seed.oneshot,
         })?;
     let mut mutable = GroupMutableMetadata::new(HashMap::new(), Vec::new(), Vec::new());
-    super::app_data::component_source::merge_app_data_into_mutable_metadata(&mut mutable, group)?;
+    xmtp_mls_common::app_data::component_source::merge_app_data_into_mutable_metadata(
+        &mut mutable,
+        group,
+    )?;
     Ok((immutable, mutable))
 }
 
@@ -1190,7 +1197,7 @@ fn validate_one_app_data_update(
     openmls_group: &OpenMlsGroup,
     dm_members: Option<&DmMembers<String>>,
 ) -> Result<(), CommitValidationError> {
-    use super::app_data::component_source::read_from_app_data_dict;
+    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
 
     // Pull the pre-commit stored bytes for this component so the expansion
     // step can resolve `RemoveByHash` mutations back to the concrete
@@ -1355,7 +1362,8 @@ pub(super) fn validate_one_app_data_update_with_old_value(
         component
             .expand_to_changes(operation, old_value)
             .map_err(|e| {
-                let wrapped = super::app_data::component_source::ComponentSourceError::from(e);
+                let wrapped =
+                    xmtp_mls_common::app_data::component_source::ComponentSourceError::from(e);
                 tracing::warn!(
                     proposer_inbox_id,
                     component_id = %component_id,
@@ -1365,7 +1373,7 @@ pub(super) fn validate_one_app_data_update_with_old_value(
                 CommitValidationError::InsufficientPermissions
             })?
     } else {
-        match super::app_data::component_source::expand_app_data_update_to_changes(
+        match xmtp_mls_common::app_data::component_source::expand_app_data_update_to_changes(
             component_id,
             operation,
             old_value,
@@ -1521,8 +1529,8 @@ fn validate_app_data_update_proposals_in_commit(
     mutable_metadata: &GroupMutableMetadata,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
 ) -> Result<(), CommitValidationError> {
-    use super::app_data::component_source::read_from_app_data_dict;
     use std::collections::HashMap;
+    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
     use xmtp_mls_common::app_data::{
         component_id::ComponentId, registry_table::lookup_component, validation::ActorAuthority,
     };
@@ -1647,13 +1655,14 @@ pub(super) fn extract_commit_participant(
 pub fn extract_group_membership(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMembership, CommitValidationError> {
-    let proto = super::app_data::component_source::read_group_membership_from_dict(extensions)
-        .map_err(|e| {
-            CommitValidationError::GroupMutableMetadata(
-                xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
-            )
-        })?
-        .ok_or(CommitValidationError::MissingGroupMembership)?;
+    let proto =
+        xmtp_mls_common::app_data::component_source::read_group_membership_from_dict(extensions)
+            .map_err(|e| {
+                CommitValidationError::GroupMutableMetadata(
+                    xmtp_mls_common::group_mutable_metadata::GroupMutableMetadataError::from(e),
+                )
+            })?
+            .ok_or(CommitValidationError::MissingGroupMembership)?;
     Ok(GroupMembership {
         members: proto.members,
         failed_installations: proto.failed_installations,

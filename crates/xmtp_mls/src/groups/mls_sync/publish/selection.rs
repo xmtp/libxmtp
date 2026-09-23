@@ -1,12 +1,12 @@
 //! Select pending membership proposals for one outgoing commit.
 
 use super::*;
-use crate::groups::app_data::component_source::{ComponentSourceError, read_from_app_data_dict};
 use crate::groups::group_permissions::MembershipPolicy;
 use openmls::group::QueuedProposal;
 use openmls::messages::proposals::AppDataUpdateOperation;
 use tls_codec::{Deserialize, VLBytes};
 use xmtp_id::key_package::VerifiedKeyPackageV2;
+use xmtp_mls_common::app_data::component_source::{ComponentSourceError, read_from_app_data_dict};
 use xmtp_mls_common::app_data::{
     component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
     typed::Component,
@@ -70,9 +70,10 @@ impl SelectionRequirements {
         let policies =
             crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())
                 .map_err(CommitValidationError::GroupMutablePermissions)?;
-        let seed = crate::groups::app_data::component_source::read_group_metadata_from_dict(group)?
-            .ok_or(GroupError::InvalidGroupMembership)?;
-        let mutable = crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware(group)?;
+        let seed =
+            xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)?
+                .ok_or(GroupError::InvalidGroupMembership)?;
+        let mutable = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(group)?;
         let member = group
             .member_at(group.own_leaf_index())
             .ok_or(GroupError::InvalidGroupMembership)?;
