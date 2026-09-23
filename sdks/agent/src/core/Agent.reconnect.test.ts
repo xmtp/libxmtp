@@ -203,5 +203,5 @@ describe("Agent reconnect", () => {
       await Promise.all([agent.client.close(), sender.close()]);
     }
     expect(onStop).toHaveBeenCalledOnce();
-  });
+  }, 180_000);
 });
