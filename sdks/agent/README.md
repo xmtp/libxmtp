@@ -52,7 +52,14 @@ await agent.start();
 ## Environment Variables
 
 `Agent.create` requires `backendUrl`. `env` only sets the default database file label.
-Native streams stay open during retryable network faults and resume in order.
+Native streams stay open during retryable network faults within a finite recovery
+budget. Exhaustion or a storage failure ends the current streams and reports an
+error. The caller can call `start()` again on the same client for a fresh budget.
+
+`start()` opens native streams without a separate network sync. Its
+`start` event means the local stream pumps are ready; the network can still be
+offline. Groups already stored locally do not produce conversation events. A
+pending Welcome produces an event when its group is first discovered.
 
 The XMTP Agent SDK supports configuration through environment variables (`process.env`), making it easy to configure your agent without code changes. Set the following variables and call `Agent.createFromEnv()` to automatically load them:
 

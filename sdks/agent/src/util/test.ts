@@ -40,6 +40,47 @@ export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   });
 };
 
+export const createConversationAndWait = async <
+  ContentTypes,
+  Created extends { id: string },
+>(
+  recipient: Client<ContentTypes>,
+  create: () => Promise<Created>,
+) => {
+  let reportError!: (failure: { error: Error }) => void;
+  const streamError = new Promise<{ error: Error }>((resolve) => {
+    reportError = resolve;
+  });
+  // Subscribe before creation so the new Welcome is observed.
+  const stream = await recipient.conversations.stream({
+    retryOnFail: false,
+    onError: (error) => reportError({ error }),
+  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const created = await create();
+    const arrival = (async () => {
+      for await (const received of stream) {
+        if (received.id === created.id) return { received };
+      }
+      throw new Error(`Conversation stream ended before ${created.id} arrived`);
+    })();
+    const timeout = new Promise<{ error: Error }>((resolve) => {
+      timer = setTimeout(() => {
+        resolve({
+          error: new Error(`Conversation ${created.id} did not arrive in 30s`),
+        });
+      }, 30_000);
+    });
+    const result = await Promise.race([arrival, streamError, timeout]);
+    if ("error" in result) throw result.error;
+    return { created, received: result.received };
+  } finally {
+    clearTimeout(timer);
+    await stream.end();
+  }
+};
+
 export const ContentTypeTest: ContentTypeId = {
   authorityId: "xmtp.org",
   typeId: "test",

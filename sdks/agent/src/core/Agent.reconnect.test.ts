@@ -1,6 +1,7 @@
 import { setTimeout } from "node:timers/promises";
 
-import { describe, expect, it, vi } from "vitest";
+import { flushTelemetry, LogLevel } from "@xmtp/node-sdk";
+import { afterAll, describe, expect, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
 import { createSigner, createUser } from "@/user/User";
@@ -12,6 +13,11 @@ const PROXY_NAME = "backend";
 const TOXIPROXY_API = process.env.XMTP_TOXIPROXY_API ?? "http://localhost:8474";
 const TOXIC_BACKEND_URL =
   process.env.XMTP_BACKEND_TOXIC_URL ?? "http://localhost:6010";
+
+const traceEndpoint = process.env.XMTP_RECOVERY_TRACE_ENDPOINT;
+afterAll(() => {
+  if (traceEndpoint) flushTelemetry();
+});
 
 const DELIVERY_WAIT = { timeout: 30_000, interval: 100 };
 // The transport can wait 30 seconds plus up to 30 seconds of jitter before
@@ -61,6 +67,19 @@ export async function createToxicAgent() {
     env: "local",
     dbPath: null,
     disableDeviceSync: true,
+    ...(traceEndpoint
+      ? {
+          loggingLevel: LogLevel.Info,
+          stdoutLoggingLevel: LogLevel.Off,
+          otelEndpoint: traceEndpoint,
+          otelServiceName: "xmtp-agent-recovery",
+          otelSampleRatio: 1,
+          resourceAttributes: {
+            "xmtp.recovery.run":
+              process.env.XMTP_RECOVERY_TRACE_RUN ?? "agent-recovery",
+          },
+        }
+      : {}),
   });
 }
 
@@ -121,7 +140,7 @@ describe("Agent reconnect", () => {
     },
   );
 
-  it("starts offline and receives and replies after recovery", async () => {
+  it("starts offline and receives and replies after recovery on the same streams", async () => {
     const agent = await createToxicAgent();
     const sender = await createClient();
     const receivedIds: string[] = [];
@@ -129,41 +148,53 @@ describe("Agent reconnect", () => {
     let replyStream:
       | Awaited<ReturnType<typeof sender.conversations.streamAllMessages>>
       | undefined;
+    const conversations: string[] = [];
+    const onError = vi.fn();
     const onStart = vi.fn();
     const onStop = vi.fn();
+    agent.on("unhandledError", onError);
     agent.on("start", onStart);
     agent.on("stop", onStop);
-    agent.on("text", ({ message }) => {
-      receivedIds.push(message.id);
-    });
+    agent.on("conversation", ({ conversation }) =>
+      conversations.push(conversation.id),
+    );
+    agent.on("text", ({ message }) => receivedIds.push(message.id));
     try {
       replyStream = await sender.conversations.streamAllMessages({
         onValue: (message) => {
           replies.push(message.id);
         },
       });
+      const known = await agent.client.conversations.createGroup([]);
       await enableBackend(false);
       const group = await sender.conversations.createGroup([
         agent.client.inboxId,
       ]);
-      const messageId = await group.sendText("during startup outage");
+      const missedId = await group.sendText("during startup outage");
       await agent.start();
-      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(onStart).toHaveBeenCalledOnce();
       await setTimeout(5_000);
       expect(receivedIds).toEqual([]);
+      expect(conversations).toEqual([]);
+      expect(onError).not.toHaveBeenCalled();
       await enableBackend(true);
-      await expect.poll(() => receivedIds, RECOVERY_WAIT).toEqual([messageId]);
+
+      await expect.poll(() => receivedIds, RECOVERY_WAIT).toEqual([missedId]);
+      await expect.poll(() => conversations, DELIVERY_WAIT).toEqual([group.id]);
+      expect(conversations).not.toContain(known.id);
       const afterId = await group.sendText("after startup recovery");
       await expect
         .poll(() => receivedIds, DELIVERY_WAIT)
-        .toEqual([messageId, afterId]);
+        .toEqual([missedId, afterId]);
       const recovered = await agent.client.conversations.getConversationById(
         group.id,
       );
       expect(recovered).toBeDefined();
       const replyId = await recovered!.sendText("startup recovery reply");
       await expect.poll(() => replies, DELIVERY_WAIT).toContain(replyId);
-      expect(onStart).toHaveBeenCalledTimes(1);
+      expect(conversations).toEqual([group.id]);
+      expect(onError).not.toHaveBeenCalled();
+      expect(onStart).toHaveBeenCalledOnce();
       expect(onStop).not.toHaveBeenCalled();
     } finally {
       await enableBackend(true);
@@ -171,6 +202,6 @@ describe("Agent reconnect", () => {
       await replyStream?.end();
       await Promise.all([agent.client.close(), sender.close()]);
     }
-    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledOnce();
   }, 180_000);
 });
