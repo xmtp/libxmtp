@@ -1,12 +1,11 @@
 //! Group state stored in the OpenMLS AppData dictionary.
 //!
 //! This module is the bridge between the per-field intent handlers in
-//! `mls_sync` and the OpenMLS app data dictionary. It is intentionally
-//! `pub(crate)` — there is no public API for reading or writing arbitrary
-//! components. The existing per-field helpers (`update_group_name`,
-//! `update_admin_list_action`, …) keep their signatures and route through
-//! the appropriate sub-module here. The component codec itself lives in
-//! `xmtp_mls_common::app_data::component_source`.
+//! `mls_sync` and the OpenMLS app data dictionary. The existing per-field
+//! helpers (`update_group_name`, `update_admin_list_action`, …) keep their
+//! signatures and route through the appropriate sub-module here. The
+//! component codec lives in `xmtp_mls_common::app_data::component_source`;
+//! its helpers transform bytes and do not change a group by themselves.
 
 #[allow(
     dead_code,

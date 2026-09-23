@@ -275,10 +275,7 @@ pub fn component_type(id: ComponentId) -> Option<ComponentType> {
     }
 }
 
-/// Re-export of the `MetadataField` ↔ `ComponentId` bijection, moved
-/// to `xmtp_mls_common` (single source of truth shared with the
-/// dict↔legacy merge and the archive exporter).
-pub use crate::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
+use crate::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
 
 /// Map a [`MetadataField`] string to its corresponding `ComponentId`.
 ///
@@ -404,12 +401,12 @@ pub fn read_post_commit_component_bytes(
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
 ///
-/// `pub(crate)` so the commit validator (`validated_commit.rs`) can
-/// pull the pre-commit stored bytes for a component and thread them
-/// into [`expand_app_data_update_to_changes`] as `old_value` — the
-/// validator uses that to resolve `RemoveByHash` mutations back to
-/// their underlying inbox id. The parent `app_data` module also uses
-/// it from `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
+/// The commit validator in `xmtp_mls` pulls the pre-commit stored bytes
+/// for a component and threads them into
+/// [`expand_app_data_update_to_changes`] as `old_value` — the validator
+/// uses that to resolve `RemoveByHash` mutations back to their underlying
+/// inbox id. `xmtp_mls`'s `app_data` module also uses it from
+/// `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
 /// and `pending_app_data_updates`.
 pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<Vec<u8>> {
     read_from_app_data_dict_from_extensions(id, mls_group.extensions())
@@ -462,11 +459,7 @@ pub fn encode_app_data_update_payload(
     }
 }
 
-// `ExpandedComponentChange` lives in `crate::app_data::typed`
-// so the `Component` trait there can return it. Re-exported here so
-// in-crate callers can construct the change list without pulling the
-// xmtp_mls_common path in directly.
-pub use crate::app_data::typed::ExpandedComponentChange;
+use crate::app_data::typed::ExpandedComponentChange;
 
 /// Expand an `AppDataUpdate` proposal payload into the per-element changes
 /// that should be checked against the component registry.
@@ -924,12 +917,8 @@ pub fn read_group_membership_from_dict(
 }
 
 /// Encode a list of hex inbox ids as a TLS-serialized `TlsSet<InboxId>`.
-// Scaffolding for the standalone proposal-by-reference flow
-// (`IntentKind::ProposeAppDataUpdate`) described in XIP §1.5.2 / §3.4.
 // Only tests call it. `expect` (not `allow`) so the compiler flags this
-// once a non-test caller in this module uses it. The `pub` scaffolding
-// (`ComponentMutation`, `component_type`, `expand_app_data_update_to_changes`)
-// has no such tripwire; trim it when the standalone-propose wiring lands.
+// once a non-test caller in this module uses it.
 #[cfg_attr(not(test), expect(dead_code))]
 fn encode_inbox_id_set(inbox_ids: &[String]) -> Result<Vec<u8>, ComponentSourceError> {
     let ids: Vec<InboxId> = inbox_ids
