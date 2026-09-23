@@ -331,20 +331,29 @@ async fn test_message_streaming() {
 
     stream_closer.wait_for_ready().await;
 
-    amal_group
+    let hello_id = amal_group
         .send("hello".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
+    let mut expected = vec![(hello_id, b"hello".to_vec())];
+    wait_for_application_messages(&stream_callback, &expected).await;
 
-    amal_group
+    let goodbye_id = amal_group
         .send("goodbye".as_bytes().to_vec(), FfiSendMessageOpts::default())
         .await
         .unwrap();
-    stream_callback.wait_for_delivery(None).await.unwrap();
+    expected.push((goodbye_id, b"goodbye".to_vec()));
+    wait_for_application_messages(&stream_callback, &expected).await;
 
-    assert_eq!(stream_callback.message_count(), 2);
     stream_closer.end_and_wait().await.unwrap();
+    let history = bola_group
+        .message_history_snapshot(10)
+        .unwrap()
+        .messages
+        .into_iter()
+        .map(|entry| entry.message)
+        .collect::<Vec<_>>();
+    assert_streamed_history(&stream_callback, &history);
     assert_eq!(bola.api_statistics().subscribe_static, 0);
 }
 
