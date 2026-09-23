@@ -181,12 +181,14 @@ mod event_tests {
         tester!(alix, disable_workers);
         let bus = alix.context.events();
         let subscription = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+        #[cfg(not(target_arch = "wasm32"))]
         let before_commit = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
         let committed = StoredConsentRecord::new(
             ConsentType::InboxId,
             ConsentState::Allowed,
             "committed".into(),
         );
+        #[cfg(not(target_arch = "wasm32"))]
         let hook = precommit_test_hook::install(move |_| {
             assert!(before_commit.drain().is_empty());
         });
@@ -202,6 +204,7 @@ mod event_tests {
             )?;
             Ok::<_, StorageError>(TransactionOutcome::Continue(()))
         })?;
+        #[cfg(not(target_arch = "wasm32"))]
         drop(hook);
         assert_eq!(
             alix.context
