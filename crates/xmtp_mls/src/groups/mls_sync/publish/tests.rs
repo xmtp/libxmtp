@@ -5,6 +5,8 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 mod dictionary_creation;
+mod membership_component;
+mod membership_recovery;
 
 // verifies: GMOD-036
 #[rstest::rstest]
@@ -23,10 +25,20 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     let group = alix
         .create_group_with_members(&[bo.inbox_id(), caro.inbox_id()], None, None)
         .await?;
-    bo.sync_welcomes().await?;
-    caro.sync_welcomes().await?;
-    let bo_group = bo.group(&group.group_id)?;
-    let caro_group = caro.group(&group.group_id)?;
+    let bo_group = xmtp_common::wait_for_ok(|| async {
+        bo.sync_welcomes()
+            .await
+            .and_then(|_| bo.group(&group.group_id).map_err(GroupError::from))
+    })
+    .await
+    .expect("the published Welcome must become visible");
+    let caro_group = xmtp_common::wait_for_ok(|| async {
+        caro.sync_welcomes()
+            .await
+            .and_then(|_| caro.group(&group.group_id).map_err(GroupError::from))
+    })
+    .await
+    .expect("the published Welcome must become visible");
     bo_group.receive().await?;
     caro_group.receive().await?;
     let name = QueueIntent::metadata_update()
@@ -56,8 +68,22 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
     }
     group.sync_until_intent_resolved(name.id).await?;
     bo_group.sync_until_intent_resolved(description.id).await?;
+    let topic = Topic::new_group_message(group.group_id);
+    let key = xmtp_db::incoming_envelope::StreamTopic::group(group.group_id);
+    let target = group
+        .context
+        .db()
+        .topic_progress(&key)?
+        .processed
+        .max(bo_group.context.db().topic_progress(&key)?.processed);
     for peer in [&group, &bo_group, &caro_group] {
-        peer.receive().await?;
+        crate::subscriptions::barrier::wait_through(
+            &peer.context,
+            [(topic.clone(), target)].into(),
+            None,
+        )
+        .await
+        .expect("all members must process both completed metadata changes");
         assert_eq!(peer.group_name()?, "competing name");
         assert_eq!(peer.group_description()?, "competing description");
         assert_eq!(peer.epoch().await?, first.base.epoch + 2);
@@ -75,8 +101,15 @@ async fn competing_metadata_attempts_from_one_epoch_preserve_both_updates(
             .send_message(body, SendMessageOpts::default())
             .await?;
     }
+    let target = caro_group.context.db().topic_progress(&key)?.processed;
     for peer in [&group, &bo_group, &caro_group] {
-        peer.receive().await?;
+        crate::subscriptions::barrier::wait_through(
+            &peer.context,
+            [(topic.clone(), target)].into(),
+            None,
+        )
+        .await
+        .expect("all members must process the last confirmed send");
         let messages = peer.find_messages(&MsgQueryArgs::default())?;
         for body in [b"from alix".as_slice(), b"from bo", b"from caro"] {
             assert_eq!(
@@ -486,6 +519,55 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
             .prepared_envelopes(rejected[0].id)?
             .is_none()
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch() -> Result<(), GroupError> {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let proposal = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![bo.inbox_id().to_string()],
+            vec![],
+        ))?)
+        .queue(&group)?;
+    group.sync_until_intent_resolved(proposal.id).await?;
+    let intent = QueueIntent::commit_pending_proposals().queue(&group)?;
+    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            let intent = Fetch::<StoredGroupIntent>::fetch(&storage.db(), &intent.id)?
+                .ok_or(GroupError::UninitializedResult)?;
+            PublishRequirements::capture(mls, &intent).map(Continue)
+        })
+    })?
+    .into_continued();
+    let mut dependencies = group.resolve_publish_dependencies(&requirements).await?;
+    let original = group.with_group_snapshot(PreparedBase::capture)?;
+    let reference = group.with_group_snapshot(|mls| {
+        let pending = mls.pending_proposals().collect::<Vec<_>>();
+        assert!(pending.len() >= 2);
+        Ok(pending[0].proposal_reference_ref().clone())
+    })?;
+    crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls, storage| {
+            mls.remove_pending_proposal(storage, &reference).unwrap();
+            Ok::<_, GroupError>(Continue(()))
+        })
+    })?;
+    let changed = group.with_group_snapshot(PreparedBase::capture)?;
+    assert_eq!(changed.epoch, original.epoch);
+    assert_eq!(changed.authenticator, original.authenticator);
+    assert_ne!(changed, original);
+    assert!(matches!(
+        group.prepare_publish_attempt(&requirements, &mut dependencies),
+        Err(GroupError::OutgoingPreparation(
+            OutgoingPreparationError::StateChanged
+        ))
+    ));
+    assert_eq!(group.with_group_snapshot(PreparedBase::capture)?, changed);
+    assert!(group.context.db().prepared_envelopes(intent.id)?.is_none());
+    Ok(())
 }
 
 #[xmtp_common::test(unwrap_try = true)]

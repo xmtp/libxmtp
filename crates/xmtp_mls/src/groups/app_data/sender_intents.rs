@@ -44,7 +44,10 @@ use crate::groups::{
         AppDataUpdateIntentData, PermissionPolicyOption, PermissionUpdateType,
         UpdateAdminListIntentData, UpdatePermissionIntentData,
     },
-    mls_sync::{PublishIntentData, generate_prepared_commit},
+    mls_sync::{
+        PublishIntentData, generate_prepared_commit,
+        update_group_membership::welcome_post_commit_action,
+    },
 };
 use xmtp_db::XmtpMlsStorageProvider;
 
@@ -103,17 +106,14 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     )?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
-    debug_assert!(
-        welcome.is_none(),
-        "UpdateAdminList via AppDataUpdate must not produce a welcome"
-    );
+    let post_commit_action = welcome_post_commit_action(welcome, staged_commit.as_deref())?;
     Ok(PublishIntentData {
         payloads_to_publish: vec![
             proposal_msg.tls_serialize_detached()?,
             commit.tls_serialize_detached()?,
         ],
         staged_commit,
-        post_commit_action: None,
+        post_commit_action,
         should_send_push_notification,
         group_epoch,
     })
@@ -244,10 +244,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     )?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
-    debug_assert!(
-        welcome.is_none(),
-        "UpdatePermission via AppDataUpdate must not produce a welcome"
-    );
+    let post_commit_action = welcome_post_commit_action(welcome, staged_commit.as_deref())?;
     let mut payloads_to_publish = proposal_messages
         .iter()
         .map(Serialize::tls_serialize_detached)
@@ -256,7 +253,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     Ok(PublishIntentData {
         payloads_to_publish,
         staged_commit,
-        post_commit_action: None,
+        post_commit_action,
         should_send_push_notification,
         group_epoch,
     })
@@ -316,17 +313,14 @@ pub(crate) fn apply_app_data_update_intent(
     )?;
 
     let (commit, welcome, _group_info) = bundle.into_messages();
-    debug_assert!(
-        welcome.is_none(),
-        "AppDataUpdate intent must not produce a welcome"
-    );
+    let post_commit_action = welcome_post_commit_action(welcome, staged_commit.as_deref())?;
     Ok(PublishIntentData {
         payloads_to_publish: vec![
             proposal_msg.tls_serialize_detached()?,
             commit.tls_serialize_detached()?,
         ],
         staged_commit,
-        post_commit_action: None,
+        post_commit_action,
         should_send_push_notification,
         group_epoch,
     })

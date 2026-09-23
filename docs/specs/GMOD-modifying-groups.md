@@ -93,6 +93,37 @@ The proposal-list checks of [draft-ietf-mls-extensions-08 §4.7](https://www.iet
 | --- | --- | --- | --- |
 | GMOD-030 | Reject conflicting component operations | When a commit carries `AppDataUpdate` proposals, the client MUST reject an invalid proposal list under draft-ietf-mls-extensions-08 §4.7, including an Update and a Remove, or more than one Remove, for the same component id, whether or not the commit contains a `GroupContextExtensions` proposal. | Conflicting component operations can make clients compute different state for one epoch. |
 
+### 1.2 Selecting pending membership proposals
+
+An accepted Add can outlive the commit that first referenced it. Acceptance of
+that proposal does not prove that its installation or key package is still
+eligible for a later commit. The sender resolves the intended membership and
+fetches current key packages before selecting pending membership proposals.
+It compares complete key packages, not only installation signature keys. A
+fetch failure is not evidence that an accepted proposal is obsolete.
+
+The sender reuses a current eligible proposal with its original proposer. A
+replacement Add uses the sender's own authority. If it cannot replace an
+obsolete Add, it can omit the Add and the whole signed membership update that
+depends on it. It then recomputes the dependent Adds and Removes. It does not
+edit another proposer's signed update. An empty commit can advance the epoch
+when only obsolete work remains. Omitted proposals then expire under the MLS
+epoch rules; their authors can propose them again.
+
+The sender also selects compatible whole membership updates before applying
+their dictionary changes. For example, two proposals can each insert the same
+new inbox, but a commit cannot apply both inserts. Every commit builder uses
+the selected dictionary changes and retains Welcomes for the selected Adds.
+This includes metadata, permission, and automatic key-update commits.
+
+These are sender selection rules. Receivers continue to validate the published
+commit against its stated identity references. They do not fetch the latest
+key package to decide whether to accept a commit.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| GMOD-038 | Select one consistent proposal set | When preparing a commit from pending membership proposals, the sender MUST select a set that satisfies the resolved membership, key-package validation, and proposer authority rules. It MUST compute dictionary updates and the MLS commit from that same set, MUST preserve accepted proposal references until normal commit resolution, and MUST NOT report an omitted app-requested change as successful. | An obsolete Add can block publication; inconsistent selection can make members disagree. |
+
 ## 2. The membership component
 
 The membership component names every inbox that is a member and, for each, the identity state its installations are checked against and the installations the group could not add. It is what a joiner validates a Welcome's ratchet tree against (JOIN section 8) and what every member validates a commit's leaf changes against (section 3). The component is a map from inbox id to an encoded `GroupMembershipEntry`; META-010 and META-011 own the map and inbox-id encodings, and META section 2 assigns the component id.
@@ -202,7 +233,7 @@ The receiver tolerates a commit that adds an inbox without adding every installa
 
 A membership refresh does not retry a failed installation key that remains associated in both identity states. Its key package becoming valid does not by itself add it to the group.
 
-A commit sweeps every pending proposal the committer holds, and MLS discards proposals that a commit did not reference once the epoch advances. A member that publishes a proposal and is beaten to the commit by another member's unrelated change has to propose again.
+MLS discards proposals that a commit did not reference once the epoch advances. A member whose proposal was omitted from an accepted commit has to propose again if the change is still needed.
 
 The floor pauses only the clients below it. Members at or above it continue, and the paused client's unpublished changes are built on an epoch the group has left and are rebuilt under SEND-014 after it resumes.
 

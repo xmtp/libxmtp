@@ -13,6 +13,7 @@ pub(super) struct PublishRequirements {
     new_membership: Option<GroupMembership>,
     add_inboxes: Vec<String>,
     readd_installations: Option<HashSet<Vec<u8>>>,
+    selection: Option<Box<super::selection::SelectionRequirements>>,
 }
 
 impl PublishRequirements {
@@ -28,6 +29,8 @@ impl PublishRequirements {
             new_membership: None,
             add_inboxes: Vec::new(),
             readd_installations: None,
+            selection: super::selection::SelectionRequirements::capture(group, intent)?
+                .map(Box::new),
         };
         match intent.kind {
             IntentKind::UpdateGroupMembership => {
@@ -69,6 +72,7 @@ pub(super) struct PublishDependencies {
     /// Explicit identity sequence values selected during outgoing dependency resolution.
     pub latest_sequence_ids: HashMap<String, i64>,
     memberships: Option<(GroupMembership, GroupMembership)>,
+    pub selection: super::selection::ProposalSelection,
 }
 
 impl PublishDependencies {
@@ -160,6 +164,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 installations.clone(),
                 failed_installations,
             ));
+        }
+        if let Some(selection) = &requirements.selection {
+            dependencies.selection = self
+                .resolve_proposal_selection(selection, dependencies.changes.as_ref())
+                .await?;
         }
         Ok(dependencies)
     }
