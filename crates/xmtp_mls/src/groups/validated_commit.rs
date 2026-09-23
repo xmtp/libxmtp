@@ -91,6 +91,7 @@ impl RetryableError for CommitValidationError {
         match self {
             CommitValidationError::IdentityDependency(error) => retryable!(error),
             CommitValidationError::InstallationDiff(diff_error) => retryable!(diff_error),
+            CommitValidationError::Rule(error) => retryable!(error),
             _ => false,
         }
     }

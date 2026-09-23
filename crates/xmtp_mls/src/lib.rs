@@ -44,6 +44,7 @@ use xmtp_db::DuplicateItem;
 use xmtp_db::StorageError;
 pub use xmtp_id::InboxOwner;
 pub use xmtp_mls_common as mls_common;
+pub use xmtp_mls_validation as mls_validation;
 pub use xmtp_proto::api_client::*;
 #[cfg(test)]
 use xmtp_proto::types::GroupId;

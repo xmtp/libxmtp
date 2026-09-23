@@ -565,7 +565,7 @@ pub fn validate_membership_diff(
 /// `registry` on behalf of `actor`.
 ///
 /// Shared core for both validator entry points:
-/// [`validate_proposal`] (standalone proposal-by-reference messages) and
+/// `validate_proposal` in `xmtp_mls` (standalone proposal-by-reference messages) and
 /// [`validate_app_data_update_proposals_in_commit`] (proposals inside
 /// commits, inline or referenced). Both paths must enforce identical
 /// permission checks; lifting the loop here keeps them in lockstep so a
@@ -704,7 +704,7 @@ fn permits_dm_participant_insert(
 /// passed explicitly so unit tests can exercise the
 /// expand → per-change policy loop without a real MLS group.
 // implements: PERM-011, PERM-014
-pub fn validate_one_app_data_update_with_old_value(
+pub(crate) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
     actor: xmtp_mls_common::app_data::validation::ActorAuthority,
@@ -882,7 +882,9 @@ pub fn validate_one_app_data_update_with_old_value(
 /// `AppDataUpdate` by design — only an existing leaf can propose one.
 /// Pulled out so the rejection reason is a single code path that can
 /// be unit-tested without constructing a `StagedCommit`.
-pub fn app_data_update_proposer_leaf(sender: &Sender) -> Result<&LeafNodeIndex, CommitRuleError> {
+pub(crate) fn app_data_update_proposer_leaf(
+    sender: &Sender,
+) -> Result<&LeafNodeIndex, CommitRuleError> {
     match sender {
         Sender::Member(leaf_index) => Ok(leaf_index),
         Sender::External(_) | Sender::NewMemberCommit | Sender::NewMemberProposal => {
@@ -907,7 +909,7 @@ pub fn app_data_update_proposer_leaf(sender: &Sender) -> Result<&LeafNodeIndex, 
 ///
 /// Delegates the per-proposal permission check to
 /// [`validate_one_app_data_update`] so the core logic stays shared with
-/// the standalone-proposal path in [`validate_proposal`].
+/// the standalone-proposal path in `validate_proposal`.
 ///
 /// # Registry semantics
 ///

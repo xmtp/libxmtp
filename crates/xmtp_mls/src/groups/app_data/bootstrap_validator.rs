@@ -54,7 +54,7 @@ pub enum BootstrapValidationError {
     /// bootstrap exceeds the receiver's version — the bootstrap was
     /// produced by a newer release whose synthesis encoding this
     /// version may not reproduce. The caller converts this to
-    /// `(|e| CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(e)))` so the group
+    /// `CommitRuleError::ProtocolVersionTooLow` so the group
     /// pauses (defer-and-reprocess after upgrade) instead of failing
     /// the byte-compare with `Mismatch` — a rejection that above-floor
     /// members don't share, i.e. a fork. Normally unreachable (the
