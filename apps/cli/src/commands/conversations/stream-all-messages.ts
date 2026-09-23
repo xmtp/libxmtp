@@ -72,10 +72,6 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
       description: "Filter by consent state",
       multiple: true,
     })(),
-    "disable-sync": Flags.boolean({
-      description: "Skip initial sync before streaming",
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -103,7 +99,6 @@ Output includes message ID, conversation ID, sender, content, and timestamps.`;
 
     const stream = await client.conversations.streamAllMessages({
       ...streamOptions,
-      disableSync: flags["disable-sync"],
     });
 
     // Set up timeout if specified

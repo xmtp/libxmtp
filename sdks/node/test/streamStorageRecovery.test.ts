@@ -89,9 +89,6 @@ describe("public conversation notification storage failure", () => {
               if (stopping)
                 throw new Error("The notification storage test stopped");
               const stream = await receiver.conversations.streamGroups({
-                // Reach native subscription setup directly. A pre-sync failure
-                // would not test callback ordering against waitForReady/on_close.
-                disableSync: true,
                 onValue: (group) => {
                   notified.push(group.id);
                 },

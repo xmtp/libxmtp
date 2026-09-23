@@ -2,7 +2,7 @@
 
 # libxmtp Streaming and Subscriptions — Current-State Wiki
 
-Status: research record of the **current** implementation, written as input to a future `004_streaming.md` spec.
+Status: historical research record, written before the current Node recovery contract. The [message-processing spec](../../specs/PROC-message-processing.md) and approved [recovery plan](https://plan.ref.tools/dDgDAUaH88nIyRPo) supersede its Node pre-stream sync notes and former requirements 53 and 54. Check current source for Browser behavior.
 Repo: `/Users/nickmolnar/code/xmtp/libxmtp` (branch `self-hosted`).
 Method: read the source. Every claim cites `path` or `path:symbol`. Items that could not be verified are marked **[UNVERIFIED]**.
 
@@ -66,7 +66,7 @@ The legacy stack (per-stream server-streaming RPCs, teardown-and-resubscribe on 
 Browsers use `tonic-web-wasm-client` over fetch (`crates/xmtp_api_grpc/src/grpc_client/wasm.rs`), which is server-streaming only. Both the bidi transport and the router are `#[cfg(not(target_arch = "wasm32"))]`. This is exactly the constraint that motivates `SubscribeOnce` in the draft proto, and it means the browser will keep a distinct code path no matter what.
 
 **Finding 4 — Most app-visible streaming semantics are SDK-level, not protocol-level.**
-Retry counts, delays, `onValue`/`onError`/`onFail`/`onRestart`/`onRetry`/`onEnd`, and the sync-before-stream convention live in `sdks/js/*/src/utils/streams.ts` and the binding callback traits. They are preserved by keeping the binding surface stable, independent of wire design. Notably the node and browser SDKs ship **different** retry defaults.
+Retry counts, delays, and `onValue`/`onError`/`onFail`/`onRestart`/`onRetry`/`onEnd` are SDK-level behavior. This record also observed a sync-before-stream convention, which current Node has removed. The binding callback surface remains separate from wire design. Node and Browser ship **different** notification retry defaults.
 
 **Finding 5 — Consent, preference and deletion streams are purely local.**
 They read a `tokio::sync::broadcast` channel of `LocalEvents` and never touch the network (`crates/xmtp_mls/src/subscriptions/mod.rs`). The new backend needs no proto surface for them. They are not lossless, though: a lagged receiver's events are logged and skipped (`optify!`, `mod.rs:176-207`) and deletion decoding can fail — see §5.7.
@@ -665,7 +665,7 @@ So the browser resolves its stream-open earlier than node does, and reports a no
 | `retryAttempts?` | default 10 (node) / 6 (browser) |
 | `retryDelay?` | default 60 s (node) / 10 s (browser) |
 | `retryOnFail?` | default true |
-| `disableSync?` | default false — skip the network sync before starting |
+| `disableSync?` | historical option; removed from current Node `StreamOptions` |
 
 The retry state machine has properties the tests pin down and apps depend on:
 
@@ -678,9 +678,9 @@ The retry state machine has properties the tests pin down and apps depend on:
 - **A throwing `onError` must not wedge the stream:** `try { onError?.(error) } finally { void asyncStream.end() }`.
 - **`waitForReady()` is awaited** after every open, and the stopped flag is re-checked after each await.
 
-**Sync-before-stream is an SDK convention, not a protocol feature — and the two packages sync differently.** Every JS stream entry point runs a network sync before opening, guarded by `if (!options?.disableSync)`. Apps rely on "subscribe, and I am also caught up". Which sync runs is not uniform:
+**This table records the old SDK convention.** At the time of this research, these entry points ran a separate network sync before opening, unless the caller passed `disableSync`. It did not describe a protocol requirement. Current Node notification streams and durable message readers open without that separate pre-sync; Node has no `disableSync` option. Browser still has its own option and implementation.
 
-| Entry point | Sync call |
+| Historical entry point | Sync call observed at the time |
 | --- | --- |
 | node `Conversations.stream` | `await this.sync()` (`node-sdk/src/Conversations.ts:349-351`) |
 | node `Conversations.streamGroups` / `streamDms` | `await this.sync()` (`Conversations.ts:393, 421`) |
@@ -689,7 +689,7 @@ The retry state machine has properties the tests pin down and apps depend on:
 | node `Conversation.stream` | `await this.sync()` (`node-sdk/src/Conversation.ts:152-154`) |
 | browser `Conversation.stream` | `await this.sync()` (`browser-sdk/src/Conversation.ts:491-494`) |
 
-The node/browser split on `streamAllMessages` is app-visible: node syncs every conversation matching the consent filter, browser syncs the conversation list only. `disableSync` opts out everywhere and defaults to `false`. Requirements 53 and 54 capture this.
+The old node/browser split on `streamAllMessages` is superseded for Node. The current Node reader starts receipt directly and lets Core recover network faults. Apps can call an explicit `sync()` method when they need a snapshot before opening a stream.
 
 `streamAllMessages` also re-reads the message from the DB for enrichment and warns when absent: `console.warn(\`Streamed message with ID "${value.id}" not found\`)`(`Conversations.ts:~464-467`).
 
@@ -703,7 +703,7 @@ Convenience wrappers `streamAllGroupMessages` / `streamAllDmMessages` just set `
 | `Conversations.streamDeletedMessages` | `node-sdk/src/Conversations.ts:551`; `browser-sdk/src/Conversations.ts:604` | preferred form; yields `DecodedMessage` |
 | `Conversations.streamMessageDeletions` | `node-sdk/src/Conversations.ts:523` (`@deprecated Use streamDeletedMessages instead`, `:521`); `browser-sdk/src/Conversations.ts:569` | deprecated alias; yields ids |
 
-Both deletion forms call the same `this.#conversations.streamMessageDeletions(callback)` (`:536, :564`) and both `Omit` the `disableSync`/`onFail`/retry options — they are local streams (§5.7).
+Both deletion forms call the same `this.#conversations.streamMessageDeletions(callback)` (`:536, :564`). They are local streams (§5.7); the current Node type has no `disableSync` field to omit.
 
 ### 6.5 Android / iOS
 
@@ -1045,10 +1045,9 @@ Requirements 48 through 50 were previously stated as backend rules. Their eviden
 40. **Where** the client runs in a browser, the streaming surface **shall** work over server-streaming only, with no client→server frames after the request. *(Source: `grpc_client/wasm.rs`; `api_client.rs:172-177`; draft `SubscribeOnce`.)*
 41. **Where** bidi is unavailable, the client **shall** still satisfy requirements 9, 30-36 by reopening subscriptions. *(Source: today's legacy fallback + watchdog.)* The current legacy path meets this only partially: the idle watchdog that triggers reopening is **opt-in and off by default** (`watchdog.rs:20-23`), it reconnects only on a stale trip and not after a clean end (`watchdog.rs:462-465`), and each reopen leaves the requirement-30 local-broadcast window. The new design **should** make reopening automatic.
 
-### 9.8a Pre-stream sync (SDK convention)
+### 9.8a Historical pre-stream sync note
 
-53. **When** a JS SDK opens a stream, it **shall** run a network sync first unless the caller passes `disableSync`. *(Source: `if (!options?.disableSync)` at `sdks/js/node-sdk/src/Conversations.ts:349-351, 393, 421, 452-454`, `node-sdk/src/Conversation.ts:152-154`; `sdks/js/browser-sdk/src/Conversations.ts:493-496`, `browser-sdk/src/Conversation.ts:491-494`.)* Apps rely on "subscribe, and I am also caught up"; the option exists so a caller that already synced can skip it. Default is `false` (sync runs).
-54. The **scope** of that pre-stream sync **shall** be specified per entry point, because node and browser differ today: node's `streamAllMessages` calls `syncAll(consentStates)` (`node-sdk/src/Conversations.ts:452-454`) while browser's calls only `sync()` (`browser-sdk/src/Conversations.ts:493-496`). Every other entry point on both packages calls `sync()`. A caller opening an aggregate message stream is therefore caught up on message history in node and only on the conversation list in the browser.
+Former requirements 53 and 54 required a JS pre-stream sync and a `disableSync` escape hatch. They are withdrawn. Current Node streams open directly. Conversation notifications and durable message readers use Core recovery where applicable. A caller that needs a snapshot can call an explicit `sync()` method. Browser keeps its separate implementation; this research record does not set a current Browser requirement.
 
 ### 9.8b Application behaviors the tests assert but the list omitted
 
@@ -1276,7 +1275,7 @@ Adversarial review by Codex (`gpt-5.6-sol`, read-only, high reasoning effort), t
 | `wait_for_ready` is not a reliable success signal; browser does not call it | applied | §6.1 and §6.4; requirement 1 rewritten. `let _ = s.await` discards a dropped sender (`stream_handles.rs:104-108, 234-238`). |
 | Node vs browser retry and error differences beyond defaults | applied | §6.4 comparison table; requirement 38. |
 | Android and iOS do not surface FFI item errors; deletion callback discards errors | applied | §6.1, §6.5, §6.6 item 8; requirement 3. Android logs (`Conversations.kt:610-612`), iOS prints (`Conversations.swift:74-76`), and no `finish(throwing:)` exists in the iOS file. |
-| Pre-stream sync and `disableSync` missing from requirements | applied | §6.4 sync table; **new requirements 53 and 54**, including node `syncAll` vs browser `sync`. |
+| Pre-stream sync and `disableSync` missing from requirements | superseded | §6.4 preserves the historical observation; former requirements 53 and 54 were withdrawn when Node removed pre-stream sync. Core recovery applies to conversation notifications and durable message readers. |
 | Legacy watchdog is opt-in; reconnects only after a stale trip | applied | §5.8, §6.6 item 10, requirements 19 and 41. |
 | Lifecycle scope: suspend/resume are bidi-only, resume is fire-and-forget, mobile auto-toggle | applied | §4.5, §6.1, §6.6 item 15, requirements 23 and 24. `manageStreamLifecycle` defaults to `true` (`Client.kt:171`, `Client.swift:215`). |
 | Legacy watchdog re-subscribe gap for locally created conversations | applied | §5.8, §6.6 item 1, requirement 30. |

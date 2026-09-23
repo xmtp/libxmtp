@@ -889,7 +889,7 @@ describe("structured notification startup failure", () => {
   it.each([
     { kind: "storage", code: "ConnectionError" },
     { kind: "receiver", code: "incoming_storage" },
-  ] as const)("does not retry a pre-sync $kind failure", async (details) => {
+  ] as const)("does not retry a native startup $kind failure", async (details) => {
     const cause = barrierError(details);
     const streamFunction = vi.fn().mockRejectedValue(cause);
     const onError = vi.fn();

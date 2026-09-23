@@ -26,8 +26,8 @@ This is useful for:
 - Monitoring all preference changes
 - Debugging preference-related issues
 
-By default, preferences are synced before streaming starts. Use
---disable-sync to skip this initial sync.`;
+The stream starts without a separate preferences sync. Call preferences sync
+first if you need a current snapshot before listening for updates.`;
 
   static examples = [
     {
@@ -47,10 +47,6 @@ By default, preferences are synced before streaming starts. Use
       description: "Stream for up to 120 seconds or 10 updates",
     },
     {
-      command: "<%= config.bin %> <%= command.id %> --disable-sync",
-      description: "Stream without initial sync",
-    },
-    {
       command: "<%= config.bin %> <%= command.id %> --json",
       description: "Output as JSON for scripting",
     },
@@ -65,10 +61,6 @@ By default, preferences are synced before streaming starts. Use
     count: Flags.integer({
       description: "Stop after receiving N preference update batches",
       helpValue: "<number>",
-    }),
-    "disable-sync": Flags.boolean({
-      description: "Skip initial preferences sync before streaming",
-      default: false,
     }),
   };
 
@@ -91,9 +83,7 @@ By default, preferences are synced before streaming starts. Use
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = await client.preferences.streamPreferences({
-      disableSync: flags["disable-sync"],
-    });
+    const stream = await client.preferences.streamPreferences();
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;

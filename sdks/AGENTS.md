@@ -57,7 +57,8 @@ to run tsdown in watch mode from an SDK package.
 
 - Message iterators acknowledge the previous item only when the app requests the next item. `return` and `end` do not acknowledge it.
 - Supplying `onValue` selects callback mode and starts consumption. Successful callback return acknowledges delivery. Do not also iterate that stream.
-- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, `onRestart`, or `disableSync` options. These options still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
+- Core owns message-stream network recovery. Message streams accept but do not use legacy `retry*`, `onFail`, `onRetry`, or `onRestart` options. These options still apply to notification streams. Callback or acknowledgement failure stops message delivery; it does not restart the callback.
+- Node notification streams open without a separate pre-sync, and Node `StreamOptions` has no `disableSync` field. Call an explicit `sync()` method when the app needs a current snapshot. Browser retains its own notification `disableSync` option.
 - Storage errors end message streams after the operation's normal retry policy. Enrichment must preserve the storage cause. A replacement may repeat an app callback whose acknowledgement failed.
 - Close and fence a failed reader before `onError` runs. Preserve the original error if cleanup fails. The caller can repair storage and open another stream on the same client.
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.

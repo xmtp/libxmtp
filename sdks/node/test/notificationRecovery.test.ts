@@ -37,7 +37,6 @@ describe("public notification recovery", () => {
           if (stopping) return;
           opening = receiver.conversations
             .stream({
-              disableSync: true,
               onError: (error) => replacementErrors.push(error),
               onRetry,
             })
@@ -48,7 +47,6 @@ describe("public notification recovery", () => {
           void opening.catch(() => undefined);
         });
         const old = await receiver.conversations.stream({
-          disableSync: true,
           onError,
           onRetry,
         });

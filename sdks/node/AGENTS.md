@@ -33,6 +33,8 @@ The notification wrapper has a separate finite fallback for an unexpected
 native close. That retry count lasts for the JS stream. Only a new JS stream
 resets it. A successful native reopen does not reset the fallback count.
 Durable message streams do not use that fallback or the legacy retry options.
+Node notification streams open without a separate pre-sync. Call an explicit
+`sync()` method if the app needs a current snapshot before it listens.
 
 The public recovery matrix checks exact reply IDs, message order, membership,
 epoch, and processed cursors. It does not expose or compare MLS authenticators.
