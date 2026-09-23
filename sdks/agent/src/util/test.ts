@@ -51,9 +51,8 @@ export const createConversationAndWait = async <
   const streamError = new Promise<{ error: Error }>((resolve) => {
     reportError = resolve;
   });
-  // Subscribe before creation. A sync head can precede the new Welcome.
+  // Subscribe before creation so the new Welcome is observed.
   const stream = await recipient.conversations.stream({
-    disableSync: true,
     retryOnFail: false,
     onError: (error) => reportError({ error }),
   });

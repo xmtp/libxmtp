@@ -443,8 +443,6 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const openingConversations = Promise.resolve().then(() =>
       this.#client.conversations.stream({
         ...options,
-        // Start the native recovery budget before any network operation.
-        disableSync: options?.disableSync ?? true,
         onValue: async (conversation) => {
           if (!isCurrent()) return;
           try {

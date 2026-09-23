@@ -56,12 +56,10 @@ Native streams stay open during retryable network faults within a finite recover
 budget. Exhaustion or a storage failure ends the current streams and reports an
 error. The caller can call `start()` again on the same client for a fresh budget.
 
-`start()` opens native streams without a separate network sync by default. Its
+`start()` opens native streams without a separate network sync. Its
 `start` event means the local stream pumps are ready; the network can still be
 offline. Groups already stored locally do not produce conversation events. A
-pending Welcome produces an event when its group is first discovered. Set
-`disableSync: false` explicitly to request the legacy pre-sync operation, which
-has a separate bounded sync deadline before streaming starts.
+pending Welcome produces an event when its group is first discovered.
 
 The XMTP Agent SDK supports configuration through environment variables (`process.env`), making it easy to configure your agent without code changes. Set the following variables and call `Agent.createFromEnv()` to automatically load them:
 

@@ -77,6 +77,5 @@ NIX_DEVSHELL=js-node dev/nix-shell 'pnpm --filter @xmtp/browser-sdk exec vitest 
 
 The Agent SDK reports terminal stream errors and requires an explicit `start()`
 to open a new generation. Error middleware alone does not reopen streams.
-`start()` skips the separate conversation pre-sync by default and reports local
-pump readiness, including while offline. Preserve an explicit
-`disableSync: false` override.
+`start()` skips the separate conversation pre-sync and reports local pump
+readiness, including while offline.

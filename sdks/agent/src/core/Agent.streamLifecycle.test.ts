@@ -13,7 +13,11 @@ import {
 } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
 
-import { Agent, type AgentErrorMiddleware } from "@/core/Agent";
+import {
+  Agent,
+  type AgentErrorMiddleware,
+  type AgentStreamingOptions,
+} from "@/core/Agent";
 import { AgentStreamingError } from "@/core/AgentError";
 
 type Conversations = Client["conversations"];
@@ -65,16 +69,15 @@ const failNotification = (options: ConversationOptions, cause: Error) => {
 };
 
 describe("Agent stream lifecycle", () => {
-  it("starts native recovery directly unless the caller requests pre-sync", async () => {
+  it("always starts native recovery without a separate pre-sync", async () => {
+    type HasDisableSync = "disableSync" extends keyof AgentStreamingOptions
+      ? true
+      : false;
+    const hasDisableSync: HasDisableSync = false;
+    expect(hasDisableSync).toBe(false);
     const h = harness();
     await h.agent.start();
-    expect(h.conversations[0]!.options?.disableSync).toBe(true);
-    await h.agent.stop();
-    await h.agent.start({ disableSync: undefined });
-    expect(h.conversations[1]!.options?.disableSync).toBe(true);
-    await h.agent.stop();
-    await h.agent.start({ disableSync: false });
-    expect(h.conversations[2]!.options?.disableSync).toBe(false);
+    expect(h.conversations[0]!.options).not.toHaveProperty("disableSync");
     await h.agent.stop();
   });
 
@@ -95,8 +98,10 @@ describe("Agent stream lifecycle", () => {
         };
       },
     );
+    const sync = vi.fn(async () => undefined);
     const native = {
       stream: nativeOpen,
+      sync,
     } as unknown as ConstructorParameters<typeof NodeConversations>[2];
     const nodeConversations = new NodeConversations(
       h.client,
@@ -122,6 +127,7 @@ describe("Agent stream lifecycle", () => {
     h.agent.on("unhandledError", unhandled);
 
     await h.agent.start({ retryDelay: 0 });
+    expect(sync).not.toHaveBeenCalled();
     callbacks[0]!(new Error("retryable notification callback error"));
     await setImmediate();
     expect(nativeOpen).toHaveBeenCalledOnce();

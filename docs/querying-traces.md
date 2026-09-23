@@ -46,11 +46,10 @@ Run this fault suite alone. Use a unique run label and a bounded time range:
 { resource.service.name = "xmtp-agent-recovery" && resource.xmtp.recovery.run = "agent-recovery-local" }
 ```
 
-If startup fails, inspect `sync_welcomes` and its transport spans. A barrier
+Older startup traces can show `sync_welcomes` and its transport spans. A barrier
 deadline with a null target can mean that target capture failed before a native
-stream opened. This differs from an active stream exhausting its recovery
-budget. Agent startup skips this separate sync by default. An explicit
-`disableSync: false` still requests it.
+stream opened. Current Agent and Node notification streams skip this separate
+sync. For a new startup failure, inspect native stream recovery spans.
 
 The first client sets logging for its process. These resource attributes identify
 the test process, not one SDK client. The test flushes telemetry after cleanup.
