@@ -12,6 +12,7 @@ use xmtp_mls_common::app_data::{
     typed::Component,
 };
 use xmtp_mls_common::tls_map::{TlsMapDelta, TlsMapError, TlsMapMutation};
+use xmtp_mls_validation::commit::CommitRuleError;
 
 /// A read-only snapshot. Dependency resolution never retains a mutable MLS group.
 pub(super) struct SelectionRequirements {
@@ -69,7 +70,9 @@ impl SelectionRequirements {
         }
         let policies =
             crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())
-                .map_err(CommitValidationError::GroupMutablePermissions)?;
+                .map_err(|e| {
+                    CommitValidationError::Rule(CommitRuleError::GroupMutablePermissions(e))
+                })?;
         let seed =
             xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)?
                 .ok_or(GroupError::InvalidGroupMembership)?;
@@ -79,7 +82,7 @@ impl SelectionRequirements {
             .ok_or(GroupError::InvalidGroupMembership)?;
         let credential = BasicCredential::try_from(member.credential)?;
         let inbox_id = parse_credential(credential.identity())?;
-        let actor = crate::groups::validated_commit::CommitParticipant {
+        let actor = xmtp_mls_validation::commit::CommitParticipant {
             is_creator: inbox_id == seed.creator_inbox_id,
             is_admin: mutable.is_admin(&inbox_id),
             is_super_admin: mutable.is_super_admin(&inbox_id),
@@ -435,7 +438,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     selection.omitted.insert(*index);
                     changed |= requirements.omit_dependencies(inbox, &mut selection.omitted)?;
                     if !changed && requirements.own_update.is_some() {
-                        return Err(CommitValidationError::InsufficientPermissions.into());
+                        return Err(CommitValidationError::Rule(
+                            CommitRuleError::InsufficientPermissions,
+                        )
+                        .into());
                     }
                     continue;
                 }

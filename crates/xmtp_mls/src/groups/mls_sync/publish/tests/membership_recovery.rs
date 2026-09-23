@@ -5,6 +5,7 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use xmtp_db::{
     ConnectionExt, group_message::MsgQueryArgs, key_package_history::QueryKeyPackageHistory,
 };
+use xmtp_mls_validation::commit::CommitRuleError;
 
 // Receive the prefix that the sender processed, including rejected commits.
 async fn receive_completed_prefix(
@@ -595,7 +596,9 @@ async fn non_admin_commits_valid_subset_without_resigning_admin_add(
         assert!(
             matches!(
                 error,
-                GroupError::CommitValidation(CommitValidationError::InsufficientPermissions)
+                GroupError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::InsufficientPermissions
+                ))
             ),
             "{error:?}"
         );
@@ -770,9 +773,9 @@ async fn rejected_removal_with_new_installation_does_not_block_publication(
     };
     assert!(summary.process.errored.iter().any(|(_, error)| matches!(
         error,
-        GroupMessageProcessingError::CommitValidation(
-            CommitValidationError::InsufficientPermissions
-        )
+        GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+            CommitRuleError::InsufficientPermissions
+        ))
     )));
     for peer in [&group, &bo_group, &caro_group] {
         receive_completed_prefix(&caro_group, peer).await?;

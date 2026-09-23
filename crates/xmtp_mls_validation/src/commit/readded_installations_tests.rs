@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::groups::validated_commit::{CommitParticipant, extract_readded_installations};
+use super::{CommitParticipant, extract_readded_installations};
 
 fn create_test_actor(is_super_admin: bool) -> CommitParticipant {
     CommitParticipant {

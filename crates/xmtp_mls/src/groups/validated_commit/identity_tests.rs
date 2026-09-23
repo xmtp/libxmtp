@@ -1,4 +1,5 @@
 use super::*;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 // verifies: GMOD-007
 #[rstest::rstest]
@@ -34,9 +35,10 @@ fn a_missing_identity_proof_cannot_advance_processing() {
         IdentityDependencyError::MissingReference(requirement),
     );
     assert!(absent.is_safe_rejection());
-    let unsupported = CommitValidationError::ProtocolVersionTooLow("999.0.0".to_owned());
+    let unsupported =
+        CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow("999.0.0".to_owned()));
     assert!(!unsupported.is_safe_rejection());
-    let malformed = CommitValidationError::MissingMutableMetadata;
+    let malformed = CommitValidationError::Rule(CommitRuleError::MissingMutableMetadata);
     assert!(malformed.is_safe_rejection());
     assert!(!CommitValidationError::installed_state(malformed).is_safe_rejection());
 }

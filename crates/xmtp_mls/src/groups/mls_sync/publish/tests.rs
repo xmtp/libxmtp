@@ -1,6 +1,7 @@
 use super::*;
 use crate::tester;
 use prost::Message;
+use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::types::Topic;
 
 mod deadlines;
@@ -233,9 +234,9 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         .find_map(|(cursor, error)| {
             matches!(
                 error,
-                GroupMessageProcessingError::CommitValidation(
-                    CommitValidationError::InsufficientPermissions
-                )
+                GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::InsufficientPermissions
+                ))
             )
             .then_some(*cursor)
         })
@@ -324,9 +325,9 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         *cursor == rejected_cursor
             && matches!(
                 error,
-                GroupMessageProcessingError::CommitValidation(
-                    CommitValidationError::InsufficientPermissions
-                )
+                GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::InsufficientPermissions
+                ))
             )
     }));
     assert_eq!(

@@ -1,6 +1,12 @@
 # xmtp_mls_validation
 
-Shared payload admission and stateless fixtures. No client database or transport.
+Shared payload admission, commit validation rules, and stateless fixtures.
+No client database or transport.
+
+`commit` holds the rules `xmtp_mls` applies to a staged commit, with
+`group_permissions` and `group_membership`. `xmtp_mls` keeps the checks that
+need the database or identity proofs; `CommitRuleError` is the rule layer of
+its `CommitValidationError`.
 
 General commit-log signing and decoding live in `xmtp_mls_common::commit_log`.
 Admission parsing and validation stay in this crate.

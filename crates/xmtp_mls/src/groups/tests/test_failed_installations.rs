@@ -3,11 +3,11 @@
 
 use crate::groups::GroupError;
 use crate::groups::intents::QueueIntent;
-use crate::groups::validated_commit::extract_group_membership;
 use crate::tester;
 use crate::utils::TestMlsGroup;
 use crate::utils::test_mocks_helpers::set_test_mode_upload_malformed_keypackage;
 use xmtp_db::group::GroupQueryArgs;
+use xmtp_mls_validation::commit::extract_group_membership;
 
 /// `doomed_installation` must belong to an inbox that is already in the
 /// group and that just gained an installation. Publish then raises that

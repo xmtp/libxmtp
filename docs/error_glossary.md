@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **10 crates** with **408 total error codes**.
+**38 error types** across **11 crates** with **408 total error codes**.
 
 ## mobile
 
@@ -529,23 +529,6 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `GroupError::DeleteMessage` | Delete message error. Failed to delete message. Not retryable. |
 | `GroupError::DeviceSync` | Device sync error. Device sync operation failed. May be retryable. |
 
-### GroupMutablePermissionsError <sub>enum</sub>
-
-<small>`crates/xmtp_mls/src/groups/group_permissions.rs`</small>
-
-Errors that can occur when working with GroupMutablePermissions.
-
-| Error Code | Description |
-|:-----------|:------------|
-| `GroupMutablePermissionsError::Serialization` | Serialization error. Failed to encode permissions protobuf. Not retryable. |
-| `GroupMutablePermissionsError::Deserialization` | Deserialization error. Failed to decode permissions protobuf. Not retryable. |
-| `GroupMutablePermissionsError::Policy` | Policy error. Permission policy validation failed. Not retryable. |
-| `GroupMutablePermissionsError::InvalidConversationType` | Invalid conversation type. Wrong conversation type for this operation. Not retryable. |
-| `GroupMutablePermissionsError::MissingPolicies` | Missing policies. Required permission policies not present. Not retryable. |
-| `GroupMutablePermissionsError::MissingExtension` | Missing extension. Required MLS extension not found. Not retryable. |
-| `GroupMutablePermissionsError::InvalidPermissionPolicyOption` | Invalid permission policy option. Invalid permission policy configuration. Not retryable. |
-| `GroupMutablePermissionsError::PolicyProjection` | Invalid policy state in the component registry. The permission view could not be read from group state. Not retryable. |
-
 ### IdentityError <sub>enum</sub>
 
 <small>`crates/xmtp_mls/src/identity.rs`</small>
@@ -645,6 +628,25 @@ Errors use fixed messages and never include notification credentials.
 | `GroupMetadataError::MissingExtension` | Missing extension. Immutable metadata MLS extension not found. Not retryable. |
 | `GroupMetadataError::InvalidDmMembers` | Invalid DM members. DM member data is invalid. Not retryable. |
 | `GroupMetadataError::MissingDmMember` | Missing DM member. A DM member field is not set. Not retryable. |
+
+## xmtp_mls_validation
+
+### GroupMutablePermissionsError <sub>enum</sub>
+
+<small>`crates/xmtp_mls_validation/src/group_permissions.rs`</small>
+
+Errors that can occur when working with GroupMutablePermissions.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `GroupMutablePermissionsError::Serialization` | Serialization error. Failed to encode permissions protobuf. Not retryable. |
+| `GroupMutablePermissionsError::Deserialization` | Deserialization error. Failed to decode permissions protobuf. Not retryable. |
+| `GroupMutablePermissionsError::Policy` | Policy error. Permission policy validation failed. Not retryable. |
+| `GroupMutablePermissionsError::InvalidConversationType` | Invalid conversation type. Wrong conversation type for this operation. Not retryable. |
+| `GroupMutablePermissionsError::MissingPolicies` | Missing policies. Required permission policies not present. Not retryable. |
+| `GroupMutablePermissionsError::MissingExtension` | Missing extension. Required MLS extension not found. Not retryable. |
+| `GroupMutablePermissionsError::InvalidPermissionPolicyOption` | Invalid permission policy option. Invalid permission policy configuration. Not retryable. |
+| `GroupMutablePermissionsError::PolicyProjection` | Invalid policy state in the component registry. The permission view could not be read from group state. Not retryable. |
 
 ## xmtp_proto
 

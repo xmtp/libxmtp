@@ -1,6 +1,6 @@
 use crate::{context::XmtpSharedContext, identity_updates::IdentityUpdates};
 
-use super::{GroupError, MlsGroup, validated_commit::extract_group_membership};
+use super::{GroupError, MlsGroup};
 use xmtp_db::prelude::*;
 use xmtp_db::{
     StorageError,
@@ -10,6 +10,7 @@ use xmtp_id::{
     InboxId,
     associations::{AssociationState, Identifier},
 };
+use xmtp_mls_validation::commit::extract_group_membership;
 
 #[derive(Debug, Clone)]
 pub struct GroupMember {

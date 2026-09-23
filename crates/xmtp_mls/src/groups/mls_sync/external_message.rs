@@ -1,6 +1,7 @@
 //! Validating and processing messages from other members.
 
 use super::*;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 impl<Context> MlsGroup<Context>
 where
@@ -62,7 +63,7 @@ where
                     openmls::prelude::Sender::Member(idx) => *idx,
                     _ => {
                         return Err(GroupMessageProcessingError::CommitValidation(
-                            CommitValidationError::ActorNotMember,
+                            CommitValidationError::Rule(CommitRuleError::ActorNotMember),
                         ));
                     }
                 };
@@ -104,14 +105,16 @@ where
             group,
             self.context.version_info().pkg_semver(),
         ) {
-            return Err(CommitValidationError::ProtocolVersionTooLow(version).into());
+            return Err(
+                CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(version)).into(),
+            );
         }
         let policies =
             crate::groups::group_permissions::policy_set_from_dictionary(group.extensions())
                 .map_err(|error| {
-                    CommitValidationError::installed_state(
-                        CommitValidationError::GroupMutablePermissions(error),
-                    )
+                    CommitValidationError::installed_state(CommitValidationError::Rule(
+                        CommitRuleError::GroupMutablePermissions(error),
+                    ))
                 })?;
         let seed =
             xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(group)

@@ -16,6 +16,7 @@ use xmtp_mls_common::app_data::{
         MAX_GROUP_NAME_LENGTH,
     },
 };
+use xmtp_mls_validation::commit::CommitRuleError;
 
 // =============================================================================
 // Batched Proposal Tests
@@ -285,7 +286,7 @@ async fn test_commit_pending_proposals_batches_gce_and_commit() {
 /// (including sequence IDs) rather than just the members map keys.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_sequence_id_bump_triggers_gce_on_dictionary_group() {
-    use crate::groups::validated_commit::extract_group_membership;
+    use xmtp_mls_validation::commit::extract_group_membership;
 
     tester!(alix);
     tester!(bo);
@@ -349,7 +350,7 @@ async fn test_sequence_id_bump_triggers_gce_on_dictionary_group() {
 /// the full GroupMembership (including sequence IDs) when deciding whether a GCE is needed.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_add_member_after_sequence_id_bump_on_dictionary_group() {
-    use crate::groups::validated_commit::extract_group_membership;
+    use xmtp_mls_validation::commit::extract_group_membership;
 
     tester!(alix);
     tester!(bo);
@@ -786,9 +787,9 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
     assert!(
         summary.process.errored.iter().any(|(_, e)| matches!(
             e,
-            GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::InsufficientPermissions
-            )
+            GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::InsufficientPermissions
+            ))
         )),
         "summary should carry the CommitValidation cause, got: {summary}"
     );

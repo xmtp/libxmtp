@@ -1,8 +1,8 @@
 //! Unit tests for the `AppDataUpdate` validator helpers.
 //!
 //! These cover the pure-logic seams of
-//! `validated_commit::validate_one_app_data_update_with_old_value` and
-//! `validated_commit::app_data_update_proposer_leaf`. The commit-time
+//! `validate_one_app_data_update_with_old_value` and
+//! `app_data_update_proposer_leaf`. The commit-time
 //! wrapper `validate_one_app_data_update` adds only a dictionary read
 //! on top of the pure core, so exercising the pure core plus the
 //! sender dispatch gives us the full decision-tree without requiring a
@@ -27,9 +27,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use crate::groups::validated_commit::{
-    CommitValidationError, app_data_update_proposer_leaf,
-    validate_one_app_data_update_with_old_value,
+use super::{
+    CommitRuleError, app_data_update_proposer_leaf, validate_one_app_data_update_with_old_value,
 };
 
 // --- actor / policy / registry helpers -----------------------------------
@@ -195,7 +194,7 @@ fn bytes_update_rejected_when_registry_empty() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -222,7 +221,7 @@ fn bytes_update_rejected_when_policy_denies() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -253,7 +252,7 @@ fn admin_list_insert_rejected_for_member() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -279,7 +278,7 @@ fn super_admin_list_insert_rejected_for_admin() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -315,7 +314,7 @@ fn malformed_delta_maps_to_insufficient_permissions() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -340,7 +339,7 @@ fn unknown_collection_component_maps_to_insufficient_permissions() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "expected InsufficientPermissions, got {err:?}"
     );
 }
@@ -366,7 +365,7 @@ fn remove_by_hash_miss_does_not_short_circuit_policy() {
     );
     assert!(matches!(
         result,
-        Err(CommitValidationError::InsufficientPermissions)
+        Err(CommitRuleError::InsufficientPermissions)
     ));
 }
 
@@ -424,10 +423,7 @@ fn receiver_rejects_last_super_admin_removal() {
         None,
     )
     .unwrap_err();
-    assert!(matches!(
-        err,
-        CommitValidationError::InsufficientPermissions
-    ));
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
 }
 
 // verifies: PERM-004
@@ -481,10 +477,7 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
         None,
     )
     .unwrap_err();
-    assert!(matches!(
-        err,
-        CommitValidationError::InsufficientPermissions
-    ));
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
 }
 
 /// The cases run in a loop instead of `#[rstest]` `#[case]` attributes on
@@ -535,7 +528,7 @@ fn receiver_rejects_overlong_metadata_app_data_update() {
              value was accepted, expected InsufficientPermissions"
         ));
         assert!(
-            matches!(err, CommitValidationError::InsufficientPermissions),
+            matches!(err, CommitRuleError::InsufficientPermissions),
             "case {case_name} ({component_id:?}, max {max_length}): expected \
              InsufficientPermissions, got {err:?}"
         );
@@ -559,7 +552,7 @@ fn proposer_leaf_external_rejected_as_actor_not_member() {
     let sender = Sender::External(SenderExtensionIndex::new(0));
     let err = app_data_update_proposer_leaf(&sender).unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::ActorNotMember),
+        matches!(err, CommitRuleError::ActorNotMember),
         "expected ActorNotMember, got {err:?}"
     );
 }
@@ -569,7 +562,7 @@ fn proposer_leaf_new_member_commit_rejected() {
     let sender = Sender::NewMemberCommit;
     let err = app_data_update_proposer_leaf(&sender).unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::ActorNotMember),
+        matches!(err, CommitRuleError::ActorNotMember),
         "expected ActorNotMember, got {err:?}"
     );
 }
@@ -579,7 +572,7 @@ fn proposer_leaf_new_member_proposal_rejected() {
     let sender = Sender::NewMemberProposal;
     let err = app_data_update_proposer_leaf(&sender).unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::ActorNotMember),
+        matches!(err, CommitRuleError::ActorNotMember),
         "expected ActorNotMember, got {err:?}"
     );
 }
@@ -614,7 +607,7 @@ fn unknown_component_in_xmtp_range_rejected_without_registry_entry() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "deny-by-default must fire for unknown ids without a registry entry, got {err:?}"
     );
 }
@@ -701,7 +694,7 @@ fn unknown_component_in_reserved_range_rejected_with_empty_registry() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "reserved-range ids must be rejected, got {err:?}"
     );
 }
@@ -723,7 +716,7 @@ fn unknown_component_remove_with_no_prior_rejected_without_registry_entry() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "deny-by-default applies to Remove on unknown ids, got {err:?}"
     );
 }
@@ -790,7 +783,7 @@ fn unknown_component_update_with_malformed_prior_rejected() {
     )
     .unwrap_err();
     assert!(
-        matches!(err, CommitValidationError::InsufficientPermissions),
+        matches!(err, CommitRuleError::InsufficientPermissions),
         "malformed prior on unknown id must reject, got {err:?}"
     );
 }

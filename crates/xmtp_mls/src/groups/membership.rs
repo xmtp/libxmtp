@@ -96,7 +96,7 @@ where
             .mls
             .max_group_members;
         let existing = self.with_group_snapshot(|group| {
-            Ok(super::validated_commit::extract_group_membership(
+            Ok(xmtp_mls_validation::commit::extract_group_membership(
                 group.extensions(),
             )?)
         })?;
