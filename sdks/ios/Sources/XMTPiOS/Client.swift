@@ -556,7 +556,7 @@ public final class Client {
 	///
 	/// A signature the deployment refuses because of its configuration — a smart
 	/// contract wallet chain outside ``ServerConfiguration/smartContractWalletChains``,
-	/// or a client the deployment has since latched —
+	/// or a client whose connection the deployment has since blocked —
 	/// keeps its distinct type, so an app can `catch is ChainNotAcceptedError`.
 	/// Anything else stays the generic creation failure it has always been.
 	static func signingFailure(_ error: Error) -> Error {

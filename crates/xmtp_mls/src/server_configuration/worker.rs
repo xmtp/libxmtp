@@ -2,7 +2,7 @@
 //!
 //! A run rewrites the stored row. It never changes the snapshot the client is
 //! holding — that is fixed at build — so the only thing a refresh can
-//! change about a running client is to latch a failure it must not ignore: a
+//! change about a running client is to block its connection on a failure it must not ignore: a
 //! different deployment answering or a minimum version this build no
 //! longer meets.
 
@@ -18,7 +18,7 @@ use crate::worker::{
     BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
 
-use super::{ConfigurationLatch, check_minimum_version, fetch_and_store};
+use super::{BlockedConnection, check_minimum_version, fetch_and_store};
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -97,14 +97,24 @@ where
         loop {
             let (base, jitter) = self.schedule();
             xmtp_common::time::sleep(base + xmtp_common::time::rand_offset(jitter)).await;
-            // A latched client has nothing left to learn from the backend.
-            if self.context.server_configuration().latched().is_some() {
+            // A client with a blocked connection has nothing left to learn from the backend.
+            if self
+                .context
+                .server_configuration()
+                .blocked_connection()
+                .is_some()
+            {
                 return;
             }
             self.tick().await;
-            // A latch closes every open stream. Cancelling
-            // is what closes them; the streams read the latch to report why.
-            if self.context.server_configuration().latched().is_some() {
+            // A blocked connection closes every open network stream. Cancelling
+            // is what closes them; the streams read the reason to report why.
+            if self
+                .context
+                .server_configuration()
+                .blocked_connection()
+                .is_some()
+            {
                 self.context.cancellation_token().cancel();
                 return;
             }
@@ -175,7 +185,7 @@ where
                 %minimum,
                 "the backend now requires a newer libxmtp than this client"
             );
-            handle.latch(ConfigurationLatch::ClientVersionTooOld { client, minimum });
+            handle.block_connection(BlockedConnection::ClientVersionTooOld { client, minimum });
         }
         Ok(())
     }

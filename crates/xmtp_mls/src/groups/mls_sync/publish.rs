@@ -29,7 +29,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     #[xmtp_common::mls_span]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
         // Nothing this client prepared is published once
-        // it has latched. The intent stays queued for a client that can.
+        // its connection is blocked. The intent stays queued for a client that can.
         self.context.server_configuration().check()?;
         let mut sent = HashSet::new();
         let mut rejected_request = None;

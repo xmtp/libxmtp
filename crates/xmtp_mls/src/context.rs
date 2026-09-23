@@ -49,7 +49,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) mls_commit_lock: Arc<GroupCommitLock>,
     pub(crate) version_info: VersionInfo,
     /// What this deployment published about itself, resolved once at build
-    /// plus the latch a refresh may set.
+    /// plus the blocked connection a refresh may set.
     pub(crate) server_configuration: ServerConfigurationHandle,
     pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,

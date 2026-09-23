@@ -32,12 +32,12 @@ just test workspace -p xmtp_mls messages::   # one module
 `src/server_configuration.rs` resolves the deployment's published configuration
 before any identity work and hands the client a `ServerConfigurationHandle`.
 The snapshot is fixed for the client's life; the hourly worker in
-`server_configuration/worker.rs` only rewrites the stored row and latches on a
+`server_configuration/worker.rs` only rewrites the stored row and blocks the connection on a
 mismatch or a raised minimum version.
 
 - Read it with `client.server_configuration()`. Read a deployment's without a
   client or database with `server_configuration::fetch_server_configuration`.
-- `handle.check()?` is the latch gate. It is already on the client-level,
+- `handle.check()?` is the blocked connection gate. It is already on the client-level,
   group-sync, and publish paths, and on the two client entry points that reach
   the network outside them (`can_message`, `rotate_and_upload_key_package`);
   do not add a second one. A new `pub` client method that calls the API without

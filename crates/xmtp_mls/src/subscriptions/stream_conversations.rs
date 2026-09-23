@@ -217,9 +217,9 @@ mod test {
 
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
-    async fn a_configuration_latch_fences_queued_conversations() {
+    async fn a_blocked_connection_fences_queued_conversations() {
         use crate::{
-            client::ClientError, server_configuration::ConfigurationLatch,
+            client::ClientError, server_configuration::BlockedConnection,
             subscriptions::SubscribeError,
         };
 
@@ -229,12 +229,12 @@ mod test {
         alix.create_group(None, None)?;
         stream.next().await.unwrap()?;
 
-        alix.context
-            .server_configuration()
-            .latch(ConfigurationLatch::ClientVersionTooOld {
+        alix.context.server_configuration().block_connection(
+            BlockedConnection::ClientVersionTooOld {
                 client: "1.0.0".into(),
                 minimum: "9999.0.0".into(),
-            });
+            },
+        );
         alix.context.cancellation_token().cancel();
         let error = stream.next().await.unwrap().unwrap_err();
         assert!(matches!(

@@ -1,6 +1,6 @@
 ---
 prefix: EVENT
-status: draft
+status: approved
 ---
 # Client events
 
@@ -23,7 +23,7 @@ flowchart LR
 
 ## Scope
 
-In scope: the event kinds and what each one carries, when the client emits an event, the order of events, which client instance's subscriptions receive it, the filter, the queue bound and the `lagged` event, the subscription limit, events of a kind an SDK has no typed form for, callback delivery, and ending a subscription.
+In scope: the event kinds and what each one carries, when the client emits an event, the order of events, which client instance's subscriptions receive it, the typed filter, the queue bound and the `lagged` event, callback delivery, and ending a subscription.
 
 Out of scope: durable message delivery and acknowledgement (PROC section 7), catch-up snapshots and their change notifications (PROC-023), the changes themselves and their validation (the specs in the Related table), push notifications (`PUSH`), and how an SDK names its methods.
 
@@ -40,7 +40,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), cat
 | `CTYPE` | Owns content type ids (CTYPE-001), deletion eligibility (CTYPE-018), and the reply and reaction encodings. |
 | `IDENT` | Owns installation keys (section 8), and installation addition and revocation (section 5, IDENT-044). |
 | `FORK` | Owns the fork state (FORK-040). |
-| `CONF` | Owns the latch and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
+| `CONF` | Owns the blocked connection and the two conditions that set it (CONF-030, CONF-036). CONF-075 closes streams with network interest while EVENT-016 keeps event subscriptions open. |
 | `AUTH` | Owns credential lockout (AUTH-023) and replacing the credential (AUTH-024). |
 | `PUSH` | Owns the notification state (PUSH-262). |
 | `SYNC` | Owns the HMAC root key (SYNC-015, SYNC-022) and SYNC-005, which hides sync groups from an app. |
@@ -63,7 +63,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), cat
 
 ## 1. Kinds and payloads
 
-Each row of the kind table names one change, the unit that gets one event, and the payload member that carries it. A kind name is the contract between the client and an app: an app matches on it, and an SDK that has no typed form for a kind still hands the event over by name (section 5). A kind is never removed and never changes meaning.
+Each row of the kind table names one change, the unit that gets one event, and the payload member that carries it. An app selects a kind through the typed `EventKind` filter. A kind is never removed and never changes meaning.
 
 One act can produce events of more than one kind. A commit that removes the own inbox produces `conversation.removed` and `conversation.membership_changed`. A commit that removes only this installation while the own inbox remains a member does not produce `conversation.membership_changed`. A deletion produces `message.received` for the deletion message and `message.deleted` for its target. Events from one transaction are emitted in the order of the kind table (EVENT-012).
 
@@ -79,17 +79,17 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `message.deleted` | The client applies a deletion under PROC-037, or deletes a message locally at an app's request | Message | `message_deleted` |
 | `message.expired` | The client deletes a message under META-063 | Message | `message_expired` |
 | `consent.changed` | The stored state of a consent record changes | Record | `consent_changed` |
-| `hmac_keys.updated` | The client stores a new HMAC root key under SYNC-015 or SYNC-022 | Stored key | `hmac_keys_updated` |
+| `hmac_keys.updated` | The client stores a new HMAC root key under SYNC-015 or SYNC-022, or an open client observes an HMAC epoch increase under EVENT-026 | Stored key or observed epoch increase | `hmac_keys_updated` |
 | `identity.registered` | The client reports this installation's registration complete under IDENT-072 | Registration | `identity_registered` |
 | `identity.own_installation_added` | The client applies an identity update of the own inbox that adds an installation | Installation | `own_installation_added` |
 | `identity.own_installation_revoked` | The client applies an identity update of the own inbox that revokes an installation, including one IDENT-044 revokes with an identifier | Installation | `own_installation_revoked` |
-| `client.rejected_by_server` | The server rejects the client and the client stops: its backend does not match the stored one, or its version is below the server's minimum (a latch under CONF-075) | Rejection | `rejected_by_server` |
+| `client.rejected_by_server` | The server rejects the client and blocks its connection: its backend does not match the stored one, or its version is below the server's minimum (CONF-075) | Rejection | `rejected_by_server` |
 | `client.lockout_changed` | The client enters lockout under AUTH-023, or leaves it: when the first request after the cool-down proceeds, or under AUTH-024 | Entry or exit | `lockout_changed` |
 | `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-040 | Group | `conversation_fork_detected` |
 | `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
 | `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
 
-The payload of every event, including `lagged`, is the `ClientEvent` below. At any version of this spec the client knows every kind it emits; an SDK built against an older version hands off a newer kind as an unknown event (section 5).
+The payload of every event, including `lagged`, is the `ClientEvent` below. The client and SDK use the typed `EventKind` set in this section.
 
 ```webidl
 dictionary ClientEvent {
@@ -202,9 +202,6 @@ dictionary NotificationsFailed { required DOMString cause; };                 //
 dictionary ArchiveRestored { required boolean complete; };                    // EVENT-017
 dictionary Lagged { required unsigned long long discarded; };
 
-dictionary UnknownEvent {                         // what an SDK hands off under EVENT-040; not a ClientEvent
-  required DOMString kind;                        // the kind name the client emitted
-};
 ```
 
 The member source table, which EVENT-024 makes binding. Members that other rows of this section state are not repeated here.
@@ -229,7 +226,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | EVENT-001 | One event per change | When a change occurs that a row of the kind table in section 1 names, the client MUST emit exactly one event of that kind for each unit the row names, with that row's member of the `ClientEvent` block, including after a transaction that was interrupted before it committed and was retried, except under EVENT-003 and EVENT-004 or when the process ends after the change commits but before emission. It MUST NOT emit an event of a kind in the table for any other change. | A missing event leaves the app showing stale state; a duplicate `message.received` is a duplicate notification to the user. |
-| EVENT-002 | Kinds survive upgrades | When a client version emits a kind, every later client version MUST emit that kind for the same trigger, with every payload member that version carried and with the same meaning. | An app that matches on a kind name reads the wrong state, or none, after the client changes under it. |
+| EVENT-002 | Kinds survive upgrades | When a client version emits a kind, every later client version MUST emit that kind for the same trigger, with every payload member that version carried and with the same meaning. | An app that handles a typed kind reads the wrong state, or none, after the client changes under it. |
 | EVENT-003 | Sync groups emit nothing | The client MUST NOT emit an event that names a group SYNC-005 hides from the app. | |
 | EVENT-004 | Import stores emit nothing | While an archive import runs, the client MUST NOT emit `conversation.joined`, `message.received`, or `consent.changed` for what the import stores. | An import of thousands of messages would fill every queue and end in `lagged`; `archive.restored` reports it once. |
 | EVENT-005 | Join origin | The client MUST set `origin` to `created` when this installation created the group, and to `welcomed` otherwise. | |
@@ -242,6 +239,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | EVENT-019 | Changed metadata names | The client MUST set a `conversation.metadata_changed` event's `changed` to one entry per changed item: its `field_name` under META-040 where it has one; otherwise its component name in META section 2; otherwise `component:` followed by its component id as four lowercase hexadecimal digits, as for an application component. | An app re-reads the wrong fields, or cannot name an application component. |
 | EVENT-023 | Join adder | The client MUST set `adder_inbox_id` exactly when `origin` is `welcomed`, to the adder under JOIN-025. | An app that shows "you were added by" names the wrong inbox, or none. |
 | EVENT-024 | Other payload members | The client MUST set each payload member in the member source table to the value that table names for it. | An app that reads a member it cannot trust re-reads everything, or acts on the wrong value. |
+| EVENT-026 | Observed HMAC epoch increase | When the current HMAC epoch under PUSH-258 is greater than the epoch the client recorded at startup or when it last emitted `hmac_keys.updated` for an epoch increase, an open client MUST emit exactly one `hmac_keys.updated` event for the current epoch without an app call or network request. It MUST NOT emit an epoch-change event for the startup epoch or for epochs reached while it was closed. | An app that caches the current conversation HMAC keys keeps the old keys after an epoch transition. |
 
 ## 2. Emission and order
 
@@ -269,7 +267,7 @@ A filter names the kinds a subscription wants and can narrow them to some conver
 
 ```webidl
 dictionary EventFilter {
-  required sequence<DOMString> kinds;             // kind names; an empty sequence selects no kind
+  required sequence<EventKind> kinds;             // an empty sequence selects no kind
   sequence<sequence<octet>> group_ids;            // absent selects every group
   sequence<ContentTypeId> content_types;          // message.received only; absent selects every content type
   boolean references_own_messages;                // message.received only; absent means false
@@ -296,18 +294,11 @@ The bound counts every event in the queue as the Terms define it: every event em
 | EVENT-031 | Lagged before later events | When an SDK has discarded events for a subscription, it MUST hand off one `lagged` event whose `discarded` is the number discarded since the previous `lagged` handoff, before it hands off any event emitted after the first of those discards. | An app that does not know it missed events keeps state that is wrong. |
 | EVENT-033 | Subscriptions do not wait | An SDK MUST NOT delay a handoff to one subscription because another subscription's queue is full or one of its callbacks is running. | One slow subscription would stall every other subscription of the client. |
 
-## 5. Kinds an SDK does not know
-
-An SDK has a typed form for each kind it knows. The `EventKind` enum in section 1 is the set at this version of the spec, and a `ClientEvent` always carries one of its values. A client built against a later version can emit a kind that an older SDK has no typed form for; that SDK hands the event off as an `UnknownEvent`, which carries the name as a string and no payload. This keeps an app built against the older SDK working, and the app can still select the kind by name.
-
-| ID | Title | Requirement | Why |
-| --- | --- | --- | --- |
-| EVENT-040 | Unknown kinds are handed over | When an SDK hands off an event whose kind has no typed form in that SDK, it MUST hand it off as the `UnknownEvent` block in section 1, whose `kind` is the kind name as a string. | An SDK that discards the event, or fails, stops working for an app when the client adds a kind. |
-| EVENT-041 | Select by kind name | An SDK MUST let an app select a kind in an `EventFilter` by its kind name, including a kind for which the SDK has no typed form. | |
-
-## 6. Callbacks and ending a subscription
+## 5. Callbacks and ending a subscription
 
 A subscription is read with an iterator or with a callback. With a callback, the SDK calls the app's code for each event. The rules below keep callbacks in order, keep one callback's failure from affecting other work, and let an app end a subscription or close the client from inside a callback.
+
+Apps can keep several subscriptions for different kinds or conversations. They should end listeners they no longer use. An SDK may warn about duplicate listeners whose filters overlap.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -316,7 +307,6 @@ A subscription is read with an iterator or with a callback. With a callback, the
 | EVENT-052 | Calls from a callback complete | While a callback runs, an app MAY call any operation of the same client, including ending a subscription and closing the client, and the SDK MUST complete that operation without waiting for the callback to return. | An app that reads again, or closes, inside the callback would wait for ever. |
 | EVENT-053 | Ending stops handoffs | After an app ends a subscription, an SDK MUST NOT hand off another event for it, and MUST complete a pending iterator read of it as ended. | A callback that runs after its screen is gone acts on state the app has released. |
 | EVENT-054 | Closing ends subscriptions | When an app closes the client, an SDK MUST end every subscription of that client before the close returns. | A subscription that survives its client hands off events the app can no longer act on. |
-| EVENT-055 | At most 128 subscriptions | When an app asks to start a subscription while 128 subscriptions of that client are active, an SDK MUST fail the request with a typed error and start none. A subscription is active from its registration until it has ended and no callback of it is running. | An app that starts listeners in a loop, or whose callbacks never return, would hold memory and blocked calls without limit. |
 
 ## Known limitations
 
@@ -330,6 +320,4 @@ A client instance emits events only for changes it makes itself. Another process
 
 Filters do not read consent. A conversation whose consent is denied still produces events; an app that hides denied conversations applies CONS-030 to events itself.
 
-The per-conversation HMAC keys also change at each HMAC epoch without a new root key, and that change has no `hmac_keys.updated` event.
-
-A reply or reaction that arrives before the message it names does not pass `references_own_messages`, and no later event reports it. A deletion that arrives before its target produces no `message.deleted` event.
+In a stitched DM, a reply or reaction in one group can arrive before the message it names in another group. It then does not pass `references_own_messages`, and no later event reports it.

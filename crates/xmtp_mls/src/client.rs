@@ -470,13 +470,13 @@ where
             {
                 Ok(fetched) => fetched,
                 Err(error) => {
-                    // A latch closes every open stream, and cancelling
+                    // A blocked connection closes every open network stream, and cancelling
                     // is what closes them. The worker cancels after its turn;
-                    // an explicit refresh has to do it here, because the latch
+                    // an explicit refresh has to do it here, because the blocked connection
                     // it sets — a different deployment identifier — otherwise
                     // leaves the streams and workers of a database known to
                     // belong elsewhere still running.
-                    if handle.latched().is_some() {
+                    if handle.blocked_connection().is_some() {
                         self.context.cancellation_token().cancel();
                     }
                     return Err(error);
@@ -494,8 +494,8 @@ where
                 "the backend now requires a newer libxmtp than this client"
             );
             // The copy is stored either way, and the client stops.
-            let error = handle.latch(
-                crate::server_configuration::ConfigurationLatch::ClientVersionTooOld {
+            let error = handle.block_connection(
+                crate::server_configuration::BlockedConnection::ClientVersionTooOld {
                     client,
                     minimum,
                 },
@@ -765,7 +765,7 @@ where
     /// Ensures identity is ready before performing operations.
     /// Call `register_identity()` first if this fails.
     fn ensure_identity_ready(&self) -> Result<(), ClientError> {
-        // Once latched, every later call fails with the
+        // Once the connection is blocked, every later call fails with the
         // reason. This is the gate every client-level operation already passes
         // through, so the check costs nothing extra.
         self.context.server_configuration().check()?;
@@ -1266,7 +1266,7 @@ where
     /// Upload a new key package to the network replacing an existing key package
     /// This is expected to be run any time the client receives new Welcome messages
     pub async fn rotate_and_upload_key_package(&self) -> Result<(), ClientError> {
-        // A latched client publishes nothing. This one
+        // A client with a blocked connection publishes nothing. This one
         // reaches `Identity` directly instead of going through a group or the
         // publish path, so it carries its own gate.
         self.ensure_identity_ready()?;
@@ -1413,7 +1413,7 @@ where
         &self,
         account_identifiers: &[Identifier],
     ) -> Result<HashMap<Identifier, bool>, ClientError> {
-        // A latched client issues no request. The latch
+        // A client with a blocked connection issues no request. The blocked connection
         // alone, not `ensure_identity_ready`, because this answers before the
         // caller has registered an identity.
         self.context.server_configuration().check()?;

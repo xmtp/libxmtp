@@ -235,8 +235,8 @@ mod tests {
 
     // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
-    async fn configuration_latch_ends_a_pending_message_read_with_its_cause() {
-        use crate::{client::ClientError, server_configuration::ConfigurationLatch};
+    async fn blocked_connection_ends_a_pending_message_read_with_its_cause() {
+        use crate::{client::ClientError, server_configuration::BlockedConnection};
         tester!(alix, disable_workers);
         let mut reader = MessageReader::new(
             alix.context.clone(),
@@ -248,17 +248,17 @@ mod tests {
             let pending = reader.next_delivery();
             futures::pin_mut!(pending);
             assert!(futures::poll!(&mut pending).is_pending());
-            alix.context
-                .server_configuration()
-                .latch(ConfigurationLatch::ClientVersionTooOld {
+            alix.context.server_configuration().block_connection(
+                BlockedConnection::ClientVersionTooOld {
                     client: "1.0.0".into(),
                     minimum: "9999.0.0".into(),
-                });
+                },
+            );
             alix.context.cancellation_token().cancel();
             pending
                 .await
                 .err()
-                .expect("configuration latch must fail the read")
+                .expect("blocked connection must fail the read")
         };
         assert!(matches!(
             error,

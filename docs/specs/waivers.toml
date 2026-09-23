@@ -640,7 +640,7 @@ id = "EVENT-016"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "Current latch handling closes local streams; the event subscription that must survive a server rejection does not exist."
+reason = "Current blocked connection handling closes local streams; the event subscription that must survive a server rejection does not exist."
 
 [[waiver]]
 id = "EVENT-017"
@@ -706,6 +706,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No per-client event bus and app subscription API enforce instance-local delivery when clients share storage or credentials."
 
 [[waiver]]
+id = "EVENT-026"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
+
+[[waiver]]
 id = "EVENT-030"
 kind = "gap"
 owner = "protocol"
@@ -725,20 +732,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No app event subscription fan-out prevents one full queue or running callback from delaying another."
-
-[[waiver]]
-id = "EVENT-040"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event API hands off an untyped kind as UnknownEvent."
-
-[[waiver]]
-id = "EVENT-041"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event filter can select a kind by name without a typed form."
 
 [[waiver]]
 id = "EVENT-050"
@@ -774,10 +767,3 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No SDK app event subscription is ended by closing its client."
-
-[[waiver]]
-id = "EVENT-055"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event API enforces the limit of 128 active subscriptions per client."

@@ -258,7 +258,7 @@ pub enum SubscribeError {
     /// Enriched Message Error.
     #[error("error occured during subscription {0}")]
     Enriched(#[from] EnrichMessageError),
-    /// The client latched a fatal configuration failure.
+    /// The connection is blocked by a fatal configuration failure.
     ///
     /// Either this database is bound to a different deployment or the
     /// deployment now requires a newer client. Every open stream is
@@ -491,7 +491,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a latched reason,
+                // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
@@ -526,7 +526,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a latched reason,
+                // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();
@@ -561,7 +561,7 @@ where
         xmtp_common::spawn(
             Some(rx),
             xmtp_common::bind_task_hub(async move {
-                // Cancellation can carry a latched reason,
+                // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.local_events.subscribe();

@@ -8,7 +8,7 @@ where
 {
     #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
-        // A latched client makes no further calls.
+        // A client with a blocked connection makes no further calls.
         self.context.server_configuration().check()?;
         let conn = self.context.db();
 
