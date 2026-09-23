@@ -179,6 +179,22 @@ describe("Agent stream lifecycle", () => {
     expect(unhandled).not.toHaveBeenCalled();
   });
 
+  it("returns an async end callback result to the Node stream wrapper", async () => {
+    const h = harness();
+    const cause = new Error("caller end callback failed");
+    const onEnd = vi.fn(async () => {
+      throw cause;
+    });
+    const stopped = vi.fn();
+    h.agent.on("stop", stopped);
+    await h.agent.start({ onEnd });
+
+    const result = h.conversations[0]!.options?.onEnd?.();
+    await expect(Promise.resolve(result)).rejects.toBe(cause);
+    await vi.waitFor(() => expect(stopped).toHaveBeenCalledOnce());
+    expect(onEnd).toHaveBeenCalledOnce();
+  });
+
   it("does not emit a group after a conversation listener stops the stream", async () => {
     const h = harness();
     const group = vi.fn();

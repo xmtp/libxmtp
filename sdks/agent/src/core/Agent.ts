@@ -502,7 +502,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
               void finishConversations().catch(() => undefined);
             });
           }
-          options?.onEnd?.();
+          return options?.onEnd?.();
         },
       }),
     );
