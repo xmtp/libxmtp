@@ -166,11 +166,10 @@ class ReactionTests: XCTestCase {
 		XCTAssertEqual(ReactionAction.added, content.action)
 		XCTAssertEqual(ReactionSchema.unicode, content.schema)
 
-		let messagesWithReactions = try await conversation.messagesWithReactions()
-		XCTAssertEqual(messagesWithReactions.count, 2)
-		XCTAssertEqual(messagesWithReactions[0].id, messageToReact.id)
-
-		let reactionContent: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
+		let enriched = try await conversation.enrichedMessages()
+		let parent = try XCTUnwrap(enriched.first { $0.id == messageToReact.id })
+		XCTAssertEqual(parent.reactions?.count, 1)
+		let reactionContent: Reaction = try XCTUnwrap(parent.reactions?.first?.content())
 		XCTAssertEqual(reactionContent.reference, messageToReact.id)
 	}
 
@@ -211,19 +210,16 @@ class ReactionTests: XCTestCase {
 			options: .init(contentType: ContentTypeReaction)
 		)
 
-		// Verify both reactions appear in messagesWithReactions
-		let messagesWithReactions = try await conversation.messagesWithReactions()
-
-		XCTAssertEqual(2, messagesWithReactions.count)
-		XCTAssertEqual(messageToReact.id, messagesWithReactions[0].id)
-		XCTAssertEqual(2, messagesWithReactions[0].childMessages?.count)
+		// Verify both stored reaction types through enriched messages.
+		let enriched = try await conversation.enrichedMessages()
+		let parent = try XCTUnwrap(enriched.first { $0.id == messageToReact.id })
+		XCTAssertEqual(parent.reactions?.count, 2)
 
 		// Verify both reaction contents
-		let childContent1: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[0].content())
-		XCTAssertEqual("U+1F604", childContent1.content)
-
-		let childContent2: Reaction = try XCTUnwrap(messagesWithReactions[0].childMessages?[1].content())
-		XCTAssertEqual("U+1F603", childContent2.content)
-		XCTAssertEqual(ReactionSchema.unicode, childContent2.schema)
+		let contents = try parent.reactions?.map { reaction -> Reaction in
+			try reaction.content()
+		}
+		XCTAssertEqual(Set(contents?.map(\.content) ?? []), Set(["U+1F603", "U+1F604"]))
+		XCTAssertTrue(contents?.allSatisfy { $0.schema == .unicode } ?? false)
 	}
 }

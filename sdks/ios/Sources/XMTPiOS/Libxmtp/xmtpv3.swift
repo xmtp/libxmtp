@@ -1608,8 +1608,6 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func findMessages(opts: FfiListMessagesOptions) async throws  -> [FfiMessage]
     
-    func findMessagesWithReactions(opts: FfiListMessagesOptions) throws  -> [FfiMessageWithReactions]
-    
     func getHmacKeys() throws  -> [Data: [FfiHmacKey]]
     
     func getLastReadTimes() throws  -> [String: Int64]
@@ -2046,16 +2044,6 @@ open func findMessages(opts: FfiListMessagesOptions)async throws  -> [FfiMessage
             liftFunc: FfiConverterSequenceTypeFfiMessage.lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
-}
-    
-open func findMessagesWithReactions(opts: FfiListMessagesOptions)throws  -> [FfiMessageWithReactions]  {
-    return try  FfiConverterSequenceTypeFfiMessageWithReactions.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-        uniffiCallStatus in
-    uniffi_xmtpv3_fn_method_fficonversation_find_messages_with_reactions(
-            self.uniffiCloneHandle(),
-        FfiConverterTypeFfiListMessagesOptions_lower(opts),uniffiCallStatus
-    )
-})
 }
     
 open func getHmacKeys()throws  -> [Data: [FfiHmacKey]]  {
@@ -11073,60 +11061,6 @@ public func FfiConverterTypeFfiMessageTopicStatus_lower(_ value: FfiMessageTopic
 }
 
 
-public struct FfiMessageWithReactions: Equatable, Hashable {
-    public var message: FfiMessage
-    public var reactions: [FfiMessage]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(message: FfiMessage, reactions: [FfiMessage]) {
-        self.message = message
-        self.reactions = reactions
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FfiMessageWithReactions: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiMessageWithReactions: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiMessageWithReactions {
-        return
-            try FfiMessageWithReactions(
-                message: FfiConverterTypeFfiMessage.read(from: &buf), 
-                reactions: FfiConverterSequenceTypeFfiMessage.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FfiMessageWithReactions, into buf: inout [UInt8]) {
-        FfiConverterTypeFfiMessage.write(value.message, into: &buf)
-        FfiConverterSequenceTypeFfiMessage.write(value.reactions, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiMessageWithReactions_lift(_ buf: RustBuffer) throws -> FfiMessageWithReactions {
-    return try FfiConverterTypeFfiMessageWithReactions.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiMessageWithReactions_lower(_ value: FfiMessageWithReactions) -> RustBuffer {
-    return FfiConverterTypeFfiMessageWithReactions.lower(value)
-}
-
-
 public struct FfiMetadataFieldChange: Equatable, Hashable {
     public var fieldName: String
     public var oldValue: String?
@@ -19647,31 +19581,6 @@ fileprivate struct FfiConverterSequenceTypeFfiMessageTopicStatus: FfiConverterRu
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceTypeFfiMessageWithReactions: FfiConverterRustBuffer {
-    typealias SwiftType = [FfiMessageWithReactions]
-
-    public static func write(_ value: [FfiMessageWithReactions], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterTypeFfiMessageWithReactions.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiMessageWithReactions] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [FfiMessageWithReactions]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterTypeFfiMessageWithReactions.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeFfiMetadataFieldChange: FfiConverterRustBuffer {
     typealias SwiftType = [FfiMetadataFieldChange]
 
@@ -21524,9 +21433,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages() != 10963) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_find_messages_with_reactions() != 9506) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_get_hmac_keys() != 43069) {

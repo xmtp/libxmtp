@@ -98,7 +98,7 @@ use xmtp_db::{Fetch, consent_record::ConsentType};
 use xmtp_db::{
     NotFound, StorageError,
     group_intent::{IntentState, StoredGroupIntent},
-    group_message::{ContentType, StoredGroupMessageWithReactions},
+    group_message::ContentType,
     refresh_state::EntityKind,
 };
 use xmtp_db::{Store, StoreOrIgnore};

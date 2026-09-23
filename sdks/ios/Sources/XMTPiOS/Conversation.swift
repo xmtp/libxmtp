@@ -376,42 +376,6 @@ public enum Conversation: Identifiable, Equatable, Hashable {
 		}
 	}
 
-	public func messagesWithReactions(
-		limit: Int? = nil,
-		beforeNs: Int64? = nil,
-		afterNs: Int64? = nil,
-		direction: SortDirection? = .descending,
-		deliveryStatus: MessageDeliveryStatus = .all,
-		excludeContentTypes: [StandardContentType]? = nil,
-		excludeSenderInboxIds: [String]? = nil,
-		sortBy: MessageSortBy? = nil,
-		insertedAfterNs: Int64? = nil,
-		insertedBeforeNs: Int64? = nil
-	) async throws -> [DecodedMessage] {
-		switch self {
-		case let .group(group):
-			try await group.messagesWithReactions(
-				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
-				direction: direction, deliveryStatus: deliveryStatus,
-				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds,
-				sortBy: sortBy,
-				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs
-			)
-		case let .dm(dm):
-			try await dm.messagesWithReactions(
-				beforeNs: beforeNs, afterNs: afterNs, limit: limit,
-				direction: direction, deliveryStatus: deliveryStatus,
-				excludeContentTypes: excludeContentTypes,
-				excludeSenderInboxIds: excludeSenderInboxIds,
-				sortBy: sortBy,
-				insertedAfterNs: insertedAfterNs,
-				insertedBeforeNs: insertedBeforeNs
-			)
-		}
-	}
-
 	/// Get messages with enriched metadata automatically included.
 	///
 	/// This method retrieves messages with reactions, replies, and other associated data

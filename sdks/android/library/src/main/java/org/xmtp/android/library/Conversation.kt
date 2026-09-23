@@ -424,53 +424,6 @@ sealed class Conversation {
             }
         }
 
-    suspend fun messagesWithReactions(
-        limit: Int? = null,
-        beforeNs: Long? = null,
-        afterNs: Long? = null,
-        direction: DecodedMessage.SortDirection = DecodedMessage.SortDirection.DESCENDING,
-        deliveryStatus: DecodedMessage.MessageDeliveryStatus =
-            DecodedMessage.MessageDeliveryStatus.ALL,
-        excludedContentTypes: List<FfiContentType>? = null,
-        excludeSenderInboxIds: List<String>? = null,
-        insertedAfterNs: Long? = null,
-        insertedBeforeNs: Long? = null,
-        sortBy: SortBy = SortBy.SENT_TIME,
-    ): List<DecodedMessage> =
-        withContext(Dispatchers.IO) {
-            when (this@Conversation) {
-                is Group -> {
-                    group.messagesWithReactions(
-                        limit,
-                        beforeNs,
-                        afterNs,
-                        direction,
-                        deliveryStatus,
-                        excludedContentTypes,
-                        excludeSenderInboxIds,
-                        insertedAfterNs,
-                        insertedBeforeNs,
-                        sortBy,
-                    )
-                }
-
-                is Dm -> {
-                    dm.messagesWithReactions(
-                        limit,
-                        beforeNs,
-                        afterNs,
-                        direction,
-                        deliveryStatus,
-                        excludedContentTypes,
-                        excludeSenderInboxIds,
-                        insertedAfterNs,
-                        insertedBeforeNs,
-                        sortBy,
-                    )
-                }
-            }
-        }
-
     suspend fun processMessage(messageBytes: ByteArray): DecodedMessage? =
         withContext(Dispatchers.IO) {
             when (this@Conversation) {

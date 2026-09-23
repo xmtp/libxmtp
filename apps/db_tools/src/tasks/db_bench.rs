@@ -236,10 +236,6 @@ where
             count_group_messages(&group.id, &MsgQueryArgs::default())
         )?;
         bench!(self, group_messages_paged(&MsgQueryArgs::default(), 0))?;
-        bench!(
-            self,
-            get_group_messages_with_reactions(&group.id, &MsgQueryArgs::default())
-        )?;
         bench!(self, sync_group_messages_paged(0, 100))?;
 
         // Try to get a message to use for further benchmarks

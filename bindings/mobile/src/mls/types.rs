@@ -11,7 +11,7 @@ use xmtp_common::time::now_ns;
 
 use xmtp_db::group::{ConversationType, GroupMembershipState, GroupQueryOrderBy};
 use xmtp_db::group_message::{ContentType, MsgQueryArgs};
-use xmtp_db::group_message::{SortBy, SortDirection, StoredGroupMessageWithReactions};
+use xmtp_db::group_message::{SortBy, SortDirection};
 use xmtp_db::user_preferences::HmacKey;
 use xmtp_db::{
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
@@ -991,25 +991,6 @@ impl From<ConversationType> for FfiConversationType {
             ConversationType::Dm => FfiConversationType::Dm,
             ConversationType::Sync => FfiConversationType::Sync,
             ConversationType::Oneshot => FfiConversationType::Oneshot,
-        }
-    }
-}
-
-#[derive(uniffi::Record)]
-pub struct FfiMessageWithReactions {
-    pub message: FfiMessage,
-    pub reactions: Vec<FfiMessage>,
-}
-
-impl From<StoredGroupMessageWithReactions> for FfiMessageWithReactions {
-    fn from(msg_with_reactions: StoredGroupMessageWithReactions) -> Self {
-        Self {
-            message: msg_with_reactions.message.into(),
-            reactions: msg_with_reactions
-                .reactions
-                .into_iter()
-                .map(|reaction| reaction.into())
-                .collect(),
         }
     }
 }
