@@ -5,7 +5,7 @@ import { Agent } from "@/core/Agent";
 import type { DecodedMessageWithContent } from "@/core/filter";
 import { MessageContext } from "@/core/MessageContext";
 import { CommandRouter } from "@/middleware/CommandRouter";
-import { createClient } from "@/util/test";
+import { createClient, waitForNetwork } from "@/util/test";
 
 describe("CommandRouter", () => {
   let agent: Agent<BuiltInContentTypes>;
@@ -43,7 +43,7 @@ describe("CommandRouter", () => {
         messageId,
       )! as DecodedMessageWithContent<string>;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
       });
       expect(handler).toHaveBeenCalledWith(
@@ -70,7 +70,7 @@ describe("CommandRouter", () => {
         messageId,
       )! as DecodedMessageWithContent<string>;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
       });
       expect(handler).toHaveBeenCalledWith(
@@ -97,7 +97,7 @@ describe("CommandRouter", () => {
         messageId,
       )! as DecodedMessageWithContent<string>;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
       });
       expect(handler).toHaveBeenCalledWith(
