@@ -88,6 +88,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `conversation.fork_detected` | A conversation's fork state becomes `forked` under FORK-040 | Group | `conversation_fork_detected` |
 | `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
 | `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
+| `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |
 
 The payload of every event, including `lagged`, is the `ClientEvent` below. The client and SDK use the typed `EventKind` set in this section.
 
@@ -113,6 +114,7 @@ dictionary ClientEvent {
   GroupRef conversation_fork_detected;
   NotificationsFailed notifications_failed;
   ArchiveRestored archive_restored;
+  ConnectionStateChanged connection_state_changed;
   Lagged lagged;
 };
 
@@ -122,7 +124,8 @@ enum EventKind {
   "message.status_changed", "message.deleted", "message.expired", "consent.changed",
   "hmac_keys.updated", "identity.registered", "identity.own_installation_added",
   "identity.own_installation_revoked", "client.rejected_by_server", "client.lockout_changed",
-  "conversation.fork_detected", "notifications.failed", "archive.restored", "lagged"
+  "conversation.fork_detected", "notifications.failed", "archive.restored",
+  "connection.state_changed", "lagged"
 };
 enum ConversationType { "group", "dm" };
 enum JoinOrigin { "created", "welcomed" };
@@ -133,6 +136,7 @@ enum ConsentEntityKind { "conversation", "inbox" };
 enum ConsentState { "unknown", "allowed", "denied" };
 enum RejectionCause { "backend_mismatch", "version_too_old" };
 enum LockoutChange { "entered", "left" };
+enum ConnectionState { "connecting", "connected", "reconnecting", "failed", "closed" };
 
 dictionary GroupRef { required sequence<octet> group_id; };
 dictionary MessageRef { required sequence<octet> group_id; required sequence<octet> message_id; };
@@ -200,6 +204,10 @@ dictionary ClientRejectedByServer {
 dictionary LockoutChanged { required LockoutChange change; };
 dictionary NotificationsFailed { required DOMString cause; };                 // the failure cause PUSH-262 records
 dictionary ArchiveRestored { required boolean complete; };                    // EVENT-017
+dictionary ConnectionStateChanged {
+  required ConnectionState previous;
+  required ConnectionState current;
+};
 dictionary Lagged { required unsigned long long discarded; };
 
 ```
@@ -215,7 +223,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | `floor` | The protocol version floor the group is paused for (META section 7) |
 | `content_type` | The stored message's content type id under CTYPE-001; absent when the message has no typed content type, as for a message CTYPE-008 retains undecoded |
 | `sender_inbox_id` | The inbox of the message's authenticated MLS sender |
-| `previous`, `current` | The message's status before and after the change |
+| `previous`, `current` in `MessageStatusChanged` | The message's status before and after the change |
 | `inbox_id` in `IdentityRegistered` | The own inbox's id |
 | `installation_key` | The installation key of the installation registered, added, or revoked (IDENT section 8) |
 | `is_this_installation` | Whether `installation_key` equals this installation's key |
@@ -240,6 +248,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | EVENT-023 | Join adder | The client MUST set `adder_inbox_id` exactly when `origin` is `welcomed`, to the adder under JOIN-025. | An app that shows "you were added by" names the wrong inbox, or none. |
 | EVENT-024 | Other payload members | The client MUST set each payload member in the member source table to the value that table names for it. | An app that reads a member it cannot trust re-reads everything, or acts on the wrong value. |
 | EVENT-026 | Observed HMAC epoch increase | When the current HMAC epoch under PUSH-258 is greater than the epoch the client recorded at startup or when it last emitted `hmac_keys.updated` for an epoch increase, an open client MUST emit exactly one `hmac_keys.updated` event for the current epoch without an app call or network request. It MUST NOT emit an epoch-change event for the startup epoch or for epochs reached while it was closed. | An app that caches the current conversation HMAC keys keeps the old keys after an epoch transition. |
+| EVENT-027 | Client connection state | The client MUST compute one connection state over its open app streams that hold network interest, using PROC section 6's states: `failed` if any is `failed`; else `reconnecting` if any is `reconnecting`; else `connecting` if any is `connecting`; else `connected`; and `closed` when none is open. When that state changes, the client MUST emit exactly one `connection.state_changed` event with the previous and current state. It MUST NOT emit when the state does not change. | An app cannot show that it is offline or that it recovered without a signal. |
 
 ## 2. Emission and order
 
@@ -321,3 +330,5 @@ A client instance emits events only for changes it makes itself. Another process
 Filters do not read consent. A conversation whose consent is denied still produces events; an app that hides denied conversations applies CONS-030 to events itself.
 
 In a stitched DM, a reply or reaction in one group can arrive before the message it names in another group. It then does not pass `references_own_messages`, and no later event reports it.
+
+Internal receivers, such as device sync and barriers, do not count toward the client connection state. That state can be `closed` while background work uses the network.

@@ -713,6 +713,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
 
 [[waiver]]
+id = "EVENT-027"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No client-wide aggregator reports connection state transitions of app streams that hold network interest."
+
+[[waiver]]
 id = "EVENT-030"
 kind = "gap"
 owner = "protocol"
