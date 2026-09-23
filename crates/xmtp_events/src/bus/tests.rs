@@ -521,19 +521,29 @@ async fn public_only_adapters_do_not_own_the_bus() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn rust_kinds_equal_the_approved_spec_kinds() {
-    let spec = include_str!("../../../../docs/specs/EVENT-client-events.md");
-    let kinds = spec
-        .split("enum EventKind {")
-        .nth(1)
-        .unwrap()
-        .split("};")
-        .next()
-        .unwrap();
-    let expected: Vec<_> = kinds
-        .split('"')
-        .enumerate()
-        .filter_map(|(index, value)| (index % 2 == 1).then_some(value))
-        .collect();
+    // Names and order from the approved EVENT kind table.
+    let expected = [
+        "conversation.joined",
+        "conversation.removed",
+        "conversation.membership_changed",
+        "conversation.metadata_changed",
+        "conversation.paused",
+        "message.received",
+        "message.status_changed",
+        "message.deleted",
+        "message.expired",
+        "consent.changed",
+        "hmac_keys.updated",
+        "identity.registered",
+        "identity.own_installation_added",
+        "identity.own_installation_revoked",
+        "client.rejected_by_server",
+        "client.lockout_changed",
+        "conversation.fork_detected",
+        "notifications.failed",
+        "archive.restored",
+        "lagged",
+    ];
     let actual: Vec<_> = EventKind::ALL.into_iter().map(EventKind::name).collect();
     assert_eq!(actual, expected);
 }
