@@ -267,8 +267,6 @@ xmtp conversations stream-all-messages --count 10
 xmtp conversations stream-all-messages --type group
 # only stream from conversations with "allowed" consent
 xmtp conversations stream-all-messages --consent-state allowed
-# skip the initial sync before streaming starts
-xmtp conversations stream-all-messages --disable-sync
 
 # stream messages from a single conversation
 xmtp conversation stream <conversation-id>
@@ -281,8 +279,6 @@ xmtp conversations stream --type dm
 xmtp conversations stream --type group
 # stop after 60 seconds or 5 new conversations, whichever comes first
 xmtp conversations stream --timeout 60 --count 5
-# skip the initial sync before streaming starts
-xmtp conversations stream --disable-sync
 ```
 
 ### Manage Group Members
@@ -371,8 +367,6 @@ xmtp preferences stream
 xmtp preferences stream --timeout 60
 # stop after receiving 5 preference update batches
 xmtp preferences stream --count 5
-# skip the initial preferences sync before streaming starts
-xmtp preferences stream --disable-sync
 ```
 
 ### Inbox States

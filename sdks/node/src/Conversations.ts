@@ -352,9 +352,6 @@ export class Conversations<ContentTypes = unknown> {
       callback: StreamCallback<Conversation>,
       onFail: () => void,
     ) => {
-      if (!options?.disableSync) {
-        await this.sync();
-      }
       return this.#conversations.stream(
         callback,
         onFail,
@@ -396,9 +393,6 @@ export class Conversations<ContentTypes = unknown> {
       callback: StreamCallback<Conversation>,
       onFail: () => void,
     ) => {
-      if (!options?.disableSync) {
-        await this.sync();
-      }
       return this.#conversations.stream(
         callback,
         onFail,
@@ -424,9 +418,6 @@ export class Conversations<ContentTypes = unknown> {
       callback: StreamCallback<Conversation>,
       onFail: () => void,
     ) => {
-      if (!options?.disableSync) {
-        await this.sync();
-      }
       return this.#conversations.stream(callback, onFail, ConversationType.Dm);
     };
     const convertConversation = (value: Conversation) => {
@@ -440,7 +431,7 @@ export class Conversations<ContentTypes = unknown> {
    * Reads retained messages after each group's default acknowledgement position.
    * Set `from` to replay after a cursor without changing default progress.
    * Set `onValue` for callback mode, or request items with the iterator.
-   * Core owns network recovery. Legacy retry options and `disableSync` do not apply.
+   * Core owns network recovery. Legacy retry options do not apply.
    *
    * @param options - Optional stream options
    * @param options.conversationType - Optional conversation type to filter by
@@ -559,7 +550,6 @@ export class Conversations<ContentTypes = unknown> {
   async streamMessageDeletions(
     options?: Omit<
       StreamOptions<XmtpDecodedMessage, string>,
-      | "disableSync"
       | "onFail"
       | "onRetry"
       | "onRestart"
@@ -587,7 +577,6 @@ export class Conversations<ContentTypes = unknown> {
   async streamDeletedMessages(
     options?: Omit<
       StreamOptions<XmtpDecodedMessage, DecodedMessage<ContentTypes>>,
-      | "disableSync"
       | "onFail"
       | "onRetry"
       | "onRestart"

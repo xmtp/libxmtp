@@ -79,12 +79,6 @@ export type StreamOptions<T = unknown, V = T> = {
    * (default: true)
    */
   retryOnFail?: boolean;
-  /**
-   * Whether to skip pre-sync for notification streams.
-   * Durable message readers start receipt without a separate pre-sync.
-   * (default: false)
-   */
-  disableSync?: boolean;
 };
 
 export type StreamCallback<T = unknown> = (

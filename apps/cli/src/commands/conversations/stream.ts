@@ -51,10 +51,6 @@ The stream will continue until:
       description: "Stop after receiving N conversations",
       helpValue: "<number>",
     }),
-    "disable-sync": Flags.boolean({
-      description: "Skip initial sync before streaming",
-      default: false,
-    }),
   };
 
   async run(): Promise<void> {
@@ -69,7 +65,6 @@ The stream will continue until:
       conversationType: flags.type
         ? conversationTypeMap[flags.type]
         : undefined,
-      disableSync: flags["disable-sync"],
     });
 
     // Set up timeout if specified

@@ -246,9 +246,11 @@ Only one default message reader can own delivery for a database at a time.
 Use explicit replay cursors for independent readers.
 
 JavaScript message streams keep the old retry options in their types but ignore
-`retry*`, `onFail`, `onRetry`, `onRestart`, and `disableSync`. The core handles
-retryable network recovery. This change applies to message streams; do not
-assume every conversation or preference stream has the same behavior.
+`retry*`, `onFail`, `onRetry`, and `onRestart`. The core handles retryable
+network recovery. Node no longer exposes `disableSync`; its conversation and
+preference notification streams open without a separate pre-sync. Call an
+explicit sync method if the app needs a current snapshot. Browser retains its
+own notification `disableSync` option.
 
 ### Streams can replace manual syncing
 
