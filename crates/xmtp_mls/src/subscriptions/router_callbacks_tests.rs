@@ -498,11 +498,14 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
-    let sync_group = xmtp_common::wait_for_some(|| async {
+    xmtp_common::wait_for_some(|| async {
         alix.client.context.db().primary_sync_group().ok().flatten()
     })
     .await
     .expect("the sync worker creates a sync group");
+    tester!(other, from: alix);
+    alix.test_has_same_sync_group_as(&other).await?;
+    let sync_group = other.device_sync_client().get_sync_group().await?;
     let group = alix.create_group(None, None)?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -523,9 +526,10 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
         Some(10),
     );
 
-    // Into the sync group first — a leak would arrive ahead of the normal
-    // message below.
-    alix.group(&sync_group.id)?
+    // A message from another installation enters the external-message path.
+    // A leak would reach the app ahead of the normal message below.
+    other
+        .group(&sync_group.group_id)?
         .send_msg(b"internal sync payload")
         .await;
     group.send_msg(b"a normal message").await;
