@@ -26,7 +26,11 @@ import type { ClientContext } from "@/core/ClientContext";
 import { ConversationContext } from "@/core/ConversationContext";
 import { MessageContext } from "@/core/MessageContext";
 import { createSigner, createUser } from "@/user/User";
-import { createClient, createConversationAndWait } from "@/util/test";
+import {
+  createClient,
+  createConversationAndWait,
+  waitForNetwork,
+} from "@/util/test";
 import { version as appVersion } from "~/package.json";
 
 // These middleware fixtures exercise text and replies, not retained setup messages.
@@ -199,7 +203,7 @@ describe("Agent", () => {
       const messages = await dm.messages();
       const message = messages[1]!;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(
           textEventSpy,
           "Should not emit events for message from self, but should for message from other",
@@ -253,7 +257,7 @@ describe("Agent", () => {
       });
       const reaction = agent.client.conversations.getMessageById(reactionId)!;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(
           reactionEventSpy,
           "Should only emit reaction event for message from other sender",
@@ -300,7 +304,7 @@ describe("Agent", () => {
       expect(messages).toHaveLength(2);
       expect(messages.every(isGroupUpdated)).toBe(true);
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(receivedIds).toEqual(messages.map(({ id }) => id));
       });
       for (const [index, message] of messages.entries()) {
@@ -366,7 +370,7 @@ describe("Agent", () => {
         referenceInboxId: client.inboxId,
       });
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(receivedIds).toEqual([
           ...setupIds,
           messageId,
@@ -394,7 +398,7 @@ describe("Agent", () => {
         client.inboxId,
       ]);
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(conversationEventSpy).toHaveBeenCalledTimes(2);
       });
       expect(conversationEventSpy).toHaveBeenNthCalledWith(
@@ -424,7 +428,7 @@ describe("Agent", () => {
       const otherClient = await createClient();
       const dm = await otherClient.conversations.createDm(client.inboxId);
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(dmEventSpy).toHaveBeenCalledTimes(1);
         expect(conversationEventSpy).toHaveBeenCalledTimes(1);
       });
@@ -450,7 +454,7 @@ describe("Agent", () => {
         client.inboxId,
       ]);
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(groupEventSpy).toHaveBeenCalledTimes(1);
         expect(conversationEventSpy).toHaveBeenCalledTimes(1);
       });
@@ -489,7 +493,7 @@ describe("Agent", () => {
       const messages = await dm.messages();
       const message = messages[1]!;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(middleware).toHaveBeenCalledTimes(1);
       });
       expect(middleware).toHaveBeenCalledWith(
@@ -516,7 +520,7 @@ describe("Agent", () => {
       const messages = await dm.messages();
       const message = messages[1]!;
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         // Middleware should only be called once (for the message from other user)
         expect(
           middlewareCallsSpy,
@@ -562,7 +566,7 @@ describe("Agent", () => {
       const messageId1 = await dm.sendText("Hello world");
       const messageId2 = await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(middlewareCalls).toEqual([
           `mw1-${messageId1}`,
           `mw2-${messageId1}`,
@@ -608,7 +612,7 @@ describe("Agent", () => {
         referenceInboxId: client.inboxId,
       });
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(middlewareCalls).toEqual([
           `mw1-${messageId1}`,
           `filterReply-${messageId1}`,
@@ -634,11 +638,11 @@ describe("Agent", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(handler).toHaveBeenCalledTimes(1);
       });
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const message = messages[2]!;
@@ -752,7 +756,7 @@ describe("Agent", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(callOrder).toEqual(["1", "2", "E1", "E2", "3", "4", "EMIT"]);
       });
       expect(
@@ -795,7 +799,7 @@ describe("Agent", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(callOrder).toEqual(["1", "2"]);
       });
     });
@@ -833,7 +837,7 @@ describe("Agent", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(callOrder).toEqual(["mw1", "e1"]);
       });
     });
@@ -859,7 +863,7 @@ describe("Agent", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("Hello world");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(callOrder).toEqual([errorMessage]);
       });
     });

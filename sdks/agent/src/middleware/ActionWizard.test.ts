@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
 import { ActionWizard } from "@/middleware/ActionWizard";
-import { createClient } from "@/util/test";
+import { createClient, waitForNetwork } from "@/util/test";
 
 describe("ActionWizard", () => {
   describe("static helpers", () => {
@@ -70,7 +70,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/setup");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
@@ -101,7 +101,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/setup");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         expect(messages.some((m) => isActions(m))).toBe(true);
@@ -109,7 +109,7 @@ describe("ActionWizard", () => {
 
       await dm.sendIntent({ id: "setup:color", actionId: "blue" });
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledWith(
           { color: "blue" },
           expect.anything(),
@@ -138,7 +138,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/config");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
@@ -161,7 +161,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/config");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const mdMessage = messages.find((m) => isMarkdown(m));
@@ -183,7 +183,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/config");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
@@ -192,7 +192,7 @@ describe("ActionWizard", () => {
 
       await dm.sendText("Alice");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledWith(
           { name: "Alice" },
           expect.anything(),
@@ -231,7 +231,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/onboard");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         expect(messages.some((m) => isActions(m))).toBe(true);
@@ -240,7 +240,7 @@ describe("ActionWizard", () => {
       // Step 1: select plan
       await dm.sendIntent({ id: "onboard:plan", actionId: "pro" });
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
@@ -252,7 +252,7 @@ describe("ActionWizard", () => {
       // Step 2: enter email
       await dm.sendText("user@example.com");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledWith(
           { plan: "pro", email: "user@example.com" },
           expect.anything(),
@@ -289,7 +289,7 @@ describe("ActionWizard", () => {
 
       // Wait for actions to be sent, then extract the cancel action ID
       let cancelActionId = "";
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
@@ -302,7 +302,7 @@ describe("ActionWizard", () => {
       // Click cancel
       await dm.sendIntent({ id: "setup:color", actionId: cancelActionId });
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(cancelHandler).toHaveBeenCalledTimes(1);
       });
     });
@@ -323,7 +323,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/setup");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
@@ -358,7 +358,7 @@ describe("ActionWizard", () => {
       const dm = await otherClient.conversations.createDm(client.inboxId);
       await dm.sendText("/setup");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         expect(messages.filter((m) => isActions(m))).toHaveLength(1);
@@ -367,12 +367,12 @@ describe("ActionWizard", () => {
       // Send command again while active
       await dm.sendText("/setup");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(cancelHandler).toHaveBeenCalledOnce();
       });
 
       // Wizard re-sent the first step
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm.sync();
         const messages = await dm.messages();
         expect(messages.filter((m) => isActions(m))).toHaveLength(2);
@@ -403,7 +403,7 @@ describe("ActionWizard", () => {
       await group.sendText("/secret");
 
       // The wizard should send the step via DM, not in the group
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await client.conversations.sync();
         const dms = client.conversations.listDms();
         expect(dms.length).toBeGreaterThan(0);
@@ -434,7 +434,7 @@ describe("ActionWizard", () => {
       await group.sendText("/secret");
 
       // Wait for the DM step to arrive, then reply in the DM
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await otherClient.conversations.sync();
         const dms = otherClient.conversations.listDms();
         expect(dms.length).toBeGreaterThan(0);
@@ -450,7 +450,7 @@ describe("ActionWizard", () => {
       const dm = otherClient.conversations.listDms()[0]!;
       await dm.sendText("sk-12345");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledWith(
           { apiKey: "sk-12345" },
           expect.anything(),
@@ -482,7 +482,7 @@ describe("ActionWizard", () => {
       await group.sendText("/onboard");
 
       // Wait for the select step to arrive in the DM
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await otherClient.conversations.sync();
         const dms = otherClient.conversations.listDms();
         expect(dms.length).toBeGreaterThan(0);
@@ -497,7 +497,7 @@ describe("ActionWizard", () => {
       await dm?.sendIntent({ id: "onboard:plan", actionId: "pro" });
 
       // Wait for step 2 to arrive in the DM
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm?.sync();
         const messages = await dm?.messages();
         const textMessages = messages?.filter((m) => isText(m));
@@ -509,7 +509,7 @@ describe("ActionWizard", () => {
       // Step 2: enter email in the DM
       await dm?.sendText("user@example.com");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledWith(
           { plan: "pro", email: "user@example.com" },
           expect.anything(),
@@ -546,7 +546,7 @@ describe("ActionWizard", () => {
       await dm1.sendText("/setup");
       await dm2.sendText("/setup");
 
-      await vi.waitFor(async () => {
+      await waitForNetwork(async () => {
         await dm1.sync();
         await dm2.sync();
         const msgs1 = await dm1.messages();
@@ -562,7 +562,7 @@ describe("ActionWizard", () => {
       // Only sender 1 answers
       await dm1.sendText("Alice");
 
-      await vi.waitFor(() => {
+      await waitForNetwork(() => {
         expect(completeHandler).toHaveBeenCalledTimes(1);
         expect(completeHandler).toHaveBeenCalledWith(
           { name: "Alice" },

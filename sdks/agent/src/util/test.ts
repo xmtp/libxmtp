@@ -9,8 +9,35 @@ import {
   type ClientOptions,
   type NetworkOptions,
 } from "@xmtp/node-sdk";
+import { vi } from "vitest";
 
 import { createSigner, createUser } from "@/user/User";
+
+/**
+ * How long a network-backed condition may take to become true, and how often to
+ * re-check it.
+ *
+ * `vi.waitFor` defaults to a 1000 ms timeout with a 50 ms interval, and it does
+ * *not* inherit `testTimeout` from `vitest.config.ts`. Both defaults are wrong
+ * here: every wait in this suite drives real MLS work against a live backend —
+ * conversation sync, DM creation, message send — and a single `sync()` can
+ * exceed a second on a loaded runner. The 50 ms interval makes it worse by
+ * re-running `sync()` twenty times a second, adding the very load it races.
+ *
+ * 30 s matches the budget `createConversationAndWait` already uses, and stays
+ * under `testTimeout` so a stuck wait fails with the condition's own assertion
+ * rather than as an opaque whole-test timeout.
+ */
+export const NETWORK_WAIT = { timeout: 30_000, interval: 250 } as const;
+
+/**
+ * Waits for a condition backed by real network work, retrying until it stops
+ * throwing.
+ *
+ * Use this instead of a bare `vi.waitFor` for anything that awaits the backend.
+ */
+export const waitForNetwork = <T>(condition: () => T | Promise<T>) =>
+  vi.waitFor(condition, NETWORK_WAIT);
 
 export const createClient = async <ContentCodecs extends ContentCodec[] = []>(
   options?: Omit<ClientOptions & NetworkOptions, "codecs" | "backendUrl"> &
