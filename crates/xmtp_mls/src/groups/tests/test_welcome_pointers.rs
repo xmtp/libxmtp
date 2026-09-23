@@ -647,7 +647,10 @@ async fn test_welcome_pointer_pending_retry_resolution() {
         ),
     };
 
-    let mut events = bo.context.local_events().subscribe();
+    let events = bo.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
+        Some(10),
+    );
     let conversations = bo.stream_conversations(None, true).await.unwrap();
     tokio::pin!(conversations);
 
@@ -675,13 +678,13 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     // TODO subscribe to all messages and then assert that group is received.
 
     tracing::info!("Receiving event for new group");
-    let event = xmtp_common::time::timeout(std::time::Duration::from_secs(10), events.recv())
+    let event = xmtp_common::time::timeout(std::time::Duration::from_secs(10), events.next())
         .await
         .unwrap()
         .unwrap();
-    match event {
-        crate::subscriptions::LocalEvents::NewGroup(id) => {
-            assert_eq!(id, group.group_id);
+    match event.client {
+        Some(xmtp_events::ClientEvent::ConversationJoined(joined)) => {
+            assert_eq!(joined.group_id, group.group_id.to_vec());
         }
         e => panic!("Expected NewGroup event, got {:?}", e),
     }

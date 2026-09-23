@@ -1,10 +1,8 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
 use std::sync::Arc;
-use tokio::sync::{broadcast, oneshot};
-use tokio_stream::wrappers::BroadcastStream;
+use tokio::sync::oneshot;
 use xmtp_proto::backend_v1::ServerEnvelope;
-use xmtp_proto::types::GroupId;
 
 use tracing::instrument;
 use xmtp_db::prelude::*;
@@ -25,6 +23,8 @@ pub mod barrier;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod catch_up;
 pub mod incoming;
+#[doc(hidden)]
+pub mod internal;
 pub mod local_delivery;
 pub mod message_reader;
 pub(crate) mod policy;
@@ -55,6 +55,7 @@ use crate::{
     groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
     messages::decoded_message::DecodedMessage,
 };
+use internal::InternalEvent;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, MaybeSend, RetryableError, StreamHandle, retryable};
 use xmtp_db::{
@@ -63,6 +64,7 @@ use xmtp_db::{
     group::ConversationType,
     group_message::StoredGroupMessage,
 };
+use xmtp_events::{EventFilter, Subscription};
 
 pub(crate) type Result<T> = std::result::Result<T, SubscribeError>;
 
@@ -76,19 +78,6 @@ impl RetryableError for LocalEventError {
     fn is_retryable(&self) -> bool {
         true
     }
-}
-
-/// Events local to this client
-/// are broadcast across all senders/receivers of streams
-#[derive(Debug, Clone)]
-pub enum LocalEvents {
-    // a new group was created
-    NewGroup(GroupId),
-    /// A committed local message can be read. This is a hint, not a delivery event.
-    MessagesStored,
-    PreferencesChanged(Vec<PreferenceUpdate>),
-    // a message was deleted (contains the decoded message that was deleted)
-    MsgsDeleted(Vec<StoredGroupMessage>),
 }
 
 #[derive(Clone)]
@@ -116,76 +105,73 @@ impl std::fmt::Debug for SyncWorkerEvent {
     }
 }
 
-impl LocalEvents {
-    fn consent_filter(self) -> Option<Vec<StoredConsentRecord>> {
-        match self {
-            Self::PreferencesChanged(updates) => {
-                let updates = updates
-                    .into_iter()
-                    .filter_map(|pu| match pu {
-                        PreferenceUpdate::Consent(cr) => Some(cr),
-                        _ => None,
-                    })
-                    .collect();
-                Some(updates)
-            }
-
-            _ => None,
-        }
-    }
-
-    fn preference_filter(self) -> Option<Vec<PreferenceUpdate>> {
-        match self {
-            Self::PreferencesChanged(updates) => Some(updates),
-            _ => None,
-        }
-    }
-
-    fn message_deletion_filter(self) -> Option<Vec<StoredGroupMessage>> {
-        match self {
-            Self::MsgsDeleted(msgs) => Some(msgs),
-            _ => None,
-        }
-    }
-}
-
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;
     fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>>;
 }
 
-impl StreamMessages for broadcast::Receiver<LocalEvents> {
+impl StreamMessages for Subscription<InternalEvent> {
     #[instrument(level = "trace", skip_all)]
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::consent_filter)
-                .map(Result::Ok)
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(discarded = lagged.discarded, "legacy consent stream lagged");
+                }
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = item.internal {
+                    let records = updates
+                        .into_iter()
+                        .filter_map(|update| match update {
+                            PreferenceUpdate::Consent(record) => Some(record),
+                            _ => None,
+                        })
+                        .collect();
+                    return Some((Ok(records), subscription));
+                }
+            }
         })
     }
 
     #[instrument(level = "trace", skip_all)]
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>> {
-        BroadcastStream::new(self).filter_map(|event| async {
-            xmtp_common::optify!(event, "Missed message due to event queue lag")
-                .and_then(LocalEvents::preference_filter)
-                .map(Result::Ok)
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(
+                        discarded = lagged.discarded,
+                        "legacy preference stream lagged"
+                    );
+                }
+                if let Some(InternalEvent::PreferencesChanged { updates, .. }) = item.internal {
+                    return Some((Ok(updates), subscription));
+                }
+            }
         })
     }
 
     #[instrument(level = "trace", skip_all)]
     fn stream_message_deletions(self) -> impl Stream<Item = Result<DecodedMessage>> {
-        BroadcastStream::new(self)
-            .filter_map(|event| async {
-                xmtp_common::optify!(event, "Missed message due to event queue lag")
-                    .and_then(LocalEvents::message_deletion_filter)
-                    .map(futures::stream::iter)
-            })
-            .flatten()
-            // let caller handle any potential decode failures
-            // this should be rare since the message already in db
-            .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
+        futures::stream::unfold(self, |subscription| async move {
+            loop {
+                let item = subscription.next().await?;
+                if let Some(xmtp_events::ClientEvent::Lagged(lagged)) = &item.client {
+                    tracing::warn!(
+                        discarded = lagged.discarded,
+                        "legacy deletion stream lagged"
+                    );
+                }
+                if let Some(InternalEvent::MessagesDeleted(messages)) = item.internal {
+                    return Some((futures::stream::iter(messages), subscription));
+                }
+            }
+        })
+        .flatten()
+        // let caller handle any potential decode failures
+        // this should be rare since the message already in db
+        .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
     }
 }
 
@@ -427,11 +413,11 @@ where
         include_duplicate_dms: bool,
     ) -> impl StreamHandle<StreamOutput = Result<()>> {
         let cancel = watchdog::StreamCancel::new(&client.context);
-        // Re-subscribing recreates the underlying `LocalEvents` broadcast receiver, which
+        // Re-subscribing recreates the underlying local event subscription, which
         // has no replay; the watchdog runner establishes the new subscription *before* its
         // reconnect wait, so the new receiver is attached while we pause. Network welcomes
         // are caught up from the persisted cursor, so the only residual gap is a *locally*
-        // created group (`LocalEvents::NewGroup`) broadcast in the brief window while the new
+        // created group event in the brief window while the new
         // subscription is being built — bounded, since the caller already holds that group.
         watchdog::spawn_watchdog_stream(
             cancel,
@@ -494,7 +480,12 @@ where
                 // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.local_events.subscribe();
+                let receiver = client.context.events().subscribe(
+                    EventFilter::default().with_internal(|event| {
+                        matches!(event, InternalEvent::PreferencesChanged { .. })
+                    }),
+                    Some(1024),
+                );
                 let stream = receiver.stream_consent_updates();
 
                 futures::pin_mut!(stream);
@@ -529,7 +520,12 @@ where
                 // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.local_events.subscribe();
+                let receiver = client.context.events().subscribe(
+                    EventFilter::default().with_internal(|event| {
+                        matches!(event, InternalEvent::PreferencesChanged { .. })
+                    }),
+                    Some(1024),
+                );
                 let stream = receiver.stream_preference_updates();
 
                 futures::pin_mut!(stream);
@@ -564,7 +560,11 @@ where
                 // Cancellation can carry a blocked connection cause,
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
-                let receiver = client.local_events.subscribe();
+                let receiver = client.context.events().subscribe(
+                    EventFilter::default()
+                        .with_internal(|event| matches!(event, InternalEvent::MessagesDeleted(_))),
+                    Some(1024),
+                );
                 let stream = receiver.stream_message_deletions();
 
                 futures::pin_mut!(stream);

@@ -12420,6 +12420,7 @@ dependencies = [
  "xmtp_content_types",
  "xmtp_cryptography",
  "xmtp_db",
+ "xmtp_events",
  "xmtp_id",
  "xmtp_macro",
  "xmtp_mls_common",

@@ -1,12 +1,97 @@
 use super::*;
 
+// verifies: EVENT-005, EVENT-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn created_group_emits_one_join_event() {
+    tester!(alix, disable_workers);
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
+        Some(10),
+    );
+    let group = alix.create_group(None, None)?;
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationJoined(joined)), ..
+        }] if joined.group_id == group.group_id.to_vec()
+            && joined.origin == xmtp_events::JoinOrigin::Created
+            && joined.adder_inbox_id.is_none()
+    ));
+}
+
+// verifies: EVENT-007, EVENT-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn local_delete_emits_once_after_the_row_is_deleted() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let message_id = group.prepare_message_for_later_publish(b"local delete", false, None)?;
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
+        Some(10),
+    );
+    assert_eq!(alix.delete_message(message_id.clone())?, 1);
+    assert!(alix.context.db().get_group_message(&message_id)?.is_none());
+    assert_eq!(alix.delete_message(message_id.clone())?, 0);
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::MessageDeleted(deleted)), ..
+        }] if deleted.group_id == group.group_id.to_vec()
+            && deleted.message_id == message_id
+            && deleted.cause == xmtp_events::DeletionCause::DeletedLocally
+    ));
+}
+
+// verifies: EVENT-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn one_consent_batch_emits_only_the_final_state_for_an_entity() {
+    tester!(alix, disable_workers);
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConsentChanged]),
+        Some(10),
+    );
+    let denied = StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Denied,
+        "duplicate-consent".into(),
+    );
+    let allowed = StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "duplicate-consent".into(),
+    );
+    alix.set_consent_states(&[denied, allowed]).await?;
+    assert_eq!(
+        alix.context
+            .db()
+            .get_consent_record("duplicate-consent".into(), ConsentType::InboxId)?
+            .map(|record| record.state),
+        Some(ConsentState::Allowed)
+    );
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), ..
+        }] if change.entity == "duplicate-consent"
+            && change.state == xmtp_events::ConsentState::Allowed
+    ));
+}
+
 // verifies: CONS-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn should_stream_consent() {
     let alix = Tester::builder().sync_worker().build().await;
     let bo = Tester::new().await;
 
-    let receiver = alix.local_events.subscribe();
+    let receiver = alix.context.events().subscribe(
+        xmtp_events::EventFilter::default().with_internal(|event| {
+            matches!(
+                event,
+                crate::subscriptions::internal::InternalEvent::PreferencesChanged { .. }
+            )
+        }),
+        Some(1024),
+    );
     let stream = receiver.stream_consent_updates();
     futures::pin_mut!(stream);
 

@@ -25,7 +25,7 @@ use crate::{
     intents::ProcessIntentError,
     messages::{decoded_message::MessageBody, enrichment::EnrichMessageError},
     mls_store::MlsStore,
-    subscriptions::{LocalEvents, SyncWorkerEvent},
+    subscriptions::SyncWorkerEvent,
     traits::IntoWith,
     utils::{
         hash::sha256,
@@ -717,8 +717,12 @@ pub(crate) mod tests {
         let storage = alix.context.mls_storage();
         let result: Result<(), crate::groups::GroupError> =
             alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &malformed_message);
+                let inner_result = alix_group.process_delete_message(
+                    &mls_group,
+                    storage,
+                    &malformed_message,
+                    alix_group.context.events(),
+                );
                 match inner_result {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
@@ -785,8 +789,12 @@ pub(crate) mod tests {
         let storage = alix.context.mls_storage();
         let result: Result<(), crate::groups::GroupError> =
             alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &malformed_message);
+                let inner_result = alix_group.process_delete_message(
+                    &mls_group,
+                    storage,
+                    &malformed_message,
+                    alix_group.context.events(),
+                );
                 match inner_result {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
@@ -861,8 +869,12 @@ pub(crate) mod tests {
         let storage = alix.context.mls_storage();
         let result: Result<(), crate::groups::GroupError> =
             alix_group.load_mls_group_with_lock(storage, |mls_group| {
-                let inner_result =
-                    alix_group.process_delete_message(&mls_group, storage, &message_with_bad_hex);
+                let inner_result = alix_group.process_delete_message(
+                    &mls_group,
+                    storage,
+                    &message_with_bad_hex,
+                    alix_group.context.events(),
+                );
                 match inner_result {
                     Ok(()) => Ok(()),
                     Err(_) => Err(crate::groups::GroupError::InvalidGroupMembership),
@@ -919,7 +931,6 @@ pub(crate) mod tests {
 #[derive(Default)]
 pub struct DeferredEvents {
     worker_events: VecDeque<SyncWorkerEvent>,
-    local_events: VecDeque<LocalEvents>,
     /// Workers to wake once the txn commits. Post-commit (not inline) is load-bearing:
     /// a pre-commit nudge can race a worker's DB read and be lost, parking the work.
     wake_workers: HashSet<WorkerKind>,
@@ -934,10 +945,6 @@ impl DeferredEvents {
         self.worker_events.push_back(event);
     }
 
-    pub fn add_local_event(&mut self, event: LocalEvents) {
-        self.local_events.push_back(event);
-    }
-
     /// Request a post-commit wake of `kind`. Idempotent within a txn.
     pub fn wake_worker(&mut self, kind: WorkerKind) {
         self.wake_workers.insert(kind);
@@ -947,10 +954,6 @@ impl DeferredEvents {
     pub fn send_all<Context: XmtpSharedContext>(&mut self, context: &Context) {
         while let Some(event) = self.worker_events.pop_front() {
             let _ = context.worker_events().send(event);
-        }
-
-        while let Some(event) = self.local_events.pop_front() {
-            let _ = context.local_events().send(event);
         }
 
         for kind in self.wake_workers.drain() {

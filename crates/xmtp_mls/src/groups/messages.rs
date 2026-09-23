@@ -307,7 +307,34 @@ where
             deleted_at_ns: now_ns(),
         };
 
-        deletion.store(&conn)?;
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let already_deleted = db
+                    .get_deletions_for_messages(vec![original_msg.id.clone()])?
+                    .iter()
+                    .any(|prior| {
+                        crate::messages::enrichment::is_deletion_valid(
+                            prior,
+                            &original_msg,
+                            &self.group_id,
+                        )
+                    });
+                deletion.store(&db)?;
+                if !already_deleted {
+                    crate::subscriptions::internal::emit_deleted_messages(
+                        events,
+                        vec![original_msg],
+                        xmtp_events::DeletionCause::DeletedLocally,
+                        &db,
+                    )?;
+                }
+                Ok::<_, GroupError>(Continue(()))
+            },
+        )?;
 
         Ok(deletion_message_id)
     }

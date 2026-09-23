@@ -1,8 +1,9 @@
 //! Live conversation notifications from committed group discovery.
 
 use super::{
-    LocalEvents, Result,
+    Result,
     incoming::{IncomingCoordinator, IncomingScope},
+    internal::InternalEvent,
 };
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::Stream;
@@ -17,6 +18,7 @@ use xmtp_db::{
     group::{ConversationType, GroupQueryArgs, StoredGroup},
     prelude::*,
 };
+use xmtp_events::EventFilter;
 use xmtp_proto::{
     api_client::XmtpMlsStreams,
     types::{GroupId, Topic},
@@ -102,7 +104,11 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             .server_configuration()
             .check()
             .map_err(|error| super::SubscribeError::Configuration(Box::new(error)))?;
-        let events = context.local_events().subscribe();
+        let events = context.events().subscribe(
+            EventFilter::default()
+                .with_internal(|event| matches!(event, InternalEvent::GroupJoined(_))),
+            Some(10),
+        );
         let known = KnownConversations::from_groups(context.db().find_groups(GroupQueryArgs {
             include_sync_groups: true,
             include_duplicate_dms: true,
@@ -123,7 +129,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
         let stream = futures::stream::unfold(
             Some((context, events, lease, known, VecDeque::new(), query)),
             |state| async move {
-                let (context, mut events, lease, mut known, mut ready, query) = state?;
+                let (context, events, lease, mut known, mut ready, query) = state?;
                 loop {
                     if let Err(error) = context.server_configuration().check() {
                         lease.close();
@@ -178,11 +184,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                         _ = context.cancellation_token().cancelled() => {},
                         _ = lease.changed() => {},
                         _ = sleep(context.incoming_runtime().policy().active_database_poll_interval) => {},
-                        event = events.recv() => match event {
-                            Ok(LocalEvents::NewGroup(_)) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {},
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => return None,
-                            _ => {},
-                        },
+                        event = events.next() => { event?; },
                     }
                 }
             },

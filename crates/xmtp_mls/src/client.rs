@@ -8,7 +8,10 @@ use crate::{
     identity::{Identity, IdentityError, parse_credential},
     identity_updates::{IdentityUpdateError, IdentityUpdates, load_identity_updates},
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{LocalEventError, LocalEvents, SyncWorkerEvent},
+    subscriptions::{
+        LocalEventError, SyncWorkerEvent,
+        internal::{PreferenceOrigin, emit_deleted_messages, emit_preference_updates},
+    },
     utils::VersionInfo,
     worker::device_sync::{
         DeviceSyncClient, preference_sync::PreferenceUpdate, worker::SyncMetric,
@@ -26,9 +29,11 @@ use crate::{
 };
 use itertools::Itertools;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use thiserror::Error;
-use tokio::sync::broadcast;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{ErrorCode, Event, Retry, retry_async, retryable};
 use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
@@ -45,6 +50,7 @@ use xmtp_db::{
     identity_cache::StoredIdentityKind,
 };
 use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
+use xmtp_events::DeletionCause;
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
     AsIdRef, InboxId, InboxIdRef,
@@ -309,7 +315,6 @@ impl From<&str> for ClientError {
 pub struct Client<Context> {
     pub context: Context,
     pub installation_id: InstallationId,
-    pub(crate) local_events: broadcast::Sender<LocalEvents>,
     pub(crate) workers: Arc<WorkerRunner>,
 }
 
@@ -330,7 +335,6 @@ impl<Context: Clone> Clone for Client<Context> {
         Self {
             context: self.context.clone(),
             installation_id: self.installation_id,
-            local_events: self.local_events.clone(),
             workers: self.workers.clone(),
         }
     }
@@ -710,20 +714,30 @@ where
         &self,
         records: &[StoredConsentRecord],
     ) -> Result<(), ClientError> {
-        let conn = self.context.db();
-        let changed_records = conn.insert_or_replace_consent_records(records)?;
-
-        if !changed_records.is_empty() {
+        // One transaction exposes only each entity's final state.
+        let mut seen = HashSet::new();
+        let mut final_records: Vec<_> = records
+            .iter()
+            .rev()
+            .filter(|record| seen.insert((record.entity_type as i32, record.entity.as_str())))
+            .cloned()
+            .collect();
+        final_records.reverse();
+        let updates = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let changed = db.insert_or_replace_consent_records(&final_records)?;
+                let updates: Vec<_> = changed.into_iter().map(PreferenceUpdate::Consent).collect();
+                emit_preference_updates(events, updates.clone(), PreferenceOrigin::Local, &db)?;
+                Ok::<_, StorageError>(Continue(updates))
+            },
+        )?
+        .into_continued();
+        if !updates.is_empty() {
             self.context.task_channels().wake_notifications();
-            let updates: Vec<_> = changed_records
-                .into_iter()
-                .map(PreferenceUpdate::Consent)
-                .collect();
-
-            // Broadcast the consent update changes
-            let _ = self
-                .local_events
-                .send(LocalEvents::PreferencesChanged(updates.clone()));
             let _ = self
                 .context
                 .worker_events()
@@ -802,11 +816,6 @@ where
             group_id = group.group_id
         );
 
-        // notify streams of our new group
-        let _ = self
-            .local_events
-            .send(LocalEvents::NewGroup(group.group_id));
-
         Ok(group)
     }
 
@@ -865,11 +874,6 @@ where
             group_id = group.group_id,
             target_inbox = target_inbox_id
         );
-        // notify any streams of the new group
-        let _ = self
-            .local_events
-            .send(LocalEvents::NewGroup(group.group_id));
-
         group.add_members(&[target_inbox_id]).await?;
 
         Ok(group)
@@ -1034,25 +1038,28 @@ where
     /// This method is idempotent and will not error if the message is not found
     /// Returns the number of messages deleted (0 or 1)
     pub fn delete_message(&self, message_id: Vec<u8>) -> Result<usize, ClientError> {
-        let conn = self.context.db();
-
-        // Fetch the message before deleting so we can emit the decoded message in the event
-        let msg = conn.get_group_message(&message_id)?;
-
-        let num_deleted = conn.delete_message_by_id(&message_id)?;
-        // Fire a local event if the message was successfully deleted
-        if num_deleted > 0
-            && let Some(message) = msg
-        {
-            let _ =
-                self.context
-                    .local_events()
-                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
-                        message,
-                    ]));
-        }
-
-        Ok(num_deleted)
+        Ok(crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let message = db.get_group_message(&message_id)?;
+                let deleted = db.delete_message_by_id(&message_id)?;
+                if deleted > 0
+                    && let Some(message) = message
+                {
+                    emit_deleted_messages(
+                        events,
+                        vec![message],
+                        DeletionCause::DeletedLocally,
+                        &db,
+                    )?;
+                }
+                Ok::<_, StorageError>(Continue(deleted))
+            },
+        )?
+        .into_continued())
     }
 
     /// Query for groups with optional filters

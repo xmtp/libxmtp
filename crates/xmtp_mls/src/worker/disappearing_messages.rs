@@ -174,26 +174,29 @@ where
     /// Iterate on the list of groups and delete expired messages
     #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn"))]
     async fn delete_expired_messages(&mut self) -> Result<(), DisappearingMessagesCleanerError> {
-        let db = self.context.db();
-        // Propagated to the supervisor, which is the sole logger for worker errors.
-        let deleted_messages = db
-            .delete_expired_messages()
-            .map_err(|e| DisappearingMessagesCleanerError::DeleteExpired(e.into()))?;
+        let deleted_messages = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let deleted = db.delete_expired_messages()?;
+                crate::subscriptions::internal::emit_expired_messages(
+                    events,
+                    deleted.clone(),
+                    &db,
+                )?;
+                Ok::<_, StorageError>(xmtp_db::TransactionOutcome::Continue(deleted))
+            },
+        )
+        .map_err(DisappearingMessagesCleanerError::DeleteExpired)?
+        .into_continued();
 
         if !deleted_messages.is_empty() {
             tracing::info!(
                 "Successfully deleted {} expired messages",
                 deleted_messages.len()
             );
-
-            // Emit a single event for all deleted messages
-            // this avoids a hot loop that may starve async tasks.
-            let _ =
-                self.context
-                    .local_events()
-                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(
-                        deleted_messages,
-                    ));
         }
 
         Ok(())

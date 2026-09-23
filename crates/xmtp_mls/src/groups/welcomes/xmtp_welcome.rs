@@ -12,7 +12,8 @@ use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError,
 };
-use crate::state_tx::state_write;
+use crate::state_tx::{state_write, state_write_with_events};
+use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin, emit_preference_updates};
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -36,6 +37,10 @@ use xmtp_db::{
     incoming_envelope::{JoinAnchorMode, NetworkEntityKind, StoredIncomingEnvelope, StreamTopic},
     prelude::*,
     refresh_state::EntityKind,
+};
+use xmtp_events::{
+    ClientEvent, ConversationJoined, ConversationType as EventConversationType, EventBuffer,
+    EventWriter, JoinOrigin,
 };
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
@@ -281,50 +286,62 @@ where
     ) -> Result<CommitResult<C>, GroupError> {
         tracing::debug!("attempting to commit welcome={}", &self.welcome.cursor);
         let mut attempt_events = DeferredEvents::default();
-        let commit_result = state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            self.check_pending(&storage.db())?;
-            // Savepoint transaction
-            let result = storage.savepoint(|conn| {
-                self.commit(conn, &mut attempt_events, resolved, membership)
-                    .map(Continue)
-            });
-            let db = storage.db();
-            // Only the resolver can prove that an exact identity reference is absent.
-            let result = result.map_err(|error| match (&error, missing_reference) {
-                (
-                    GroupError::InstallationDiff(InstallationDiffError::IdentityDependency(
-                        IdentityDependencyError::Need(required),
-                    )),
-                    Some(missing),
-                ) if required == missing => InstallationDiffError::IdentityDependency(
-                    IdentityDependencyError::MissingReference(missing.clone()),
-                )
-                .into(),
-                _ => error,
-            });
-            match result {
-                Err(err) if terminal_welcome_error(&err) => {
-                    db.record_terminal_rejection(
-                        &self.topic(),
-                        self.welcome.cursor,
-                        "invalid_welcome",
-                    )?;
-                    db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
-                    // return ok to commit the transaction
-                    Ok(Continue(CommitResult::FailedForever(err)))
+        let commit_result = state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_buffer| {
+                let storage = tx.storage();
+                self.check_pending(&storage.db())?;
+                // Savepoint transaction
+                let result = event_buffer.savepoint(|event_buffer| {
+                    storage.savepoint(|conn| {
+                        self.commit(
+                            conn,
+                            &mut attempt_events,
+                            resolved,
+                            membership,
+                            event_buffer,
+                        )
+                        .map(Continue)
+                    })
+                });
+                let db = storage.db();
+                // Only the resolver can prove that an exact identity reference is absent.
+                let result = result.map_err(|error| match (&error, missing_reference) {
+                    (
+                        GroupError::InstallationDiff(InstallationDiffError::IdentityDependency(
+                            IdentityDependencyError::Need(required),
+                        )),
+                        Some(missing),
+                    ) if required == missing => InstallationDiffError::IdentityDependency(
+                        IdentityDependencyError::MissingReference(missing.clone()),
+                    )
+                    .into(),
+                    _ => error,
+                });
+                match result {
+                    Err(err) if terminal_welcome_error(&err) => {
+                        db.record_terminal_rejection(
+                            &self.topic(),
+                            self.welcome.cursor,
+                            "invalid_welcome",
+                        )?;
+                        db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
+                        // return ok to commit the transaction
+                        Ok(Continue(CommitResult::FailedForever(err)))
+                    }
+                    // roll everything back to retry
+                    Err(e) => Err(e),
+                    Ok(Continue(group)) => {
+                        db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
+                        Ok(Continue(CommitResult::Ok(group)))
+                    }
+                    Ok(Rollback) => {
+                        unreachable!("savepoint never intentionally rolls back here")
+                    }
                 }
-                // roll everything back to retry
-                Err(e) => Err(e),
-                Ok(Continue(group)) => {
-                    db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
-                    Ok(Continue(CommitResult::Ok(group)))
-                }
-                Ok(Rollback) => {
-                    unreachable!("savepoint never intentionally rolls back here")
-                }
-            }
-        })
+            },
+        )
         .map(TransactionOutcome::into_continued)?;
         if matches!(&commit_result, CommitResult::Ok(_)) {
             self.context.task_channels().wake_notifications();
@@ -344,6 +361,7 @@ where
         events: &mut DeferredEvents,
         resolved: &ResolvedWelcome,
         expected_membership: Option<&WelcomeMembership>,
+        event_buffer: &EventBuffer<'_, InternalEvent>,
     ) -> Result<Option<MlsGroup<C>>, GroupError> {
         let Self {
             welcome, context, ..
@@ -538,6 +556,12 @@ where
         // For existing groups, this only updates the sequence_id (not membership_state).
         let stored_group = db.insert_or_replace_group(to_store)?;
 
+        let consent_entity = hex::encode(stored_group.id);
+        let prior_consent = db.get_consent_record(
+            consent_entity.clone(),
+            xmtp_db::consent_record::ConsentType::ConversationId,
+        )?;
+
         StoredConsentRecord::stitch_dm_consent(&db, &stored_group)?;
 
         // Create a GroupUpdated payload
@@ -587,7 +611,7 @@ where
             sent_at_ns: welcome.timestamp(),
             kind: GroupMessageKind::MembershipChange,
             sender_installation_id: added_by_installation_id,
-            sender_inbox_id: added_by_inbox_id,
+            sender_inbox_id: added_by_inbox_id.clone(),
             delivery_status: DeliveryStatus::Published,
             content_type: added_content_type.type_id.into(),
             version_major: added_content_type.version_major as i32,
@@ -629,6 +653,28 @@ where
             group.quietly_update_consent_state(ConsentState::Unknown, &db)?;
         }
 
+        if !stored_group.conversation_type.is_virtual() {
+            let final_consent = db.get_consent_record(
+                consent_entity,
+                xmtp_db::consent_record::ConsentType::ConversationId,
+            )?;
+            if prior_consent.as_ref().map(|record| record.state)
+                != final_consent.as_ref().map(|record| record.state)
+                && let Some(record) = final_consent
+            {
+                emit_preference_updates(
+                    event_buffer,
+                    vec![
+                        crate::worker::device_sync::preference_sync::PreferenceUpdate::Consent(
+                            record,
+                        ),
+                    ],
+                    PreferenceOrigin::Local,
+                    &db,
+                )?;
+            }
+        }
+
         // State, progress, and removal of pre-join work commit together.
         db.install_group_anchor(group.group_id, anchor, anchor_mode)?;
         db.record_welcome_discovery(group.group_id, welcome.cursor)?;
@@ -638,7 +684,21 @@ where
             &HashSet::from([context.installation_id().to_vec()]),
             cursor,
         )?;
-        events.add_local_event(crate::subscriptions::LocalEvents::NewGroup(group.group_id));
+        event_buffer.emit(
+            (!stored_group.conversation_type.is_virtual()).then(|| {
+                ClientEvent::ConversationJoined(ConversationJoined {
+                    group_id: group.group_id.to_vec(),
+                    conversation_type: if stored_group.conversation_type == ConversationType::Dm {
+                        EventConversationType::Dm
+                    } else {
+                        EventConversationType::Group
+                    },
+                    origin: JoinOrigin::Welcomed,
+                    adder_inbox_id: Some(added_by_inbox_id.clone()),
+                })
+            }),
+            Some(InternalEvent::GroupJoined(group.group_id)),
+        );
 
         tracing::debug!(
             inbox_id = %current_inbox_id,
@@ -692,7 +752,10 @@ mod tests {
             .await?
             .pop()?;
 
-        let mut events = bo.context.local_events().subscribe();
+        let events = bo.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationJoined]),
+            Some(10),
+        );
         let result = XmtpWelcome::builder()
             .context(bo.context.clone())
             .welcome(&welcome)
@@ -704,10 +767,7 @@ mod tests {
             .process()
             .await;
         assert!(matches!(result, Err(GroupError::LockUnavailable)));
-        assert!(matches!(
-            events.try_recv(),
-            Err(tokio::sync::broadcast::error::TryRecvError::Empty)
-        ));
+        assert!(events.drain().is_empty());
         assert!(bo.context.db().find_group(&alix_group.group_id)?.is_none());
         assert_eq!(
             bo.context
@@ -718,8 +778,8 @@ mod tests {
 
         let bo_group = bo.sync_welcomes().await?.pop()?;
         assert!(matches!(
-            events.try_recv()?,
-            crate::subscriptions::LocalEvents::NewGroup(id) if id == bo_group.group_id
+            events.drain().pop().and_then(|event| event.client),
+            Some(xmtp_events::ClientEvent::ConversationJoined(joined)) if joined.group_id == bo_group.group_id.to_vec()
         ));
         alix_group.test_can_talk_with(&bo_group).await?;
     }

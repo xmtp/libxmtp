@@ -1,6 +1,8 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+use xmtp_db::TransactionalKeyStore;
+use xmtp_events::EventWriter;
 use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
 
 /// Represents a group, which can contain anywhere from 1 to MAX_GROUP_SIZE inboxes.
@@ -408,6 +410,7 @@ where
             permissions_policy_set,
             opts,
             oneshot_message,
+            true,
         )?;
         let new_group = Self::new_from_arc(
             context.clone(),
@@ -417,15 +420,14 @@ where
             stored_group.created_at_ns,
         );
 
-        // Consent state defaults to allowed when the user creates the group
-        if !conversation_type.is_virtual() {
-            new_group.update_consent_state(ConsentState::Allowed)?;
-        }
-
         context.task_channels().wake_notifications();
         Ok(new_group)
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "creation event mode keeps the write atomic"
+    )]
     pub(crate) fn insert(
         context: &Context,
         existing_group_id: Option<&[u8]>,
@@ -434,6 +436,7 @@ where
         permissions_policy_set: PolicySet,
         opts: GroupMetadataOptions,
         oneshot_message: Option<OneshotMessage>,
+        emit_created_event: bool,
     ) -> Result<StoredGroup, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
 
@@ -458,62 +461,145 @@ where
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
         let group_config = build_group_config(dictionary)?;
 
-        state_write(context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            if let Some(existing_group_id) = existing_group_id {
-                let group_id = GroupId::try_from(existing_group_id)?;
-                if let Some(existing) = db.find_group(&group_id)? {
-                    return Ok(Continue(existing));
+        if !emit_created_event || conversation_type.is_virtual() {
+            return state_write(context.mls_storage(), |tx| {
+                let (stored_group, _) = Self::insert_group_row(
+                    context,
+                    tx,
+                    existing_group_id,
+                    membership_state,
+                    conversation_type,
+                    &opts,
+                    &group_config,
+                    commit_log_enabled,
+                )?;
+                Ok::<_, GroupError>(Continue(stored_group))
+            })
+            .map(TransactionOutcome::into_continued);
+        }
+
+        let (result, consent_changes) = crate::state_tx::state_write_with_events(
+            context.mls_storage(),
+            context.events(),
+            |tx, events| {
+                let (stored_group, created) = Self::insert_group_row(
+                    context,
+                    tx,
+                    existing_group_id,
+                    membership_state,
+                    conversation_type,
+                    &opts,
+                    &group_config,
+                    commit_log_enabled,
+                )?;
+                if !created {
+                    return Ok::<_, GroupError>(Continue((stored_group, Vec::new())));
                 }
+                let storage = tx.storage();
+                let db = storage.db();
+                let record = StoredConsentRecord::new(
+                    xmtp_db::consent_record::ConsentType::ConversationId,
+                    ConsentState::Allowed,
+                    hex::encode(stored_group.id),
+                );
+                let consent_changes = db.insert_or_replace_consent_records(&[record])?;
+                crate::subscriptions::internal::emit_preference_updates(
+                    events,
+                    consent_changes
+                        .iter()
+                        .cloned()
+                        .map(PreferenceUpdate::Consent)
+                        .collect(),
+                    crate::subscriptions::internal::PreferenceOrigin::Local,
+                    &db,
+                )?;
+                events.emit(
+                    Some(xmtp_events::ClientEvent::ConversationJoined(
+                        xmtp_events::ConversationJoined {
+                            group_id: stored_group.id.to_vec(),
+                            conversation_type: xmtp_events::ConversationType::Group,
+                            origin: xmtp_events::JoinOrigin::Created,
+                            adder_inbox_id: None,
+                        },
+                    )),
+                    Some(crate::subscriptions::internal::InternalEvent::GroupJoined(
+                        stored_group.id,
+                    )),
+                );
+                Ok::<_, GroupError>(Continue((stored_group, consent_changes)))
+            },
+        )?
+        .into_continued();
+        if !consent_changes.is_empty() {
+            let _ = context
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(
+                    consent_changes
+                        .into_iter()
+                        .map(PreferenceUpdate::Consent)
+                        .collect(),
+                ));
+        }
+        Ok(result)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the row stores the creation parameters"
+    )]
+    fn insert_group_row(
+        context: &Context,
+        tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        existing_group_id: Option<&[u8]>,
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        opts: &GroupMetadataOptions,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<(StoredGroup, bool), GroupError> {
+        let storage = tx.storage();
+        let db = storage.db();
+        if let Some(existing_group_id) = existing_group_id {
+            let group_id = GroupId::try_from(existing_group_id)?;
+            if let Some(existing) = db.find_group(&group_id)? {
+                return Ok((existing, false));
             }
-            let provider = XmtpOpenMlsProviderRef::new(&storage);
-            let mls_group = if let Some(existing_group_id) = existing_group_id {
-                // TODO: For groups restored from backup, in order to support queries on metadata such as
-                // the group title and description, a stubbed OpenMLS group is created, and later overwritten
-                // when a welcome is received.
-                OpenMlsGroup::from_backup_stub_logged(
-                    &provider,
-                    context.identity(),
-                    &group_config,
-                    GroupId::try_from(existing_group_id)?,
-                    commit_log_enabled,
-                )?
-            } else {
-                OpenMlsGroup::from_creation_logged(
-                    &provider,
-                    context.identity(),
-                    &group_config,
-                    commit_log_enabled,
-                )?
-            };
-
-            let group_id: GroupId = mls_group.group_id().try_into()?;
-            // If not an existing group, the creator is a super admin and should publish the commit log
-            // Otherwise, for existing groups, we'll never publish the commit log until we receive a welcome message
-            let should_publish_commit_log = existing_group_id.is_none();
-
-            let stored_group = StoredGroup::builder()
-                .id(group_id)
-                .created_at_ns(now_ns())
-                .membership_state(membership_state)
-                .conversation_type(conversation_type)
-                .added_by_inbox_id(context.inbox_id().to_string())
-                .message_disappear_from_ns(
-                    opts.message_disappearing_settings
-                        .as_ref()
-                        .map(|m| m.from_ns),
-                )
-                .message_disappear_in_ns(
-                    opts.message_disappearing_settings.as_ref().map(|m| m.in_ns),
-                )
-                .should_publish_commit_log(should_publish_commit_log)
-                .build()?;
-
-            stored_group.store_or_ignore(&db)?;
-            Ok::<_, GroupError>(Continue(stored_group))
-        })
-        .map(TransactionOutcome::into_continued)
+        }
+        let provider = XmtpOpenMlsProviderRef::new(&storage);
+        let mls_group = if let Some(existing_group_id) = existing_group_id {
+            // A restored group starts with a stub. A Welcome replaces it.
+            OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                GroupId::try_from(existing_group_id)?,
+                commit_log_enabled,
+            )?
+        } else {
+            OpenMlsGroup::from_creation_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                commit_log_enabled,
+            )?
+        };
+        let group_id: GroupId = mls_group.group_id().try_into()?;
+        let stored_group = StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .conversation_type(conversation_type)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .should_publish_commit_log(existing_group_id.is_none())
+            .build()?;
+        stored_group.store_or_ignore(&db)?;
+        Ok((stored_group, true))
     }
 
     // Create a new DM and save it to the DB
@@ -542,60 +628,71 @@ where
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
         let group_config = build_group_config(dictionary)?;
 
-        let (stored_group, created) = state_write(context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            if let Some(group_id) = existing_group_id {
-                let group_id = GroupId::try_from(group_id)?;
-                if let Some(existing) = db.find_group(&group_id)? {
-                    return Ok(Continue((existing, false)));
-                }
-            }
-            let provider = XmtpOpenMlsProviderRef::new(&storage);
-            let mls_group = if let Some(group_id) = existing_group_id {
-                OpenMlsGroup::from_backup_stub_logged(
-                    &provider,
-                    context.identity(),
-                    &group_config,
-                    GroupId::try_from(group_id)?,
-                    commit_log_enabled,
-                )?
-            } else {
-                OpenMlsGroup::from_creation_logged(
-                    &provider,
-                    context.identity(),
+        let (stored_group, created, consent_changes) = if membership_state
+            == GroupMembershipState::Restored
+        {
+            state_write(context.mls_storage(), |tx| {
+                Ok::<_, GroupError>(Continue(Self::insert_dm_row(
+                    context,
+                    tx,
+                    membership_state,
+                    &dm_target_inbox_id,
+                    &opts,
+                    existing_group_id,
                     &group_config,
                     commit_log_enabled,
-                )?
-            };
-
-            let group_id: GroupId = mls_group.group_id().try_into()?;
-            let stored_group = StoredGroup::builder()
-                .id(group_id)
-                .created_at_ns(now_ns())
-                .membership_state(membership_state)
-                .added_by_inbox_id(context.inbox_id().to_string())
-                .message_disappear_from_ns(
-                    opts.message_disappearing_settings
-                        .as_ref()
-                        .map(|m| m.from_ns),
-                )
-                .message_disappear_in_ns(
-                    opts.message_disappearing_settings.as_ref().map(|m| m.in_ns),
-                )
-                .dm_id(Some(
-                    DmMembers {
-                        member_one_inbox_id: dm_target_inbox_id,
-                        member_two_inbox_id: context.identity().inbox_id().to_string(),
+                )?))
+            })?
+            .into_continued()
+        } else {
+            crate::state_tx::state_write_with_events(
+                context.mls_storage(),
+                context.events(),
+                |tx, events| {
+                    let (stored_group, created, consent_changes) = Self::insert_dm_row(
+                        context,
+                        tx,
+                        membership_state,
+                        &dm_target_inbox_id,
+                        &opts,
+                        existing_group_id,
+                        &group_config,
+                        commit_log_enabled,
+                    )?;
+                    if created {
+                        let storage = tx.storage();
+                        let db = storage.db();
+                        crate::subscriptions::internal::emit_preference_updates(
+                            events,
+                            consent_changes
+                                .iter()
+                                .cloned()
+                                .map(PreferenceUpdate::Consent)
+                                .collect(),
+                            crate::subscriptions::internal::PreferenceOrigin::Local,
+                            &db,
+                        )?;
+                        if existing_group_id.is_none() {
+                            events.emit(
+                                Some(xmtp_events::ClientEvent::ConversationJoined(
+                                    xmtp_events::ConversationJoined {
+                                        group_id: stored_group.id.to_vec(),
+                                        conversation_type: xmtp_events::ConversationType::Dm,
+                                        origin: xmtp_events::JoinOrigin::Created,
+                                        adder_inbox_id: None,
+                                    },
+                                )),
+                                Some(crate::subscriptions::internal::InternalEvent::GroupJoined(
+                                    stored_group.id,
+                                )),
+                            );
+                        }
                     }
-                    .to_string(),
-                ))
-                .build()?;
-
-            stored_group.store(&db)?;
-            Ok::<_, GroupError>(Continue((stored_group, true)))
-        })?
-        .into_continued();
+                    Ok::<_, GroupError>(Continue((stored_group, created, consent_changes)))
+                },
+            )?
+            .into_continued()
+        };
         let new_group = Self::new_from_arc(
             context.clone(),
             stored_group.id,
@@ -603,11 +700,90 @@ where
             ConversationType::Dm,
             stored_group.created_at_ns,
         );
-        // Consent state defaults to allowed when the user creates the group
-        if created {
-            new_group.update_consent_state(ConsentState::Allowed)?;
+        if created
+            && !consent_changes.is_empty()
+            && membership_state != GroupMembershipState::Restored
+        {
+            context.task_channels().wake_notifications();
+            let _ = context
+                .worker_events()
+                .send(SyncWorkerEvent::SyncPreferences(
+                    consent_changes
+                        .into_iter()
+                        .map(PreferenceUpdate::Consent)
+                        .collect(),
+                ));
         }
         Ok(new_group)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the row stores the DM creation parameters"
+    )]
+    fn insert_dm_row(
+        context: &Context,
+        tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
+        membership_state: GroupMembershipState,
+        dm_target_inbox_id: &InboxId,
+        opts: &GroupMetadataOptions,
+        existing_group_id: Option<&[u8]>,
+        group_config: &MlsGroupCreateConfig,
+        commit_log_enabled: bool,
+    ) -> Result<(StoredGroup, bool, Vec<StoredConsentRecord>), GroupError> {
+        let storage = tx.storage();
+        let db = storage.db();
+        if let Some(group_id) = existing_group_id {
+            let group_id = GroupId::try_from(group_id)?;
+            if let Some(existing) = db.find_group(&group_id)? {
+                return Ok((existing, false, Vec::new()));
+            }
+        }
+        let provider = XmtpOpenMlsProviderRef::new(&storage);
+        let mls_group = if let Some(group_id) = existing_group_id {
+            OpenMlsGroup::from_backup_stub_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                GroupId::try_from(group_id)?,
+                commit_log_enabled,
+            )?
+        } else {
+            OpenMlsGroup::from_creation_logged(
+                &provider,
+                context.identity(),
+                group_config,
+                commit_log_enabled,
+            )?
+        };
+        let group_id: GroupId = mls_group.group_id().try_into()?;
+        let stored_group = StoredGroup::builder()
+            .id(group_id)
+            .created_at_ns(now_ns())
+            .membership_state(membership_state)
+            .added_by_inbox_id(context.inbox_id().to_string())
+            .message_disappear_from_ns(
+                opts.message_disappearing_settings
+                    .as_ref()
+                    .map(|m| m.from_ns),
+            )
+            .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
+            .dm_id(Some(
+                DmMembers {
+                    member_one_inbox_id: dm_target_inbox_id.clone(),
+                    member_two_inbox_id: context.identity().inbox_id().to_string(),
+                }
+                .to_string(),
+            ))
+            .build()?;
+        stored_group.store(&db)?;
+        let record = StoredConsentRecord::new(
+            xmtp_db::consent_record::ConsentType::ConversationId,
+            ConsentState::Allowed,
+            hex::encode(group_id),
+        );
+        let consent_changes = db.insert_or_replace_consent_records(&[record])?;
+        Ok((stored_group, true, consent_changes))
     }
 
     // Super admin status is only criteria for whether to publish the commit log for now
