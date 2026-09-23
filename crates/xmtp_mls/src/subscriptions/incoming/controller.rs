@@ -32,6 +32,7 @@ struct Scope {
     scope: ScopeKind,
     topics: HashSet<Topic>,
     targets: TopicCursor,
+    target_error: Option<(HashSet<Topic>, Arc<IncomingError>)>,
     receipt_wait_started: Instant,
 }
 
@@ -70,6 +71,7 @@ impl Scope {
             scope,
             topics: HashSet::new(),
             targets,
+            target_error: None,
             receipt_wait_started: Instant::now(),
         }
     }
@@ -81,8 +83,12 @@ enum Opened {
 }
 
 type OpenFuture = BoxDynFuture<'static, Result<Opened, NetworkError>>;
-type ReadFuture =
-    BoxDynFuture<'static, (Topic, Result<ReceivedPage, crate::mls_store::MlsStoreError>)>;
+enum ReadOutcome {
+    Fetched(Result<ReceivedPage, crate::mls_store::MlsStoreError>),
+    Rejected(Arc<IncomingError>),
+}
+type ReadResult = (Topic, Option<Cursor>, ReadOutcome);
+type ReadFuture = BoxDynFuture<'static, ReadResult>;
 type TargetsFuture = BoxDynFuture<'static, (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>)>;
 
 /// Receipt can continue while processing waits for a dependency.
@@ -102,6 +108,8 @@ struct ReceiptSchedule {
     blocked_until: Option<Instant>,
     /// Consecutive permanent receipt errors, used to grow the retry delay.
     blocked_failures: u32,
+    /// A rejected Query must not repeat from this unchanged durable cursor.
+    rejected_at: Option<Cursor>,
     last_read: Option<Instant>,
 }
 
@@ -133,6 +141,16 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     transport: Transport,
     read: Option<ReadFuture>,
     targets: Option<TargetsFuture>,
+    targets_request: Option<HashSet<Topic>>,
+    rejected_requests: RejectedRequests,
+    /// Classify one new bounded caller against retained open rejections even
+    /// while the shared transport is already open or waiting to retry.
+    classify_new_caller: bool,
+    #[cfg(test)]
+    open_cursor_reads: usize,
+    #[cfg(test)]
+    receipt_progress_reads: std::sync::atomic::AtomicUsize,
+    targets_retry_at: Option<Instant>,
     read_queue: VecDeque<Topic>,
     dependencies: FuturesUnordered<BoxDynFuture<'static, DependencyResult<C>>>,
     dependency_registry: DependencyRegistry,
@@ -157,14 +175,23 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         state: Arc<SharedState>,
     ) -> Self {
         let factory = context.incoming_runtime().factory.clone();
+        let rejected_requests = context.incoming_runtime().rejected_requests.clone();
         Self {
             context,
             commands,
-            state,
+            state: state.clone(),
             scopes: HashMap::new(),
-            transport: Transport::new(factory),
+            transport: Transport::new(factory, state.recovery.clone()),
             read: None,
             targets: None,
+            targets_request: None,
+            rejected_requests,
+            classify_new_caller: false,
+            #[cfg(test)]
+            open_cursor_reads: 0,
+            #[cfg(test)]
+            receipt_progress_reads: std::sync::atomic::AtomicUsize::new(0),
+            targets_retry_at: None,
             read_queue: VecDeque::new(),
             dependencies: FuturesUnordered::new(),
             dependency_registry: DependencyRegistry::default(),
@@ -186,6 +213,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.storage_error = self.reconcile().err().map(Arc::new);
             let progress = self.process_ready();
             self.refresh_statuses();
+            self.retire_exhausted_streams();
             self.start_open();
             self.start_read();
             self.start_targets();
@@ -247,9 +275,31 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
+    fn retire_exhausted_streams(&mut self) {
+        // Exhaustion retires only an application stream's interest. Internal
+        // workers and barriers have no stream budget and remain registered.
+        self.scopes.retain(|id, _| {
+            self.state
+                .consumer_recovery
+                .lock()
+                .get(id)
+                .is_none_or(|state| state.snapshot.terminal.is_none())
+        });
+    }
+
     fn command(&mut self, command: Command) {
         match command {
             Command::Acquire { id, scope } => {
+                if self
+                    .state
+                    .consumer_recovery
+                    .lock()
+                    .get(&id)
+                    .is_some_and(crate::subscriptions::recovery::RecoveryState::is_bounded)
+                {
+                    self.targets_retry_at = None;
+                    self.classify_new_caller = true;
+                }
                 self.scopes.insert(id, Scope::new(id, scope));
             }
             Command::Replace {
@@ -485,11 +535,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .filter(|topic| !self.receipt(topic).paused && !self.receipt(topic).blocked())
             .collect();
         self.transport.request(topics);
-        if !self.transport.can_open() {
+        let can_open = self.transport.can_open();
+        if self.transport.requested.is_empty() || (!can_open && !self.classify_new_caller) {
             return;
         }
         let topics = self.transport.requested.clone();
         let topics: Vec<_> = topics.into_iter().collect();
+        #[cfg(test)]
+        {
+            self.open_cursor_reads += 1;
+        }
         let cursors = match MlsStore::new(self.context.clone()).received_cursors(&topics) {
             Ok(cursors) => cursors,
             Err(error) => {
@@ -497,6 +552,26 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 return;
             }
         };
+        let request = if self.transport.factory.is_some() {
+            RequestKey::Bidi(cursors.clone())
+        } else {
+            RequestKey::QueryNewest(topics.iter().cloned().collect())
+        };
+        self.classify_new_caller = false;
+        // implements: API-284
+        let rejected = self
+            .rejected_requests
+            .lock()
+            .iter()
+            .find(|(key, _)| key == &request)
+            .map(|(_, cause)| cause.clone());
+        if let Some(cause) = rejected {
+            self.apply_rejected_open(cause);
+            return;
+        }
+        if !can_open {
+            return;
+        }
         let future: OpenFuture = if let Some(factory) = &self.transport.factory {
             let future = factory.open(cursors, self.fetched_limits());
             Box::pin(async move { future.await.map(Opened::Stream) })
@@ -511,7 +586,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .map_err(NetworkError::new)
             })
         };
-        self.transport.start(future);
+        self.transport.start(future, request);
     }
 
     fn opened(&mut self, result: Result<Opened, NetworkError>) {
@@ -527,12 +602,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.transport.error = None;
                 self.transport.opened();
             }
-            Err(error) => self.source_error(error),
+            Err(error) => {
+                self.open_error(error);
+            }
         }
     }
 
     fn registered(&mut self, targets: TopicCursor) {
         self.transport.registered.extend(targets.keys().cloned());
+        self.transport.registered();
         for scope in self.scopes.values_mut() {
             for (topic, target) in &targets {
                 if scope.topics.contains(topic) {
@@ -545,7 +623,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     // A new scope can share an active registration. Capture its own fixed target
     // without replacing the connection or reusing an older scope's target.
     fn start_targets(&mut self) {
-        if self.targets.is_some() || self.live_suspended() || self.transport.backing_off() {
+        if self.targets.is_some() {
             return;
         }
         let mut scopes = Vec::new();
@@ -568,6 +646,24 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         if topics.is_empty() {
             return;
         }
+        // implements: API-284
+        let rejected = self
+            .rejected_requests
+            .lock()
+            .iter()
+            .find(|(key, _)| key == &RequestKey::QueryNewest(topics.clone()))
+            .map(|(_, cause)| cause.clone());
+        if let Some(cause) = rejected {
+            self.record_target_error(&scopes, &topics, cause, false);
+            return;
+        }
+        if self.live_suspended()
+            || self.transport.backing_off()
+            || self.targets_retry_at.is_some_and(|at| Instant::now() < at)
+        {
+            return;
+        }
+        self.targets_request = Some(topics.clone());
         let context = self.context.clone();
         self.targets = Some(Box::pin(async move {
             let result = context
@@ -583,23 +679,99 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         &mut self,
         (scopes, result): (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>),
     ) {
+        let request = self.targets_request.take();
         match result {
             Ok(targets) => {
+                self.targets_retry_at = None;
                 for (id, generation) in scopes {
                     if let Some(scope) = self
                         .scopes
                         .get_mut(&id)
                         .filter(|scope| scope.generation == generation)
                     {
+                        scope.target_error = None;
                         for (topic, target) in &targets {
                             if scope.topics.contains(topic) {
                                 scope.targets.entry(topic.clone()).or_insert(*target);
+                                if let Some(state) =
+                                    self.state.consumer_recovery.lock().get_mut(&id)
+                                {
+                                    state.clear_query_error(topic);
+                                }
                             }
                         }
                     }
                 }
             }
-            Err(error) => self.source_error(error),
+            Err(error) => {
+                let rejected = crate::subscriptions::recovery::rejected_request(&error);
+                if !rejected {
+                    self.targets_retry_at = Some(
+                        Instant::now()
+                            + self
+                                .context
+                                .incoming_runtime()
+                                .policy()
+                                .receiver_fallback_interval,
+                    );
+                }
+                let cause = Arc::new(IncomingError::Transport(error));
+                if let Some(request) = request {
+                    let mut permanent = self.rejected_requests.lock();
+                    if rejected
+                        && !permanent
+                            .iter()
+                            .any(|(key, _)| key == &RequestKey::QueryNewest(request.clone()))
+                    {
+                        permanent.push((RequestKey::QueryNewest(request.clone()), cause.clone()));
+                    }
+                    drop(permanent);
+                    self.record_target_error(&scopes, &request, cause, true);
+                }
+            }
+        }
+    }
+
+    fn record_target_error(
+        &mut self,
+        scopes: &[(u64, u64)],
+        request: &HashSet<Topic>,
+        cause: Arc<IncomingError>,
+        attempted: bool,
+    ) {
+        let now = Instant::now();
+        for &(id, generation) in scopes {
+            let Some(scope) = self
+                .scopes
+                .get_mut(&id)
+                .filter(|scope| scope.generation == generation)
+            else {
+                continue;
+            };
+            let affected: HashSet<_> = request.intersection(&scope.topics).cloned().collect();
+            let Some(topic) = affected.iter().next() else {
+                continue;
+            };
+            if scope
+                .target_error
+                .as_ref()
+                .is_some_and(|(old, error)| old == &affected && Arc::ptr_eq(error, &cause))
+            {
+                continue;
+            }
+            if let Some(state) = self.state.consumer_recovery.lock().get_mut(&id) {
+                if attempted {
+                    state.record_query_failure(
+                        topic,
+                        cause.clone(),
+                        self.transport.recovery.failures,
+                        now,
+                    );
+                } else {
+                    state.reject(cause.clone());
+                }
+            }
+            scope.target_error = Some((affected, cause.clone()));
         }
     }
 
@@ -616,8 +788,13 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     Err(error) => self.receive_error(topic, error),
                 }
             }
-            Some(Err(error)) => self.source_error(error),
+            Some(Err(error)) => {
+                // A shared wire error has no mutate ID. Hold each affected
+                // lease's unchanged request until its caller changes it.
+                self.open_error(error);
+            }
             None | Some(Ok(IncomingEvent::Disconnected)) => {
+                self.transport.ended();
                 self.transport.disconnect(
                     self.context
                         .incoming_runtime()
@@ -723,8 +900,43 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         self.clear_read_times();
     }
 
+    fn open_error(&mut self, error: NetworkError) {
+        let rejected = crate::subscriptions::recovery::rejected_request(&error);
+        self.source_error(error);
+        if rejected
+            && let (Some(request), Some(cause)) = (
+                self.transport.attempted_open.clone(),
+                self.transport.error.clone(),
+            )
+        {
+            let mut permanent = self.rejected_requests.lock();
+            if !permanent.iter().any(|(prior, _)| prior == &request) {
+                permanent.push((request, cause));
+            }
+        }
+    }
+
+    fn apply_rejected_open(&mut self, cause: Arc<IncomingError>) {
+        self.transport.error = Some(cause.clone());
+        self.transport.recovery.error = Some(cause.clone());
+        *self.state.recovery.lock() = self.transport.recovery.clone();
+        let mut consumers = self.state.consumer_recovery.lock();
+        for (id, scope) in &self.scopes {
+            if scope
+                .topics
+                .iter()
+                .any(|topic| self.transport.requested.contains(topic))
+                && let Some(state) = consumers.get_mut(id)
+            {
+                state.reject(cause.clone());
+            }
+        }
+        self.state.notify();
+    }
+
     /// Unary reads are independent of the stream receiver. A failing or
     /// backing-off stream must not stop bounded Query recovery.
+    // implements: API-284
     fn start_read(&mut self) {
         if self.read.is_some() {
             return;
@@ -736,8 +948,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             };
             self.read_queue.push_back(topic.clone());
             if self.receipt(&topic).paused
-                || self.receipt(&topic).blocked()
                 || self.is_retired(&topic)
+                || (self.receipt(&topic).blocked() && self.receipt(&topic).rejected_at.is_none())
             {
                 continue;
             }
@@ -762,15 +974,34 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .receipt
                 .last_read = Some(now);
             let context = self.context.clone();
+            let rejected_requests = self.rejected_requests.clone();
             let limits = context
                 .incoming_runtime()
                 .policy()
                 .incoming_limits(key.kind);
             self.read = Some(Box::pin(async move {
-                let result = MlsStore::new(context)
-                    .receive_topics_once(std::slice::from_ref(&topic), limits)
-                    .await;
-                (topic, result)
+                let store = MlsStore::new(context);
+                let cursors = store.received_cursors(std::slice::from_ref(&topic));
+                match cursors {
+                    Ok(cursors) => {
+                        let cursor = cursors.get(&topic).copied();
+                        if let Some(cursor) = cursor {
+                            let cause = rejected_requests
+                                .lock()
+                                .iter()
+                                .find(|(request, _)| {
+                                    request == &RequestKey::Query(topic.clone(), cursor)
+                                })
+                                .map(|(_, cause)| cause.clone());
+                            if let Some(cause) = cause {
+                                return (topic, Some(cursor), ReadOutcome::Rejected(cause));
+                            }
+                        }
+                        let result = store.receive_topics_once_from(cursors, limits).await;
+                        (topic, cursor, ReadOutcome::Fetched(result))
+                    }
+                    Err(error) => (topic, None, ReadOutcome::Fetched(Err(error))),
+                }
             }));
             break;
         }
@@ -817,6 +1048,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             let received = match received {
                 Some(received) => received,
                 None => {
+                    #[cfg(test)]
+                    self.receipt_progress_reads
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     let progress = self.context.db().topic_progress(key)?.received;
                     received = Some(progress);
                     progress
@@ -883,13 +1117,43 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .is_some_and(|factory| factory.is_suspended())
     }
 
-    fn read_finished(
-        &mut self,
-        (topic, result): (Topic, Result<ReceivedPage, crate::mls_store::MlsStoreError>),
-    ) {
+    fn read_finished(&mut self, (topic, cursor, outcome): ReadResult) {
+        let result = match outcome {
+            ReadOutcome::Fetched(result) => result,
+            ReadOutcome::Rejected(cause) => {
+                self.apply_rejected_query(&topic, cursor.expect("rejected cursor"), cause);
+                return;
+            }
+        };
+        if self
+            .receipt(&topic)
+            .rejected_at
+            .is_some_and(|old| Some(old) != cursor)
+        {
+            self.topics
+                .entry(topic.clone())
+                .or_default()
+                .receipt
+                .rejected_at = None;
+            self.clear_receipt_failure(&topic);
+        }
         match result {
             Ok(page) => {
                 self.clear_receipt_failure(&topic);
+                self.topics
+                    .entry(topic.clone())
+                    .or_default()
+                    .receipt
+                    .rejected_at = None;
+                let mut consumers = self.state.consumer_recovery.lock();
+                for (id, scope) in &self.scopes {
+                    if scope.topics.contains(&topic)
+                        && let Some(state) = consumers.get_mut(id)
+                    {
+                        state.clear_query_error(&topic);
+                    }
+                }
+                drop(consumers);
                 if page.has_more {
                     self.topics
                         .entry(topic.clone())
@@ -907,12 +1171,60 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 }
                 self.topics.entry(topic.clone()).or_default().error = None;
             }
-            Err(error) => self.receive_error(topic, error.into()),
+            Err(error) => {
+                let rejected = matches!(&error, crate::mls_store::MlsStoreError::Api(_))
+                    && crate::subscriptions::recovery::rejected_request(&error);
+                let cause = Arc::new(IncomingError::from(error));
+                if rejected && let Some(cursor) = cursor {
+                    let request = RequestKey::Query(topic.clone(), cursor);
+                    let mut permanent = self.rejected_requests.lock();
+                    if !permanent.iter().any(|(key, _)| key == &request) {
+                        permanent.push((request, cause.clone()));
+                    }
+                }
+                if rejected {
+                    self.topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .receipt
+                        .rejected_at = cursor;
+                }
+                self.receive_error_shared(topic, cause);
+            }
+        }
+    }
+
+    fn apply_rejected_query(&mut self, topic: &Topic, cursor: Cursor, cause: Arc<IncomingError>) {
+        let state = self.topics.entry(topic.clone()).or_default();
+        state.receipt.rejected_at = Some(cursor);
+        state.error = Some(cause.clone());
+        let mut changed = false;
+        let mut consumers = self.state.consumer_recovery.lock();
+        for (id, scope) in &self.scopes {
+            if scope.topics.contains(topic)
+                && let Some(consumer) = consumers.get_mut(id)
+                && consumer.snapshot.terminal.is_none()
+            {
+                consumer.reject(cause.clone());
+                changed = true;
+            }
+        }
+        drop(consumers);
+        if changed {
+            self.state.notify();
         }
     }
 
     /// Reopen from durable receipt after any failed admission. Keep pending work and scope targets.
     fn receive_error(&mut self, topic: Topic, error: IncomingError) {
+        self.receive_error_shared(topic, Arc::new(error));
+    }
+
+    fn receive_error_shared(&mut self, topic: Topic, error: Arc<IncomingError>) {
+        let query_failure = matches!(
+            error.as_ref(),
+            IncomingError::Store(crate::mls_store::MlsStoreError::Api(_))
+        );
         // The transport can advance its read cursor before storage commits. Drop
         // that registration even when reconciliation immediately clears a pause.
         self.transport.disconnect(
@@ -927,7 +1239,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .or_default()
             .receipt
             .last_read = Some(now);
-        if capacity(&error) {
+        if capacity(error.as_ref()) {
             // Capacity is a storage condition, not a bad response. It
             // supersedes any permanent-error backoff, which would otherwise
             // keep gating the topic after reconciliation unpauses it.
@@ -935,7 +1247,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             receipt.paused = true;
             receipt.blocked_until = None;
             receipt.blocked_failures = 0;
-        } else if !error.is_retryable() {
+        } else if !error.as_ref().is_retryable() {
             let policy = self.context.incoming_runtime().policy();
             let backoff = RetryBackoff {
                 initial: policy.permanent_retry_initial,
@@ -947,7 +1259,30 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         } else {
             self.clear_receipt_failure(&topic);
         }
-        self.topic_error(topic, error);
+        self.topics.entry(topic.clone()).or_default().error = Some(error);
+        if query_failure {
+            let cause = self.topics[&topic]
+                .error
+                .as_ref()
+                .expect("query error stored")
+                .clone();
+            let now = Instant::now();
+            let mut consumers = self.state.consumer_recovery.lock();
+            for (id, scope) in &self.scopes {
+                if scope.topics.contains(&topic)
+                    && let Some(state) = consumers.get_mut(id)
+                {
+                    state.record_query_failure(
+                        &topic,
+                        cause.clone(),
+                        self.transport.recovery.failures,
+                        now,
+                    );
+                }
+            }
+            drop(consumers);
+            self.state.notify();
+        }
     }
 
     fn receipt(&self, topic: &Topic) -> ReceiptSchedule {

@@ -146,14 +146,15 @@ impl xmtp_common::retry::RetryableError for GrpcError {
     }
 }
 
-/// A closed Hyper connection can cancel a request that was not sent.
-/// Keep explicit RPC cancellation permanent when this transport cause is absent.
+/// Hyper connection closure and Tonic's local timeout can produce Cancelled.
+/// Keep explicit RPC cancellation permanent when these typed causes are absent.
 fn is_transport_cancellation(status: &tonic::Status) -> bool {
     let mut source = std::error::Error::source(status);
     while let Some(error) = source {
-        if error
-            .downcast_ref::<hyper::Error>()
-            .is_some_and(hyper::Error::is_canceled)
+        if error.is::<tonic::TimeoutExpired>()
+            || error
+                .downcast_ref::<hyper::Error>()
+                .is_some_and(hyper::Error::is_canceled)
         {
             return true;
         }
@@ -198,7 +199,12 @@ mod tests {
     fn explicit_rpc_cancellation_is_not_retryable() {
         use xmtp_proto::api::{ApiClientError, NetworkError, grpc_status};
 
-        for message in ["", "operation was canceled", "connection closed"] {
+        for message in [
+            "",
+            "operation was canceled",
+            "connection closed",
+            "Timeout expired",
+        ] {
             let error = NetworkError::new(ApiClientError::client(GrpcError::Status(
                 Status::cancelled(message),
             )));
@@ -210,6 +216,45 @@ mod tests {
             "connection closed",
         )));
         assert!(!GrpcError::Status(status).is_retryable());
+    }
+
+    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn local_timeout_is_retryable_through_tonic_and_client_wrappers() {
+        use hyper_util::rt::TokioIo;
+        use xmtp_common::time::{Duration, timeout};
+        use xmtp_proto::api::{ApiClientError, NetworkError, grpc_status};
+
+        for wrapped in [false, true] {
+            let status = if wrapped {
+                let connector = tower::service_fn(move |_| {
+                    std::future::ready(Err::<TokioIo<tokio::io::DuplexStream>, _>(
+                        tonic::TimeoutExpired(()),
+                    ))
+                });
+                let endpoint = tonic::transport::Endpoint::from_static("http://unused.invalid");
+                let transport = timeout(
+                    Duration::from_secs(5),
+                    endpoint.connect_with_connector(connector),
+                )
+                .await?
+                .expect_err("the connector returns the local timeout");
+                // Keep the actual transport wrapper and its typed timeout cause.
+                let mut status = Status::cancelled("retained transport cause");
+                status.set_source(std::sync::Arc::new(transport));
+                status
+            } else {
+                Status::from_error(Box::new(tonic::TimeoutExpired(())))
+            };
+            assert_eq!(status.code(), Code::Cancelled);
+            let error = GrpcError::Status(status);
+            assert!(error.is_retryable());
+            let error = ApiClientError::client(error);
+            assert!(error.is_retryable());
+            let error = NetworkError::new(error);
+            assert_eq!(grpc_status(&error)?.code(), Code::Cancelled);
+            assert!(error.is_retryable());
+        }
     }
 
     #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]

@@ -98,6 +98,10 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
     where
         C::ApiClient: XmtpMlsStreams,
     {
+        context
+            .server_configuration()
+            .check()
+            .map_err(|error| super::SubscribeError::Configuration(Box::new(error)))?;
         let events = context.local_events().subscribe();
         let known = KnownConversations::from_groups(context.db().find_groups(GroupQueryArgs {
             include_sync_groups: true,
@@ -106,9 +110,10 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             ..Default::default()
         })?);
         let coordinator = IncomingCoordinator::for_context(&context);
-        let lease = coordinator.acquire(IncomingScope::Topics(vec![Topic::new_welcome_message(
-            context.installation_id(),
-        )]));
+        let lease =
+            coordinator.acquire_stream(IncomingScope::Topics(vec![Topic::new_welcome_message(
+                context.installation_id(),
+            )]));
         let query = GroupQueryArgs {
             conversation_type,
             consent_states: Some(consent_states.unwrap_or_else(|| ALL_CONSENT_STATES.to_vec())),
@@ -120,14 +125,25 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             |state| async move {
                 let (context, mut events, lease, mut known, mut ready, query) = state?;
                 loop {
+                    if let Err(error) = context.server_configuration().check() {
+                        lease.close();
+                        return Some((
+                            Err(super::SubscribeError::Configuration(Box::new(error))),
+                            None,
+                        ));
+                    }
+                    if context.is_closed() {
+                        return None;
+                    }
+                    if let Err(error) = lease.check_recovery() {
+                        lease.close();
+                        return Some((Err(error.error().into()), None));
+                    }
                     if let Some(group) = ready.pop_front() {
                         return Some((
                             Ok(group),
                             Some((context, events, lease, known, ready, query)),
                         ));
-                    }
-                    if context.is_closed() {
-                        return None;
                     }
                     let groups = if query.consent_states.as_ref().is_some_and(Vec::is_empty) {
                         Ok(Vec::new())
@@ -149,6 +165,8 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                             }
                         }
                         Err(error) => {
+                            // The database operation has already used its normal
+                            // retry policy. Only the app can start another stream.
                             lease.close();
                             return Some((Err(error.into()), None));
                         }
@@ -157,7 +175,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
                         continue;
                     }
                     tokio::select! {
-                        _ = context.cancellation_token().cancelled() => return None,
+                        _ = context.cancellation_token().cancelled() => {},
                         _ = lease.changed() => {},
                         _ = sleep(context.incoming_runtime().policy().active_database_poll_interval) => {},
                         event = events.recv() => match event {
@@ -196,6 +214,37 @@ mod test {
 
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
+
+    // verifies: CONF-022
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_configuration_latch_fences_queued_conversations() {
+        use crate::{
+            client::ClientError, server_configuration::ConfigurationLatch,
+            subscriptions::SubscribeError,
+        };
+
+        tester!(alix, disable_workers);
+        let mut stream = StreamConversations::new(&alix.context, None, false, None).await?;
+        alix.create_group(None, None)?;
+        alix.create_group(None, None)?;
+        stream.next().await.unwrap()?;
+
+        alix.context
+            .server_configuration()
+            .latch(ConfigurationLatch::ClientVersionTooOld {
+                client: "1.0.0".into(),
+                minimum: "9999.0.0".into(),
+            });
+        alix.context.cancellation_token().cancel();
+        let error = stream.next().await.unwrap().unwrap_err();
+        assert!(matches!(
+            error,
+            SubscribeError::Configuration(error)
+                if matches!(*error, ClientError::ClientVersionTooOld { ref minimum, .. }
+                    if minimum == "9999.0.0")
+        ));
+        assert!(stream.next().await.is_none());
+    }
 
     xmtp_common::if_native! {
     // verifies: PROC-040

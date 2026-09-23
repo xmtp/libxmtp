@@ -783,6 +783,12 @@ fn auth_codes_and_retryability_survive_api_erasure() {
             false,
         ),
         (
+            AuthError::ExhaustedAfterAttempt,
+            "AuthError::Exhausted",
+            "auth attempts exhausted",
+            false,
+        ),
+        (
             AuthError::MissingCredential,
             "AuthError::MissingCredential",
             "auth credential missing",

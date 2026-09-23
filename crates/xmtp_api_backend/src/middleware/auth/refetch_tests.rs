@@ -436,8 +436,8 @@ async fn callback_errors_are_redacted_and_count_toward_lockout() {
     assert!(call(&client, Rpc::Bidi).await.is_err());
     *callback.fail.lock().await = true;
     // One failure is already counted, so this many more reach the limit. The
-    // call that locks out reports `Exhausted`, so a long-lived transport waits
-    // for the cool-down instead of reading the failure as permanent.
+    // The call that starts lockout keeps the public Exhausted code, so a
+    // long-lived transport waits through the cool-down.
     let remaining = MAX_CONSECUTIVE_AUTH_FAILURES as usize - 1;
     for attempt in 1..=remaining {
         let error = call(&client, Rpc::Unary).await.err()?;
@@ -451,7 +451,10 @@ async fn callback_errors_are_redacted_and_count_toward_lockout() {
             assert_eq!(error.to_string(), "auth callback failed");
             assert!(error.is_retryable());
         } else {
-            assert!(matches!(error, ApiClientError::Auth(AuthError::Exhausted)));
+            assert!(matches!(
+                error,
+                ApiClientError::Auth(AuthError::ExhaustedAfterAttempt)
+            ));
             assert!(!error.is_retryable());
         }
     }
@@ -650,7 +653,10 @@ xmtp_common::if_native! {
         assert_eq!(callback.calls.load(Ordering::SeqCst), 1);
         assert_eq!(peer.sent.lock().await.len(), 1);
         let mut lease = transport.lease(vec![(topic, 0)], 8).await?;
-        let mut server = servers.lock().expect("server queue").pop_front()?;
+        // A replacement lease keeps the backoff from the failed cold open.
+        let mut server = xmtp_common::wait_for_some(|| async {
+            servers.lock().expect("server queue").pop_front()
+        }).await?;
         let update = server.next_mutate().await;
         server.ack_empty(update.id);
         assert!(matches!(lease.next().await, Some(LeaseEvent::CatchUpComplete)));
@@ -794,7 +800,8 @@ async fn concurrent_callback_errors_stop_at_the_limit() {
     let results = pending.await;
     // The callback runs exactly `limit` times. Every later call is refused
     // without running it, so concurrency cannot push the count past the limit.
-    // The failure that locks out reports `Exhausted`, like the refusals do.
+    // The failure that starts lockout keeps the same public error code as
+    // later refusals, but only it performed an auth attempt.
     assert_eq!(
         results
             .iter()
@@ -810,7 +817,17 @@ async fn concurrent_callback_errors_stop_at_the_limit() {
             .iter()
             .filter(|result| matches!(result, Err(ApiClientError::Auth(AuthError::Exhausted))))
             .count(),
-        EXTRA + 1
+        EXTRA
+    );
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| matches!(
+                result,
+                Err(ApiClientError::Auth(AuthError::ExhaustedAfterAttempt))
+            ))
+            .count(),
+        1
     );
     assert_eq!(callback.calls.load(Ordering::SeqCst), limit);
     assert!(peer.sent.lock().await.is_empty());

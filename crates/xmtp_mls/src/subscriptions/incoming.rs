@@ -8,7 +8,7 @@ use controller::Controller;
 use parking_lot::Mutex;
 pub use status::*;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -18,11 +18,23 @@ use tokio::sync::{mpsc, watch};
 use xmtp_common::{BoxDynFuture, MaybeSend, MaybeSync, time::Instant};
 use xmtp_proto::{
     api::NetworkError,
-    types::{GroupId, IncomingBatchLimits, IncomingSubscription, Topic, TopicCursor},
+    types::{Cursor, GroupId, IncomingBatchLimits, IncomingSubscription, Topic, TopicCursor},
 };
 
 pub(crate) type SubscriptionFuture =
     BoxDynFuture<'static, Result<IncomingSubscription<NetworkError>, NetworkError>>;
+
+/// Exact method and wire inputs for a permanent server rejection.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum RequestKey {
+    Bidi(TopicCursor),
+    QueryNewest(HashSet<Topic>),
+    /// Query can reduce its wire limit after a size error. Hold all limits at
+    /// this cursor because the caller cannot see the final attempted limit.
+    Query(Topic, Cursor),
+}
+
+pub(crate) type RejectedRequests = Arc<Mutex<Vec<(RequestKey, Arc<IncomingError>)>>>;
 
 pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture;
@@ -40,6 +52,8 @@ pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
+    /// A new controller on this client cannot resend a rejected wire request.
+    pub(crate) rejected_requests: RejectedRequests,
     /// A closed reader whose owner token must be released after storage repair.
     pub(crate) retired_delivery_owner: Mutex<Option<xmtp_db::delivery::DeliveryOwner>>,
 }
@@ -53,6 +67,7 @@ impl IncomingRuntime {
             policy,
             factory,
             coordinator: Mutex::new(None),
+            rejected_requests: Arc::new(Mutex::new(Vec::new())),
             retired_delivery_owner: Mutex::new(None),
         }
     }
@@ -156,6 +171,8 @@ pub struct IncomingCoordinator {
 
 struct SharedState {
     statuses: Mutex<HashMap<u64, IncomingStatus>>,
+    recovery: Arc<Mutex<super::recovery::RecoverySnapshot>>,
+    consumer_recovery: Mutex<HashMap<u64, super::recovery::RecoveryState>>,
     changed: watch::Sender<u64>,
 }
 
@@ -164,6 +181,8 @@ impl Default for SharedState {
         let (changed, _) = watch::channel(0);
         Self {
             statuses: Mutex::new(HashMap::new()),
+            recovery: Arc::new(Mutex::new(Default::default())),
+            consumer_recovery: Mutex::new(HashMap::new()),
             changed,
         }
     }
@@ -215,11 +234,30 @@ impl IncomingCoordinator {
 
     /// Keep this scope active until the returned lease closes or drops.
     pub fn acquire(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
+        self.acquire_with_recovery(scope, false)
+    }
+
+    /// Application streams own a finite outage budget. Internal workers and
+    /// bounded sync operations keep their existing lifetime and deadline rules.
+    pub(crate) fn acquire_stream(self: &Arc<Self>, scope: IncomingScope) -> IncomingLease {
+        self.acquire_with_recovery(scope, true)
+    }
+
+    fn acquire_with_recovery(
+        self: &Arc<Self>,
+        scope: IncomingScope,
+        bounded: bool,
+    ) -> IncomingLease {
         let id = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
         self.state
             .statuses
             .lock()
             .insert(id, IncomingStatus::pending(id));
+        let recovery = self.state.recovery.lock().clone();
+        self.state.consumer_recovery.lock().insert(
+            id,
+            super::recovery::RecoveryState::new(recovery, bounded, Instant::now()),
+        );
         let _ = self.commands.send(Command::Acquire { id, scope });
         IncomingLease {
             id,
@@ -244,6 +282,38 @@ pub struct IncomingLease {
 }
 
 impl IncomingLease {
+    #[cfg(test)]
+    pub(crate) fn recovery_snapshot(&self) -> super::recovery::RecoverySnapshot {
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .get(&self.id)
+            .map(|state| state.snapshot.clone())
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn check_recovery(&self) -> Result<(), super::recovery::RecoveryFailure> {
+        let mut consumers = self.coordinator.state.consumer_recovery.lock();
+        match consumers.get_mut(&self.id) {
+            Some(state) => state.check(Instant::now()),
+            None => Ok(()),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_recovery_for_test(&self, failure: super::recovery::RecoveryFailure) {
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .get_mut(&self.id)
+            .expect("test lease must have a recovery snapshot")
+            .snapshot
+            .terminal = Some(failure);
+        self.coordinator.state.notify();
+    }
+
     /// Read the latest status for this lease's current scope generation.
     pub fn snapshot(&self) -> IncomingStatus {
         self.coordinator
@@ -303,6 +373,11 @@ impl IncomingLease {
             return;
         }
         statuses.remove(&self.id);
+        self.coordinator
+            .state
+            .consumer_recovery
+            .lock()
+            .remove(&self.id);
         let _ = self.coordinator.commands.send(Command::Release(self.id));
         drop(statuses);
         self.coordinator.state.notify();

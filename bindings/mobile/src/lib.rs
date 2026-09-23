@@ -506,6 +506,7 @@ mod auth_error_tests {
             AuthError::CredentialRejected { retryable: true },
             AuthError::CallbackFailed { retryable: false },
             AuthError::Exhausted,
+            AuthError::ExhaustedAfterAttempt,
             AuthError::MissingCredential,
         ] {
             let api = xmtp_api::dyn_err(ApiClientError::from(auth));

@@ -11,6 +11,19 @@ fn controller<C: XmtpSharedContext + 'static>(context: C) -> Controller<C> {
     Controller::new(context, receiver, Arc::new(SharedState::default()))
 }
 
+fn coordinated_controller<C: XmtpSharedContext + 'static>(
+    context: C,
+) -> (Arc<IncomingCoordinator>, Controller<C>) {
+    let (commands, receiver) = mpsc::unbounded_channel();
+    let state = Arc::new(SharedState::default());
+    let coordinator = Arc::new(IncomingCoordinator {
+        commands,
+        generations: AtomicU64::new(0),
+        state: state.clone(),
+    });
+    (coordinator, Controller::new(context, receiver, state))
+}
+
 fn add_scope<C: XmtpSharedContext + 'static>(
     controller: &mut Controller<C>,
     id: u64,
@@ -610,6 +623,14 @@ impl SubscriptionFactory for SuspendedFactory {
     }
 }
 
+struct PendingFactory;
+
+impl SubscriptionFactory for PendingFactory {
+    fn open(&self, _: TopicCursor, _: IncomingBatchLimits) -> SubscriptionFuture {
+        Box::pin(futures::future::pending())
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn suspension_blocks_live_queries_but_allows_an_explicit_barrier() {
     tester!(alix, disable_workers);
@@ -1046,6 +1067,933 @@ fn a_permanent_receipt_error_retries_that_topic_with_backoff() {
     assert!(!controller.receipt(&topic).failing());
 }
 
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_queries_spend_only_the_interested_stream_budget() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let failing = Topic::new_welcome_message(alix.context.installation_id());
+    let healthy = Topic::new_group_message(GroupId::generate());
+    let affected = coordinator.acquire_stream(IncomingScope::Topics(vec![failing.clone()]));
+    let sibling = coordinator.acquire_stream(IncomingScope::Topics(vec![healthy]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&affected.id)
+        .unwrap()
+        .topics
+        .insert(failing.clone());
+    for _ in 0..10 {
+        let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(
+            NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+                tonic::Status::unavailable("query offline"),
+            )),
+        ));
+        controller.read_finished((
+            failing.clone(),
+            Some(Cursor(0)),
+            ReadOutcome::Fetched(Err(error)),
+        ));
+        controller.refresh_statuses();
+    }
+    assert_eq!(controller.transport.recovery.failures, 0);
+    assert!(matches!(
+        affected.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Exhausted { attempts: 10, .. })
+    ));
+    assert!(sibling.recovery_snapshot().terminal.is_none());
+}
+
+// verifies: API-284, PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_query_is_not_repeated_from_the_same_cursor() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
+    )));
+    controller.read_finished((
+        topic.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(error)),
+    ));
+    controller.refresh_statuses();
+    assert!(matches!(
+        stream.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
+    ));
+    assert!(controller.receipt(&topic).blocked());
+    let joining = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .targets
+        .insert(topic.clone(), Cursor(1));
+    controller.start_read();
+    let result = controller
+        .read
+        .take()
+        .expect("fallback classification")
+        .await;
+    assert!(matches!(&result.2, ReadOutcome::Rejected(_)));
+    controller.read_finished(result);
+    assert!(matches!(
+        joining.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
+    ));
+    // Even after the retry delay, the same durable cursor must not send the
+    // rejected Query again. The actor can still serve a changed request.
+    let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
+    receipt.blocked_until = None;
+    receipt.last_read = None;
+    controller.start_read();
+    let result = controller
+        .read
+        .take()
+        .expect("retained classification")
+        .await;
+    assert!(matches!(&result.2, ReadOutcome::Rejected(_)));
+    controller.read_finished(result);
+    assert_eq!(controller.receipt(&topic).rejected_at, Some(Cursor(0)));
+
+    let retained = controller.rejected_requests.lock()[0].1.clone();
+    assert_eq!(
+        controller.rejected_requests.lock()[0].0,
+        RequestKey::Query(topic.clone(), Cursor(0))
+    );
+    drop(controller);
+    drop(coordinator);
+    drop(stream);
+
+    // A fresh stream on the same client receives the retained cause. Its new
+    // controller must not issue the same Query from durable cursor F.
+    let (coordinator, mut recreated) = coordinated_controller(alix.context.clone());
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = recreated.commands.try_recv() {
+        recreated.command(command);
+    }
+    recreated
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    recreated
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .targets
+        .insert(topic.clone(), Cursor(1));
+    recreated.read_queue.push_back(topic.clone());
+    recreated.start_read();
+    let result = recreated
+        .read
+        .take()
+        .expect("retained classification")
+        .await;
+    assert!(matches!(&result.2, ReadOutcome::Rejected(_)));
+    recreated.read_finished(result);
+    assert_eq!(recreated.receipt(&topic).rejected_at, Some(Cursor(0)));
+    assert_eq!(fresh.recovery_snapshot().failures, 0);
+    let Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(cause)) =
+        fresh.recovery_snapshot().terminal
+    else {
+        panic!("the retained Query cause must terminate the fresh reader");
+    };
+    assert!(Arc::ptr_eq(&cause, &retained));
+}
+
+// verifies: API-284, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_fallback_query_does_not_end_a_covered_fresh_stream() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let original = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&original.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("query")),
+    )));
+    controller.read_finished((
+        topic.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(error)),
+    ));
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic.clone());
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&fresh.id).unwrap();
+    scope.topics.insert(topic.clone());
+    scope.targets.insert(topic.clone(), Cursor(0));
+    controller.start_read();
+    assert!(controller.read.is_none());
+    assert!(fresh.recovery_snapshot().terminal.is_none());
+    assert_eq!(controller.receipt(&topic).rejected_at, Some(Cursor(0)));
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_changed_durable_cursor_clears_the_rejected_query_backoff() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.read_queue.push_back(topic.clone());
+    let error = crate::mls_store::MlsStoreError::Api(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::out_of_range("minimum page")),
+    )));
+    controller.read_finished((
+        topic.clone(),
+        Some(Cursor(0)),
+        ReadOutcome::Fetched(Err(error)),
+    ));
+    assert!(controller.receipt(&topic).blocked());
+
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .incoming_limits(NetworkEntityKind::Group);
+    MlsStore::new(controller.context.clone()).admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: vec![wire::ServerEnvelope {
+                meta: Some(meta(&topic, 1)),
+                envelope: Some(wire::ClientEnvelope::default()),
+            }],
+        },
+        limits,
+    )?;
+    assert_eq!(
+        controller
+            .context
+            .db()
+            .topic_progress(&topic_key(&topic)?)?
+            .received,
+        Cursor(1)
+    );
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .last_read = None;
+    controller.start_read();
+    let result = controller.read.take().expect("changed Query is due").await;
+    assert_eq!(result.1, Some(Cursor(1)));
+    assert!(matches!(&result.2, ReadOutcome::Fetched(_)));
+    controller.read_finished(result);
+    assert_eq!(controller.receipt(&topic).rejected_at, None);
+    assert!(!controller.receipt(&topic).blocked());
+}
+
+// verifies: API-284, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_covered_bidi_topic_does_not_poll_a_retained_query_cursor() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &topic);
+    controller.read_queue.push_back(topic.clone());
+    controller.rejected_requests.lock().push((
+        RequestKey::Query(topic.clone(), Cursor(0)),
+        Arc::new(IncomingError::UnsupportedTopic),
+    ));
+    let receipt = &mut controller.topics.entry(topic.clone()).or_default().receipt;
+    receipt.rejected_at = Some(Cursor(0));
+    receipt.blocked_until = Some(Instant::now() + Duration::from_secs(60));
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic);
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    for _ in 0..100 {
+        controller.start_read();
+    }
+    assert!(controller.read.is_none());
+    assert_eq!(
+        controller
+            .receipt_progress_reads
+            .load(std::sync::atomic::Ordering::Relaxed),
+        0,
+        "a covered topic must not read durable progress on each controller pass"
+    );
+    assert_eq!(
+        controller.receipt(&controller.read_queue[0]).rejected_at,
+        Some(Cursor(0))
+    );
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_query_uses_the_cursor_checked_inside_its_future() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let stream = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    let scope = controller.scopes.get_mut(&stream.id).unwrap();
+    scope.topics.insert(topic.clone());
+    scope.targets.insert(topic.clone(), Cursor(2));
+    controller.read_queue.push_back(topic.clone());
+    controller.rejected_requests.lock().push((
+        RequestKey::Query(topic.clone(), Cursor(0)),
+        Arc::new(IncomingError::UnsupportedTopic),
+    ));
+    controller
+        .topics
+        .entry(topic.clone())
+        .or_default()
+        .receipt
+        .rejected_at = Some(Cursor(0));
+    controller.start_read();
+    let future = controller.read.take().expect("the fallback Query is due");
+
+    // Storage advances after the scheduler chooses Query and before the
+    // future reads its cursor. The old rejection no longer matches the request.
+    let limits = controller
+        .context
+        .incoming_runtime()
+        .policy()
+        .incoming_limits(NetworkEntityKind::Group);
+    MlsStore::new(controller.context.clone()).admit_incoming_batch(
+        &OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: vec![wire::ServerEnvelope {
+                meta: Some(meta(&topic, 1)),
+                envelope: Some(wire::ClientEnvelope::default()),
+            }],
+        },
+        limits,
+    )?;
+    let (read_topic, cursor, result) = future.await;
+    assert_eq!(read_topic, topic);
+    assert_eq!(cursor, Some(Cursor(1)));
+    assert!(matches!(result, ReadOutcome::Fetched(_)));
+    assert!(stream.recovery_snapshot().terminal.is_none());
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_retained_rejection_does_not_poll_cursors_on_a_healthy_bidi_loop() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let other = Topic::new_group_message(GroupId::generate());
+    controller.rejected_requests.lock().push((
+        RequestKey::QueryNewest([other].into()),
+        Arc::new(IncomingError::UnsupportedTopic),
+    ));
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    controller.transport.state = TransportState::Streaming(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ));
+    add_scope(&mut controller, 1, &topic);
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.registered.insert(topic.clone());
+    for _ in 0..100 {
+        controller.start_open();
+    }
+    assert_eq!(controller.open_cursor_reads, 0);
+
+    let fresh = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(topic);
+    controller.start_open();
+    assert_eq!(controller.open_cursor_reads, 1);
+    for _ in 0..100 {
+        controller.start_open();
+    }
+    assert_eq!(controller.open_cursor_reads, 1);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_internal_scope_does_not_repeat_a_rejected_newest_query() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    controller.transport.factory = None;
+    let welcome = Topic::new_welcome_message(alix.context.installation_id());
+    let worker = coordinator.acquire(IncomingScope::DeviceSyncGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&worker.id)
+        .unwrap()
+        .topics
+        .insert(welcome.clone());
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("topics")),
+    )));
+    controller.opened(Err(rejected));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+
+    // A new topic changes the request and lets the worker try again.
+    let group = Topic::new_group_message(GroupId::generate());
+    controller
+        .scopes
+        .get_mut(&worker.id)
+        .unwrap()
+        .topics
+        .insert(group.clone());
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+
+    controller.opened(Err(NetworkError::new(xmtp_api::ApiError::Api(
+        NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+            tonic::Status::unimplemented("topics"),
+        )),
+    ))));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+
+    // A new stream gets its own budget, but cannot resend the same wire payload.
+    let fresh =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![welcome.clone(), group.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .extend([welcome, group]);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+    assert!(fresh.recovery_snapshot().terminal.is_some());
+    let changed = Topic::new_group_message(GroupId::generate());
+    controller
+        .scopes
+        .get_mut(&worker.id)
+        .unwrap()
+        .topics
+        .insert(changed);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 3);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn rejected_wire_payloads_survive_controller_recreation_and_a_b_a_changes() {
+    tester!(alix, disable_workers);
+    let a = Topic::new_group_message(GroupId::generate());
+    let b = Topic::new_group_message(GroupId::generate());
+    let rejected = || {
+        NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("payload")),
+        )))
+    };
+    let mut original = controller(alix.context.clone());
+    original.transport.factory = None;
+    add_scope(&mut original, 1, &a);
+    original.start_open();
+    original.opened(Err(rejected()));
+    assert_eq!(original.rejected_requests.lock().len(), 1);
+    drop(original);
+
+    let mut recreated = controller(alix.context.clone());
+    recreated.transport.factory = None;
+    add_scope(&mut recreated, 1, &a);
+    recreated.start_open();
+    assert_eq!(recreated.transport.generation, 0);
+    recreated.scopes.remove(&1);
+    add_scope(&mut recreated, 2, &b);
+    recreated.start_open();
+    assert_eq!(recreated.transport.generation, 1);
+    recreated.opened(Err(rejected()));
+    assert_eq!(recreated.rejected_requests.lock().len(), 2);
+
+    recreated.scopes.remove(&2);
+    add_scope(&mut recreated, 3, &a);
+    recreated.transport.wake();
+    recreated.start_open();
+    assert_eq!(recreated.transport.generation, 1);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn newest_rejection_blocks_target_capture_but_not_bidi_for_same_topics() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(alix.context.clone());
+    controller.transport.factory = None;
+    add_scope(&mut controller, 1, &topic);
+    controller.start_open();
+    controller.opened(Err(NetworkError::new(xmtp_api::ApiError::Api(
+        NetworkError::new(xmtp_api_grpc::error::GrpcError::Status(
+            tonic::Status::out_of_range("newest"),
+        )),
+    ))));
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    controller.transport.wake();
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 2);
+    controller.registered([(topic.clone(), Cursor(10))].into());
+    add_scope(&mut controller, 2, &topic);
+    controller.start_targets();
+    assert!(controller.targets.is_none());
+    assert!(controller.scopes[&2].target_error.is_some());
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_target_query_does_not_block_a_valid_bidi_open() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    controller.transport.factory = Some(Arc::new(PendingFactory));
+    let topic = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &topic);
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+    controller.registered([(topic.clone(), Cursor(10))].into());
+
+    add_scope(&mut controller, 2, &topic);
+    controller.start_targets();
+    assert_eq!(
+        controller.targets_request.as_ref().map(HashSet::len),
+        Some(1)
+    );
+    controller.targets.take();
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("target")),
+    )));
+    controller.targets_finished((vec![(2, 2)], Err(rejected)));
+    let rejected = controller.rejected_requests.lock();
+    assert_eq!(rejected.len(), 1);
+    assert_eq!(
+        rejected[0].0,
+        RequestKey::QueryNewest([topic.clone()].into())
+    );
+    drop(rejected);
+
+    controller.start_open();
+    assert_eq!(controller.transport.generation, 1);
+    assert!(controller.transport.registered.contains(&topic));
+    controller.start_targets();
+    assert!(
+        controller.targets.is_none(),
+        "the same target query stays rejected"
+    );
+
+    let other = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 3, &other);
+    controller.transport.registered.insert(other);
+    controller.start_targets();
+    assert!(
+        controller.targets.is_some(),
+        "changed target set can be tried"
+    );
+}
+
+// verifies: API-284, PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_new_scope_target_does_not_end_an_active_sibling() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let active = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&active.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.state = TransportState::Unary;
+    controller.registered([(topic.clone(), Cursor(10))].into());
+
+    let joining = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&joining.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.start_targets();
+    assert!(controller.targets.is_some());
+    controller.targets.take();
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::unimplemented("target")),
+    )));
+    controller.targets_finished((vec![(joining.id, joining.id)], Err(rejected)));
+    controller.refresh_statuses();
+    assert_eq!(
+        controller.transport.connection(),
+        IncomingConnection::Connected
+    );
+    assert!(controller.transport.registered.contains(&topic));
+    assert!(
+        controller.state.consumer_recovery.lock()[&active.id]
+            .snapshot
+            .terminal
+            .is_none()
+    );
+    assert!(
+        controller.state.consumer_recovery.lock()[&joining.id]
+            .snapshot
+            .terminal
+            .is_some()
+    );
+    controller.incoming(Some(Ok(IncomingEvent::OrderedBatch(
+        OrderedEnvelopeBatch {
+            topic: topic.clone(),
+            after: Cursor(0),
+            envelopes: vec![wire::ServerEnvelope {
+                meta: Some(meta(&topic, 1)),
+                envelope: Some(wire::ClientEnvelope::default()),
+            }],
+        },
+    ))));
+    assert_eq!(
+        controller
+            .context
+            .db()
+            .topic_progress(&topic_key(&topic)?)?
+            .received,
+        Cursor(1),
+        "the active sibling still receives from the shared source"
+    );
+
+    controller.retire_exhausted_streams();
+    let replacement = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&replacement.id)
+        .unwrap()
+        .topics
+        .insert(topic);
+    controller.start_targets();
+    assert!(controller.targets.is_none());
+    assert!(
+        controller.state.consumer_recovery.lock()[&replacement.id]
+            .snapshot
+            .terminal
+            .is_some(),
+        "the unchanged wire request returns its retained cause"
+    );
+}
+
+// verifies: API-284, PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_caller_joining_during_a_rejected_target_query_gets_the_retained_error() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_group_message(GroupId::generate());
+    let active = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&active.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.transport.requested.insert(topic.clone());
+    controller.transport.state = TransportState::Unary;
+    controller.registered([(topic.clone(), Cursor(10))].into());
+
+    let rejected_caller = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&rejected_caller.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    controller.start_targets();
+    controller.targets.take();
+
+    let new_caller = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&new_caller.id)
+        .unwrap()
+        .topics
+        .insert(topic.clone());
+    let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+        xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("old caller")),
+    )));
+    controller.targets_finished((
+        vec![(rejected_caller.id, rejected_caller.id)],
+        Err(rejected),
+    ));
+    controller.start_targets();
+    assert!(controller.targets.is_none());
+    controller.refresh_statuses();
+    assert!(
+        controller.state.consumer_recovery.lock()[&rejected_caller.id]
+            .snapshot
+            .terminal
+            .is_some()
+    );
+    assert!(
+        controller.state.consumer_recovery.lock()[&new_caller.id]
+            .snapshot
+            .terminal
+            .is_some()
+    );
+    let retained = controller.rejected_requests.lock()[0].1.clone();
+    let recovery = controller.state.consumer_recovery.lock();
+    let Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(cause)) =
+        &recovery[&new_caller.id].snapshot.terminal
+    else {
+        panic!("the new caller must receive the retained terminal cause")
+    };
+    assert!(Arc::ptr_eq(cause, &retained));
+    assert_eq!(recovery[&new_caller.id].query_failures, 0);
+    drop(recovery);
+    assert!(
+        controller.state.consumer_recovery.lock()[&new_caller.id]
+            .snapshot
+            .healthy_since
+            .is_none(),
+        "registration without a fixed target does not reset recovery"
+    );
+    controller.retire_exhausted_streams();
+    controller.start_targets();
+    assert!(
+        controller.targets.is_none(),
+        "the same rejected wire request is not repeated"
+    );
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_rejected_wire_open_stays_blocked_after_partial_or_full_registration() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_group_message(GroupId::generate());
+    let second = Topic::new_group_message(GroupId::generate());
+    let rejected = || {
+        NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("wire")),
+        )))
+    };
+    let mut initial = controller(alix.context.clone());
+    initial.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut initial, 1, &topic);
+    add_scope(&mut initial, 2, &second);
+    initial.start_open();
+    initial.registered([(topic.clone(), Cursor(10))].into());
+    initial.incoming(Some(Err(rejected())));
+    initial.transport.wake();
+    initial.start_open();
+    assert_eq!(initial.transport.generation, 1);
+
+    let mut registered = controller(alix.context.clone());
+    registered.transport.factory = Some(Arc::new(PendingFactory));
+    add_scope(&mut registered, 1, &topic);
+    registered.start_open();
+    registered.registered([(topic, Cursor(10))].into());
+    registered.incoming(Some(Err(rejected())));
+    registered.transport.wake();
+    registered.start_open();
+    assert_eq!(registered.transport.generation, 1);
+}
+
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_shared_wire_rejection_holds_each_lease_until_a_new_caller() {
+    tester!(alix, disable_workers);
+    let (first_coordinator, mut first) = coordinated_controller(alix.context.clone());
+    let (second_coordinator, mut second) = coordinated_controller(alix.context.clone());
+    let first_topic = Topic::new_group_message(GroupId::generate());
+    let second_topic = Topic::new_group_message(GroupId::generate());
+    for (coordinator, controller, topic) in [
+        (&first_coordinator, &mut first, &first_topic),
+        (&second_coordinator, &mut second, &second_topic),
+    ] {
+        controller.transport.factory = Some(Arc::new(PendingFactory));
+        let caller = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+        while let Ok(command) = controller.commands.try_recv() {
+            controller.command(command);
+        }
+        controller
+            .scopes
+            .get_mut(&caller.id)
+            .unwrap()
+            .topics
+            .insert(topic.clone());
+        controller.start_open();
+        let rejected = NetworkError::new(xmtp_api::ApiError::Api(NetworkError::new(
+            xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument("shared wire")),
+        )));
+        controller.incoming(Some(Err(rejected)));
+        controller.refresh_statuses();
+        assert!(
+            controller.state.consumer_recovery.lock()[&caller.id]
+                .snapshot
+                .terminal
+                .is_some(),
+            "each affected app lease reports its terminal error"
+        );
+        controller.transport.wake();
+        controller.start_open();
+        assert_eq!(controller.transport.generation, 1);
+    }
+
+    let fresh = first_coordinator.acquire_stream(IncomingScope::Topics(vec![first_topic.clone()]));
+    while let Ok(command) = first.commands.try_recv() {
+        first.command(command);
+    }
+    first
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(first_topic.clone());
+    first.start_open();
+    assert!(fresh.recovery_snapshot().terminal.is_some());
+    assert_eq!(first.transport.generation, 1);
+    first
+        .scopes
+        .get_mut(&fresh.id)
+        .unwrap()
+        .topics
+        .insert(Topic::new_group_message(GroupId::generate()));
+    first.start_open();
+    assert_eq!(first.transport.generation, 2);
+    second.start_open();
+    assert_eq!(second.transport.generation, 1);
+}
+
+// verifies: PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_blocked_selected_topic_cannot_reset_health_through_a_sibling() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let welcome = Topic::new_welcome_message(alix.context.installation_id());
+    let group = Topic::new_group_message(GroupId::generate());
+    let stream =
+        coordinator.acquire_stream(IncomingScope::Topics(vec![welcome.clone(), group.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .topics
+        .extend([welcome.clone(), group.clone()]);
+    controller.transport.state = TransportState::Unary;
+    controller.transport.registered.insert(welcome.clone());
+    controller
+        .topics
+        .entry(group.clone())
+        .or_default()
+        .receipt
+        .blocked_until = Some(Instant::now() + Duration::from_secs(120));
+    let now = Instant::now();
+    controller.refresh_statuses_at(now);
+    controller.refresh_statuses_at(now + crate::subscriptions::recovery::HEALTHY_PERIOD);
+    assert!(stream.recovery_snapshot().healthy_since.is_none());
+    assert!(stream.recovery_snapshot().outage_since.is_some());
+
+    controller
+        .topics
+        .get_mut(&group)
+        .unwrap()
+        .receipt
+        .blocked_until = None;
+    controller.transport.registered.insert(group.clone());
+    controller
+        .scopes
+        .get_mut(&stream.id)
+        .unwrap()
+        .targets
+        .extend([(welcome, Cursor(0)), (group.clone(), Cursor(0))]);
+    controller.refresh_statuses_at(now + Duration::from_secs(31));
+    assert!(stream.recovery_snapshot().healthy_since.is_some());
+    controller.refresh_statuses_at(now + Duration::from_secs(61));
+    assert!(stream.recovery_snapshot().outage_since.is_none());
+}
+
 /// A permanently failing source retries on a growing delay and recovers
 /// without recreating the client.
 #[xmtp_common::test(unwrap_try = true)]
@@ -1083,6 +2031,298 @@ fn a_permanent_source_error_retries_with_backoff_and_recovers() {
         controller.transport.connection(),
         IncomingConnection::Connected
     );
+}
+
+// verifies: AUTH-025, PROC-038
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+fn auth_lockout_counts_the_triggering_attempt_but_not_cooldown_refusals() {
+    use xmtp_proto::api::{ApiClientError, AuthError};
+
+    let mut controller = controller(context());
+    let now = Instant::now();
+    let mut budget =
+        crate::subscriptions::recovery::RecoveryBudget::new(&controller.transport.recovery, now);
+    let lockout_error = |auth| {
+        NetworkError::new(xmtp_api_backend::TransportError::Open(
+            xmtp_api_backend::OpenError::new(ApiClientError::Auth(auth)),
+        ))
+    };
+    let backoff = RetryBackoff {
+        initial: Duration::from_millis(1),
+        max: Duration::from_secs(1),
+    };
+    controller.transport.fail(
+        lockout_error(AuthError::ExhaustedAfterAttempt),
+        Duration::from_millis(1),
+        backoff,
+    );
+    assert_eq!(controller.transport.recovery.failures, 1);
+    for _ in 0..12 {
+        controller.transport.fail(
+            lockout_error(AuthError::Exhausted),
+            Duration::from_millis(1),
+            backoff,
+        );
+        assert_eq!(controller.transport.recovery.failures, 1);
+    }
+    budget.check(
+        &controller.transport.recovery,
+        now + Duration::from_secs(599),
+    )?;
+    let failure = budget
+        .check(
+            &controller.transport.recovery,
+            now + Duration::from_secs(600),
+        )
+        .unwrap_err();
+    assert!(matches!(
+        failure,
+        crate::subscriptions::recovery::RecoveryFailure::Exhausted { attempts: 1, .. }
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn recovery_health_requires_registration_and_eof_keeps_a_cause() {
+    let mut controller = controller(context());
+    let topic = Topic::new_group_message(GroupId::generate());
+    controller.transport.request([topic.clone()].into());
+    controller.opened(Ok(Opened::Stream(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ))));
+    assert!(controller.transport.recovery.healthy_since.is_none());
+    controller.registered([(topic, Cursor(0))].into());
+    assert!(controller.transport.recovery.healthy_since.is_some());
+    controller.incoming(None);
+    assert!(controller.transport.recovery.healthy_since.is_none());
+    assert_eq!(controller.transport.recovery.failures, 1);
+    assert!(matches!(
+        controller.transport.recovery.error.as_deref(),
+        Some(IncomingError::ReceiverEnded)
+    ));
+}
+
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn recovery_health_is_scoped_and_new_selection_needs_registration() {
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let first = Topic::new_group_message(GroupId::generate());
+    let sibling = Topic::new_group_message(GroupId::generate());
+    let replacement = Topic::new_group_message(GroupId::generate());
+    add_scope(&mut controller, 1, &first);
+    add_scope(&mut controller, 2, &sibling);
+    controller
+        .transport
+        .request([first.clone(), sibling].into());
+    controller.opened(Ok(Opened::Stream(IncomingSubscription::new(
+        Box::pin(futures::stream::pending()),
+        |_| {},
+    ))));
+    controller.registered([(first, Cursor(0))].into());
+    controller.refresh_statuses();
+    assert!(
+        controller.state.consumer_recovery.lock()[&1]
+            .snapshot
+            .healthy_since
+            .is_some()
+    );
+    assert!(
+        controller.state.consumer_recovery.lock()[&2]
+            .snapshot
+            .healthy_since
+            .is_none()
+    );
+    controller.scopes.get_mut(&1).unwrap().topics = [replacement].into();
+    controller.refresh_statuses();
+    assert!(
+        controller.state.consumer_recovery.lock()[&1]
+            .snapshot
+            .healthy_since
+            .is_none()
+    );
+}
+
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_stream_opened_before_status_refresh_does_not_pay_prior_failures() {
+    tester!(alix, disable_workers);
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    for eof in [false, true] {
+        let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+        let old = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+        while let Ok(command) = controller.commands.try_recv() {
+            controller.command(command);
+        }
+        controller.reconcile()?;
+        let fail = |controller: &mut Controller<_>| {
+            if eof {
+                controller.incoming(None);
+            } else {
+                controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
+                    "cursor order",
+                )));
+            }
+        };
+        for _ in 0..10 {
+            fail(&mut controller);
+        }
+        // Acquire in the exact gap between the private failure event and the
+        // next status refresh. It must see the completed failure increments.
+        let replacement = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+        assert_eq!(replacement.recovery_snapshot().failures, 10);
+        while let Ok(command) = controller.commands.try_recv() {
+            controller.command(command);
+        }
+        controller.reconcile()?;
+        controller.refresh_statuses();
+        assert!(old.recovery_snapshot().terminal.is_some());
+        assert!(replacement.recovery_snapshot().terminal.is_none());
+        for _ in 0..9 {
+            fail(&mut controller);
+            controller.refresh_statuses();
+            assert!(replacement.recovery_snapshot().terminal.is_none());
+        }
+        fail(&mut controller);
+        controller.refresh_statuses();
+        assert!(matches!(
+            replacement.recovery_snapshot().terminal,
+            Some(crate::subscriptions::recovery::RecoveryFailure::Exhausted { attempts: 10, .. })
+        ));
+    }
+}
+
+// verifies: PROC-021, PROC-038
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_application_stream_retries_a_nonretryable_source_response_and_recovers() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let application = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.source_error(NetworkError::new(xmtp_api::ApiError::InvalidResponse(
+        "cursor order",
+    )));
+    controller.refresh_statuses();
+    assert!(controller.transport.backing_off());
+    assert_eq!(
+        application.snapshot().connection,
+        IncomingConnection::Failed
+    );
+    assert!(application.recovery_snapshot().terminal.is_none());
+    controller.transport.wake();
+    controller.opened(Ok(Opened::Unary([(topic, Cursor(0))].into())));
+    controller.refresh_statuses();
+    assert_eq!(
+        application.snapshot().connection,
+        IncomingConnection::Connected
+    );
+    assert!(application.recovery_snapshot().healthy_since.is_some());
+    assert!(application.recovery_snapshot().terminal.is_none());
+    controller.refresh_statuses_at(Instant::now() + crate::subscriptions::recovery::HEALTHY_PERIOD);
+    application.check_recovery()?;
+    assert!(application.recovery_snapshot().terminal.is_none());
+}
+
+// verifies: AUTH-025, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_terminal_credential_failure_stays_latched_only_for_its_stream() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let topic = Topic::new_welcome_message(alix.context.installation_id());
+    let old = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.source_error(NetworkError::new(xmtp_proto::api::ApiClientError::Auth(
+        xmtp_proto::api::AuthError::MissingCredential,
+    )));
+    controller.refresh_statuses();
+    assert!(matches!(
+        old.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
+    ));
+    controller.opened(Ok(Opened::Unary([(topic.clone(), Cursor(0))].into())));
+    controller.refresh_statuses();
+    controller.refresh_statuses_at(Instant::now() + crate::subscriptions::recovery::HEALTHY_PERIOD);
+    assert!(matches!(
+        old.recovery_snapshot().terminal,
+        Some(crate::subscriptions::recovery::RecoveryFailure::Terminal(_))
+    ));
+    let replacement = coordinator.acquire_stream(IncomingScope::Topics(vec![topic]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.refresh_statuses();
+    assert!(replacement.recovery_snapshot().terminal.is_none());
+}
+
+// verifies: PROC-038, PROC-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn exhausted_application_stream_preserves_worker_and_barrier_interests() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id);
+    let (commands, receiver) = mpsc::unbounded_channel();
+    let state = Arc::new(SharedState::default());
+    let coordinator = Arc::new(IncomingCoordinator {
+        commands,
+        generations: AtomicU64::new(0),
+        state: state.clone(),
+    });
+    let mut controller = Controller::new(alix.context.clone(), receiver, state);
+    let application = coordinator.acquire_stream(IncomingScope::AllGroups);
+    let worker = coordinator.acquire(IncomingScope::DeviceSyncGroups);
+    let barrier = coordinator.acquire(IncomingScope::Barrier {
+        targets: [(topic.clone(), Cursor(0))].into(),
+        deadline: Instant::now() + Duration::from_secs(60),
+        receive_policy: IncomingReceivePolicy::ImmediateQuery,
+    });
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.transport.recovery.failures = 10;
+    controller.refresh_statuses();
+    controller.retire_exhausted_streams();
+    assert!(application.recovery_snapshot().terminal.is_some());
+    assert!(!controller.scopes.contains_key(&application.id));
+    assert!(worker.recovery_snapshot().terminal.is_none());
+    assert!(barrier.recovery_snapshot().terminal.is_none());
+    assert!(controller.scopes.contains_key(&worker.id));
+    assert!(controller.scopes.contains_key(&barrier.id));
+    assert!(controller.interested().contains(&topic));
+    assert!(
+        controller
+            .interested()
+            .contains(&Topic::new_welcome_message(alix.context.installation_id()))
+    );
+
+    // Updating an ended lease is not an application restart.
+    application.replace_scope(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.refresh_statuses();
+    controller.retire_exhausted_streams();
+    assert!(application.recovery_snapshot().terminal.is_some());
+    assert!(!controller.scopes.contains_key(&application.id));
+
+    let replacement = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    controller.refresh_statuses();
+    controller.retire_exhausted_streams();
+    assert!(replacement.recovery_snapshot().terminal.is_none());
+    assert!(controller.scopes.contains_key(&replacement.id));
 }
 
 // verifies: PROC-002
@@ -1751,7 +2991,8 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
     alix_group
         .send_message(b"after the reused generation", SendMessageOpts::default())
         .await?;
-    bo_group.receive().await?;
+    let sent = alix.context.db().topic_progress(&key)?.processed;
+    crate::subscriptions::barrier::wait_through(&bo.context, [(topic, sent)].into(), None).await?;
     assert_eq!(
         bo_group
             .find_messages(&MsgQueryArgs::default())?

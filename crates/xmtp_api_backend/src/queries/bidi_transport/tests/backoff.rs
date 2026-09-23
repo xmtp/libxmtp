@@ -1,6 +1,65 @@
 use super::*;
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn replacement_lease_keeps_the_scheduled_reconnect_delay() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let mut task = ledger_task(Ledger::<BackendBinding>::default(), Outbox::default());
+    let (commands, receiver) = mpsc::unbounded_channel();
+    task.cmds = receiver;
+    task.lease_cmds = commands.downgrade();
+    let dials = Arc::new(AtomicUsize::new(0));
+    let count = dials.clone();
+    task.opener = Box::new(
+        move |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
+            count.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Err(OpenError::retryable(std::io::Error::other("offline"))) })
+        },
+    );
+    task.reconnect_at = tokio::time::Instant::now() + Duration::from_secs(5);
+    let (reply, received) = oneshot::channel();
+    assert!(matches!(
+        task.lease(vec![(group_topic(b"g1"), 0)], 2, None, reply)
+            .await,
+        Flow::Continue
+    ));
+    let _replacement = received.await??;
+    assert_eq!(dials.load(Ordering::SeqCst), 0);
+    assert_eq!(task.ledger.leases.len(), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn ordered_consumers_observe_failed_reopens_without_ending_siblings() {
+    let mut ledger = Ledger::<BackendBinding>::default();
+    let (events, _receiver) = mpsc::channel(1);
+    let id = ledger.register(&[(group_topic(b"g1"), 0)], events);
+    let (incoming, mut errors) = mpsc::channel(2);
+    ledger.leases.get_mut(&id).unwrap().incoming = Some((
+        incoming,
+        IncomingBatchLimits {
+            max_rows: 10,
+            max_bytes: 1024,
+        },
+    ));
+    let mut task = ledger_task(ledger, Outbox::default());
+    // Keep the command channel open while the scripted dial resolves. A
+    // closed command channel is an independent actor shutdown signal.
+    let (commands, receiver) = mpsc::unbounded_channel();
+    task.cmds = receiver;
+    task.lease_cmds = commands.downgrade();
+    task.opener = Box::new(
+        |_| -> BoxDynFuture<'static, Result<Connection<BackendBinding>, OpenError>> {
+            Box::pin(async { Err(OpenError::retryable(std::io::Error::other("offline"))) })
+        },
+    );
+    assert!(matches!(task.reopen().await, AfterReopen::Proceed));
+    let failure = errors.try_recv()?.unwrap_err();
+    assert!(failure.is_retryable());
+    assert!(failure.to_string().contains("offline"));
+    assert!(task.ledger.leases.contains_key(&id));
+    assert!(task.reconnect_at > tokio::time::Instant::now());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn a_resume_burst_during_an_outage_dials_once() {
     assert_resumes_keep_scheduled_backoff().await;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

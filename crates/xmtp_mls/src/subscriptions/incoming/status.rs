@@ -31,6 +31,8 @@ pub enum IncomingProcessing {
 
 #[derive(Debug, thiserror::Error)]
 pub enum IncomingError {
+    #[error("incoming receiver ended before recovery completed")]
+    ReceiverEnded,
     #[error(transparent)]
     Storage(#[from] xmtp_db::StorageError),
     #[error(transparent)]
@@ -67,6 +69,7 @@ impl RetryableError for IncomingError {
             Self::Processing(error) => error.is_retryable(),
             Self::Identity(error) => error.is_retryable(),
             Self::UnsupportedTopic => false,
+            Self::ReceiverEnded => true,
         }
     }
 }
@@ -79,7 +82,7 @@ impl crate::worker::NeedsDbReconnect for IncomingError {
             Self::Group(error) => error.needs_db_reconnect(),
             Self::Processing(error) => error.needs_db_reconnect(),
             Self::Identity(error) => error.needs_db_reconnect(),
-            Self::Transport(_) | Self::UnsupportedTopic => false,
+            Self::Transport(_) | Self::UnsupportedTopic | Self::ReceiverEnded => false,
         }
     }
 }
@@ -94,6 +97,7 @@ impl IncomingError {
             Self::Processing(error) => error.processing_code(),
             Self::Identity(_) => "incoming_identity",
             Self::UnsupportedTopic => "unsupported_topic",
+            Self::ReceiverEnded => "incoming_receiver_ended",
         }
     }
 }

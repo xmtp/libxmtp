@@ -158,6 +158,7 @@ const GRACEFUL_CLOSE_BUDGET: std::time::Duration = std::time::Duration::from_sec
 pub struct OpenError {
     retryable: bool,
     locked_out: bool,
+    attempted: bool,
     source: Box<dyn std::error::Error + Send + Sync + 'static>,
 }
 
@@ -169,6 +170,7 @@ impl OpenError {
         Self {
             retryable: e.is_retryable(),
             locked_out: Self::locked_out_of(&e),
+            attempted: !Self::cooldown_refusal(&e),
             source: Box::new(e),
         }
     }
@@ -179,11 +181,16 @@ impl OpenError {
         self.locked_out
     }
 
+    fn attempted(&self) -> bool {
+        self.attempted
+    }
+
     #[cfg(test)]
     pub fn retryable(e: impl Into<Box<dyn std::error::Error + Send + Sync + 'static>>) -> Self {
         Self {
             retryable: true,
             locked_out: false,
+            attempted: true,
             source: e.into(),
         }
     }
@@ -193,12 +200,24 @@ impl OpenError {
         Self {
             retryable: false,
             locked_out: false,
+            attempted: true,
             source: e.into(),
         }
     }
 }
 
 impl OpenError {
+    fn cooldown_refusal<E: 'static>(error: &E) -> bool {
+        (error as &dyn std::any::Any)
+            .downcast_ref::<ApiClientError>()
+            .is_some_and(|error| {
+                matches!(
+                    error,
+                    ApiClientError::Auth(xmtp_proto::api::AuthError::Exhausted)
+                )
+            })
+    }
+
     /// Capture the lockout state of a concrete error before it is erased.
     fn locked_out_of<E: 'static>(error: &E) -> bool {
         (error as &dyn std::any::Any)
@@ -276,6 +295,13 @@ pub enum TransportError {
     Backpressure,
     #[error(transparent)]
     Wire(#[from] std::sync::Arc<super::bidi::ConnectionFailure>),
+}
+
+impl TransportError {
+    /// A cool-down refused this open before auth refresh or a network request.
+    pub fn is_cooldown_refusal(&self) -> bool {
+        matches!(self, Self::Open(error) if !error.attempted())
+    }
 }
 
 type IncomingFailure = std::sync::Arc<parking_lot::Mutex<Option<TransportError>>>;
@@ -1587,7 +1613,10 @@ where
             let _ = reply.send(Err(TransportError::TooManyTopics));
             return Flow::Continue;
         }
-        let cold = self.conn.is_none() && self.ledger.leases.is_empty() && !self.suspended;
+        let cold = self.conn.is_none()
+            && self.ledger.leases.is_empty()
+            && !self.suspended
+            && tokio::time::Instant::now() >= self.reconnect_at;
         let topics = subs.iter().map(|(topic, _)| topic.clone()).collect();
         let (tx, events) = mpsc::channel(depth.max(1));
         let id = self.ledger.register(&subs, tx);
@@ -1619,6 +1648,12 @@ where
                     self.ledger.deref(id);
                     self.ledger.reset_wire();
                     self.outbox.clear();
+                    self.reconnect_delay = if error.is_locked_out() {
+                        AUTH_LOCKOUT_COOLDOWN
+                    } else {
+                        (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY)
+                    };
+                    self.arm_reconnect();
                     let _ = reply.send(Err(TransportError::Open(error)));
                     return Flow::Continue;
                 }
@@ -1829,7 +1864,7 @@ where
         self.outbox.clear();
         let failure = self.conn.as_ref().and_then(Connection::failure);
         drop(self.conn.take());
-        let dropped = self
+        let mut dropped: Vec<_> = self
             .ledger
             .leases
             .iter()
@@ -1853,12 +1888,14 @@ where
                 (full || failure.as_ref().is_some_and(|error| !error.is_retryable())).then_some(*id)
             })
             .collect();
+        if failure.as_ref().is_some_and(|error| !error.is_retryable()) {
+            // End the affected leases, but keep the cached actor available for a
+            // later acquisition after the caller repairs credentials or the source.
+            dropped.extend(self.ledger.leases.keys().copied());
+        }
         self.drop_leases(dropped);
         self.ledger.reset_wire();
         self.close_wire_span("wire_end");
-        if failure.is_some_and(|error| !error.is_retryable()) {
-            return Flow::Shutdown;
-        }
         let stable = self
             .wire_opened_at
             .take()
@@ -1923,18 +1960,11 @@ where
             OpenOutcome::Failed(error) => {
                 self.outbox.clear();
                 self.ledger.reset_wire();
-                // implements: AUTH-025
-                if error.is_locked_out() {
-                    // The cool-down clears on its own, so the wire must wait for
-                    // it. A shutdown here would lose every subscription for the
-                    // life of the process because nothing restarts this task.
-                    tracing::warn!("bidi reopen waits for the auth cool-down: {error}");
-                    self.reconnect_delay = AUTH_LOCKOUT_COOLDOWN;
-                    self.arm_reconnect();
-                    self.park_deferred_resumes();
-                    return AfterReopen::Proceed;
-                }
-                if !error.is_retryable() {
+                // A lockout uses its full cooldown before the next attempt.
+                // Only the failure that started it spends a recovery cycle.
+                let locked_out = error.is_locked_out();
+                let attempted = error.attempted();
+                if !locked_out && !error.is_retryable() {
                     tracing::error!("bidi reconnect failed permanently: {error}");
                     let error = std::sync::Arc::new(super::bidi::ConnectionFailure::Wire(
                         xmtp_proto::api::NetworkError::new(error),
@@ -1945,9 +1975,38 @@ where
                                 Some(TransportError::Wire(error.clone()));
                         }
                     }
-                    return AfterReopen::Shutdown;
+                    let ids = self.ledger.leases.keys().copied().collect();
+                    self.drop_leases(ids);
+                    self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
+                    self.arm_reconnect();
+                    self.park_deferred_resumes();
+                    return AfterReopen::Proceed;
                 }
-                self.reconnect_delay = (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY);
+                // Ordered consumers supervise their own finite outage budgets.
+                // Report failed opens even though this shared actor keeps its
+                // backoff and remains available to other consumers.
+                let failure = std::sync::Arc::new(super::bidi::ConnectionFailure::Wire(
+                    xmtp_proto::api::NetworkError::new(error),
+                ));
+                let mut dropped = Vec::new();
+                for (id, lease) in &self.ledger.leases {
+                    if let Some((sender, _)) = &lease.incoming
+                        && attempted
+                        && sender
+                            .try_send(Err(TransportError::Wire(failure.clone())))
+                            .is_err()
+                    {
+                        *lease.incoming_failure.lock() =
+                            Some(TransportError::Wire(failure.clone()));
+                        dropped.push(*id);
+                    }
+                }
+                self.drop_leases(dropped);
+                self.reconnect_delay = if locked_out {
+                    AUTH_LOCKOUT_COOLDOWN
+                } else {
+                    (self.reconnect_delay * 2).min(RECONNECT_MAX_DELAY)
+                };
                 self.arm_reconnect();
                 self.park_deferred_resumes();
                 AfterReopen::Proceed

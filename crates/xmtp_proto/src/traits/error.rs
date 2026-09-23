@@ -17,6 +17,11 @@ pub enum AuthError {
     /// Authentication is locked until the cool-down ends. Not retryable.
     #[error("auth attempts exhausted")]
     Exhausted,
+    /// This attempt reached the limit and started the cool-down. Not retryable.
+    /// The public code stays the same as a later cool-down refusal.
+    #[error("auth attempts exhausted")]
+    #[error_code("AuthError::Exhausted")]
+    ExhaustedAfterAttempt,
     /// No credential was set on the handle. Not retryable.
     #[error("auth credential missing")]
     MissingCredential,
@@ -28,7 +33,7 @@ impl RetryableError for AuthError {
             Self::CredentialRejected { retryable } | Self::CallbackFailed { retryable } => {
                 *retryable
             }
-            Self::Exhausted | Self::MissingCredential => false,
+            Self::Exhausted | Self::ExhaustedAfterAttempt | Self::MissingCredential => false,
         }
     }
 }
@@ -39,7 +44,7 @@ impl AuthError {
     /// wait instead of shutting down. Every other variant needs the caller or
     /// the application to act, so none of them clears on its own.
     pub fn is_locked_out(&self) -> bool {
-        matches!(self, Self::Exhausted)
+        matches!(self, Self::Exhausted | Self::ExhaustedAfterAttempt)
     }
 }
 
