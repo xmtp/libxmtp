@@ -2,6 +2,7 @@ import type { StreamCloser } from "@xmtp/node-bindings";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StreamFailedError } from "@/utils/errors";
+import type { StreamFailureCause } from "@/utils/streamFailure";
 import { createStream, type StreamCallback } from "@/utils/streams";
 
 const makeCloser = () => ({
@@ -382,7 +383,7 @@ describe("createStream lifecycle", () => {
 
     // the exhausted-budget native close triggers a terminal failure; a
     // throwing consumer onError must not prevent the stream from ending
-    expect(() => instances[0].onFail()).toThrow("consumer onError threw");
+    expect(() => instances[0].onFail()).not.toThrow();
 
     expect(onError).toHaveBeenCalledWith(expect.any(StreamFailedError));
     expect(stream.isDone).toBe(true);
@@ -505,4 +506,474 @@ describe("createStream", () => {
 
     expect(onErrorSpy).toHaveBeenCalledWith(expect.any(StreamFailedError));
   });
+});
+
+describe("createStream terminal storage failures", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    "SubscribeError::Db",
+    "SubscribeError::Storage",
+    "GroupError::Db",
+    "GroupError::Storage",
+    "GroupError::SqlKeyStore",
+    "ClientError::Db",
+    "ClientError::Storage",
+  ])("ends without retrying a native %s failure", async (code) => {
+    const h = makeHarness();
+    const onError = vi.fn();
+    const stream = await createStream(h.streamFunction, undefined, {
+      onError,
+    });
+    const pending = stream.next();
+    const error = new Error(`[${code}] native cause`);
+    const rejected = expect(pending).rejects.toBe(error);
+    h.last().callback(error, undefined);
+    h.last().onFail();
+    await rejected;
+    await expect(stream.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+    expect(h.streamFunction).toHaveBeenCalledOnce();
+    expect(h.last().closer.end).toHaveBeenCalledOnce();
+    expect(stream.isDone).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("rejects the pending iterator when unexpected-close retries exhaust", async () => {
+    const h = makeHarness();
+    const stream = await createStream(h.streamFunction, undefined, {
+      retryAttempts: 0,
+    });
+    const rejected = expect(stream.next()).rejects.toBeInstanceOf(
+      StreamFailedError,
+    );
+    h.last().onFail();
+    await rejected;
+    expect(stream.isDone).toBe(true);
+  });
+
+  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
+    "opens a fresh stream inside onError after %s and fences late old callbacks",
+    async (code) => {
+      const h = makeHarness();
+      let opening: ReturnType<typeof createStream<number>> | undefined;
+      const onError = vi.fn(() => {
+        expect(h.last().closer.end).toHaveBeenCalledOnce();
+        opening = createStream(h.streamFunction, undefined, { onError });
+      });
+      let active = await createStream(h.streamFunction, undefined, { onError });
+      for (let i = 0; i < 2; i++) {
+        const old = active;
+        const native = h.last();
+        native.callback(new Error(`[${code}] native failure`), undefined);
+        active = await opening!;
+        native.onFail();
+        native.callback(null, 99);
+        await old.end();
+        expect(old.isDone).toBe(true);
+        expect(active.isDone).toBe(false);
+        expect(h.last().closer.end).not.toHaveBeenCalled();
+        h.last().callback(null, i);
+        expect(await active.next()).toEqual({ done: false, value: i });
+      }
+      expect(onError).toHaveBeenCalledTimes(2);
+      expect(h.streamFunction).toHaveBeenCalledTimes(3);
+      await active.end();
+    },
+  );
+
+  it.each([
+    "SubscribeError::Db",
+    "SubscribeError::Storage",
+    "GroupError::Db",
+    "GroupError::Storage",
+    "GroupError::SqlKeyStore",
+    "ClientError::Db",
+    "ClientError::Storage",
+  ])(
+    "does not retry a terminal %s rejection during native opening",
+    async (code) => {
+      const error = new Error(`[${code}] native opening failed`);
+      const streamFunction = vi.fn().mockRejectedValue(error);
+      const onError = vi.fn(async () => {
+        throw new Error("error handler rejected");
+      });
+      // oxlint-disable-next-line typescript/no-misused-promises -- Verify that an async handler rejection preserves the original cause.
+      const stream = await createStream(streamFunction, undefined, { onError });
+      await expect(stream.next()).rejects.toBe(error);
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(streamFunction).toHaveBeenCalledOnce();
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
+    "ends on a %s callback before initial native creation completes",
+    async (code) => {
+      const error = new Error(`[${code}] initial storage query failed`);
+      const closer = makeCloser();
+      const onError = vi.fn();
+      const streamFunction = vi.fn(async (callback: StreamCallback<number>) => {
+        callback(error, undefined);
+        return closer as unknown as StreamCloser;
+      });
+      const stream = await createStream(streamFunction, undefined, { onError });
+      await expect(stream.next()).rejects.toBe(error);
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+      expect(streamFunction).toHaveBeenCalledOnce();
+      expect(closer.end).toHaveBeenCalledOnce();
+      expect(stream.isDone).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("ignores an old native close after an internal replacement", async () => {
+    const h = makeHarness();
+    const stream = await createStream(h.streamFunction, undefined, {
+      retryDelay: 10,
+    });
+    h.instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(10);
+    h.instances[0].onFail();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.streamFunction).toHaveBeenCalledTimes(2);
+    h.last().callback(null, 7);
+    expect(await stream.next()).toEqual({ done: false, value: 7 });
+    await stream.end();
+  });
+
+  it.each(["SubscribeError::Db", "SubscribeError::Storage"])(
+    "ends if a fallback opening fails with %s",
+    async (code) => {
+      const h = makeHarness();
+      const onError = vi.fn();
+      const stream = await createStream(h.streamFunction, undefined, {
+        retryDelay: 10,
+        onError,
+      });
+      const error = new Error(`[${code}] storage query failed`);
+      h.streamFunction.mockRejectedValueOnce(error);
+      const rejected = expect(stream.next()).rejects.toBe(error);
+      h.last().onFail();
+      await vi.advanceTimersByTimeAsync(10);
+      await rejected;
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+      expect(h.streamFunction).toHaveBeenCalledTimes(2);
+      expect(stream.isDone).toBe(true);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+});
+
+const barrierError = (cause: Pick<StreamFailureCause, "kind" | "code">) =>
+  new Error(
+    `[GroupError::Barrier] receive failed\n[XMTP_STREAM_FAILURE_V1]${JSON.stringify(
+      {
+        kind: "barrier",
+        code: "BarrierError::Deadline",
+        message: "The receive barrier failed",
+        retryable: true,
+        intentId: null,
+        publishedIntentIds: [],
+        summary: null,
+        barriers: [
+          {
+            reason: "deadline",
+            unfinished: [
+              {
+                topic: "00ff",
+                target: "1",
+                received: "0",
+                processed: "0",
+                unresolvedWelcomes: [],
+                inactive: false,
+                cause: {
+                  ...cause,
+                  message: "The operation failed",
+                  retryable: true,
+                },
+              },
+            ],
+          },
+        ],
+      },
+    )}`,
+  );
+
+describe.each(["sync", "async"] as const)(
+  "%s notification conversion failures",
+  (mode) => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it.each([
+      ["metadata DB", () => new Error("[GroupError::Db] query failed")],
+      [
+        "metadata storage",
+        () => new Error("[GroupError::Storage] query failed"),
+      ],
+      [
+        "metadata key store",
+        () => new Error("[GroupError::SqlKeyStore] transaction failed"),
+      ],
+      [
+        "barrier storage",
+        () => barrierError({ kind: "storage", code: "ConnectionError" }),
+      ],
+      [
+        "receiver storage",
+        () => barrierError({ kind: "receiver", code: "incoming_storage" }),
+      ],
+    ] as const)(
+      "ends on %s and keeps the original cause",
+      async (_, makeError) => {
+        const h = makeHarness();
+        const cause = makeError();
+        const onError = vi.fn();
+        const onValue = vi.fn();
+        const mutate = vi.fn<(value: number) => number | Promise<number>>(
+          () => {
+            if (mode === "async") return Promise.reject(cause);
+            throw cause;
+          },
+        );
+        const stream = await createStream(h.streamFunction, mutate, {
+          onError,
+          onValue,
+        });
+        const rejected = expect(stream.next()).rejects.toBe(cause);
+        h.last().callback(null, 1);
+        await rejected;
+        h.last().onFail();
+        h.last().callback(null, 2);
+        await vi.advanceTimersByTimeAsync(600_000);
+        expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+        expect(onValue).not.toHaveBeenCalled();
+        expect(mutate).toHaveBeenCalledOnce();
+        expect(h.last().closer.end).toHaveBeenCalledOnce();
+        expect(h.streamFunction).toHaveBeenCalledOnce();
+        expect(stream.isDone).toBe(true);
+        expect(vi.getTimerCount()).toBe(0);
+      },
+    );
+
+    it.each([
+      ["codec error", () => new Error("The application codec failed")],
+      [
+        "nonstorage receiver",
+        () => barrierError({ kind: "receiver", code: "incoming_receive" }),
+      ],
+    ] as const)("reports %s and permits later values", async (_, makeError) => {
+      const h = makeHarness();
+      const cause = makeError();
+      const onError = vi.fn();
+      const mutate = vi.fn<(value: number) => number | Promise<number>>(
+        (value) => value,
+      );
+      mutate.mockImplementationOnce(() => {
+        if (mode === "async") return Promise.reject(cause);
+        throw cause;
+      });
+      const stream = await createStream(h.streamFunction, mutate, { onError });
+      h.last().callback(null, 1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(stream.isDone).toBe(false);
+      h.last().callback(null, 2);
+      await expect(stream.next()).resolves.toEqual({ done: false, value: 2 });
+      expect(h.streamFunction).toHaveBeenCalledOnce();
+      expect(h.last().closer.end).not.toHaveBeenCalled();
+      await stream.end();
+    });
+  },
+);
+
+describe("structured notification startup failure", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it.each([
+    { kind: "storage", code: "ConnectionError" },
+    { kind: "receiver", code: "incoming_storage" },
+  ] as const)("does not retry a pre-sync $kind failure", async (details) => {
+    const cause = barrierError(details);
+    const streamFunction = vi.fn().mockRejectedValue(cause);
+    const onError = vi.fn();
+    const stream = await createStream(streamFunction, undefined, { onError });
+    await expect(stream.next()).rejects.toBe(cause);
+    await vi.advanceTimersByTimeAsync(600_000);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+    expect(streamFunction).toHaveBeenCalledOnce();
+    expect(stream.isDone).toBe(true);
+  });
+
+  it.each(["none", "sync"] as const)(
+    "retains an accepted onValue storage failure across reopen with %s mutation",
+    async (mode) => {
+      const h = makeHarness();
+      const pending = Promise.withResolvers<undefined>();
+      const onError = vi.fn();
+      const onValue = vi.fn().mockReturnValueOnce(pending.promise);
+      const stream = await createStream(
+        h.streamFunction,
+        mode === "sync" ? (value) => value : undefined,
+        {
+          onValue,
+          onError,
+          retryDelay: 10,
+        },
+      );
+      const old = h.last();
+      old.callback(null, 1);
+      await expect(stream.next()).resolves.toEqual({ done: false, value: 1 });
+      old.onFail();
+      await vi.advanceTimersByTimeAsync(10);
+      const cause = new Error("[GroupError::Storage] accepted callback failed");
+      pending.reject(cause);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(stream.isDone).toBe(true);
+      expect(h.last().closer.end).toHaveBeenCalledOnce();
+      await expect(stream.next()).rejects.toBe(cause);
+      await expect(stream.next()).resolves.toEqual({
+        done: true,
+        value: undefined,
+      });
+      await stream.end();
+    },
+  );
+});
+
+describe("accepted notification conversion", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("delivers an accepted value when conversion finishes after an internal reopen", async () => {
+    const h = makeHarness();
+    const conversion = Promise.withResolvers<number>();
+    const onValue = vi.fn();
+    const stream = await createStream(
+      h.streamFunction,
+      () => conversion.promise,
+      {
+        onValue,
+        retryDelay: 10,
+      },
+    );
+    const received = stream.next();
+    const old = h.last();
+    old.callback(null, 1);
+    old.onFail();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.streamFunction).toHaveBeenCalledTimes(2);
+    conversion.resolve(1);
+    await expect(received).resolves.toEqual({ done: false, value: 1 });
+    expect(onValue).toHaveBeenCalledExactlyOnceWith(1);
+    await stream.end();
+  });
+
+  it("keeps the rejection on the pending read when onError reads the old handle", async () => {
+    const h = makeHarness();
+    let reentrant:
+      | ReturnType<Awaited<ReturnType<typeof createStream>>["next"]>
+      | undefined;
+    const stream = await createStream(h.streamFunction, undefined, {
+      onError: () => {
+        reentrant = stream.next();
+      },
+    });
+    const cause = new Error("[SubscribeError::Storage] failed read");
+    const rejected = expect(stream.next()).rejects.toBe(cause);
+    h.last().callback(cause, undefined);
+    await rejected;
+    await expect(reentrant).resolves.toEqual({ done: true, value: undefined });
+  });
+
+  it("discards resolved values whose JS handoff follows terminal failure", async () => {
+    const h = makeHarness();
+    const stream = await createStream(h.streamFunction);
+    const settled = Promise.allSettled([stream.next(), stream.next()]);
+    const native = h.last();
+    native.callback(null, 1);
+    native.callback(null, 2);
+    const cause = new Error("[SubscribeError::Storage] failed read");
+    native.callback(cause, undefined);
+    expect(await settled).toEqual([
+      { status: "rejected", reason: cause },
+      { status: "fulfilled", value: { done: true, value: undefined } },
+    ]);
+  });
+
+  it("rejects only one pending iterator read on terminal failure, then returns EOF", async () => {
+    const h = makeHarness();
+    const stream = await createStream(h.streamFunction);
+    const reads = [stream.next(), stream.next()];
+    const settled = Promise.allSettled(reads);
+    const cause = new Error("[SubscribeError::Storage] failed read");
+    h.last().callback(cause, undefined);
+    expect(await settled).toEqual([
+      { status: "rejected", reason: cause },
+      { status: "fulfilled", value: { done: true, value: undefined } },
+    ]);
+    await expect(stream.next()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+    await expect(stream.return()).resolves.toEqual({
+      done: true,
+      value: undefined,
+    });
+  });
+});
+
+describe("createStream cleanup errors", () => {
+  it.each(["end", "error"] as const)(
+    "settles a pending iterator when close and onEnd throw during %s",
+    async (termination) => {
+      const h = makeHarness();
+      const onEnd = vi.fn(() => {
+        throw new Error("end handler failed");
+      });
+      const onError = vi.fn();
+      const stream = await createStream(h.streamFunction, undefined, {
+        onEnd,
+        onError,
+      });
+      h.last().closer.end.mockImplementation(() => {
+        throw new Error("native close failed");
+      });
+      const pending = stream.next();
+      if (termination === "error") {
+        const cause = new Error(
+          "[SubscribeError::Storage] database unavailable",
+        );
+        const rejected = expect(pending).rejects.toBe(cause);
+        expect(() => h.last().callback(cause, undefined)).not.toThrow();
+        await rejected;
+        expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+      } else {
+        await expect(stream.end()).resolves.toEqual({
+          done: true,
+          value: undefined,
+        });
+        await expect(pending).resolves.toEqual({
+          done: true,
+          value: undefined,
+        });
+        expect(onError).not.toHaveBeenCalled();
+      }
+      expect(onEnd).toHaveBeenCalledOnce();
+      expect(stream.isDone).toBe(true);
+      await stream.end();
+      expect(onEnd).toHaveBeenCalledOnce();
+    },
+  );
 });

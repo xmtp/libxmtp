@@ -8,11 +8,15 @@ import {
 } from "../src/MessageStream";
 
 const cursor = { databaseId: new Uint8Array(16), deliverySequence: 1n };
-const token = () => ({
-  checkOwner: vi.fn<MessageAcknowledgement["checkOwner"]>(() => true),
-  acknowledge: vi.fn<MessageAcknowledgement["acknowledge"]>(),
-  reject: vi.fn<MessageAcknowledgement["reject"]>(),
-});
+const token = () => {
+  const acknowledge = vi.fn<MessageAcknowledgement["acknowledge"]>();
+  return {
+    checkOwner: vi.fn<MessageAcknowledgement["checkOwner"]>(() => true),
+    acknowledge,
+    enrichedMessage: vi.fn<MessageAcknowledgement["enrichedMessage"]>(),
+    reject: vi.fn<MessageAcknowledgement["reject"]>(),
+  };
+};
 const status: MessageCatchUp = {
   current: {
     scopeGeneration: 1n,
@@ -331,6 +335,7 @@ const makeItem = (id: string, owned = true) => {
       cursor: decodeCursor(BigInt(id)),
       acknowledgement: {
         acknowledge,
+        enrichedMessage: () => null,
         reject,
         checkOwner: () => owned,
       },
@@ -413,4 +418,118 @@ describe("MessageStream decode failures", () => {
     expect(missing.acknowledge).not.toHaveBeenCalled();
     expect(onError).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("MessageStream terminal boundaries", () => {
+  it.each(["callback", "iterator"] as const)(
+    "releases the failed reader before replacement in %s mode",
+    async (mode) => {
+      const cause = new Error("storage read failed");
+      let ownsReader = true;
+      const oldReader = source();
+      oldReader.nextDelivery.mockRejectedValue(cause);
+      oldReader.close.mockImplementation(() => {
+        ownsReader = false;
+      });
+      let replacement: MessageStream<number, number> | undefined;
+      const replacementReader = source({
+        message: 7,
+        cursor,
+        acknowledgement: token(),
+      });
+      const reopen = () => {
+        expect(ownsReader).toBe(false);
+        ownsReader = true;
+        replacement = new MessageStream(replacementReader, (value) => value);
+      };
+      const onError = vi.fn((error) => {
+        expect(error).toBe(cause);
+        if (mode === "callback") reopen();
+      });
+      const old = new MessageStream(oldReader, (value) => value, {
+        onError,
+        onValue: mode === "callback" ? vi.fn() : undefined,
+      });
+      if (mode === "iterator") {
+        await expect(old.next()).rejects.toBe(cause);
+        reopen();
+      } else {
+        await vi.waitFor(() => expect(replacement).toBeDefined());
+      }
+      expect(onError).toHaveBeenCalledOnce();
+      expect(old.isDone).toBe(true);
+      await old.end();
+      expect(oldReader.close).toHaveBeenCalledOnce();
+      expect(ownsReader).toBe(true);
+      expect(replacementReader.close).not.toHaveBeenCalled();
+      expect(await replacement?.next()).toEqual({ done: false, value: 7 });
+      await replacement?.end();
+    },
+  );
+
+  it("keeps the original iterator cause when close fails", async () => {
+    const cause = new Error("storage read failed");
+    const reader = source();
+    reader.nextDelivery.mockRejectedValue(cause);
+    reader.close.mockImplementation(() => {
+      throw new Error("storage release failed");
+    });
+    const onError = vi.fn(async () => {
+      throw new Error("error handler failed");
+    });
+    // oxlint-disable-next-line typescript/no-misused-promises -- Verify that an async handler rejection preserves the original cause.
+    const stream = new MessageStream(reader, (value) => value, { onError });
+    await expect(stream.next()).rejects.toBe(cause);
+    expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+    expect(await stream.next()).toEqual({ done: true, value: undefined });
+  });
+
+  it("waits for the acknowledgement operation without repeating the callback", async () => {
+    const pending = token();
+    const operation = Promise.withResolvers<undefined>();
+    pending.acknowledge.mockImplementation(() => operation.promise);
+    const reader = source({ message: 1, cursor, acknowledgement: pending });
+    const onValue = vi.fn();
+    const onEnd = vi.fn();
+    new MessageStream(reader, (value) => value, { onValue, onEnd });
+    await vi.waitFor(() => expect(pending.acknowledge).toHaveBeenCalledOnce());
+    expect(onValue).toHaveBeenCalledOnce();
+    expect(reader.nextDelivery).toHaveBeenCalledOnce();
+    operation.resolve(undefined);
+    await vi.waitFor(() => expect(onEnd).toHaveBeenCalledOnce());
+    expect(onValue).toHaveBeenCalledOnce();
+    expect(pending.reject).not.toHaveBeenCalled();
+  });
+});
+
+describe("MessageStream final ownership causes", () => {
+  it.each(["callback", "iterator"] as const)(
+    "ends immediately with the original final-check storage error in %s mode",
+    async (mode) => {
+      const pending = token();
+      const cause = new Error(
+        "[StorageError::Corruption] invalid database page",
+      );
+      pending.checkOwner.mockImplementationOnce(() => {
+        throw cause;
+      });
+      const reader = source({ message: 1, cursor, acknowledgement: pending });
+      const onError = vi.fn();
+      const onValue = vi.fn();
+      const stream = new MessageStream(reader, (value) => value, {
+        onError,
+        onValue: mode === "callback" ? onValue : undefined,
+      });
+      if (mode === "iterator") await expect(stream.next()).rejects.toBe(cause);
+      else await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+      expect(onError).toHaveBeenCalledExactlyOnceWith(cause);
+      expect(onValue).not.toHaveBeenCalled();
+      expect(pending.checkOwner).toHaveBeenCalledOnce();
+      expect(pending.acknowledge).not.toHaveBeenCalled();
+      expect(pending.reject).toHaveBeenCalledOnce();
+      expect(reader.close).toHaveBeenCalledOnce();
+      expect(reader.nextDelivery).toHaveBeenCalledOnce();
+      expect(stream.isDone).toBe(true);
+    },
+  );
 });

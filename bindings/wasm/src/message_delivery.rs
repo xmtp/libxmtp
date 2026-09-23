@@ -83,9 +83,102 @@ impl MessageAcknowledgement {
   pub fn acknowledge(&self) -> Result<(), JsError> {
     self.inner.acknowledge().map_err(ErrorWrapper::js)
   }
+  /// Read the pending message without hiding storage errors. None means reselect.
+  #[wasm_bindgen(js_name = enrichedMessage)]
+  pub fn enriched_message(
+    &self,
+  ) -> Result<Option<crate::enriched_message::DecodedMessage>, JsError> {
+    match self.inner.enriched_message() {
+      Ok(message) => message
+        .try_into()
+        .map(Some)
+        .inspect_err(|_| self.inner.reject()),
+      Err(LocalDeliveryError::SelectionChanged) => Ok(None),
+      Err(error) => Err(ErrorWrapper::js(error)),
+    }
+  }
   /// Reject a current handoff without advancing D. A stale selection is discarded.
   pub fn reject(&self) {
     self.inner.reject();
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use prost::Message as _;
+  use xmtp_content_types::{
+    ContentCodec,
+    actions::{Action, Actions, ActionsCodec},
+  };
+  use xmtp_mls::groups::send_message_opts::SendMessageOpts;
+
+  // verifies: PROC-028, PROC-031
+  #[xmtp_common::test(unwrap_try = true)]
+  async fn enrichment_conversion_failure_rejects_the_token_without_advancing_delivery() {
+    let client = crate::tests::create_test_client(None).await;
+    let group = client.inner_client().create_group(None, None)?;
+    // The wire codec accepts this date, but the binding cannot represent its
+    // timestamp in an i64 number of nanoseconds.
+    let expires_at =
+      chrono::DateTime::parse_from_rfc3339("3000-01-01T00:00:00Z")?.with_timezone(&chrono::Utc);
+    assert!(expires_at.timestamp_nanos_opt().is_none());
+    let content = ActionsCodec::encode(Actions {
+      id: "out-of-range".into(),
+      description: "Timestamp conversion failure".into(),
+      actions: vec![Action {
+        id: "one".into(),
+        label: "One".into(),
+        image_url: None,
+        style: None,
+        expires_at: None,
+      }],
+      expires_at: Some(expires_at),
+    })?;
+    let message_id = group
+      .send_message(&content.encode_to_vec(), SendMessageOpts::default())
+      .await?;
+    let create = || {
+      RustMessageReader::new(
+        client.inner_client().context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        None,
+      )
+    };
+    let mut reader = create()?;
+    let item = reader.next_delivery().await?.unwrap();
+    assert_eq!(item.message.id, message_id);
+    let cursor = item.cursor;
+    let token = MessageAcknowledgement {
+      inner: Arc::new(item.acknowledgement),
+    };
+    // This is a binding conversion failure, after successful core enrichment.
+    assert!(token.inner.enriched_message().is_ok());
+    let error = token
+      .enriched_message()
+      .err()
+      .expect("WASM conversion must fail");
+    let error: JsValue = error.into();
+    assert_eq!(
+      js_sys::Reflect::get(&error, &JsValue::from_str("code"))?
+        .as_string()
+        .as_deref(),
+      Some("ContentTypeError::TimestampOutOfRange"),
+    );
+    assert!(matches!(
+      token.inner.acknowledge(),
+      Err(LocalDeliveryError::AcknowledgementRejected)
+    ));
+    let mut replacement = create()?;
+    reader.close();
+    assert!(matches!(
+      token.inner.acknowledge(),
+      Err(LocalDeliveryError::AcknowledgementRejected)
+    ));
+    let replay = replacement.next_delivery().await?.unwrap();
+    assert_eq!(replay.message.id, message_id);
+    assert_eq!(replay.cursor, cursor);
   }
 }
 
@@ -414,6 +507,7 @@ pub(crate) fn callback_stream(
       Ok::<_, LocalDeliveryError>(())
     }
     .await;
+    reader.close();
     if let Err(error) = &result {
       let _ = callback.on_error_caught(crate::errors::error_to_js(error));
     }

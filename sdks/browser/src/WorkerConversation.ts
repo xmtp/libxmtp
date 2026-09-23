@@ -68,12 +68,7 @@ export class WorkerConversation {
   }
 
   get appData() {
-    try {
-      return this.#group.appData();
-    } catch {
-      // DM groups don't support appData
-      return "";
-    }
+    return this.#group.appData();
   }
 
   async updateAppData(appData: string) {

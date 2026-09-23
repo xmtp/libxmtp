@@ -68,6 +68,17 @@ impl LocalDeliveryConfig {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum LocalDeliveryError {
+    /// Preserve the first terminal failure for every pending token.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    SessionFailure(std::sync::Arc<LocalDeliveryError>),
+    /// Message content could not be decoded or enriched. Not retryable.
+    #[error(transparent)]
+    #[error_code(inherit)]
+    Enrichment(crate::messages::enrichment::EnrichMessageError),
+    /// The retained item has no decoded message. Not retryable.
+    #[error("The delivery item has no enriched message")]
+    EnrichedMessageUnavailable,
     /// Database receipt, lease, cursor, or acknowledgement failure. May be retryable.
     #[error(transparent)]
     #[error_code(inherit)]

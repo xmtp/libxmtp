@@ -146,6 +146,8 @@ Scope and filter have different effects. A group outside scope keeps its backlog
 
 A deletion is an application message (CTYPE-014) that names a target message id. It changes what the app is shown for the target, so the client checks it before it applies it: CTYPE-018 owns which targets are eligible, and the sender check below owns who may delete. The sender is the authenticated MLS sender of the deletion, never a field of its payload. A deletion the client rejects is kept as a message like any other and has no effect on the target.
 
+A database operation uses its normal retry and busy-wait policy. If a local read, acknowledgement write, or ownership operation then returns a storage error, that stream ends with the typed cause. There is no additional stream-level storage retry. The app decides when to open another stream. If the app completes an item but its acknowledgement write fails, a new stream can deliver the item again.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PROC-024 | Stable delivery identity | When a message first becomes deliverable, the client MUST assign it one delivery number greater than all previously assigned numbers in that database, with the change that makes it deliverable, and MUST NOT change or reuse it, including after deletion or duplicate insertion. Every repeat delivery MUST carry the same message id and delivery cursor. | A changed identity makes app deduplication and resume unreliable. |
@@ -158,6 +160,7 @@ A deletion is an application message (CTYPE-014) that names a target message id.
 | PROC-034 | Replay is independent | When an app opens a stream from a supplied cursor, the client MUST deliver every eligible message in scope strictly after that cursor in delivery-number order and then continue with new messages, without reading, changing, or acquiring ownership of `D`. | A replay must not consume the default consumer's backlog. |
 | PROC-035 | History and stream meet | An SDK MUST supply selected eligible history and a delivery cursor from one database snapshot, such that every message made deliverable after that snapshot has a greater delivery number. | Separate snapshots can leave messages between history and stream. |
 | PROC-037 | Apply only an authorized deletion | When the client processes a `xmtp.org/deleteMessage` message, it MUST change the target only when the target is a stored message of the same group that passes CTYPE-018, and the deletion's authenticated MLS sender inbox is the target's sender inbox or is in the group's `SUPER_ADMIN_LIST` when the deletion is processed. Otherwise it MUST leave the target and its delivery unchanged. | A member could erase another member's messages, and two installations that apply different rules show different histories. |
+| PROC-040 | End streams on storage failure | When a local read, acknowledgement write, or ownership operation returns a storage error, the SDK MUST end that stream with the typed cause, report the error once through the error callback when supplied, and reject iterator consumption with the cause. It MUST NOT perform another handoff or add a stream-level storage retry, and MUST preserve PROC-028 and PROC-031 when the app opens another stream. | The app must control retries without losing unacknowledged work. |
 
 ## Known limitations
 

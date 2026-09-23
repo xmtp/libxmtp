@@ -25,7 +25,7 @@ import {
   assertMessageDecodedForDelivery,
   DecodedMessage,
 } from "@/DecodedMessage";
-import { MessageStream } from "@/MessageStream";
+import { MessageStream, type MessageAcknowledgement } from "@/MessageStream";
 import {
   toBindingNotificationOverride,
   type NotificationOverride,
@@ -40,23 +40,21 @@ import type { StreamOptions } from "@/utils/streams";
  * This class is not intended to be initialized directly.
  */
 export class Conversation<ContentTypes = unknown> {
-  #client: Client<ContentTypes>;
   #codecRegistry: CodecRegistry;
   #conversation: XmtpConversation;
 
   /**
    * Creates a new conversation instance
    *
-   * @param client - The client instance managing the conversation
+   * @param _client - The client instance managing the conversation
    * @param codecRegistry - The codec registry instance
    * @param conversation - The underlying conversation instance
    */
   constructor(
-    client: Client<ContentTypes>,
+    _client: Client<ContentTypes>,
     codecRegistry: CodecRegistry,
     conversation: XmtpConversation,
   ) {
-    this.#client = client;
     this.#codecRegistry = codecRegistry;
     this.#conversation = conversation;
   }
@@ -173,14 +171,20 @@ export class Conversation<ContentTypes = unknown> {
     },
   ) {
     const reader = await this.#conversation.messageReader(options?.from);
-    const convertMessage = (value: Message, cursor: DeliveryCursor) => {
-      const enrichedMessage = this.#client.conversations.getMessageById(
-        value.id,
+    const convertMessage = (
+      _value: Message,
+      cursor: DeliveryCursor,
+      acknowledgement: MessageAcknowledgement,
+    ) => {
+      const retained = acknowledgement.enrichedMessage();
+      if (retained === null) return undefined;
+      // Keep storage failures distinct from application codec failures.
+      const enrichedMessage = new DecodedMessage<ContentTypes>(
+        this.#codecRegistry,
+        retained,
       );
-      if (enrichedMessage !== undefined) {
-        assertMessageDecodedForDelivery(enrichedMessage);
-        enrichedMessage.deliveryCursor = cursor;
-      }
+      assertMessageDecodedForDelivery(enrichedMessage);
+      enrichedMessage.deliveryCursor = cursor;
       return enrichedMessage;
     };
     return new MessageStream(reader, convertMessage, options);

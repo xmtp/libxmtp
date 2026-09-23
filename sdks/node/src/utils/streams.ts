@@ -5,9 +5,31 @@ import type { StreamCloser } from "@xmtp/node-bindings";
 import { AsyncStream, createAsyncStreamProxy } from "@/AsyncStream";
 
 import { StreamFailedError, StreamInvalidRetryAttemptsError } from "./errors";
+import { getStreamFailureDetails } from "./streamFailure";
 
 export const DEFAULT_RETRY_DELAY = 60_000; // milliseconds
 export const DEFAULT_RETRY_ATTEMPTS = 10;
+
+// Core reports storage failures as terminal.
+// Reopening here would bypass that boundary and hide the original failure.
+const isTerminalNativeFailure = (error: unknown) => {
+  if (
+    error instanceof Error &&
+    /^\[(?:(?:SubscribeError|GroupError|ClientError)::(?:Db|Storage)|GroupError::SqlKeyStore)\]/.test(
+      error.message,
+    )
+  )
+    return true;
+  return (
+    getStreamFailureDetails(error)?.barriers.some((barrier) =>
+      barrier.unfinished.some(
+        ({ cause }) =>
+          cause?.kind === "storage" ||
+          (cause?.kind === "receiver" && cause.code === "incoming_storage"),
+      ),
+    ) ?? false
+  );
+};
 
 /**
  * Notification streams created by createStream use the retry settings and hooks.
@@ -42,7 +64,8 @@ export type StreamOptions<T = unknown, V = T> = {
    */
   onValue?: (value: V) => void | Promise<void>;
   /**
-   * The number of times to retry a notification stream
+   * The number of times to retry an unexpected notification stream closure.
+   * Terminal native storage errors are not retried.
    * (default: 10)
    */
   retryAttempts?: number;
@@ -81,7 +104,7 @@ export type StreamValueMutator<T = unknown, V = T> = (
 /**
  * Creates a stream from a stream function
  *
- * If the stream fails, an attempt will be made to restart it.
+ * Unexpected native closures can be retried. Terminal native storage errors end the stream and reject iteration with the original cause.
  *
  * Ending the stream is terminal: no callbacks are invoked and no native
  * stream is created after the stream ends.
@@ -132,9 +155,38 @@ export const createStream = async <T = unknown, V = T>(
   // read through a call so no-unnecessary-condition cannot narrow the flag to
   // a constant; handleNativeClose mutates it across an await
   const isClosePending = () => closePendingDuringRestart;
-  // the retry budget is monotonic: it is never reset for the lifetime of
-  // this wrapper, so restarts are bounded even across successful restarts
+  // This finite budget only restarts a native loop that closes without a terminal cause.
   let remainingRetries = retryAttempts;
+  let generation = 0;
+  let terminalError: Error | undefined;
+  const pendingReads = new Set<{ error?: Error }>();
+  let lastError: Error | undefined;
+  const next = asyncStream.next;
+  asyncStream.next = async () => {
+    const read = { error: terminalError };
+    terminalError = undefined;
+    pendingReads.add(read);
+    const throwTerminalError = () => {
+      if (read.error) throw read.error;
+    };
+    try {
+      throwTerminalError();
+      const value = await next();
+      throwTerminalError();
+      // A value resolved before failure can still be queued on the JS task.
+      return isStopped() ? { done: true, value: undefined } : value;
+    } finally {
+      pendingReads.delete(read);
+    }
+  };
+
+  const reportError = (error: Error) => {
+    try {
+      void Promise.resolve(onError?.(error)).catch(() => undefined);
+    } catch {
+      // Error handlers must not throw from the native callback task.
+    }
+  };
 
   // terminal transition: cancel any pending retry, close the active native
   // stream, and notify onEnd exactly once
@@ -143,14 +195,24 @@ export const createStream = async <T = unknown, V = T>(
       return;
     }
     stopped = true;
+    generation += 1;
     closePendingDuringRestart = false;
     if (retryTimer !== undefined) {
       clearTimeout(retryTimer);
       retryTimer = undefined;
     }
-    currentCloser?.end();
+    const closer = currentCloser;
     currentCloser = undefined;
-    onEnd?.();
+    try {
+      closer?.end();
+    } catch {
+      // The stopped generation stays fenced if native cleanup fails.
+    }
+    try {
+      void Promise.resolve(onEnd?.()).catch(() => undefined);
+    } catch {
+      // A synchronous end handler must not interrupt iterator completion.
+    }
   };
   // registered before any async work so ending the stream is always terminal,
   // even while a retry is pending or a native stream is being created
@@ -160,29 +222,42 @@ export const createStream = async <T = unknown, V = T>(
     if (isStopped()) {
       return;
     }
-    // the terminal transition must run even if onError throws, otherwise a
-    // throwing consumer callback leaves the stream open and hangs next()
+    // Reserve the cause for the oldest pending read. Reentrant next() calls
+    // from onError must not consume another call's rejection.
+    const read = pendingReads.values().next().value;
+    if (read) read.error = error;
+    else terminalError = error;
+    // Fence callbacks and close before application code opens a replacement.
+    // Preserve the original cause if an end handler fails.
     try {
-      onError?.(error);
-    } finally {
-      void asyncStream.end();
+      void asyncStream.end().catch(() => undefined);
+    } catch {
+      // stop() has already fenced this generation.
     }
+    reportError(error);
   };
 
   const handleAsyncError = (error: unknown) => {
     if (!isStopped()) {
-      onError?.(error as Error);
+      if (isTerminalNativeFailure(error)) fail(error as Error);
+      else reportError(error as Error);
     }
   };
 
-  const streamCallback: StreamCallback<T> = (error, value) => {
-    // an ended stream must not invoke any callbacks
-    if (isStopped()) {
+  const streamCallback = (
+    error: Error | null,
+    value: T | undefined,
+    isCurrent: () => boolean,
+  ) => {
+    // An ended or replaced native stream cannot invoke callbacks.
+    if (!isCurrent()) {
       return;
     }
     // if a stream error occurs, call the onError callback
     if (error) {
-      onError?.(error);
+      lastError = error;
+      if (isTerminalNativeFailure(error)) fail(error);
+      else reportError(error);
       return;
     }
     // ensure the value is not undefined
@@ -218,7 +293,7 @@ export const createStream = async <T = unknown, V = T>(
           );
         }
       } catch (error) {
-        onError?.(error as Error);
+        handleAsyncError(error);
       }
     }
   };
@@ -229,7 +304,9 @@ export const createStream = async <T = unknown, V = T>(
       return;
     }
     if (remainingRetries <= 0) {
-      fail(new StreamFailedError(retryAttempts));
+      const error = new StreamFailedError(retryAttempts);
+      error.cause = lastError;
+      fail(error);
       return;
     }
     retryInFlight = true;
@@ -257,10 +334,7 @@ export const createStream = async <T = unknown, V = T>(
     }
     try {
       // attempt to restart the stream
-      const streamCloser = await streamFunction(
-        streamCallback,
-        handleNativeClose,
-      );
+      const streamCloser = await openNative();
       if (isStopped()) {
         // the stream ended while the native stream was being created
         streamCloser.end();
@@ -292,8 +366,12 @@ export const createStream = async <T = unknown, V = T>(
         return;
       }
       closePendingDuringRestart = false;
-      onError?.(error as Error);
-      scheduleRetry();
+      lastError = error as Error;
+      if (isTerminalNativeFailure(lastError)) fail(lastError);
+      else {
+        reportError(lastError);
+        scheduleRetry();
+      }
     }
   };
 
@@ -319,12 +397,22 @@ export const createStream = async <T = unknown, V = T>(
     }
   };
 
+  const openNative = () => {
+    const openedGeneration = ++generation;
+    const isCurrent = () => !isStopped() && openedGeneration === generation;
+    return streamFunction(
+      (error, value) => {
+        streamCallback(error, value, isCurrent);
+      },
+      () => {
+        if (openedGeneration === generation) handleNativeClose();
+      },
+    );
+  };
+
   try {
     // create the stream
-    const streamCloser = await streamFunction(
-      streamCallback,
-      handleNativeClose,
-    );
+    const streamCloser = await openNative();
     if (isStopped()) {
       streamCloser.end();
     } else {
@@ -336,11 +424,13 @@ export const createStream = async <T = unknown, V = T>(
       }
     }
   } catch (error) {
-    onError?.(error as Error);
-    if (retryOnFail) {
+    lastError = error as Error;
+    if (isTerminalNativeFailure(lastError)) fail(lastError);
+    else if (retryOnFail) {
+      reportError(lastError);
       scheduleRetry();
     } else {
-      fail(new StreamFailedError(0));
+      fail(lastError);
     }
   }
 

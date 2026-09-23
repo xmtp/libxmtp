@@ -243,7 +243,13 @@ where
         };
         let mut stream = tokio::select! {
             _ = cancel.cancelled() => return Ok(()),
-            result = subscribe => result?,
+            result = subscribe => match result {
+                Ok(stream) => stream,
+                Err(error) => {
+                    callback(Err(error));
+                    return Ok(());
+                }
+            },
         };
         let _ = tx.send(());
         loop {

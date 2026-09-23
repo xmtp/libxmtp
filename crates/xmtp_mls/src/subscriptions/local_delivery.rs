@@ -127,6 +127,7 @@ where
         // Subscribe before the first database read. Polling also covers missed and cross-process writes.
         let events = context.local_events().subscribe();
         let now = now_ns();
+        let database_id = context.db().stream_database_id()?;
         let owner = if let Some(cursor) = from {
             context
                 .db()
@@ -137,17 +138,22 @@ where
             if context.is_closed() {
                 return Err(LocalDeliveryError::Closed);
             }
+            let mut retired = context.incoming_runtime().retired_delivery_owner.lock();
+            if let Some(owner) = *retired {
+                // Release only the closed reader's token. SQL fences a different owner.
+                context.db().release_delivery_owner(owner)?;
+                if *registered == Some(owner) {
+                    *registered = None;
+                }
+                *retired = None;
+            }
             let owner = context
                 .db()
                 .acquire_delivery_owner_with_clock(config.lease_duration_ns()?, now_ns)?;
             *registered = Some(owner);
             Some(owner)
         };
-        let session = Arc::new(DeliverySession::new(
-            context,
-            owner,
-            from.map(|cursor| cursor.database_id),
-        ));
+        let session = Arc::new(DeliverySession::new(context, owner, database_id));
         let renewal = if owner.is_some() {
             let session = Arc::clone(&session);
             Some(Box::new(xmtp_common::spawn(None, async move {
@@ -200,6 +206,7 @@ where
 
     /// Return one item with an explicit acknowledgement token for callback and host-queue adapters.
     /// The next call waits for that token. It never acknowledges the previous item itself.
+    // implements: PROC-040
     pub async fn next_delivery(&mut self) -> Result<Option<LocalDeliveryItem<Context>>> {
         let result = self.next_inner().await;
         if result.is_err() {
@@ -215,32 +222,36 @@ where
                 let notified = pending.changed.notified();
                 {
                     let mut state = pending.state.lock();
+                    // Read the cause under the same lock as acknowledgement and rejection.
+                    if let Some(error) = self.session.background_error() {
+                        return Err(error);
+                    }
                     if matches!(*state, AcknowledgementState::Waiting)
                         && self.control.selection.lock().revision != pending.revision
                     {
                         *state = AcknowledgementState::Reselect;
                     }
-                }
-                match *pending.state.lock() {
-                    AcknowledgementState::Acknowledged => {
-                        if self.replay_position.is_some() {
-                            self.replay_position = Some(pending.cursor);
+                    match *state {
+                        AcknowledgementState::Acknowledged => {
+                            if self.replay_position.is_some() {
+                                self.replay_position = Some(pending.cursor);
+                            }
+                            self.pending = None;
+                            break;
                         }
-                        self.pending = None;
-                        break;
+                        AcknowledgementState::Reselect => {
+                            self.pending = None;
+                            self.candidates.clear();
+                            break;
+                        }
+                        AcknowledgementState::Rejected => {
+                            return Err(LocalDeliveryError::AcknowledgementRejected);
+                        }
+                        AcknowledgementState::Failed => {
+                            return Err(LocalDeliveryError::AcknowledgementFailed);
+                        }
+                        AcknowledgementState::Waiting | AcknowledgementState::Dispatched => {}
                     }
-                    AcknowledgementState::Reselect => {
-                        self.pending = None;
-                        self.candidates.clear();
-                        break;
-                    }
-                    AcknowledgementState::Rejected => {
-                        return Err(LocalDeliveryError::AcknowledgementRejected);
-                    }
-                    AcknowledgementState::Failed => {
-                        return Err(LocalDeliveryError::AcknowledgementFailed);
-                    }
-                    AcknowledgementState::Waiting | AcknowledgementState::Dispatched => {}
                 }
                 tokio::select! {
                     _ = notified => {},
@@ -272,7 +283,7 @@ where
                         )?
                     } else {
                         db.default_delivery_messages_bounded(
-                            self.session.owner.ok_or(LocalDeliveryError::Closed)?,
+                            self.session.owner().ok_or(LocalDeliveryError::Closed)?,
                             &selection.scope,
                             now,
                             self.config.batch_size,
@@ -355,7 +366,7 @@ where
             return Ok(false);
         }
         self.session.check_owner()?;
-        if let Some(owner) = self.session.owner {
+        if let Some(owner) = self.session.owner() {
             self.session.context.db().acknowledge_delivery_with_clock(
                 owner,
                 candidate.message.group_id,

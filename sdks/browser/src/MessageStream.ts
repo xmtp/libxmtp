@@ -59,7 +59,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
     this.#options = options;
     this.#onValue = options.onValue;
     if (this.#onValue) {
-      // Callback mode has no caller waiting on next(). Errors reach onError before cleanup.
+      // Callback mode has no caller waiting on next(). Errors reach onError after cleanup.
       void this.#read().catch(() => undefined);
     }
   }
@@ -150,14 +150,21 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
       return { done: true, value: undefined };
     } catch (error) {
       if (!this.#hasEnded()) {
+        // Release this reader before onError can open a replacement. Failed
+        // cleanup must not replace the error that stopped delivery.
         try {
-          // A handler that throws must not replace the real failure. The
-          // caller needs the original cause to know why the stream ended.
-          this.#options.onError?.(error as Error);
-        } catch {
-          // Reported through the rethrow below.
-        } finally {
           await this.return();
+        } catch {
+          // Native close fences this reader even when storage release fails.
+        }
+        try {
+          // Do not await application error handling. It may open and consume
+          // another stream. Its rejection must not escape the callback task.
+          void Promise.resolve(this.#options.onError?.(error as Error)).catch(
+            () => undefined,
+          );
+        } catch {
+          // Iterator mode reports the original cause below.
         }
       }
       throw error;
@@ -191,7 +198,7 @@ export class MessageStream<T, V> implements AsyncIterable<V> {
       }
       return { done: true, value: undefined };
     } finally {
-      this.#options.onEnd?.();
+      void Promise.resolve(this.#options.onEnd?.()).catch(() => undefined);
     }
   }
 
