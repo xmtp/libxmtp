@@ -1,26 +1,19 @@
 //! Group state stored in the OpenMLS AppData dictionary.
 //!
 //! This module is the bridge between the per-field intent handlers in
-//! `mls_sync` and the OpenMLS app data dictionary. It is intentionally
-//! `pub(crate)` — there is no public API for reading or writing arbitrary
-//! components. The existing per-field helpers (`update_group_name`,
-//! `update_admin_list_action`, …) keep their signatures and route through
-//! the appropriate sub-module here.
+//! `mls_sync` and the OpenMLS app data dictionary. The existing per-field
+//! helpers (`update_group_name`, `update_admin_list_action`, …) keep their
+//! signatures and route through the appropriate sub-module here. The
+//! component codec lives in `xmtp_mls_common::app_data::component_source`;
+//! its helpers transform bytes and do not change a group by themselves.
 
-// `pub` (rather than `pub(crate)`) so the public `GroupError::ComponentSource`
-// variant in `crate::groups::error` doesn't trip the `private_interfaces`
-// lint. The functions inside the module remain `pub(crate)`, so the wider
-// crate ecosystem still can't read or write arbitrary components — only
-// `GroupError` consumers see the error type.
 #[allow(
     dead_code,
     reason = "Retained for removal with migration code in Task 5"
 )]
 pub(crate) mod bootstrap_validator;
-pub mod component_source;
 pub mod migration;
 pub(crate) mod sender_intents;
-pub(crate) mod typed_facade;
 
 use std::collections::BTreeMap;
 
@@ -40,9 +33,10 @@ use openmls::{
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
-use self::component_source::{
+use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
+use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
 #[cfg(any(test, feature = "test-utils"))]
@@ -438,7 +432,7 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// state and the receiver's, which would surface as a confirmation
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
-    ApplyPayload(#[from] self::component_source::ComponentSourceError),
+    ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
 }
 
 // Specialize to the concrete SqlKeyStoreError because that's the only
@@ -499,51 +493,6 @@ pub(crate) fn load_component_registry(
     mls_group: &OpenMlsGroup,
 ) -> Result<ComponentRegistry, ComponentSourceError> {
     load_component_registry_from_extensions(mls_group.extensions())
-}
-
-/// Returns the group's committed `MIN_SUPPORTED_PROTOCOL_VERSION` floor
-/// when it exceeds `own_version`, reading ONLY the pre-commit AppData
-/// dict — committed, already-validated state.
-///
-/// This is the shared trigger for the "pause, don't fork" guards on the
-/// receive paths ([`process_message_with_app_data`] before dispatch;
-/// `ValidatedCommit::from_staged_commit` before interpreting migrated
-/// group state). It is deliberately blind to any floor bump carried by
-/// the commit currently being processed: that proposal has not passed
-/// the super-admin policy check yet, and a pause triggered by
-/// unvalidated input would let any member freeze the group permanently.
-/// The commit that *raises* the floor pauses below-floor receivers
-/// through the post-policy check at the end of commit validation
-/// instead. Consequence for protocol evolution: a release introducing
-/// a new wire format must land the group-floor bump in a *strictly
-/// earlier* commit than the first commit using that format.
-///
-/// Lenient on malformed state (non-UTF-8 floor bytes, unparseable
-/// semver ⇒ `None`), mirroring `enforce_min_version_monotonicity`'s
-/// treatment of malformed priors: garbage must never brick the group.
-pub(crate) fn committed_floor_exceeding(
-    mls_group: &OpenMlsGroup,
-    own: &LibXMTPVersion,
-) -> Option<String> {
-    committed_floor_exceeding_in_extensions(mls_group.extensions(), own)
-}
-
-/// Extensions-only variant of [`committed_floor_exceeding`], split out
-/// (like [`load_component_registry_from_extensions`]) so unit tests can
-/// exercise the parse-and-compare logic without materializing an
-/// `OpenMlsGroup`.
-pub(crate) fn committed_floor_exceeding_in_extensions(
-    extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
-    own: &LibXMTPVersion,
-) -> Option<String> {
-    let bytes = extensions
-        .app_data_dictionary()?
-        .dictionary()
-        .get(&ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16())?
-        .to_vec();
-    let floor = String::from_utf8(bytes).ok()?;
-    let floor_version = LibXMTPVersion::parse(&floor).ok()?;
-    (floor_version > *own).then_some(floor)
 }
 
 /// Read the component registry without loading an OpenMLS group.
@@ -609,110 +558,6 @@ mod tests {
 
     fn empty_extensions() -> Extensions<openmls::group::GroupContext> {
         Extensions::from_vec(vec![]).expect("empty extensions are always valid")
-    }
-
-    /// Parse a semver string the way the production caller does (once, from
-    /// the client's own `pkg_version`). Panics on invalid input — matching
-    /// `VersionInfo`, which asserts its own version is valid at construction.
-    fn ver(s: &str) -> LibXMTPVersion {
-        LibXMTPVersion::parse(s).unwrap()
-    }
-
-    // ========================================================================
-    // committed_floor_exceeding_in_extensions
-    // ========================================================================
-    //
-    // The shared trigger for the pause-before-parse guards. Two properties
-    // are load-bearing: (1) it fires strictly on floor > own — equal or
-    // lower floors must not pause; (2) it is lenient on garbage — malformed
-    // floor bytes must read as "no floor", never as an error that could
-    // wedge the group.
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn floor_above_own_version_fires() {
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"2.0.0".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            Some("2.0.0".to_string())
-        );
-        // Prerelease floors order correctly under semver: 1.11.0-dev
-        // exceeds 1.10.0 but not 1.11.0.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"1.11.0-dev".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.10.0")),
-            Some("1.11.0-dev".to_string())
-        );
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn floor_at_or_below_own_version_does_not_fire() {
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"1.11.0".to_vec(),
-        )]);
-        // Equal: not paused — the floor is inclusive.
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // Above: not paused.
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.12.0")),
-            None
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn missing_floor_or_dict_does_not_fire() {
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&empty_extensions(), &ver("1.11.0")),
-            None
-        );
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&extensions_with_dict(&[]), &ver("1.11.0")),
-            None
-        );
-        // Dict present with other components but no floor entry.
-        let exts = extensions_with_dict(&[(ComponentId::GROUP_NAME.as_u16(), b"name".to_vec())]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn malformed_floor_is_lenient() {
-        // Non-UTF-8 bytes → no floor, never an error.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            vec![0xFF, 0xFE],
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // Unparseable floor semver → no floor.
-        let exts = extensions_with_dict(&[(
-            ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.as_u16(),
-            b"not-a-version".to_vec(),
-        )]);
-        assert_eq!(
-            committed_floor_exceeding_in_extensions(&exts, &ver("1.11.0")),
-            None
-        );
-        // The client's own version can no longer be unparseable here: it is
-        // parsed once and asserted valid when `VersionInfo` is built, so this
-        // guard only ever compares against a valid `LibXMTPVersion`.
     }
 
     // ========================================================================

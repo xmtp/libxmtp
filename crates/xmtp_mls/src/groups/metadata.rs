@@ -549,7 +549,7 @@ where
     fn read_admin_set(&self, kind: AdminListKind) -> Result<Vec<String>, GroupError> {
         let ctx = self.load_group_context()?;
         let extensions = ctx.extensions();
-        let facade = self::app_data::typed_facade::MlsGroupAppData::new(extensions);
+        let facade = xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(extensions);
         let set = match kind {
             AdminListKind::Admin => facade.get::<AdminListComponent>(),
             AdminListKind::SuperAdmin => facade.get::<SuperAdminListComponent>(),
@@ -580,9 +580,10 @@ where
         mls_group: &OpenMlsGroup,
         inbox_id: String,
     ) -> Result<bool, GroupMutableMetadataError> {
-        let list = self::app_data::component_source::read_super_admin_list_from_dict(mls_group)
-            .map_err(GroupMutableMetadataError::from)?
-            .unwrap_or_default();
+        let list =
+            xmtp_mls_common::app_data::component_source::read_super_admin_list_from_dict(mls_group)
+                .map_err(GroupMutableMetadataError::from)?
+                .unwrap_or_default();
         Ok(list.contains(&inbox_id))
     }
 

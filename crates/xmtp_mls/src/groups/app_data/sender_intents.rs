@@ -32,7 +32,6 @@ use xmtp_proto::xmtp::mls::message_contents::{
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use super::component_source::{ComponentSourceError, metadata_field_to_component_id};
 use super::{
     pending_app_data_updates, stage_app_data_proposals_and_commit,
     stage_app_data_propose_and_commit,
@@ -50,6 +49,9 @@ use crate::groups::{
     },
 };
 use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_mls_common::app_data::component_source::{
+    ComponentSourceError, metadata_field_to_component_id,
+};
 
 /// Stage the `AppDataUpdate` commit for an `UpdateAdminList` intent on
 /// a migrated group. Maps the intent action onto a one-element

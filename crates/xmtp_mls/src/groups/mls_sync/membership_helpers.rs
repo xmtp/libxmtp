@@ -4,7 +4,7 @@ use super::*;
 
 /// Compare membership intent results without depending on delta mutation order.
 pub(super) fn membership_from_app_data_bytes(bytes: &[u8]) -> Result<GroupMembership, GroupError> {
-    use crate::groups::app_data::component_source::ComponentSourceError;
+    use xmtp_mls_common::app_data::component_source::ComponentSourceError;
     use xmtp_mls_common::app_data::{
         components::tls_map_components::GroupMembershipComponent, typed::Component,
     };

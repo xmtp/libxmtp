@@ -40,7 +40,7 @@ use xmtp_db::{
 use xmtp_mls_common::group_metadata::extract_group_metadata;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 
-use crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware;
+use xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware;
 use xmtp_proto::types::Cursor;
 use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, GroupUpdated, group_updated::Inbox};
 

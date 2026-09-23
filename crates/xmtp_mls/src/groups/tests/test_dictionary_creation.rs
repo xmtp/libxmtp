@@ -1,7 +1,8 @@
-use crate::{groups::app_data::committed_floor_exceeding, tester};
+use crate::tester;
 use openmls::{extensions::ExtensionType, messages::proposals::ProposalType};
 use xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION;
 use xmtp_mls_common::app_data::component_id::ComponentId;
+use xmtp_mls_common::app_data::protocol_floor::committed_floor_exceeding;
 
 // verifies: META-002
 #[xmtp_common::test(unwrap_try = true)]

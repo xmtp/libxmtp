@@ -5,9 +5,9 @@
 //! current bytes live (OpenMLS AppData dictionary vs. legacy group context
 //! extensions), and how to encode/apply `AppDataUpdate` payloads.
 //!
-//! The module declaration is `pub` only so `ComponentSourceError` can
-//! satisfy the `private_interfaces` lint on the public `GroupError` variant
-//! it's embedded in. All helpers remain `pub(crate)`.
+//! The helpers are `pub` so `xmtp_mls` can call them. They read and write
+//! raw component bytes; `xmtp_mls` owns the intent and commit paths that
+//! decide when a write is allowed.
 //!
 //! ## Inbox-id encoding
 //!
@@ -15,28 +15,11 @@
 //! Anything serialized through the new `AppDataUpdate` path uses the
 //! versioned [`InboxId`] newtype.
 //!
-//! See [`xmtp_mls_common::inbox_id`] for the full wire-format contract;
+//! See [`crate::inbox_id`] for the full wire-format contract;
 //! the short version is `varint(version) || 32-byte payload`, with
 //! version 0 producing a 33-byte encoding.
 
-// `ComponentMutation`, `component_type`, and the standalone
-// `expand_app_data_update_to_changes` entry point are scaffolding for
-// the standalone proposal-by-reference flow (`IntentKind::ProposeAppDataUpdate`)
-// described in XIP §1.5.2 / §3.4. They have unit-test coverage but no
-// production caller yet — the inline path goes through
-// `apply_app_data_update_payload` instead. `expect` (not `allow`) so the
-// compiler trips this when standalone-propose wiring lands, and we
-// either drop the attribute or trim whichever scaffolding the new path
-// supersedes.
-#![expect(dead_code)]
-
-use openmls::{
-    extensions::Extensions,
-    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
-    messages::proposals::AppDataUpdateOperation,
-};
-use tls_codec::{Deserialize, Serialize};
-use xmtp_mls_common::{
+use crate::{
     app_data::{
         component_id::ComponentId,
         component_registry::ComponentRegistry,
@@ -49,15 +32,18 @@ use xmtp_mls_common::{
     tls_map::TlsMapError,
     tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
+use openmls::{
+    extensions::Extensions,
+    group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
+    messages::proposals::AppDataUpdateOperation,
+};
+use tls_codec::{Deserialize, Serialize};
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
 /// Errors surfaced by the component_source layer.
 ///
-/// `pub` (rather than `pub(crate)`) because [`GroupError`] embeds it via
-/// `#[from]` for the AppDataUpdate path; `pub(crate)` would trigger
-/// `private_interfaces` warnings on the public `GroupError` variant.
-///
-/// [`GroupError`]: super::super::error::GroupError
+/// `xmtp_mls` embeds this in `GroupError` via `#[from]` for the
+/// AppDataUpdate path.
 #[derive(Debug, thiserror::Error)]
 pub enum ComponentSourceError {
     /// The component id is outside the well-known XMTP range.
@@ -132,7 +118,7 @@ impl ComponentSourceError {
     /// across the crate boundary into
     /// [`GroupMutableMetadataError::MalformedComponent`] without
     /// stringifying.
-    pub(crate) fn component_id(&self) -> Option<ComponentId> {
+    pub fn component_id(&self) -> Option<ComponentId> {
         match self {
             Self::UnknownComponent(id)
             | Self::NotImplemented(id)
@@ -217,12 +203,12 @@ impl From<ComponentSourceError> for GroupMutableMetadataError {
 /// atomic mutation per variant — admin-list updates today arrive as
 /// single-action intents (`UpdateAdminListIntentData` carries one inbox
 /// id and one action), and coalescing happens at the commit layer via
-/// [`super::accumulate_app_data_updates`]. The migration PR that wires
+/// `xmtp_mls`'s `accumulate_app_data_updates`. The migration PR that wires
 /// admin-list paths through `AppDataUpdate` should reshape this into
 /// batched variants (e.g. `InboxIdSetDelta { component_id, mutations }`)
 /// so a single proposal can carry multiple set mutations.
 #[derive(Debug, Clone)]
-pub(crate) enum ComponentMutation<'a> {
+pub enum ComponentMutation<'a> {
     /// A whole-value replacement for a `Bytes`-typed component.
     Bytes {
         component_id: ComponentId,
@@ -240,7 +226,7 @@ pub(crate) enum ComponentMutation<'a> {
 
 impl ComponentMutation<'_> {
     /// The `ComponentId` that this mutation targets.
-    pub(crate) fn component_id(&self) -> ComponentId {
+    pub fn component_id(&self) -> ComponentId {
         match self {
             Self::Bytes { component_id, .. } => *component_id,
             Self::AdminListAdd { .. } | Self::AdminListRemove { .. } => ComponentId::ADMIN_LIST,
@@ -254,7 +240,7 @@ impl ComponentMutation<'_> {
 /// Hardcoded logical type of a well-known component. Returns `None` for
 /// app-range components (`0xC000-0xFEFF`) and for any well-known id that
 /// is not yet wired into this match.
-pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
+pub fn component_type(id: ComponentId) -> Option<ComponentType> {
     match id {
         // Hardcoded registry / list components. ComponentRegistry itself is a
         // TlsMap, but permissions are enforced in code — it never flows
@@ -289,16 +275,13 @@ pub(crate) fn component_type(id: ComponentId) -> Option<ComponentType> {
     }
 }
 
-/// Re-export of the `MetadataField` ↔ `ComponentId` bijection, moved
-/// to `xmtp_mls_common` (single source of truth shared with the
-/// dict↔legacy merge and the archive exporter).
-pub(crate) use xmtp_mls_common::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
+use crate::group_mutable_metadata::METADATA_FIELD_COMPONENT_MAP;
 
 /// Map a [`MetadataField`] string to its corresponding `ComponentId`.
 ///
 /// Returns `None` for unknown field names so this can also be called with a
 /// raw string coming from a legacy intent payload.
-pub(crate) fn metadata_field_to_component_id(field_name: &str) -> Option<ComponentId> {
+pub fn metadata_field_to_component_id(field_name: &str) -> Option<ComponentId> {
     METADATA_FIELD_COMPONENT_MAP
         .iter()
         .find(|(field, _)| field.as_str() == field_name)
@@ -311,7 +294,7 @@ pub(crate) fn metadata_field_to_component_id(field_name: &str) -> Option<Compone
 /// Returns `None` for component ids that are not backed by a
 /// `GroupMutableMetadata` attribute (e.g. `ADMIN_LIST`, `GROUP_MEMBERSHIP`,
 /// or anything outside the mutable metadata family).
-pub(crate) fn component_id_to_metadata_field(id: ComponentId) -> Option<MetadataField> {
+pub fn component_id_to_metadata_field(id: ComponentId) -> Option<MetadataField> {
     METADATA_FIELD_COMPONENT_MAP
         .iter()
         .find(|(_, component_id)| *component_id == id)
@@ -319,7 +302,7 @@ pub(crate) fn component_id_to_metadata_field(id: ComponentId) -> Option<Metadata
 }
 
 /// Read the component's current bytes from the OpenMLS AppData dictionary.
-pub(crate) fn read_component_bytes(
+pub fn read_component_bytes(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<Vec<u8>>, ComponentSourceError> {
@@ -329,7 +312,7 @@ pub(crate) fn read_component_bytes(
 /// Compute the post-commit value of a single component
 /// by overlaying the staged commit's `AppDataUpdate` proposals on top of
 /// the pre-commit dict. Last-write-wins matches the lazy-batching apply
-/// order in [`super::accumulate_app_data_updates`]: every `Update(payload)`
+/// order in `xmtp_mls`'s `accumulate_app_data_updates`: every `Update(payload)`
 /// is decoded against the running value (so collection deltas compose),
 /// and `Remove` collapses to `None`.
 ///
@@ -348,9 +331,9 @@ pub(crate) fn read_component_bytes(
 ///
 /// `registry` is the **pre-commit** `COMPONENT_REGISTRY` (i.e. the state
 /// of the dictionary entry before the staged commit applies). Callers
-/// should load it once via [`super::load_component_registry`] on the
+/// should load it once via `xmtp_mls`'s `load_component_registry` on the
 /// live `mls_group` and reuse it across all validator helpers — same
-/// registry feeds [`super::validate_app_data_update_proposals_in_commit`]
+/// registry feeds `validate_app_data_update_proposals_in_commit`
 /// and any other per-component checks.
 ///
 /// **Implication for commits that modify `COMPONENT_REGISTRY` in the
@@ -358,12 +341,12 @@ pub(crate) fn read_component_bytes(
 /// write fails with `UnknownComponent` here because the new entry is
 /// not yet visible in the pre-commit registry. This matches what the
 /// receiver-side validator
-/// ([`super::validate_app_data_update_proposals_in_commit`]) enforces
+/// (`validate_app_data_update_proposals_in_commit`) enforces
 /// today and is the documented convention across the commit
 /// path: registry mutations and writes that depend on those mutations
 /// MUST land in separate commits.
 ///
-pub(crate) fn read_post_commit_component_bytes(
+pub fn read_post_commit_component_bytes(
     id: ComponentId,
     mls_group: &OpenMlsGroup,
     staged_commit: &StagedCommit,
@@ -418,17 +401,14 @@ pub(crate) fn read_post_commit_component_bytes(
 
 /// Look up the component's bytes in the OpenMLS AppData dictionary.
 ///
-/// `pub(crate)` so the commit validator (`validated_commit.rs`) can
-/// pull the pre-commit stored bytes for a component and thread them
-/// into [`expand_app_data_update_to_changes`] as `old_value` — the
-/// validator uses that to resolve `RemoveByHash` mutations back to
-/// their underlying inbox id. The parent `app_data` module also uses
-/// it from `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
+/// The commit validator in `xmtp_mls` pulls the pre-commit stored bytes
+/// for a component and threads them into
+/// [`expand_app_data_update_to_changes`] as `old_value` — the validator
+/// uses that to resolve `RemoveByHash` mutations back to their underlying
+/// inbox id. `xmtp_mls`'s `app_data` module also uses it from
+/// `process_message_with_app_data`, `stage_app_data_propose_and_commit`,
 /// and `pending_app_data_updates`.
-pub(crate) fn read_from_app_data_dict(
-    id: ComponentId,
-    mls_group: &OpenMlsGroup,
-) -> Option<Vec<u8>> {
+pub fn read_from_app_data_dict(id: ComponentId, mls_group: &OpenMlsGroup) -> Option<Vec<u8>> {
     read_from_app_data_dict_from_extensions(id, mls_group.extensions())
 }
 
@@ -436,7 +416,7 @@ pub(crate) fn read_from_app_data_dict(
 /// component's bytes straight from a group's `GroupContext` extensions, with no
 /// full `OpenMlsGroup`. openmls keys the dictionary by its own `ComponentId`,
 /// which is just a `u16` alias, so `id.as_u16()` unwraps our newtype to the key.
-pub(crate) fn read_from_app_data_dict_from_extensions(
+pub fn read_from_app_data_dict_from_extensions(
     id: ComponentId,
     extensions: &Extensions<GroupContext>,
 ) -> Option<Vec<u8>> {
@@ -452,7 +432,7 @@ pub(crate) fn read_from_app_data_dict_from_extensions(
 /// - `Bytes` components pass through verbatim.
 /// - `AdminList*` / `SuperAdminList*` produce a single-element
 ///   [`TlsSetDelta`] keyed on an [`InboxId`].
-pub(crate) fn encode_app_data_update_payload(
+pub fn encode_app_data_update_payload(
     mutation: &ComponentMutation<'_>,
 ) -> Result<Vec<u8>, ComponentSourceError> {
     match mutation {
@@ -479,11 +459,7 @@ pub(crate) fn encode_app_data_update_payload(
     }
 }
 
-// `ExpandedComponentChange` lives in `xmtp_mls_common::app_data::typed`
-// so the `Component` trait there can return it. Re-exported here so
-// in-crate callers can construct the change list without pulling the
-// xmtp_mls_common path in directly.
-pub(crate) use xmtp_mls_common::app_data::typed::ExpandedComponentChange;
+use crate::app_data::typed::ExpandedComponentChange;
 
 /// Expand an `AppDataUpdate` proposal payload into the per-element changes
 /// that should be checked against the component registry.
@@ -513,7 +489,7 @@ pub(crate) use xmtp_mls_common::app_data::typed::ExpandedComponentChange;
 /// directly so it can also call `Component::validate_invariant`
 /// without a second binary search. This wrapper is retained for
 /// callers that don't need the invariant hook.
-pub(crate) fn expand_app_data_update_to_changes(
+pub fn expand_app_data_update_to_changes(
     component_id: ComponentId,
     operation: &AppDataUpdateOperation,
     old_value: Option<&[u8]>,
@@ -557,7 +533,7 @@ pub(crate) fn expand_app_data_update_to_changes(
 /// first-insert path for immutable seeds, so this layer must allow
 /// an `Update` whose `old_value` is `None`. The bootstrap validator
 /// catches malicious initial values upstream via byte-compare.
-pub(crate) fn apply_app_data_update_payload(
+pub fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
@@ -641,12 +617,12 @@ fn registered_component_type(
 /// correctly, they round-trip into the returned GMM. Registry corruption
 /// is surfaced loudly on the *write* paths instead — the sender gate in
 /// `mls_sync.rs` and the commit validator in `validated_commit.rs` both
-/// call [`super::load_component_registry`] and propagate decode errors
+/// call `xmtp_mls`'s `load_component_registry` and propagate decode errors
 /// — so a corrupt registry blocks state changes without making readable
 /// data unreachable. See
 /// `merge_with_malformed_registry_returns_valid_field` for the test
 /// that pins this invariant.
-pub(crate) fn merge_app_data_into_mutable_metadata(
+pub fn merge_app_data_into_mutable_metadata(
     base: &mut GroupMutableMetadata,
     mls_group: &OpenMlsGroup,
 ) -> Result<(), ComponentSourceError> {
@@ -654,7 +630,7 @@ pub(crate) fn merge_app_data_into_mutable_metadata(
 }
 
 /// Extract [`GroupMutableMetadata`] from the AppData dictionary.
-pub(crate) fn extract_group_mutable_metadata_capability_aware(
+pub fn extract_group_mutable_metadata_capability_aware(
     mls_group: &OpenMlsGroup,
 ) -> Result<GroupMutableMetadata, ComponentSourceError> {
     let mut base =
@@ -668,7 +644,7 @@ pub(crate) fn extract_group_mutable_metadata_capability_aware(
 /// The mutable metadata lives entirely in the context extensions, so a single
 /// `StorageProvider::group_context` read (one KV round-trip, no ratchet tree)
 /// is all this needs.
-pub(crate) fn extract_group_mutable_metadata_capability_aware_from_extensions(
+pub fn extract_group_mutable_metadata_capability_aware_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMutableMetadata, ComponentSourceError> {
     let mut base =
@@ -678,7 +654,7 @@ pub(crate) fn extract_group_mutable_metadata_capability_aware_from_extensions(
 }
 
 /// Extensions-only variant of [`merge_app_data_into_mutable_metadata`].
-pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
+pub fn merge_app_data_into_mutable_metadata_from_extensions(
     base: &mut GroupMutableMetadata,
     extensions: &openmls::extensions::Extensions<openmls::group::GroupContext>,
 ) -> Result<(), ComponentSourceError> {
@@ -688,8 +664,8 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
     // `MalformedComponentValue` so this function's error shape (which
     // callers and tests match on, and `component_id()` extracts from)
     // is unchanged by the move.
-    xmtp_mls_common::group_mutable_metadata::merge_dict_into_mutable_metadata(base, extensions)
-        .map_err(|e| match e {
+    crate::group_mutable_metadata::merge_dict_into_mutable_metadata(base, extensions).map_err(|e| {
+        match e {
             GroupMutableMetadataError::MalformedComponent {
                 component_id: Some(component_id),
                 reason,
@@ -698,7 +674,8 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
                 reason,
             },
             other => ComponentSourceError::GroupMutableMetadata(other),
-        })
+        }
+    })
 }
 
 // ============================================================================
@@ -709,7 +686,7 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
 // Their canonical string form is a 64-character hex string. Anything we put
 // on the wire through the new `AppDataUpdate` path uses the
 // versioned `InboxId` newtype instead — see the module-level docs for
-// the rationale and `xmtp_mls_common::inbox_id` for the full contract.
+// the rationale and `crate::inbox_id` for the full contract.
 
 /// Decode a hex-string inbox id into an [`InboxId`].
 ///
@@ -718,12 +695,12 @@ pub(crate) fn merge_app_data_into_mutable_metadata_from_extensions(
 /// [`InboxIdError::InvalidLength`] (wrong byte length after decoding).
 /// Callers that need to distinguish the failure modes can match the
 /// inner variant.
-pub(crate) fn inbox_id_str_to_bytes(inbox_id: &str) -> Result<InboxId, ComponentSourceError> {
+pub fn inbox_id_str_to_bytes(inbox_id: &str) -> Result<InboxId, ComponentSourceError> {
     InboxId::from_hex(inbox_id).map_err(Into::into)
 }
 
 /// Read the super-admin list from the AppData dictionary.
-pub(crate) fn read_super_admin_list_from_dict(
+pub fn read_super_admin_list_from_dict(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<Vec<String>>, ComponentSourceError> {
     read_super_admin_list_from_extensions(mls_group.extensions())
@@ -733,7 +710,7 @@ pub(crate) fn read_super_admin_list_from_dict(
 /// the shim above when an `OpenMlsGroup` is at hand; this form is
 /// available primarily for unit testing and for commit-validation
 /// paths that only carry an `Extensions` reference.
-pub(crate) fn read_super_admin_list_from_extensions(
+pub fn read_super_admin_list_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<Vec<String>>, ComponentSourceError> {
     let Some(ext) = extensions.app_data_dictionary() else {
@@ -758,7 +735,7 @@ pub(crate) fn read_super_admin_list_from_extensions(
 /// Returns `Ok(None)` if the critical immutable seeds are absent.
 ///
 /// Encoding mirrors the sender-side synthesis in
-/// [`xmtp_mls_common::app_data::migration::synthesize_canonical_subset_for_validation`]:
+/// [`crate::app_data::migration::synthesize_canonical_subset_for_validation`]:
 /// - `CONVERSATION_TYPE`: 4 big-endian bytes of `ConversationType as i32`
 ///   (see `encode_conversation_type` there).
 /// - `CREATOR_INBOX_ID`: the versioned `InboxId` TLS wire form
@@ -772,7 +749,7 @@ pub(crate) fn read_super_admin_list_from_extensions(
 ///   (identical slots) up front; readers that see a 1-element set
 ///   surface `MalformedComponentValue`.
 /// - `ONESHOT_MESSAGE`: prost-encoded `OneshotMessage`.
-pub(crate) fn read_group_metadata_from_dict(
+pub fn read_group_metadata_from_dict(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<GroupMetadataReturn>, ComponentSourceError> {
     read_group_metadata_from_extensions(mls_group.extensions())
@@ -780,7 +757,7 @@ pub(crate) fn read_group_metadata_from_dict(
 
 /// Extensions-only variant of [`read_group_metadata_from_dict`]. Same
 /// rationale for the split as [`read_super_admin_list_from_extensions`].
-pub(crate) fn read_group_metadata_from_extensions(
+pub fn read_group_metadata_from_extensions(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<GroupMetadataReturn>, ComponentSourceError> {
     use prost::Message;
@@ -864,9 +841,9 @@ pub(crate) fn read_group_metadata_from_extensions(
 }
 
 /// Intermediate proto-shaped result of [`read_group_metadata_from_extensions`].
-/// Caller converts to the final [`xmtp_mls_common::group_metadata::GroupMetadata`].
+/// Caller converts to the final [`crate::group_metadata::GroupMetadata`].
 #[derive(Debug)]
-pub(crate) struct GroupMetadataReturn {
+pub struct GroupMetadataReturn {
     pub conversation_type: i32,
     pub creator_inbox_id: String,
     pub dm_members: Option<xmtp_proto::xmtp::mls::message_contents::DmMembers>,
@@ -878,11 +855,11 @@ pub(crate) struct GroupMetadataReturn {
 /// receive-side validator to bridge the dict-stored membership back
 /// into the existing `GroupMembership` Rust type without rewriting
 /// every caller.
-pub(crate) fn read_group_membership_from_dict(
+pub fn read_group_membership_from_dict(
     extensions: &Extensions<GroupContext>,
 ) -> Result<Option<xmtp_proto::xmtp::mls::message_contents::GroupMembership>, ComponentSourceError>
 {
-    use xmtp_mls_common::app_data::migration::decode_group_membership_dict;
+    use crate::app_data::migration::decode_group_membership_dict;
     use xmtp_proto::xmtp::mls::message_contents::GroupMembership as GroupMembershipProto;
 
     let Some(ext) = extensions.app_data_dictionary() else {
@@ -940,6 +917,9 @@ pub(crate) fn read_group_membership_from_dict(
 }
 
 /// Encode a list of hex inbox ids as a TLS-serialized `TlsSet<InboxId>`.
+// Only tests call it. `expect` (not `allow`) so the compiler flags this
+// once a non-test caller in this module uses it.
+#[cfg_attr(not(test), expect(dead_code))]
 fn encode_inbox_id_set(inbox_ids: &[String]) -> Result<Vec<u8>, ComponentSourceError> {
     let ids: Vec<InboxId> = inbox_ids
         .iter()
@@ -962,9 +942,7 @@ fn encode_inbox_id_set_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use prost::Message;
-    use tls_codec::VLBytes;
-    use xmtp_mls_common::{
+    use crate::{
         app_data::{
             component_permissions::component_permissions,
             component_registry::{ComponentOp, new_component_metadata},
@@ -973,6 +951,8 @@ mod tests {
         tls_map::{TlsMap, TlsMapDelta},
         tls_set::TlsKeyHash,
     };
+    use prost::Message;
+    use tls_codec::VLBytes;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy as MetadataPolicyProto,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -2145,8 +2125,8 @@ mod tests {
 
     #[xmtp_common::test]
     fn read_group_membership_happy_path_flattens_per_inbox() {
+        use crate::app_data::migration::encode_group_membership_dict;
         use std::collections::BTreeMap;
-        use xmtp_mls_common::app_data::migration::encode_group_membership_dict;
         use xmtp_proto::xmtp::mls::message_contents::{
             GroupMembershipEntry,
             group_membership_entry::{V1 as GroupMembershipEntryV1, Version},
@@ -2212,7 +2192,7 @@ mod tests {
     // and the commit validator in `validated_commit.rs`), where it
     // belongs.
     //
-    use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
+    use crate::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
     fn empty_base_gmm() -> GroupMutableMetadata {
         GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new())

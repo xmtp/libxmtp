@@ -241,7 +241,7 @@ pub enum GroupError {
     /// Failed to encode, decode, or look up a well-known component during the
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
-    ComponentSource(#[from] super::app_data::component_source::ComponentSourceError),
+    ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -490,11 +490,11 @@ pub enum MetadataPermissionsError {
     InvalidExtension(#[from] openmls::prelude::InvalidExtensionError),
     /// Failed to decode a well-known component value from the
     /// AppData dictionary on a migrated group. Surfaces
-    /// [`crate::groups::app_data::component_source::ComponentSourceError`] via `#[from]` so callers (e.g.
+    /// [`xmtp_mls_common::app_data::component_source::ComponentSourceError`] via `#[from]` so callers (e.g.
     /// `mutable_metadata()`, `metadata()`) preserve the structured
     /// source.
     #[error(transparent)]
-    ComponentSource(#[from] crate::groups::app_data::component_source::ComponentSourceError),
+    ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
 }
 
 impl RetryableError for MetadataPermissionsError {

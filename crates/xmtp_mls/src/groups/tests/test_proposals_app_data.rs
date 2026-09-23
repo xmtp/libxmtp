@@ -727,7 +727,7 @@ async fn test_update_group_description_via_app_data_update() {
 //    code path currently emits `RemoveByHash` (admin-list paths use
 //    explicit `Remove(inbox_id)` mutations). Unit coverage for the
 //    resolver lives in
-//    `crates/xmtp_mls/src/groups/app_data/component_source.rs` under
+//    `crates/xmtp_mls_common/src/app_data/component_source.rs` under
 //    `test_expand_remove_by_hash_*`; revisit if a future caller starts
 //    emitting hash-based deletes.
 /// An inline update must obey the registry policy and leave the group unchanged.
@@ -820,9 +820,10 @@ async fn test_inline_app_data_update_denied_by_registry_policy() {
 /// several AppDataUpdate proposals in one batch.
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_accumulate_app_data_updates_chains_intra_batch() {
-    use crate::groups::app_data::{accumulate_app_data_updates, component_source};
+    use crate::groups::app_data::accumulate_app_data_updates;
     use openmls::messages::proposals::AppDataUpdateOperation;
     use tls_codec::Deserialize;
+    use xmtp_mls_common::app_data::component_source;
     use xmtp_mls_common::{
         app_data::component_id::ComponentId, inbox_id::InboxId, tls_set::TlsSet,
     };

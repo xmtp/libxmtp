@@ -872,8 +872,8 @@ pub(crate) mod tests {
     #[test]
     fn process_message_with_app_data_error_commit_result_mapping() {
         use super::super::app_data::ProcessMessageWithAppDataError;
-        use super::super::app_data::component_source::ComponentSourceError;
         use openmls::group::ValidationError;
+        use xmtp_mls_common::app_data::component_source::ComponentSourceError;
 
         let wrong_epoch = GroupMessageProcessingError::OpenMlsProcessMessageWithAppData(
             ProcessMessageWithAppDataError::OpenMls(ProcessMessageError::ValidationError(

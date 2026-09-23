@@ -10,7 +10,7 @@ where
         // A parse failure here must not look identical to "disappearing
         // messages disabled" — warn before treating it as None.
         let mutable_metadata =
-            crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+            xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 mls_group,
             )
             .inspect_err(|err| {
@@ -320,7 +320,7 @@ where
     pub(super) fn read_app_data_slot(mls_group: &OpenMlsGroup) -> Option<Option<String>> {
         use xmtp_mls_common::app_data::components::metadata_attributes::AppDataComponent;
 
-        crate::groups::app_data::typed_facade::MlsGroupAppData::new(mls_group.extensions())
+        xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(mls_group.extensions())
             .get::<AppDataComponent>()
             .inspect_err(|err| tracing::debug!("could not read the app_data component: {err}"))
             .ok()
@@ -345,7 +345,7 @@ where
         }
 
         let metadata =
-            crate::groups::app_data::component_source::extract_group_mutable_metadata_capability_aware(
+            xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware(
                 mls_group,
             )
             .inspect_err(|err| {
