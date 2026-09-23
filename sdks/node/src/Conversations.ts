@@ -24,6 +24,7 @@ import { MessageStream, type MessageAcknowledgement } from "@/MessageStream";
 import {
   createStream,
   type StreamCallback,
+  type MessageStreamOptions,
   type StreamOptions,
 } from "@/utils/streams";
 
@@ -440,7 +441,7 @@ export class Conversations<ContentTypes = unknown> {
    * @see https://docs.xmtp.org/sdk/stream/#stream-methods
    */
   async streamAllMessages(
-    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+    options?: MessageStreamOptions<Message, DecodedMessage<ContentTypes>> & {
       conversationType?: ConversationType;
       consentStates?: ConsentState[];
       groupIds?: string[];
@@ -501,7 +502,7 @@ export class Conversations<ContentTypes = unknown> {
    * @see https://docs.xmtp.org/sdk/stream/#stream-methods
    */
   async streamAllGroupMessages(
-    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+    options?: MessageStreamOptions<Message, DecodedMessage<ContentTypes>> & {
       consentStates?: ConsentState[];
       groupIds?: string[];
       from?: DeliveryCursor;
@@ -523,7 +524,7 @@ export class Conversations<ContentTypes = unknown> {
    * @see https://docs.xmtp.org/sdk/stream/#stream-methods
    */
   async streamAllDmMessages(
-    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+    options?: MessageStreamOptions<Message, DecodedMessage<ContentTypes>> & {
       consentStates?: ConsentState[];
       groupIds?: string[];
       from?: DeliveryCursor;

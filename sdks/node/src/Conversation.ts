@@ -32,7 +32,7 @@ import {
 } from "@/Notifications";
 import { nsToDate } from "@/utils/date";
 import { MissingContentTypeError } from "@/utils/errors";
-import type { StreamOptions } from "@/utils/streams";
+import type { MessageStreamOptions } from "@/utils/streams";
 
 /**
  * Represents a conversation
@@ -166,7 +166,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Stream instance for new messages
    */
   async stream(
-    options?: StreamOptions<Message, DecodedMessage<ContentTypes>> & {
+    options?: MessageStreamOptions<Message, DecodedMessage<ContentTypes>> & {
       from?: DeliveryCursor;
     },
   ) {

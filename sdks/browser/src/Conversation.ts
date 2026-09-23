@@ -27,7 +27,7 @@ import type { ClientWorkerAction } from "@/types/actions";
 import type { SafeConversation } from "@/utils/conversions";
 import { nsToDate } from "@/utils/date";
 import { createMessageReader } from "@/utils/messageReader";
-import type { StreamOptions } from "@/utils/streams";
+import type { MessageStreamOptions } from "@/utils/streams";
 import type { WorkerBridge } from "@/utils/WorkerBridge";
 
 /**
@@ -486,7 +486,7 @@ export class Conversation<ContentTypes = unknown> {
    * @returns Stream instance for new messages
    */
   async stream(
-    options?: StreamOptions<
+    options?: MessageStreamOptions<
       XmtpDecodedMessage,
       DecodedMessage<ContentTypes>
     > & { from?: DeliveryCursor },

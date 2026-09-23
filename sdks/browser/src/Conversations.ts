@@ -24,6 +24,7 @@ import { createMessageReader } from "@/utils/messageReader";
 import {
   createStream,
   type StreamCallback,
+  type MessageStreamOptions,
   type StreamOptions,
 } from "@/utils/streams";
 import { uuid } from "@/utils/uuid";
@@ -486,7 +487,7 @@ export class Conversations<ContentTypes = unknown> {
    * @returns Stream instance for new messages
    */
   async streamAllMessages(
-    options?: StreamOptions<
+    options?: MessageStreamOptions<
       XmtpDecodedMessage,
       DecodedMessage<ContentTypes>
     > & {
@@ -541,7 +542,7 @@ export class Conversations<ContentTypes = unknown> {
    * @returns Stream instance for new group messages
    */
   async streamAllGroupMessages(
-    options?: StreamOptions<
+    options?: MessageStreamOptions<
       XmtpDecodedMessage,
       DecodedMessage<ContentTypes>
     > & {
@@ -564,7 +565,7 @@ export class Conversations<ContentTypes = unknown> {
    * @returns Stream instance for new DM messages
    */
   async streamAllDmMessages(
-    options?: StreamOptions<
+    options?: MessageStreamOptions<
       XmtpDecodedMessage,
       DecodedMessage<ContentTypes>
     > & {
