@@ -83,11 +83,11 @@ enum Opened {
 }
 
 type OpenFuture = BoxDynFuture<'static, Result<Opened, NetworkError>>;
-type ReadResult = (
-    Topic,
-    Option<Cursor>,
-    Result<ReceivedPage, crate::mls_store::MlsStoreError>,
-);
+enum ReadOutcome {
+    Fetched(Result<ReceivedPage, crate::mls_store::MlsStoreError>),
+    Rejected(Arc<IncomingError>),
+}
+type ReadResult = (Topic, Option<Cursor>, ReadOutcome);
 type ReadFuture = BoxDynFuture<'static, ReadResult>;
 type TargetsFuture = BoxDynFuture<'static, (Vec<(u64, u64)>, Result<TopicCursor, NetworkError>)>;
 
@@ -960,7 +960,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .iter()
                 .any(|(request, _)| matches!(request, RequestKey::Query(rejected, _) if rejected == &topic));
             let mut rejected_cause = None;
-            let mut rejected_cursor = None;
             if rejected_at.is_some() || has_rejected_query {
                 let current = match self.context.db().topic_progress(&key) {
                     Ok(progress) => progress.received,
@@ -975,7 +974,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     .iter()
                     .find(|(request, _)| request == &RequestKey::Query(topic.clone(), current))
                     .map(|(_, cause)| cause.clone());
-                rejected_cursor = Some(current);
                 if rejected_cause.is_none() && rejected_at.is_some() {
                     self.topics
                         .entry(topic.clone())
@@ -996,11 +994,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     continue;
                 }
             }
-            if let Some(cause) = rejected_cause {
-                self.apply_rejected_query(&topic, rejected_cursor.expect("rejected cursor"), cause);
-                continue;
-            }
-            if self.receipt(&topic).blocked() {
+            if self.receipt(&topic).blocked() && rejected_cause.is_none() {
                 continue;
             }
             self.topics
@@ -1009,6 +1003,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .receipt
                 .last_read = Some(now);
             let context = self.context.clone();
+            let rejected_requests = self.rejected_requests.clone();
             let limits = context
                 .incoming_runtime()
                 .policy()
@@ -1019,10 +1014,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 match cursors {
                     Ok(cursors) => {
                         let cursor = cursors.get(&topic).copied();
+                        if let Some(cursor) = cursor {
+                            let cause = rejected_requests
+                                .lock()
+                                .iter()
+                                .find(|(request, _)| {
+                                    request == &RequestKey::Query(topic.clone(), cursor)
+                                })
+                                .map(|(_, cause)| cause.clone());
+                            if let Some(cause) = cause {
+                                return (topic, Some(cursor), ReadOutcome::Rejected(cause));
+                            }
+                        }
                         let result = store.receive_topics_once_from(cursors, limits).await;
-                        (topic, cursor, result)
+                        (topic, cursor, ReadOutcome::Fetched(result))
                     }
-                    Err(error) => (topic, None, Err(error)),
+                    Err(error) => (topic, None, ReadOutcome::Fetched(Err(error))),
                 }
             }));
             break;
@@ -1136,7 +1143,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .is_some_and(|factory| factory.is_suspended())
     }
 
-    fn read_finished(&mut self, (topic, cursor, result): ReadResult) {
+    fn read_finished(&mut self, (topic, cursor, outcome): ReadResult) {
+        let result = match outcome {
+            ReadOutcome::Fetched(result) => result,
+            ReadOutcome::Rejected(cause) => {
+                self.apply_rejected_query(&topic, cursor.expect("rejected cursor"), cause);
+                return;
+            }
+        };
         match result {
             Ok(page) => {
                 self.clear_receipt_failure(&topic);
