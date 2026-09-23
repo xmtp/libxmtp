@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import { setTimeout } from "node:timers/promises";
 
 import { describe, expect, it, vi } from "vitest";
@@ -122,10 +121,14 @@ describe("Agent reconnect", () => {
     },
   );
 
-  it("should reconnect when start() fails initially", async () => {
+  it("starts offline and receives and replies after recovery", async () => {
     const agent = await createToxicAgent();
     const sender = await createClient();
     const receivedIds: string[] = [];
+    const replies: string[] = [];
+    let replyStream:
+      | Awaited<ReturnType<typeof sender.conversations.streamAllMessages>>
+      | undefined;
     const onStart = vi.fn();
     const onStop = vi.fn();
     agent.on("start", onStart);
@@ -134,29 +137,40 @@ describe("Agent reconnect", () => {
       receivedIds.push(message.id);
     });
     try {
-      await enableBackend(false);
-      const started = once(agent, "start", {
-        signal: AbortSignal.timeout(RECOVERY_WAIT.timeout),
+      replyStream = await sender.conversations.streamAllMessages({
+        onValue: (message) => {
+          replies.push(message.id);
+        },
       });
-      const restoreBackend = async () => {
-        await setTimeout(5_000);
-        expect(onStart).not.toHaveBeenCalled();
-        await enableBackend(true);
-      };
-      await Promise.all([agent.start(), started, restoreBackend()]);
-
+      await enableBackend(false);
       const group = await sender.conversations.createGroup([
         agent.client.inboxId,
       ]);
-      const messageId = await group.sendText("after startup recovery");
-      await expect.poll(() => receivedIds, DELIVERY_WAIT).toEqual([messageId]);
+      const messageId = await group.sendText("during startup outage");
+      await agent.start();
+      expect(onStart).toHaveBeenCalledTimes(1);
+      await setTimeout(5_000);
+      expect(receivedIds).toEqual([]);
+      await enableBackend(true);
+      await expect.poll(() => receivedIds, RECOVERY_WAIT).toEqual([messageId]);
+      const afterId = await group.sendText("after startup recovery");
+      await expect
+        .poll(() => receivedIds, DELIVERY_WAIT)
+        .toEqual([messageId, afterId]);
+      const recovered = await agent.client.conversations.getConversationById(
+        group.id,
+      );
+      expect(recovered).toBeDefined();
+      const replyId = await recovered!.sendText("startup recovery reply");
+      await expect.poll(() => replies, DELIVERY_WAIT).toContain(replyId);
       expect(onStart).toHaveBeenCalledTimes(1);
       expect(onStop).not.toHaveBeenCalled();
     } finally {
       await enableBackend(true);
       await agent.stop();
+      await replyStream?.end();
       await Promise.all([agent.client.close(), sender.close()]);
     }
     expect(onStop).toHaveBeenCalledTimes(1);
-  });
+  }, 180_000);
 });
