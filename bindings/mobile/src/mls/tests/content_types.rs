@@ -77,25 +77,15 @@ async fn test_can_send_and_receive_reaction() {
     );
     assert_eq!(reaction.schema, FfiReactionSchema::Unicode);
 
-    // Test find_messages_with_reactions query
-    let messages_with_reactions: Vec<FfiMessageWithReactions> = alix_conversation
-        .find_messages_with_reactions(FfiListMessagesOptions::default())
+    // Enriched messages attach reactions to their parent.
+    let messages = alix_conversation
+        .find_enriched_messages(FfiListMessagesOptions::default())
         .unwrap();
-    assert_eq!(messages_with_reactions.len(), 2);
-    let message_with_reactions = &messages_with_reactions[1];
-    assert_eq!(message_with_reactions.reactions.len(), 1);
-    let message_content = message_with_reactions.reactions[0].content.clone();
-    let slice: &[u8] = message_content.as_slice();
-    let encoded_content = EncodedContent::decode(slice).unwrap();
-    let reaction = ReactionV2::decode(encoded_content.content.as_slice()).unwrap();
-    assert_eq!(reaction.content, "👍");
-    assert_eq!(reaction.action, ReactionAction::Added as i32);
-    assert_eq!(reaction.reference_inbox_id, alix.inbox_id());
-    assert_eq!(
-        reaction.reference,
-        hex::encode(message_to_react_to.id.clone())
-    );
-    assert_eq!(reaction.schema, ReactionSchema::Unicode as i32);
+    let parent = messages
+        .iter()
+        .find(|message| message.id() == message_to_react_to.id)
+        .unwrap();
+    assert_eq!(parent.reactions().len(), 1);
 }
 
 #[tokio::test]

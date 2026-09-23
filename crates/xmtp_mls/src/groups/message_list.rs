@@ -350,7 +350,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    async fn test_find_messages_with_reactions() {
+    async fn test_find_messages_v2_with_reactions() {
         let (group, context) = setup_test_group().await;
         let conn = context.db();
 

@@ -244,20 +244,6 @@ impl FfiConversation {
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
-    pub fn find_messages_with_reactions(
-        &self,
-        opts: FfiListMessagesOptions,
-    ) -> Result<Vec<FfiMessageWithReactions>, FfiError> {
-        let messages: Vec<FfiMessageWithReactions> = self
-            .inner
-            .find_messages_with_reactions(&opts.into())?
-            .into_iter()
-            .map(|msg| msg.into())
-            .collect();
-        Ok(messages)
-    }
-
-    #[tracing::instrument(level = "debug", skip_all)]
     pub fn find_enriched_messages(
         &self,
         opts: FfiListMessagesOptions,

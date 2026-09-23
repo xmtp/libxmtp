@@ -88,25 +88,6 @@ class EnrichedMessagesTests: XCTestCase {
 		XCTAssertTrue(v2ContentTypes.contains("group_updated"))
 		XCTAssertFalse(v2ContentTypes.contains("reaction"), "V2 should not have reaction as separate message")
 
-		// Additional test: Verify messagesWithReactions V1 behavior matches V2 reactions property
-		let messagesWithReactionsV1 = try await group.messagesWithReactions()
-
-		// V1 messagesWithReactions should have fewer messages than regular messages
-		// (it excludes reactions and only includes messages that have reactions)
-		let v1MessagesWithChildReactions = messagesWithReactionsV1.filter { ($0.childMessages?.count ?? 0) > 0 }
-		XCTAssertEqual(v1MessagesWithChildReactions.count, 1, "Should have 1 message with reactions in V1")
-
-		if let v1MessageWithReaction = v1MessagesWithChildReactions.first {
-			XCTAssertEqual(v1MessageWithReaction.id, textId1)
-			XCTAssertEqual(v1MessageWithReaction.childMessages?.count, 1)
-
-			if let v1ChildReaction = v1MessageWithReaction.childMessages?.first {
-				let v1ReactionContent: Reaction = try v1ChildReaction.content()
-				XCTAssertEqual(v1ReactionContent.content, "👍")
-				XCTAssertEqual(v1ReactionContent.reference, textId1)
-			}
-		}
-
 		try fixtures.cleanUpDatabases()
 	}
 

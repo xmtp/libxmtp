@@ -12,16 +12,16 @@ use crate::{
     FfiDecodedMessage, FfiDecodedMessageBody, FfiDecodedMessageContent, FfiDirection, FfiError,
     FfiGroupMembershipState, FfiGroupMessageKind, FfiGroupPermissionsOptions, FfiGroupQueryOrderBy,
     FfiIntent, FfiListConversationsOptions, FfiListMessagesOptions, FfiMessageDisappearingSettings,
-    FfiMessageWithReactions, FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature,
-    FfiPermissionPolicy, FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction,
-    FfiReactionPayload, FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply,
-    FfiSendMessageOpts, FfiSignatureKind, FfiTransactionReference, GenericError,
-    apply_signature_request, connect_to_backend, decode_actions, decode_attachment,
-    decode_delete_message, decode_group_updated, decode_intent, decode_leave_request,
-    decode_multi_remote_attachment, decode_reaction, decode_read_receipt, decode_remote_attachment,
-    decode_reply, decode_text, decode_transaction_reference, encode_actions, encode_attachment,
-    encode_delete_message, encode_intent, encode_leave_request, encode_multi_remote_attachment,
-    encode_reaction, encode_read_receipt, encode_remote_attachment, encode_reply, encode_text,
+    FfiMetadataField, FfiMultiRemoteAttachment, FfiPasskeySignature, FfiPermissionPolicy,
+    FfiPermissionPolicySet, FfiPermissionUpdateType, FfiReactionAction, FfiReactionPayload,
+    FfiReactionSchema, FfiReadReceipt, FfiRemoteAttachment, FfiReply, FfiSendMessageOpts,
+    FfiSignatureKind, FfiTransactionReference, GenericError, apply_signature_request,
+    connect_to_backend, decode_actions, decode_attachment, decode_delete_message,
+    decode_group_updated, decode_intent, decode_leave_request, decode_multi_remote_attachment,
+    decode_reaction, decode_read_receipt, decode_remote_attachment, decode_reply, decode_text,
+    decode_transaction_reference, encode_actions, encode_attachment, encode_delete_message,
+    encode_intent, encode_leave_request, encode_multi_remote_attachment, encode_reaction,
+    encode_read_receipt, encode_remote_attachment, encode_reply, encode_text,
     encode_transaction_reference, get_inbox_id_for_identifier, get_newest_message_metadata,
     identity::FfiIdentifier,
     inbox_owner::FfiInboxOwner,
@@ -78,10 +78,7 @@ use xmtp_mls::{
     utils::{PasskeyUser, Tester, TesterBuilder},
     worker::device_sync::worker::SyncMetric,
 };
-use xmtp_proto::xmtp::mls::message_contents::{
-    ContentTypeId, EncodedContent,
-    content_types::{ReactionAction, ReactionSchema, ReactionV2},
-};
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 // Test module declarations
 mod archive;

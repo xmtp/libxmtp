@@ -84,7 +84,6 @@ public enum MessageSortBy {
 public struct DecodedMessage: Identifiable {
 	let ffiMessage: FfiMessage
 	private let decodedContent: Any?
-	public let childMessages: [DecodedMessage]?
 	/// Cursor for this stream handoff. Reading it does not acknowledge delivery.
 	public let deliveryCursor: FfiDeliveryCursor?
 
@@ -208,46 +207,7 @@ public struct DecodedMessage: Identifiable {
 		let decodedContent: Any = try encodedContent.decoded()
 		return DecodedMessage(
 			ffiMessage: ffiMessage, decodedContent: decodedContent,
-			childMessages: nil, deliveryCursor: deliveryCursor
+			deliveryCursor: deliveryCursor
 		)
-	}
-
-	public static func create(ffiMessage: FfiMessageWithReactions)
-		-> DecodedMessage?
-	{
-		do {
-			let encodedContent = try EncodedContent(
-				serializedBytes: ffiMessage.message.content
-			)
-			if encodedContent.type == ContentTypeGroupUpdated,
-			   ffiMessage.message.kind != .membershipChange
-			{
-				throw DecodedMessageError.decodeError(
-					"Error decoding group membership change"
-				)
-			}
-			// Decode the content once during creation
-			let decodedContent: Any = try encodedContent.decoded()
-
-			let childMessages = try ffiMessage.reactions.map { reaction in
-				let encodedContent = try EncodedContent(
-					serializedBytes: reaction.content
-				)
-				// Decode the content once during creation
-				let decodedContent: Any = try encodedContent.decoded()
-				return DecodedMessage(
-					ffiMessage: reaction, decodedContent: decodedContent,
-					childMessages: nil, deliveryCursor: nil
-				)
-			}
-
-			return DecodedMessage(
-				ffiMessage: ffiMessage.message, decodedContent: decodedContent,
-				childMessages: childMessages, deliveryCursor: nil
-			)
-		} catch {
-			print("Error creating Message: \(error)")
-			return nil
-		}
 	}
 }

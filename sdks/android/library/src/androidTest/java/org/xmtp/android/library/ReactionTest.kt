@@ -158,15 +158,11 @@ class ReactionTest : BaseInstrumentedTest() {
             assertEquals(ReactionSchema.Unicode, content?.schema)
         }
 
-        val messagesWithReactions: List<DecodedMessage> =
-            runBlocking {
-                alixConversation.messagesWithReactions()
-            }
-        assertEquals(messagesWithReactions.size, 2)
-        assertEquals(messagesWithReactions[0].id, messageToReact.id)
-        val reactionContent: Reaction? =
-            messagesWithReactions[0].childMessages!![0].let { it.content()!! }
-        assertEquals(reactionContent?.reference, messageToReact.id)
+        val enriched = runBlocking { alixConversation.enrichedMessages() }
+        val parent = enriched.first { it.id == messageToReact.id }
+        assertEquals(1, parent.reactions.size)
+        val reactionContent: Reaction? = parent.reactions[0].content()
+        assertEquals(messageToReact.id, reactionContent?.reference)
     }
 
     @Test
@@ -209,17 +205,14 @@ class ReactionTest : BaseInstrumentedTest() {
                 options = SendOptions(contentType = ContentTypeReaction),
             )
 
-            // Verify both reactions appear in messagesWithReactions
-            val messagesWithReactions = runBlocking { alixConversation.messagesWithReactions() }
-
-            assertEquals(2, messagesWithReactions.size)
-            assertEquals(messageToReact.id, messagesWithReactions[0].id)
-            assertEquals(2, messagesWithReactions[0].childMessages!!.size)
+            // Verify both stored reaction types through enriched messages.
+            val enriched = alixConversation.enrichedMessages()
+            val parent = enriched.first { it.id == messageToReact.id }
+            assertEquals(2, parent.reactions.size)
 
             // Verify both reaction contents
             val childContents =
-                messagesWithReactions[0]
-                    .childMessages!!
+                parent.reactions
                     .mapNotNull {
                         val content = it.content<Reaction>()
                         content?.content

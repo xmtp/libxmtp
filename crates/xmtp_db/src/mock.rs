@@ -415,12 +415,6 @@ mock! {
             offset: i64,
         ) -> Result<Vec<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
-        fn get_group_messages_with_reactions(
-            &self,
-            group_id: &GroupId,
-            args: &crate::group_message::MsgQueryArgs,
-        ) -> Result<Vec<crate::group_message::StoredGroupMessageWithReactions>, crate::ConnectionError>;
-
         fn get_inbound_relations<'a>(
             &self,
             group_id: &'a GroupId,

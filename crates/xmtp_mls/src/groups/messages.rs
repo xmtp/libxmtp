@@ -406,17 +406,6 @@ where
         Ok(count)
     }
 
-    /// Query the database for stored messages. Optionally filtered by time, kind, delivery_status
-    /// and limit
-    pub fn find_messages_with_reactions(
-        &self,
-        args: &MsgQueryArgs,
-    ) -> Result<Vec<StoredGroupMessageWithReactions>, GroupError> {
-        let conn = self.context.db();
-        let messages = conn.get_group_messages_with_reactions(&self.group_id, args)?;
-        Ok(messages)
-    }
-
     /// Query for enriched messages (with reactions, replies, and deletion status)
     #[xmtp_common::mls_span]
     pub fn find_enriched_messages(
