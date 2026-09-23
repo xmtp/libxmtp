@@ -32,6 +32,7 @@ Out of scope: which member may make a given change (`PERM`), component identifie
 | `META` | Owns all component identifiers and encodings, except the `GroupMembershipEntry` payload below. META-064 owns update ordering; META-010 owns byte limits. |
 | `PROC` | PROC-011 and PROC-012 own terminal advancement and holding. This spec supplies the commit-specific checks. |
 | `FORK` | Owns re-add requests. GMOD-015 is the validation exception they rely on. |
+| `EVENT` | EVENT-001 reports applied membership and metadata changes, removal, and a group pause. |
 
 ## Terms
 

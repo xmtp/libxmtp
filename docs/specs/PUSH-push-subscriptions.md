@@ -31,6 +31,7 @@ Out of scope: request authentication on the notification RPCs (AUTH-001, AUTH-00
 | `TOPIC` | TOPIC-001 gives the kind byte and identifier of a group-message topic and a welcome topic, the two kinds a subscription may carry. |
 | `SYNC` | SYNC-015 and SYNC-022 own the inbox's 42-byte root HMAC key. This spec owns what is derived from it. |
 | `OPS` | OPS-014 keeps request data out of telemetry; OPS-017 owns the metric catalogue; OPS-007 and OPS-008 own shutdown as a client sees it. |
+| `EVENT` | EVENT-001 reports when the stored notification state becomes failed. |
 
 API-203 defines the closed allocation boundary; PUSH-216 requires that a new subscription reads it in the transaction that stores the subscription. API-291 requires that the boundary never decreases.
 

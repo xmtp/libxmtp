@@ -215,7 +215,7 @@ mod test {
     use futures::StreamExt;
     use xmtp_cryptography::utils::generate_local_wallet;
 
-    // verifies: CONF-022
+    // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_configuration_latch_fences_queued_conversations() {
         use crate::{

@@ -319,7 +319,7 @@ async fn a_revocation_request_is_bound_to_the_accepted_chains() {
 
 // Once latched, every later call fails with the reason the
 // client latched, and the client's cancellation token closes its streams.
-// verifies: CONF-022
+// verifies: CONF-075
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_latched_client_fails_every_later_call() {
     use crate::context::XmtpSharedContext;

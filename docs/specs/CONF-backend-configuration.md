@@ -28,6 +28,7 @@ Out of scope: the backend's configuration file and its keys; credentials and aut
 | [AUTH](AUTH-backend-auth.md#6-client-credentials) | Owns what a credential is, when a client attaches one, and which failures are terminal. This spec owns only what is published about it. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns what the backend does when a request exceeds a limit, and the fixed transport ceiling. This spec owns the published values and what a client does before it sends. |
 | [OPS](OPS-backend-operations.md) | Owns retention enforcement, health, and the identifier's use in telemetry. |
+| `EVENT` | EVENT-016 keeps local event subscriptions open after a server rejection. EVENT-001 owns the `client.rejected_by_server` event. |
 
 ## Terms
 
@@ -158,7 +159,7 @@ message GetConfigurationResponse {
 
 A client resolves its snapshot once, when it is created, and reads it for its life. The client configures itself from the values it receives from the server. A changed value takes effect for a client created afterwards.
 
-Two conditions stop a client: a different deployment answering, and a raised minimum version. Each is a latch held for the life of the client. It fails the operations that would reach the backend and closes every open stream with its error. Which latch a client reports when both arise is the implementation's choice. PROC-002 owns durable receipt and PROC-005 owns processed positions. Closing a stream can leave received work above the processed position; it does not erase that work.
+Two conditions stop a client: a different deployment answering, and a raised minimum version. Each is a latch held for the life of the client. It fails the operations that would reach the backend and closes streams that hold network interest with its error. Local event subscriptions stay open under EVENT-016. Which latch a client reports when both arise is the implementation's choice. PROC-002 owns durable receipt and PROC-005 owns processed positions. Closing a stream can leave received work above the processed position; it does not erase that work.
 
 A field the snapshot does not carry, or carries as 0 or empty, takes the compiled default below, which is the value the backend defaults the same key to.
 
@@ -200,7 +201,7 @@ A field the snapshot does not carry, or carries as 0 or empty, takes the compile
 | --- | --- | --- | --- |
 | CONF-020 | One snapshot per client | The client MUST NOT replace its snapshot after it is created, whatever a later fetch returns. | |
 | CONF-025 | Absent means the compiled default | When a field of a snapshot is 0, empty, or absent, the client MUST use the value the table above gives for that field. | |
-| CONF-022 | A latch stops the client | While the client holds a latch, every operation that would publish an envelope, publish or apply an identity update, or sync a group MUST fail with the latch's error before any request is sent, and every open stream MUST close with that error. | A latched client has lost its binding or been refused by the deployment. Work it continues is work against a backend that will not honour it. |
+| CONF-075 | A latch stops network work | While the client holds a latch, every operation that would publish an envelope, publish or apply an identity update, or sync a group MUST fail with the latch's error before any request is sent, and every open stream that holds network interest MUST close with that error. | A latched client has lost its binding or been refused by the deployment. Work it continues is work against a backend that will not honour it. |
 
 ## 4. Fetching, storing, and binding
 

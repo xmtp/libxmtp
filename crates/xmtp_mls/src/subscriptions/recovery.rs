@@ -12,7 +12,7 @@ pub(crate) const RECOVERY_POLL: Duration = Duration::from_secs(1);
 
 /// Source retryability describes one response. Explicit remote cancellation,
 /// authorization refusals, and configuration latches end recovery immediately.
-// implements: PROC-021, AUTH-022, AUTH-025, CONF-022, API-284
+// implements: PROC-021, AUTH-022, AUTH-025, CONF-075, API-284
 fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
     use xmtp_common::RetryableError;
     use xmtp_proto::api::{ApiClientError, AuthError};
@@ -379,7 +379,7 @@ mod tests {
     }
     }
 
-    // verifies: AUTH-025, CONF-022
+    // verifies: AUTH-025, CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     fn only_credentials_requiring_app_action_and_configuration_latches_are_terminal() {
         use xmtp_proto::api::{ApiClientError, AuthError, NetworkError};

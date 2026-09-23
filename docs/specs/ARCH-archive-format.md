@@ -34,6 +34,7 @@ Out of scope: what a consent record means and how two records merge (CONS-002, C
 | `JOIN-080` | Owns activation of a restored group by a validated Welcome; JOIN-042 applies only after a removal commit. |
 | META | Owns the meaning of the metadata attributes and admin lists a group element carries. |
 | `SEND-002` | Owns the message id that an import uses for deduplication. |
+| EVENT | EVENT-001 reports a changed import once it ends; EVENT-004 excludes events for each stored element. |
 
 ## Terms
 

@@ -169,7 +169,7 @@ impl ServerConfigurationHandle {
 
     /// Fail when a latch is set. Every call that reaches the network goes
     /// through here.
-    // implements: CONF-022
+    // implements: CONF-075
     pub fn check(&self) -> Result<(), ClientError> {
         match self.latch.read().as_ref() {
             Some(latch) => Err(latch.into()),

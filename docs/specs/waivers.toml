@@ -536,3 +536,248 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Registration reports complete on the publish receipt. The QueryNewest wait on the identity topic exists as a separate call that every binding runs only when the app opts in, and no test establishes that registration waits for it."
+
+[[waiver]]
+id = "EVENT-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No shared client event bus emits the 19 specified change kinds: conversation.joined, conversation.removed, conversation.membership_changed, conversation.metadata_changed, conversation.paused, message.received, message.status_changed, message.deleted, message.expired, consent.changed, hmac_keys.updated, identity.registered, identity.own_installation_added, identity.own_installation_revoked, client.rejected_by_server, client.lockout_changed, conversation.fork_detected, notifications.failed, and archive.restored."
+
+[[waiver]]
+id = "EVENT-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The specified event kinds and payloads have no versioned client event catalogue."
+
+[[waiver]]
+id = "EVENT-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The current local event channels have no shared rule that excludes every event naming a sync group."
+
+[[waiver]]
+id = "EVENT-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Archive import does not use the specified client event bus or suppress its per-element kinds through that bus."
+
+[[waiver]]
+id = "EVENT-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No conversation.joined payload records whether this installation created or joined the group."
+
+[[waiver]]
+id = "EVENT-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No conversation.removed payload distinguishes a published leave from removal by another member."
+
+[[waiver]]
+id = "EVENT-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No message.deleted payload distinguishes an app-requested local deletion from a received deletion."
+
+[[waiver]]
+id = "EVENT-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No client.rejected_by_server payload includes the minimum version for a version rejection."
+
+[[waiver]]
+id = "EVENT-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No consent.changed payload carries the record entity and new stored state."
+
+[[waiver]]
+id = "EVENT-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Current event sends are not collected and released only after the relevant stored change is readable."
+
+[[waiver]]
+id = "EVENT-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Current event channels do not preserve the specified per-group, per-entity, and transaction event order."
+
+[[waiver]]
+id = "EVENT-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No local app event subscription API exists to establish that starting, holding, or ending one creates no network interest."
+
+[[waiver]]
+id = "EVENT-014"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription API registers before it returns and limits delivery to later emissions."
+
+[[waiver]]
+id = "EVENT-015"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription API hands off events in client emission order."
+
+[[waiver]]
+id = "EVENT-016"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "Current latch handling closes local streams; the event subscription that must survive a server rejection does not exist."
+
+[[waiver]]
+id = "EVENT-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No archive.restored payload reports whether an import ended with an error."
+
+[[waiver]]
+id = "EVENT-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No message.received payload names the stored group for a stitched DM message."
+
+[[waiver]]
+id = "EVENT-019"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No conversation.metadata_changed payload names changed components and fields."
+
+[[waiver]]
+id = "EVENT-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription filters kinds, groups, stitched DMs, and content types before queueing."
+
+[[waiver]]
+id = "EVENT-021"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event filter selects received replies and reactions that reference an own message."
+
+[[waiver]]
+id = "EVENT-022"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No event subscription hands off lagged regardless of its kind filter."
+
+[[waiver]]
+id = "EVENT-023"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No conversation.joined payload carries the Welcome adder inbox."
+
+[[waiver]]
+id = "EVENT-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The specified event payload members and their source values are not implemented."
+
+[[waiver]]
+id = "EVENT-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No per-client event bus and app subscription API enforce instance-local delivery when clients share storage or credentials."
+
+[[waiver]]
+id = "EVENT-030"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription has the 1024-event total bound and discard count."
+
+[[waiver]]
+id = "EVENT-031"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription reports its discarded-event count before later events."
+
+[[waiver]]
+id = "EVENT-033"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No app event subscription fan-out prevents one full queue or running callback from delaying another."
+
+[[waiver]]
+id = "EVENT-040"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event API hands off an untyped kind as UnknownEvent."
+
+[[waiver]]
+id = "EVENT-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event filter can select a kind by name without a typed form."
+
+[[waiver]]
+id = "EVENT-050"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event callback dispatcher serializes callbacks of one subscription."
+
+[[waiver]]
+id = "EVENT-051"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event callback dispatcher contains a callback failure and continues delivery."
+
+[[waiver]]
+id = "EVENT-052"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event callback dispatcher completes same-client operations called from a callback."
+
+[[waiver]]
+id = "EVENT-053"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event subscription end operation stops later handoffs and pending iterator reads."
+
+[[waiver]]
+id = "EVENT-054"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event subscription is ended by closing its client."
+
+[[waiver]]
+id = "EVENT-055"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event API enforces the limit of 128 active subscriptions per client."

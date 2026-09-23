@@ -634,7 +634,7 @@ max_group_members = 23
     // deployment closes the open streams too. The worker cancels after its
     // turn; the refresh has to cancel on its own way out, or a database known
     // to belong elsewhere keeps serving its subscriptions.
-    // verifies: CONF-022
+    // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_explicit_refresh_that_meets_another_deployment_cancels_the_client() {
         use crate::subscriptions::SubscribeError;

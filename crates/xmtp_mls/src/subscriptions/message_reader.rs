@@ -233,7 +233,7 @@ mod tests {
     use xmtp_db::Store;
     use xmtp_proto::types::Cursor;
 
-    // verifies: CONF-022
+    // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn configuration_latch_ends_a_pending_message_read_with_its_cause() {
         use crate::{client::ClientError, server_configuration::ConfigurationLatch};

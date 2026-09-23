@@ -21,6 +21,7 @@ Out of scope: backend wire formats and errors (API); commit and proposal validat
 | GMOD | Owns commit and proposal validation. This spec owns whether a failure advances processing. |
 | SEND | Owns outgoing attempts. This spec owns ordered receipt of their echoes. |
 | AUTH | Owns credential failures and lockout. This spec owns recovery for other connection failures. |
+| EVENT | EVENT-001 reports stored message changes to an app; this spec owns durable receipt and stream delivery. |
 
 ## Terms
 
@@ -59,7 +60,7 @@ A target names work to fetch. It does not establish receipt. Push metadata, a pu
 
 Group and identity processing completes a prefix. A held head blocks later envelopes on that topic. Independent topics and independent Welcomes can still progress. Processing a received envelope can produce messages, update group state, or reject input without producing either.
 
-`P` never exceeds `F`. A closed stream can leave `F` above `P`: the client has stored ciphertext that it has not processed. CONF-022 closes streams on a latch; it does not erase that work or require the two positions to be equal. JOIN section 7 compares its anchor with `P`, not with `F`.
+`P` never exceeds `F`. A closed stream can leave `F` above `P`: the client has stored ciphertext that it has not processed. CONF-075 closes streams with network interest on a latch; it does not erase that work or require the two positions to be equal. JOIN section 7 compares its anchor with `P`, not with `F`.
 
 A valid Welcome starts or resumes the group at its join anchor under JOIN-046. Envelopes below that anchor do not belong to the installed membership; envelopes above it remain work for that membership.
 
@@ -128,7 +129,7 @@ The app selects network interests, including denied conversations. Consent filte
 
 The recovery rules below also cover silence and Query fallback. Silence is three advertised keepalive intervals without an inbound frame while the client is able to read, using 30 seconds for an absent or zero interval. Client backpressure is not wire silence. For a send or supplied target, a healthy receiver has a receipt wait of 1 second from the operation's start of receipt waiting; partial receipt does not restart it. An explicit sync starts Query immediately. Once `F >= H`, only processing remains.
 
-AUTH-025 owns credential lockout and terminal credential failures. CONF-022 owns configuration latches. Terminal credential failures and configuration latches close a stream. A credential cool-down alone does not close it; the recovery episode limits still apply. An explicit remote cancellation ends the affected stream. A timeout or cancellation caused by the local transport uses normal recovery. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
+AUTH-025 owns credential lockout and terminal credential failures. CONF-075 owns configuration latches. Terminal credential failures and configuration latches close a stream with network interest. A credential cool-down alone does not close it; the recovery episode limits still apply. An explicit remote cancellation ends the affected stream. A timeout or cancellation caused by the local transport uses normal recovery. Other transport errors retain pending work and use reconnect backoff. API-284 still prohibits an unchanged invalid request, so recovery cannot repeat that request unchanged.
 
 Each app stream has its own recovery budget. Initial connection starts an episode. A later episode starts when that stream detects a failure. Ten failed recovery cycles or ten minutes without sustained recovery exhaust the budget. A failed fallback Query spends one cycle only for streams that select its topic. Sustained recovery means that the stream's selected registrations have remained active for 30 seconds under the wire-silence rules. A selected topic that is paused or blocked does not prove recovery. Application messages are not required. Opening a socket alone does not reset the budget. Time spent in credential cool-down counts toward the episode deadline. Waiting alone adds no failed recovery cycle.
 

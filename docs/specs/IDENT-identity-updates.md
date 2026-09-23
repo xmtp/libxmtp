@@ -30,6 +30,7 @@ Out of scope: how an identity update is published, stored, ordered, and read bac
 | `JOIN` | Owns the key package an installation publishes (JOIN-001) and the check of a group's leaves against association state at a sequence id (JOIN-052, JOIN-053, JOIN-059). |
 | `API` | Owns the publish and query contract an identity update travels under, the sequence id it receives, the one-snapshot admission and its `ABORTED` (API-232), duplicates (API-222), the resolution RPC (API-270), the verifier RPC, and the error codes. This spec owns what the validation in API-232 checks. |
 | `GMOD-029` | Owns how a member commits the installations an inbox gained or lost between two sequence ids. |
+| `EVENT` | EVENT-001 reports own installation additions, revocations, and completed registration. |
 
 ## Terms
 

@@ -33,6 +33,7 @@ Out of scope: how records travel between installations (`SYNC`), the DM identifi
 | `PUSH` | Owns which conversations produce push notifications. It reads conversation consent. |
 | FORK-053, FORK-060 | Own acceptance and response to readd requests, including consent checks. |
 | `ARCH` | Owns the archive. An imported record is merged under CONS-010. |
+| `EVENT` | EVENT-001 owns `consent.changed` emission. EVENT-030 and EVENT-031 own queue loss and the `lagged` report. |
 
 ## Terms
 
@@ -134,11 +135,11 @@ A message listing within one conversation is not filtered: the app named the con
 
 ## 5. What an app can read and set
 
-An app reads consent to build its inbox and its request list, sets it when the user decides, and follows changes that arrive from the user's other installations. A change the app is not told about leaves the app's view behind the client's, and the app cannot poll every entity.
+An app reads consent to build its inbox and its request list, sets it when the user decides, and follows changes that arrive from the user's other installations. A `consent.changed` event tells the app to read the record again. If the event queue discards a change, EVENT-031 reports it through `lagged`.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| CONS-040 | Read, set, and follow consent | An SDK MUST let an app read and set the consent of a conversation and of an inbox, and MUST deliver to a subscribed app every consent record whose stored state changes, whether by an app act on this installation or by a record received from a peer installation. | |
+| CONS-041 | Read set and follow consent | An SDK MUST let an app read and set the consent of a conversation and of an inbox, and subscribe to `consent.changed` events under EVENT-001, subject to EVENT-030 and EVENT-031. | An app cannot update its view after a change on another installation without a change signal. |
 
 ## Known limitations
 

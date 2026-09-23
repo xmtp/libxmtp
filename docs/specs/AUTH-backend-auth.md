@@ -35,6 +35,7 @@ Out of scope: the presence rule for `auth.enabled` and what is published about a
 | `CONF` | Owns whether an `[auth]` table must state `enabled` (CONF-005), that a disabled table is not validated (CONF-066), the published auth summary (CONF-068), the unauthenticated configuration read (CONF-010, CONF-029), and the deployment identifier (CONF-002). This spec owns every other check of an enabled table. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns general gRPC status codes. This spec owns the auth-specific `UNAUTHENTICATED` and `PERMISSION_DENIED` conditions under AUTH-014. |
 | `OPS` | Owns the metric catalogue, including `xmtp_auth_rejections_total` (OPS-017), and the drain that AUTH-019 triggers (OPS-007, OPS-008). This spec owns the reason vocabulary. |
+| `EVENT` | EVENT-001 reports entry to and exit from credential lockout. |
 
 ## Terms
 

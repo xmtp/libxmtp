@@ -34,6 +34,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 | `DMS` | Reads `CONVERSATION_TYPE` and `DM_MEMBERS` from this spec and owns what a DM is. |
 | `JOIN-057`, `GMOD-022`, `GMOD-025`, `GMOD-026`, `GMOD-027` | Own Welcome holds, commit pauses, the monotonic floor, and version comparison. |
 | `FORK-010`, `FORK-050` | Own the signer key and the one-shot recovery payload. |
+| `EVENT` | EVENT-001 reports changed metadata and a group pause; EVENT-019 names changed metadata items. |
 
 ## Terms
 

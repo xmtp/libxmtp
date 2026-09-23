@@ -42,6 +42,7 @@ Out of scope: commit validation, the membership component, and the protocol-vers
 | [META section 2](META-group-metadata.md#2-well-known-components) | Owns the `COMMIT_LOG_SIGNER`, `ONESHOT_MESSAGE`, and minimum protocol version components. This spec states their use. |
 | GMOD-021, GMOD-025 | Own commit validation and the hold below a group's minimum protocol version. |
 | PROC-011, PROC-012 | Own terminal rejection, which FORK-002 records, and unresolved work, which it does not. |
+| `EVENT` | EVENT-001 reports when a conversation's fork state becomes forked. |
 
 ## Terms
 

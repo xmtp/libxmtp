@@ -30,6 +30,10 @@ In scope: what a published key package carries and advertises, its lifetime and 
 
 Out of scope: steady-state commit validation and how a membership change is proposed and committed (`GMOD`), the association log a joiner resolves membership against (`IDENT`), the DM identifier and stitching (`DMS`), consent set on join (`CONS`), the sync conversation's own trust rule (`SYNC`), the policy engine (`PERM`), the metadata model (`META`), topic layout (`TOPIC`), and the publish and query contract (`API`).
 
+| Related | Relation |
+| --- | --- |
+| `EVENT` | EVENT-001 reports a joined conversation after the client stores it. EVENT-005 and EVENT-023 own the join origin and adder in the event payload. |
+
 ## Terms
 
 | Term | Meaning |

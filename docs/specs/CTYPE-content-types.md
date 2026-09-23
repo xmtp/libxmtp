@@ -31,6 +31,7 @@ Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an
 | SYNC | Owns the sync message, an `EncodedContent` of its own type whose schema it states. |
 | `GMOD-034`, `GMOD-035` | Own transcript derivation and the publication restriction referenced in section 7; GMOD owns group changes. |
 | ARCH | Carries a stored message's `EncodedContent` bytes unchanged (ARCH-008), so a type a client does not decode survives export and import. |
+| EVENT | EVENT-020 filters received messages by content type. EVENT-021 tests reply and reaction references. |
 
 ## Terms
 
