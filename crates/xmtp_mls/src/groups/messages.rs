@@ -406,19 +406,6 @@ where
         Ok(count)
     }
 
-    /// Query for enriched messages (with reactions, replies, and deletion status)
-    #[xmtp_common::mls_span]
-    pub fn find_enriched_messages(
-        &self,
-        args: &MsgQueryArgs,
-    ) -> Result<Vec<crate::messages::decoded_message::DecodedMessage>, EnrichMessageError> {
-        let conn = self.context.db();
-        let messages = conn.get_group_messages(&self.group_id, args)?;
-        let enriched =
-            crate::messages::enrichment::enrich_messages(conn, &self.group_id, messages)?;
-        Ok(enriched)
-    }
-
     pub fn get_last_read_times(&self) -> Result<LatestMessageTimeBySender, GroupError> {
         let conn = self.context.db();
         let latest_read_receipt =

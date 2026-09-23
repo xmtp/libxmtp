@@ -338,7 +338,7 @@ async fn test_true_out_of_order_deletion_by_sender() {
     assert!(alix_conn.is_message_deleted(&future_message_id)?);
 
     // Step 5: Verify enrichment correctly shows the message as deleted
-    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
     let deleted_msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
     assert!(
         deleted_msg.is_some(),
@@ -455,7 +455,7 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
     assert!(bo_conn.is_message_deleted(&future_message_id)?);
 
     // Enrichment should show original message since deletion is unauthorized
-    let enriched = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
     let msg = enriched.iter().find(|m| m.metadata.id == future_message_id);
     assert!(msg.is_some(), "Message should be in enriched results");
 
@@ -494,7 +494,7 @@ async fn test_enrichment_with_deleted_messages() {
     bo_group.sync().await?;
 
     // Verify Bola can see the original message content
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs {
+    let messages = bo_group.find_messages_v2(&MsgQueryArgs {
         content_types: Some(vec![ContentType::Text]),
         ..Default::default()
     })?;
@@ -511,7 +511,7 @@ async fn test_enrichment_with_deleted_messages() {
     bo_group.sync().await?;
 
     // Verify the enriched message is now a DeletedMessage placeholder
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
 
     // Find the deleted message (skip membership changes)
     let deleted_msg = messages.iter().find(|msg| msg.metadata.id == message_id);
@@ -632,7 +632,7 @@ async fn test_admin_deletion_flag() {
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
 
     // Verify enriched message shows admin deletion
-    let messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
     let deleted_msg = messages.iter().find(|msg| msg.metadata.id == bo_message_id);
     assert!(deleted_msg.is_some());
 
@@ -683,7 +683,7 @@ async fn test_reply_to_deleted_message() {
     alix_group.sync().await?;
 
     // Verify the reply shows the original message correctly before deletion
-    let messages_before = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages_before = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
     let reply_msg_before = messages_before
         .iter()
         .find(|msg| msg.metadata.id == reply_message_id);
@@ -704,7 +704,7 @@ async fn test_reply_to_deleted_message() {
     alix_group.sync().await?;
 
     // Verify the reply now shows the deleted state for the referenced message
-    let messages_after = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let messages_after = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
     let reply_msg_after = messages_after
         .iter()
         .find(|msg| msg.metadata.id == reply_message_id);
@@ -900,7 +900,7 @@ async fn test_concurrent_deletions() {
     assert!(caro_conn.is_message_deleted(&message_id)?);
 
     // Verify enriched messages show the deleted state
-    let caro_messages = caro_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let caro_messages = caro_group.find_messages_v2(&MsgQueryArgs::default())?;
     let deleted_msg = caro_messages
         .iter()
         .find(|msg| msg.metadata.id == message_id);
@@ -963,7 +963,7 @@ async fn test_sender_and_admin_both_delete() {
     ));
 
     // Verify the message is deleted and shows as deleted by sender
-    let bo_messages = bo_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let bo_messages = bo_group.find_messages_v2(&MsgQueryArgs::default())?;
     let deleted_msg = bo_messages.iter().find(|msg| msg.metadata.id == message_id);
     assert!(deleted_msg.is_some());
 
@@ -1061,7 +1061,7 @@ async fn test_out_of_order_sender_deletion_shows_correct_deleted_by() {
     original_message.store(&alix_conn)?;
 
     // Verify enrichment shows DeletedBy::Sender since deleter == sender
-    let enriched = alix_group.find_enriched_messages(&MsgQueryArgs::default())?;
+    let enriched = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
     let deleted_msg = enriched
         .iter()
         .find(|m| m.metadata.id == future_message_id)
