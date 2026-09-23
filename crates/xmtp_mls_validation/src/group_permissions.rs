@@ -21,9 +21,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     },
 };
 
-use super::validated_commit::{
-    CommitParticipant, Inbox, MembershipValidationInfo, MetadataFieldChange,
-};
+use crate::commit::{CommitParticipant, Inbox, MembershipValidationInfo, MetadataFieldChange};
 use xmtp_mls_common::group_mutable_metadata::{GroupMutableMetadata, MetadataField};
 
 /// Errors that can occur when working with GroupMutablePermissions.
@@ -94,7 +92,7 @@ impl GroupMutablePermissions {
     }
 
     /// Creates a GroupMutablePermissions instance from a proto representation.
-    pub(crate) fn from_proto(
+    pub fn from_proto(
         proto: GroupMutablePermissionsProto,
     ) -> Result<Self, GroupMutablePermissionsError> {
         if proto.policies.is_none() {
@@ -106,9 +104,7 @@ impl GroupMutablePermissions {
     }
 
     /// Converts the GroupMutablePermissions to its proto representation.
-    pub(crate) fn to_proto(
-        &self,
-    ) -> Result<GroupMutablePermissionsProto, GroupMutablePermissionsError> {
+    pub fn to_proto(&self) -> Result<GroupMutablePermissionsProto, GroupMutablePermissionsError> {
         Ok(GroupMutablePermissionsProto {
             policies: Some(self.policies.to_proto()?),
         })
@@ -922,7 +918,7 @@ impl PolicySet {
 
     /// Check membership policies against each proposer, or the committer
     /// when no proposer is recorded. Component policies check all other writes.
-    pub(crate) fn evaluate_membership(&self, commit: &MembershipValidationInfo<'_>) -> bool {
+    pub fn evaluate_membership(&self, commit: &MembershipValidationInfo<'_>) -> bool {
         // Verify add member policy was not violated
         // For each added inbox, check the proposer's permissions (if known), otherwise use actor
         let mut added_inboxes_valid = self.evaluate_policy_with_proposer(
@@ -989,7 +985,7 @@ impl PolicySet {
     }
 
     /// Converts the PolicySet to its proto representation.
-    pub(crate) fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
+    pub fn to_proto(&self) -> Result<PolicySetProto, PolicyError> {
         let add_member_policy = Some(self.add_member_policy.to_proto()?);
         let remove_member_policy = Some(self.remove_member_policy.to_proto()?);
 
@@ -1012,7 +1008,7 @@ impl PolicySet {
     }
 
     /// Creates a PolicySet from its proto representation.
-    pub(crate) fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
+    pub fn from_proto(proto: PolicySetProto) -> Result<Self, PolicyError> {
         let add_member_policy = MembershipPolicies::try_from(
             proto
                 .add_member_policy
@@ -1070,7 +1066,7 @@ impl PolicySet {
 }
 
 /// Project action policies from the validated component registry.
-pub(crate) fn policy_set_from_dictionary(
+pub fn policy_set_from_dictionary(
     extensions: &Extensions<GroupContext>,
 ) -> Result<GroupMutablePermissions, GroupMutablePermissionsError> {
     let proto = xmtp_mls_common::app_data::policy_set::policy_set_from_dictionary(extensions)
@@ -1149,7 +1145,7 @@ pub fn is_policy_admin_only(policy: &PolicySet) -> Result<bool, PolicyError> {
 /// Returns the "All Members" preconfigured policy.
 ///
 /// A policy where any member can add or remove any other member
-pub(crate) fn default_policy() -> PolicySet {
+pub fn default_policy() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
         match field {
@@ -1186,7 +1182,7 @@ pub(crate) fn default_policy() -> PolicySet {
 /// Returns the "Admin Only" preconfigured policy.
 ///
 /// A policy where only the admins can add or remove members
-pub(crate) fn policy_admin_only() -> PolicySet {
+pub fn policy_admin_only() -> PolicySet {
     let mut metadata_policies_map: HashMap<String, MetadataPolicies> = HashMap::new();
     for field in GroupMutableMetadata::supported_fields() {
         match field {
@@ -1267,7 +1263,7 @@ impl std::fmt::Display for PreconfiguredPolicies {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
+pub mod tests {
 
     use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
     use xmtp_common::{rand_string, rand_vec};

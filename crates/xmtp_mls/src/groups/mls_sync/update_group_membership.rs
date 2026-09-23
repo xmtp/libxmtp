@@ -3,7 +3,6 @@ use crate::groups::group_membership::GroupMembership;
 use crate::groups::{
     GroupError,
     intents::{PostCommitAction, UpdateGroupMembershipIntentData},
-    validated_commit::extract_group_membership,
 };
 use crate::identity::parse_credential;
 use openmls::{
@@ -23,6 +22,7 @@ use xmtp_mls_common::{
     inbox_id::InboxId,
     tls_map::TlsMapDelta,
 };
+use xmtp_mls_validation::commit::extract_group_membership;
 use xmtp_proto::xmtp::mls::message_contents::{GroupMembershipEntry, group_membership_entry};
 
 /// Inbox ids that received at least one Add proposal in this commit.

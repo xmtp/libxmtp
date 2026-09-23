@@ -7,17 +7,18 @@ use super::{
         UpdateAdminListIntentData, UpdateGroupMembershipIntentData, UpdatePermissionIntentData,
     },
     summary::{MessageIdentifier, MessageIdentifierBuilder, ProcessSummary, SyncSummary},
-    validated_commit::{CommitValidationError, extract_group_membership, validate_proposal},
+    validated_commit::{CommitValidationError, validate_proposal},
 };
 use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
-        group_membership::{GroupMembership, MembershipDiffWithKeyPackages},
+        group_membership::GroupMembership,
+        intents::MembershipDiffWithKeyPackages,
         intents::{QueueIntent, ReaddInstallationsIntentData, UpdateMetadataIntentData},
         mls_ext::{CommitLogStorer, MlsGroupReload},
         mls_sync::update_group_membership::apply_readd_installations_intent,
-        validated_commit::{Inbox, MetadataChanges, ValidatedCommit},
+        validated_commit::ValidatedCommit,
     },
     identity::{IdentityError, parse_credential},
     identity_updates::{IdentityUpdates, load_identity_updates},
@@ -97,6 +98,9 @@ use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_common::mls_ext::payload_encryption::{
     WrapPayloadError, wrap_payload_hpke, wrap_payload_symmetric,
+};
+use xmtp_mls_validation::commit::{
+    CommitRuleError, Inbox, MetadataChanges, extract_group_membership,
 };
 use xmtp_proto::backend_v1::{
     ClientEnvelope, GroupMessage as BackendGroupMessage, WelcomeMessage as WelcomeMessageInput,
@@ -286,6 +290,12 @@ pub enum GroupMessageProcessingError {
     },
 }
 
+impl From<xmtp_mls_validation::commit::CommitRuleError> for GroupMessageProcessingError {
+    fn from(error: xmtp_mls_validation::commit::CommitRuleError) -> Self {
+        Self::CommitValidation(error.into())
+    }
+}
+
 impl RetryableError for GroupMessageProcessingError {
     fn is_retryable(&self) -> bool {
         match self {
@@ -392,7 +402,9 @@ impl GroupMessageProcessingError {
             super::app_data::ProcessMessageWithAppDataError::ProtocolVersionTooLow {
                 min_version,
                 ..
-            } => Self::CommitValidation(CommitValidationError::ProtocolVersionTooLow(min_version)),
+            } => Self::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::ProtocolVersionTooLow(min_version),
+            )),
             other => other.into(),
         }
     }

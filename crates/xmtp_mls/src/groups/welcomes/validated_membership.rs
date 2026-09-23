@@ -1,5 +1,4 @@
 use crate::context::XmtpSharedContext;
-use crate::groups::validated_commit::extract_group_membership;
 use crate::groups::{GroupError, GroupMembership};
 use crate::identity::parse_credential;
 use crate::identity_updates::{
@@ -9,6 +8,7 @@ use crate::identity_updates::{
 use openmls::prelude::{BasicCredential, StagedWelcome};
 use std::collections::{HashMap, HashSet};
 use xmtp_db::DbQuery;
+use xmtp_mls_validation::commit::extract_group_membership;
 
 /// Validate public trial membership, then recheck exact proofs under the writer.
 #[allow(async_fn_in_trait)]

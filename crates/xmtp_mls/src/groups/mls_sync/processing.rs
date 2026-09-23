@@ -9,6 +9,7 @@ use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_db::incoming_envelope::{
     IncomingRetry, QueryIncomingEnvelope, StoredIncomingEnvelope, StreamTopic,
 };
+use xmtp_mls_validation::commit::CommitRuleError;
 use xmtp_proto::backend_v1::ServerEnvelope;
 
 /// Local attempt result and diagnostics for the ordered group processor.
@@ -219,9 +220,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 ),
                 _ => error,
             };
-            if let GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::ProtocolVersionTooLow(version),
-            ) = &error
+            if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::ProtocolVersionTooLow(version),
+            )) = &error
             {
                 tx.storage()
                     .db()

@@ -10,8 +10,6 @@ pub mod change_callbacks;
 pub mod commit_log;
 pub mod commit_log_key;
 mod error;
-pub mod group_membership;
-pub mod group_permissions;
 pub mod intents;
 pub mod members;
 pub mod message_list;
@@ -127,6 +125,7 @@ use xmtp_mls_common::{
         GroupMutableMetadata, GroupMutableMetadataError, MessageDisappearingSettings, MetadataField,
     },
 };
+pub use xmtp_mls_validation::{group_membership, group_permissions};
 use xmtp_proto::xmtp::mls::message_contents::content_types::{DeleteMessage, LeaveRequest};
 use xmtp_proto::{
     types::{Cursor, GroupId},

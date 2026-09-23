@@ -471,7 +471,7 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
     let old_membership = group.with_group_snapshot(|openmls_group| {
-        Ok(crate::groups::validated_commit::extract_group_membership(
+        Ok(xmtp_mls_validation::commit::extract_group_membership(
             openmls_group.extensions(),
         )?)
     })?;

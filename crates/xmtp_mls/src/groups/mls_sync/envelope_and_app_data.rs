@@ -1,6 +1,7 @@
 //! Envelope metadata, app-data slots, and metadata updates.
 
 use super::*;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 impl<Context> MlsGroup<Context>
 where
@@ -125,9 +126,9 @@ where
         if envelope.is_commit() {
             if matches!(
                 error,
-                GroupMessageProcessingError::CommitValidation(
-                    CommitValidationError::InsufficientPermissions
-                )
+                GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::InsufficientPermissions
+                ))
             ) {
                 // The trial rolled back, including proposal removal. A rejected
                 // combination must not remain available for the next commit.

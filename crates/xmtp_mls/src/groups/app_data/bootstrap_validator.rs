@@ -10,6 +10,7 @@
 //! Dictionary-native groups reject group-context extension proposals.
 
 use std::collections::BTreeMap;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 use openmls::{
     extensions::{Extension, ExtensionType, Extensions},
@@ -38,9 +39,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
     group_membership_entry::Version as GroupMembershipEntryVersion,
 };
 
-use crate::groups::validated_commit::{
-    CommitParticipant, CommitValidationError, extract_commit_participant,
-};
+use crate::groups::validated_commit::CommitValidationError;
+use xmtp_mls_validation::commit::{CommitParticipant, extract_commit_participant};
 
 /// Bootstrap-commit-specific validation failures.
 ///
@@ -54,7 +54,7 @@ pub enum BootstrapValidationError {
     /// bootstrap exceeds the receiver's version — the bootstrap was
     /// produced by a newer release whose synthesis encoding this
     /// version may not reproduce. The caller converts this to
-    /// `CommitValidationError::ProtocolVersionTooLow` so the group
+    /// `(|e| CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(e)))` so the group
     /// pauses (defer-and-reprocess after upgrade) instead of failing
     /// the byte-compare with `Mismatch` — a rejection that above-floor
     /// members don't share, i.e. a fork. Normally unreachable (the
@@ -218,7 +218,7 @@ pub(crate) fn extract_gce_proposer(
         if matches!(queued.proposal(), Proposal::GroupContextExtensions(_)) {
             let leaf_index = match queued.sender() {
                 Sender::Member(idx) => idx,
-                _ => return Err(CommitValidationError::ActorNotMember),
+                _ => return Err(CommitValidationError::Rule(CommitRuleError::ActorNotMember)),
             };
             let participant = extract_commit_participant(
                 leaf_index,

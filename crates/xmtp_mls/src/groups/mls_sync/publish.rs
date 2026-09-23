@@ -2,6 +2,7 @@
 
 use super::*;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
+use xmtp_mls_validation::commit::CommitRuleError;
 
 mod dependencies;
 mod prepared;
@@ -115,9 +116,9 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     xmtp_api::ApiError::EnvelopeTooLarge
                                         | xmtp_api::ApiError::UnitTooLarge
                                         | xmtp_api::ApiError::InvalidRequest(_)
-                                ) | GroupError::CommitValidation(
-                                    CommitValidationError::InsufficientPermissions
-                                ) | GroupError::InvalidGroupMembership
+                                ) | GroupError::CommitValidation(CommitValidationError::Rule(
+                                    CommitRuleError::InsufficientPermissions
+                                )) | GroupError::InvalidGroupMembership
                                     | GroupError::InvalidPublicKeys(_)
                             ) =>
                         {
@@ -709,14 +710,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     group_epoch,
                 }))
             }
-            IntentKind::ProposeGroupContextExtensions => {
-                Err(CommitValidationError::UnsupportedProposalType(
-                    ProposalType::GroupContextExtensions,
-                )
-                .into())
-            }
-            IntentKind::BootstrapMigration => Err(CommitValidationError::UnsupportedProposalType(
-                ProposalType::GroupContextExtensions,
+            IntentKind::ProposeGroupContextExtensions => Err(CommitValidationError::Rule(
+                CommitRuleError::UnsupportedProposalType(ProposalType::GroupContextExtensions),
+            )
+            .into()),
+            IntentKind::BootstrapMigration => Err(CommitValidationError::Rule(
+                CommitRuleError::UnsupportedProposalType(ProposalType::GroupContextExtensions),
             )
             .into()),
             IntentKind::AppDataUpdate => {

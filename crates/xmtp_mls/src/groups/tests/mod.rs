@@ -7,7 +7,6 @@ mod test_commit_log_remote;
 mod test_consent;
 mod test_delete_message;
 mod test_dm;
-mod test_extract_readded_installations;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_failed_installations;
 mod test_group_updated;
@@ -32,7 +31,6 @@ mod test_starting_membership_sequence_id;
 mod test_state_processes;
 mod test_state_writes;
 mod test_sync_concurrency;
-mod test_validate_app_data_update;
 mod test_welcome_pointers;
 mod test_welcomes;
 use crate::groups::send_message_opts::SendMessageOpts;

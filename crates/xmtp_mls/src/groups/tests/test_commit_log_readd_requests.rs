@@ -507,7 +507,7 @@ async fn test_dictionary_native_readd_succeeds() {
 async fn test_dictionary_native_readd_records_failed_installations() {
     use crate::groups::{
         GroupError,
-        group_membership::MembershipDiffWithKeyPackages,
+        intents::MembershipDiffWithKeyPackages,
         intents::ReaddInstallationsIntentData,
         mls_sync::{
             decode_staged_commit, update_group_membership::apply_readd_installations_intent,

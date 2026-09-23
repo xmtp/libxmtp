@@ -1,6 +1,6 @@
 [package]
 name = "xmtp_mls_validation"
-description = "Shared XMTP payload admission and fixtures"
+description = "Shared XMTP payload admission, commit validation rules, and fixtures"
 license.workspace = true
 version.workspace = true
 rust-version.workspace = true
@@ -15,8 +15,10 @@ hex.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
 prost.workspace = true
+serde = { workspace = true, features = ["derive"] }
 thiserror.workspace = true
 tls_codec.workspace = true
+tracing.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true

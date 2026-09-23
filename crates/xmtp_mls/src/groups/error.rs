@@ -436,6 +436,12 @@ pub enum GroupError {
     DeviceSync(#[from] Box<DeviceSyncError>),
 }
 
+impl From<xmtp_mls_validation::commit::CommitRuleError> for GroupError {
+    fn from(error: xmtp_mls_validation::commit::CommitRuleError) -> Self {
+        Self::CommitValidation(error.into())
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum DeleteMessageError {
     #[error("Message not found: {0}")]

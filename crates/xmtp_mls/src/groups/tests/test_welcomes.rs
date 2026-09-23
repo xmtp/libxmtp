@@ -43,7 +43,7 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
         .get_membership_update_intent(&[bo.inbox_id()], &[])
         .await?;
     let old_membership = group.with_group_snapshot(|group| {
-        Ok(crate::groups::validated_commit::extract_group_membership(
+        Ok(xmtp_mls_validation::commit::extract_group_membership(
             group.extensions(),
         )?)
     })?;
@@ -288,7 +288,7 @@ async fn test_spoofed_inbox_id() {
     let signer = &group.context.identity().installation_keys;
     let context = &group.context;
     let old_membership = group.with_group_snapshot(|openmls_group| {
-        Ok(crate::groups::validated_commit::extract_group_membership(
+        Ok(xmtp_mls_validation::commit::extract_group_membership(
             openmls_group.extensions(),
         )?)
     })?;

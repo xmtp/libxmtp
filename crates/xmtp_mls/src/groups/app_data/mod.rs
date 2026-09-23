@@ -83,7 +83,7 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
     /// forks a group: peers above the floor accept the commit and
     /// advance without us.
     ///
-    /// Converted to `CommitValidationError::ProtocolVersionTooLow` at
+    /// Converted to `(|e| CommitValidationError::Rule(CommitRuleError::ProtocolVersionTooLow(e)))` at
     /// the `mls_sync` boundary so the existing pause machinery
     /// (`set_group_paused`, held cursor, reprocess-on-upgrade) applies
     /// unchanged.

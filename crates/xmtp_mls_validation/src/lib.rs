@@ -25,6 +25,9 @@ use xmtp_proto::{
     },
 };
 
+pub mod commit;
+pub mod group_membership;
+pub mod group_permissions;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
 

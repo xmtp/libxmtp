@@ -15,6 +15,7 @@ use crate::{
 };
 use rstest::rstest;
 use xmtp_db::{group_intent::IntentKind, prelude::*};
+use xmtp_mls_validation::commit::CommitRuleError;
 
 pub(super) fn assert_insufficient_permissions(error: crate::groups::GroupError) {
     use crate::groups::{
@@ -26,9 +27,9 @@ pub(super) fn assert_insufficient_permissions(error: crate::groups::GroupError) 
     assert!(matches!(
         summary.other.as_deref(),
         Some(GroupError::ReceiveError(
-            GroupMessageProcessingError::CommitValidation(
-                CommitValidationError::InsufficientPermissions
-            )
+            GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                CommitRuleError::InsufficientPermissions
+            ))
         ))
     ));
     let [(cursor, cause)] = summary.process.errored.as_slice() else {
@@ -37,9 +38,9 @@ pub(super) fn assert_insufficient_permissions(error: crate::groups::GroupError) 
     assert!(cursor.0 > 0);
     assert!(matches!(
         cause,
-        GroupMessageProcessingError::CommitValidation(
-            CommitValidationError::InsufficientPermissions
-        )
+        GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+            CommitRuleError::InsufficientPermissions
+        ))
     ));
     assert!(summary.publish_errors.is_empty());
     assert!(summary.post_commit_errors.is_empty());

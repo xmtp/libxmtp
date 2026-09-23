@@ -2,6 +2,7 @@
 
 use super::*;
 use serde::{Deserialize, Serialize};
+use xmtp_mls_validation::commit::CommitRuleError;
 
 /// Stored with the exact attempt and committed in the same writer as intent failure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,10 +58,13 @@ enum RejectionCode {
 
 impl RejectionCode {
     fn capture(error: &GroupMessageProcessingError) -> Self {
-        use CommitValidationError as C;
+        use CommitRuleError as C;
+        use CommitValidationError as V;
         use GroupMessageProcessingError as G;
         match error {
-            G::CommitValidation(error) => match error {
+            G::CommitValidation(V::IdentityDependency(_)) => Self::IdentityReference,
+            G::CommitValidation(V::Bootstrap(_)) => Self::Bootstrap,
+            G::CommitValidation(V::Rule(error)) => match error {
                 C::InsufficientPermissions => Self::InsufficientPermissions,
                 C::ActorCouldNotBeFound => Self::ActorCouldNotBeFound,
                 C::ActorNotMember => Self::ActorNotMember,
@@ -72,7 +76,6 @@ impl RejectionCode {
                 C::NoPSKSupport => Self::NoPskSupport,
                 C::ProposerNotFound => Self::ProposerNotFound,
                 C::ProposalsNotEnabled => Self::ProposalsNotEnabled,
-                C::IdentityDependency(_) => Self::IdentityReference,
                 C::IdentitySequenceNotBeforeEnvelope { .. } => Self::IdentitySequenceOrder,
                 C::InboxValidationFailed(_) => Self::InboxValidation,
                 C::InvalidVersionFormat(_) => Self::InvalidVersion,
@@ -85,7 +88,6 @@ impl RejectionCode {
                 C::MinVersionDowngrade { .. } => Self::MinVersionDowngrade,
                 C::MinVersionRemoveOnExistingFloor { .. } => Self::MinVersionRemove,
                 C::ComponentSource(_) => Self::ComponentSource,
-                C::Bootstrap(_) => Self::Bootstrap,
                 C::Conversion(_) => Self::Conversion,
                 C::ProtoDecode(_) => Self::MalformedEnvelope,
                 _ => Self::OtherSupportedInput,
@@ -108,22 +110,28 @@ impl RejectionCode {
 
     /// Reconstruct only parameter-free causes. Never invent discarded parameters.
     fn error(self) -> GroupMessageProcessingError {
-        use CommitValidationError as C;
+        use CommitRuleError as C;
         use GroupMessageProcessingError as G;
         let code = match self {
             Self::InsufficientPermissions => {
-                return G::CommitValidation(C::InsufficientPermissions);
+                return G::CommitValidation(C::InsufficientPermissions.into());
             }
-            Self::ActorCouldNotBeFound => return G::CommitValidation(C::ActorCouldNotBeFound),
-            Self::ActorNotMember => return G::CommitValidation(C::ActorNotMember),
-            Self::SubjectDoesNotExist => return G::CommitValidation(C::SubjectDoesNotExist),
-            Self::MultipleActors => return G::CommitValidation(C::MultipleActors),
-            Self::MissingGroupMembership => return G::CommitValidation(C::MissingGroupMembership),
-            Self::MissingMutableMetadata => return G::CommitValidation(C::MissingMutableMetadata),
-            Self::SequenceIdDecreased => return G::CommitValidation(C::SequenceIdDecreased),
-            Self::NoPskSupport => return G::CommitValidation(C::NoPSKSupport),
-            Self::ProposerNotFound => return G::CommitValidation(C::ProposerNotFound),
-            Self::ProposalsNotEnabled => return G::CommitValidation(C::ProposalsNotEnabled),
+            Self::ActorCouldNotBeFound => {
+                return G::CommitValidation(C::ActorCouldNotBeFound.into());
+            }
+            Self::ActorNotMember => return G::CommitValidation(C::ActorNotMember.into()),
+            Self::SubjectDoesNotExist => return G::CommitValidation(C::SubjectDoesNotExist.into()),
+            Self::MultipleActors => return G::CommitValidation(C::MultipleActors.into()),
+            Self::MissingGroupMembership => {
+                return G::CommitValidation(C::MissingGroupMembership.into());
+            }
+            Self::MissingMutableMetadata => {
+                return G::CommitValidation(C::MissingMutableMetadata.into());
+            }
+            Self::SequenceIdDecreased => return G::CommitValidation(C::SequenceIdDecreased.into()),
+            Self::NoPskSupport => return G::CommitValidation(C::NoPSKSupport.into()),
+            Self::ProposerNotFound => return G::CommitValidation(C::ProposerNotFound.into()),
+            Self::ProposalsNotEnabled => return G::CommitValidation(C::ProposalsNotEnabled.into()),
             Self::IntentAlreadyProcessed => return G::IntentAlreadyProcessed,
             Self::InvalidPayload => return G::InvalidPayload,
             Self::OwnMessageWithoutAttempt => return G::OwnMessageWithoutAttempt,
@@ -238,7 +246,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn stored_rejections_preserve_exact_unit_causes_without_private_error_data() {
-        use CommitValidationError as C;
+        use CommitRuleError as C;
         use GroupMessageProcessingError as G;
         for error in [
             C::InsufficientPermissions,
@@ -256,19 +264,20 @@ mod tests {
             let original = std::mem::discriminant(&error);
             let saved = PreparedRejection {
                 sequence_id: 17,
-                code: RejectionCode::capture(&G::CommitValidation(error)),
+                code: RejectionCode::capture(&G::CommitValidation(error.into())),
             };
             let bytes = xmtp_db::db_serialize(&saved)?;
             assert_eq!(bytes.len(), 12);
             let restored: PreparedRejection = xmtp_db::db_deserialize(&bytes)?;
-            let G::CommitValidation(error) = restored.code.error() else {
+            let G::CommitValidation(CommitValidationError::Rule(error)) = restored.code.error()
+            else {
                 panic!("parameter-free commit rejection lost its typed cause");
             };
             assert_eq!(std::mem::discriminant(&error), original);
         }
-        let code = RejectionCode::capture(&G::CommitValidation(C::InboxValidationFailed(
-            "private credential data".into(),
-        )));
+        let code = RejectionCode::capture(&G::CommitValidation(
+            C::InboxValidationFailed("private credential data".into()).into(),
+        ));
         let bytes = xmtp_db::db_serialize(&code)?;
         assert_eq!(bytes.len(), 4);
         assert!(matches!(

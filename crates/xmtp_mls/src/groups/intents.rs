@@ -3,6 +3,7 @@ use super::{
     group_permissions::{MembershipPolicies, MetadataPolicies, PermissionsPolicies},
 };
 use crate::groups::mls_ext::WelcomePointersExtension;
+use openmls::key_packages::KeyPackage;
 use openmls::prelude::{
     MlsMessageOut,
     tls_codec::{Error as TlsCodecError, Serialize},
@@ -892,6 +893,30 @@ impl TryFrom<&[u8]> for CommitPendingProposalsIntentData {
 #[derive(Debug, Clone)]
 pub enum PostCommitAction {
     SendWelcomes(SendWelcomesAction),
+}
+
+#[derive(Debug)]
+pub struct MembershipDiffWithKeyPackages {
+    pub new_installations: Vec<Installation>,
+    pub new_key_packages: Vec<KeyPackage>,
+    pub removed_installations: HashSet<Vec<u8>>,
+    pub failed_installations: Vec<Vec<u8>>,
+}
+
+impl MembershipDiffWithKeyPackages {
+    pub fn new(
+        new_installations: Vec<Installation>,
+        new_key_packages: Vec<KeyPackage>,
+        removed_installations: HashSet<Vec<u8>>,
+        failed_installations: Vec<Vec<u8>>,
+    ) -> MembershipDiffWithKeyPackages {
+        MembershipDiffWithKeyPackages {
+            new_installations,
+            new_key_packages,
+            removed_installations,
+            failed_installations,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
