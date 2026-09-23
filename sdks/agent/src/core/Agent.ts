@@ -460,6 +460,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
                 },
               ),
             );
+            if (!isCurrent()) return;
             if (conversation instanceof Group) {
               this.emit(
                 "group",
@@ -478,6 +479,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
               );
             }
           } catch (error) {
+            if (!isCurrent()) return;
             const recovered = await this.#runErrorChain(
               new AgentError(
                 1001,
@@ -502,6 +504,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
               void finishConversations().catch(() => undefined);
             });
           }
+          options?.onEnd?.();
         },
       }),
     );
@@ -581,6 +584,7 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
                 break;
             }
           } catch (error) {
+            if (!isCurrent()) return;
             const recovered = await this.#runErrorChain(error, {
               client: this.#client,
             });
@@ -669,30 +673,35 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
       conversation,
       client: this.#client,
     });
-    await this.#runMiddlewareChain(context, topic);
+    await this.#runMiddlewareChain(context, topic, isCurrent);
   }
 
   async #runMiddlewareChain(
     context: MessageContext<unknown, ContentTypes>,
-    topic: EventName<ContentTypes> = "unknownMessage",
+    topic: EventName<ContentTypes>,
+    isCurrent: () => boolean,
   ) {
     const finalEmit = async () => {
+      if (!isCurrent()) return;
       try {
         this.emit(topic, context);
+        if (!isCurrent()) return;
         this.emit("message", context);
       } catch (error) {
-        await this.#runErrorChain(error, context);
+        if (isCurrent()) await this.#runErrorChain(error, context);
       }
     };
 
     const chain = this.#middleware.reduceRight<Parameters<AgentMiddleware>[1]>(
       (next, mw) => {
         return async () => {
+          if (!isCurrent()) return;
           try {
             await mw(context, next);
           } catch (error) {
+            if (!isCurrent()) return;
             const resume = await this.#runErrorChain(error, context);
-            if (resume) {
+            if (resume && isCurrent()) {
               await next();
             }
             // Chain is not resuming, error is being swallowed

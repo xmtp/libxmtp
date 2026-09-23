@@ -3,12 +3,12 @@ import { setImmediate } from "node:timers/promises";
 import {
   Conversations as NodeConversations,
   ConversationType,
+  Group,
   MessageStream,
   type BuiltInContentTypes,
   type Client,
   type CodecRegistry,
   type DecodedMessage,
-  type Group,
   type MessageReaderSource,
 } from "@xmtp/node-sdk";
 import { describe, expect, it, vi } from "vitest";
@@ -160,15 +160,34 @@ describe("Agent stream lifecycle", () => {
     const h = harness();
     const stopped = vi.fn();
     const unhandled = vi.fn();
+    const onEnd = vi.fn();
     h.agent.on("stop", stopped);
     h.agent.on("unhandledError", unhandled);
-    await h.agent.start();
+    await h.agent.start({ onEnd });
 
     h.conversations[0]!.options?.onEnd?.();
     await vi.waitFor(() => expect(stopped).toHaveBeenCalledOnce());
     expect(h.conversations[0]!.end).toHaveBeenCalledOnce();
     expect(h.messages[0]!.end).toHaveBeenCalledOnce();
+    expect(onEnd).toHaveBeenCalledOnce();
     expect(unhandled).not.toHaveBeenCalled();
+  });
+
+  it("does not emit a group after a conversation listener stops the stream", async () => {
+    const h = harness();
+    const group = vi.fn();
+    let stopping: Promise<void> | undefined;
+    h.agent.on("conversation", () => {
+      stopping = h.agent.stop();
+    });
+    h.agent.on("group", group);
+    await h.agent.start();
+
+    await h.conversations[0]!.options?.onValue?.(
+      Object.create(Group.prototype) as Group<BuiltInContentTypes>,
+    );
+    await stopping;
+    expect(group).not.toHaveBeenCalled();
   });
 
   it("reports an immediate native read failure after local readiness and cleanup", async () => {
@@ -367,6 +386,77 @@ describe("Agent stream lifecycle", () => {
     expect(message).not.toHaveBeenCalled();
     expect(h.streamAllMessages).toHaveBeenCalledTimes(2);
     await h.agent.stop();
+  });
+
+  it("does not continue old middleware after a replacement stream starts", async () => {
+    const h = harness();
+    vi.mocked(h.client.conversations.getConversationById).mockResolvedValue(
+      {} as Group<BuiltInContentTypes>,
+    );
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const downstream = vi.fn();
+    const received = vi.fn();
+    h.agent.use(async (_context, next) => {
+      entered.resolve();
+      await release.promise;
+      await next();
+    });
+    h.agent.use(async (_context, next) => {
+      downstream();
+      await next();
+    });
+    h.agent.on("message", received);
+    await h.agent.start();
+    const value = {
+      content: "late",
+      senderInboxId: "peer",
+      conversationId: "group",
+      contentType: {
+        authorityId: "xmtp.org",
+        typeId: "text",
+        versionMajor: 1,
+        versionMinor: 0,
+      },
+    } as DecodedMessage<BuiltInContentTypes>;
+    const delivery = h.messages[0]!.options?.onValue?.(value);
+    await entered.promise;
+    await h.agent.stop();
+    await h.agent.start();
+    release.resolve();
+    await delivery;
+    expect(downstream).not.toHaveBeenCalled();
+    expect(received).not.toHaveBeenCalled();
+    expect(h.messages[1]!.end).not.toHaveBeenCalled();
+    await h.agent.stop();
+  });
+
+  it("does not emit a generic message after its topic listener stops the stream", async () => {
+    const h = harness();
+    vi.mocked(h.client.conversations.getConversationById).mockResolvedValue(
+      {} as Group<BuiltInContentTypes>,
+    );
+    const received = vi.fn();
+    let stopping: Promise<void> | undefined;
+    h.agent.on("text", () => {
+      stopping = h.agent.stop();
+    });
+    h.agent.on("message", received);
+    await h.agent.start();
+    const value = {
+      content: "late",
+      senderInboxId: "peer",
+      conversationId: "group",
+      contentType: {
+        authorityId: "xmtp.org",
+        typeId: "text",
+        versionMajor: 1,
+        versionMinor: 0,
+      },
+    } as DecodedMessage<BuiltInContentTypes>;
+    await h.messages[0]!.options?.onValue?.(value);
+    await stopping;
+    expect(received).not.toHaveBeenCalled();
   });
 
   it("does not renew an exhausted stream when error middleware handles it", async () => {
