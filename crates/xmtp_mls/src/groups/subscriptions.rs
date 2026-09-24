@@ -96,8 +96,9 @@ pub(crate) mod tests {
         amal_group.add_members(&[bola.inbox_id()]).await.unwrap();
 
         // Get bola's version of the same group
-        let bola_groups = bola.sync_welcomes().await.unwrap();
-        let bola_group = bola_groups.first().unwrap();
+        bola.sync_welcomes().await.unwrap();
+        // A background reader can store the Welcome before this call.
+        let bola_group = bola.group(&amal_group.group_id).unwrap();
         bola_group.receive().await.unwrap();
         let retained = bola_group.find_messages(&Default::default()).unwrap();
 
