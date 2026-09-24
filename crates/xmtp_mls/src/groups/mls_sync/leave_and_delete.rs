@@ -6,6 +6,37 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    fn has_valid_deletion_for_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+    ) -> Result<bool, GroupMessageProcessingError> {
+        let deletions = storage
+            .db()
+            .get_deletions_for_messages(vec![message.id.clone()])?;
+        Ok(deletions.iter().any(|deletion| {
+            crate::messages::enrichment::is_deletion_valid(deletion, message, &self.group_id)
+        }))
+    }
+
+    /// A target stored after its deletion now has a readable deletion state.
+    pub(super) fn emit_pending_deletion_for_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        if self.has_valid_deletion_for_message(storage, message)? {
+            crate::subscriptions::internal::emit_deleted_messages(
+                event_writer,
+                vec![message.clone()],
+                xmtp_events::DeletionCause::Deleted,
+                &storage.db(),
+            )?;
+        }
+        Ok(())
+    }
+
     pub(super) fn process_own_leave_request_message(
         &self,
         mls_group: &OpenMlsGroup,
@@ -24,45 +55,6 @@ where
                 }
             }
         }
-    }
-
-    pub(super) fn process_own_delete_message(
-        &self,
-        storage: &impl XmtpMlsStorageProvider,
-        message_id: &[u8],
-    ) {
-        let db = storage.db();
-
-        let Ok(Some(message)) = db.get_group_message(message_id) else {
-            return;
-        };
-
-        if message.content_type != ContentType::DeleteMessage {
-            return;
-        }
-
-        let Ok(Some(deletion)) = db.get_message_deletion(message_id) else {
-            tracing::warn!(
-                message_id = hex::encode(message_id),
-                "Deletion record not found for own delete message"
-            );
-            return;
-        };
-
-        let Ok(Some(original_msg)) = db.get_group_message(&deletion.deleted_message_id) else {
-            tracing::debug!(
-                deleted_message_id = hex::encode(&deletion.deleted_message_id),
-                "Original message not found for deletion event (may be out-of-order)"
-            );
-            return;
-        };
-
-        let _ = self
-            .context
-            .local_events()
-            .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
-                original_msg,
-            ]));
     }
 
     // implements: GMOD-032
@@ -133,6 +125,7 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let encoded_content =
             match EncodedContent::decode(message.decrypted_message_bytes.as_slice()) {
@@ -163,6 +156,11 @@ where
         };
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
+        let had_valid_deletion = if let Some(original) = &original_msg_opt {
+            self.has_valid_deletion_for_message(storage, original)?
+        } else {
+            false
+        };
 
         let is_super_admin_deletion = if let Some(ref original_msg) = original_msg_opt {
             if original_msg.group_id.as_slice() != self.group_id.as_slice() {
@@ -222,13 +220,15 @@ where
         deletion.store_or_ignore(&storage.db())?;
 
         let out_of_order = original_msg_opt.is_none();
-        if let Some(original_msg) = original_msg_opt {
-            let _ =
-                self.context
-                    .local_events()
-                    .send(crate::subscriptions::LocalEvents::MsgsDeleted(vec![
-                        original_msg,
-                    ]));
+        if let Some(original_msg) = original_msg_opt
+            && !had_valid_deletion
+        {
+            crate::subscriptions::internal::emit_deleted_messages(
+                event_writer,
+                vec![original_msg],
+                xmtp_events::DeletionCause::Deleted,
+                &storage.db(),
+            )?;
         }
 
         tracing::info!(

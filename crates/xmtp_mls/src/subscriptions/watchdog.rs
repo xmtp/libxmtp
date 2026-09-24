@@ -435,7 +435,7 @@ where
 ///
 /// On a stale trip the next subscription is established *before* the throttle wait and while
 /// the stale stream is still in scope — so the new stream (and, for the conversation stream,
-/// its `LocalEvents` broadcast receiver) is already buffering during the wait, and events
+/// its local event subscription) is already buffering during the wait, and events
 /// arriving mid-reconnect are not dropped. `on_close` runs exactly once when the loop ends
 /// (clean end, cancellation, or startup error).
 pub(crate) async fn run_watchdog_stream<T, S, Fut, Sub, Ready, Cb, Close>(

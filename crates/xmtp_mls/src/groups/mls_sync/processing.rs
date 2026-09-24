@@ -3,7 +3,7 @@
 use super::*;
 use crate::{
     identity_updates::{IdentityDependencyError, IdentityRequirement},
-    state_tx::state_write,
+    state_tx::{state_write, state_write_with_events},
 };
 use xmtp_api_backend::envelope::decode_group_message;
 use xmtp_db::incoming_envelope::{
@@ -158,109 +158,120 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let mut events = DeferredEvents::new();
         #[cfg(any(test, feature = "test-utils"))]
         let mut own_commit_epoch_conflict = false;
-        let result = state_write(self.context.mls_storage(), |tx| {
-            check_current_head(&tx.storage().db(), &topic, pending)?;
-            if group_is_restored(&tx.storage().db(), &self.group_id)? {
-                return Err(GroupMessageProcessingError::GroupInactive);
-            }
-            let attempt = tx.savepoint(|tx| {
-                tx.with_group(self.group_id, |group, storage| {
-                    if !group.is_active() {
-                        return Err(GroupMessageProcessingError::GroupInactive);
-                    }
-                    if envelope.group_id != self.group_id {
-                        return Err(GroupMessageProcessingError::InvalidPayload);
-                    }
-                    if !matches!(envelope.message, ProtocolMessage::PrivateMessage(_)) {
-                        return Err(GroupMessageProcessingError::UnsupportedMessageType(
-                            discriminant(&envelope.message),
-                        ));
-                    }
-                    let before = watch_app_data
-                        .then(|| Self::read_app_data_slot(group))
-                        .flatten();
-                    let mut outcome =
-                        self.process_message_inner(group, storage, envelope, &mut events)?;
-                    if watch_app_data
-                        && let (Some(before), Some(after)) =
-                            (before, Self::read_app_data_slot(group))
-                        && before != after
-                    {
-                        outcome.app_data_change = Some(AppDataChange {
-                            group_id: self.group_id.to_vec(),
-                            old_value: before,
-                            new_value: after,
-                        });
-                    }
-                    storage
+        let result = state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_buffer| {
+                check_current_head(&tx.storage().db(), &topic, pending)?;
+                if group_is_restored(&tx.storage().db(), &self.group_id)? {
+                    return Err(GroupMessageProcessingError::GroupInactive);
+                }
+                let attempt = event_buffer.savepoint(|event_buffer| {
+                    tx.savepoint(|tx| {
+                        tx.with_group(self.group_id, |group, storage| {
+                            if !group.is_active() {
+                                return Err(GroupMessageProcessingError::GroupInactive);
+                            }
+                            if envelope.group_id != self.group_id {
+                                return Err(GroupMessageProcessingError::InvalidPayload);
+                            }
+                            if !matches!(envelope.message, ProtocolMessage::PrivateMessage(_)) {
+                                return Err(GroupMessageProcessingError::UnsupportedMessageType(
+                                    discriminant(&envelope.message),
+                                ));
+                            }
+                            let before = watch_app_data
+                                .then(|| Self::read_app_data_slot(group))
+                                .flatten();
+                            let mut outcome = self.process_message_inner(
+                                group,
+                                storage,
+                                envelope,
+                                &mut events,
+                                event_buffer,
+                            )?;
+                            if watch_app_data
+                                && let (Some(before), Some(after)) =
+                                    (before, Self::read_app_data_slot(group))
+                                && before != after
+                            {
+                                outcome.app_data_change = Some(AppDataChange {
+                                    group_id: self.group_id.to_vec(),
+                                    old_value: before,
+                                    new_value: after,
+                                });
+                            }
+                            storage
+                                .db()
+                                .complete_pending_envelope(&topic, envelope.cursor)?;
+                            Ok(outcome)
+                        })
+                        .map(Continue)
+                    })
+                });
+                let error = match attempt {
+                    Ok(Continue(outcome)) => return Ok(Continue(Ok(outcome))),
+                    Ok(Rollback) => unreachable!("processing does not request a rollback"),
+                    Err(error) => error,
+                };
+                events = DeferredEvents::new();
+                let error = match (&error, missing_reference) {
+                    (
+                        GroupMessageProcessingError::CommitValidation(
+                            CommitValidationError::IdentityDependency(
+                                IdentityDependencyError::Need(required),
+                            ),
+                        ),
+                        Some(missing),
+                    ) if required == missing => GroupMessageProcessingError::CommitValidation(
+                        CommitValidationError::IdentityDependency(
+                            IdentityDependencyError::MissingReference(missing.clone()),
+                        ),
+                    ),
+                    _ => error,
+                };
+                if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                    CommitRuleError::ProtocolVersionTooLow(version),
+                )) = &error
+                {
+                    tx.storage()
                         .db()
-                        .complete_pending_envelope(&topic, envelope.cursor)?;
-                    Ok(outcome)
-                })
-                .map(Continue)
-            });
-            let error = match attempt {
-                Ok(Continue(outcome)) => return Ok(Continue(Ok(outcome))),
-                Ok(Rollback) => unreachable!("processing does not request a rollback"),
-                Err(error) => error,
-            };
-            events = DeferredEvents::new();
-            let error = match (&error, missing_reference) {
-                (
-                    GroupMessageProcessingError::CommitValidation(
-                        CommitValidationError::IdentityDependency(IdentityDependencyError::Need(
-                            required,
-                        )),
-                    ),
-                    Some(missing),
-                ) if required == missing => GroupMessageProcessingError::CommitValidation(
-                    CommitValidationError::IdentityDependency(
-                        IdentityDependencyError::MissingReference(missing.clone()),
-                    ),
-                ),
-                _ => error,
-            };
-            if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
-                CommitRuleError::ProtocolVersionTooLow(version),
-            )) = &error
-            {
-                tx.storage()
-                    .db()
-                    .set_group_paused(&self.group_id, version)?;
-                return Ok(Continue(Err(GroupMessageProcessingError::GroupPaused)));
-            }
-            if error.is_safe_rejection() {
-                tx.with_group(self.group_id, |group, storage| {
-                    #[cfg(any(test, feature = "test-utils"))]
-                    if envelope.is_commit()
-                        && matches!(&error, GroupMessageProcessingError::OldEpoch(..))
-                    {
-                        own_commit_epoch_conflict = storage
+                        .set_group_paused(&self.group_id, version)?;
+                    return Ok(Continue(Err(GroupMessageProcessingError::GroupPaused)));
+                }
+                if error.is_safe_rejection() {
+                    tx.with_group(self.group_id, |group, storage| {
+                        #[cfg(any(test, feature = "test-utils"))]
+                        if envelope.is_commit()
+                            && matches!(&error, GroupMessageProcessingError::OldEpoch(..))
+                        {
+                            own_commit_epoch_conflict = storage
+                                .db()
+                                .find_group_intent_by_payload_hash(&envelope.payload_hash)?
+                                .is_some_and(|intent| {
+                                    intent.group_id == self.group_id
+                                        && matches!(
+                                            intent.state,
+                                            IntentState::Published | IntentState::ToPublish
+                                        )
+                                });
+                        }
+                        self.record_rejected_message(group, storage, envelope, &error)?;
+                        storage.db().record_terminal_rejection(
+                            &topic,
+                            envelope.cursor,
+                            error.processing_code(),
+                        )?;
+                        storage
                             .db()
-                            .find_group_intent_by_payload_hash(&envelope.payload_hash)?
-                            .is_some_and(|intent| {
-                                intent.group_id == self.group_id
-                                    && matches!(
-                                        intent.state,
-                                        IntentState::Published | IntentState::ToPublish
-                                    )
-                            });
-                    }
-                    self.record_rejected_message(group, storage, envelope, &error)?;
-                    storage.db().record_terminal_rejection(
-                        &topic,
-                        envelope.cursor,
-                        error.processing_code(),
-                    )?;
-                    storage
-                        .db()
-                        .complete_pending_envelope(&topic, envelope.cursor)?;
-                    Ok::<_, GroupMessageProcessingError>(())
-                })?;
-                return Ok(Continue(Err(error)));
-            }
-            Err(error)
-        })
+                            .complete_pending_envelope(&topic, envelope.cursor)?;
+                        Ok::<_, GroupMessageProcessingError>(())
+                    })?;
+                    return Ok(Continue(Err(error)));
+                }
+                Err(error)
+            },
+        )
         .map(TransactionOutcome::into_continued)
         .and_then(|outcome| outcome);
         #[cfg(any(test, feature = "test-utils"))]

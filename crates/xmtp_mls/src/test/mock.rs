@@ -78,7 +78,7 @@ impl Clone for NewMockContext {
             mls_commit_lock: self.mls_commit_lock.clone(),
             version_info: self.version_info.clone(),
             server_configuration: self.server_configuration.clone(),
-            local_events: self.local_events.clone(),
+            events: self.events.clone(),
             worker_events: self.worker_events.clone(),
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
@@ -154,8 +154,8 @@ impl XmtpSharedContext for NewMockContext {
         &self.worker_events
     }
 
-    fn local_events(&self) -> &broadcast::Sender<crate::subscriptions::LocalEvents> {
-        &self.local_events
+    fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
+        &self.events
     }
 
     #[cfg(test)]

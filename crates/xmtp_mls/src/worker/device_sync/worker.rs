@@ -5,8 +5,9 @@ use super::{
 use crate::{
     context::XmtpSharedContext,
     subscriptions::{
-        LocalEvents, SyncWorkerEvent,
+        SyncWorkerEvent,
         incoming::{IncomingCoordinator, IncomingScope},
+        internal::PreferenceOrigin,
     },
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
@@ -361,7 +362,6 @@ where
     where
         Context::Db: 'static,
     {
-        let conn = self.context.db();
         let installation_id = self.context.installation_id();
         let is_external = msg.sender_installation_id != installation_id;
 
@@ -375,13 +375,28 @@ where
                     self.context.installation_id()
                 );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = store_preference_updates(updates.clone(), &conn, handle)?;
+                let updated = crate::state_tx::state_write_with_events(
+                    self.context.mls_storage(),
+                    self.context.events(),
+                    |tx, events| {
+                        let storage = tx.storage();
+                        let db = storage.db();
+                        let updated = store_preference_updates(updates.clone(), &db, handle)?;
+                        crate::subscriptions::internal::emit_preference_updates_with_public(
+                            events,
+                            updated.public,
+                            updated.legacy.clone(),
+                            PreferenceOrigin::Sync,
+                            &db,
+                        )?;
+                        Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(
+                            updated.legacy,
+                        ))
+                    },
+                )?
+                .into_continued();
                 if !updated.is_empty() {
                     self.context.task_channels().wake_notifications();
-                    let _ = self
-                        .context
-                        .local_events()
-                        .send(LocalEvents::PreferencesChanged(updated));
                 }
             }
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {

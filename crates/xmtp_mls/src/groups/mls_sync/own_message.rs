@@ -199,6 +199,7 @@ where
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
         disappearing_stored: &mut bool,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<Option<Vec<u8>>, IntentResolutionError> {
         if intent.state == IntentState::Committed
             || intent.state == IntentState::Processed
@@ -362,7 +363,12 @@ where
             *disappearing_stored = true;
         }
         self.process_own_leave_request_message(mls_group, storage, &id);
-        self.process_own_delete_message(storage, &id);
+        if !self.conversation_type.is_virtual() {
+            event_writer.emit(
+                None,
+                Some(crate::subscriptions::internal::InternalEvent::MessagesStored),
+            );
+        }
         Ok(Some(id))
     }
 }

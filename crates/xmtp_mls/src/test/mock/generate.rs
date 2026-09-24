@@ -19,7 +19,6 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
-    let (local_events, _) = tokio::sync::broadcast::channel(32);
     let (worker_events, _) = tokio::sync::broadcast::channel(32);
     XmtpMlsLocalContext {
         identity: Identity::mock_identity(),
@@ -30,7 +29,7 @@ pub fn context() -> NewMockContext {
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
         server_configuration: Default::default(),
-        local_events,
+        events: xmtp_events::EventBus::new(),
         worker_events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {

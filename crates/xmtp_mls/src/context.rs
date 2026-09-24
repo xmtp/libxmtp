@@ -4,7 +4,7 @@ use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
 use crate::groups::change_callbacks::UnstableChangeCallbacks;
 use crate::server_configuration::ServerConfigurationHandle;
-use crate::subscriptions::{LocalEvents, SyncWorkerEvent};
+use crate::subscriptions::{SyncWorkerEvent, internal::InternalEvent};
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
 use crate::worker::disappearing_messages::DisappearingChannels;
@@ -26,6 +26,7 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
+use xmtp_events::EventBus;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
 use xmtp_proto::types::InstallationId;
@@ -51,7 +52,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// What this deployment published about itself, resolved once at build
     /// plus the blocked connection a refresh may set.
     pub(crate) server_configuration: ServerConfigurationHandle,
-    pub(crate) local_events: broadcast::Sender<LocalEvents>,
+    pub(crate) events: EventBus<InternalEvent>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
     pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
@@ -131,7 +132,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             mls_commit_lock: self.mls_commit_lock,
             version_info: self.version_info,
             server_configuration: self.server_configuration,
-            local_events: self.local_events,
+            events: self.events,
             delivery_owner: self.delivery_owner,
             worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
@@ -265,7 +266,7 @@ where
     /// The configuration snapshot every consumer reads.
     fn server_configuration(&self) -> &ServerConfigurationHandle;
     fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents>;
+    fn events(&self) -> &EventBus<InternalEvent>;
     /// This context's default-consumer token; the database is the ownership authority.
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
 
@@ -368,8 +369,8 @@ where
         &self.worker_events
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        &self.local_events
+    fn events(&self) -> &EventBus<InternalEvent> {
+        &self.events
     }
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
@@ -486,8 +487,8 @@ where
         <T as XmtpSharedContext>::worker_events(self)
     }
 
-    fn local_events(&self) -> &broadcast::Sender<LocalEvents> {
-        <T as XmtpSharedContext>::local_events(self)
+    fn events(&self) -> &EventBus<InternalEvent> {
+        <T as XmtpSharedContext>::events(self)
     }
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {

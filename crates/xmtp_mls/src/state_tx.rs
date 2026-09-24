@@ -5,7 +5,10 @@ use xmtp_db::{
     NotFound, StorageError, TransactionOutcome, TransactionalKeyStore, XmtpMlsStorageProvider,
     sql_key_store::SqlKeyStoreError,
 };
+use xmtp_events::{EventBuffer, EventBus};
 use xmtp_proto::types::GroupId;
+
+use crate::subscriptions::internal::InternalEvent;
 
 /// A capability created only after an immediate write transaction starts.
 ///
@@ -87,6 +90,31 @@ where
     })
 }
 
+/// Flush this write's events only after its database transaction commits.
+pub(crate) fn state_write_with_events<S, R, E>(
+    storage: &S,
+    bus: &EventBus<InternalEvent>,
+    operation: impl FnOnce(
+        &mut StateTx<'_, S::TxQuery>,
+        &EventBuffer<'_, InternalEvent>,
+    ) -> Result<TransactionOutcome<R>, E>,
+) -> Result<TransactionOutcome<R>, E>
+where
+    S: XmtpMlsStorageProvider,
+    E: From<xmtp_db::diesel::result::Error> + From<xmtp_db::ConnectionError> + std::error::Error,
+{
+    let mut result = None;
+    let _: Result<(), ()> = bus.with_buffer(|events| {
+        result = Some(state_write(storage, |tx| operation(tx, events)));
+        if matches!(&result, Some(Ok(TransactionOutcome::Continue(_)))) {
+            Ok(())
+        } else {
+            Err(())
+        }
+    });
+    result.expect("state write produced a result")
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod precommit_test_hook {
     use std::{cell::RefCell, marker::PhantomData, rc::Rc};
@@ -129,5 +157,93 @@ pub(crate) mod precommit_test_hook {
                 slot.replace(self.previous.take());
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::*;
+    use crate::worker::device_sync::preference_sync::PreferenceUpdate;
+    use crate::{
+        context::XmtpSharedContext,
+        subscriptions::internal::{PreferenceOrigin, emit_preference_updates},
+        tester,
+    };
+    use xmtp_db::{
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
+        prelude::*,
+    };
+    use xmtp_events::{ClientEvent, EventFilter, EventKind};
+
+    // verifies: EVENT-010, EVENT-012
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn event_write_flushes_after_commit_and_clears_on_rollback() {
+        tester!(alix, disable_workers);
+        let bus = alix.context.events();
+        let subscription = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+        #[cfg(not(target_arch = "wasm32"))]
+        let before_commit = bus.subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+        let committed = StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Allowed,
+            "committed".into(),
+        );
+        #[cfg(not(target_arch = "wasm32"))]
+        let hook = precommit_test_hook::install(move |_| {
+            assert!(before_commit.drain().is_empty());
+        });
+        state_write_with_events(alix.context.mls_storage(), bus, |tx, events| {
+            let storage = tx.storage();
+            let db = storage.db();
+            db.insert_or_replace_consent_records(std::slice::from_ref(&committed))?;
+            emit_preference_updates(
+                events,
+                vec![PreferenceUpdate::Consent(committed.clone())],
+                PreferenceOrigin::Local,
+                &db,
+            )?;
+            Ok::<_, StorageError>(TransactionOutcome::Continue(()))
+        })?;
+        #[cfg(not(target_arch = "wasm32"))]
+        drop(hook);
+        assert_eq!(
+            alix.context
+                .db()
+                .get_consent_record("committed".into(), ConsentType::InboxId)?
+                .map(|record| record.state),
+            Some(ConsentState::Allowed)
+        );
+        assert!(
+            matches!(subscription.drain().pop().and_then(|item| item.client), Some(ClientEvent::ConsentChanged(change)) if change.entity == "committed")
+        );
+
+        let rolled_back = StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            "rolled_back".into(),
+        );
+        state_write_with_events::<_, (), StorageError>(
+            alix.context.mls_storage(),
+            bus,
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                db.insert_or_replace_consent_records(std::slice::from_ref(&rolled_back))?;
+                emit_preference_updates(
+                    events,
+                    vec![PreferenceUpdate::Consent(rolled_back.clone())],
+                    PreferenceOrigin::Local,
+                    &db,
+                )?;
+                Ok(TransactionOutcome::Rollback)
+            },
+        )?;
+        assert!(
+            alix.context
+                .db()
+                .get_consent_record("rolled_back".into(), ConsentType::InboxId)?
+                .is_none()
+        );
+        assert!(subscription.drain().is_empty());
     }
 }

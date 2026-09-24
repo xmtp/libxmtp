@@ -12,7 +12,7 @@ use acknowledgement::{AcknowledgementState, DeliverySession, PendingAcknowledgem
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
 use std::{collections::VecDeque, sync::Arc};
-use tokio::sync::{Notify, broadcast};
+use tokio::sync::Notify;
 use xmtp_common::{
     StreamHandle,
     time::{now_ns, sleep},
@@ -27,8 +27,9 @@ use xmtp_db::{
 };
 use xmtp_proto::types::GroupId;
 
-use super::{LocalEvents, SubscribeError};
+use super::{SubscribeError, internal::InternalEvent};
 use crate::context::XmtpSharedContext;
+use xmtp_events::{EventFilter, Subscription};
 
 type Result<T> = std::result::Result<T, LocalDeliveryError>;
 
@@ -98,7 +99,7 @@ pub struct LocalDelivery<Context: XmtpSharedContext> {
     session: Arc<DeliverySession<Context>>,
     config: LocalDeliveryConfig,
     control: LocalDeliveryControl,
-    events: broadcast::Receiver<LocalEvents>,
+    events: Subscription<InternalEvent>,
     candidates: VecDeque<DeliveryMessage>,
     candidate_revision: u64,
     /// At most one handoff can wait for acknowledgement.
@@ -125,7 +126,11 @@ where
             return Err(LocalDeliveryError::Closed);
         }
         // Subscribe before the first database read. Polling also covers missed and cross-process writes.
-        let events = context.local_events().subscribe();
+        let events = context.events().subscribe(
+            EventFilter::default()
+                .with_internal(|event| matches!(event, InternalEvent::MessagesStored)),
+            Some(10),
+        );
         let now = now_ns();
         let database_id = context.db().stream_database_id()?;
         let owner = if let Some(cursor) = from {
@@ -296,7 +301,7 @@ where
                     tokio::select! {
                         _ = self.session.cancel.cancelled() => return self.session.end_result(),
                         _ = self.control.changed.notified() => {},
-                        _ = self.events.recv() => {},
+                        _ = self.events.next() => {},
                         _ = sleep(self.config.poll_interval) => {},
                     }
                     continue;

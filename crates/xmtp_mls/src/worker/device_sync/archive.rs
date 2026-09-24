@@ -162,6 +162,7 @@ fn insert(
                         PolicySet::default(),
                         metadata_options,
                         None,
+                        false,
                     )?;
                 }
             }

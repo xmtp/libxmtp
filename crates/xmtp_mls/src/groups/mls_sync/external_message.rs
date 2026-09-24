@@ -7,6 +7,22 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    /// Store an external application message and report a prior valid deletion once.
+    pub(crate) fn store_external_application_message(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        let db = storage.db();
+        let was_stored = db.get_group_message(&message.id)?.is_some();
+        message.store_or_ignore(&db)?;
+        if !was_stored {
+            self.emit_pending_deletion_for_message(storage, message, event_writer)?;
+        }
+        Ok(())
+    }
+
     #[tracing::instrument(level = "trace", skip_all)]
     pub(super) fn validate_and_process_external_message(
         &self,
@@ -14,6 +30,7 @@ where
         envelope: &GroupMessage,
         storage: &impl XmtpMlsStorageProvider,
         deferred_events: &mut DeferredEvents,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         #[cfg(any(test, feature = "test-utils"))]
         {
@@ -92,6 +109,7 @@ where
             validated_commit,
             storage,
             deferred_events,
+            event_writer,
         )
     }
 
@@ -149,6 +167,10 @@ where
 
     /// Process an external message
     /// returns a MessageIdentifier, identifying the message processed if any.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Task 4 removes deferred worker events"
+    )]
     #[tracing::instrument(level = "trace", skip_all)]
     fn process_external_message(
         &self,
@@ -158,6 +180,7 @@ where
         validated_commit: Option<ValidatedCommit>,
         storage: &impl XmtpMlsStorageProvider,
         deferred_events: &mut DeferredEvents,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<MessageIdentifier, GroupMessageProcessingError> {
         let GroupMessage { cursor, .. } = &message_envelope;
         let envelope_timestamp_ns = message_envelope.timestamp();
@@ -220,8 +243,19 @@ where
                             // key this message id was derived from.
                             idempotency_key,
                         };
-                        message.store_or_ignore(&storage.db())?;
+                        self.store_external_application_message(storage, &message, event_writer)?;
                         identifier.internal_id(message_id);
+
+                        if storage
+                            .db()
+                            .find_group(&self.group_id)?
+                            .is_some_and(|group| !group.conversation_type.is_virtual())
+                        {
+                            event_writer.emit(
+                                None,
+                                Some(crate::subscriptions::internal::InternalEvent::MessagesStored),
+                            );
+                        }
 
                         // A disappearing message was just persisted with a known
                         // future deadline; wake the disappearing worker after the
@@ -256,7 +290,12 @@ where
                         }
 
                         if message.content_type == ContentType::DeleteMessage {
-                            self.process_delete_message(mls_group, storage, &message)?;
+                            self.process_delete_message(
+                                mls_group,
+                                storage,
+                                &message,
+                                event_writer,
+                            )?;
                         }
 
                         Ok::<_, GroupMessageProcessingError>(())

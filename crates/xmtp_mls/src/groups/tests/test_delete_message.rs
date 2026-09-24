@@ -237,8 +237,10 @@ async fn test_out_of_order_deletion() {
 }
 
 /// Test deletion record stored before the original message arrives.
+// verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_true_out_of_order_deletion_by_sender() {
+    use crate::context::XmtpSharedContext;
     use xmtp_db::Store;
     use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
     use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -298,6 +300,24 @@ async fn test_true_out_of_order_deletion_by_sender() {
     };
     deletion.store(&alix_conn)?;
 
+    // A later invalid record for the same target must not hide the valid one.
+    let invalid_delete_message_id = vec![0x04, 0x05, 0x06];
+    let invalid_delete_message = StoredGroupMessage {
+        id: invalid_delete_message_id.clone(),
+        sender_inbox_id: "not_the_sender".into(),
+        ..delete_message.clone()
+    };
+    invalid_delete_message.store(&alix_conn)?;
+    StoredMessageDeletion {
+        id: invalid_delete_message_id,
+        group_id: alix_group.group_id,
+        deleted_message_id: future_message_id.clone(),
+        deleted_by_inbox_id: "not_the_sender".into(),
+        is_super_admin_deletion: false,
+        deleted_at_ns: deletion.deleted_at_ns.saturating_add(1),
+    }
+    .store(&alix_conn)?;
+
     // Verify deletion record exists but target message doesn't
     assert!(alix_conn.get_group_message(&future_message_id)?.is_none());
     assert!(
@@ -332,7 +352,31 @@ async fn test_true_out_of_order_deletion_by_sender() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    message.store(&alix_conn)?;
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
+        Some(10),
+    );
+    for _ in 0..2 {
+        crate::state_tx::state_write_with_events(
+            alix.context.mls_storage(),
+            alix.context.events(),
+            |tx, buffer| {
+                let storage = tx.storage();
+                alix_group.store_external_application_message(&storage, &message, buffer)?;
+                Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                    xmtp_db::TransactionOutcome::Continue(()),
+                )
+            },
+        )?;
+    }
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::MessageDeleted(deleted)), ..
+        }] if deleted.group_id == alix_group.group_id.to_vec()
+            && deleted.message_id == future_message_id
+            && deleted.cause == xmtp_events::DeletionCause::Deleted
+    ));
 
     // Step 4: Verify the message is now marked as deleted via is_message_deleted
     assert!(alix_conn.is_message_deleted(&future_message_id)?);
@@ -356,9 +400,10 @@ async fn test_true_out_of_order_deletion_by_sender() {
 }
 
 /// Test that unauthorized deletion records are rejected at query time.
-// verifies: PROC-037
+// verifies: PROC-037, EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_out_of_order_unauthorized_deletion_rejected() {
+    use crate::context::XmtpSharedContext;
     use xmtp_db::Store;
     use xmtp_db::group_message::{DeliveryStatus, StoredGroupMessage};
     use xmtp_db::message_deletion::StoredMessageDeletion;
@@ -449,7 +494,22 @@ async fn test_out_of_order_unauthorized_deletion_rejected() {
         should_push: false,
         idempotency_key: String::new(),
     };
-    message.store(&bo_conn)?;
+    let events = bo.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
+        Some(10),
+    );
+    crate::state_tx::state_write_with_events(
+        bo.context.mls_storage(),
+        bo.context.events(),
+        |tx, buffer| {
+            let storage = tx.storage();
+            bo_group.store_external_application_message(&storage, &message, buffer)?;
+            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                xmtp_db::TransactionOutcome::Continue(()),
+            )
+        },
+    )?;
+    assert!(events.drain().is_empty());
 
     // Deletion record exists but is unauthorized
     assert!(bo_conn.is_message_deleted(&future_message_id)?);
@@ -1150,11 +1210,11 @@ async fn test_stream_message_deletions_from_other_client() {
     assert_eq!(deleted_message.metadata.sender_inbox_id, alix.inbox_id());
 }
 
-/// Test that stream_message_deletions fires for self-deletions after publishing.
-/// When the same client deletes a message and publishes it, the local event
-/// should be emitted once the deletion is confirmed on the network.
+/// A local deletion is readable before publish and emits only once.
+// verifies: EVENT-001, EVENT-007, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_stream_message_deletions_fires_for_self_after_publish() {
+    use crate::context::XmtpSharedContext;
     use crate::utils::FullXmtpClient;
     use parking_lot::Mutex;
     use std::sync::Arc;
@@ -1197,17 +1257,32 @@ async fn test_stream_message_deletions_fires_for_self_after_publish() {
     // Wait for stream to be ready
     handle.wait_for_ready().await;
 
-    // Alix deletes the message and publishes
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
+        Some(10),
+    );
+
+    // The deletion row is readable as soon as this call returns.
     alix_group.delete_message(message_id.clone())?;
+    assert!(alix.context.db().is_message_deleted(&message_id)?);
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::MessageDeleted(deleted)), ..
+        }] if deleted.message_id == message_id
+            && deleted.cause == xmtp_events::DeletionCause::DeletedLocally
+    ));
+
     alix_group.publish_messages().await?;
 
     // Alix syncs (the deletion message is skipped because it was already processed locally)
     alix_group.sync().await?;
+    assert!(events.drain().is_empty());
 
     // Wait for the deletion event callback (5s timeout provides buffer for async processing)
     let result = xmtp_common::time::timeout(Duration::from_secs(5), notify.notified()).await;
 
-    // Verify the callback was called (self-deletions fire local events after network confirmation)
+    // Verify that the legacy callback got the local deletion.
     assert!(
         result.is_ok(),
         "stream_message_deletions should fire for self-deletions after publish"

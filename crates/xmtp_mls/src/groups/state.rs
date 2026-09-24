@@ -74,12 +74,27 @@ where
 
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let db = self.context.db();
-        let new_records: Vec<PreferenceUpdate> = self
-            .quietly_update_consent_state(state, &db)?
-            .into_iter()
-            .map(PreferenceUpdate::Consent)
-            .collect();
+        let new_records = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let updates = self
+                    .quietly_update_consent_state(state, &db)?
+                    .into_iter()
+                    .map(PreferenceUpdate::Consent)
+                    .collect::<Vec<_>>();
+                crate::subscriptions::internal::emit_preference_updates(
+                    events,
+                    updates.clone(),
+                    crate::subscriptions::internal::PreferenceOrigin::Local,
+                    &db,
+                )?;
+                Ok::<_, GroupError>(Continue(updates))
+            },
+        )?
+        .into_continued();
 
         if !new_records.is_empty() {
             self.context.task_channels().wake_notifications();
@@ -88,11 +103,6 @@ where
                 .context
                 .worker_events()
                 .send(SyncWorkerEvent::SyncPreferences(new_records.clone()));
-            // Broadcast the changes
-            let _ = self
-                .context
-                .local_events()
-                .send(LocalEvents::PreferencesChanged(new_records));
         }
 
         Ok(())

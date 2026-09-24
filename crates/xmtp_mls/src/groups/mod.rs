@@ -46,7 +46,7 @@ use crate::groups::{
 };
 use crate::state_tx::state_write;
 use crate::subscriptions::SyncWorkerEvent;
-use crate::{client::ClientError, subscriptions::LocalEvents, utils::id::calculate_message_id};
+use crate::{client::ClientError, utils::id::calculate_message_id};
 use crate::{
     groups::send_message_opts::SendMessageOpts,
     worker::device_sync::preference_sync::PreferenceUpdate,

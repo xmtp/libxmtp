@@ -53,7 +53,7 @@ type ReactionMap = HashMap<Vec<u8>, Vec<DecodedMessage>>;
 // Mapping of referenced messages, keyed by ID (stores both stored and decoded)
 type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage)>;
 // Mapping of deletions, keyed by the ID of the deleted message
-type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
+type DeletionMap = HashMap<Vec<u8>, Vec<StoredMessageDeletion>>;
 
 /// Validates if a deletion should be applied. Checks group membership and authorization.
 // implements: PROC-037
@@ -100,10 +100,15 @@ pub fn enrich_messages(
                 .inspect_err(|err| tracing::warn!("Failed to decode message {:?}", err))
                 .ok()?;
 
-            let valid_deletion = relations
-                .deletions
-                .get(&decoded.metadata.id)
-                .filter(|deletion| is_deletion_valid(deletion, &stored_message, group_id));
+            let valid_deletion =
+                relations
+                    .deletions
+                    .get(&decoded.metadata.id)
+                    .and_then(|deletions| {
+                        deletions
+                            .iter()
+                            .find(|deletion| is_deletion_valid(deletion, &stored_message, group_id))
+                    });
 
             if let Some(deletion) = valid_deletion {
                 let is_sender = deletion.deleted_by_inbox_id == stored_message.sender_inbox_id;
@@ -153,9 +158,11 @@ pub fn enrich_messages(
                                 .map(|(_, decoded)| decoded.clone());
 
                             if let Some(msg) = in_reply_to.as_mut()
-                                && let Some(deletion) = relations.deletions.get(id)
+                                && let Some(deletions) = relations.deletions.get(id)
                                 && let Some((stored_msg, _)) = relations.referenced_messages.get(id)
-                                && is_deletion_valid(deletion, stored_msg, group_id)
+                                && let Some(deletion) = deletions.iter().find(|deletion| {
+                                    is_deletion_valid(deletion, stored_msg, group_id)
+                                })
                             {
                                 let is_sender =
                                     deletion.deleted_by_inbox_id == stored_msg.sender_inbox_id;
@@ -276,8 +283,15 @@ fn get_reactions(messages: HashMap<Vec<u8>, Vec<StoredGroupMessage>>) -> Reactio
 }
 
 fn get_deletions(deletions: Vec<StoredMessageDeletion>) -> DeletionMap {
-    deletions
-        .into_iter()
-        .map(|deletion| (deletion.deleted_message_id.clone(), deletion))
-        .collect()
+    let mut by_message = DeletionMap::new();
+    for deletion in deletions {
+        by_message
+            .entry(deletion.deleted_message_id.clone())
+            .or_default()
+            .push(deletion);
+    }
+    for records in by_message.values_mut() {
+        records.sort_by(|a, b| a.deleted_at_ns.cmp(&b.deleted_at_ns).then(a.id.cmp(&b.id)));
+    }
+    by_message
 }

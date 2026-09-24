@@ -28,6 +28,7 @@ async fn archive_stub_keeps_a_group_joined_by_another_writer() {
         PolicySet::default(),
         GroupMetadataOptions::default(),
         None,
+        false,
     )?;
 
     assert_eq!(group.epoch_authenticator().await?, before);

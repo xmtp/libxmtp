@@ -137,7 +137,7 @@ async fn welcomed_group_joins_the_live_stream() {
 }
 
 /// A group this client creates itself streams its messages — no welcome
-/// ever arrives for it, so delivery proves the `LocalEvents::NewGroup`
+/// ever arrives for it, so delivery proves the local group-joined event
 /// fan-in leased its topic.
 #[xmtp_common::test(unwrap_try = true)]
 async fn self_created_group_streams_its_messages() {
@@ -166,7 +166,7 @@ async fn self_created_group_streams_its_messages() {
 }
 
 /// A conversation this client creates itself surfaces on its own
-/// conversations stream (legacy multiplexes `LocalEvents::NewGroup`; the
+/// conversations stream (the local bus carries group-joined events; the
 /// bidi stream must too — the creator never receives a welcome).
 #[xmtp_common::test(unwrap_try = true)]
 async fn self_created_conversation_surfaces_on_the_stream() {
