@@ -56,7 +56,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     mem::{Discriminant, discriminant},
     ops::RangeInclusive,
     time::Duration,
@@ -143,6 +143,22 @@ pub(crate) use processing::GroupHeadOutcome;
 pub(crate) mod publish;
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    fn metadata_changed_event(&self, commit: &ValidatedCommit) -> Option<ClientEvent> {
+        let changed: BTreeSet<_> = commit
+            .metadata_component_ids
+            .iter()
+            .copied()
+            .map(ComponentId::from)
+            .map(ComponentId::event_name)
+            .collect();
+        (!changed.is_empty()).then(|| {
+            ClientEvent::ConversationMetadataChanged(xmtp_events::MetadataChanged {
+                group_id: self.group_id.to_vec(),
+                changed: changed.into_iter().collect(),
+            })
+        })
+    }
+
     fn emit_message_status_changed(
         &self,
         message_id: Vec<u8>,
@@ -228,71 +244,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 context.clone(),
             );
         }
-        let mut changed: Vec<String> = commit
-            .metadata_changes
-            .metadata_field_changes
-            .iter()
-            .map(|field| field.field_name.clone())
-            .collect();
-        for component_id in &commit.metadata_component_ids {
-            let name = match ComponentId::from(*component_id) {
-                ComponentId::COMPONENT_REGISTRY => "COMPONENT_REGISTRY".into(),
-                ComponentId::SUPER_ADMIN_LIST => "SUPER_ADMIN_LIST".into(),
-                ComponentId::ADMIN_LIST => "ADMIN_LIST".into(),
-                ComponentId::GROUP_MEMBERSHIP => "GROUP_MEMBERSHIP".into(),
-                ComponentId::GROUP_NAME => "group_name".into(),
-                ComponentId::GROUP_DESCRIPTION => "description".into(),
-                ComponentId::GROUP_IMAGE_URL => "group_image_url_square".into(),
-                ComponentId::MESSAGE_DISAPPEAR_FROM_NS => "message_disappear_from_ns".into(),
-                ComponentId::MESSAGE_DISAPPEAR_IN_NS => "message_disappear_in_ns".into(),
-                ComponentId::APP_DATA => "app_data".into(),
-                ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION => {
-                    "minimum_supported_protocol_version".into()
-                }
-                ComponentId::COMMIT_LOG_SIGNER => "_commit_log_signer".into(),
-                ComponentId::CONVERSATION_TYPE => "CONVERSATION_TYPE".into(),
-                ComponentId::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
-                ComponentId::DM_MEMBERS => "DM_MEMBERS".into(),
-                ComponentId::ONESHOT_MESSAGE => "ONESHOT_MESSAGE".into(),
-                id => format!("component:{:04x}", id.as_u16()),
-            };
-            if !changed.contains(&name) {
-                changed.push(name);
-            }
-        }
-        if !commit.metadata_changes.admins_added.is_empty()
-            || !commit.metadata_changes.admins_removed.is_empty()
-        {
-            let name = "ADMIN_LIST".to_string();
-            if !changed.contains(&name) {
-                changed.push(name);
-            }
-        }
-        if !commit.metadata_changes.super_admins_added.is_empty()
-            || !commit.metadata_changes.super_admins_removed.is_empty()
-        {
-            let name = "SUPER_ADMIN_LIST".to_string();
-            if !changed.contains(&name) {
-                changed.push(name);
-            }
-        }
-        if commit.permissions_changed {
-            let name = "COMPONENT_REGISTRY".to_string();
-            if !changed.contains(&name) {
-                changed.push(name);
-            }
-        }
-        if !changed.is_empty() {
-            writer.emit_with_context(
-                Some(ClientEvent::ConversationMetadataChanged(
-                    xmtp_events::MetadataChanged {
-                        group_id: self.group_id.to_vec(),
-                        changed,
-                    },
-                )),
-                None,
-                context,
-            );
+        if let Some(event) = self.metadata_changed_event(commit) {
+            writer.emit_with_context(Some(event), None, context);
         }
         Ok(())
     }

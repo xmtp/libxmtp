@@ -7,6 +7,51 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    fn received_message_event(
+        &self,
+        storage: &impl XmtpMlsStorageProvider,
+        message: &StoredGroupMessage,
+    ) -> Result<(xmtp_events::ClientEvent, xmtp_events::EventContext), GroupMessageProcessingError>
+    {
+        let references_own_messages = if matches!(
+            (
+                message.authority_id.as_str(),
+                message.content_type,
+                message.version_major
+            ),
+            ("xmtp.org", ContentType::Reply, 1) | ("xmtp.org", ContentType::Reaction, 2)
+        ) {
+            message
+                .reference_id
+                .as_ref()
+                .map(|id| storage.db().get_group_message(id))
+                .transpose()?
+                .flatten()
+                .is_some_and(|target| target.sender_inbox_id == self.context.inbox_id())
+        } else {
+            false
+        };
+        let content_type = xmtp_proto::xmtp::mls::message_contents::EncodedContent::decode(
+            message.decrypted_message_bytes.as_slice(),
+        )
+        .ok()
+        .and_then(|content| content.r#type)
+        .map(xmtp_content_types::ContentTypeId::from);
+        Ok((
+            xmtp_events::ClientEvent::MessageReceived(xmtp_events::MessageReceived {
+                group_id: message.group_id.to_vec(),
+                message_id: message.id.clone(),
+                content_type,
+                sender_inbox_id: message.sender_inbox_id.clone(),
+            }),
+            xmtp_events::EventContext {
+                dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+                references_own_messages,
+                message_expires_at_ns: message.expire_at_ns,
+            },
+        ))
+    }
+
     /// Store an external application message and report a prior valid deletion once.
     pub(crate) fn store_external_application_message(
         &self,
@@ -22,52 +67,8 @@ where
                 && message.kind == GroupMessageKind::Application
                 && message.sender_installation_id != self.context.installation_id().as_slice()
             {
-                let references_own_messages = if matches!(
-                    (
-                        message.authority_id.as_str(),
-                        message.content_type,
-                        message.version_major
-                    ),
-                    ("xmtp.org", ContentType::Reply, 1) | ("xmtp.org", ContentType::Reaction, 2)
-                ) {
-                    message
-                        .reference_id
-                        .as_ref()
-                        .map(|id| db.get_group_message(id))
-                        .transpose()?
-                        .flatten()
-                        .is_some_and(|target| target.sender_inbox_id == self.context.inbox_id())
-                } else {
-                    false
-                };
-                event_writer.emit_with_context(
-                    Some(xmtp_events::ClientEvent::MessageReceived(
-                        xmtp_events::MessageReceived {
-                            group_id: message.group_id.to_vec(),
-                            message_id: message.id.clone(),
-                            content_type:
-                                xmtp_proto::xmtp::mls::message_contents::EncodedContent::decode(
-                                    message.decrypted_message_bytes.as_slice(),
-                                )
-                                .ok()
-                                .and_then(|content| content.r#type)
-                                .map(|id| {
-                                    xmtp_events::ContentTypeId {
-                                        authority_id: id.authority_id,
-                                        type_id: id.type_id,
-                                        version_major: id.version_major,
-                                    }
-                                }),
-                            sender_inbox_id: message.sender_inbox_id.clone(),
-                        },
-                    )),
-                    None,
-                    xmtp_events::EventContext {
-                        dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
-                        references_own_messages,
-                        message_expires_at_ns: message.expire_at_ns,
-                    },
-                );
+                let (event, context) = self.received_message_event(storage, message)?;
+                event_writer.emit_with_context(Some(event), None, context);
             }
             self.emit_pending_deletion_for_message(storage, message, event_writer)?;
         }

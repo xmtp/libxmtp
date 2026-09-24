@@ -142,6 +142,43 @@ async fn metadata_commit_emits_changed_field_once() {
     assert!(remote_metadata.drain().is_empty());
 }
 
+// verifies: EVENT-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn admin_and_permission_commits_name_the_changed_components() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix.create_group(None, None)?;
+    group.add_members(&[bo.inbox_id()]).await?;
+    let metadata = alix.context.events().subscribe(
+        EventFilter::new([EventKind::ConversationMetadataChanged]),
+        Some(10),
+    );
+
+    group
+        .update_admin_list(UpdateAdminListType::Add, bo.inbox_id().to_string())
+        .await?;
+    assert!(matches!(
+        metadata.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::ConversationMetadataChanged(change)), ..
+        }] if change.changed == ["ADMIN_LIST"]
+    ));
+
+    group
+        .update_permission_policy(
+            PermissionUpdateType::AddMember,
+            PermissionPolicyOption::Deny,
+            None,
+        )
+        .await?;
+    assert!(matches!(
+        metadata.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::ConversationMetadataChanged(change)), ..
+        }] if change.changed == ["COMPONENT_REGISTRY"]
+    ));
+}
+
 // verifies: EVENT-001, EVENT-006, EVENT-012, EVENT-019
 #[xmtp_common::test(unwrap_try = true)]
 async fn removal_precedes_membership_change_for_removed_installation() {
