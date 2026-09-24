@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.ts";
+import {
+  Client,
+  Group,
+} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.ts";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.ts";
 import type {
   WireEndpoint,
@@ -180,26 +183,44 @@ const host = new WorkerHost(
   1,
   "gc-pool",
   async () => {},
-  async () => undefined,
+  async (key) => (key === "Group.sendText" ? "message-id" : undefined),
   locks,
 );
 const lockSession = new MainSession(mainEndpoint, 1, "gc-pool");
 await lockSession.ready();
 await locks.open("collected-client");
 const lockHandle = host.registry.add({}, "Client");
+const groupHandle = host.registry.add({}, "Group", lockHandle.owner, () => ({
+  id: "live-group",
+}));
 locks.attachOwner(lockHandle.owner, "collected-client");
 function temporaryLockedClient(): void {
   new Client(lockSession, lockHandle);
 }
-temporaryLockedClient();
-await assert.rejects(otherTab.open("collected-client"), {
-  code: "storageBusy",
-});
+async function keepGroupAfterClientGC(): Promise<void> {
+  const group = new Group(lockSession, groupHandle);
+  temporaryLockedClient();
+  await assert.rejects(otherTab.open("collected-client"), {
+    code: "storageBusy",
+  });
+  for (let attempt = 0; attempt < 100 && host.registry.size > 1; attempt++) {
+    global.gc();
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(host.registry.size, 1, "Client handle was not collected");
+  assert.equal(await group.sendText("client was collected"), "message-id");
+  await assert.rejects(otherTab.open("collected-client"), {
+    code: "storageBusy",
+  });
+}
+await keepGroupAfterClientGC();
 for (let attempt = 0; attempt < 100 && host.registry.size > 0; attempt++) {
   global.gc();
   await new Promise<void>((resolve) => setTimeout(resolve, 10));
 }
-assert.equal(host.registry.size, 0, "GC did not release the Client handle");
+assert.equal(host.registry.size, 0, "GC did not release the Group handle");
 await otherTab.open("collected-client");
 otherTab.close("collected-client");
-console.log("proxy identity, snapshot pin, and finalizer release passed");
+console.log(
+  "proxy identity, live Group after Client GC, and final pool release passed",
+);

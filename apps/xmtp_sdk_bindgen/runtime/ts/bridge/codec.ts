@@ -133,11 +133,7 @@ export class ValueCodec {
   convert(shape: Shape, value: unknown): unknown {
     switch (shape.kind) {
       case "value":
-        if (
-          shape.type === "Bytes" &&
-          this.side === "main" &&
-          this.direction === "encode"
-        ) {
+        if (shape.type === "Bytes" && this.direction === "encode") {
           if (value instanceof Uint8Array) return value.slice();
           if (value instanceof ArrayBuffer) return value.slice(0);
         }

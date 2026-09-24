@@ -8,6 +8,7 @@ interface Entry {
 
 export class WorkerRegistry {
   private readonly entries = new Map<number, Entry>();
+  private readonly ownerCounts = new Map<number, number>();
   private nextHandle = 1;
   private nextOwner = 1;
 
@@ -22,6 +23,10 @@ export class WorkerRegistry {
     const h = this.nextHandle++;
     const actualOwner = owner ?? this.nextOwner++;
     this.entries.set(h, { value, owner: actualOwner, type });
+    this.ownerCounts.set(
+      actualOwner,
+      (this.ownerCounts.get(actualOwner) ?? 0) + 1,
+    );
     try {
       return {
         h,
@@ -32,6 +37,7 @@ export class WorkerRegistry {
       };
     } catch (error) {
       this.entries.delete(h);
+      this.decrementOwner(actualOwner);
       throw error;
     }
   }
@@ -53,8 +59,9 @@ export class WorkerRegistry {
     const closedOwners = new Set<number>();
     for (const h of handles) {
       const entry = this.entries.get(h);
-      if (entry?.type === "Client") closedOwners.add(entry.owner);
+      if (!entry) continue;
       this.entries.delete(h);
+      if (this.decrementOwner(entry.owner)) closedOwners.add(entry.owner);
     }
     return [...closedOwners];
   }
@@ -63,6 +70,18 @@ export class WorkerRegistry {
     for (const [h, entry] of this.entries) {
       if (entry.owner === owner) this.entries.delete(h);
     }
+    this.ownerCounts.delete(owner);
+  }
+
+  private decrementOwner(owner: number): boolean {
+    const count = this.ownerCounts.get(owner);
+    if (count === undefined) return false;
+    if (count > 1) {
+      this.ownerCounts.set(owner, count - 1);
+      return false;
+    }
+    this.ownerCounts.delete(owner);
+    return true;
   }
 
   get size(): number {
