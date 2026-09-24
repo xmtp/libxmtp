@@ -1264,10 +1264,10 @@ where
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
         stored_identity.registration_cursor_sequence_id = Some(registration_cursor.0 as i64);
         stored_identity.store(&self.context.db())?;
-        self.identity().set_ready();
         self.context
             .registration_event_pending()
             .store(true, Ordering::Release);
+        self.identity().set_ready();
         Ok(())
     }
 

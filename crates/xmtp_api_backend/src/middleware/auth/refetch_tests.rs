@@ -341,6 +341,52 @@ async fn shared_auth_handle_fans_lockout_transitions_to_live_clients() {
     assert_eq!(client.handle.inner.event_writers.lock().len(), 1);
 }
 
+struct SwitchingWriter {
+    handle: AuthHandle,
+    self_writer: std::sync::OnceLock<Weak<dyn EventWriter<()>>>,
+    replacement: Arc<dyn EventWriter<()>>,
+    calls: AtomicUsize,
+}
+
+impl EventWriter<()> for SwitchingWriter {
+    fn emit_with_context(
+        &self,
+        _client: Option<ClientEvent>,
+        _internal: Option<()>,
+        _context: xmtp_events::EventContext,
+    ) {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        let writer = self.self_writer.get().unwrap().upgrade().unwrap();
+        self.handle.unregister_event_writer(&writer);
+        self.handle.register_event_writer(&self.replacement);
+    }
+}
+
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn lockout_writer_can_change_registrations_during_emit() {
+    let handle = AuthHandle::new();
+    let bus = EventBus::<()>::new();
+    let subscription = bus.subscribe(EventFilter::new([EventKind::ClientLockoutChanged]), Some(4));
+    let replacement: Arc<dyn EventWriter<()>> = Arc::new(PublicBusWriter::new(&bus));
+    let switching = Arc::new(SwitchingWriter {
+        handle: handle.clone(),
+        self_writer: std::sync::OnceLock::new(),
+        replacement,
+        calls: AtomicUsize::new(0),
+    });
+    let writer: Arc<dyn EventWriter<()>> = switching.clone();
+    assert!(switching.self_writer.set(Arc::downgrade(&writer)).is_ok());
+    handle.register_event_writer(&writer);
+
+    handle.inner.emit_lockout(LockoutChange::Entered);
+    assert_eq!(switching.calls.load(Ordering::SeqCst), 1);
+    assert!(subscription.drain().is_empty());
+    handle.inner.emit_lockout(LockoutChange::Left);
+    assert_eq!(switching.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(subscription.drain().len(), 1);
+}
+
 // verifies: AUTH-023
 #[rstest::rstest]
 #[case(false, false)]

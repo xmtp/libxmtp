@@ -81,17 +81,15 @@ struct AuthInner {
 impl AuthInner {
     fn emit_lockout(&self, change: LockoutChange) {
         let mut writers = self.event_writers.lock();
-        writers.retain(|writer| {
-            if let Some(writer) = writer.upgrade() {
-                writer.emit(
-                    Some(ClientEvent::ClientLockoutChanged(LockoutChanged { change })),
-                    None,
-                );
-                true
-            } else {
-                false
-            }
-        });
+        let live: Vec<_> = writers.iter().filter_map(Weak::upgrade).collect();
+        writers.retain(|writer| writer.strong_count() > 0);
+        drop(writers);
+        for writer in live {
+            writer.emit(
+                Some(ClientEvent::ClientLockoutChanged(LockoutChanged { change })),
+                None,
+            );
+        }
     }
     /// Store only while the state lock is held. This operation cannot be cancelled.
     fn store(&self, credential: Credential) {
@@ -196,11 +194,10 @@ impl<C> AuthMiddleware<C> {
         // await, because `AuthHandle::set` needs it while a callback runs.
         let _refresh = inner.refresh.lock().await;
         let mut state = *inner.state.lock().await;
-        let lockout_left = state
-            .locked_until
-            .is_some_and(|until| until <= Instant::now());
+        let now = Instant::now();
+        let lockout_left = state.locked_until.is_some_and(|until| until <= now);
         if let Some(until) = state.locked_until {
-            if until > Instant::now() {
+            if until > now {
                 return Err(AuthError::Exhausted);
             }
             state.locked_until = None;
