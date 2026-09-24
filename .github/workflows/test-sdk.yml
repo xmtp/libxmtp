@@ -45,14 +45,73 @@ jobs:
       - name: Kotlin JVM conformance
         run: just sdk conformance kotlin
       - name: Chromium worker conformance
+        env:
+          NIX_DEVSHELL: js
         run: just sdk conformance browser
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
 
+  wait-backend:
+    if: inputs.run_swift
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wait for the commit image
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+        run: |
+          for i in $(seq 1 240); do
+            if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then exit 0; fi
+            sleep 15
+          done
+          exit 1
+
+  deploy-backend:
+    if: inputs.run_swift
+    needs: wait-backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      backend_url: ${{ steps.deploy.outputs.backend_url }}
+      app_name: ${{ steps.deploy.outputs.app_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - uses: ./.github/actions/setup-nix
+        with:
+          nix-disk: "false"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Deploy test infrastructure
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="libxmtp-sdk-test-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          ./sdks/ios/dev/fly/deploy "$APP_NAME" "ghcr.io/xmtp/backend:sha-${{ github.sha }}"
+          echo "backend_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
+      - name: Wait for services
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          BACKEND_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
+          for i in $(seq 1 60); do
+            if nix run nixpkgs#grpc-health-probe -- -addr="${BACKEND_HOST}:443" -tls; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+
   swift:
     name: Swift conformance
     if: inputs.run_swift
+    needs: deploy-backend
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
     steps:
@@ -66,9 +125,23 @@ jobs:
           xcode-version: "26"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - run: just backend up
       - run: just sdk generate
       - run: just sdk conformance swift
+        env:
+          XMTP_BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+
+  cleanup-backend:
+    needs: [deploy-backend, swift]
+    if: always() && needs.deploy-backend.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: Destroy app
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
+          [ -n "$APP_NAME" ] && flyctl apps destroy "$APP_NAME" --yes || true
 
   windows-load:
     name: Windows SDK load (win32-x64)
@@ -86,6 +159,18 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+      - name: Disable usePackageExitCodes feature
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: feature disable --name="'usePackageExitCodes'"
+      - name: Upgrade Visual Studio 2022 enterprise
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: upgrade visualstudio2022enterprise
+      - name: Install Visual Studio 2022 build tools
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install visualstudio2022buildtools
       - uses: crazy-max/ghaction-chocolatey@v4
         with:
           args: install protoc

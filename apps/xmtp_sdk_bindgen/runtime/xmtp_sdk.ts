@@ -22,6 +22,21 @@ export type MessageData = {
   content: object;
 };
 
+export enum ErrorCategory {
+  Lifecycle,
+}
+
+export type ErrorDetails = {
+  code: string;
+  category: ErrorCategory;
+  retryable: boolean;
+  message: string;
+};
+
+export declare const XmtpError: {
+  ClientClosed: new (details: ErrorDetails) => Error;
+};
+
 export enum StorageLocation_Tags {
   Default = "Default",
   Directory = "Directory",

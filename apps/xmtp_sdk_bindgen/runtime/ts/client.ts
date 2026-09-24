@@ -14,7 +14,8 @@ declare const process: { cwd(): string } | undefined;
 function resolvedOptions(options: ClientOptions): ClientOptions {
   if (options.storage.location.tag !== StorageLocation_Tags.Default)
     return options;
-  const directory = typeof process === "undefined" ? "xmtp-sdk" : process.cwd();
+  const directory =
+    typeof process === "undefined" ? "xmtp-sdk" : `${process.cwd()}/xmtp`;
   return {
     ...options,
     storage: {
@@ -28,11 +29,16 @@ export class ClientRegistry {
   private static readonly entries = new Map<bigint, WeakRef<Client>>();
 
   static set(key: bigint, client: Client): void {
+    for (const [oldKey, reference] of this.entries) {
+      if (reference.deref() === undefined) this.entries.delete(oldKey);
+    }
     this.entries.set(key, new WeakRef(client));
   }
 
   static get(key: bigint): Client | undefined {
-    return this.entries.get(key)?.deref();
+    const client = this.entries.get(key)?.deref();
+    if (client === undefined) this.entries.delete(key);
+    return client;
   }
 
   static delete(key: bigint): void {

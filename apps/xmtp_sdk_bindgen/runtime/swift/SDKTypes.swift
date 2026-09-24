@@ -124,9 +124,12 @@ public final class Message: Identifiable, Hashable {
         data.content
     }
 
-    public func client() throws -> Client {
+    public func client() throws -> SDKClient {
         guard let client = ClientRegistry.get(data.clientKey) else {
-            throw SDKValueError.clientClosed
+            throw XmtpError.ClientClosed(ErrorDetails(
+                code: "ClientClosed", category: .lifecycle,
+                retryable: false, message: "client is closed"
+            ))
         }
         return client
     }
@@ -141,8 +144,8 @@ public final class Message: Identifiable, Hashable {
 }
 
 private final class WeakClient {
-    weak var value: Client?
-    init(_ value: Client) {
+    weak var value: SDKClient?
+    init(_ value: SDKClient) {
         self.value = value
     }
 }
@@ -152,21 +155,25 @@ public enum ClientRegistry {
     /// Every access to this map holds lock.
     private nonisolated(unsafe) static var entries: [UInt64: WeakClient] = [:]
 
-    public static func register(_ client: Client) {
+    public static func register(_ client: SDKClient) {
         lock.lock()
         defer { lock.unlock() }
-        entries[client.clientKey()] = WeakClient(client)
+        entries[client.raw.clientKey()] = WeakClient(client)
     }
 
-    public static func get(_ key: UInt64) -> Client? {
+    public static func get(_ key: UInt64) -> SDKClient? {
         lock.lock()
         defer { lock.unlock() }
-        return entries[key]?.value
+        let value = entries[key]?.value
+        if value == nil {
+            entries.removeValue(forKey: key)
+        }
+        return value
     }
 
-    public static func remove(_ client: Client) {
+    public static func remove(_ client: SDKClient) {
         lock.lock()
         defer { lock.unlock() }
-        entries.removeValue(forKey: client.clientKey())
+        entries.removeValue(forKey: client.raw.clientKey())
     }
 }

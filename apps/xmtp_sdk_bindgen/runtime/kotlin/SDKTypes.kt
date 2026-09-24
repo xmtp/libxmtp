@@ -84,13 +84,16 @@ class Message(
     val fallback get() = data.fallback
     val content get() = data.content
 
-    fun client(): Client =
+    fun client(): SDKClient =
         ClientRegistry.get(data.clientKey)
-            ?: throw IllegalStateException("clientClosed")
+            ?: throw XmtpException.ClientClosed(
+                ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
+            )
 
     override fun equals(other: Any?): Boolean =
         other is Message &&
-            id == other.id && data.conversationID == other.data.conversationID &&
+            id == other.id && data.clientKey == other.data.clientKey &&
+            data.conversationID == other.data.conversationID &&
             data.senderInboxID == other.data.senderInboxID && data.sentAt == other.data.sentAt &&
             data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
@@ -108,6 +111,7 @@ class Message(
 
     override fun hashCode(): Int {
         var result = id.hashCode()
+        result = 31 * result + data.clientKey.hashCode()
         result = 31 * result + data.conversationID.hashCode()
         result = 31 * result + data.senderInboxID.hashCode()
         result = 31 * result + data.sentAt.hashCode()
@@ -125,15 +129,20 @@ class Message(
 }
 
 object ClientRegistry {
-    private val entries = ConcurrentHashMap<ULong, WeakReference<Client>>()
+    private val entries = ConcurrentHashMap<ULong, WeakReference<SDKClient>>()
 
-    fun register(client: Client) {
-        entries[client.clientKey()] = WeakReference(client)
+    fun register(client: SDKClient) {
+        entries.entries.removeIf { it.value.get() == null }
+        entries[client.raw.clientKey()] = WeakReference(client)
     }
 
-    fun get(key: ULong): Client? = entries[key]?.get()
+    fun get(key: ULong): SDKClient? {
+        val client = entries[key]?.get()
+        if (client == null) entries.remove(key)
+        return client
+    }
 
-    fun remove(client: Client) {
-        entries.remove(client.clientKey())
+    fun remove(client: SDKClient) {
+        entries.remove(client.raw.clientKey())
     }
 }

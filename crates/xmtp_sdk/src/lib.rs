@@ -36,5 +36,9 @@ pub fn sdk_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
+/// An empty asynchronous call for measuring FFI scheduling cost.
+#[xmtp_macro::sdk_export]
+pub async fn sdk_empty_call() {}
+
 #[cfg(test)]
 mod tests;

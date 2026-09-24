@@ -42,7 +42,7 @@ async function run(): Promise<void> {
   };
   const options = {
     backend: {
-      url: "http://127.0.0.1:9150",
+      url: import.meta.env.VITE_XMTP_BACKEND_URL,
       appVersion: undefined,
       credentials: undefined,
     },
@@ -77,11 +77,23 @@ async function run(): Promise<void> {
     sent.client();
     throw new Error("ended client remained in registry");
   } catch (error) {
-    if (!String(error).includes("clientClosed")) throw error;
+    if (!(error instanceof sdk.XmtpError.ClientClosed)) throw error;
   }
   const reopened = await sdk.Client.build(identity, options, inboxID);
   if (reopened.inboxID().toString() !== inboxID.toString())
     throw new Error("inbox changed");
+  const defaultClient = await sdk.Client.build(
+    identity,
+    {
+      ...options,
+      storage: {
+        ...options.storage,
+        location: new sdk.StorageLocation.Default(),
+      },
+    },
+    inboxID,
+  );
+  await defaultClient.end();
   postMessage({ result: "Browser scenario 2 passed" });
 
   const liveGroup = await reopened.conversations().createGroup([]);
@@ -104,6 +116,76 @@ async function run(): Promise<void> {
   setTimeout(() => void stream.return(), 50);
   if (!(await pending).done) throw new Error("idle read was not cancelled");
   await stream.return();
+  const protocolGroup = await reopened.conversations().createGroup([]);
+  const firstID = await protocolGroup.sendText("ack on request");
+  const firstStream = new sdk.MessageStream(
+    (signal) => protocolGroup.messageReader({ signal }),
+    reopened,
+  );
+  if ((await firstStream.next()).value?.id.toString() !== firstID.toString())
+    throw new Error("first adapter delivery missing");
+  await firstStream.return();
+  const secondStream = new sdk.MessageStream(
+    (signal) => protocolGroup.messageReader({ signal }),
+    reopened,
+  );
+  let replayTimer: ReturnType<typeof setTimeout>;
+  const replayedItem = await Promise.race([
+    secondStream.next(),
+    new Promise<never>((_, reject) => {
+      replayTimer = setTimeout(
+        () => reject(new Error("adapter prefetched and acknowledged a value")),
+        3_000,
+      );
+    }),
+  ]).finally(() => clearTimeout(replayTimer));
+  if (replayedItem.value?.id.toString() !== firstID.toString())
+    throw new Error("adapter prefetched and acknowledged a value");
+  const secondID = await protocolGroup.sendText("second request");
+  if ((await secondStream.next()).value?.id.toString() !== secondID.toString())
+    throw new Error("second adapter delivery missing");
+  await secondStream.return();
+  const afterAck = await protocolGroup.messageReader();
+  if ((await afterAck.next())?.id.toString() !== secondID.toString())
+    throw new Error("adapter did not acknowledge on next request");
+  await afterAck.end();
+  let resolveCreation!: (reader: {
+    next: () => Promise<undefined>;
+    end: () => Promise<void>;
+  }) => void;
+  let endedLate = false;
+  const opening = new sdk.MessageStream(
+    () =>
+      new Promise((resolve) => {
+        resolveCreation = resolve;
+      }),
+    reopened,
+  );
+  const openingRead = opening.next();
+  await opening.return();
+  resolveCreation({
+    next: async () => undefined,
+    end: async () => {
+      endedLate = true;
+    },
+  });
+  if (!(await openingRead).done)
+    throw new Error("cancelled creation returned a value");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  if (!endedLate) throw new Error("late reader remained open");
+  const rejectedOpening = new sdk.MessageStream(
+    (signal) =>
+      new Promise((_, reject) => {
+        signal.addEventListener("abort", () =>
+          reject(new DOMException("aborted", "AbortError")),
+        );
+      }),
+    reopened,
+  );
+  const rejectedRead = rejectedOpening.next();
+  await rejectedOpening.return();
+  if (!(await rejectedRead).done)
+    throw new Error("cancelled creation rejected a read");
   await reopened.end();
   postMessage({ result: "Browser scenario 7 passed" });
 }

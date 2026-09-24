@@ -3,11 +3,24 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+# Both native libraries use the workspace release profile (opt-level = "s").
+dev/agent-run cargo build --locked --release -p xmtp_sdk
 nix build --no-link .#ubjs-core .#ubjs-node .#node-bindings-fast
 core="$(nix path-info .#ubjs-core)"
 node="$(nix path-info .#ubjs-node)"
 native="$(nix path-info .#node-bindings-fast)"
 package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+case "$(uname -s)" in
+  Darwin) library=libxmtp_sdk.dylib ;;
+  Linux) library=libxmtp_sdk.so ;;
+  *) echo "unsupported benchmark host" >&2; exit 1 ;;
+esac
+backup="$(mktemp)"
+cp "target/sdk-generated/typescript-napi/$library" "$backup"
+trap 'cp "$backup" "target/sdk-generated/typescript-napi/$library"; rm -f "$backup"' EXIT
+cp "target/release/$library" "target/sdk-generated/typescript-napi/$library"
+echo 'Benchmark profile: release (workspace opt-level = s) on both native libraries'
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"

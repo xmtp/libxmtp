@@ -11,7 +11,7 @@ try {
       console.error("HTTP", response.status(), response.url());
   });
   page.on("request", (request) => {
-    if (request.url().includes(":9150"))
+    if (request.url().startsWith(process.env.XMTP_BACKEND_URL!))
       console.log("backend request:", request.method(), request.url());
   });
   page.on("requestfailed", (request) =>

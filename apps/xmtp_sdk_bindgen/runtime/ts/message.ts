@@ -1,4 +1,4 @@
-import type { MessageData } from "../xmtp_sdk";
+import { ErrorCategory, XmtpError, type MessageData } from "../xmtp_sdk";
 import { ClientRegistry, type Client } from "./client";
 
 export class Message {
@@ -42,7 +42,13 @@ export class Message {
 
   client(): Client {
     const client = ClientRegistry.get(this.data.clientKey);
-    if (client === undefined) throw new Error("clientClosed");
+    if (client === undefined)
+      throw new XmtpError.ClientClosed({
+        code: "ClientClosed",
+        category: ErrorCategory.Lifecycle,
+        retryable: false,
+        message: "client is closed",
+      });
     return client;
   }
 }

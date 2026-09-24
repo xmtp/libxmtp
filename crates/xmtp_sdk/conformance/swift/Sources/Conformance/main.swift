@@ -47,7 +47,7 @@ struct Conformance {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-sdk-conformance-\(UUID().uuidString)")
         let options = ClientOptions(
-            backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://127.0.0.1:9150"),
+            backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!),
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
@@ -59,17 +59,47 @@ struct Conformance {
         let sent = try await group.messages().first { $0.id == sentID }
         precondition(sent != nil)
         let owningClient = try sent?.client()
-        precondition(owningClient === client)
+        precondition(owningClient === host)
         try await host.end()
         do {
             _ = try sent?.client()
             preconditionFailure("ended client remained in the registry")
-        } catch SDKValueError.clientClosed {}
+        } catch XmtpError.ClientClosed {}
         let reopenedHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID
         )
         let reopened = reopenedHost.raw
         precondition(reopened.inboxID() == inboxID)
+        let appName = "xmtp-sdk-conformance-\(UUID().uuidString)"
+        let defaultHost = try await SDKClient.build(
+            identity: await signer.identity(),
+            options: ClientOptions(
+                backend: options.backend,
+                storage: StorageOptions(location: .default),
+                deviceSync: false
+            ), inboxID: inboxID, appName: appName
+        )
+        let defaultFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(appName).appendingPathComponent("xmtp")
+        let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
+        precondition(defaultFiles.contains { $0.hasSuffix(".db3") })
+        try await defaultHost.end()
+        var orphan: Message!
+        weak var weakHost: SDKClient?
+        do {
+            let shortLived = try await SDKClient.build(
+                identity: await signer.identity(), options: options, inboxID: inboxID
+            )
+            weakHost = shortLived
+            let shortGroup = try await shortLived.raw.conversations().createGroup(members: [])
+            let orphanID = try await shortGroup.sendText(text: "weak owner")
+            orphan = try await shortGroup.messages().first { $0.id == orphanID }
+        }
+        precondition(weakHost == nil, "the registry kept the host client alive")
+        do {
+            _ = try orphan.client()
+            preconditionFailure("released client remained in the registry")
+        } catch XmtpError.ClientClosed {}
         print("Swift scenario 2: create, reopen, end passed")
 
         let reopenedGroup = try await reopened.conversations().createGroup(members: [])
@@ -88,13 +118,50 @@ struct Conformance {
         _ = try? await pending.value
         let stream = try await reopenedHost.messages(in: reopenedGroup)
         let adapterID = try await reopenedGroup.sendText(text: "adapter stream")
-        var iterator = stream.makeAsyncIterator()
+        let iterator = stream.makeAsyncIterator()
         let fromAdapter = try await iterator.next()
         precondition(fromAdapter?.id == adapterID)
         let idle = Task { try await iterator.next() }
         try await Task.sleep(for: .milliseconds(50))
         idle.cancel()
         _ = try? await idle.value
+        let protocolGroup = try await reopened.conversations().createGroup(members: [])
+        let firstID = try await protocolGroup.sendText(text: "ack on request")
+        do {
+            let protocolStream = try await reopenedHost.messages(in: protocolGroup)
+            for try await value in protocolStream {
+                precondition(value.id == firstID)
+                break
+            }
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let reread = try await protocolGroup.messageReader()
+        let stopReplay = Task {
+            try await Task.sleep(for: .seconds(3))
+            try? await reread.end()
+        }
+        let replayed = try await reread.next()
+        stopReplay.cancel()
+        precondition(replayed?.id == firstID, "adapter prefetched and acknowledged a value")
+        try await reread.end()
+        let secondID = try await protocolGroup.sendText(text: "second request")
+        do {
+            let protocolStream = try await reopenedHost.messages(in: protocolGroup)
+            var protocolIterator: SDKMessageStream.Iterator? = protocolStream.makeAsyncIterator()
+            let firstAgain = try await protocolIterator?.next()
+            precondition(firstAgain?.id == firstID)
+            let second = try await protocolIterator?.next()
+            precondition(second?.id == secondID)
+            protocolIterator = nil
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let afterAck = try await protocolGroup.messageReader()
+        let remaining = try await afterAck.next()
+        precondition(remaining?.id == secondID, "adapter did not acknowledge on next request")
+        try await afterAck.end()
+        let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
+        cancelledOpening.cancel()
+        _ = try? await cancelledOpening.value
         try await reopenedHost.end()
         print("Swift scenario 7: durable stream and idle cancellation passed")
     }

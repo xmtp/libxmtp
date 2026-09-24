@@ -9,13 +9,22 @@ use crate::{
     ConversationID, InboxID, Message, MessageID, MessageReader, XmtpError, client::CoreClient,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
+// Debug Swift calls need a fresh executor stack for nested MLS work.
+#[cfg(all(not(target_arch = "wasm32"), debug_assertions))]
 async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
     tokio::spawn(work).await.map_err(XmtpError::unknown)?
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(debug_assertions)))]
+async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
+where
+    F: Future<Output = Result<T, XmtpError>> + Send,
+{
+    work.await
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -47,6 +56,20 @@ impl Conversations {
                 .map_err(XmtpError::unknown)
         })
         .await?;
+        Ok(Arc::new(Group {
+            inner: group,
+            client_key: self.client_key,
+        }))
+    }
+
+    /// Open a group already stored in this client's database.
+    pub fn get_group(&self, id: ConversationID) -> Result<Arc<Group>, XmtpError> {
+        if self.client.context.is_closed() {
+            return Err(XmtpError::closed());
+        }
+        let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
+        let group_id = xmtp_proto::types::GroupId::try_from(bytes).map_err(XmtpError::unknown)?;
+        let group = self.client.group(&group_id).map_err(XmtpError::unknown)?;
         Ok(Arc::new(Group {
             inner: group,
             client_key: self.client_key,

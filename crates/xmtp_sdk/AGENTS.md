@@ -9,8 +9,9 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk wasm-init` loads the staged WASM package in Node.
 - `just sdk conformance <swift|kotlin|node|browser>` runs scenarios 1, 2, and 7
   against this worktree's backend.
-- `just sdk bench` compares 20 Node calls for an empty page and a 10,000-message
-  page with the current Node binding.
+- `just sdk bench` compares 20 release-profile Node calls for a zero-row page
+  and a 10,000-message page with the current Node binding. It also measures
+  one empty SDK async call.
 - `just sdk check-isolation` rejects a façade branch that changes `sdks/` or
   `bindings/`.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.

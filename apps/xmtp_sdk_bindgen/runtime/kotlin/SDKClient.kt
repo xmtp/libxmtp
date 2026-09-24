@@ -13,30 +13,40 @@ class SDKClient private constructor(
     val raw: Client,
 ) {
     companion object {
-        private fun resolved(options: ClientOptions): ClientOptions {
+        private fun resolved(
+            options: ClientOptions,
+            defaultDirectory: String?,
+        ): ClientOptions {
             if (options.storage.location !is StorageLocation.Default) return options
-            val directory = System.getProperty("user.dir") + "/xmtp-sdk"
+            val directory = requireNotNull(defaultDirectory) { "Default storage needs a host directory" }
             return options.copy(storage = options.storage.copy(location = StorageLocation.Directory(directory)))
         }
 
         suspend fun create(
             signer: Signer,
             options: ClientOptions,
-        ): SDKClient = SDKClient(Client.create(signer, resolved(options))).also { ClientRegistry.register(it.raw) }
+            defaultDirectory: String? = null,
+        ): SDKClient =
+            SDKClient(Client.create(signer, resolved(options, defaultDirectory))).also {
+                ClientRegistry.register(it)
+            }
 
         suspend fun build(
             identity: PublicIdentity,
             options: ClientOptions,
             inboxID: InboxID? = null,
+            defaultDirectory: String? = null,
         ): SDKClient =
-            SDKClient(Client.build(identity, resolved(options), inboxID)).also { ClientRegistry.register(it.raw) }
+            SDKClient(
+                Client.build(identity, resolved(options, defaultDirectory), inboxID),
+            ).also { ClientRegistry.register(it) }
     }
 
     suspend fun end() {
         try {
             raw.end()
         } finally {
-            ClientRegistry.remove(raw)
+            ClientRegistry.remove(this)
         }
     }
 

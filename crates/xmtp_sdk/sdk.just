@@ -2,6 +2,7 @@ export NIX_DEVSHELL := env("NIX_DEVSHELL", "default")
 set shell := ["../../dev/nix-shell"]
 
 root := justfile_directory()
+_env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
 # Build both libraries and write four bindings trees inside the Nix shell.
 generate:
@@ -22,7 +23,7 @@ check-isolation:
     cd "{{ root }}" && crates/xmtp_sdk/dev/check-isolation
 
 conformance target:
-    case "{{ target }}" in \
+    {{ _env }} && case "{{ target }}" in \
       swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
       *) echo "Expected swift, kotlin, node, or browser" >&2; exit 2 ;; \
     esac
@@ -31,4 +32,4 @@ manifest-check:
     echo "Manifest check is added when the SDK manifest exists"
 
 bench:
-    bash "{{ root }}/crates/xmtp_sdk/dev/bench"
+    {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"
