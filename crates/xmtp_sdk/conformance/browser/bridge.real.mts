@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -131,9 +132,7 @@ try {
   );
   assert.equal(kinds, 1);
 
-  const account = privateKeyToAccount(
-    "0x1111111111111111111111111111111111111111111111111111111111111111",
-  );
+  const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
   const live = await Client.create(
     first.session,
     {

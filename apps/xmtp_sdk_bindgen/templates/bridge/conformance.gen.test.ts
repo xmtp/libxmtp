@@ -162,6 +162,13 @@ async function roundTrip(
           `decode${shape.kind[0].toUpperCase()}${shape.kind.slice(1)}${shape.name}`,
         )
       : undefined;
+  if (
+    (shape.kind === "record" ||
+      shape.kind === "enum" ||
+      shape.kind === "object") &&
+    shape.name !== "BridgeProperty"
+  )
+    expect(typeof generated).toBe("function");
   const mainValue =
     typeof generated === "function" && !containsForeign(shape, original)
       ? Reflect.apply(generated, undefined, [session, received])
