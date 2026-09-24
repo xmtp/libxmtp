@@ -760,9 +760,9 @@ def stable_entries(
         base = (entry.source, entry.name, entry.kind)
         counts[base] = counts.get(base, 0) + 1
     texts = dict(source_texts or {})
-    keyed: list[tuple[tuple[str, str, str, str], Entry]] = []
+    keyed: list[tuple[tuple[str, str, str, str], Entry, int]] = []
     seen: set[tuple[str, str, str, str]] = set()
-    for entry in entries:
+    for order, entry in enumerate(entries):
         base = (entry.source, entry.name, entry.kind)
         signature = ""
         if counts[base] > 1:
@@ -773,8 +773,25 @@ def stable_entries(
         if key in seen:
             raise ValueError(f"duplicate inventory key: {key}")
         seen.add(key)
-        keyed.append((key, entry))
-    return [(entry, key[3]) for key, entry in sorted(keyed, key=lambda pair: pair[0])]
+        keyed.append((key, entry, order))
+
+    def sort_key(
+        item: tuple[tuple[str, str, str, str], Entry, int],
+    ) -> tuple[str, int, int, str, str, str]:
+        key, entry, order = item
+        family = entry.kind == "generated family" and entry.source.endswith(
+            "/Libxmtp/xmtpv3.swift"
+        )
+        return (
+            entry.source,
+            int(family),
+            order if family else 0,
+            "" if family else key[1],
+            "" if family else key[2],
+            "" if family else key[3],
+        )
+
+    return [(entry, key[3]) for key, entry, _ in sorted(keyed, key=sort_key)]
 
 
 def render_sdk_rows(
@@ -1000,6 +1017,20 @@ def self_test() -> None:
         "Node": ts_inventory("Node"),
         "Browser": ts_inventory("Browser"),
     }
+    family_source = "sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
+    families = [
+        entry
+        for entry in inventories["Swift"]
+        if entry.source == family_source and entry.kind == "generated family"
+    ]
+    rendered_families = [
+        entry
+        for entry, _ in stable_entries(inventories["Swift"])
+        if entry.source == family_source and entry.kind == "generated family"
+    ]
+    assert len(families) == 5
+    assert rendered_families == families
+    assert rendered_families[-1].name.startswith("pattern: ^.+$")
     expected = {
         "Swift": {
             "Client.create": ("static runtime", "Client.create"),
