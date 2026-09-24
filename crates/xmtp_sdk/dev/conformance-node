@@ -3,6 +3,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
+node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
+  crates/xmtp_sdk/conformance/ts/timestamp.test.mts
 nix build --no-link .#ubjs-core .#ubjs-node
 core="$(nix path-info .#ubjs-core)"
 node="$(nix path-info .#ubjs-node)"
