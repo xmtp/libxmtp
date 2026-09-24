@@ -27,19 +27,19 @@ pub struct LimitsConfiguration {
     pub max_envelope_bytes: u64,
     pub max_request_bytes: u64,
     pub max_response_bytes: u64,
-    pub max_publish_topics: u32,
-    pub max_query_topics: u32,
-    pub max_query_limit: u32,
-    pub default_query_limit: u32,
-    pub max_newest_metadata_topics: u32,
-    pub max_newest_full_topics: u32,
-    pub max_update_adds: u32,
-    pub max_update_removes: u32,
-    pub max_stream_topics: u32,
-    pub max_static_topics: u32,
-    pub max_lookup_identifiers: u32,
-    pub max_scw_signatures: u32,
-    pub max_identity_entries: u32,
+    pub max_publish_topics: u64,
+    pub max_query_topics: u64,
+    pub max_query_limit: u64,
+    pub default_query_limit: u64,
+    pub max_newest_metadata_topics: u64,
+    pub max_newest_full_topics: u64,
+    pub max_update_adds: u64,
+    pub max_update_removes: u64,
+    pub max_stream_topics: u64,
+    pub max_static_topics: u64,
+    pub max_lookup_identifiers: u64,
+    pub max_scw_signatures: u64,
+    pub max_identity_entries: u64,
     pub max_update_frames_per_second: u32,
     pub max_update_burst: u32,
     pub max_ping_frames_per_second: u32,
@@ -96,19 +96,19 @@ impl From<&config::ServerConfiguration> for ServerConfiguration {
                 max_envelope_bytes: limits.max_envelope_bytes as u64,
                 max_request_bytes: limits.max_request_bytes as u64,
                 max_response_bytes: limits.max_response_bytes as u64,
-                max_publish_topics: limits.max_publish_topics as u32,
-                max_query_topics: limits.max_query_topics as u32,
-                max_query_limit: limits.max_query_limit as u32,
-                default_query_limit: limits.default_query_limit as u32,
-                max_newest_metadata_topics: limits.max_newest_metadata_topics as u32,
-                max_newest_full_topics: limits.max_newest_full_topics as u32,
-                max_update_adds: limits.max_update_adds as u32,
-                max_update_removes: limits.max_update_removes as u32,
-                max_stream_topics: limits.max_stream_topics as u32,
-                max_static_topics: limits.max_static_topics as u32,
-                max_lookup_identifiers: limits.max_lookup_identifiers as u32,
-                max_scw_signatures: limits.max_scw_signatures as u32,
-                max_identity_entries: limits.max_identity_entries as u32,
+                max_publish_topics: limits.max_publish_topics as u64,
+                max_query_topics: limits.max_query_topics as u64,
+                max_query_limit: limits.max_query_limit as u64,
+                default_query_limit: limits.default_query_limit as u64,
+                max_newest_metadata_topics: limits.max_newest_metadata_topics as u64,
+                max_newest_full_topics: limits.max_newest_full_topics as u64,
+                max_update_adds: limits.max_update_adds as u64,
+                max_update_removes: limits.max_update_removes as u64,
+                max_stream_topics: limits.max_stream_topics as u64,
+                max_static_topics: limits.max_static_topics as u64,
+                max_lookup_identifiers: limits.max_lookup_identifiers as u64,
+                max_scw_signatures: limits.max_scw_signatures as u64,
+                max_identity_entries: limits.max_identity_entries as u64,
                 max_update_frames_per_second: limits.max_update_frames_per_second,
                 max_update_burst: limits.max_update_burst,
                 max_ping_frames_per_second: limits.max_ping_frames_per_second,
@@ -120,6 +120,53 @@ impl From<&config::ServerConfiguration> for ServerConfiguration {
                 commit_log_enabled: value.mls.commit_log_enabled,
             },
             smart_contract_wallet_chains: value.smart_contract_wallet_chains.clone(),
+        }
+    }
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn wide_limits_keep_their_value() {
+        let wide = 1_usize << 32;
+        let core = config::ServerConfiguration {
+            limits: config::LimitsConfiguration {
+                max_publish_topics: wide,
+                max_query_topics: wide,
+                max_query_limit: wide,
+                default_query_limit: wide,
+                max_newest_metadata_topics: wide,
+                max_newest_full_topics: wide,
+                max_update_adds: wide,
+                max_update_removes: wide,
+                max_stream_topics: wide,
+                max_static_topics: wide,
+                max_lookup_identifiers: wide,
+                max_scw_signatures: wide,
+                max_identity_entries: wide,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let limits = ServerConfiguration::from(&core).limits;
+        for value in [
+            limits.max_publish_topics,
+            limits.max_query_topics,
+            limits.max_query_limit,
+            limits.default_query_limit,
+            limits.max_newest_metadata_topics,
+            limits.max_newest_full_topics,
+            limits.max_update_adds,
+            limits.max_update_removes,
+            limits.max_stream_topics,
+            limits.max_static_topics,
+            limits.max_lookup_identifiers,
+            limits.max_scw_signatures,
+            limits.max_identity_entries,
+        ] {
+            assert_eq!(value, wide as u64);
         }
     }
 }
