@@ -903,7 +903,6 @@ def self_test() -> None:
                 "Group.updateDisappearingSettings",
             ),
             "Group.processMessage": ("generated", "Group.processStreamedMessage"),
-            "Group.unstable": ("approved removal", "—"),
             "MessageReader.messages": ("static runtime", "MessageReader.stream()"),
             "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
             "DecodedMessageV2": ("approved removal", "—"),
