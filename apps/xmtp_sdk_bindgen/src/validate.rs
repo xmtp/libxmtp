@@ -63,6 +63,9 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
             }
             Metadata::TraitMethod(method) => {
                 let item_name = format!("{}.{}", method.trait_name, method.name);
+                if method.name == "close" {
+                    bail!("{item_name}: exported object close method is not supported");
+                }
                 if foreign_traits.contains(method.trait_name.as_str())
                     && !method.is_async
                     && item_name != "LogSink.log"
@@ -128,11 +131,28 @@ mod tests {
         })
     }
 
+    fn trait_method(owner: &str, name: &str, is_async: bool) -> Metadata {
+        Metadata::TraitMethod(TraitMethodMetadata {
+            module_path: "test".into(),
+            trait_name: owner.into(),
+            index: 0,
+            name: name.into(),
+            orig_name: None,
+            is_async,
+            inputs: vec![],
+            return_type: None,
+            throws: None,
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        })
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     fn rejects_sync_foreign_trait_method() {
         let items = [
             object("Signer", ObjectImpl::Trait(TraitKind::Both)),
-            method("Signer", "sign", false),
+            trait_method("Signer", "sign", false),
         ];
         let error = validate_items(&items).unwrap_err();
         assert!(error.to_string().contains("Signer.sign"));
@@ -142,20 +162,7 @@ mod tests {
                 name: "Logger".into(),
                 docstring: None,
             }),
-            Metadata::TraitMethod(TraitMethodMetadata {
-                module_path: "test".into(),
-                trait_name: "Logger".into(),
-                index: 0,
-                name: "write".into(),
-                orig_name: None,
-                is_async: false,
-                inputs: vec![],
-                return_type: None,
-                throws: None,
-                takes_self_by_arc: true,
-                checksum: None,
-                docstring: None,
-            }),
+            trait_method("Logger", "write", false),
         ];
         assert!(
             validate_items(&items)
@@ -165,7 +172,7 @@ mod tests {
         );
         let allowed = [
             object("LogSink", ObjectImpl::Trait(TraitKind::Both)),
-            method("LogSink", "log", false),
+            trait_method("LogSink", "log", false),
         ];
         validate_items(&allowed)?;
     }
@@ -200,6 +207,16 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("Client.close")
+        );
+        let items = [
+            object("RustTrait", ObjectImpl::Trait(TraitKind::RustOnly)),
+            trait_method("RustTrait", "close", true),
+        ];
+        assert!(
+            validate_items(&items)
+                .unwrap_err()
+                .to_string()
+                .contains("RustTrait.close")
         );
     }
 

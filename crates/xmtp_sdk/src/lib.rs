@@ -2,6 +2,10 @@
 
 #![recursion_limit = "512"]
 
+// Keep the WASM allocator, free function, and panic hook in the cdylib.
+#[cfg(target_arch = "wasm32")]
+extern crate uniffi_runtime_wasm as _;
+
 mod client;
 mod conversation;
 mod credentials;

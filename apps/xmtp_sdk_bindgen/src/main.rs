@@ -1,3 +1,4 @@
+mod id_names;
 mod validate;
 
 use std::{fs, path::Path};
@@ -5,7 +6,6 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use clap::{Parser, Subcommand, ValueEnum};
-use regex::Regex;
 use ubrn_bindgen::{
     AbiFlavor, BindingsArgs, OutputArgs, SourceArgs, SwitchArgs,
     ffi_module_player_lib_resolution::LibResolution, wasm_metadata,
@@ -31,6 +31,12 @@ enum Command {
         #[arg(long)]
         config: Option<Utf8PathBuf>,
     },
+    StageWasm {
+        #[arg(long)]
+        lib: Utf8PathBuf,
+        #[arg(long)]
+        out: Utf8PathBuf,
+    },
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -50,6 +56,11 @@ fn main() -> Result<()> {
             out,
             config,
         } => generate(&lib, language, &out, config.as_deref()),
+        Command::StageWasm { lib, out } => {
+            fs::create_dir_all(&out)?;
+            ubrn_common::stage_wasm(&lib, &out, "xmtp_sdk", false)?;
+            Ok(())
+        }
     }
 }
 
@@ -66,7 +77,7 @@ fn generate(
     if let Some(layer) = roots_layer {
         paths.add_layer(layer);
     }
-    let _crate_root = paths
+    let crate_root = paths
         .get_crate_root("xmtp_sdk")
         .context("global config needs [crate-roots] xmtp_sdk")?;
     let loader = BindgenLoader::new(paths, global_config);
@@ -118,17 +129,20 @@ fn generate(
                 .context("global config has no parent directory")?
                 .join("typescript.toml");
             let source = SourceArgs::library(&lib.to_owned()).with_config(Some(ts_config));
+            let scratch = tempfile::tempdir()?;
+            let scratch_path = Utf8Path::from_path(scratch.path())
+                .context("bindgen scratch directory is not UTF-8")?;
             let mut args = BindingsArgs::new(
                 SwitchArgs { flavor },
                 source,
-                OutputArgs::new(out, &out.join("abi"), true),
+                OutputArgs::new(out, &scratch_path.join("abi"), true),
             );
             if !is_wasm {
                 args = args.with_lib_resolution(LibResolution::Colocated);
             }
             // The fork asks cargo for a manifest even when the source is a library.
             // This small workspace keeps generation independent of Cargo resolution.
-            let manifest_dir = out.join(".bindgen-manifest");
+            let manifest_dir = scratch_path.join("manifest");
             fs::create_dir_all(manifest_dir.join("src"))?;
             fs::write(
                 manifest_dir.join("Cargo.toml"),
@@ -137,7 +151,15 @@ fn generate(
             fs::write(manifest_dir.join("src/lib.rs"), "")?;
             let manifest = manifest_dir.join("Cargo.toml");
             args.run(Some(&manifest))?;
-            normalize_typescript_ids(out)?;
+            let names =
+                id_names::typescript_rename_map(&metadata, &crate_root.join("uniffi.toml"))?;
+            id_names::rewrite_generated_bindings(out, &names)?;
+            for stale in [".bindgen-manifest", "abi"] {
+                let stale_dir = out.join(stale);
+                if stale_dir.is_dir() {
+                    fs::remove_dir_all(stale_dir)?;
+                }
+            }
         }
     }
 
@@ -152,27 +174,6 @@ fn generate(
         .join("runtime")
         .join(runtime_name);
     copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
-    Ok(())
-}
-
-fn normalize_typescript_ids(out: &Utf8Path) -> Result<()> {
-    let id_suffix = Regex::new(r"\b[A-Za-z_][A-Za-z0-9_]*Ids?\b")?;
-    for entry in fs::read_dir(out)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.extension().is_some_and(|extension| extension == "ts") {
-            let source = fs::read_to_string(&path)?;
-            let normalized = id_suffix.replace_all(&source, |captures: &regex::Captures<'_>| {
-                let name = &captures[0];
-                if let Some(prefix) = name.strip_suffix("Ids") {
-                    format!("{prefix}IDs")
-                } else {
-                    format!("{}ID", name.strip_suffix("Id").expect("ID suffix"))
-                }
-            });
-            fs::write(path, normalized.as_bytes())?;
-        }
-    }
     Ok(())
 }
 

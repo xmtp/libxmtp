@@ -32,6 +32,8 @@ jobs:
         run: just sdk generate
       - name: Lint generated SDK bindings
         run: just sdk lint
+      - name: Initialize generated SDK WASM
+        run: just sdk wasm-init
       - name: Test SDK crate
         run: just test crate xmtp_sdk
       - name: Dump Docker logs on failure

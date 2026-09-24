@@ -80,6 +80,7 @@ let
     nativeBuildInputs = [
       bindgen
       rustToolchain
+      wasm-bindgen-cli
     ];
     buildPhase = ''
       cd "$src"
@@ -93,8 +94,9 @@ let
       xmtp-sdk-bindgen generate --lib ${wasm}/lib/xmtp_sdk.wasm \
         --language typescript-wasm --out "$out/typescript-wasm" \
         --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+      xmtp-sdk-bindgen stage-wasm --lib ${wasm}/lib/xmtp_sdk.wasm \
+        --out "$out/typescript-wasm"
       cp ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} $out/typescript-napi/
-      cp ${wasm}/lib/xmtp_sdk.wasm $out/typescript-wasm/
       mkdir -p $out/runtimes
       ln -s ${ubrn.core} $out/runtimes/core
       ln -s ${ubrn.node} $out/runtimes/node
