@@ -11,8 +11,9 @@ Run commands from the repository root in the Nix shell. Run
   against this worktree's backend.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
-  one empty SDK async call. It enables the off-by-default `bench` feature and
-  writes separate bindings to `target/sdk-bench/`.
+  one empty SDK async call. It runs Node with `NODE_ENV=production`. It
+  enables the off-by-default `bench` feature and writes separate bindings to
+  `target/sdk-bench/`.
 - `just sdk check-isolation` rejects a façade branch that changes `sdks/` or
   `bindings/`.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
