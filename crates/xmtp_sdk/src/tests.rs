@@ -8,7 +8,9 @@ use std::{future::Future, time::Duration};
 
 use alloy::signers::local::PrivateKeySigner;
 use tokio::sync::Notify;
+use xmtp_db::{group::GroupQueryArgs, group_message::MsgQueryArgs};
 use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
+use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::subscriptions::local_delivery::LocalDeliveryError;
 
 use crate::{
@@ -271,6 +273,71 @@ async fn group_actions_return_client_closed_after_end() {
         group.message_reader().await,
         Err(XmtpError::ClientClosed(_))
     ));
+}
+
+// `end()` cancels the context first and disconnects the database last. Stop
+// after the first step: an operation that races `end()` sees this state, and
+// the test can still read what the operation wrote.
+fn begin_end(client: &Client) {
+    client.inner.context.cancellation_token().cancel();
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_group_racing_end_is_closed_and_persists_nothing() {
+    let client = Client::create(
+        Arc::new(WalletSigner(PrivateKeySigner::random())),
+        options(),
+    )
+    .await?;
+    let before = client.inner.find_groups(GroupQueryArgs::default())?.len();
+    begin_end(&client);
+    assert!(matches!(
+        client.conversations().create_group(vec![]).await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+    assert_eq!(
+        client.inner.find_groups(GroupQueryArgs::default())?.len(),
+        before
+    );
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_text_racing_end_is_closed_and_persists_nothing() {
+    let client = Client::create(
+        Arc::new(WalletSigner(PrivateKeySigner::random())),
+        options(),
+    )
+    .await?;
+    let group = client.conversations().create_group(vec![]).await?;
+    let before = group.inner.find_messages(&MsgQueryArgs::default())?.len();
+    begin_end(&client);
+    assert!(matches!(
+        group.send_text("racing end".into()).await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+    assert_eq!(
+        group.inner.find_messages(&MsgQueryArgs::default())?.len(),
+        before
+    );
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_reader_racing_end_is_closed_and_takes_no_lease() {
+    let client = Client::create(
+        Arc::new(WalletSigner(PrivateKeySigner::random())),
+        options(),
+    )
+    .await?;
+    let group = client.conversations().create_group(vec![]).await?;
+    begin_end(&client);
+    assert!(matches!(
+        group.message_reader().await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+    assert!(client.inner.context.delivery_owner().lock().is_none());
+    client.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
