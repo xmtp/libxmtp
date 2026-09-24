@@ -14,6 +14,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = (
@@ -36,10 +37,7 @@ class Entry:
     name: str
     kind: str
     count: int = 1
-
-    @property
-    def key(self) -> str:
-        return f"{self.source}:{self.line} {self.name}"
+    scope: str = ""
 
     @property
     def display_name(self) -> str:
@@ -120,7 +118,16 @@ def swift_scan(text: str, source: str) -> list[Entry]:
                     symbol = f"func {name}"
                 elif kind in {"var", "let"} and not owner:
                     symbol = f"{kind} {name}"
-                entries.append(Entry("Swift", source, number, symbol, kind))
+                entries.append(
+                    Entry(
+                        "Swift",
+                        source,
+                        number,
+                        symbol,
+                        kind,
+                        scope=contexts[-1][2] if contexts else "",
+                    )
+                )
                 if kind in {"class", "struct", "enum", "protocol", "actor"}:
                     if "{" in line:
                         contexts.append((depth + 1, symbol, kind))
@@ -142,7 +149,14 @@ def swift_scan(text: str, source: str) -> list[Entry]:
                     name, kind = member
                     if kind != "extension":
                         entries.append(
-                            Entry("Swift", source, number, f"{owner}.{name}", kind)
+                            Entry(
+                                "Swift",
+                                source,
+                                number,
+                                f"{owner}.{name}",
+                                kind,
+                                scope=inherited_kind,
+                            )
                         )
             elif inherited_kind == "enum" and stripped.startswith("case "):
                 for case in re.split(r",\s*(?![^()]*\))", stripped[5:].split("//")[0]):
@@ -155,6 +169,7 @@ def swift_scan(text: str, source: str) -> list[Entry]:
                                 number,
                                 f"{owner}.{name.group()}",
                                 "case",
+                                scope=inherited_kind,
                             )
                         )
         code = line.split("//", 1)[0]
@@ -677,13 +692,169 @@ def ts_inventory(sdk: str) -> list[Entry]:
 
 
 try:
-    from dev.sdk.manifest_rules import classify
+    from dev.sdk.manifest_rules import Decision, classify, decision
 except ModuleNotFoundError:
-    from manifest_rules import classify
+    from manifest_rules import Decision, classify, decision
 
 
 def markdown_cell(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
+
+
+def declaration_signature(entry: Entry, source_text: str) -> str:
+    """Name an overload by its declaration, without its source position."""
+    lines = source_text.splitlines()[entry.line - 1 :]
+    parts: list[str] = []
+    depth = 0
+    found_parameters = False
+    complete = False
+    for line in lines[:20]:
+        code = line.split("//", 1)[0].strip()
+        if not code:
+            continue
+        part: list[str] = []
+        for char in code:
+            part.append(char)
+            if char == "(":
+                depth += 1
+                found_parameters = True
+            elif char == ")":
+                depth -= 1
+                if found_parameters and depth == 0:
+                    complete = True
+                    break
+        parts.append("".join(part))
+        if complete:
+            break
+        if not found_parameters and entry.kind not in {
+            "func",
+            "fun",
+            "init",
+            "constructor",
+            "function",
+            "free function",
+        }:
+            break
+    if not parts:
+        raise ValueError(f"missing declaration: {entry.source} {entry.name}")
+    header = " ".join(parts)
+    if not found_parameters:
+        header = re.split(r"[={]", header, maxsplit=1)[0]
+    tokens = re.findall(r"[A-Za-z_]\w*|\d+|[^\s]", header)
+    normalized = ""
+    previous = ""
+    for token in tokens:
+        if previous and previous[-1].isalnum() and token[0].isalnum():
+            normalized += " "
+        normalized += token
+        previous = token
+    return f"{entry.scope} {normalized}".strip()
+
+
+def stable_entries(
+    entries: list[Entry], source_texts: dict[str, str] | None = None
+) -> list[tuple[Entry, str]]:
+    """Sort exports by stable identity and return overload signatures."""
+    counts: dict[tuple[str, str, str], int] = {}
+    for entry in entries:
+        base = (entry.source, entry.name, entry.kind)
+        counts[base] = counts.get(base, 0) + 1
+    texts = dict(source_texts or {})
+    keyed: list[tuple[tuple[str, str, str, str], Entry, int]] = []
+    seen: set[tuple[str, str, str, str]] = set()
+    for order, entry in enumerate(entries):
+        base = (entry.source, entry.name, entry.kind)
+        signature = ""
+        if counts[base] > 1:
+            if entry.source not in texts:
+                texts[entry.source] = (ROOT / entry.source).read_text()
+            signature = declaration_signature(entry, texts[entry.source])
+        key = (*base, signature)
+        if key in seen:
+            raise ValueError(f"duplicate inventory key: {key}")
+        seen.add(key)
+        keyed.append((key, entry, order))
+
+    def sort_key(
+        item: tuple[tuple[str, str, str, str], Entry, int],
+    ) -> tuple[str, int, int, str, str, str]:
+        key, entry, order = item
+        family = entry.kind == "generated family" and entry.source.endswith(
+            "/Libxmtp/xmtpv3.swift"
+        )
+        return (
+            entry.source,
+            int(family),
+            order if family else 0,
+            "" if family else key[1],
+            "" if family else key[2],
+            "" if family else key[3],
+        )
+
+    return [(entry, key[3]) for key, entry, _ in sorted(keyed, key=sort_key)]
+
+
+def render_sdk_rows(
+    sdk: str,
+    entries: list[Entry],
+    classify_entry: Callable[[Entry], Decision] = classify,
+    source_texts: dict[str, str] | None = None,
+) -> tuple[list[str], list[str]]:
+    rows: list[str] = []
+    open_items: list[str] = []
+    for entry, signature in stable_entries(entries, source_texts):
+        result = classify_entry(entry)
+        status, final, source_ref, note, is_open = (
+            result.status,
+            result.final,
+            result.ref,
+            result.note,
+            result.open,
+        )
+        if status not in {
+            "generated",
+            "static runtime",
+            "platform helper",
+            "alias",
+            "approved removal",
+        }:
+            raise ValueError(status)
+        current = f"`{entry.display_name}`"
+        if entry.count > 1:
+            current += f" ({entry.count} declarations)"
+        details = f"{note} " if note else ""
+        details += f"Source: `{entry.source}`."
+        if signature:
+            details += f" Signature: `{signature}`."
+        if (
+            entry.display_name.startswith("func ")
+            and final != "—"
+            and not final.startswith("func ")
+            and "." not in final
+        ):
+            final = f"func {final}"
+        rows.append(
+            "| "
+            + " | ".join(
+                markdown_cell(v)
+                for v in (
+                    current,
+                    entry.kind,
+                    f"`{final}`" if final != "—" else final,
+                    status,
+                    source_ref,
+                    details,
+                )
+            )
+            + " |"
+        )
+        if is_open:
+            qualifier = f"; signature `{signature}`" if signature else ""
+            open_items.append(
+                f"- {sdk} `{entry.display_name}` (`{entry.source}`{qualifier}): "
+                f"proposed **{status}**. {note}"
+            )
+    return rows, open_items
 
 
 def build() -> str:
@@ -716,7 +887,7 @@ def build() -> str:
         "A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. "
         "The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; "
         "each declaration matches the first family only. The final `^.+$` family closes that partition. "
-        "A source path and line in Notes distinguish overloads. Kind names the source declaration. "
+        "Notes name the source file. Kind and a declaration signature distinguish overloads without line numbers. "
         "The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, "
         "and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. "
         "The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. "
@@ -737,62 +908,9 @@ def build() -> str:
             "| Current export | Kind | Final name | Status | Design ref | Notes |",
             "| --- | --- | --- | --- | --- | --- |",
         ]
-        seen: set[str] = set()
-        for entry in sorted(entries, key=lambda e: (e.source, e.line)):
-            if entry.key in seen:
-                raise ValueError(f"duplicate inventory key: {entry.key}")
-            seen.add(entry.key)
-            result = classify(entry)
-            status, final, source_ref, note, is_open = (
-                result.status,
-                result.final,
-                result.ref,
-                result.note,
-                result.open,
-            )
-            if status not in {
-                "generated",
-                "static runtime",
-                "platform helper",
-                "alias",
-                "approved removal",
-            }:
-                raise ValueError(status)
-            current = f"`{entry.display_name}`"
-            if entry.count > 1:
-                current += f" ({entry.count} declarations)"
-            location = (
-                entry.source if not entry.line else f"{entry.source}:{entry.line}"
-            )
-            details = (
-                f"{note} Source: `{location}`." if note else f"Source: `{location}`."
-            )
-            if (
-                entry.display_name.startswith("func ")
-                and final != "—"
-                and not final.startswith("func ")
-                and "." not in final
-            ):
-                final = f"func {final}"
-            lines.append(
-                "| "
-                + " | ".join(
-                    markdown_cell(v)
-                    for v in (
-                        current,
-                        entry.kind,
-                        f"`{final}`" if final != "—" else final,
-                        status,
-                        source_ref,
-                        details,
-                    )
-                )
-                + " |"
-            )
-            if is_open:
-                open_items.append(
-                    f"- {sdk} `{entry.display_name}` (`{location}`): proposed **{status}**. {note}"
-                )
+        rows, sdk_open_items = render_sdk_rows(sdk, entries)
+        lines.extend(rows)
+        open_items.extend(sdk_open_items)
         lines.append("")
     lines += ["## Open items", ""]
     if open_items:
@@ -843,6 +961,38 @@ def self_test() -> None:
         "IdentityKind.toFfiPublicIdentifierKind",
     } <= names, names
     assert "Kind.when" not in names, names
+    first = (
+        "public struct Fixture {\n"
+        " public func send(_ text: String) {}\n"
+        " public func send(_ bytes: Data) {}\n"
+        " public func count() {}\n"
+        "}\n"
+    )
+    moved = (
+        "\npublic struct Fixture {\n"
+        " public func count() {}\n"
+        "\n public func send(_ bytes: Data) {}\n"
+        " public func send(_ text: String) {}\n"
+        "}\n"
+    )
+    removed = moved.replace(" public func send(_ bytes: Data) {}\n", "")
+
+    def fixture_rows(source_text: str) -> list[str]:
+        rows, _ = render_sdk_rows(
+            "Swift",
+            swift_scan(source_text, "fixture.swift"),
+            lambda entry: decision("generated", entry.name, "fixture"),
+            {"fixture.swift": source_text},
+        )
+        return rows
+
+    assert fixture_rows(first) == fixture_rows(moved)
+    assert fixture_rows(first) != fixture_rows(removed)
+    assert len(fixture_rows(first)) == len(fixture_rows(removed)) + 1
+    assert all(
+        not re.search(r"Source: `fixture\.swift:\d+`", row)
+        for row in fixture_rows(first)
+    )
     with tempfile.TemporaryDirectory(dir=ROOT) as directory:
         path = Path(directory) / "MessageStream.ts"
         path.write_text(
@@ -867,6 +1017,20 @@ def self_test() -> None:
         "Node": ts_inventory("Node"),
         "Browser": ts_inventory("Browser"),
     }
+    family_source = "sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
+    families = [
+        entry
+        for entry in inventories["Swift"]
+        if entry.source == family_source and entry.kind == "generated family"
+    ]
+    rendered_families = [
+        entry
+        for entry, _ in stable_entries(inventories["Swift"])
+        if entry.source == family_source and entry.kind == "generated family"
+    ]
+    assert len(families) == 5
+    assert rendered_families == families
+    assert rendered_families[-1].name.startswith("pattern: ^.+$")
     expected = {
         "Swift": {
             "Client.create": ("static runtime", "Client.create"),
