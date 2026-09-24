@@ -137,9 +137,22 @@ pub(crate) fn rewrite_generated_bindings(
 }
 
 fn rewrite_identifiers(source: &str, names: &BTreeMap<String, String>) -> String {
-    let bytes = source.as_bytes();
     let mut out = String::with_capacity(source.len());
-    let mut at = 0;
+    rewrite_code(source, 0, names, &mut out, false);
+    out
+}
+
+/// Copy code from `at` and rename identifiers. In a template interpolation,
+/// stop after the `}` that closes it and return the next position.
+fn rewrite_code(
+    source: &str,
+    mut at: usize,
+    names: &BTreeMap<String, String>,
+    out: &mut String,
+    interpolation: bool,
+) -> usize {
+    let bytes = source.as_bytes();
+    let mut depth = 0usize;
     while at < bytes.len() {
         let start = at;
         if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'/') {
@@ -148,7 +161,10 @@ fn rewrite_identifiers(source: &str, names: &BTreeMap<String, String>) -> String
             at = source[at + 2..]
                 .find("*/")
                 .map_or(bytes.len(), |end| at + end + 4);
-        } else if matches!(bytes[at], b'\'' | b'"' | b'`') {
+        } else if bytes[at] == b'`' {
+            at = rewrite_template(source, at, names, out);
+            continue;
+        } else if matches!(bytes[at], b'\'' | b'"') {
             let quote = bytes[at];
             at += 1;
             while at < bytes.len() {
@@ -169,12 +185,51 @@ fn rewrite_identifiers(source: &str, names: &BTreeMap<String, String>) -> String
             let identifier = &source[start..at];
             out.push_str(names.get(identifier).map_or(identifier, String::as_str));
             continue;
+        } else if interpolation && bytes[at] == b'{' {
+            depth += 1;
+            at += 1;
+        } else if interpolation && bytes[at] == b'}' {
+            at += 1;
+            if depth == 0 {
+                out.push('}');
+                return at;
+            }
+            depth -= 1;
         } else {
             at += source[at..].chars().next().expect("valid UTF-8").len_utf8();
         }
         out.push_str(&source[start..at]);
     }
-    out
+    at
+}
+
+/// Copy template text unchanged, and rename identifiers in each `${...}`.
+fn rewrite_template(
+    source: &str,
+    mut at: usize,
+    names: &BTreeMap<String, String>,
+    out: &mut String,
+) -> usize {
+    let bytes = source.as_bytes();
+    let mut start = at;
+    at += 1;
+    while at < bytes.len() {
+        if bytes[at] == b'\\' {
+            at = (at + 2).min(bytes.len());
+        } else if bytes[at] == b'`' {
+            at += 1;
+            break;
+        } else if bytes[at] == b'$' && bytes.get(at + 1) == Some(&b'{') {
+            at += 2;
+            out.push_str(&source[start..at]);
+            at = rewrite_code(source, at, names, out, true);
+            start = at;
+        } else {
+            at += 1;
+        }
+    }
+    out.push_str(&source[start..at]);
+    at
 }
 
 fn is_identifier_start(byte: u8) -> bool {
@@ -200,6 +255,14 @@ mod tests {
         let expected = "const inboxID: InboxID = shapeId; // inboxId\nconst text = 'inboxId'; /* InboxId */\nconst template = `inboxId`;";
         assert_eq!(rewrite_identifiers(input, &names), expected);
         assert!(!names.contains_key("shapeId"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn renames_identifiers_in_template_interpolations() {
+        let names = BTreeMap::from([("inboxId".to_string(), "inboxID".to_string())]);
+        let input = "`inboxId ${inboxId} ${f({ a: inboxId }, `${inboxId}`)} inboxId` + inboxId";
+        let expected = "`inboxId ${inboxID} ${f({ a: inboxID }, `${inboxID}`)} inboxId` + inboxID";
+        assert_eq!(rewrite_identifiers(input, &names), expected);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
