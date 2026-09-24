@@ -925,10 +925,7 @@ async fn notification_request_keeps_the_root_key_snapshot() {
 xmtp_common::if_native! {
     #[xmtp_common::test(unwrap_try = true)]
     async fn notification_stalled_request_bounds_runner_delay_and_keeps_messaging_live() {
-        use crate::worker::{
-            Worker, WorkerKind, key_package_maintenance as kp, tasks::TaskWorker,
-            worker_event_filter,
-        };
+        use crate::worker::{key_package_maintenance as kp, tasks::TaskWorker};
         let (client, peer) = support::client().await;
         tester!(bo, disable_workers);
         let group = client.create_group(None, None)?;
@@ -937,11 +934,7 @@ xmtp_common::if_native! {
         let now = time::now_ns();
         client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
         peer.state.lock().pause_next = true;
-        let context = client.context.clone();
-        let (filter, depth) = worker_event_filter(WorkerKind::TaskRunner).unwrap();
-        let subscription = Arc::new(context.events().subscribe(filter, depth));
-        let mut task_worker = TaskWorker::new(context);
-        task_worker.set_subscription(subscription);
+        let mut task_worker = TaskWorker::new(client.context.clone());
         let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
         timeout(Duration::from_secs(5), peer.entered.notified()).await?;
         let entered_at = std::time::Instant::now();

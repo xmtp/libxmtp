@@ -258,10 +258,15 @@ where
     }
 
     pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
+        if self.subscription.is_none() {
+            let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::TaskRunner)
+                .expect("task runner has an event filter");
+            self.subscription = Some(Arc::new(self.context.events().subscribe(filter, depth)));
+        }
         let subscription = self
             .subscription
             .as_ref()
-            .expect("runner installs subscription")
+            .expect("subscription is initialized")
             .clone();
         crate::worker::notifications::wake(&self.context)?;
         loop {
