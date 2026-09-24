@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use xmtp_common::time::now_ns;
-use xmtp_db::{StorageError, prelude::*};
+use xmtp_db::{StorageError, XmtpMlsStorageProvider, prelude::*};
 
 /// Default cap on how long the worker parks between deadline recomputes, used
 /// when [`WorkerConfig`](crate::worker::WorkerConfig) supplies no override. With
@@ -147,6 +147,7 @@ where
 
             let next = self
                 .context
+                .mls_storage()
                 .db()
                 .min_expire_at_ns()
                 .map_err(|e| DisappearingMessagesCleanerError::Storage(e.into()))?;
