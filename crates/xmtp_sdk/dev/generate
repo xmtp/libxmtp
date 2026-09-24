@@ -17,6 +17,7 @@ esac
 generated=target/sdk-generated
 config=apps/xmtp_sdk_bindgen/uniffi-global.toml
 raw_wasm=target/wasm32-unknown-unknown/debug/xmtp_sdk.wasm
+rm -rf -- "$generated"
 mkdir -p "$generated"
 for language in swift kotlin typescript-napi; do
   target/debug/xmtp-sdk-bindgen generate \

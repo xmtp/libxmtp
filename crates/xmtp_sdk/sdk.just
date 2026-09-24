@@ -7,6 +7,9 @@ root := justfile_directory()
 generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/generate"
 
+check-clean-generate:
+    bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
+
 # Check generated names and the TypeScript bridge we maintain.
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
