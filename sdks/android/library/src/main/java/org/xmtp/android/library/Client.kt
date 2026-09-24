@@ -59,6 +59,7 @@ data class ClientOptions(
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
     val dbPoolOptions: DbPoolOptions? = null,
+    @Deprecated("Registration always waits; this option has no effect.")
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
     /**
      * Unstable: notifications for group state changes, for clients that
@@ -117,6 +118,7 @@ data class ForkRecoveryOptions(
         )
 }
 
+@Deprecated("Registration always waits; this option has no effect.")
 data class VisibilityConfirmationOptions(
     val timeoutMs: ULong? = null,
 ) {
@@ -545,6 +547,8 @@ class Client(
                         clientOptions.waitForRegistrationVisible?.toFfi(),
                     )
                 }
+
+                ffiClient.waitForRegistrationVisible(null)
 
                 val client =
                     Client(

@@ -1159,6 +1159,7 @@ where
 
     /// Upload the key package before the identity update exposes this installation.
     /// Record its receipt for key retirement and retain the registration cursor.
+    /// Return success only after the backend can read the registration receipt.
     #[xmtp_common::mls_span]
     pub async fn register_identity(
         &self,
@@ -1168,12 +1169,12 @@ where
         // Registration is a network call like any other.
         self.context.server_configuration().check()?;
 
-        // Handle crash recovery - if already registered, just mark ready and return
+        // Resume visibility confirmation after a stored registration.
         let stored_identity: Option<StoredIdentity> = self.context.db().fetch(&())?;
         if stored_identity.is_some() {
-            tracing::info!("Identity already registered, skipping");
+            tracing::info!("Resuming stored identity registration");
             self.identity().set_ready();
-            return Ok(());
+            return self.ensure_registration_visible().await;
         }
 
         // Step 1: Generate key package and store locally (not uploaded yet)
@@ -1268,6 +1269,24 @@ where
             .registration_event_pending()
             .store(true, Ordering::Release);
         self.identity().set_ready();
+        self.ensure_registration_visible().await
+    }
+
+    /// Whether registration has completed its visibility confirmation.
+    /// A stored identity with a pending receipt is not yet registered.
+    pub fn is_registration_visible(&self) -> Result<bool, ClientError> {
+        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        Ok(self.identity().is_ready()
+            && stored.is_some_and(|identity| identity.registration_cursor_sequence_id.is_none()))
+    }
+
+    /// Confirm a stored registration before reporting success.
+    pub async fn ensure_registration_visible(&self) -> Result<(), ClientError> {
+        let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
+        if stored.is_some_and(|identity| identity.registration_cursor_sequence_id.is_some()) {
+            self.wait_for_registration_visible(VisibilityConfirmationOptions::default())
+                .await?;
+        }
         Ok(())
     }
 
@@ -1282,9 +1301,13 @@ where
             return Err(ClientError::RegistrationNotVisible);
         }
         let stored: Option<StoredIdentity> = self.context.db().fetch(&())?;
-        let sequence_id = stored
-            .and_then(|identity| identity.registration_cursor_sequence_id)
-            .and_then(|sequence_id| u64::try_from(sequence_id).ok())
+        let stored = stored.ok_or(ClientError::RegistrationNotVisible)?;
+        let Some(receipt) = stored.registration_cursor_sequence_id else {
+            return Ok(());
+        };
+        self.context.server_configuration().check()?;
+        let sequence_id = u64::try_from(receipt)
+            .ok()
             .filter(|sequence_id| *sequence_id != 0)
             .ok_or(ClientError::RegistrationNotVisible)?;
         timeout(Duration::from_millis(options.timeout_ms), async {
@@ -1304,6 +1327,7 @@ where
                     .ok_or(xmtp_api::ApiError::InvalidResponse(
                         "registration identity head",
                     ))?;
+                // implements: IDENT-072
                 if head.0 >= sequence_id {
                     return Ok::<(), ClientError>(());
                 }
@@ -1329,6 +1353,7 @@ where
                 None,
             );
         }
+        self.context.db().clear_registration_cursor(receipt)?;
         Ok(())
     }
 

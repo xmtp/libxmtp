@@ -864,11 +864,7 @@ impl FfiXmtpClient {
                 .await?;
         }
 
-        if let Some(opts) = visibility_confirmation_options {
-            self.inner_client
-                .wait_for_registration_visible(opts.into())
-                .await?;
-        }
+        let _ = visibility_confirmation_options;
 
         Ok(())
     }

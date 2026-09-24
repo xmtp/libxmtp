@@ -192,3 +192,15 @@ pub async fn wait_for_min_intents<C: ConnectionExt>(
     })
     .await
 }
+
+/// Set a pending receipt to test registration recovery after reopen.
+pub fn set_registration_cursor_for_test<C: ConnectionExt>(db: &DbConnection<C>, sequence: i64) {
+    use xmtp_db::diesel::{self, ExpressionMethods, RunQueryDsl};
+    use xmtp_db::schema::identity::dsl;
+    db.raw_query(|conn| {
+        diesel::update(dsl::identity)
+            .set(dsl::registration_cursor_sequence_id.eq(Some(sequence)))
+            .execute(conn)
+    })
+    .unwrap();
+}

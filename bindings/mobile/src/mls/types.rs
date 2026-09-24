@@ -109,6 +109,9 @@ impl From<HmacKey> for FfiHmacKey {
     }
 }
 
+/// Deprecated: registration always waits (IDENT-072); this option has no effect.
+/// Standalone visibility waits still use this timeout.
+/// @deprecated Registration always waits; registration options have no effect.
 /// Timeout for `wait_for_registration_visible`.
 #[derive(uniffi::Record, Default)]
 pub struct FfiVisibilityConfirmationOptions {

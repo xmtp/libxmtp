@@ -143,8 +143,12 @@ export class WorkerClient {
     await this.applySignatureRequest(signatureRequest);
   }
 
-  createInboxSignatureRequest() {
-    return this.#client.createInboxSignatureRequest();
+  async createInboxSignatureRequest() {
+    const request = this.#client.createInboxSignatureRequest();
+    if (!request) {
+      await this.#client.waitForRegistrationVisible();
+    }
+    return request;
   }
 
   async addAccountSignatureRequest(newAccountIdentifier: Identifier) {

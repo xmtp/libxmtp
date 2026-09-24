@@ -124,6 +124,7 @@ export type ClientAction =
       data: {
         signer: SafeSigner;
         signatureRequestId: string;
+        /** @deprecated Registration always waits; this option has no effect. */
         waitForRegistrationVisible?: VisibilityConfirmationOptions;
       };
     }

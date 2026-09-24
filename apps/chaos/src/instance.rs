@@ -518,9 +518,7 @@ pub(crate) async fn run(config_path: &std::path::Path) -> Result<()> {
             .await?;
         client.register_identity(request).await?;
     }
-    client
-        .wait_for_registration_visible(Default::default())
-        .await?;
+    client.ensure_registration_visible().await?;
     let state = Arc::new(State {
         client,
         disk,

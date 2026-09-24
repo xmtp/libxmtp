@@ -70,6 +70,7 @@ public struct ForkRecoveryOptions {
 	}
 }
 
+@available(*, deprecated, message: "Registration always waits; this option has no effect.")
 public struct VisibilityConfirmationOptions {
 	public var timeoutMs: UInt64?
 
@@ -131,6 +132,7 @@ public struct ClientOptions {
 	public var deviceSyncEnabled: Bool
 	public var debugEventsEnabled: Bool
 	public var forkRecoveryOptions: ForkRecoveryOptions?
+	@available(*, deprecated, message: "Registration always waits; this option has no effect.")
 	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
 	public var dbPoolOptions: DbPoolOptions?
 	/// Unstable: notifications for group state changes, for clients that
@@ -331,6 +333,8 @@ public final class Client {
 				)
 			}
 		}
+
+		try await client.ffiClient.waitForRegistrationVisible(options: nil)
 
 		// Register codecs
 		for codec in options.codecs {

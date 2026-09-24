@@ -78,14 +78,14 @@ Swift no longer checks the legacy database filename as a fallback.
 
 ### Removed connection and history options
 
-| Previous API                                                                          | Change                                                                                                               |
-| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| JavaScript `apiUrl`; JavaScript and mobile `gatewayHost`                              | Use `backendUrl`. There is one backend endpoint.                                                                     |
-| `XmtpEnv`, `ApiUrls`, `HistorySyncUrls`, Node `envToString`; mobile `XMTPEnvironment` | Removed. Use a URL and an optional string database label. Mobile `Client.environment` is now a string.               |
-| Mobile `isSecure`                                                                     | Removed. Set the URL scheme.                                                                                         |
-| `historySyncUrl`; binding `deviceSyncServerUrl` and `deviceSyncWorkerMode`            | Removed. There is no history-sync server setting.                                                                    |
-| `sendSyncRequest`, `sendSyncArchive`, `listAvailableArchives`, `processSyncArchive`   | Removed. Use local archives where applicable. `AvailableArchiveInfo` and mobile `AvailableArchive` are also removed. |
-| `VisibilityConfirmationOptions.quorumPercentage` and `quorumAbsolute`                 | Removed. Visibility checks wait for backend readability. `timeoutMs` remains.                                        |
+| Previous API                                                                          | Change                                                                                                                                                 |
+| ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| JavaScript `apiUrl`; JavaScript and mobile `gatewayHost`                              | Use `backendUrl`. There is one backend endpoint.                                                                                                       |
+| `XmtpEnv`, `ApiUrls`, `HistorySyncUrls`, Node `envToString`; mobile `XMTPEnvironment` | Removed. Use a URL and an optional string database label. Mobile `Client.environment` is now a string.                                                 |
+| Mobile `isSecure`                                                                     | Removed. Set the URL scheme.                                                                                                                           |
+| `historySyncUrl`; binding `deviceSyncServerUrl` and `deviceSyncWorkerMode`            | Removed. There is no history-sync server setting.                                                                                                      |
+| `sendSyncRequest`, `sendSyncArchive`, `listAvailableArchives`, `processSyncArchive`   | Removed. Use local archives where applicable. `AvailableArchiveInfo` and mobile `AvailableArchive` are also removed.                                   |
+| `VisibilityConfirmationOptions.quorumPercentage` and `quorumAbsolute`                 | Removed. Registration always waits for backend readability. Visibility options, including `timeoutMs`, are deprecated and ignored during registration. |
 
 Device preference sync remains available. Removing server-based archive transfer
 does not remove `disableDeviceSync`, mobile `deviceSyncEnabled`, or JavaScript

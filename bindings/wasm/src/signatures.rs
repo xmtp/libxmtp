@@ -187,8 +187,7 @@ impl Client {
   ) -> Result<Option<SignatureRequestHandle>, JsError> {
     let signature_request = match self.inner_client().identity().signature_request() {
       Some(signature_req) => signature_req,
-      // this should never happen since we're checking for it above in is_registered
-      None => return Err(JsError::new("No signature request found")),
+      None => return Ok(None),
     };
 
     let handle = SignatureRequestHandle {
@@ -328,10 +327,13 @@ impl Client {
     #[wasm_bindgen(js_name = visibilityConfirmationOptions)]
     visibility_confirmation_options: Option<WasmVisibilityConfirmationOptions>,
   ) -> Result<(), JsError> {
-    if self.is_registered() {
-      return Err(JsError::new(
-        "An identity is already registered with this client",
-      ));
+    let _ = visibility_confirmation_options;
+    if self.inner_client().identity().is_ready() {
+      return self
+        .inner_client()
+        .ensure_registration_visible()
+        .await
+        .map_err(ErrorWrapper::js);
     }
 
     {
@@ -339,14 +341,6 @@ impl Client {
       self
         .inner_client()
         .register_identity(inner.clone())
-        .await
-        .map_err(ErrorWrapper::js)?;
-    }
-
-    if let Some(opts) = visibility_confirmation_options {
-      self
-        .inner_client()
-        .wait_for_registration_visible(opts.into())
         .await
         .map_err(ErrorWrapper::js)?;
     }

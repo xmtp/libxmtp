@@ -312,3 +312,70 @@ async fn test_shutdown_is_idempotent() {
     // call shutdown() defensively on a client they cannot prove is still open.
     client.shutdown().await.unwrap();
 }
+
+// verifies: IDENT-072
+#[xmtp_common::test(unwrap_try = true)]
+async fn register_after_unconfirmed_registration_waits() {
+    use xmtp_db::{Fetch, identity::StoredIdentity, prelude::QueryIdentityUpdates};
+    use xmtp_mls::utils::test::set_registration_cursor_for_test;
+    let wallet = FfiWalletInboxOwner::new();
+    let inbox = wallet.identifier().inbox_id(1)?;
+    let path = tmp_path();
+    let open = async || {
+        create_client(
+            connect_to_backend_test().await,
+            DbOptions::new(Some(path.clone()), None, None, None, None),
+            &inbox,
+            wallet.identifier(),
+            1,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+    };
+    let first = open().await;
+    let signature = first.signature_request().unwrap();
+    register_client_with_wallet(&wallet, &first).await;
+    let receipt = first
+        .inner_client
+        .context
+        .db()
+        .get_latest_sequence_id(&[inbox.as_str()])?[&inbox];
+    set_registration_cursor_for_test(&first.inner_client.context.db(), i64::MAX);
+    first.inner_client.close().await?;
+    drop(first);
+    let reopened = open().await;
+    assert!(reopened.inner_client.identity().is_ready());
+    assert!(
+        xmtp_common::time::timeout(
+            std::time::Duration::from_millis(200),
+            reopened.register_identity(
+                signature.clone(),
+                Some(crate::FfiVisibilityConfirmationOptions {
+                    timeout_ms: Some(0)
+                })
+            )
+        )
+        .await
+        .is_err()
+    );
+    let stored: StoredIdentity = reopened.inner_client.context.db().fetch(&())?.unwrap();
+    assert_eq!(stored.registration_cursor_sequence_id, Some(i64::MAX));
+    set_registration_cursor_for_test(&reopened.inner_client.context.db(), receipt);
+    reopened
+        .register_identity(
+            signature,
+            Some(crate::FfiVisibilityConfirmationOptions {
+                timeout_ms: Some(0),
+            }),
+        )
+        .await?;
+    let stored: StoredIdentity = reopened.inner_client.context.db().fetch(&())?.unwrap();
+    assert_eq!(stored.registration_cursor_sequence_id, None);
+    reopened.inner_client.close().await?;
+}

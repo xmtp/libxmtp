@@ -44,6 +44,8 @@ impl StoredIdentity {
     }
 }
 pub trait QueryIdentity {
+    /// Clear only the registration receipt that was confirmed.
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError>;
     fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
     /// Atomically lower/initialize the rotation column (5s debounce) AND enqueue a
     /// `PullInDeadline` task targeting `rotation_task_hash` at the resulting column
@@ -71,6 +73,10 @@ impl<T> QueryIdentity for &T
 where
     T: QueryIdentity,
 {
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError> {
+        (**self).clear_registration_cursor(sequence_id)
+    }
+
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         (**self).queue_key_package_rotation()
     }
@@ -100,6 +106,16 @@ where
 }
 
 impl<C: ConnectionExt> QueryIdentity for DbConnection<C> {
+    fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::identity)
+                .filter(dsl::registration_cursor_sequence_id.eq(sequence_id))
+                .set(dsl::registration_cursor_sequence_id.eq(None::<i64>))
+                .execute(conn)
+        })?;
+        Ok(())
+    }
+
     fn queue_key_package_rotation(&self) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             let rotate_at_ns = now_ns() + KEY_PACKAGE_QUEUE_INTERVAL_NS;
