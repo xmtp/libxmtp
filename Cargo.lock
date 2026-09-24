@@ -12256,7 +12256,6 @@ dependencies = [
  "tokio",
  "tracing",
  "xmtp_common",
- "xmtp_content_types",
 ]
 
 [[package]]

@@ -1,6 +1,5 @@
 pub mod actions;
 pub mod attachment;
-mod content_type_id;
 pub mod delete_message;
 pub mod encryption;
 pub mod group_updated;
@@ -18,7 +17,7 @@ pub mod transaction_reference;
 mod utils;
 pub mod wallet_send_calls;
 
-pub use content_type_id::ContentTypeId;
+pub use xmtp_common::types::ContentTypeId;
 
 use prost::Message;
 use thiserror::Error;

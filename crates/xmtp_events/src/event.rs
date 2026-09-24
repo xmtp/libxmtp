@@ -1,6 +1,6 @@
 //! The public event contract. Payloads contain identifiers and small values.
 
-pub use xmtp_content_types::ContentTypeId;
+pub use xmtp_common::types::ContentTypeId;
 
 /// The order is the order of the EVENT kind table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
