@@ -4,7 +4,8 @@ export type BridgeErrorCode =
   | "clientClosed"
   | "storageBusy"
   | "lagged"
-  | "callbackFailed";
+  | "callbackFailed"
+  | "cancelled";
 
 export interface ErrorWire {
   variant: string;
@@ -48,8 +49,8 @@ export function encodeError(error: unknown): ErrorWire {
     };
   }
   if (error instanceof Error) {
-    if ("tag" in error && typeof error.tag === "string" && "inner" in error) {
-      const inner: unknown = error.inner;
+    if ("tag" in error && typeof error.tag === "string") {
+      const inner: unknown = "inner" in error ? error.inner : undefined;
       const detail: unknown = Array.isArray(inner) ? inner[0] : inner;
       if (
         detail !== null &&
@@ -71,6 +72,13 @@ export function encodeError(error: unknown): ErrorWire {
           details: inner,
         };
       }
+      return {
+        variant: error.tag,
+        code: "unknown",
+        category: "unknown",
+        retryable: false,
+        message: error.message,
+      };
     }
     return {
       variant: error.name,
@@ -128,7 +136,7 @@ export type WireMessage =
   | { t: "fatal"; error: ErrorWire };
 
 export interface WireEndpoint {
-  postMessage(message: WireMessage): void;
+  postMessage(message: WireMessage, transfer?: Transferable[]): void;
   onMessage(handler: (message: WireMessage) => void): void;
   onExit(handler: () => void): void;
 }
@@ -156,6 +164,10 @@ export function assertCloneable(value: unknown): void {
       assertCloneable(key);
       assertCloneable(item);
     }
+    return;
+  }
+  if (value instanceof Set) {
+    for (const item of value) assertCloneable(item);
     return;
   }
   if (Object.getPrototypeOf(value) !== Object.prototype) {

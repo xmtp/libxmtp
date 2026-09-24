@@ -28,6 +28,7 @@ export interface RecordLayout {
 export interface EnumLayout {
   variants: Partial<Record<string, Record<string, Shape> | Shape[]>>;
   error: boolean;
+  flat: boolean;
 }
 
 export interface Layouts {
@@ -132,11 +133,15 @@ export class ValueCodec {
   convert(shape: Shape, value: unknown): unknown {
     switch (shape.kind) {
       case "value":
-        return value instanceof Uint8Array &&
+        if (
+          shape.type === "Bytes" &&
           this.side === "main" &&
           this.direction === "encode"
-          ? value.slice()
-          : value;
+        ) {
+          if (value instanceof Uint8Array) return value.slice();
+          if (value instanceof ArrayBuffer) return value.slice(0);
+        }
+        return value;
       case "object":
         return this.object(shape.name, value);
       case "foreign":
@@ -156,10 +161,43 @@ export class ValueCodec {
       case "enum": {
         const layout = this.layouts.enums[shape.name];
         if (!layout) throw new TypeError(`unknown enum ${shape.name}`);
+        if (layout.flat) {
+          if (
+            typeof value !== "number" ||
+            !Number.isInteger(value) ||
+            value < 0 ||
+            value >= Object.keys(layout.variants).length
+          ) {
+            throw new TypeError(`invalid ${shape.name} value`);
+          }
+          return value;
+        }
         if (layout.error) {
-          return this.direction === "encode"
-            ? encodeError(value)
-            : decodeError(errorWire(value));
+          if (this.direction === "encode") {
+            const error = encodeError(value);
+            const variant = layout.variants[error.variant];
+            if (!variant || !Array.isArray(variant))
+              throw new TypeError(`unknown ${shape.name} error`);
+            if (!variant[0]) return error;
+            const detail: unknown = Array.isArray(error.details)
+              ? error.details[0]
+              : error.details;
+            return { ...error, details: this.convert(variant[0], detail) };
+          }
+          const error = errorWire(value);
+          const variant = layout.variants[error.variant];
+          if (!variant || !Array.isArray(variant))
+            throw new TypeError(`unknown ${shape.name} error`);
+          if (!variant[0])
+            return (
+              this.enumFactory?.(shape.name, error.variant, []) ??
+              decodeError(error)
+            );
+          const details = this.convert(variant[0], error.details);
+          return (
+            this.enumFactory?.(shape.name, error.variant, [details]) ??
+            decodeError(error)
+          );
         }
         const fields = plain(value);
         const tag = fields.tag;
@@ -214,14 +252,11 @@ export class ValueCodec {
     }
   }
 
-  decode<T>(shape: Shape, value: unknown): T {
-    return this.convert(shape, value) as T;
-  }
-
   private object(name: string, value: unknown): unknown {
     if (this.side === "main" && this.direction === "encode") {
       if (!(value instanceof RemoteObject))
         throw new TypeError(`expected ${name} proxy`);
+      value.checkLive(name, this.session);
       return value.handle;
     }
     if (this.side === "worker" && this.direction === "decode") {
@@ -283,7 +318,10 @@ export class ValueCodec {
 
   private foreign(name: string, value: unknown): unknown {
     if (this.side === "main" && this.direction === "encode") {
-      if (value instanceof RemoteObject) return value.handle;
+      if (value instanceof RemoteObject) {
+        value.checkLive(name, this.session);
+        return value.handle;
+      }
       if (!this.mainCallbacks || value === null || typeof value !== "object") {
         throw new TypeError(`expected ${name} callback`);
       }

@@ -27,24 +27,28 @@ export function browserPoolLocks(): PoolLocks {
 export class PoolLocks {
   private readonly releases = new Map<string, () => void>();
   private readonly openings = new Map<string, Promise<void>>();
+  private readonly openingRejects = new Map<string, (error: Error) => void>();
   private readonly owners = new Map<number, string>();
+  private readonly users = new Map<string, number>();
+  private closed = false;
 
   constructor(private readonly provider: LockProvider) {}
 
-  async open(pool: string): Promise<boolean> {
-    if (this.releases.has(pool)) return false;
-    const opening = this.openings.get(pool);
-    if (opening) {
-      await opening;
-      return false;
-    }
-    const attempt = this.openNew(pool);
-    this.openings.set(pool, attempt);
+  async open(pool: string): Promise<void> {
+    if (this.closed) throw bridgeError("workerTerminated");
+    this.users.set(pool, (this.users.get(pool) ?? 0) + 1);
     try {
-      await attempt;
-      return true;
-    } finally {
-      this.openings.delete(pool);
+      if (this.releases.has(pool)) return;
+      let opening = this.openings.get(pool);
+      if (!opening) {
+        opening = this.openNew(pool);
+        this.openings.set(pool, opening);
+        void opening.finally(() => this.openings.delete(pool)).catch(() => {});
+      }
+      await opening;
+    } catch (error) {
+      this.close(pool);
+      throw error;
     }
   }
 
@@ -55,8 +59,13 @@ export class PoolLocks {
       entered = resolve;
       rejected = reject;
     });
+    this.openingRejects.set(pool, (error) => rejected?.(error));
     void this.provider
       .request(`xmtp:${pool}`, { ifAvailable: true }, async (lock) => {
+        if (this.closed) {
+          rejected?.(bridgeError("workerTerminated"));
+          return;
+        }
         if (!lock) {
           rejected?.(bridgeError("storageBusy"));
           return;
@@ -69,15 +78,22 @@ export class PoolLocks {
       .catch((error: unknown) =>
         rejected?.(error instanceof Error ? error : new Error(String(error))),
       );
-    await enteredPromise;
+    try {
+      await enteredPromise;
+    } finally {
+      this.openingRejects.delete(pool);
+    }
   }
 
   close(pool: string): void {
+    const remaining = (this.users.get(pool) ?? 0) - 1;
+    if (remaining > 0) {
+      this.users.set(pool, remaining);
+      return;
+    }
+    this.users.delete(pool);
     this.releases.get(pool)?.();
     this.releases.delete(pool);
-    for (const [owner, name] of this.owners) {
-      if (name === pool) this.owners.delete(owner);
-    }
   }
 
   attachOwner(owner: number, pool: string): void {
@@ -87,12 +103,17 @@ export class PoolLocks {
   closeOwner(owner: number): void {
     const pool = this.owners.get(owner);
     this.owners.delete(owner);
-    if (pool && !Array.from(this.owners.values()).includes(pool))
-      this.close(pool);
+    if (pool) this.close(pool);
   }
 
   closeAll(): void {
-    for (const pool of this.releases.keys()) this.close(pool);
+    this.closed = true;
+    for (const reject of this.openingRejects.values())
+      reject(bridgeError("workerTerminated"));
+    this.openingRejects.clear();
+    for (const release of this.releases.values()) release();
+    this.releases.clear();
+    this.users.clear();
     this.owners.clear();
   }
 }
@@ -153,7 +174,10 @@ export class WorkerHost {
     private readonly dispatch: Dispatch,
     private readonly locks?: PoolLocks,
   ) {
-    this.registry = new WorkerRegistry(1);
+    const random = crypto.getRandomValues(new Uint32Array(2));
+    this.registry = new WorkerRegistry(
+      (random[0] % 0x200000) * 0x100000000 + random[1],
+    );
     this.callbacks = new WorkerCallbacks(endpoint);
     endpoint.onMessage((message) => this.receive(message));
     endpoint.onExit(() => this.fatal(bridgeError("workerTerminated")));
@@ -181,7 +205,8 @@ export class WorkerHost {
         this.callbacks.receive(message);
         break;
       default:
-        break;
+        console.error("unknown bridge message", message);
+        this.fatal(bridgeError("contractMismatch", message));
     }
   }
 
@@ -221,8 +246,13 @@ export class WorkerHost {
       });
       const reply: WireMessage = { t: "return", id: message.id, value };
       assertCloneable(reply);
-      this.endpoint.postMessage(reply);
+      this.endpoint.postMessage(reply, transferBuffers(reply));
     } catch (error) {
+      if (error instanceof WebAssembly.RuntimeError) {
+        this.fatal(error);
+        return;
+      }
+      if (this.isFailed()) return;
       this.endpoint.postMessage({
         t: "error",
         id: message.id,
@@ -247,4 +277,28 @@ export class WorkerHost {
       // The worker can close the endpoint before the fatal message is sent.
     }
   }
+
+  private isFailed(): boolean {
+    return this.failed;
+  }
+}
+
+function transferBuffers(value: unknown): ArrayBuffer[] {
+  const buffers = new Set<ArrayBuffer>();
+  const visit = (part: unknown): void => {
+    if (part instanceof Uint8Array) {
+      if (part.buffer instanceof ArrayBuffer) buffers.add(part.buffer);
+    } else if (part instanceof ArrayBuffer) buffers.add(part);
+    else if (Array.isArray(part)) part.forEach(visit);
+    else if (part instanceof Map)
+      for (const [key, item] of part) {
+        visit(key);
+        visit(item);
+      }
+    else if (part instanceof Set) for (const item of part) visit(item);
+    else if (part !== null && typeof part === "object")
+      Object.values(part).forEach(visit);
+  };
+  visit(value);
+  return [...buffers];
 }

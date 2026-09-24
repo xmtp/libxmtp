@@ -92,12 +92,7 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
             Metadata::Method(method) if !method.is_async => {
                 let immutable = method.inputs.is_empty()
                     && method.throws.is_none()
-                    && method.return_type.is_some()
-                    && matches!(
-                        (method.self_name.as_str(), method.name.as_str()),
-                        ("Client", "conversations" | "inbox_id" | "installation_id")
-                            | ("Group", "id")
-                    );
+                    && method.return_type.is_some();
                 if !immutable {
                     bail!(
                         "{}.{}: synchronous worker method is not an immutable property",
@@ -130,6 +125,9 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
                     "{:?}: exported Rust trait on bridged type",
                     implementation.ty
                 );
+            }
+            Metadata::UniffiTrait(implementation) => {
+                bail!("{implementation:?}: UniFFI trait cannot cross browser bridge");
             }
             Metadata::Object(object)
                 if matches!(object.imp, ObjectImpl::Trait(TraitKind::RustOnly)) =>
@@ -297,7 +295,7 @@ fn wire_type(ty: &Type) -> String {
         Type::UInt64 | Type::Int64 | Type::Timestamp | Type::Duration => "bigint".into(),
         Type::Boolean => "boolean".into(),
         Type::String => "string".into(),
-        Type::Bytes => "Uint8Array".into(),
+        Type::Bytes => "ArrayBuffer".into(),
         Type::Object { imp, .. } => {
             if imp.has_callback_interface() {
                 "HandleWire | CallbackWire".into()
@@ -332,7 +330,7 @@ fn ts_type(ty: &Type) -> String {
         Type::UInt64 | Type::Int64 => "bigint".into(),
         Type::Boolean => "boolean".into(),
         Type::String => "string".into(),
-        Type::Bytes => "Uint8Array".into(),
+        Type::Bytes => "ArrayBuffer".into(),
         Type::Timestamp => "Date".into(),
         Type::Duration => "number".into(),
         Type::Object { name, imp, .. } => {
@@ -409,6 +407,198 @@ fn shape(ty: &Type) -> String {
     }
 }
 
+fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
+    match ty {
+        Type::UInt8
+        | Type::Int8
+        | Type::UInt16
+        | Type::Int16
+        | Type::UInt32
+        | Type::Int32
+        | Type::Float32
+        | Type::Float64
+        | Type::Duration => format!("bridgeNumber({raw})"),
+        Type::UInt64 | Type::Int64 => format!("bridgeBigInt({raw})"),
+        Type::Boolean => format!("bridgeBoolean({raw})"),
+        Type::String => format!("bridgeString({raw})"),
+        Type::Bytes => format!("bridgeBytes({raw})"),
+        Type::Timestamp => format!("bridgeDate({raw})"),
+        Type::Object { name, .. } => format!("decodeObject{name}({session}, {raw})"),
+        Type::CallbackInterface { name, .. } => format!("decodeObject{name}({session}, {raw})"),
+        Type::Record { name, .. } => format!("decodeRecord{name}({session}, {raw})"),
+        Type::Enum { name, .. } => format!("decodeEnum{name}({session}, {raw})"),
+        Type::Box { inner_type }
+        | Type::Custom {
+            builtin: inner_type,
+            ..
+        } => decode_expr(inner_type, raw, session),
+        Type::Optional { inner_type } => format!(
+            "({raw} === undefined || {raw} === null ? undefined : {})",
+            decode_expr(inner_type, raw, session)
+        ),
+        Type::Sequence { inner_type } => format!(
+            "bridgeArray({raw}).map((item) => {})",
+            decode_expr(inner_type, "item", session)
+        ),
+        Type::Set { inner_type } => format!(
+            "new Set(Array.from(bridgeSet({raw}), (item) => {}))",
+            decode_expr(inner_type, "item", session)
+        ),
+        Type::Map {
+            key_type,
+            value_type,
+        } => format!(
+            "new Map(Array.from(bridgeMap({raw}), ([key, item]): [{}, {}] => [{}, {}]))",
+            ts_type(key_type),
+            ts_type(value_type),
+            decode_expr(key_type, "key", session),
+            decode_expr(value_type, "item", session)
+        ),
+    }
+}
+
+fn render_decoders(items: &[Metadata], names: &BTreeMap<String, String>) -> Result<String> {
+    let mut code = String::from(
+        "function bridgeRecord(raw: unknown): Record<string, unknown> { if (raw === null || typeof raw !== \"object\" || Array.isArray(raw)) throw new TypeError(\"expected record\"); return Object.fromEntries(Object.entries(raw)); }\n\
+function bridgeArray(raw: unknown): unknown[] { if (!Array.isArray(raw)) throw new TypeError(\"expected array\"); return raw; }\n\
+function bridgeMap(raw: unknown): Map<unknown, unknown> { if (!(raw instanceof Map)) throw new TypeError(\"expected map\"); return raw; }\n\
+function bridgeSet(raw: unknown): Set<unknown> { if (!(raw instanceof Set)) throw new TypeError(\"expected set\"); return raw; }\n\
+function bridgeNumber(raw: unknown): number { if (typeof raw !== \"number\") throw new TypeError(\"expected number\"); return raw; }\n\
+function bridgeBigInt(raw: unknown): bigint { if (typeof raw !== \"bigint\") throw new TypeError(\"expected bigint\"); return raw; }\n\
+function bridgeString(raw: unknown): string { if (typeof raw !== \"string\") throw new TypeError(\"expected string\"); return raw; }\n\
+function bridgeBoolean(raw: unknown): boolean { if (typeof raw !== \"boolean\") throw new TypeError(\"expected boolean\"); return raw; }\n\
+function bridgeBytes(raw: unknown): ArrayBuffer { if (!(raw instanceof ArrayBuffer)) throw new TypeError(\"expected bytes\"); return raw; }\n\
+function bridgeDate(raw: unknown): Date { if (!(raw instanceof Date)) throw new TypeError(\"expected date\"); return raw; }\n\
+function bridgeHandle(raw: unknown, type: string): HandleWire { const value = bridgeRecord(raw); if (typeof value.h !== \"number\" || typeof value.owner !== \"number\" || typeof value.epoch !== \"number\" || value.type !== type) throw new TypeError(\"invalid handle\"); return { h: value.h, owner: value.owner, epoch: value.epoch, type, snap: value.snap }; }\n",
+    );
+    for item in items {
+        match item {
+            Metadata::Object(object) if object.imp.has_struct() => {
+                writeln!(
+                    code,
+                    "function decodeObject{}(session: MainSession, raw: unknown): {} {{ const value = proxyFor(session, bridgeHandle(raw, \"{}\")); if (!(value instanceof {})) throw new TypeError(\"invalid object\"); return value; }}",
+                    object.name, object.name, object.name, object.name
+                )?;
+            }
+            Metadata::Object(object) if object.imp.has_callback_interface() => {
+                writeln!(
+                    code,
+                    "function decodeObject{}(_session: MainSession, _raw: unknown): B.{} {{ throw new TypeError(\"foreign object cannot be returned by worker\"); }}",
+                    object.name, object.name
+                )?;
+            }
+            Metadata::Record(record) => {
+                writeln!(
+                    code,
+                    "function decodeRecord{}(session: MainSession, raw: unknown): B.{} {{ const fields = bridgeRecord(raw); return {{",
+                    record.name, record.name
+                )?;
+                for field in &record.fields {
+                    let name = ts_name(&field.name, names);
+                    writeln!(
+                        code,
+                        "  {name}: {},",
+                        decode_expr(&field.ty, &format!("fields.{name}"), "session")
+                    )?;
+                }
+                code.push_str("}; }\n");
+            }
+            Metadata::Enum(value) => {
+                writeln!(
+                    code,
+                    "function decodeEnum{}(session: MainSession, raw: unknown): B.{} {{",
+                    value.name, value.name
+                )?;
+                let flat =
+                    !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
+                if flat {
+                    code.push_str("switch (bridgeNumber(raw)) {\n");
+                    for (index, variant) in value.variants.iter().enumerate() {
+                        writeln!(
+                            code,
+                            "case {index}: return B.{}.{};",
+                            value.name, variant.name
+                        )?;
+                    }
+                } else {
+                    code.push_str("const fields = bridgeRecord(raw); switch (fields.");
+                    code.push_str(if value.shape.is_error() {
+                        "variant"
+                    } else {
+                        "tag"
+                    });
+                    code.push_str(") {\n");
+                    for variant in &value.variants {
+                        let args = if value.shape.is_error() {
+                            variant
+                                .fields
+                                .first()
+                                .map(|field| {
+                                    decode_expr(
+                                        &field.ty,
+                                        "bridgeArray(fields.details)[0]",
+                                        "session",
+                                    )
+                                })
+                                .into_iter()
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        } else if variant.fields.first().is_some_and(|f| f.name.is_empty()) {
+                            variant
+                                .fields
+                                .iter()
+                                .enumerate()
+                                .map(|(index, field)| {
+                                    decode_expr(
+                                        &field.ty,
+                                        &format!("bridgeArray(fields.inner)[{index}]"),
+                                        "session",
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        } else if variant.fields.is_empty() {
+                            String::new()
+                        } else {
+                            let entries = variant
+                                .fields
+                                .iter()
+                                .map(|field| {
+                                    let name = ts_name(&field.name, names);
+                                    format!(
+                                        "{name}: {}",
+                                        decode_expr(
+                                            &field.ty,
+                                            &format!("bridgeRecord(fields.inner).{name}"),
+                                            "session"
+                                        )
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!("{{ {entries} }}")
+                        };
+                        writeln!(
+                            code,
+                            "case \"{}\": return B.{}.{}.new({args});",
+                            variant.name, value.name, variant.name
+                        )?;
+                    }
+                }
+                writeln!(
+                    code,
+                    "default: throw new TypeError(\"invalid {} variant\"); }} }}",
+                    value.name
+                )?;
+            }
+            _ => {}
+        }
+    }
+    Ok(code
+        .replace("function bridge", "export function bridge")
+        .replace("function decode", "export function decode"))
+}
+
 fn render(
     items: &[Metadata],
     operations: &[Operation],
@@ -446,6 +636,12 @@ fn render(
                 write!(wire, "export type Wire{} = ", value.name)?;
                 if value.shape.is_error() {
                     wire.push_str("ErrorWire");
+                } else if value
+                    .variants
+                    .iter()
+                    .all(|variant| variant.fields.is_empty())
+                {
+                    wire.push_str("number");
                 } else {
                     for (index, variant) in value.variants.iter().enumerate() {
                         if index > 0 {
@@ -522,12 +718,19 @@ fn render(
         if let Metadata::Enum(value) = item {
             writeln!(
                 wire,
-                "  {}: {{ error: {}, variants: {{",
+                "  {}: {{ error: {}, flat: {}, variants: {{",
                 value.name,
-                value.shape.is_error()
+                value.shape.is_error(),
+                !value.shape.is_error()
+                    && value
+                        .variants
+                        .iter()
+                        .all(|variant| variant.fields.is_empty())
             )?;
             for variant in &value.variants {
-                if variant.fields.first().is_some_and(|f| f.name.is_empty()) {
+                if value.shape.is_error()
+                    || variant.fields.first().is_some_and(|f| f.name.is_empty())
+                {
                     writeln!(wire, "    {}: [", variant.name)?;
                     for field in &variant.fields {
                         writeln!(wire, "      {},", shape(&field.ty))?;
@@ -604,7 +807,7 @@ fn render(
     result.insert("wire.gen.ts", wire);
 
     let mut proxy = String::from(
-        "import * as B from \"./xmtp_sdk.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport type { HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { enumFactory } from \"./runtime/bridge/codec.js\";\nimport { mainEncoder, mainDecoder } from \"./codec.main.gen.js\";\n",
+        "import * as B from \"./xmtp_sdk.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
     for item in items {
         if let Metadata::Object(object) = item {
@@ -641,10 +844,14 @@ fn render(
                     }
                     writeln!(
                         proxy,
-                        "    const handle = await session.call<HandleWire>(\"{}\", [{args}], undefined, asyncOpts_?.signal);",
-                        op.key
+                        "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", [{args}], undefined, asyncOpts_?.signal), \"{}\");",
+                        op.key, object.name
                     )?;
-                    writeln!(proxy, "    return new {}(session, handle);", object.name)?;
+                    writeln!(
+                        proxy,
+                        "    return decodeObject{}(session, handle);",
+                        object.name
+                    )?;
                     proxy.push_str("  }\n");
                 }
                 for op in operations
@@ -668,21 +875,21 @@ fn render(
                         .as_ref()
                         .map(ts_type)
                         .unwrap_or_else(|| "void".into());
-                    let result_shape = op
-                        .output
-                        .as_ref()
-                        .map(shape)
-                        .unwrap_or_else(|| "{ kind: \"value\" }".into());
                     if op.immutable {
                         writeln!(
                             proxy,
-                            "  {}(): {output} {{ return mainDecoder(this.session, enumFactory(B), (handle) => proxyFor(this.session, handle)).decode<{output}>({result_shape}, this.snapshot<unknown>(\"{}\")); }}",
-                            op.name, op.name
+                            "  {}(): {output} {{ return {}; }}",
+                            op.name,
+                            decode_expr(
+                                op.output.as_ref().expect("immutable result"),
+                                &format!("this.snapshot(\"{}\")", op.name),
+                                "this.session"
+                            )
                         )?;
                     } else if object.name == "Client" && op.name == "end" {
                         writeln!(
                             proxy,
-                            "  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ try {{ await this.call<void>(\"Client.end\", [], asyncOpts_?.signal); }} finally {{ this.endOwner(); }} }}"
+                            "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => undefined).finally(() => this.endOwner()); }} return this.closing; }}"
                         )?;
                     } else {
                         let comma = if params.is_empty() { "" } else { ", " };
@@ -694,14 +901,23 @@ fn render(
                         if !op.inputs.is_empty() {
                             proxy.push_str("    const encoder = mainEncoder(this.session);\n");
                         }
+                        let binding = if op.output.is_some() {
+                            "const raw = "
+                        } else {
+                            ""
+                        };
                         writeln!(
                             proxy,
-                            "    const raw = await this.call<unknown>(\"{}\", [{args}], asyncOpts_?.signal);",
+                            "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", [{args}], asyncOpts_?.signal);",
                             op.key
                         )?;
                         writeln!(
                             proxy,
-                            "    return mainDecoder(this.session, enumFactory(B), (handle) => proxyFor(this.session, handle)).decode<{output}>({result_shape}, raw);"
+                            "    return {};",
+                            op.output
+                                .as_ref()
+                                .map(|ty| decode_expr(ty, "raw", "this.session"))
+                                .unwrap_or_else(|| "undefined".into())
                         )?;
                         proxy.push_str("  }\n");
                     }
@@ -710,7 +926,7 @@ fn render(
             }
         }
     }
-    proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  switch (handle.type) {\n");
+    proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item {
             if object.imp.has_struct() {
@@ -725,6 +941,12 @@ fn render(
     proxy.push_str(
         "    default: throw new TypeError(`unknown object type ${handle.type}`);\n  }\n}\n",
     );
+    proxy.push_str(&render_decoders(items, names)?);
+    if items.iter().any(|item| matches!(item, Metadata::Enum(value) if value.shape.is_error() && value.name == "XmtpError")) {
+        proxy.push_str("function installErrorDecoder(session: MainSession): void { session.setErrorDecoder((wire: ErrorWire): Error => { try { return decodeEnumXmtpError(session, wire); } catch { return decodeError(wire); } }); }\n");
+    } else {
+        proxy.push_str("function installErrorDecoder(session: MainSession): void { session.setErrorDecoder(decodeError); }\n");
+    }
     result.insert("proxy.gen.ts", proxy);
 
     let mut dispatch = String::from(
@@ -783,7 +1005,7 @@ fn render(
     }
     dispatch.push_str("};\n\n");
     dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = Reflect.apply(method, value, []);\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const pool = (key === \"Client.create\" || key === \"Client.build\") ? poolName(decoded[1]) : key === \"Storage.admin\" ? poolName(decoded[0]) : undefined;\n  let acquired = false;\n  if (pool) {\n    if (!context.locks) throw new TypeError(\"storage lock provider missing\");\n    acquired = await context.locks.open(pool);\n  }\n  try {\n    const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n    const result: unknown = await Reflect.apply(method, receiver, callArgs);\n    const encoded = workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result);\n    if (pool && encoded !== null && typeof encoded === \"object\" && \"owner\" in encoded && typeof encoded.owner === \"number\") context.locks?.attachOwner(encoded.owner, pool);\n    return encoded;\n  } catch (error) {\n    if (pool && acquired) context.locks?.close(pool);\n    throw error;\n  }\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const pool = (key === \"Client.create\" || key === \"Client.build\") ? poolName(decoded[1]) : key === \"Storage.admin\" ? poolName(decoded[0]) : undefined;\n  if (pool) {\n    if (!context.locks) throw new TypeError(\"storage lock provider missing\");\n    await context.locks.open(pool);\n  }\n  try {\n    const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n    const result: unknown = await Reflect.apply(method, receiver, callArgs);\n    const encoded = workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result);\n    if (pool && encoded !== null && typeof encoded === \"object\" && \"owner\" in encoded && typeof encoded.owner === \"number\") context.locks?.attachOwner(encoded.owner, pool);\n    return encoded;\n  } catch (error) {\n    if (pool) context.locks?.close(pool);\n    throw error;\n  }\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
 
     for name in [
@@ -821,8 +1043,8 @@ fn render(
 mod tests {
     use super::*;
     use uniffi_meta::{
-        ConstructorMetadata, FnMetadata, MethodMetadata, ObjectMetadata, ObjectTraitImplMetadata,
-        TraitMethodMetadata,
+        ConstructorMetadata, EnumMetadata, EnumShape, FnMetadata, MethodMetadata, ObjectMetadata,
+        ObjectTraitImplMetadata, TraitMethodMetadata, UniffiTraitMetadata, VariantMetadata,
     };
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -891,7 +1113,7 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn rejects_unlisted_sync_getter() {
+    fn derives_immutable_getter_from_metadata() {
         let item = Metadata::Method(MethodMetadata {
             module_path: "test".into(),
             self_name: "Group".into(),
@@ -905,12 +1127,8 @@ mod tests {
             checksum: None,
             docstring: None,
         });
-        assert!(
-            validate_bridge(&[item])
-                .unwrap_err()
-                .to_string()
-                .contains("Group.random_value")
-        );
+        assert!(validate_bridge(&[item.clone()]).is_ok());
+        assert!(operations(&[item], &BTreeMap::new())[0].immutable);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -957,6 +1175,75 @@ mod tests {
                 .to_string()
                 .contains("Client")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_rust_only_object() {
+        let item = Metadata::Object(ObjectMetadata {
+            module_path: "test".into(),
+            name: "RustOnly".into(),
+            orig_name: None,
+            remote: false,
+            imp: ObjectImpl::Trait(TraitKind::RustOnly),
+            docstring: None,
+        });
+        assert!(
+            validate_bridge(&[item])
+                .unwrap_err()
+                .to_string()
+                .contains("Rust-only")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_uniffi_display_trait() {
+        let method = MethodMetadata {
+            module_path: "test".into(),
+            self_name: "Group".into(),
+            name: "fmt".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![],
+            return_type: Some(Type::String),
+            throws: None,
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        };
+        let item = Metadata::UniffiTrait(UniffiTraitMetadata::Display { fmt: method });
+        assert!(
+            validate_bridge(&[item])
+                .unwrap_err()
+                .to_string()
+                .contains("UniFFI trait")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn fieldless_enum_is_numeric_on_wire() {
+        let item = Metadata::Enum(EnumMetadata {
+            module_path: "test".into(),
+            name: "Kind".into(),
+            orig_name: None,
+            shape: EnumShape::Enum,
+            remote: false,
+            variants: vec!["One", "Two"]
+                .into_iter()
+                .map(|name| VariantMetadata {
+                    name: name.into(),
+                    orig_name: None,
+                    discr: None,
+                    fields: vec![],
+                    docstring: None,
+                })
+                .collect(),
+            discr_type: None,
+            non_exhaustive: false,
+            docstring: None,
+        });
+        let files = render(&[item], &[], "test", &BTreeMap::new())?;
+        assert!(files["wire.gen.ts"].contains("export type WireKind = number"));
+        assert!(files["wire.gen.ts"].contains("flat: true"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -5,7 +5,7 @@ const collected = new FinalizationRegistry<{
   session: MainSession;
   handle: number;
 }>((held) => {
-  held.session.release([held.handle]);
+  held.session.collected(held.handle);
 });
 
 export class RemoteObject {
@@ -15,19 +15,20 @@ export class RemoteObject {
     protected readonly session: MainSession,
     readonly handle: HandleWire,
   ) {
+    session.remember(this);
     collected.register(this, { session, handle: handle.h }, this);
   }
 
-  protected call<T>(
+  protected call(
     key: string,
     args: unknown[],
     signal?: AbortSignal,
-  ): Promise<T> {
+  ): Promise<unknown> {
     this.check();
-    return this.session.call<T>(key, args, this.handle, signal);
+    return this.session.call(key, args, this.handle, signal);
   }
 
-  protected snapshot<T>(name: string): T {
+  protected snapshot(name: string): unknown {
     this.check();
     if (
       this.handle.snap === null ||
@@ -39,7 +40,7 @@ export class RemoteObject {
     const fields: Record<string, unknown> = Object.fromEntries(
       Object.entries(this.handle.snap),
     );
-    return fields[name] as T;
+    return fields[name];
   }
 
   protected check(): void {
@@ -47,16 +48,28 @@ export class RemoteObject {
     this.session.checkHandle(this.handle);
   }
 
+  checkLive(name: string, session?: MainSession): void {
+    if (session !== this.session || this.handle.type !== name)
+      throw bridgeError("clientClosed");
+    this.check();
+  }
+
+  protected fence(): void {
+    this.session.fenceOwner(this.handle.owner);
+  }
+
   release(): void {
     if (this.released) return;
     this.released = true;
     collected.unregister(this);
-    this.session.release([this.handle.h]);
+    this.session.forget(this);
+    this.session.collected(this.handle.h);
   }
 
   endOwner(): void {
     this.released = true;
     collected.unregister(this);
+    this.session.forget(this);
     this.session.closeOwner(this.handle.owner, [this.handle.h]);
   }
 }
