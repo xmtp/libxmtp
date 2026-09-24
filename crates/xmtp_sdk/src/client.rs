@@ -202,6 +202,7 @@ impl Client {
         Ok(client)
     }
 
+    /// Without an inbox ID, build queries the backend, so an offline app must pass the inbox ID.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,

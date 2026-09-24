@@ -63,6 +63,11 @@ impl MessageReader {
     pub(crate) fn is_ended_for_test(&self) -> bool {
         self.state.lock().ended
     }
+
+    #[cfg(test)]
+    pub(crate) fn update_scope_for_test(&self, group_ids: Vec<GroupId>) {
+        self.control.update_scope(DeliveryScope::Groups(group_ids));
+    }
 }
 
 impl Drop for MessageReader {

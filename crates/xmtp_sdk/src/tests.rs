@@ -314,6 +314,38 @@ async fn reader_selection_changed_is_not_a_fatal_error() {
     assert!(!reader::selection_changed(&LocalDeliveryError::Closed));
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn reader_skips_handoff_removed_from_scope() {
+    let client = Client::create(
+        Arc::new(WalletSigner(PrivateKeySigner::random())),
+        options(),
+    )
+    .await?;
+    let stale_group = client.conversations().create_group(vec![]).await?;
+    let live_group = client.conversations().create_group(vec![]).await?;
+    let reader = stale_group.message_reader().await?;
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    stale_group.send_text("stale".into()).await?;
+    live_group.send_text("live".into()).await?;
+
+    let pending_reader = reader.clone();
+    let pending = tokio::spawn(async move { pending_reader.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+    reader.update_scope_for_test(vec![live_group.inner.group_id]);
+    gate.release.notify_one();
+
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(10), pending).await???;
+    let delivered = delivered.expect("reader must continue after rejecting the stale item");
+    assert_eq!(delivered.0.conversation_id, live_group.id());
+    assert_ne!(delivered.0.conversation_id, stale_group.id());
+    reader.end().await?;
+    client.end().await?;
+}
+
 struct SlowSigner {
     started: Arc<Notify>,
     release: Arc<Notify>,
