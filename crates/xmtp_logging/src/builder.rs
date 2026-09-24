@@ -160,6 +160,16 @@ mod tests {
     #[test]
     fn install_then_set_level() {
         use crate::error::Error;
+        use crate::{LogRecord, LogSinkTarget, SinkError};
+        use std::sync::{Arc, Mutex};
+
+        struct Capture(Arc<Mutex<Vec<LogRecord>>>);
+        impl LogSinkTarget for Capture {
+            fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+                self.0.lock().unwrap().push(record);
+                Ok(())
+            }
+        }
 
         let handle = XmtpLogging::builder()
             .level(Level::Info)
@@ -171,6 +181,13 @@ mod tests {
         // Runtime level changes go through the reloadable filter slot.
         handle.set_level(Level::Debug).expect("set_level");
         handle.set_level(Level::Trace).expect("set_level");
+
+        let records = Arc::new(Mutex::new(Vec::new()));
+        handle.set_sink(Some(Arc::new(Capture(records.clone()))));
+        tracing::info!(target: "xmtp_common", "sink active");
+        handle.set_sink(None);
+        tracing::info!(target: "xmtp_common", "sink cleared");
+        assert_eq!(records.lock().unwrap().len(), 1);
 
         // With `with_native(true)`, the server native layer now carries a
         // reloadable filter handle, so this drives a live filter (not a no-op).
