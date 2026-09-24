@@ -1,0 +1,32 @@
+[bindings.swift.rename]
+"Client.inbox_id" = "inboxID"
+"Client.installation_id" = "installationID"
+"Client.build.inbox_id" = "inboxID"
+"MessageData.conversation_id" = "conversationID"
+"MessageData.sender_inbox_id" = "senderInboxID"
+"ContentTypeId.authority_id" = "authorityID"
+"ContentTypeId.type_id" = "typeID"
+"SignerKind.Scw.chain_id" = "chainID"
+"Signature.Scw.chain_id" = "chainID"
+
+[bindings.kotlin.rename]
+"Client.inbox_id" = "inboxID"
+"Client.installation_id" = "installationID"
+"Client.build.inbox_id" = "inboxID"
+"MessageData.conversation_id" = "conversationID"
+"MessageData.sender_inbox_id" = "senderInboxID"
+"ContentTypeId.authority_id" = "authorityID"
+"ContentTypeId.type_id" = "typeID"
+"SignerKind.Scw.chain_id" = "chainID"
+"Signature.Scw.chain_id" = "chainID"
+
+[bindings.typescript.rename]
+"Client.inbox_id" = "inboxID"
+"Client.installation_id" = "installationID"
+"Client.build.inbox_id" = "inboxID"
+"MessageData.conversation_id" = "conversationID"
+"MessageData.sender_inbox_id" = "senderInboxID"
+"ContentTypeId.authority_id" = "authorityID"
+"ContentTypeId.type_id" = "typeID"
+"SignerKind.Scw.chain_id" = "chainID"
+"Signature.Scw.chain_id" = "chainID"
