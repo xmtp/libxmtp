@@ -37,6 +37,7 @@ pub fn sdk_version() -> String {
 }
 
 /// An empty asynchronous call for measuring FFI scheduling cost.
+#[cfg(feature = "bench")]
 #[xmtp_macro::sdk_export]
 pub async fn sdk_empty_call() {}
 

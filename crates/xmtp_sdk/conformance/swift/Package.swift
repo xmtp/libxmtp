@@ -18,6 +18,7 @@ let package = Package(
             name: "XmtpSdk",
             dependencies: ["xmtp_sdkFFI"],
             path: "Sources/XmtpSdk",
+            swiftSettings: [.unsafeFlags(["-enable-testing"])],
             linkerSettings: [.unsafeFlags([staticLibrary, "-L", opensslLibrary, "-lcrypto", "-lssl"])]
         ),
         .executableTarget(name: "Conformance", dependencies: ["XmtpSdk"]),

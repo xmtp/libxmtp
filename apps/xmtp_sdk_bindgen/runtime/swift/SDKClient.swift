@@ -4,6 +4,10 @@ import Foundation
 public final class SDKClient: @unchecked Sendable {
     public let raw: Client
 
+    #if DEBUG
+        nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?
+    #endif
+
     private init(_ raw: Client) {
         self.raw = raw
         ClientRegistry.register(self)
@@ -42,6 +46,9 @@ public final class SDKClient: @unchecked Sendable {
     /// The reader acknowledges a value when the next read starts.
     public func messages(in group: Group) async throws -> SDKMessageStream {
         let reader = try await group.messageReader()
+        #if DEBUG
+            await Self.readerOpenedForTest?(reader)
+        #endif
         if Task.isCancelled {
             try? await reader.end()
             throw CancellationError()

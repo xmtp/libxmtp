@@ -1,5 +1,5 @@
 import Foundation
-import XmtpSdk
+@testable import XmtpSdk
 
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
@@ -71,6 +71,9 @@ struct Conformance {
         let reopened = reopenedHost.raw
         precondition(reopened.inboxID() == inboxID)
         let appName = "xmtp-sdk-conformance-\(UUID().uuidString)"
+        let appFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(appName)
+        defer { try? FileManager.default.removeItem(at: appFolder) }
         let defaultHost = try await SDKClient.build(
             identity: await signer.identity(),
             options: ClientOptions(
@@ -79,11 +82,13 @@ struct Conformance {
                 deviceSync: false
             ), inboxID: inboxID, appName: appName
         )
-        let defaultFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(appName).appendingPathComponent("xmtp")
+        let defaultFolder = appFolder.appendingPathComponent("xmtp")
         let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
-        precondition(defaultFiles.contains { $0.hasSuffix(".db3") })
+        guard defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
+            throw SDKValueError.invalidID
+        }
         try await defaultHost.end()
+        try FileManager.default.removeItem(at: appFolder)
         var orphan: Message!
         weak var weakHost: SDKClient?
         do {
@@ -159,9 +164,30 @@ struct Conformance {
         let remaining = try await afterAck.next()
         precondition(remaining?.id == secondID, "adapter did not acknowledge on next request")
         try await afterAck.end()
+        let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
+        let (release, releaseSignal) = AsyncStream<Void>.makeStream()
+        SDKClient.readerOpenedForTest = { reader in
+            openedSignal.yield(reader)
+            var iterator = release.makeAsyncIterator()
+            _ = await iterator.next()
+        }
         let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
+        var openedIterator = opened.makeAsyncIterator()
+        guard let lateReader = await openedIterator.next() else {
+            throw SDKValueError.invalidID
+        }
         cancelledOpening.cancel()
-        _ = try? await cancelledOpening.value
+        releaseSignal.yield(())
+        do {
+            _ = try await cancelledOpening.value
+            throw SDKValueError.invalidID
+        } catch is CancellationError {}
+        SDKClient.readerOpenedForTest = nil
+        guard try await lateReader.next() == nil else {
+            throw SDKValueError.invalidID
+        }
+        let reopenedReader = try await protocolGroup.messageReader()
+        try await reopenedReader.end()
         try await reopenedHost.end()
         print("Swift scenario 7: durable stream and idle cancellation passed")
     }

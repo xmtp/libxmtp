@@ -1,4 +1,6 @@
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -151,9 +153,22 @@ fun main() =
         val afterAck = protocolGroup.messageReader()
         check(afterAck.next()?.id == secondID) { "adapter did not acknowledge on next request" }
         afterAck.end()
-        val cancelledOpening = async { reopenedHost.messages(protocolGroup).collect {} }
+        val openedReader = CompletableDeferred<MessageReader>()
+        val releaseOpening = CompletableDeferred<Unit>()
+        SDKClient.readerOpenedForTest = { opened ->
+            openedReader.complete(opened)
+            releaseOpening.await()
+        }
+        val cancelledOpening =
+            async(start = CoroutineStart.UNDISPATCHED) {
+                reopenedHost.messages(protocolGroup).collect {}
+            }
+        val lateReader = withTimeout(10_000) { openedReader.await() }
         cancelledOpening.cancel(CancellationException("cancel during reader creation"))
+        releaseOpening.complete(Unit)
         withTimeout(10_000) { cancelledOpening.join() }
+        SDKClient.readerOpenedForTest = null
+        check(withTimeout(10_000) { lateReader.next() } == null) { "late reader was not ended" }
         val reopenedReader = protocolGroup.messageReader()
         reopenedReader.end()
         reopenedHost.end()

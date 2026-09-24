@@ -13,6 +13,9 @@ workspace = true
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
 
+[features]
+bench = []
+
 [dependencies]
 async-trait.workspace = true
 futures.workspace = true

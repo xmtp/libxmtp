@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import * as sdk from "../../../../target/sdk-generated/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-bench/typescript-napi/index.ts";
 
 const require = createRequire(import.meta.url);
 const native = require(process.env.SDK_NAPI_BIN!);

@@ -9,22 +9,15 @@ use crate::{
     ConversationID, InboxID, Message, MessageID, MessageReader, XmtpError, client::CoreClient,
 };
 
-// Debug Swift calls need a fresh executor stack for nested MLS work.
-#[cfg(all(not(target_arch = "wasm32"), debug_assertions))]
+// Native calls run on an owned task in every profile. This gives nested MLS
+// work a fresh executor stack and lets it finish if the FFI call is cancelled.
+#[cfg(not(target_arch = "wasm32"))]
 async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
     tokio::spawn(work).await.map_err(XmtpError::unknown)?
-}
-
-#[cfg(all(not(target_arch = "wasm32"), not(debug_assertions)))]
-async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
-where
-    F: Future<Output = Result<T, XmtpError>> + Send,
-{
-    work.await
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -61,8 +54,12 @@ impl Conversations {
             client_key: self.client_key,
         }))
     }
+}
 
-    /// Open a group already stored in this client's database.
+#[cfg(feature = "bench")]
+#[xmtp_macro::sdk_export]
+impl Conversations {
+    /// Open a group already stored in this client's database for the benchmark.
     pub fn get_group(&self, id: ConversationID) -> Result<Arc<Group>, XmtpError> {
         if self.client.context.is_closed() {
             return Err(XmtpError::closed());
