@@ -99,9 +99,18 @@ impl Client {
         self.options.clone()
     }
 
-    pub fn decode_content(&self, encoded: Vec<u8>) -> Result<crate::MessageContent, XmtpError> {
-        self.ensure_open()?;
-        crate::MessageContent::decode(encoded)
+    pub async fn decode_content(
+        &self,
+        encoded: crate::EncodedContent,
+    ) -> Result<crate::MessageContent, XmtpError> {
+        crate::conversation::on_sdk_worker(self.inner.context.clone(), async move {
+            use prost::Message as _;
+            crate::MessageContent::decode(
+                xmtp_proto::xmtp::mls::message_contents::EncodedContent::from(encoded)
+                    .encode_to_vec(),
+            )
+        })
+        .await
     }
 
     pub async fn register(&self) -> Result<(), XmtpError> {

@@ -73,9 +73,9 @@ async function run(): Promise<void> {
   ]);
   console.log("browser client created");
   const inboxID = client.inboxID();
-  const group = await client.conversations().createGroup([]);
+  const group = await client.conversations().createGroup([], undefined);
   const sentID = await group.sendText("browser conformance");
-  const sent = (await group.messages()).find(
+  const sent = (await group.messages(undefined)).find(
     (message) => message.id.toString() === sentID.toString(),
   );
   if (!(sent instanceof sdk.Message) || sent.client() !== client)
@@ -104,7 +104,7 @@ async function run(): Promise<void> {
   await defaultClient.end();
   postMessage({ result: "Browser scenario 2 passed" });
 
-  const liveGroup = await reopened.conversations().createGroup([]);
+  const liveGroup = await reopened.conversations().createGroup([], undefined);
   const reader = await liveGroup.messageReader();
   const liveID = await liveGroup.sendText("durable stream");
   if ((await reader.next())?.id.toString() !== liveID.toString())
@@ -124,7 +124,9 @@ async function run(): Promise<void> {
   setTimeout(() => void stream.return(), 50);
   if (!(await pending).done) throw new Error("idle read was not cancelled");
   await stream.return();
-  const protocolGroup = await reopened.conversations().createGroup([]);
+  const protocolGroup = await reopened
+    .conversations()
+    .createGroup([], undefined);
   const firstID = await protocolGroup.sendText("ack on request");
   const firstStream = new sdk.MessageStream(
     (signal) => protocolGroup.messageReader({ signal }),

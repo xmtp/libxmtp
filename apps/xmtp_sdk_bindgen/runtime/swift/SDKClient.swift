@@ -4,10 +4,18 @@ import Foundation
 public final class SDKClient: @unchecked Sendable {
     public let raw: Client
     let listenerGates = ListenerGates()
+    private let codecs: [String: any SDKContentCodec]
 
-    private init(_ raw: Client) {
+    private init(_ raw: Client, codecs: [any SDKContentCodec]) {
         self.raw = raw
+        self.codecs = Dictionary(codecs.map { ($0.key, $0) }, uniquingKeysWith: { _, newer in newer })
         ClientRegistry.register(self)
+    }
+
+    func decodeCustom(_ encoded: EncodedContent) -> SDKMessageContent {
+        guard let codec = codecs[SDKContentCodecKey(encoded.type)] else { return .unknown(encoded) }
+        do { return try .custom(encoded: encoded, value: codec.decode(encoded), error: nil) }
+        catch { return .custom(encoded: encoded, value: nil, error: error) }
     }
 
     private static func resolved(_ options: ClientOptions, appName: String?) -> ClientOptions {
@@ -23,16 +31,17 @@ public final class SDKClient: @unchecked Sendable {
     }
 
     public static func create(
-        signer: Signer, options: ClientOptions, appName: String? = nil
+        signer: Signer, options: ClientOptions, appName: String? = nil,
+        codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.create(signer: signer, options: resolved(options, appName: appName)))
+        try await SDKClient(Client.create(signer: signer, options: resolved(options, appName: appName)), codecs: codecs)
     }
 
     public static func build(
         identity: PublicIdentity, options: ClientOptions, inboxID: InboxID? = nil,
-        appName: String? = nil
+        appName: String? = nil, codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.build(identity: identity, options: resolved(options, appName: appName), inboxID: inboxID))
+        try await SDKClient(Client.build(identity: identity, options: resolved(options, appName: appName), inboxID: inboxID), codecs: codecs)
     }
 
     public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {

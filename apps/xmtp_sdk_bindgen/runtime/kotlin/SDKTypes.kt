@@ -4,6 +4,34 @@ import java.lang.ref.WeakReference
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
+interface SDKContentCodec {
+    val type: ContentTypeID
+
+    fun encode(value: Any): EncodedContent
+
+    fun decode(encoded: EncodedContent): Any
+
+    val key: String get() = SDKContentCodecKey(type)
+}
+
+fun SDKContentCodecKey(type: ContentTypeID): String = "${type.authorityID}/${type.typeID}/${type.versionMajor}"
+
+sealed class SDKMessageContent {
+    data class Standard(
+        val value: MessageContent,
+    ) : SDKMessageContent()
+
+    data class Custom(
+        val encoded: EncodedContent,
+        val value: Any?,
+        val error: Throwable?,
+    ) : SDKMessageContent()
+
+    data class Unknown(
+        val encoded: EncodedContent,
+    ) : SDKMessageContent()
+}
+
 private fun validHex(
     value: String,
     bytes: Int,
@@ -101,15 +129,63 @@ data class Timestamp(
 class Message(
     val data: MessageData,
 ) {
+    val content: SDKMessageContent =
+        when (val body = data.content) {
+            is MessageContent.Custom -> {
+                ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded)
+                    ?: SDKMessageContent.Custom(
+                        body.encoded,
+                        null,
+                        XmtpException.ClientClosed(
+                            ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
+                        ),
+                    )
+            }
+
+            else -> {
+                SDKMessageContent.Standard(body)
+            }
+        }
     val id get() = data.id
     val conversationID get() = data.conversationID
+    val topic get() = data.topic
     val senderInboxID get() = data.senderInboxID
     val sentAt get() = data.sentAt
     val kind get() = data.kind
     val deliveryStatus get() = data.deliveryStatus
     val contentType get() = data.contentType
     val fallback get() = data.fallback
-    val content get() = data.content
+    val encoded get() = data.encoded
+    val replyCount get() = data.replyCount
+    val reactions get() = data.reactions
+    val inReplyTo get() = data.inReplyTo
+    val insertedAt get() = data.insertedAt
+    val expiresAt get() = data.expiresAt
+
+    suspend fun refresh(): Message? = client().raw.conversations().getMessageByID(id)
+
+    suspend fun delete(): MessageID = client().raw.conversations().deleteMessage(id)
+
+    suspend fun deleteLocally() = client().raw.conversations().deleteMessageLocally(id)
+
+    suspend fun react(
+        reaction: Reaction,
+        options: SendOptions? = null,
+    ): MessageID = client().raw.conversations().reactToMessage(id, reaction, options)
+
+    suspend fun reply(
+        text: String,
+        options: SendOptions? = null,
+    ): MessageID = client().raw.conversations().replyToMessage(id, encodeText(text), options)
+
+    suspend fun reply(
+        content: EncodedContent,
+        options: SendOptions? = null,
+    ): MessageID = client().raw.conversations().replyToMessage(id, content, options)
+
+    suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageByID(it) }
+
+    suspend fun conversation(): Conversation? = client().raw.conversations().getByID(conversationID)
 
     fun client(): SDKClient =
         ClientRegistry.get(data.clientKey)
@@ -124,15 +200,44 @@ class Message(
             data.senderInboxID == other.data.senderInboxID && data.sentAt == other.data.sentAt &&
             data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
+            data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
+            data.replyCount == other.data.replyCount &&
+            data.encoded.content.contentEquals(other.data.encoded.content) &&
             when (val value = data.content) {
                 is MessageContent.Text -> {
                     value == other.data.content
                 }
 
+                is MessageContent.Markdown -> {
+                    value == other.data.content
+                }
+
+                is MessageContent.ReadReceipt -> {
+                    other.data.content is MessageContent.ReadReceipt
+                }
+
+                is MessageContent.Reaction -> {
+                    value == other.data.content
+                }
+
+                is MessageContent.Reply -> {
+                    value == other.data.content
+                }
+
+                is MessageContent.Custom -> {
+                    val otherContent = other.data.content
+                    otherContent is MessageContent.Custom &&
+                        value.encoded.content.contentEquals(otherContent.encoded.content)
+                }
+
                 is MessageContent.Unknown -> {
                     val otherContent = other.data.content
                     otherContent is MessageContent.Unknown &&
-                        value.encoded.contentEquals(otherContent.encoded)
+                        value.encoded.content.contentEquals(otherContent.encoded.content)
+                }
+
+                else -> {
+                    value == other.data.content
                 }
             }
 
@@ -146,10 +251,20 @@ class Message(
         result = 31 * result + data.deliveryStatus.hashCode()
         result = 31 * result + data.contentType.hashCode()
         result = 31 * result + (data.fallback?.hashCode() ?: 0)
+        result = 31 * result + data.insertedAt.hashCode()
+        result = 31 * result + (data.expiresAt?.hashCode() ?: 0)
+        result = 31 * result + data.replyCount.hashCode()
+        result = 31 * result + data.encoded.content.contentHashCode()
         result = 31 * result +
             when (val value = data.content) {
                 is MessageContent.Text -> value.hashCode()
-                is MessageContent.Unknown -> value.encoded.contentHashCode()
+                is MessageContent.Markdown -> value.hashCode()
+                is MessageContent.ReadReceipt -> 0
+                is MessageContent.Reaction -> value.hashCode()
+                is MessageContent.Reply -> value.hashCode()
+                is MessageContent.Custom -> value.encoded.content.contentHashCode()
+                is MessageContent.Unknown -> value.encoded.content.contentHashCode()
+                else -> value.hashCode()
             }
         return result
     }

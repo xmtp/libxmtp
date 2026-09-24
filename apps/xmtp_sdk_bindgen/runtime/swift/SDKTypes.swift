@@ -1,5 +1,27 @@
 import Foundation
 
+public protocol SDKContentCodec {
+    var type: ContentTypeID { get }
+    func encode(_ value: Any) throws -> EncodedContent
+    func decode(_ encoded: EncodedContent) throws -> Any
+}
+
+public func SDKContentCodecKey(_ type: ContentTypeID) -> String {
+    "\(type.authorityID)/\(type.typeID)/\(type.versionMajor)"
+}
+
+public extension SDKContentCodec {
+    var key: String {
+        SDKContentCodecKey(type)
+    }
+}
+
+public enum SDKMessageContent {
+    case standard(MessageContent)
+    case custom(encoded: EncodedContent, value: Any?, error: Error?)
+    case unknown(EncodedContent)
+}
+
 public enum SDKValueError: Error {
     case invalidID
     case clientClosed
@@ -84,8 +106,15 @@ public struct Timestamp: Hashable, Sendable {
 
 public final class Message: Identifiable, Hashable {
     public let data: MessageData
+    public let content: SDKMessageContent
     public init(data: MessageData) {
         self.data = data
+        if case let .custom(encoded) = data.content {
+            content = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
+                ?? .custom(encoded: encoded, value: nil, error: SDKValueError.clientClosed)
+        } else {
+            content = .standard(data.content)
+        }
     }
 
     public var id: MessageID {
@@ -94,6 +123,10 @@ public final class Message: Identifiable, Hashable {
 
     public var conversationID: ConversationID {
         data.conversationID
+    }
+
+    public var topic: String {
+        data.topic
     }
 
     public var senderInboxID: InboxID {
@@ -120,8 +153,61 @@ public final class Message: Identifiable, Hashable {
         data.fallback
     }
 
-    public var content: MessageContent {
-        data.content
+    public var encoded: EncodedContent {
+        data.encoded
+    }
+
+    public var replyCount: UInt64 {
+        data.replyCount
+    }
+
+    public var reactions: [ReactionMessage] {
+        data.reactions
+    }
+
+    public var inReplyTo: ReplyParent? {
+        data.inReplyTo
+    }
+
+    public var insertedAt: Timestamp {
+        data.insertedAt
+    }
+
+    public var expiresAt: Timestamp? {
+        data.expiresAt
+    }
+
+    public func refresh() async throws -> Message? {
+        try await client().raw.conversations().getMessageByID(id: id)
+    }
+
+    public func delete() async throws -> MessageID {
+        try await client().raw.conversations().deleteMessage(id: id)
+    }
+
+    public func deleteLocally() async throws {
+        try await client().raw.conversations().deleteMessageLocally(id: id)
+    }
+
+    public func react(_ reaction: Reaction, options: SendOptions? = nil) async throws -> MessageID {
+        try await client().raw.conversations().reactToMessage(id: id, reaction: reaction, options: options)
+    }
+
+    public func reply(_ text: String, options: SendOptions? = nil) async throws -> MessageID {
+        try await client().raw.conversations().replyToMessage(id: id, content: encodeText(text: text), options: options)
+    }
+
+    public func reply(_ content: EncodedContent, options: SendOptions? = nil) async throws -> MessageID {
+        try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
+    }
+
+    public func parent() async throws -> Message? {
+        guard let id = data.inReplyTo?.id else { return nil }
+        return try await client().raw.conversations().getMessageByID(id: id)
+    }
+
+    public func conversation() async throws -> Conversation? {
+        try await client().raw.conversations().getByID(id: conversationID)
     }
 
     public func client() throws -> SDKClient {
