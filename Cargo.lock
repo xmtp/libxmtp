@@ -12344,7 +12344,9 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
+ "thiserror 2.0.19",
  "tokio",
+ "uniffi",
  "wasm-bindgen-test",
 ]
 

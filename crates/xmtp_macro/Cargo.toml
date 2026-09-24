@@ -19,6 +19,10 @@ syn.workspace = true
 [lib]
 proc-macro = true
 
+[dev-dependencies]
+thiserror.workspace = true
+uniffi = { version = "0.32", default-features = false }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
