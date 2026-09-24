@@ -15,6 +15,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
 bench = []
+conformance = []
 
 [dependencies]
 alloy.workspace = true

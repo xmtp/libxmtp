@@ -14,10 +14,11 @@ use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::subscriptions::local_delivery::LocalDeliveryError;
 
 use crate::{
-    BackendOptions, Client, ClientOptions, ConversationID, Credential, CredentialError,
-    CredentialSource, InboxID, MessageContent, MessageID, PublicIdentity, PublicIdentityKind,
-    Signature, Signer, SignerError, SignerKind, SigningRequest, StorageLocation, StorageOptions,
-    XmtpError, client::native_storage_path, credentials::AuthBridge, reader, signer,
+    BackendOptions, BackendSource, Client, ClientOptions, ConversationID, Credential,
+    CredentialError, CredentialSource, InboxID, MessageContent, MessageID, PublicIdentity,
+    PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
+    StorageLocation, StorageOptions, XmtpError, client::native_storage_path,
+    credentials::AuthBridge, reader, signer,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -93,7 +94,10 @@ async fn client_configuration_and_credential_update() {
     assert_eq!(refreshed.identifier, configured.identifier);
     client.end().await?;
     let mut authenticated_options = options();
-    authenticated_options.backend.credential = Some(Credential {
+    let BackendSource::Options(backend_options) = &mut authenticated_options.backend else {
+        panic!("test uses backend options");
+    };
+    backend_options.credential = Some(Credential {
         name: None,
         value: "Bearer first".into(),
         expires_at_seconds: i64::MAX,
@@ -140,24 +144,205 @@ async fn invalid_notification_key_has_typed_error() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn disabled_task_runner_has_typed_notification_error() {
+    let mut settings = options();
+    settings.workers = Some(crate::client::WorkerOptions {
+        default_interval_ns: None,
+        intervals: vec![crate::client::WorkerInterval {
+            kind: crate::client::WorkerKind::TaskRunner,
+            interval_ns: None,
+            jitter_ns: None,
+            enabled: Some(false),
+        }],
+    });
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let result = client
+        .enable_notifications(crate::NotificationConfig {
+            channel: crate::NotificationChannel::Http {
+                url: "https://example.com".into(),
+                signing_key: vec![1; 16],
+            },
+            consent_states: None,
+            include_welcomes: None,
+            include_sync_groups: None,
+            include_commits: None,
+        })
+        .await;
+    assert!(matches!(result, Err(XmtpError::TaskRunnerDisabled(_))));
+    client.end().await?;
+}
+
+#[xmtp_common::test]
+fn notification_and_auth_errors_keep_their_kinds() {
+    use crate::ErrorCategory;
+    use xmtp_mls::client::notifications::NotificationError as N;
+    use xmtp_proto::api::AuthError as A;
+
+    macro_rules! notification {
+        ($source:expr, $variant:ident, $category:pat, $retryable:expr) => {{
+            let mapped = XmtpError::from_notification($source);
+            let XmtpError::$variant(details) = mapped else {
+                panic!("notification error became {mapped:?}");
+            };
+            assert_eq!(details.code, stringify!($variant));
+            assert!(matches!(details.category, $category));
+            assert_eq!(details.retryable, $retryable);
+        }};
+    }
+    notification!(
+        N::TaskRunnerDisabled,
+        TaskRunnerDisabled,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::PermissionDenied,
+        PermissionDenied,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::InvalidArgument,
+        InvalidArgument,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::OutOfRange,
+        OutOfRange,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::Unimplemented,
+        Unimplemented,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::ChannelNotConfigured,
+        ChannelNotConfigured,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::ResourceExhausted,
+        ResourceExhausted,
+        ErrorCategory::Notification,
+        true
+    );
+    notification!(
+        N::RequestTimeout,
+        RequestTimeout,
+        ErrorCategory::Notification,
+        true
+    );
+    notification!(
+        N::NotFound,
+        NotificationNotFound,
+        ErrorCategory::Notification,
+        true
+    );
+    notification!(
+        N::Api(xmtp_api::ApiError::InvalidRequest("test")),
+        NotificationApi,
+        ErrorCategory::Notification,
+        false
+    );
+    notification!(
+        N::Storage(xmtp_db::StorageError::DbDeserialize),
+        NotificationStorage,
+        ErrorCategory::Storage,
+        false
+    );
+    notification!(
+        N::Group(xmtp_mls::groups::GroupError::UserLimitExceeded),
+        NotificationGroup,
+        ErrorCategory::Conversation,
+        false
+    );
+
+    let auth_cases = [
+        (
+            A::CredentialRejected { retryable: true },
+            "CredentialRejected",
+            true,
+        ),
+        (
+            A::CallbackFailed { retryable: true },
+            "CredentialCallbackFailed",
+            true,
+        ),
+        (A::Exhausted, "CredentialExhausted", false),
+        (A::ExhaustedAfterAttempt, "CredentialExhausted", false),
+        (A::MissingCredential, "CredentialMissing", false),
+    ];
+    for (source, code, retryable) in auth_cases {
+        let mapped = XmtpError::from_api(xmtp_api::ApiError::Auth(source));
+        let details = match mapped {
+            XmtpError::CredentialRejected(details)
+            | XmtpError::CredentialCallbackFailed(details)
+            | XmtpError::CredentialExhausted(details)
+            | XmtpError::CredentialMissing(details) => details,
+            other => panic!("auth error became {other:?}"),
+        };
+        assert_eq!(details.code, code);
+        assert!(matches!(details.category, ErrorCategory::Callback));
+        assert_eq!(details.retryable, retryable);
+    }
+    let nested = xmtp_mls::builder::ClientBuilderError::Identity(
+        xmtp_mls::identity::IdentityError::ApiClient(xmtp_api::ApiError::Auth(A::CallbackFailed {
+            retryable: true,
+        })),
+    );
+    assert!(matches!(
+        XmtpError::from_builder(nested),
+        XmtpError::CredentialCallbackFailed(details) if details.retryable
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn out_of_range_installation_time_does_not_fail_inbox_state() {
+    use xmtp_id::associations::{AssociationState, Identifier, Member, MemberIdentifier};
+    let owner = Identifier::eth("0x1111111111111111111111111111111111111111")?;
+    let installation = MemberIdentifier::installation(vec![1; 32]);
+    let state = AssociationState::new(owner, 0, None)?.add(Member::new(
+        installation,
+        None,
+        Some(u64::MAX),
+        None,
+    ));
+    let state = crate::InboxState::from_core(state, None)?;
+    assert_eq!(state.installations.len(), 1);
+    assert_eq!(
+        state.installations[0].created_at_ns,
+        Some(crate::Timestamp(i64::MAX))
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn backend_only_identity_and_message_queries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let backend = Arc::new(crate::Backend::connect(options().backend).await?);
+    let BackendSource::Options(backend_options) = options().backend else {
+        panic!("test uses backend options");
+    };
+    let backend = Arc::new(crate::Backend::connect(backend_options).await?);
+    let source = BackendSource::Connected(backend);
     let identity = client.identity();
     let inbox =
-        crate::static_helpers::inbox_id_for_with_backend(backend.clone(), identity.clone()).await?;
+        crate::static_helpers::inbox_id_for_with_backend(source.clone(), identity.clone()).await?;
     assert_eq!(inbox, client.inbox_id());
     let availability =
-        crate::static_helpers::can_message_with_backend(backend.clone(), vec![identity.clone()])
+        crate::static_helpers::can_message_with_backend(source.clone(), vec![identity.clone()])
             .await?;
     assert!(availability[0].can_message);
     let states =
-        crate::static_helpers::inbox_states_with_backend(backend.clone(), vec![inbox.clone()])
+        crate::static_helpers::inbox_states_with_backend(source.clone(), vec![inbox.clone()])
             .await?;
     assert_eq!(states[0].inbox_id, inbox);
     assert!(
         crate::static_helpers::is_address_authorized_with_backend(
-            backend.clone(),
+            source.clone(),
             inbox.clone(),
             identity.identifier,
         )
@@ -165,7 +350,7 @@ async fn backend_only_identity_and_message_queries() {
     );
     assert!(
         crate::static_helpers::is_installation_authorized_with_backend(
-            backend.clone(),
+            source.clone(),
             inbox,
             client.installation_id(),
         )
@@ -173,10 +358,23 @@ async fn backend_only_identity_and_message_queries() {
     );
     let group = client.conversations().create_group(vec![]).await?;
     group.send_text("metadata".into()).await?;
-    let metadata =
-        crate::static_helpers::newest_message_metadata_with_backend(backend, vec![group.id()])
-            .await?;
+    let metadata = crate::static_helpers::newest_message_metadata_with_backend(
+        source.clone(),
+        vec![group.id()],
+    )
+    .await?;
     assert_eq!(metadata.len(), 1);
+    let connected_client = Client::build(
+        client.identity(),
+        ClientOptions {
+            backend: source,
+            ..options()
+        },
+        Some(client.inbox_id()),
+    )
+    .await?;
+    assert_eq!(connected_client.inbox_id(), client.inbox_id());
+    connected_client.end().await?;
     client.end().await?;
 }
 
@@ -213,12 +411,12 @@ impl Signer for WalletSigner {
 
 fn options() -> ClientOptions {
     ClientOptions {
-        backend: BackendOptions {
+        backend: BackendSource::Options(BackendOptions {
             url: xmtp_configuration::backend_test_url(),
             app_version: None,
             credentials: None,
             credential: None,
-        },
+        }),
         storage: StorageOptions {
             location: StorageLocation::InMemory,
             label: None,

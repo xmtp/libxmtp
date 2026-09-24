@@ -12,8 +12,8 @@ use xmtp_mls::{
 };
 
 use crate::{
-    Backend, BackendOptions, Conversations, InboxID, InstallationID, PublicIdentity, Signature,
-    Signer, SignerKind, SigningRequest, XmtpError, signer,
+    BackendSource, Conversations, InboxID, InstallationID, PublicIdentity, Signature, Signer,
+    SignerKind, SigningRequest, XmtpError, signer,
 };
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
@@ -168,8 +168,7 @@ impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
 
 #[derive(Clone, uniffi::Record)]
 pub struct ClientOptions {
-    #[uniffi(default)]
-    pub backend: BackendOptions,
+    pub backend: BackendSource,
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
@@ -184,7 +183,7 @@ pub struct ClientOptions {
 impl Default for ClientOptions {
     fn default() -> Self {
         Self {
-            backend: BackendOptions::default(),
+            backend: BackendSource::default(),
             storage: StorageOptions::default(),
             device_sync: true,
             registration: RegistrationOptions::default(),
@@ -214,7 +213,7 @@ impl Client {
             return Err(XmtpError::storage_location_required());
         }
         let identifier = identity.to_core()?;
-        let backend = Backend::connect(options.backend.clone()).await?;
+        let backend = options.backend.resolve().await?;
         let auth_handle = backend.auth_handle.clone();
         let inbox_id = match inbox_id {
             Some(value) => value.0,
@@ -223,7 +222,7 @@ impl Client {
                 let found = api
                     .get_inbox_ids(vec![identifier.clone().into()])
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_api)?;
                 match found.into_iter().next().flatten() {
                     Some(value) => value,
                     None => identifier
@@ -244,7 +243,7 @@ impl Client {
             options.registration.nonce.unwrap_or(0),
             None,
         ))
-        .api_client_with_streams(backend.api)
+        .api_client_with_streams(backend.api.clone())
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -260,7 +259,7 @@ impl Client {
             .map_err(XmtpError::unknown)?
             .build()
             .await
-            .map_err(XmtpError::unknown)?;
+            .map_err(XmtpError::from_builder)?;
         let key = NEXT_CLIENT_KEY
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |key| {
                 key.checked_add(1)

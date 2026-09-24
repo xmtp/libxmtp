@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { mkdtemp, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import * as sdk from "../../../../target/sdk-generated/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -43,13 +44,14 @@ const signer = {
     return new sdk.Signature.Ecdsa(Uint8Array.from(toBytes(signature)).buffer);
   },
 };
+const backendOptions = {
+  url: process.env.XMTP_BACKEND_URL!,
+  appVersion: undefined,
+  credentials: undefined,
+  credential: undefined,
+};
 const options = {
-  backend: {
-    url: process.env.XMTP_BACKEND_URL!,
-    appVersion: undefined,
-    credentials: undefined,
-    credential: undefined,
-  },
+  backend: new sdk.BackendSource.Options(backendOptions),
   storage: {
     location: new sdk.StorageLocation.Directory(
       await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-")),
@@ -237,14 +239,14 @@ assert.equal((await rejectedRead).done, true);
 const largeExpiry = 9_007_199_254_740_993n;
 const credentialOptions = {
   ...options,
-  backend: {
-    ...options.backend,
+  backend: new sdk.BackendSource.Options({
+    ...backendOptions,
     credential: {
       name: undefined,
       value: "Bearer initial",
       expiresAtSeconds: largeExpiry,
     },
-  },
+  }),
   storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
 };
 const credentialClient = await sdk.Client.build(
@@ -253,7 +255,7 @@ const credentialClient = await sdk.Client.build(
   inboxID,
 );
 assert.equal(
-  credentialClient.raw.options().backend.credential?.expiresAtSeconds,
+  credentialClient.raw.options().backend.inner[0].credential?.expiresAtSeconds,
   largeExpiry,
 );
 await credentialClient.raw.setCredential({
@@ -267,8 +269,8 @@ const sourceClient = await sdk.Client.build(
   identity,
   {
     ...credentialOptions,
-    backend: {
-      ...options.backend,
+    backend: new sdk.BackendSource.Options({
+      ...backendOptions,
       credentials: {
         async credential() {
           sourceCalls += 1;
@@ -279,7 +281,7 @@ const sourceClient = await sdk.Client.build(
           };
         },
       },
-    },
+    }),
   },
   inboxID,
 );
@@ -288,9 +290,11 @@ await sourceClient.end();
 console.log("Node scenario 3: credential update and 64-bit value passed");
 
 const snapshot = reopened.raw.serverConfiguration();
-const fetched = await sdk.fetchServerConfiguration(options.backend);
+const fetched = await sdk.fetchServerConfiguration(
+  new sdk.BackendSource.Options(backendOptions),
+);
 assert.equal(snapshot.identifier, fetched.identifier);
-const staticBackend = await sdk.Backend.connect(options.backend);
+const staticBackend = await sdk.Backend.connect(backendOptions);
 assert.equal(
   (await sdk.Client.inboxIDFor(identity, staticBackend)).toString(),
   inboxID.toString(),
@@ -299,22 +303,37 @@ assert.equal(
   (await sdk.Client.canMessage([identity], staticBackend))[0]?.canMessage,
   true,
 );
+const connectedClient = await sdk.Client.build(
+  identity,
+  {
+    ...options,
+    backend: new sdk.BackendSource.Connected(staticBackend),
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.InMemory(),
+    },
+  },
+  inboxID,
+);
+await connectedClient.end();
 assert.equal(
   (await reopened.raw.refreshServerConfiguration()).identifier,
   snapshot.identifier,
 );
 await assert.rejects(
-  sdk.fetchServerConfiguration({
-    ...options.backend,
-    url: "http://127.0.0.1:1",
-  }),
+  sdk.fetchServerConfiguration(
+    new sdk.BackendSource.Options({
+      ...backendOptions,
+      url: "http://127.0.0.1:1",
+    }),
+  ),
   (error) => error instanceof sdk.XmtpError.ConfigurationUnavailable,
 );
 console.log("Node scenario 10: configuration and typed error passed");
 
 sdk.initLogging({
   level: sdk.LogLevel.Error,
-  structured: false,
+  structured: true,
   performance: false,
   otel: undefined,
   resourceAttributes: new Map(),
@@ -363,6 +382,67 @@ sdk.setLogSink(undefined);
 assert.equal(sinkThrew, true, "failing sink was not called");
 assert.match(sdk.sdkVersion(), /^1\.12\.0/);
 console.log("Node logging: sink error did not stop the process");
+
+const loggingChild = fileURLToPath(
+  new URL("./logging-child.mts", import.meta.url),
+);
+await new Promise<void>((resolve, reject) => {
+  const child = spawn(
+    process.execPath,
+    [
+      "--import",
+      realpathSync(
+        fileURLToPath(
+          new URL(
+            "../../../../sdks/node/node_modules/tsx/dist/loader.mjs",
+            import.meta.url,
+          ),
+        ),
+      ),
+      loggingChild,
+    ],
+    { env: process.env, stdio: "inherit" },
+  );
+  const timeout = setTimeout(() => {
+    child.kill("SIGKILL");
+    reject(new Error("inline log sink deadlocked while Rust held a lock"));
+  }, 5_000);
+  child.on("error", (error) => {
+    clearTimeout(timeout);
+    reject(error);
+  });
+  child.on("exit", (code) => {
+    clearTimeout(timeout);
+    if (code === 0) resolve();
+    else reject(new Error(`logging child exited with ${code}`));
+  });
+});
+console.log("Node logging: queued sink avoided the lock inversion");
+
+let droppedRecords = 0n;
+let firstRecord = true;
+sdk.setLogSink({
+  log(record) {
+    if (firstRecord) {
+      firstRecord = false;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 500);
+    }
+    if (record.droppedRecords > droppedRecords)
+      droppedRecords = record.droppedRecords;
+  },
+});
+await sdk.sdkConformanceEmit(10_000);
+for (let attempt = 0; attempt < 100 && droppedRecords === 0n; attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 50));
+}
+sdk.setLogSink(undefined);
+assert.ok(
+  droppedRecords > 0n,
+  "the bounded log queue did not report dropped records",
+);
+console.log(
+  `Node logging: queue overflow reported ${droppedRecords} dropped records`,
+);
 
 const local = await sdk.generateLocalSigner();
 await assert.rejects(

@@ -62,6 +62,35 @@ pub struct BackendOptions {
     pub credential: Option<Credential>,
 }
 
+/// Use connection options or an existing backend connection.
+#[derive(Clone, uniffi::Enum)]
+pub enum BackendSource {
+    Options(BackendOptions),
+    Connected(Arc<Backend>),
+}
+
+impl Default for BackendSource {
+    fn default() -> Self {
+        Self::Options(BackendOptions::default())
+    }
+}
+
+impl BackendSource {
+    pub(crate) async fn resolve(&self) -> Result<Arc<Backend>, XmtpError> {
+        match self {
+            Self::Options(options) => Ok(Arc::new(Backend::connect(options.clone()).await?)),
+            Self::Connected(backend) => Ok(backend.clone()),
+        }
+    }
+
+    pub(crate) fn app_version(&self) -> Option<String> {
+        match self {
+            Self::Options(options) => options.app_version.clone(),
+            Self::Connected(backend) => backend.options.app_version.clone(),
+        }
+    }
+}
+
 pub(crate) struct AuthBridge {
     source: Arc<dyn CredentialSource>,
 }
@@ -101,12 +130,14 @@ impl xmtp_api_backend::AuthCallback for AuthBridge {
 pub struct Backend {
     pub(crate) api: xmtp_mls::XmtpApiClient,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
+    pub(crate) options: BackendOptions,
 }
 
 impl Backend {
     pub(crate) fn from_options(options: BackendOptions) -> Result<Self, XmtpError> {
         #[cfg(not(target_arch = "wasm32"))]
         xmtp_cryptography::install_crypto_provider();
+        let original_options = options.clone();
         let mut builder = xmtp_api_backend::MessageBackendBuilder::new();
         builder.host(&options.url);
         if let Some(version) = options.app_version {
@@ -121,6 +152,7 @@ impl Backend {
         Ok(Self {
             api: builder.build().map_err(XmtpError::unknown)?,
             auth_handle,
+            options: original_options,
         })
     }
 }

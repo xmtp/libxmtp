@@ -3,7 +3,8 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-runtime=target/sdk-generated/kotlin/runtime/SDKClient.kt
+bash crates/xmtp_sdk/dev/conformance-generate
+runtime=target/sdk-conformance/kotlin/runtime/SDKClient.kt
 cp apps/xmtp_sdk_bindgen/runtime/kotlin/SDKClient.kt "$runtime"
 python3 crates/xmtp_sdk/conformance/inject_reader_gate.py kotlin "$runtime"
 NIX_DEVSHELL=android dev/nix-shell 'export RUST_MIN_STACK=16777216; export SDK_SIGN_KEY="$(openssl rand -hex 32)"; export SDK_NODE_BIN="$(command -v node)"; export SDK_SIGN_SCRIPT="$PWD/crates/xmtp_sdk/conformance/ts/sign.mjs"; sdks/android/gradlew -p crates/xmtp_sdk/conformance/kotlin run --no-daemon'

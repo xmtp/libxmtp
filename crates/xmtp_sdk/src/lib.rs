@@ -30,7 +30,9 @@ pub use configuration::{
     ServerConfiguration, SigningKeyDescription,
 };
 pub use conversation::{Conversations, Group};
-pub use credentials::{Backend, BackendOptions, Credential, CredentialError, CredentialSource};
+pub use credentials::{
+    Backend, BackendOptions, BackendSource, Credential, CredentialError, CredentialSource,
+};
 pub use crypto::{EncryptedEncodedContent, EncryptionKeys};
 pub use error::{ErrorCategory, ErrorDetails, XmtpError};
 pub use identity::{

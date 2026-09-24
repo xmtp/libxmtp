@@ -43,6 +43,24 @@ final class TestSigner: Signer, @unchecked Sendable {
     }
 }
 
+final class OrderedLogSink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func log(record: LogRecord) throws {
+        guard record.target == "xmtp_sdk::conformance" else { return }
+        lock.lock()
+        values.append(record.fields["sequence"] ?? "")
+        lock.unlock()
+    }
+
+    func sequence() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -54,8 +72,9 @@ struct Conformance {
         let signer = TestSigner()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-sdk-conformance-\(UUID().uuidString)")
+        let backendOptions = BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!)
         let options = ClientOptions(
-            backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!),
+            backend: .options(backendOptions),
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
@@ -200,17 +219,19 @@ struct Conformance {
 
         let largeExpiry: Int64 = 9_007_199_254_740_993
         let credentialOptions = ClientOptions(
-            backend: BackendOptions(
-                url: options.backend.url,
+            backend: .options(BackendOptions(
+                url: backendOptions.url,
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
-            ),
+            )),
             storage: StorageOptions(location: .inMemory),
             deviceSync: false
         )
         let credentialHost = try await SDKClient.build(
             identity: await signer.identity(), options: credentialOptions, inboxID: inboxID
         )
-        guard credentialHost.raw.options().backend.credential?.expiresAtSeconds == largeExpiry else {
+        guard case let .options(savedBackend) = credentialHost.raw.options().backend,
+              savedBackend.credential?.expiresAtSeconds == largeExpiry
+        else {
             throw ConformanceFailure("credential expiry lost 64-bit precision")
         }
         try await credentialHost.raw.setCredential(credential: Credential(
@@ -220,8 +241,8 @@ struct Conformance {
         print("Swift scenario 3: credential update and 64-bit value passed")
 
         let snapshot = reopened.serverConfiguration()
-        let fetched = try await fetchServerConfiguration(options: options.backend)
-        let staticBackend = try await Backend.connect(options: options.backend)
+        let fetched = try await fetchServerConfiguration(backend: .options(backendOptions))
+        let staticBackend = try await Backend.connect(options: backendOptions)
         let staticIdentity = try await signer.identity()
         guard try await SDKClient.inboxID(for: staticIdentity, backend: staticBackend) == inboxID else {
             throw ConformanceFailure("backend-only inbox lookup returned a different ID")
@@ -229,6 +250,12 @@ struct Conformance {
         guard try await SDKClient.canMessage([staticIdentity], backend: staticBackend).first?.canMessage == true else {
             throw ConformanceFailure("backend-only canMessage did not find this inbox")
         }
+        let connectedHost = try await SDKClient.build(
+            identity: staticIdentity,
+            options: ClientOptions(backend: .connected(staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
+            inboxID: inboxID
+        )
+        try await connectedHost.end()
         guard snapshot.identifier == fetched.identifier else {
             throw ConformanceFailure("configuration fetch returned a different deployment")
         }
@@ -237,7 +264,7 @@ struct Conformance {
             throw ConformanceFailure("configuration refresh returned a different deployment")
         }
         do {
-            _ = try await fetchServerConfiguration(options: BackendOptions(url: "http://127.0.0.1:1"))
+            _ = try await fetchServerConfiguration(backend: .options(BackendOptions(url: "http://127.0.0.1:1")))
             throw ConformanceFailure("unavailable configuration request succeeded")
         } catch XmtpError.ConfigurationUnavailable {}
         print("Swift scenario 10: configuration and typed error passed")
@@ -278,6 +305,16 @@ struct Conformance {
             throw ConformanceFailure("invalid notification key was accepted")
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
+
+        try initLogging(options: LoggingOptions(level: .error))
+        let orderedSink = OrderedLogSink()
+        try setLogSink(sink: orderedSink)
+        try await sdkConformanceEmit(count: 32)
+        guard orderedSink.sequence() == (0 ..< 32).map(String.init) else {
+            throw ConformanceFailure("inline log sink changed record order")
+        }
+        try clearLogSink()
+        print("Swift logging: inline records stayed in order")
 
         try await reopenedHost.end()
     }

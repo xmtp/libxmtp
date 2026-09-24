@@ -66,6 +66,20 @@ pub enum XmtpError {
     Unimplemented(ErrorDetails),
     #[error("notification channel not configured: {0:?}")]
     ChannelNotConfigured(ErrorDetails),
+    #[error("notification task runner disabled: {0:?}")]
+    TaskRunnerDisabled(ErrorDetails),
+    #[error("notification topic limit reached: {0:?}")]
+    ResourceExhausted(ErrorDetails),
+    #[error("notification request timed out: {0:?}")]
+    RequestTimeout(ErrorDetails),
+    #[error("notification recipient missing: {0:?}")]
+    NotificationNotFound(ErrorDetails),
+    #[error("notification request failed: {0:?}")]
+    NotificationApi(ErrorDetails),
+    #[error("notification storage failed: {0:?}")]
+    NotificationStorage(ErrorDetails),
+    #[error("notification group failed: {0:?}")]
+    NotificationGroup(ErrorDetails),
     #[error("stream recovery exhausted: {0:?}")]
     RecoveryExhausted(ErrorDetails),
     #[error("stream storage failure: {0:?}")]
@@ -205,7 +219,8 @@ impl XmtpError {
                     format!("chain {chain} is not in {}", accepted.join(", ")),
                 ))
             }
-            ClientError::Api(xmtp_api::ApiError::Auth(auth)) => Self::from_auth(auth),
+            ClientError::Api(api) => Self::from_api(api),
+            ClientError::Identity(identity) => Self::from_identity(identity),
             other => {
                 let retryable = other.is_retryable();
                 Self::Unknown(Self::details(
@@ -252,10 +267,41 @@ impl XmtpError {
         }
     }
 
+    pub(crate) fn from_api(error: xmtp_api::ApiError) -> Self {
+        use xmtp_common::RetryableError;
+        match error {
+            xmtp_api::ApiError::Auth(auth) => Self::from_auth(auth),
+            other => Self::Unknown(Self::details(
+                "Unknown",
+                ErrorCategory::Network,
+                other.is_retryable(),
+                other.to_string(),
+            )),
+        }
+    }
+
+    fn from_identity(error: xmtp_mls::identity::IdentityError) -> Self {
+        match error {
+            xmtp_mls::identity::IdentityError::ApiClient(api) => Self::from_api(api),
+            other => Self::unknown(other),
+        }
+    }
+
+    pub(crate) fn from_builder(error: xmtp_mls::builder::ClientBuilderError) -> Self {
+        use xmtp_mls::builder::ClientBuilderError;
+        match error {
+            ClientBuilderError::WrappedApiError(api) => Self::from_api(api),
+            ClientBuilderError::ClientError(client) => Self::from_client(client),
+            ClientBuilderError::Identity(identity) => Self::from_identity(identity),
+            other => Self::unknown(other),
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn from_notification(
         error: xmtp_mls::client::notifications::NotificationError,
     ) -> Self {
+        use xmtp_common::RetryableError;
         use xmtp_mls::client::notifications::NotificationError;
         match error {
             NotificationError::PermissionDenied => Self::PermissionDenied(Self::details(
@@ -288,11 +334,48 @@ impl XmtpError {
                 false,
                 "notification channel not configured",
             )),
-            other => Self::Unknown(Self::details(
-                "Unknown",
+            NotificationError::TaskRunnerDisabled => Self::TaskRunnerDisabled(Self::details(
+                "TaskRunnerDisabled",
                 ErrorCategory::Notification,
                 false,
-                other.to_string(),
+                "notification task runner is disabled",
+            )),
+            NotificationError::ResourceExhausted => Self::ResourceExhausted(Self::details(
+                "ResourceExhausted",
+                ErrorCategory::Notification,
+                true,
+                "notification topic limit reached",
+            )),
+            NotificationError::RequestTimeout => Self::RequestTimeout(Self::details(
+                "RequestTimeout",
+                ErrorCategory::Notification,
+                true,
+                "notification request timed out",
+            )),
+            NotificationError::NotFound => Self::NotificationNotFound(Self::details(
+                "NotificationNotFound",
+                ErrorCategory::Notification,
+                true,
+                "notification recipient is not registered",
+            )),
+            NotificationError::Api(xmtp_api::ApiError::Auth(auth)) => Self::from_auth(auth),
+            NotificationError::Api(source) => Self::NotificationApi(Self::details(
+                "NotificationApi",
+                ErrorCategory::Notification,
+                source.is_retryable(),
+                source.to_string(),
+            )),
+            NotificationError::Storage(source) => Self::NotificationStorage(Self::details(
+                "NotificationStorage",
+                ErrorCategory::Storage,
+                source.is_retryable(),
+                source.to_string(),
+            )),
+            NotificationError::Group(source) => Self::NotificationGroup(Self::details(
+                "NotificationGroup",
+                ErrorCategory::Conversation,
+                source.is_retryable(),
+                source.to_string(),
             )),
         }
     }

@@ -60,6 +60,10 @@ export type PublicIdentity = object;
 export type Signer = object;
 export type BackendLike = object;
 export type BackendOptions = object;
+export declare const BackendSource: {
+  Options: new (options: BackendOptions) => object;
+  Connected: new (backend: BackendLike) => object;
+};
 export type CanMessageEntry = { identity: PublicIdentity; canMessage: boolean };
 export type InboxState = object;
 export type KeyPackageStatusEntry = object;

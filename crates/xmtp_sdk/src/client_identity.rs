@@ -85,7 +85,7 @@ impl Client {
     }
 
     pub fn app_version(&self) -> Option<String> {
-        self.options.backend.app_version.clone()
+        self.options.backend.app_version()
     }
 
     pub fn options(&self) -> crate::ClientOptions {
@@ -559,10 +559,10 @@ pub async fn verify_signed_with_public_key(
 
 #[xmtp_macro::sdk_export]
 pub async fn fetch_server_configuration(
-    options: crate::BackendOptions,
+    backend: crate::BackendSource,
 ) -> Result<crate::ServerConfiguration, XmtpError> {
-    let backend = crate::Backend::connect(options).await?;
-    let api = xmtp_api::ApiClientWrapper::new(backend.api, Default::default());
+    let backend = backend.resolve().await?;
+    let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
     let value = xmtp_mls::server_configuration::fetch_server_configuration(&api)
         .await
         .map_err(XmtpError::from_client)?;

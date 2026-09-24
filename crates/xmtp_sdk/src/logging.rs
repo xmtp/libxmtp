@@ -100,6 +100,41 @@ mod native {
     use std::sync::Arc;
     use xmtp_logging::{BoundedSink, LogSinkTarget};
 
+    #[cfg(feature = "conformance")]
+    static CONFORMANCE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Emit ordered records from one Rust thread for host callback checks.
+    #[cfg(feature = "conformance")]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
+        tokio::task::spawn_blocking(move || {
+            for sequence in 0..count {
+                tracing::error!(target: "xmtp_sdk::conformance", sequence, "conformance log");
+            }
+        })
+        .await
+        .map_err(XmtpError::unknown)
+    }
+
+    /// The inline sink deadlocks if its JavaScript callback reads this lock.
+    #[cfg(feature = "conformance")]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_emit_under_lock() -> Result<(), XmtpError> {
+        tokio::task::spawn_blocking(|| {
+            let _guard = CONFORMANCE_LOCK.lock().expect("conformance lock");
+            tracing::error!(target: "xmtp_sdk::conformance", "locked log");
+        })
+        .await
+        .map_err(XmtpError::unknown)
+    }
+
+    #[cfg(feature = "conformance")]
+    #[xmtp_macro::sdk_export]
+    pub fn sdk_conformance_read_lock() -> u32 {
+        let _guard = CONFORMANCE_LOCK.lock().expect("conformance lock");
+        1
+    }
+
     #[derive(Clone, Debug, uniffi::Record)]
     pub struct LogRecord {
         pub level: LogLevel,

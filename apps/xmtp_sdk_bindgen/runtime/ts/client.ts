@@ -1,5 +1,6 @@
 import {
   Client as RawClient,
+  BackendSource,
   StorageLocation,
   StorageLocation_Tags,
   canMessageWithBackend,
@@ -88,42 +89,54 @@ export class Client {
   static fetchServerConfiguration(
     options: BackendOptions,
   ): Promise<ServerConfiguration> {
-    return fetchServerConfiguration(options);
+    return fetchServerConfiguration(new BackendSource.Options(options));
   }
 
   static canMessage(
     identities: PublicIdentity[],
     backend: BackendLike,
   ): Promise<CanMessageEntry[]> {
-    return canMessageWithBackend(backend, identities);
+    return canMessageWithBackend(
+      new BackendSource.Connected(backend),
+      identities,
+    );
   }
 
   static inboxIDFor(
     identity: PublicIdentity,
     backend: BackendLike,
   ): Promise<InboxID> {
-    return inboxIdForWithBackend(backend, identity);
+    return inboxIdForWithBackend(
+      new BackendSource.Connected(backend),
+      identity,
+    );
   }
 
   static inboxStates(
     ids: InboxID[],
     backend: BackendLike,
   ): Promise<InboxState[]> {
-    return inboxStatesWithBackend(backend, ids);
+    return inboxStatesWithBackend(new BackendSource.Connected(backend), ids);
   }
 
   static keyPackageStatuses(
     ids: InstallationID[],
     backend: BackendLike,
   ): Promise<KeyPackageStatusEntry[]> {
-    return keyPackageStatusesWithBackend(backend, ids);
+    return keyPackageStatusesWithBackend(
+      new BackendSource.Connected(backend),
+      ids,
+    );
   }
 
   static newestMessageMetadata(
     ids: ConversationID[],
     backend: BackendLike,
   ): Promise<MessageMetadataEntry[]> {
-    return newestMessageMetadataWithBackend(backend, ids);
+    return newestMessageMetadataWithBackend(
+      new BackendSource.Connected(backend),
+      ids,
+    );
   }
 
   static revokeInstallations(
@@ -132,7 +145,12 @@ export class Client {
     ids: InstallationID[],
     backend: BackendLike,
   ): Promise<void> {
-    return revokeInstallationsWithBackend(backend, signer, inboxID, ids);
+    return revokeInstallationsWithBackend(
+      new BackendSource.Connected(backend),
+      signer,
+      inboxID,
+      ids,
+    );
   }
 
   static isAddressAuthorized(
@@ -140,7 +158,11 @@ export class Client {
     address: string,
     backend: BackendLike,
   ): Promise<boolean> {
-    return isAddressAuthorizedWithBackend(backend, inboxID, address);
+    return isAddressAuthorizedWithBackend(
+      new BackendSource.Connected(backend),
+      inboxID,
+      address,
+    );
   }
 
   static isInstallationAuthorized(
@@ -149,7 +171,7 @@ export class Client {
     backend: BackendLike,
   ): Promise<boolean> {
     return isInstallationAuthorizedWithBackend(
-      backend,
+      new BackendSource.Connected(backend),
       inboxID,
       installationID,
     );

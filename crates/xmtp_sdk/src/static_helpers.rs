@@ -9,7 +9,7 @@ use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_proto::types::{ApiIdentifier, GroupId, InstallationId};
 
 use crate::{
-    Backend, CanMessageEntry, ConversationID, InboxID, InboxState, InstallationID,
+    Backend, BackendSource, CanMessageEntry, ConversationID, InboxID, InboxState, InstallationID,
     KeyPackageLifetime, KeyPackageStatus, KeyPackageStatusEntry, PublicIdentity, Signature, Signer,
     SigningRequest, Timestamp, XmtpError, signer,
 };
@@ -27,9 +27,10 @@ pub struct MessageMetadataEntry {
 
 #[xmtp_macro::sdk_export]
 pub async fn can_message_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     identities: Vec<PublicIdentity>,
 ) -> Result<Vec<CanMessageEntry>, XmtpError> {
+    let backend = backend.resolve().await?;
     let core = identities
         .iter()
         .map(PublicIdentity::to_core)
@@ -38,7 +39,7 @@ pub async fn can_message_with_backend(
     let found = api(&backend)
         .get_inbox_ids(ids)
         .await
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_api)?;
     Ok(identities
         .into_iter()
         .zip(found)
@@ -51,14 +52,15 @@ pub async fn can_message_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn inbox_id_for_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     identity: PublicIdentity,
 ) -> Result<InboxID, XmtpError> {
+    let backend = backend.resolve().await?;
     let identifier = identity.to_core()?;
     let found = api(&backend)
         .get_inbox_ids(vec![identifier.clone().into()])
         .await
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_api)?;
     let inbox = match found.into_iter().next().flatten() {
         Some(value) => value,
         None => identifier.inbox_id(0).map_err(XmtpError::unknown)?,
@@ -68,9 +70,10 @@ pub async fn inbox_id_for_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn inbox_states_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     ids: Vec<InboxID>,
 ) -> Result<Vec<InboxState>, XmtpError> {
+    let backend = backend.resolve().await?;
     let store = crate::client::open_store(
         &crate::StorageOptions {
             location: crate::StorageLocation::InMemory,
@@ -94,9 +97,10 @@ pub async fn inbox_states_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn key_package_statuses_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     ids: Vec<InstallationID>,
 ) -> Result<Vec<KeyPackageStatusEntry>, XmtpError> {
+    let backend = backend.resolve().await?;
     let installations = ids
         .iter()
         .map(|id| hex::decode(&id.0).map_err(XmtpError::unknown))
@@ -107,7 +111,7 @@ pub async fn key_package_statuses_with_backend(
     let found = api(&backend)
         .fetch_key_packages(&installations)
         .await
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_api)?;
     let crypto = xmtp_db::XmtpOpenMlsProvider::<()>::new_crypto();
     Ok(ids
         .into_iter()
@@ -145,9 +149,10 @@ pub async fn key_package_statuses_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn newest_message_metadata_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     ids: Vec<ConversationID>,
 ) -> Result<Vec<MessageMetadataEntry>, XmtpError> {
+    let backend = backend.resolve().await?;
     let groups = ids
         .iter()
         .cloned()
@@ -156,7 +161,7 @@ pub async fn newest_message_metadata_with_backend(
     let found = api(&backend)
         .get_newest_message_metadata(&groups)
         .await
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_api)?;
     found
         .into_values()
         .map(|value| {
@@ -175,10 +180,11 @@ pub async fn newest_message_metadata_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn is_address_authorized_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     inbox_id: InboxID,
     address: String,
 ) -> Result<bool, XmtpError> {
+    let backend = backend.resolve().await?;
     let member = MemberIdentifier::eth(address).map_err(XmtpError::unknown)?;
     xmtp_mls::identity_updates::is_member_of_association_state(
         &api(&backend),
@@ -192,10 +198,11 @@ pub async fn is_address_authorized_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn is_installation_authorized_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     inbox_id: InboxID,
     installation_id: InstallationID,
 ) -> Result<bool, XmtpError> {
+    let backend = backend.resolve().await?;
     let member =
         MemberIdentifier::installation(hex::decode(installation_id.0).map_err(XmtpError::unknown)?);
     xmtp_mls::identity_updates::is_member_of_association_state(
@@ -210,11 +217,12 @@ pub async fn is_installation_authorized_with_backend(
 
 #[xmtp_macro::sdk_export]
 pub async fn revoke_installations_with_backend(
-    backend: Arc<Backend>,
+    backend: BackendSource,
     signer: Arc<dyn Signer>,
     inbox_id: InboxID,
     ids: Vec<InstallationID>,
 ) -> Result<(), XmtpError> {
+    let backend = backend.resolve().await?;
     let identity = signer::identity(signer.clone()).await?.to_core()?;
     let installations = ids
         .into_iter()

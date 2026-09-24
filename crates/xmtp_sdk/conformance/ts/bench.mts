@@ -89,12 +89,12 @@ const signer = {
 const seedDirectory = await mkdtemp(join(tmpdir(), "xmtp-sdk-bench-seed-"));
 const url = process.env.XMTP_BACKEND_URL!;
 const options = (directory: string) => ({
-  backend: {
+  backend: new sdk.BackendSource.Options({
     url,
     appVersion: undefined,
     credentials: undefined,
     credential: undefined,
-  },
+  }),
   storage: {
     location: new sdk.StorageLocation.Directory(directory),
     label: undefined,

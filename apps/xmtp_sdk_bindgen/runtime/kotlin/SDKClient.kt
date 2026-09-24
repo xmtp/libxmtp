@@ -13,30 +13,6 @@ class SDKClient private constructor(
     val raw: Client,
 ) {
     companion object {
-        private fun guarded(signer: Signer): Signer =
-            object : Signer {
-                override suspend fun identity(): PublicIdentity =
-                    try {
-                        signer.identity()
-                    } catch (_: Error) {
-                        throw SignerException.Failed()
-                    }
-
-                override suspend fun kind(): SignerKind =
-                    try {
-                        signer.kind()
-                    } catch (_: Error) {
-                        throw SignerException.Failed()
-                    }
-
-                override suspend fun sign(request: SigningRequest): Signature =
-                    try {
-                        signer.sign(request)
-                    } catch (_: Error) {
-                        throw SignerException.Failed()
-                    }
-            }
-
         private fun resolved(
             options: ClientOptions,
             defaultDirectory: String?,
@@ -51,7 +27,7 @@ class SDKClient private constructor(
             options: ClientOptions,
             defaultDirectory: String? = null,
         ): SDKClient =
-            SDKClient(Client.create(guarded(signer), resolved(options, defaultDirectory))).also {
+            SDKClient(Client.create(signer, resolved(options, defaultDirectory))).also {
                 ClientRegistry.register(it)
             }
 
@@ -66,51 +42,51 @@ class SDKClient private constructor(
             ).also { ClientRegistry.register(it) }
 
         suspend fun fetchServerConfiguration(options: BackendOptions): ServerConfiguration =
-            uniffi.xmtp_sdk.fetchServerConfiguration(options)
+            uniffi.xmtp_sdk.fetchServerConfiguration(BackendSource.Options(options))
 
         suspend fun canMessage(
             identities: List<PublicIdentity>,
             backend: Backend,
-        ): List<CanMessageEntry> = canMessageWithBackend(backend, identities)
+        ): List<CanMessageEntry> = canMessageWithBackend(BackendSource.Connected(backend), identities)
 
         suspend fun inboxIDFor(
             identity: PublicIdentity,
             backend: Backend,
-        ): InboxID = inboxIDForWithBackend(backend, identity)
+        ): InboxID = inboxIDForWithBackend(BackendSource.Connected(backend), identity)
 
         suspend fun inboxStates(
             ids: List<InboxID>,
             backend: Backend,
-        ): List<InboxState> = inboxStatesWithBackend(backend, ids)
+        ): List<InboxState> = inboxStatesWithBackend(BackendSource.Connected(backend), ids)
 
         suspend fun keyPackageStatuses(
             ids: List<InstallationID>,
             backend: Backend,
-        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(backend, ids)
+        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(BackendSource.Connected(backend), ids)
 
         suspend fun newestMessageMetadata(
             ids: List<ConversationID>,
             backend: Backend,
-        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(backend, ids)
+        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(BackendSource.Connected(backend), ids)
 
         suspend fun revokeInstallations(
             signer: Signer,
             inboxID: InboxID,
             ids: List<InstallationID>,
             backend: Backend,
-        ) = revokeInstallationsWithBackend(backend, guarded(signer), inboxID, ids)
+        ) = revokeInstallationsWithBackend(BackendSource.Connected(backend), signer, inboxID, ids)
 
         suspend fun isAddressAuthorized(
             address: String,
             inboxID: InboxID,
             backend: Backend,
-        ): Boolean = isAddressAuthorizedWithBackend(backend, inboxID, address)
+        ): Boolean = isAddressAuthorizedWithBackend(BackendSource.Connected(backend), inboxID, address)
 
         suspend fun isInstallationAuthorized(
             installationID: InstallationID,
             inboxID: InboxID,
             backend: Backend,
-        ): Boolean = isInstallationAuthorizedWithBackend(backend, inboxID, installationID)
+        ): Boolean = isInstallationAuthorizedWithBackend(BackendSource.Connected(backend), inboxID, installationID)
 
         suspend fun verifySignedWithPublicKey(
             text: String,

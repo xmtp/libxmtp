@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+generated="${1:-target/sdk-generated}"
+if rg -q 'sdkConformance|sdk_conformance' \
+    "$generated/swift" "$generated/kotlin" \
+    "$generated/typescript-napi" "$generated/typescript-wasm"; then
+  echo "Default SDK bindings contain conformance-only exports" >&2
+  exit 1
+fi
+echo "Default bindings omit conformance-only exports."

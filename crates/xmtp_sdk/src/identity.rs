@@ -61,12 +61,7 @@ impl InboxState {
                     id: InstallationID::try_from(hex::encode(installation.id))?,
                     created_at_ns: installation
                         .client_timestamp_ns
-                        .map(|ns| {
-                            i64::try_from(ns).map(Timestamp).map_err(|_| {
-                                XmtpError::invalid("installation timestamp exceeds i64")
-                            })
-                        })
-                        .transpose()?,
+                        .map(|ns| Timestamp(i64::try_from(ns).unwrap_or(i64::MAX))),
                 })
             })
             .collect::<Result<Vec<_>, XmtpError>>()?;

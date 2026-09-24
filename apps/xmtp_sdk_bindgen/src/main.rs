@@ -1,5 +1,6 @@
 mod callback_cursor;
 mod id_names;
+mod kotlin_callbacks;
 mod validate;
 
 use std::{fs, path::Path};
@@ -109,6 +110,13 @@ fn generate(
                 crate_filter: Some("xmtp_sdk".into()),
                 metadata_no_deps: true,
             })?;
+            if matches!(language, Language::Kotlin) {
+                let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
+                fs::write(
+                    &binding,
+                    kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?,
+                )?;
+            }
         }
         Language::TypescriptNapi | Language::TypescriptWasm => {
             let is_wasm = matches!(language, Language::TypescriptWasm);
