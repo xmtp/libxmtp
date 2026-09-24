@@ -70,6 +70,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for SignerError {
     }
 }
 
+// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
 #[uniffi::export(with_foreign)]
 #[xmtp_common::async_trait]
 pub trait Signer: MaybeSend + MaybeSync + 'static {

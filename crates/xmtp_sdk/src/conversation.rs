@@ -39,6 +39,16 @@ pub struct Group {
     pub(crate) client_key: u64,
 }
 
+impl Group {
+    fn ensure_open(&self) -> Result<(), XmtpError> {
+        if self.inner.context.is_closed() {
+            Err(XmtpError::closed())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[xmtp_macro::sdk_export]
 impl Group {
     pub fn id(&self) -> ConversationID {
@@ -46,6 +56,7 @@ impl Group {
     }
 
     pub async fn send_text(&self, text: String) -> Result<MessageID, XmtpError> {
+        self.ensure_open()?;
         let content = TextCodec::encode(text).map_err(XmtpError::unknown)?;
         let bytes = encoded_content_to_bytes(content);
         let id = self
@@ -63,6 +74,7 @@ impl Group {
     }
 
     pub async fn messages(&self) -> Result<Vec<Message>, XmtpError> {
+        self.ensure_open()?;
         self.inner
             .find_messages(&MsgQueryArgs::default())
             .map_err(XmtpError::unknown)?
@@ -72,6 +84,7 @@ impl Group {
     }
 
     pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
+        self.ensure_open()?;
         MessageReader::open(
             self.inner.context.clone(),
             self.inner.group_id,

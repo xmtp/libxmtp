@@ -27,6 +27,8 @@ pub enum XmtpError {
     ClientClosed(ErrorDetails),
     #[error("invalid input: {0:?}")]
     InvalidInput(ErrorDetails),
+    #[error("storage location required: {0:?}")]
+    StorageLocationRequired(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -51,6 +53,15 @@ impl XmtpError {
             category: ErrorCategory::Lifecycle,
             retryable: false,
             message: "client is closed".into(),
+        })
+    }
+
+    pub(crate) fn storage_location_required() -> Self {
+        Self::StorageLocationRequired(ErrorDetails {
+            code: "StorageLocationRequired".into(),
+            category: ErrorCategory::Storage,
+            retryable: false,
+            message: "the host must resolve the default storage location".into(),
         })
     }
 

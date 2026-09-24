@@ -66,12 +66,25 @@ impl Client {
         options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
+        if matches!(&options.storage.location, StorageLocation::Default) {
+            return Err(XmtpError::storage_location_required());
+        }
         let identifier = identity.to_core()?;
+        let backend = Backend::from_options(options.backend)?;
         let inbox_id = match inbox_id {
             Some(value) => value.0,
-            None => identifier.inbox_id(0).map_err(XmtpError::unknown)?,
+            None => {
+                let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
+                let found = api
+                    .get_inbox_ids(vec![identifier.clone().into()])
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                match found.into_iter().next().flatten() {
+                    Some(value) => value,
+                    None => identifier.inbox_id(0).map_err(XmtpError::unknown)?,
+                }
+            }
         };
-        let backend = Backend::from_options(options.backend)?;
         let store = open_store(&options.storage, &inbox_id).await?;
         let mode = if options.device_sync {
             DeviceSyncMode::Enabled
@@ -146,23 +159,20 @@ impl Client {
                     .map_err(XmtpError::unknown)?;
             }
             (
-                SignerKind::Scw {
-                    chain_id,
-                    block_number,
-                },
+                SignerKind::Scw { chain_id, .. },
                 Signature::Scw {
                     bytes,
                     address,
                     chain_id: signed_chain_id,
                     block_number: signed_block,
                 },
-            ) if chain_id == signed_chain_id && block_number == signed_block => {
+            ) if chain_id == signed_chain_id => {
                 request
                     .add_new_unverified_smart_contract_signature(
                         NewUnverifiedSmartContractWalletSignature::new(
                             bytes,
                             AccountId::new_evm(chain_id, address),
-                            block_number,
+                            signed_block,
                         ),
                         &verifier,
                     )
@@ -222,36 +232,13 @@ impl Client {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn open_store(
+pub(crate) async fn open_store(
     options: &StorageOptions,
     inbox_id: &str,
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
     use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
 
-    let path = match &options.location {
-        StorageLocation::InMemory => None,
-        StorageLocation::Path(path) => Some(path.clone()),
-        StorageLocation::Directory(directory) => {
-            std::fs::create_dir_all(directory).map_err(XmtpError::unknown)?;
-            let label = options.label.as_deref().unwrap_or(inbox_id);
-            Some(
-                std::path::Path::new(directory)
-                    .join(format!("{label}.db"))
-                    .to_string_lossy()
-                    .into_owned(),
-            )
-        }
-        StorageLocation::Default => {
-            let directory = std::env::temp_dir().join("xmtp-sdk");
-            std::fs::create_dir_all(&directory).map_err(XmtpError::unknown)?;
-            Some(
-                directory
-                    .join(format!("{inbox_id}.db"))
-                    .to_string_lossy()
-                    .into_owned(),
-            )
-        }
-    };
+    let path = native_storage_path(options, inbox_id)?;
     let builder = match path {
         Some(path) => NativeDb::builder().persistent(path),
         None => NativeDb::builder().ephemeral(),
@@ -266,8 +253,55 @@ async fn open_store(
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
 }
 
+fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
+    let label = options.label.as_deref().unwrap_or("");
+    if [label, inbox_id]
+        .iter()
+        .any(|part| part.contains('/') || part.contains('\\') || part.chars().any(char::is_control))
+    {
+        return Err(XmtpError::invalid(
+            "storage label or inbox ID contains a path separator",
+        ));
+    }
+    let label = if label.is_empty() {
+        String::new()
+    } else {
+        format!("{label}-")
+    };
+    Ok(format!("xmtp-{label}{inbox_id}.db3"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn native_storage_path(
+    options: &StorageOptions,
+    inbox_id: &str,
+) -> Result<Option<String>, XmtpError> {
+    let path = match &options.location {
+        StorageLocation::InMemory => None,
+        StorageLocation::Path(path) => Some(path.clone()),
+        StorageLocation::Directory(directory) => {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            builder.create(directory).map_err(XmtpError::unknown)?;
+            Some(
+                std::path::Path::new(directory)
+                    .join(database_name(options, inbox_id)?)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        }
+        StorageLocation::Default => return Err(XmtpError::storage_location_required()),
+    };
+    Ok(path)
+}
+
 #[cfg(target_arch = "wasm32")]
-async fn open_store(
+pub(crate) async fn open_store(
     options: &StorageOptions,
     inbox_id: &str,
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
@@ -280,10 +314,12 @@ async fn open_store(
     }
     let location = match &options.location {
         StorageLocation::InMemory => StorageOption::Ephemeral,
-        StorageLocation::Default => StorageOption::Persistent(inbox_id.to_owned()),
-        StorageLocation::Directory(path) | StorageLocation::Path(path) => {
-            StorageOption::Persistent(path.clone())
+        StorageLocation::Default => return Err(XmtpError::storage_location_required()),
+        StorageLocation::Directory(directory) => {
+            let name = database_name(options, inbox_id)?;
+            StorageOption::Persistent(format!("{}/{name}", directory.trim_end_matches('/')))
         }
+        StorageLocation::Path(path) => StorageOption::Persistent(path.clone()),
     };
     let db = WasmDb::new(&location).await.map_err(XmtpError::unknown)?;
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)

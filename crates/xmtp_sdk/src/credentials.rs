@@ -23,6 +23,7 @@ impl From<uniffi::UnexpectedUniFFICallbackError> for CredentialError {
     }
 }
 
+// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
 #[uniffi::export(with_foreign)]
 #[xmtp_common::async_trait]
 pub trait CredentialSource: MaybeSend + MaybeSync + 'static {
