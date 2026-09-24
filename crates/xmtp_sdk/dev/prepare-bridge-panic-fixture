@@ -11,8 +11,9 @@ out="$fixture/typescript-wasm"
 mkdir -p "$fixture" "$out"
 
 dev/agent-run cargo build --locked -p xmtp_sdk \
-  --target wasm32-unknown-unknown --features bridge-panic-test
-cp target/wasm32-unknown-unknown/debug/xmtp_sdk.wasm "$wasm"
+  --target wasm32-unknown-unknown --target-dir "$fixture/build" \
+  --features bridge-panic-test
+cp "$fixture/build/wasm32-unknown-unknown/debug/xmtp_sdk.wasm" "$wasm"
 target/debug/xmtp-sdk-bindgen generate \
   --lib "$wasm" --language typescript-wasm --out "$out" \
   --config apps/xmtp_sdk_bindgen/uniffi-global.toml

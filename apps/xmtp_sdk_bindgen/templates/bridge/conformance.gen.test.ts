@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { serialize } from "node:v8";
 
 import { describe, expect, it } from "vitest";
@@ -11,7 +12,7 @@ import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
 import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
 import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
-import { WorkerHost } from "./runtime/bridge/worker/host.js";
+import { RUST_PANIC_PREFIX, WorkerHost } from "./runtime/bridge/worker/host.js";
 import { foreignStub } from "./stubs.gen.js";
 import { BRIDGED_OBJECTS, FOREIGN_OBJECTS, LAYOUTS } from "./wire.gen.js";
 import * as B from "./xmtp_sdk.js";
@@ -231,6 +232,16 @@ function containsForeign(shape: Shape, value: unknown): boolean {
 }
 
 describe("generated bridge value conformance", () => {
+  it("matches the pinned WASM panic fallback prefix", () => {
+    const source = readFileSync(
+      new URL(
+        "./node_modules/@ubjs/wasm/dist/core/src/module.js",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    expect(source).toContain(`console.error("${RUST_PANIC_PREFIX} `);
+  });
   it("loads the real WASM bridge in worker_threads", () => {
     const output = execFileSync(
       "sdks/node/node_modules/.bin/tsx",
@@ -246,6 +257,20 @@ describe("generated bridge value conformance", () => {
       },
     );
     expect(output).toContain("real WASM client");
+  }, 120000);
+
+  it("round trips value kinds through the initialized WASM worker", () => {
+    const output = execFileSync(
+      "sdks/node/node_modules/.bin/tsx",
+      ["crates/xmtp_sdk/conformance/browser/bridge.values.real.mts"],
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, NODE_OPTIONS: "--preserve-symlinks" },
+        encoding: "utf8",
+        timeout: 120000,
+      },
+    );
+    expect(output).toContain("real WASM worker round trips passed");
   }, 120000);
 
   for (const type of [

@@ -159,6 +159,8 @@ export type Dispatch = (
   context: WorkerContext,
 ) => Promise<unknown>;
 
+export const RUST_PANIC_PREFIX = "[Rust panic]";
+
 export class WorkerHost {
   readonly registry: WorkerRegistry;
   readonly callbacks: WorkerCallbacks;
@@ -166,6 +168,7 @@ export class WorkerHost {
   private initialized = false;
   private failed = false;
   private restorePanicLogger?: () => void;
+  private restoreWorkerFailures?: () => void;
 
   constructor(
     private readonly endpoint: WireEndpoint,
@@ -182,7 +185,10 @@ export class WorkerHost {
     this.callbacks = new WorkerCallbacks(endpoint);
     endpoint.onMessage((message) => this.receive(message));
     endpoint.onExit(() => this.fatal(bridgeError("workerTerminated")));
-    if (endpoint.close) this.watchRustPanics();
+    if (endpoint.close) {
+      this.watchWorkerFailures();
+      this.watchRustPanics();
+    }
   }
 
   private receive(message: WireMessage): void {
@@ -197,15 +203,17 @@ export class WorkerHost {
       case "cancel":
         this.active.get(message.id)?.abort();
         break;
-      case "release":
-        for (const owner of new Set([
-          ...this.registry.release(message.handles),
-          ...(message.owners ?? []),
-        ])) {
+      case "release": {
+        const emptyOwners = this.registry.release(message.handles);
+        for (const owner of message.owners ?? [])
           this.registry.closeOwner(owner);
+        for (const owner of new Set([
+          ...emptyOwners,
+          ...(message.owners ?? []),
+        ]))
           this.locks?.closeOwner(owner);
-        }
         break;
+      }
       case "callbackResult":
         this.callbacks.receive(message);
         break;
@@ -273,6 +281,7 @@ export class WorkerHost {
     this.failed = true;
     this.initialized = false;
     this.restorePanicLogger?.();
+    this.restoreWorkerFailures?.();
     for (const controller of this.active.values()) controller.abort();
     this.active.clear();
     this.callbacks.terminate();
@@ -289,11 +298,33 @@ export class WorkerHost {
     });
   }
 
+  private watchWorkerFailures(): void {
+    if (typeof globalThis.addEventListener !== "function") return;
+    const onError = (event: Event): void => {
+      this.fatal("error" in event ? event.error : event);
+    };
+    const onRejection = (event: Event): void => {
+      this.fatal("reason" in event ? event.reason : event);
+    };
+    globalThis.addEventListener("error", onError);
+    globalThis.addEventListener("unhandledrejection", onRejection);
+    this.restoreWorkerFailures = () => {
+      globalThis.removeEventListener("error", onError);
+      globalThis.removeEventListener("unhandledrejection", onRejection);
+    };
+  }
+
   private watchRustPanics(): void {
+    // The pinned WASM player has no public panic observer. Its private panic
+    // hook logs this prefix before a background task can raise an error event.
+    // The conformance test checks the pinned player source for this prefix.
     const previous = console.error;
     const logger = (...args: unknown[]): void => {
       previous(...args);
-      if (typeof args[0] === "string" && args[0].startsWith("[Rust panic]"))
+      if (
+        typeof args[0] === "string" &&
+        args[0].startsWith(`${RUST_PANIC_PREFIX} `)
+      )
         this.fatal(new WebAssembly.RuntimeError(args[0]));
     };
     console.error = logger;
