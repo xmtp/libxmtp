@@ -10,6 +10,43 @@ use diesel::{
 };
 use serde::{Deserialize, Serialize};
 
+/// Content types used by the `conversation_list` view for its latest message.
+pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
+    ContentType::Unknown,
+    ContentType::Text,
+    ContentType::Reaction,
+    ContentType::Reply,
+    ContentType::Attachment,
+    ContentType::RemoteAttachment,
+    ContentType::TransactionReference,
+    ContentType::WalletSendCalls,
+];
+
+#[cfg(test)]
+mod content_type_tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_conversation_list_content_types_match_view() {
+        let migration = include_str!("../../migrations/2026-09-08-000000_baseline/up.sql");
+        let view = migration
+            .split("CREATE VIEW conversation_list AS")
+            .nth(1)
+            .unwrap();
+        let filter = view.split("gm.content_type IN (").nth(1).unwrap();
+        let values = filter.split(')').next().unwrap();
+        let actual: Vec<i32> = values
+            .split(',')
+            .map(|value| value.trim().parse().unwrap())
+            .collect();
+        let expected: Vec<i32> = CONVERSATION_LIST_CONTENT_TYPES
+            .iter()
+            .map(|value| *value as i32)
+            .collect();
+        assert_eq!(actual, expected);
+    }
+}
+
 #[derive(Queryable, Debug, Clone, Deserialize, Serialize)]
 #[diesel(table_name = conversation_list)]
 #[diesel(primary_key(id))]

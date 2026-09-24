@@ -44,6 +44,7 @@ pub mod prelude {
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
     pub use super::delivery::QueryDelivery;
+    pub use super::group::QueryConversationState;
     pub use super::group::QueryDms;
     pub use super::group::QueryGroup;
     pub use super::group::QueryGroupVersion;

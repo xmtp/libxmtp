@@ -31,6 +31,8 @@ pub mod native_exports {
 }
 
 mod instrumentation;
+#[cfg(all(any(test, feature = "test-utils"), not(target_arch = "wasm32")))]
+pub use instrumentation::count_sql_queries;
 
 #[derive(Debug)]
 pub enum PersistentOrMem<P, S, M> {

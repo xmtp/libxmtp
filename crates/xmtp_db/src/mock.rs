@@ -113,6 +113,19 @@ mock! {
         ) -> Result<Vec<crate::conversation_list::ConversationListItem>, StorageError>;
     }
 
+    impl QueryConversationState for DbQuery {
+        fn conversation_state_row(
+            &self,
+            group_id: &GroupId,
+        ) -> Result<Option<(crate::group::StoredGroup, Option<crate::consent_record::ConsentState>)>, StorageError>;
+
+        fn last_activity_ns(
+            &self,
+            group_id: &GroupId,
+            content_types: &[crate::group_message::ContentType],
+        ) -> Result<Option<i64>, StorageError>;
+    }
+
     impl QueryDms for DbQuery {
         fn fetch_stitched(
             &self,

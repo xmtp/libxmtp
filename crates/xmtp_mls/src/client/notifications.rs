@@ -421,6 +421,23 @@ pub(crate) fn effective(
     }
 }
 
+pub(crate) fn enabled_from_record(
+    record: &StoredNotification,
+    group: &xmtp_db::group::StoredGroup,
+    consent: ConsentState,
+) -> Result<bool, StorageError> {
+    if record.push_state != 1 {
+        return Ok(false);
+    }
+    let config: NotificationConfig = decode(
+        record
+            .push_config
+            .as_deref()
+            .ok_or(StorageError::DbDeserialize)?,
+    )?;
+    Ok(effective(&config, group, consent))
+}
+
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Set an override after which the task recomputes the desired set.
     pub fn set_notifications(&self, value: NotificationOverride) -> Result<(), StorageError> {
@@ -446,12 +463,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         if record.push_state != 1 {
             return Ok(false);
         }
-        let config: NotificationConfig = decode(
-            record
-                .push_config
-                .as_deref()
-                .ok_or(StorageError::DbDeserialize)?,
-        )?;
         let group = db
             .find_group(&self.group_id)?
             .ok_or(xmtp_db::NotFound::GroupById(self.group_id))?;
@@ -459,7 +470,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             .get_consent_record(hex::encode(self.group_id), ConsentType::ConversationId)?
             .map(|row| row.state)
             .unwrap_or(ConsentState::Unknown);
-        Ok(effective(&config, &group, consent))
+        enabled_from_record(&record, &group, consent)
     }
 }
 

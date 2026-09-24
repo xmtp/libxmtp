@@ -2,10 +2,129 @@
 
 use super::*;
 
+/// Locally stored group fields read without an MLS group load.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GroupMetadataSnapshot {
+    pub name: String,
+    pub image_url: String,
+    pub description: String,
+    pub app_data: String,
+    pub membership_state: GroupMembershipState,
+    pub admins: Vec<String>,
+    pub super_admins: Vec<String>,
+    pub permissions: GroupMutablePermissions,
+    pub policy_type: Option<PreconfiguredPolicies>,
+}
+
+/// State for one conversation at the time of the local reads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationStateSnapshot {
+    pub is_active: bool,
+    pub consent_state: ConsentState,
+    pub paused_for_version: Option<String>,
+    pub is_disappearing_enabled: bool,
+    pub disappearing_settings: Option<MessageDisappearingSettings>,
+    pub notifications_enabled: bool,
+    pub commit_log_fork_status: Option<bool>,
+    pub group: Option<GroupMetadataSnapshot>,
+}
+
 impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
+    /// Read conversation state with one group and consent query, one notification
+    /// query, and two OpenMLS key reads.
+    pub fn state_snapshot(&self) -> Result<ConversationStateSnapshot, GroupError> {
+        use openmls::group::MlsGroupState;
+        use openmls_traits::storage::StorageProvider as _;
+
+        let db = self.context.db();
+        let (stored, consent) = db
+            .conversation_state_row(&self.group_id)?
+            .ok_or(NotFound::GroupById(self.group_id))?;
+        let consent_state = consent.unwrap_or(ConsentState::Unknown);
+        let notification = db.notification_record()?;
+        let notifications_enabled = crate::client::notifications::enabled_from_record(
+            &notification,
+            &stored,
+            consent_state,
+        )?;
+        let disappearing_settings = match (
+            stored.message_disappear_from_ns,
+            stored.message_disappear_in_ns,
+        ) {
+            (Some(from_ns), Some(in_ns)) => Some(MessageDisappearingSettings { from_ns, in_ns }),
+            _ => None,
+        };
+        let is_disappearing_enabled = disappearing_settings
+            .is_some_and(|settings| settings.from_ns > 0 && settings.in_ns > 0);
+        let is_active = if stored.membership_state == GroupMembershipState::Restored {
+            false
+        } else {
+            let state = self
+                .context
+                .mls_storage()
+                .group_state::<MlsGroupState, _>(&self.group_id.to_openmls())?
+                .ok_or(NotFound::GroupById(self.group_id))?;
+            !matches!(state, MlsGroupState::Inactive)
+        };
+        let group = if stored.conversation_type == ConversationType::Group {
+            use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+            let ctx = self.load_group_context()?;
+            let metadata = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(ctx.extensions())
+                .map_err(|error| match error {
+                    ComponentSourceError::GroupMutableMetadata(inner) => GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner)),
+                    other => GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(other)),
+                })?;
+            let permissions = group_permissions::policy_set_from_dictionary(ctx.extensions())
+                .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
+            let field = |key: MetadataField| {
+                metadata
+                    .attributes
+                    .get(key.as_str())
+                    .cloned()
+                    .unwrap_or_default()
+            };
+            let policy_type = permissions.preconfigured_policy().ok();
+            Some(GroupMetadataSnapshot {
+                name: field(MetadataField::GroupName),
+                image_url: field(MetadataField::GroupImageUrlSquare),
+                description: field(MetadataField::Description),
+                app_data: field(MetadataField::AppData),
+                membership_state: stored.membership_state,
+                admins: metadata.admin_list,
+                super_admins: metadata.super_admin_list,
+                permissions,
+                policy_type,
+            })
+        } else {
+            None
+        };
+        Ok(ConversationStateSnapshot {
+            is_active,
+            consent_state,
+            paused_for_version: stored.paused_for_version,
+            is_disappearing_enabled,
+            disappearing_settings,
+            notifications_enabled,
+            commit_log_fork_status: stored.is_commit_log_forked,
+            group,
+        })
+    }
+
+    /// Get the last application message time for the selected content types.
+    pub fn last_activity_ns(
+        &self,
+        content_types: Option<&[ContentType]>,
+    ) -> Result<i64, GroupError> {
+        let content_types =
+            content_types.unwrap_or(xmtp_db::conversation_list::CONVERSATION_LIST_CONTENT_TYPES);
+        self.context
+            .db()
+            .last_activity_ns(&self.group_id, content_types)?
+            .ok_or_else(|| NotFound::GroupById(self.group_id).into())
+    }
     /// Updates the admin list of the group and syncs the changes to the network.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
