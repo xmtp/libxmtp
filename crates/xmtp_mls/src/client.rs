@@ -449,15 +449,15 @@ where
         let delivery_result = self.context.close_message_delivery();
         self.workers.shutdown().await;
         self.context.events().close_internal_subscriptions();
-        let disconnect_result = self
-            .context
+        // Keep the database connected when lease release fails so a later
+        // close call can retry it.
+        delivery_result?;
+        self.context
             .db()
             .disconnect()
-            .map_err(xmtp_db::StorageError::from);
-        disconnect_result?;
+            .map_err(xmtp_db::StorageError::from)?;
         self.context.mark_shutdown_complete();
         log_event!(Event::ClientClosed, self.installation_id);
-        delivery_result?;
         Ok(())
     }
 
