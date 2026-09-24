@@ -475,13 +475,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The Rust send path accepts raw bytes without requiring a complete typed envelope."
 
 [[waiver]]
-id = "CTYPE-006"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Raw publication accepts a compression value, and the mobile SDK encoding paths can produce a compressed envelope."
-
-[[waiver]]
 id = "CTYPE-009"
 kind = "gap"
 owner = "protocol"
@@ -522,6 +515,27 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Deletion eligibility is read from the stored type enum without validating the target's authority and major version."
+
+[[waiver]]
+id = "CTYPE-023"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
+
+[[waiver]]
+id = "CTYPE-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
+
+[[waiver]]
+id = "CTYPE-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
 
 [[waiver]]
 id = "GMOD-035"
