@@ -2,11 +2,16 @@
   lib,
   buildNpmPackage,
   rustPlatform,
-  stdenv,
+  napi-rs-cli,
+  nodejs,
 }:
 let
-  # Keep the bindgen Cargo dependency and all three runtimes at this revision.
-  rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a";
+  # Cargo.lock records the exact revision of the generator dependency.
+  lock = builtins.fromTOML (builtins.readFile ../../../Cargo.lock);
+  bindgen = lib.findFirst (
+    package: package.name == "ubrn_bindgen"
+  ) (throw "Cargo.lock has no ubrn_bindgen package") lock.package;
+  rev = builtins.elemAt (lib.splitString "#" bindgen.source) 1;
   src = builtins.fetchGit {
     url = "https://github.com/neekolas/uniffi-bindgen-react-native.git";
     inherit rev;
@@ -41,13 +46,38 @@ let
       "-p"
       "uniffi-runtime-napi"
     ];
+    nativeBuildInputs = [
+      napi-rs-cli
+      nodejs
+    ];
     doCheck = false;
+    postBuild = ''
+      # nixpkgs provides napi CLI 3. Its default targets already include the
+      # targets repeated in this fork's napi CLI 2 configuration.
+      node -e 'const fs = require("fs"); const path = "runtimes/napi/package.json"; const config = JSON.parse(fs.readFileSync(path)); config.napi.triples.additional = []; fs.writeFileSync(path, JSON.stringify(config));'
+      cd runtimes/napi
+      napi build --platform --release --js-package-name @ubjs/node
+      cd ../..
+    '';
     installPhase = ''
       mkdir -p $out
-      binary=$(find target -type f \( -name 'libuniffi_runtime_napi.dylib' -o -name 'libuniffi_runtime_napi.so' \) -print -quit)
+      binary=$(find runtimes/napi -maxdepth 1 -name '*.node' -print -quit)
       test -n "$binary"
       cp "$binary" $out/
     '';
+  };
+  cli = rustPlatform.buildRustPackage {
+    pname = "ubrn";
+    version = rev;
+    inherit src;
+    cargoLock.lockFile = src + /Cargo.lock;
+    cargoBuildFlags = [
+      "-p"
+      "uniffi-bindgen-react-native"
+      "--bin"
+      "uniffi-bindgen-react-native"
+    ];
+    doCheck = false;
   };
   node = buildNpmPackage {
     pname = "ubjs-node";
@@ -60,9 +90,7 @@ let
     postInstall = ''
       package=$out/lib/node_modules/@ubjs/node
       mkdir -p "$package"
-      cp ${nodeNative}/libuniffi_runtime_napi.* "$package/uniffi-runtime-napi.${
-        if stdenv.hostPlatform.isDarwin then "darwin-arm64" else "linux-x64-gnu"
-      }.node"
+      cp ${nodeNative}/*.node "$package/"
     '';
   };
 in
@@ -70,6 +98,7 @@ in
   inherit
     rev
     src
+    cli
     core
     node
     wasm
