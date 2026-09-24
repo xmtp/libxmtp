@@ -246,6 +246,14 @@ def spelling(name: str) -> str:
 
 def _classify(entry: object) -> Decision:
     sdk, name, kind, source = entry.sdk, entry.name, entry.kind, entry.source
+    if sdk == "Swift" and not source.endswith("/xmtpv3.swift"):
+        if re.search(r"\.(?:toFfi|fromFfi)$", name):
+            return decision("approved removal", "—", "11.4 Swift, Messages, codecs, preferences, values", "FFI converter becomes internal plumbing.")
+        if kind == "init" and name.split(".", 1)[0] in RECORD_ROOTS:
+            source_lines = (Path(__file__).resolve().parents[2] / source).read_text().splitlines()
+            signature = " ".join(source_lines[entry.line - 1:entry.line + 5]).split("{", 1)[0]
+            if re.search(r"\bFfi[A-Za-z0-9_]+\b", signature):
+                return decision("approved removal", "—", "11.4 Swift, Messages, codecs, preferences, values", "FFI constructor becomes internal plumbing.")
     if sdk == "Kotlin" and kind in {"val", "var"} and name.split(".", 1)[0] in {"Conversation", "Group", "Dm"}:
         source_lines = (Path(__file__).resolve().parents[2] / source).read_text().splitlines()
         before = source_lines[max(0, entry.line - 9):entry.line - 1]
@@ -433,6 +441,10 @@ def _classify(entry: object) -> Decision:
         return decision("approved removal", "—", f"11.4 {sdk}, {section}", "The old type and its members leave the API.")
     if name == "ContentCodec" or name.startswith("ContentCodec."):
         return decision("static runtime", spelling(name), f"11.4 {sdk}, Messages, codecs, preferences, values; 4")
+    if sdk in {"Swift", "Kotlin"} and name == "SignatureRequest.ffiSignatureRequest":
+        return decision("approved removal", "—", f"11.4 {sdk}, Messages, codecs, preferences, values", "The live request hides its FFI handle.")
+    if sdk in {"Swift", "Kotlin"} and name in {"SignatureRequest.addScwSignature", "SignatureRequest.addEcdsaSignature"}:
+        return decision("generated", "SignatureRequest.addSignature", f"11.4 {sdk}, Messages, codecs, preferences, values")
     if sdk in {"Swift", "Kotlin"} and name in {"ConsentRecord.value", "ConsentRecord.entryType", "ConsentRecord.consentType"}:
         target = {"ConsentRecord.value": "ConsentRecord.entity.value", "ConsentRecord.entryType": "ConsentRecord.entity.kind",
                   "ConsentRecord.consentType": "ConsentRecord.state"}[name]

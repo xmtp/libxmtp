@@ -600,6 +600,12 @@ def self_test() -> None:
             "MessageReader.messages": ("static runtime", "MessageReader.stream()"),
             "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
             "ConsentRecord.entryType": ("generated", "ConsentRecord.entity.kind"),
+            "ArchiveOptions.toFfi": ("approved removal", "—"),
+            "ConversationDebugInfo.init": ("approved removal", "—"),
+            "SignatureRequest.init": ("approved removal", "—"),
+            "SignatureRequest.ffiSignatureRequest": ("approved removal", "—"),
+            "SignatureRequest.addScwSignature": ("generated", "SignatureRequest.addSignature"),
+            "SignatureRequest.addEcdsaSignature": ("generated", "SignatureRequest.addSignature"),
             "FfiXmtpClient.waitForRegistrationVisible": ("generated", "Client.waitForRegistrationVisible"),
         },
         "Kotlin": {
@@ -612,6 +618,9 @@ def self_test() -> None:
             "EncodedContent.compress": ("approved removal", "—"),
             "ClientOptions.appContext": ("platform helper", "StorageOptions(context)"),
             "PrivatePreferences.syncConsent": ("approved removal", "—"),
+            "ArchiveElement.Companion.fromFfi": ("approved removal", "—"),
+            "SignatureRequest.ffiSignatureRequest": ("approved removal", "—"),
+            "SignatureRequest.addScwSignature": ("generated", "SignatureRequest.addSignature"),
         },
         "Node": {
             "Client.unsafe_createInboxSignatureRequest": ("generated", "Client.unsafeCreateInboxSignatureRequest"),
