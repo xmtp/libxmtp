@@ -1,6 +1,9 @@
 import { ValueCodec, enumFactory } from "./runtime/bridge/codec.js";
 import type { CallbackWire } from "./runtime/bridge/wire.js";
-import type { WorkerCallbacks } from "./runtime/bridge/worker/callback-stub.js";
+import {
+  LogWindow,
+  type WorkerCallbacks,
+} from "./runtime/bridge/worker/callback-stub.js";
 import type { WorkerRegistry } from "./runtime/bridge/worker/registry.js";
 import { FOREIGN_METHODS, LAYOUTS, type ForeignMethod } from "./wire.gen.js";
 import * as B from "./xmtp_sdk.js";
@@ -19,6 +22,12 @@ export function foreignStub(
 ): object {
   const methods = traits[handle.type];
   if (!methods) throw new TypeError(`unknown foreign trait ${handle.type}`);
+  if (handle.type === "LogSink") {
+    const window = new LogWindow(callbacks, handle.cb);
+    const sink = { log: (record: unknown) => window.log(record) };
+    collected.register(sink, { callbacks, cb: handle.cb });
+    return sink;
+  }
   const stub = new Proxy(
     {},
     {

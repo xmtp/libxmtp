@@ -95,9 +95,9 @@ export class LogWindow {
 
 export class BoundedListener {
   private readonly limit = 1023;
-  private readonly queue: unknown[] = [];
+  private readonly queue: Array<{ event: unknown } | { lagged: number }> = [];
+  private queuedEvents = 0;
   private running = false;
-  private dropped = 0;
 
   constructor(
     private readonly callbacks: WorkerCallbacks,
@@ -105,11 +105,14 @@ export class BoundedListener {
   ) {}
 
   push(event: unknown): void {
-    if (this.queue.length === this.limit) {
-      this.dropped++;
+    if (this.queuedEvents === this.limit) {
+      const last = this.queue[this.queue.length - 1];
+      if ("lagged" in last) last.lagged++;
+      else this.queue.push({ lagged: 1 });
       return;
     }
-    this.queue.push(event);
+    this.queue.push({ event });
+    this.queuedEvents++;
     if (!this.running) void this.drain();
   }
 
@@ -117,13 +120,14 @@ export class BoundedListener {
     this.running = true;
     try {
       while (this.queue.length > 0) {
-        const event = this.queue.shift();
-        await this.callbacks.invoke(this.cb, "onEvent", [event]);
-      }
-      if (this.dropped > 0) {
-        const count = this.dropped;
-        this.dropped = 0;
-        await this.callbacks.invoke(this.cb, "onLagged", [count]);
+        const item = this.queue.shift();
+        if (!item) continue;
+        if ("lagged" in item)
+          await this.callbacks.invoke(this.cb, "onLagged", [item.lagged]);
+        else {
+          this.queuedEvents--;
+          await this.callbacks.invoke(this.cb, "onEvent", [item.event]);
+        }
       }
     } finally {
       this.running = false;
@@ -132,6 +136,6 @@ export class BoundedListener {
   }
 
   get queued(): number {
-    return this.queue.length;
+    return this.queuedEvents;
   }
 }
