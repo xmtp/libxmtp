@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 
-use prost::Message;
-
 use crate::{
     CodecError, ContentCodec,
     attachment::{Attachment, AttachmentCodec},
-    encryption::{self, EncryptedPayload, SECRET_SIZE},
+    encryption::{self, EncryptionKeys},
     utils::get_param_or_default,
 };
 
@@ -44,37 +42,22 @@ pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment,
     // Encode the Attachment to EncodedContent
     let encoded_content = AttachmentCodec::encode(attachment)?;
 
-    // Serialize EncodedContent to bytes
-    let mut encoded_bytes = Vec::new();
-    encoded_content
-        .encode(&mut encoded_bytes)
-        .map_err(|e| CodecError::Encode(format!("failed to encode attachment: {e}")))?;
-
-    // Generate a random 32-byte secret
-    let secret: [u8; SECRET_SIZE] = xmtp_common::rand_array();
-
-    // Encrypt the encoded content
-    let encrypted_payload = encryption::encrypt(&encoded_bytes, &secret)?;
-
-    // Compute SHA-256 digest of the encrypted payload
-    let digest = encryption::sha256(&encrypted_payload.payload);
-    let content_digest = hex::encode(digest);
-
-    let content_length = u32::try_from(encrypted_payload.payload.len()).map_err(|_| {
+    let encrypted = encryption::encrypt_encoded_content(encoded_content)?;
+    let content_length = u32::try_from(encrypted.keys.length).map_err(|_| {
         CodecError::Encode(format!(
             "attachment size {} exceeds maximum of {} bytes",
-            encrypted_payload.payload.len(),
+            encrypted.keys.length,
             u32::MAX
         ))
     })?;
 
     Ok(EncryptedAttachment {
         content_length,
-        payload: encrypted_payload.payload,
-        content_digest,
-        secret: secret.to_vec(),
-        salt: encrypted_payload.salt,
-        nonce: encrypted_payload.nonce,
+        payload: encrypted.ciphertext,
+        content_digest: encrypted.keys.digest,
+        secret: encrypted.keys.secret,
+        salt: encrypted.keys.salt,
+        nonce: encrypted.keys.nonce,
         filename,
     })
 }
@@ -85,28 +68,14 @@ pub fn decrypt_attachment(
     encrypted_bytes: &[u8],
     remote_attachment: &RemoteAttachment,
 ) -> Result<Attachment, CodecError> {
-    // Verify content digest
-    let actual_digest = hex::encode(encryption::sha256(encrypted_bytes));
-    if actual_digest != remote_attachment.content_digest {
-        return Err(CodecError::Decode(format!(
-            "content digest mismatch: expected {}, got {}",
-            remote_attachment.content_digest, actual_digest
-        )));
-    }
-
-    // Reconstruct the encrypted payload
-    let encrypted_payload = EncryptedPayload {
-        payload: encrypted_bytes.to_vec(),
+    let keys = EncryptionKeys {
+        secret: remote_attachment.secret.clone(),
         salt: remote_attachment.salt.clone(),
         nonce: remote_attachment.nonce.clone(),
+        digest: remote_attachment.content_digest.clone(),
+        length: encrypted_bytes.len() as u64,
     };
-
-    // Decrypt
-    let decrypted_bytes = encryption::decrypt(&encrypted_payload, &remote_attachment.secret)?;
-
-    // Decode the EncodedContent
-    let encoded_content = EncodedContent::decode(decrypted_bytes.as_slice())
-        .map_err(|e| CodecError::Decode(format!("failed to decode EncodedContent: {e}")))?;
+    let encoded_content = encryption::decrypt_encoded_content(encrypted_bytes, &keys)?;
 
     // Decode the Attachment
     AttachmentCodec::decode(encoded_content)
@@ -225,6 +194,7 @@ pub type RemoteAttachment = RemoteAttachmentInfo;
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::encryption::SECRET_SIZE;
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]

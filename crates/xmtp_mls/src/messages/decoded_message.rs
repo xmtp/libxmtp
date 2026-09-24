@@ -12,7 +12,7 @@ use xmtp_content_types::remote_attachment::RemoteAttachmentCodec;
 use xmtp_content_types::reply::ReplyCodec;
 use xmtp_content_types::transaction_reference::TransactionReferenceCodec;
 use xmtp_content_types::wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec};
-use xmtp_content_types::{CodecError, ContentCodec};
+use xmtp_content_types::{CodecError, ContentCodec, compression};
 use xmtp_content_types::{
     attachment::{Attachment, AttachmentCodec},
     markdown::MarkdownCodec,
@@ -122,6 +122,8 @@ impl TryFrom<EncodedContent> for MessageBody {
     type Error = GroupError;
 
     fn try_from(value: EncodedContent) -> Result<Self, Self::Error> {
+        // implements: CTYPE-024, CTYPE-025
+        let value = compression::decompress(value)?;
         let content_type = match value.r#type.as_ref() {
             Some(content_type) => content_type,
             None => return Err(CodecError::InvalidContentType.into()),
@@ -148,11 +150,13 @@ impl TryFrom<EncodedContent> for MessageBody {
                 let reply = ReplyCodec::decode(value)?;
                 // if the inner content uses a custom content type, try_into
                 // will fail. in that case, wrap it as custom content.
-                let content: MessageBody = reply
-                    .content
-                    .clone()
-                    .try_into()
-                    .unwrap_or(MessageBody::Custom(reply.content));
+                let content = match reply.content.clone().try_into() {
+                    Ok(content) => content,
+                    Err(GroupError::CodecError(CodecError::CodecNotFound(_))) => {
+                        MessageBody::Custom(reply.content)
+                    }
+                    Err(error) => return Err(error),
+                };
                 Ok(MessageBody::Reply(Reply {
                     in_reply_to: None,
                     content: Box::new(content),
@@ -216,15 +220,11 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
         let content_type_id = encoded_content.r#type.clone().unwrap_or_default();
         let fallback = encoded_content.fallback.clone();
 
-        let content = match encoded_content.try_into() {
+        let content = match encoded_content.clone().try_into() {
             Ok(content) => content,
-            // TODO:(nm)
-            // Rather than clone the encoded content by default, I am re-decoding the bytes
-            // That feels dumb and wrong. Will figure out a better solution.
-            Err(_) => MessageBody::Custom(
-                EncodedContent::decode(&mut value.decrypted_message_bytes.as_slice())
-                    .map_err(|e| CodecError::Decode(e.to_string()))?,
-            ),
+            // The original envelope stays available to the app on decode failure.
+            // implements: CTYPE-008
+            Err(_) => MessageBody::Custom(encoded_content),
         };
 
         // Create the metadata
@@ -253,5 +253,72 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             reactions,
             num_replies,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_content_types::{
+        compression::compress,
+        reply::{Reply as EncodedReply, ReplyCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+    // verifies: CTYPE-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn nested_content_decompressed_before_decode() {
+        let inner = compress(TextCodec::encode("nested text".into())?, Compression::Gzip)?;
+        let outer = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: inner,
+        })?;
+        let outer = compress(outer, Compression::Deflate)?;
+        let fields = crate::groups::QueryableContentFields::try_from(outer.clone())?;
+        assert_eq!(fields.reference_id, Some(vec![1, 2]));
+        let MessageBody::Reply(reply) = MessageBody::try_from(outer)? else {
+            panic!("expected reply");
+        };
+        let MessageBody::Text(text) = *reply.content else {
+            panic!("expected nested text");
+        };
+        assert_eq!(text.content, "nested text");
+    }
+
+    // verifies: CTYPE-008, CTYPE-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn compressed_decode_failure_preserves_message() {
+        let mut content = TextCodec::encode("unchanged".into())?;
+        content.compression = Some(99);
+        let bytes = content.encode_to_vec();
+        let message = StoredGroupMessage {
+            id: vec![1, 2, 3],
+            group_id: GroupId::ONE,
+            decrypted_message_bytes: bytes.clone(),
+            sent_at_ns: 1,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![4],
+            sender_inbox_id: "inbox".into(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: xmtp_db::group_message::ContentType::Text,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".into(),
+            reference_id: None,
+            sequence_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
+            inserted_at_ns: 0,
+            expire_at_ns: None,
+            should_push: false,
+            idempotency_key: String::new(),
+        };
+        let decoded = DecodedMessage::try_from(message)?;
+        assert_eq!(decoded.metadata.id, vec![1, 2, 3]);
+        let MessageBody::Custom(custom) = decoded.content else {
+            panic!("expected original custom content");
+        };
+        assert_eq!(custom.encode_to_vec(), bytes);
     }
 }

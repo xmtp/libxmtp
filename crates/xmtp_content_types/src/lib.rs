@@ -1,7 +1,10 @@
 pub mod actions;
 pub mod attachment;
+pub mod compression;
 pub mod delete_message;
 pub mod encryption;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod file_encryption;
 pub mod group_updated;
 pub mod intent;
 pub mod leave_request;

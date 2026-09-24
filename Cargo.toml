@@ -31,6 +31,7 @@ publish = false
 edition = "2024"
 
 [workspace.dependencies]
+aes = "0.8.4"
 aes-gcm = { version = "0.10.3", features = ["std"] }
 alloy = { version = "2", default-features = false }
 alloy-primitives = { version = "1", default-features = false, features = [
@@ -56,6 +57,7 @@ const_format = "0.2"
 const_panic = "0.2"
 criterion = { version = "0.8.2", features = ["html_reports", "async_tokio"] }
 ctor = "1.0"
+ctr = "0.9.2"
 derive_builder = "0.20"
 diesel = { version = "2.3", default-features = false }
 diesel_migrations = { version = "2.3", default-features = false }
@@ -63,11 +65,15 @@ dyn-clone = "1"
 ecdsa = "0.16"
 ed25519-dalek = { version = "2.2", features = ["zeroize"] }
 fdlimit = "0.3"
+flate2 = { version = "1.1.10", default-features = false, features = [
+  "rust_backend",
+] }
 futures = { version = "0.3.33", default-features = false }
 futures-test = { version = "0.3" }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 getrandom = { version = "0.4", default-features = false }
+ghash = "0.5.1"
 gloo-timers = "0.4"
 hex = { package = "const-hex", version = "1.19" }
 hmac = "0.12.1"
@@ -168,6 +174,7 @@ syn = { version = "2.0", features = [
   "clone-impls",
   "extra-traits",
 ] }
+tempfile = "3.27.0"
 thiserror = "2.0"
 tls_codec = "0.5"
 tokio = { version = "1.53.1", default-features = false, features = [
