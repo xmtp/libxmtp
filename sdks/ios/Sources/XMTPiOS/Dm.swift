@@ -217,7 +217,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
+			idempotencyKey: options?.idempotencyKey
 		)
 
 		return (encoded, visibilityOptions)
@@ -235,7 +236,8 @@ public struct Dm: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiConversation.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
+				idempotencyKey: visibilityOptions?.idempotencyKey
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)

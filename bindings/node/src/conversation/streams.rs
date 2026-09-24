@@ -4,21 +4,20 @@ use napi::{
   threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode},
 };
 use napi_derive::napi;
-use xmtp_mls::groups::MlsGroup;
+use xmtp_mls::subscriptions::router_callbacks::stream_conversation_messages_with_callback_dispatch;
 
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn stream(
     &self,
     callback: ThreadsafeFunction<Message, ()>,
     on_close: ThreadsafeFunction<(), ()>,
   ) -> Result<StreamCloser> {
     let group = self.create_mls_group();
-    let stream_closer = MlsGroup::stream_with_callback(
-      group.context.clone(),
-      group.group_id.clone(),
-      move |message| {
+    let on_message =
+      move |message: std::result::Result<_, xmtp_mls::subscriptions::SubscribeError>| {
         let status = callback.call(
           message
             .map(Message::from)
@@ -27,12 +26,17 @@ impl Conversation {
           ThreadsafeFunctionCallMode::Blocking,
         );
         tracing::info!("Stream status: {:?}", status);
-      },
-      move || {
-        on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
-      },
-    );
+      };
+    let on_close = move || {
+      on_close.call(Ok(()), ThreadsafeFunctionCallMode::Blocking);
+    };
 
-    Ok(StreamCloser::new(stream_closer))
+    let handle = stream_conversation_messages_with_callback_dispatch(
+      group.context.clone(),
+      group.group_id,
+      on_message,
+      on_close,
+    );
+    Ok(StreamCloser::new(handle))
   }
 }

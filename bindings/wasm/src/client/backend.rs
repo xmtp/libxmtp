@@ -114,9 +114,13 @@ pub async fn create_client_with_backend(
   #[wasm_bindgen(js_name = dbPath)] db_path: Option<String>,
   #[wasm_bindgen(js_name = encryptionKey)] encryption_key: Option<js_sys::Uint8Array>,
   #[wasm_bindgen(js_name = deviceSyncMode)] device_sync_worker_mode: Option<super::DeviceSyncMode>,
+  #[wasm_bindgen(js_name = workerConfig)] worker_config: Option<super::WorkerConfigOptions>,
   #[wasm_bindgen(js_name = logOptions)] log_options: Option<super::LogOptions>,
   #[wasm_bindgen(js_name = allowOffline)] allow_offline: Option<bool>,
   nonce: Option<u64>,
+  #[wasm_bindgen(js_name = changeCallbacks)] change_callbacks: Option<
+    super::change_callbacks::UnstableChangeCallbacks,
+  >,
 ) -> Result<super::Client, JsError> {
   super::init_logging(log_options.unwrap_or_default())?;
 
@@ -126,23 +130,20 @@ pub async fn create_client_with_backend(
   let mut mbb = xmtp_api_d14n::MessageBackendBuilder::default();
   mbb.cursor_store(cursor_store);
   let api_client = mbb
-    .clone()
-    .from_bundle(backend.bundle.clone())
-    .map_err(|e| JsError::new(&e.to_string()))?;
-  let sync_api_client = mbb
     .from_bundle(backend.bundle.clone())
     .map_err(|e| JsError::new(&e.to_string()))?;
 
   super::create_client_inner(
     api_client,
-    sync_api_client,
     store,
     inbox_id,
     account_identifier,
     device_sync_worker_mode,
+    worker_config,
     allow_offline,
     Some(backend.app_version()),
     nonce.unwrap_or(1),
+    change_callbacks,
   )
   .await
 }

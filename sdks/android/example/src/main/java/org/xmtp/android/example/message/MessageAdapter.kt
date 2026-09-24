@@ -34,7 +34,10 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
                 val binding = ListItemMessageBinding.inflate(inflater, parent, false)
                 MessageViewHolder(binding)
             }
-            else -> throw IllegalArgumentException("Unsupported view type $viewType")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported view type $viewType")
+            }
         }
     }
 
@@ -47,7 +50,10 @@ class MessageAdapter : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
             is MessageViewHolder -> {
                 holder.bind(item as ConversationDetailViewModel.MessageListItem.Message)
             }
-            else -> throw IllegalArgumentException("Unsupported view holder")
+
+            else -> {
+                throw IllegalArgumentException("Unsupported view holder")
+            }
         }
     }
 

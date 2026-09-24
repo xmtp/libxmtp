@@ -11,14 +11,14 @@
 let
   src = fetchCrate {
     pname = "wasm-bindgen-cli";
-    version = "0.2.114";
-    hash = "sha256-xrCym+rFY6EUQFWyWl6OPA+LtftpUAE5pIaElAIVqW0=";
+    version = "0.2.126";
+    hash = "sha256-H6Is3fiZVxZCfOMWK5dWMSrtn50VGv0sfdnsT+cTtyk=";
   };
 
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit src;
     inherit (src) pname version;
-    hash = "sha256-Z8+dUXPQq7S+Q7DWNr2Y9d8GMuEdSnq00quUR0wDNPM=";
+    hash = "sha256-VucqkXbCi4qtQzY/HrXiDnbSURsagPsdNVMn1Tw3UiY=";
   };
 in
 rustPlatform.buildRustPackage {
@@ -42,5 +42,6 @@ rustPlatform.buildRustPackage {
   doCheck = false;
   meta = {
     description = "Custom maintained wasm-bindgen-cli package to match Cargo.toml";
+    mainProgram = "wasm-bindgen";
   };
 }

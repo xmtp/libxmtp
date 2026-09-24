@@ -6,7 +6,7 @@ impl Endpoint for TestEndpoint {
     type Output = ();
 
     fn grpc_endpoint(&self) -> std::borrow::Cow<'static, str> {
-        Cow::Borrowed("")
+        Cow::Borrowed("/test.mock/TestEndpoint")
     }
 
     fn body(&self) -> Result<bytes::Bytes, crate::api::BodyError> {
@@ -69,6 +69,8 @@ mockall::mock! {
 
     #[xmtp_common::async_trait]
     impl Client for NetworkClient {
+        fn host(&self) -> &str;
+
         async fn request(
             &self,
             request: http::request::Builder,
@@ -82,6 +84,13 @@ mockall::mock! {
             path: http::uri::PathAndQuery,
             body: Bytes,
         ) -> Result<http::Response<BytesStream>, ApiClientError>;
+
+        async fn bidi_stream(
+            &self,
+            request: http::request::Builder,
+            path: http::uri::PathAndQuery,
+            body: xmtp_common::BoxDynStream<'static, Bytes>,
+        ) -> Result<http::Response<BytesStream>, ApiClientError>;
     }
 }
 
@@ -92,6 +101,6 @@ mod tests {
     #[xmtp_common::test]
     fn test_grpc_endpoint_returns_empty_string() {
         let endpoint = TestEndpoint;
-        assert_eq!(endpoint.grpc_endpoint(), "");
+        assert_eq!(endpoint.grpc_endpoint(), "/test.mock/TestEndpoint");
     }
 }

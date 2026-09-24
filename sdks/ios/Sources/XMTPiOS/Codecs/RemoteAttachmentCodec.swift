@@ -92,6 +92,7 @@ public struct RemoteAttachment {
 		secret = encryptedEncodedContent.secret
 		salt = encryptedEncodedContent.salt
 		nonce = encryptedEncodedContent.nonce
+		contentLength = encryptedEncodedContent.payload.count
 
 		scheme = .https
 		fetcher = HTTPFetcher()
@@ -190,15 +191,18 @@ public struct RemoteAttachmentCodec: ContentCodec {
 
 		encodedContent.type = ContentTypeRemoteAttachment
 		encodedContent.content = Data(content.url.utf8)
-		encodedContent.parameters = [
+		var parameters = [
 			"contentDigest": content.contentDigest,
 			"secret": content.secret.toHex,
 			"salt": content.salt.toHex,
 			"nonce": content.nonce.toHex,
 			"scheme": "https",
-			"contentLength": String(content.contentLength ?? -1),
 			"filename": content.filename ?? "",
 		]
+		if let contentLength = content.contentLength {
+			parameters["contentLength"] = String(contentLength)
+		}
+		encodedContent.parameters = parameters
 
 		return encodedContent
 	}

@@ -1,0 +1,212 @@
+name: cross-test
+
+# Sanity-check that xdbg builds across recent versions remain
+# compatible. Two dimensions × two values = 4 jobs run in parallel for
+# every PR / cron / dispatch:
+#
+#   kind:
+#     cross-version — share one xdbg data dir across versions; tests
+#                     DB-format / migration compatibility.
+#     cross-talk    — each version runs under --strict-versioning
+#                     against a shared XDBG_DB_ROOT; tests wire-level
+#                     MLS interop instead of DB-format compat.
+#
+#   profile:
+#     stable        — last two stable release branches + HEAD. Strict.
+#                     Catches regressions that affect what we'd ship in
+#                     a release; unaffected by broken nightlies.
+#     nightly       — same + N most-recent nightlies. Lenient (nightly
+#                     runtime failure warns + continues, doesn't fail
+#                     the job). Covers main-branch drift between
+#                     releases.
+#
+# Each (kind, profile) is independently meaningful: a broken nightly
+# in cross-talk shouldn't mask a stable cross-version regression, and
+# vice versa.
+#
+# All logic lives in the packaged drivers; this workflow only wires
+# triggers + nix invocations.
+
+on:
+  pull_request:
+    paths:
+      - "apps/xmtp_debug/**"
+      - "crates/xmtp_mls/**"
+      - "crates/xmtp_mls_common/**"
+      - "crates/xmtp_api/**"
+      - "crates/xmtp_db/**"
+      - "crates/xmtp_id/**"
+      - "crates/xmtp_cryptography/**"
+      - "crates/xmtp_proto/**"
+      - "crates/xmtp_api_grpc/**"
+      - "crates/xmtp_api_d14n/**"
+      - "crates/xmtp_configuration/**"
+      - "crates/xmtp_common/**"
+      - "crates/xmtp_content_types/**"
+      - "crates/xmtp_archive/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "flake.nix"
+      - "nix/**"
+      - ".github/workflows/cross-test.yml"
+  push:
+    branches:
+      - main
+      - "release/**"
+  workflow_dispatch:
+    inputs:
+      nightly-sample-size:
+        description: "Most-recent N nightlies in the with-nightlies job (stable-only ignores this)"
+        required: false
+        default: "3"
+        type: string
+      backend:
+        description: "xdbg backend (-b flag)"
+        required: false
+        default: "dev"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compat:
+    name: ${{ matrix.kind }} (${{ matrix.profile }})
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    strategy:
+      # All four cells always run; each (kind, profile) is independently
+      # meaningful — broken nightlies in cross-talk don't mask stable
+      # cross-version signal, and vice versa.
+      fail-fast: false
+      matrix:
+        include:
+          - kind: cross-version
+            profile: stable
+            sample-size: "0"
+          - kind: cross-version
+            profile: nightly
+            sample-size: ""
+          - kind: cross-talk
+            profile: stable
+            sample-size: "0"
+          - kind: cross-talk
+            profile: nightly
+            sample-size: ""
+    steps:
+      # Shallow clone of just the PR ref, with NO tags. The repo carries
+      # ~1500 tags (per-commit cli/binding tags) that otherwise dominate
+      # checkout time (~75s). We only need:
+      #   - release/* branches (fetched in the next step)
+      #   - *-nightly.* tags (fetched in the step after that)
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          fetch-tags: false
+
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          sccache: "false"
+
+      - name: Resolve sample size
+        id: sample
+        env:
+          MATRIX_SAMPLE_SIZE: ${{ matrix.sample-size }}
+          INPUT_NIGHTLY_SAMPLE_SIZE: ${{ inputs.nightly-sample-size }}
+        run: |
+          # stable-only profile pins sample-size to 0 via the matrix.
+          # with-nightlies takes the dispatch input, falling back to 3.
+          if [ -n "$MATRIX_SAMPLE_SIZE" ]; then
+            size="$MATRIX_SAMPLE_SIZE"
+          elif [ -n "$INPUT_NIGHTLY_SAMPLE_SIZE" ]; then
+            size="$INPUT_NIGHTLY_SAMPLE_SIZE"
+          else
+            size=3
+          fi
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+
+      - name: Run sequence
+        id: run
+        env:
+          BACKEND: ${{ inputs.backend || 'dev' }}
+          PROFILE: ${{ matrix.profile }}
+          SAMPLE_SIZE: ${{ steps.sample.outputs.size }}
+          KIND: ${{ matrix.kind }}
+        # The driver handles bootstrap-fetch, version picking, plan
+        # emission to GITHUB_STEP_SUMMARY, plan.json artifact, and the
+        # phase loop. The matrix.profile value ("stable" or "nightly")
+        # also controls lenient-nightly handling inside the driver.
+        run: |
+          set -euo pipefail
+          nix run ".#${KIND}-test" -- run \
+            --profile "$PROFILE" \
+            --sample-size "$SAMPLE_SIZE"
+
+      # Warms the current-tree driver's cargo deps only. The per-version
+      # xdbg binaries the driver builds are realized as goal outputs (so
+      # they land on the disk); their build closures are fixed-sha, stay
+      # substitutable from Cachix, and would only bloat the disk.
+      - name: Warm sticky disk with build deps
+        env:
+          KIND: ${{ matrix.kind }}
+        run: dev/ci/warm-deps ".#${KIND}-test"
+
+      # xdbg's NDJSON log files are named "YYYY-MM-DD HH:MM:SS.json".
+      # actions/upload-artifact rejects filenames with `:`, `<`, `>`, etc.
+      # Rename to ISO-safe form before upload so the archive succeeds.
+      - name: Sanitize log filenames
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
+        env:
+          OUT_DIR: ${{ steps.run.outputs.out_dir }}
+        run: |
+          set -euo pipefail
+          find "$OUT_DIR" -type f -name '*.json' | while IFS= read -r f; do
+            base=$(basename "$f")
+            sanitized=${base//:/-}
+            sanitized=${sanitized// /T}
+            if [ "$base" != "$sanitized" ]; then
+              mv -- "$f" "$(dirname "$f")/$sanitized"
+            fi
+          done
+
+      # Only upload if `Run sequence` actually executed and produced an
+      # out_dir. Without this guard, a cancelled or skipped run leaves
+      # steps.run.outputs.out_dir empty and the glob expands to absolute
+      # `/**/*.json` — which then tries to scan the entire filesystem and
+      # fails with permission errors on /boot/efi etc.
+      - name: Upload plan + summary
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.kind }}-${{ matrix.profile }}-summary-${{ github.run_id }}
+          path: |
+            plan.json
+            ${{ steps.run.outputs.out_dir }}/summary.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload libxmtp NDJSON logs
+        # Belt-and-suspenders: require out_dir to be set AND look like one
+        # of our temp dirs so a bug elsewhere can't expand the glob into
+        # an absolute root path (`/**/*.json`).
+        if: always() && steps.run.outputs.out_dir != '' && (contains(steps.run.outputs.out_dir, 'xvt-out') || contains(steps.run.outputs.out_dir, 'ctt-out'))
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.kind }}-${{ matrix.profile }}-libxmtp-logs-${{ github.run_id }}
+          path: |
+            ${{ steps.run.outputs.out_dir }}/**/*.json
+            !${{ steps.run.outputs.out_dir }}/summary.json
+          if-no-files-found: ignore
+          retention-days: 14

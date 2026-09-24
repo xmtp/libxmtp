@@ -36,17 +36,31 @@ async fn test_self_removal_with_pending_state() {
     let bo_state_after_leave = bo_group.membership_state().unwrap();
     assert_eq!(bo_state_after_leave, FfiGroupMembershipState::PendingRemove);
 
-    // Alix syncs to process the leave request
+    // Alix syncs to process the leave request (enqueues the self-remove task and
+    // wakes the TaskRunner). Removal is now event-driven via the TaskRunner rather
+    // than a fixed poll, and completing it is multi-step: Alix's TaskRunner builds
+    // and publishes the removal commit, then Bo syncs it down. Drive both sides in
+    // a bounded loop until Bo is removed instead of relying on a single fixed wait.
     alix_group.sync().await.unwrap();
-
-    // Wait for admin worker to process the removal
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Bo syncs to get the final removal
-    bo_group.sync().await.unwrap();
+    let mut removed = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        // Sync Alix to let her TaskRunner-driven removal commit publish, then Bo
+        // to receive it. The removal is async (super-admin's TaskRunner), so poll
+        // until it lands rather than relying on a single fixed wait.
+        alix_group.sync().await.ok();
+        bo_group.sync().await.ok();
+        if !bo_group.is_active().unwrap() {
+            removed = true;
+            break;
+        }
+    }
 
     // Verify Bo's group is no longer active
-    assert!(!bo_group.is_active().unwrap());
+    assert!(
+        removed,
+        "Bo should be removed by the self-remove TaskRunner"
+    );
 
     // Verify Alix's membership state remains Allowed
     let alix_state_final = alix_group.membership_state().unwrap();
@@ -96,20 +110,26 @@ async fn test_membership_state_after_readd() {
         "Bo should be in PendingRemove state after leaving"
     );
 
-    // Alix syncs to process the leave request
+    // Alix syncs to process the leave request, then drive both sides in a bounded
+    // loop until the event-driven TaskRunner removal completes (commit built +
+    // published by Alix, synced down by Bo).
     alix_group.sync().await.unwrap();
-
-    // Wait for admin worker to process the removal
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Bo syncs to get the final removal
-    bo_group.sync().await.unwrap();
+    let mut removed = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        // Sync Alix to let her TaskRunner-driven removal commit publish, then Bo
+        // to receive it. The removal is async (super-admin's TaskRunner), so poll
+        // until it lands rather than relying on a single fixed wait.
+        alix_group.sync().await.ok();
+        bo_group.sync().await.ok();
+        if !bo_group.is_active().unwrap() {
+            removed = true;
+            break;
+        }
+    }
 
     // Verify Bo's group is no longer active
-    assert!(
-        !bo_group.is_active().unwrap(),
-        "Bo's group should be inactive after removal"
-    );
+    assert!(removed, "Bo's group should be inactive after removal");
 
     // Alix re-adds Bo to the group
     alix_group
@@ -166,6 +186,121 @@ async fn test_membership_state_after_readd() {
         2,
         "Both Alix and Bo should be in the group"
     );
+}
+
+/// Regression test for the `group_cursors` startup abort
+/// (`if seq is not null, originator must not be null`).
+///
+/// Unlike the tests above (where the *non-creator* Bo leaves and is re-added),
+/// here the group's **creator** leaves and is re-added. That is the only case
+/// that reproduces the crash: the creator's local group row is *cursorless*
+/// (`sequence_id = NULL, originator_id = NULL`, since a created group never
+/// processes a welcome for itself), whereas a joined group carries an
+/// originator from its first welcome. When the creator is re-welcomed,
+/// `insert_or_replace_group`'s "group already exists" branch writes only
+/// `sequence_id`, leaving `originator_id` NULL — and the next welcome-stream
+/// startup reads that row via `group_cursors()` and aborts (SIGABRT on device).
+///
+/// To see the crash, DISABLE the fix (both parts) in
+/// `crates/xmtp_db/src/encrypted_store/group.rs`:
+///   1. `insert_or_replace_group` update branch: set `sequence_id` only
+///      (remove the co-set of `originator_id`), and
+///   2. `group_cursors`: restore the `orig.expect(...)` (remove the `filter_map`).
+/// With the fix disabled this test panics with
+/// `if seq is not null, originator must not be null`; with the fix it passes.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn test_creator_leave_and_readd_does_not_abort_welcome_stream() {
+    use xmtp_db::prelude::QueryGroup;
+
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+
+    // Alix CREATES a group with Bo. Alix's local row for this group is cursorless.
+    let alix_group = alix
+        .conversations()
+        .create_group_by_identity(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+
+    // Bo syncs and gets the group.
+    bo.conversations().sync().await.unwrap();
+    let bo_group = bo.conversation(alix_group.id()).unwrap();
+
+    // The creator is a super admin, and a super admin cannot leave. Hand super
+    // admin to Bo, then drop Alix's own super admin, so the creator is allowed to
+    // leave (and so Bo can drive the removal and re-add).
+    alix_group.add_super_admin(bo.inbox_id()).await.unwrap();
+    alix_group
+        .remove_super_admin(alix.inbox_id())
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+    bo_group.sync().await.unwrap();
+
+    // Alix (now a regular member) leaves the group.
+    alix_group.leave_group().await.unwrap();
+    assert_eq!(
+        alix_group.membership_state().unwrap(),
+        FfiGroupMembershipState::PendingRemove
+    );
+
+    // Drive the event-driven removal: Bo (super admin) publishes the removal
+    // commit via his TaskRunner; Alix syncs it down. Poll until Alix is removed.
+    alix_group.sync().await.unwrap();
+    let mut removed = false;
+    for _ in 0..20 {
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        bo_group.sync().await.ok();
+        alix_group.sync().await.ok();
+        if !alix_group.is_active().unwrap() {
+            removed = true;
+            break;
+        }
+    }
+    assert!(removed, "creator should be removed after leaving");
+
+    // Bo re-adds Alix. This delivers a welcome for a group Alix already has
+    // locally as a cursorless row.
+    bo_group
+        .add_members_by_identity(vec![alix.account_identifier.clone()])
+        .await
+        .unwrap();
+    bo_group.sync().await.unwrap();
+
+    // Alix processes the re-add welcome. This is the corrupting write: the
+    // "group already exists" branch sets sequence_id but (pre-fix) leaves
+    // originator_id NULL. (sync_welcomes does not read group_cursors, so this
+    // step itself does not crash.)
+    alix.conversations().sync().await.unwrap();
+
+    // "Stream welcomes": on startup the conversation/welcome stream builds its
+    // known-welcome set via `group_cursors()` (see
+    // `subscriptions::stream_conversations` -> `group_cursors`). Invoke that exact
+    // call here. With the fix disabled it aborts on the corrupted row; with the
+    // fix it returns the healed cursor. We assert it directly because on device
+    // the abort happens on the stream's background task, which a unit test can't
+    // deterministically observe.
+    let cursors = alix
+        .inner_client
+        .context
+        .db()
+        .group_cursors()
+        .expect("welcome-stream startup (group_cursors) must not abort after creator re-add");
+    assert_eq!(
+        cursors.len(),
+        1,
+        "the re-added creator group should yield exactly one welcome cursor"
+    );
+
+    // And end-to-end: actually start the conversation/welcome stream, which is
+    // what runs `group_cursors()` at setup on a real client. Reached only when the
+    // fix is present (pre-fix the assertion above already panicked).
+    let stream_callback = Arc::new(RustStreamCallback::default());
+    let stream = alix.conversations().stream(stream_callback.clone()).await;
+    stream.end_and_wait().await.unwrap();
 }
 
 /// Test that leave request messages are visible and properly decoded.

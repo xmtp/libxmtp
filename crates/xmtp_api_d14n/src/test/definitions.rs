@@ -2,7 +2,7 @@
 //! "creators" are test clients that can be used with [`XmtpTestClient`]
 
 use crate::{
-    D14nClient, ReadWriteClient, TrackedStatsClient, V3Client,
+    D14nClient, MigrationClient, ReadWriteClient, TrackedStatsClient, V3Client,
     protocol::{CursorStore, NoCursorStore},
 };
 use std::sync::Arc;
@@ -105,4 +105,22 @@ xmtp_common::if_v3! {
     pub type DefaultTestClientCreator = FeatureSwitchedTestClientCreator;
 }
 
-// TODO: combined_migration client. i.e 'if_combined_client!'
+/// A built test client that speaks through the `MigrationClient` cutover path:
+/// v3 (xmtp-node-go) before cutover, xmtpd (read/write over gateway) after.
+/// This is the object production ships, so live tests use it to prove the
+/// v3↔d14n handoff works end to end.
+pub type TestMigrationClient = TrackedStatsClient<
+    MigrationClient<GrpcClient, ReadWriteClient<GrpcClient, GrpcClient>, Arc<dyn CursorStore>>,
+>;
+
+/// Creator for a `MigrationClient` wired to the local docker stack (v3
+/// node-go + xmtpd + gateway). Unlike [`FeatureSwitchedTestClientCreator`],
+/// this does not switch on the `d14n` feature — it always builds the dual
+/// backend so a test can drive the cutover itself via the cursor store.
+pub type LocalOnlyMigrationClientCreator = TrackedStatsClient<
+    MigrationClient<
+        LocalNodeGoClient,
+        ReadWriteClient<LocalXmtpdClient, LocalGatewayClient>,
+        Arc<dyn CursorStore>,
+    >,
+>;

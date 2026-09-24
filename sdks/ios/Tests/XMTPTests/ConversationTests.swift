@@ -328,7 +328,9 @@ class ConversationTests: XCTestCase {
 					received += 1
 					expectation.fulfill()
 
-					if received >= 90 { break }
+					if received >= 90 {
+						break
+					}
 				}
 			} catch {
 				print("Error while streaming messages: \(error)")

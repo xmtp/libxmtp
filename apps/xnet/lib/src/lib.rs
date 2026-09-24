@@ -11,6 +11,7 @@ pub mod constants;
 pub mod contracts;
 pub mod dns_setup;
 pub mod network;
+pub mod node_provisioner;
 pub mod services;
 pub mod types;
 pub mod wallet_funding;

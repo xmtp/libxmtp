@@ -15,7 +15,6 @@ All `nix build .#<package>` outputs defined in `flake.nix`.
 | `node-bindings-linux-x64-musl` | `nix build .#node-bindings-linux-x64-musl` | Per-target .node binary |
 | `node-bindings-linux-arm64-gnu` | `nix build .#node-bindings-linux-arm64-gnu` | Per-target .node binary |
 | `node-bindings-linux-arm64-musl` | `nix build .#node-bindings-linux-arm64-musl` | Per-target .node binary |
-| `node-bindings-darwin-x64` | `nix build .#node-bindings-darwin-x64` | Per-target .node binary |
 | `node-bindings-darwin-arm64` | `nix build .#node-bindings-darwin-arm64` | Per-target .node binary |
 | `node-bindings-fast` | `nix build .#node-bindings-fast` | Host-matching .node only |
 | `node-bindings-js` | `nix build .#node-bindings-js` | Generated index.js + index.d.ts |
@@ -47,7 +46,6 @@ Target mapping (Rust triple -> NAPI platform name):
 | `x86_64-unknown-linux-musl` | `linux-x64-musl` |
 | `aarch64-unknown-linux-gnu` | `linux-arm64-gnu` |
 | `aarch64-unknown-linux-musl` | `linux-arm64-musl` |
-| `x86_64-apple-darwin` | `darwin-x64` |
 | `aarch64-apple-darwin` | `darwin-arm64` |
 
 Windows targets are excluded from Nix (built separately in CI).

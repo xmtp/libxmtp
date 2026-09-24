@@ -12,15 +12,22 @@ public struct MessageVisibilityOptions {
 	/// Whether this message should trigger a push notification
 	public var shouldPush: Bool
 
+	/// Optional idempotency key. Re-sending identical content with the same key
+	/// produces the same message id and is deduplicated. Defaults to a timestamp.
+	public var idempotencyKey: String?
+
 	/// Creates message visibility options
-	/// - Parameter shouldPush: Whether this message should trigger a push notification (default: true)
-	public init(shouldPush: Bool = true) {
+	/// - Parameters:
+	///   - shouldPush: Whether this message should trigger a push notification (default: true)
+	///   - idempotencyKey: Optional idempotency key for deterministic, deduplicated sends
+	public init(shouldPush: Bool = true, idempotencyKey: String? = nil) {
 		self.shouldPush = shouldPush
+		self.idempotencyKey = idempotencyKey
 	}
 
 	/// Converts the visibility options to FFI send message options
 	/// - Returns: FfiSendMessageOpts instance with the appropriate settings
 	public func toFfi() -> FfiSendMessageOpts {
-		FfiSendMessageOpts(shouldPush: shouldPush)
+		FfiSendMessageOpts(shouldPush: shouldPush, idempotencyKey: idempotencyKey)
 	}
 }

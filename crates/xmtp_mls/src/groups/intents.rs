@@ -77,6 +77,8 @@ pub enum IntentError {
     UnknownPermissionPolicyOption,
     #[error("unknown value for AdminListActionType")]
     UnknownAdminListAction,
+    #[error("intent payload error: {0}")]
+    Generic(String),
 }
 
 impl From<prost::DecodeError> for IntentError {
@@ -184,6 +186,10 @@ impl From<Vec<Vec<u8>>> for AddressesOrInstallationIds {
 pub struct UpdateMetadataIntentData {
     pub field_name: String,
     pub field_value: String,
+    /// Compare-and-swap guard. When set, publishing abandons this intent
+    /// unless the field's currently committed value still equals this.
+    /// `None` keeps the historical last-writer-wins behavior.
+    pub expected_field_value: Option<String>,
 }
 
 impl UpdateMetadataIntentData {
@@ -191,62 +197,74 @@ impl UpdateMetadataIntentData {
         Self {
             field_name,
             field_value,
+            expected_field_value: None,
+        }
+    }
+
+    /// A guarded update: publishing abandons the intent (marking it
+    /// [`xmtp_db::group_intent::IntentState::Superseded`]) unless the
+    /// committed value still equals `expected_field_value`.
+    pub fn new_guarded(
+        field_name: String,
+        field_value: String,
+        expected_field_value: String,
+    ) -> Self {
+        Self {
+            field_name,
+            field_value,
+            expected_field_value: Some(expected_field_value),
         }
     }
 
     pub fn new_update_group_name(group_name: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupName.to_string(),
-            field_value: group_name,
-        }
+        Self::new(MetadataField::GroupName.to_string(), group_name)
     }
 
     pub fn new_update_group_image_url_square(group_image_url_square: String) -> Self {
-        Self {
-            field_name: MetadataField::GroupImageUrlSquare.to_string(),
-            field_value: group_image_url_square,
-        }
+        Self::new(
+            MetadataField::GroupImageUrlSquare.to_string(),
+            group_image_url_square,
+        )
     }
 
     pub fn new_update_group_description(group_description: String) -> Self {
-        Self {
-            field_name: MetadataField::Description.to_string(),
-            field_value: group_description,
-        }
+        Self::new(MetadataField::Description.to_string(), group_description)
     }
 
-    pub fn new_update_app_data(app_data: String) -> Self {
-        Self {
-            field_name: MetadataField::AppData.to_string(),
-            field_value: app_data,
+    pub fn new_update_app_data(app_data: String, expected_app_data: Option<String>) -> Self {
+        match expected_app_data {
+            Some(expected) => {
+                Self::new_guarded(MetadataField::AppData.to_string(), app_data, expected)
+            }
+            None => Self::new(MetadataField::AppData.to_string(), app_data),
         }
     }
 
     pub fn new_update_conversation_message_disappear_from_ns(from_ns: i64) -> Self {
-        Self {
-            field_name: MetadataField::MessageDisappearFromNS.to_string(),
-            field_value: from_ns.to_string(),
-        }
+        Self::new(
+            MetadataField::MessageDisappearFromNS.to_string(),
+            from_ns.to_string(),
+        )
     }
     pub fn new_update_conversation_message_disappear_in_ns(in_ns: i64) -> Self {
-        Self {
-            field_name: MetadataField::MessageDisappearInNS.to_string(),
-            field_value: in_ns.to_string(),
-        }
+        Self::new(
+            MetadataField::MessageDisappearInNS.to_string(),
+            in_ns.to_string(),
+        )
     }
 
     pub fn new_update_group_min_version_to_match_self(min_version: String) -> Self {
-        Self {
-            field_name: MetadataField::MinimumSupportedProtocolVersion.to_string(),
-            field_value: min_version,
-        }
+        Self::new(
+            MetadataField::MinimumSupportedProtocolVersion.to_string(),
+            min_version,
+        )
     }
 
     pub fn new_update_commit_log_signer(commit_log_signer: xmtp_cryptography::Secret) -> Self {
-        Self {
-            field_name: MetadataField::CommitLogSigner.to_string(),
-            field_value: hex::encode(commit_log_signer.as_slice()),
-        }
+        Self::new(
+            MetadataField::CommitLogSigner.to_string(),
+            hex::encode(commit_log_signer.as_slice()),
+        )
     }
 }
 
@@ -258,6 +276,7 @@ impl From<UpdateMetadataIntentData> for Vec<u8> {
             version: Some(UpdateMetadataVersion::V1(UpdateMetadataV1 {
                 field_name: intent.field_name.to_string(),
                 field_value: intent.field_value.clone(),
+                expected_field_value: intent.expected_field_value.clone(),
             })),
         }
         .encode(&mut buf)
@@ -281,8 +300,17 @@ impl TryFrom<Vec<u8>> for UpdateMetadataIntentData {
             Some(UpdateMetadataVersion::V1(ref v1)) => v1.field_value.clone(),
             None => return Err(IntentError::MissingPayload),
         };
+        // Absent on intents queued before the guard existed, and on payloads
+        // written by a client that predates it — both mean last-writer-wins.
+        let expected_field_value = match msg.version {
+            Some(UpdateMetadataVersion::V1(ref v1)) => v1.expected_field_value.clone(),
+            None => return Err(IntentError::MissingPayload),
+        };
 
-        Ok(Self::new(field_name, field_value))
+        Ok(match expected_field_value {
+            Some(expected) => Self::new_guarded(field_name, field_value, expected),
+            None => Self::new(field_name, field_value),
+        })
     }
 }
 
@@ -1008,6 +1036,185 @@ impl TryFrom<Vec<u8>> for PostCommitAction {
     }
 }
 
+/// Payload of [`crate::groups::intents::queue::QueueIntent::app_data_update`].
+///
+/// Generic AppData write intent — one shape replaces the per-component
+/// IntentKind proliferation. Carries the target `component_id` and the
+/// raw `payload` bytes that will be emitted verbatim as the on-wire
+/// `AppDataUpdate` proposal payload. Interpretation of `payload` is
+/// determined by the target component's registered `ComponentType`:
+///
+/// * `Bytes` / `String` typed components — payload is the new value
+///   (last-writer-wins on receive).
+/// * `TlsMap` typed components — payload is a TLS-encoded
+///   `TlsMapDelta<K, V>`. Apply on the receive side is total: `Insert`
+///   is no-op-if-present, `Update` is upsert, `Delete` is idempotent.
+///   No "conflict" failure path.
+/// * `TlsSet` typed components — payload is a TLS-encoded
+///   `TlsSetDelta<E>` (`Add` no-op-if-present, `Remove` idempotent).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppDataUpdateIntentData {
+    /// Target well-known or app-range component ID.
+    pub component_id: u16,
+    /// Verbatim AppDataUpdate proposal payload. See the type-level
+    /// docs for the per-`ComponentType` interpretation.
+    pub payload: Vec<u8>,
+}
+
+impl AppDataUpdateIntentData {
+    /// Build an intent targeting `component_id` with the supplied
+    /// proposal payload bytes.
+    pub fn new(component_id: u16, payload: Vec<u8>) -> Self {
+        Self {
+            component_id,
+            payload,
+        }
+    }
+}
+
+// Wire format: prost-encoded `xmtp.mls.database.AppDataUpdateData` proto
+// wrapping `AppDataUpdateData.V1` (see
+// `proto/mls/database/intents.proto`). Same lifecycle as every other
+// intent in this file — local-only SQLite serialization, never crosses
+// the MLS wire, but uses the proto/prost pipeline for tooling
+// consistency, forward-compat under field addition, and serde
+// derivation.
+//
+// The `component_id` field is `u32` on the wire (proto has no u16) and
+// narrowed back to `u16` here. Encoders MUST cap values at `u16::MAX`;
+// decoders reject anything larger as malformed. Unknown version
+// variants fail closed at decode time.
+
+impl From<AppDataUpdateIntentData> for Vec<u8> {
+    fn from(intent: AppDataUpdateIntentData) -> Self {
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::database::{
+            AppDataUpdateData, app_data_update_data::V1 as AppDataUpdateDataV1,
+            app_data_update_data::Version as AppDataUpdateVersion,
+        };
+        AppDataUpdateData {
+            version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
+                component_id: intent.component_id as u32,
+                payload: intent.payload,
+            })),
+        }
+        .encode_to_vec()
+    }
+}
+
+impl TryFrom<Vec<u8>> for AppDataUpdateIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: Vec<u8>) -> Result<Self, Self::Error> {
+        Self::try_from(data.as_slice())
+    }
+}
+
+impl TryFrom<&[u8]> for AppDataUpdateIntentData {
+    type Error = IntentError;
+
+    fn try_from(data: &[u8]) -> Result<Self, Self::Error> {
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::database::{
+            AppDataUpdateData, app_data_update_data::Version as AppDataUpdateVersion,
+        };
+        let proto = AppDataUpdateData::decode(data)?;
+        let v1 = match proto.version {
+            Some(AppDataUpdateVersion::V1(v1)) => v1,
+            None => {
+                return Err(IntentError::Generic(
+                    "AppDataUpdateIntentData missing version oneof variant".into(),
+                ));
+            }
+        };
+        let component_id = u16::try_from(v1.component_id).map_err(|_| {
+            IntentError::Generic(format!(
+                "AppDataUpdateIntentData component_id {} exceeds u16 range",
+                v1.component_id
+            ))
+        })?;
+        Ok(Self {
+            component_id,
+            payload: v1.payload,
+        })
+    }
+}
+
+#[cfg(test)]
+mod app_data_update_intent_tests {
+    use super::*;
+
+    #[test]
+    fn round_trip_basic() {
+        let intent = AppDataUpdateIntentData::new(0x800C, vec![0xAA, 0xBB, 0xCC]);
+        let bytes: Vec<u8> = intent.clone().into();
+        let restored = AppDataUpdateIntentData::try_from(bytes).unwrap();
+        assert_eq!(restored, intent);
+    }
+
+    #[test]
+    fn empty_payload_round_trips() {
+        // Empty payload bytes (a "no-op" intent shape) must round-trip
+        // cleanly — useful for components that legitimately write
+        // empty values (e.g., revoke clears EXTERNAL_COMMIT_POLICY's
+        // symmetric_key to zero-length).
+        let intent = AppDataUpdateIntentData::new(0x800C, vec![]);
+        let bytes: Vec<u8> = intent.clone().into();
+        let restored = AppDataUpdateIntentData::try_from(bytes).unwrap();
+        assert_eq!(restored, intent);
+    }
+
+    #[test]
+    fn missing_version_variant_surfaces_error() {
+        // Proto with no `version` oneof set decodes to `version: None`
+        // on unknown-variant tolerance. Reject explicitly — an intent
+        // payload without a recognised version variant is malformed.
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::database::AppDataUpdateData;
+        let bytes = AppDataUpdateData { version: None }.encode_to_vec();
+        let err = AppDataUpdateIntentData::try_from(bytes).unwrap_err();
+        match err {
+            IntentError::Generic(msg) => assert!(msg.contains("missing version")),
+            _ => panic!("expected Generic error, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn component_id_overflow_surfaces_error() {
+        // u16 component_id is widened to u32 on the wire. A payload that
+        // somehow carries a value above u16::MAX (e.g., a malformed
+        // intent or one written by a hypothetical future client widening
+        // the id space) must be rejected — the dispatcher narrows to
+        // u16 and we'd silently lose information without the explicit
+        // check.
+        use prost::Message;
+        use xmtp_proto::xmtp::mls::database::{
+            AppDataUpdateData, app_data_update_data::V1 as AppDataUpdateDataV1,
+            app_data_update_data::Version as AppDataUpdateVersion,
+        };
+        let bytes = AppDataUpdateData {
+            version: Some(AppDataUpdateVersion::V1(AppDataUpdateDataV1 {
+                component_id: u16::MAX as u32 + 1,
+                payload: vec![],
+            })),
+        }
+        .encode_to_vec();
+        let err = AppDataUpdateIntentData::try_from(bytes).unwrap_err();
+        match err {
+            IntentError::Generic(msg) => assert!(msg.contains("exceeds u16")),
+            _ => panic!("expected Generic error, got {err:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_proto_bytes_surface_decode_error() {
+        // Random bytes that aren't a valid proto must surface a
+        // prost::DecodeError via the IntentError::Conversion path.
+        let bytes = vec![0xFF; 16];
+        assert!(AppDataUpdateIntentData::try_from(bytes).is_err());
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use crate::context::XmtpSharedContext;
@@ -1143,7 +1350,7 @@ pub(crate) mod tests {
         let messages = group
             .context
             .api()
-            .query_at(TopicKind::GroupMessagesV1.create(&group.group_id), None)
+            .query_at(TopicKind::GroupMessagesV1.create(group.group_id), None)
             .await
             .unwrap();
         assert_eq!(messages.len(), num_messages);

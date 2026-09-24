@@ -6,12 +6,13 @@ env:
 jobs:
   lint:
     name: Lint (Config)
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
         uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
+          disk-key: rust
           github-token: ${{ github.token }}
       - uses: taiki-e/install-action@just
       - name: Lint config files (TOML, Nix, shell)

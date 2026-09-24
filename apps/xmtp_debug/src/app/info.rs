@@ -2,23 +2,21 @@
 
 use crate::app::App;
 use crate::app::store::{Database, MetadataStore};
-use crate::args;
+use crate::{args, meta_key};
 use valuable::Valuable;
 
 use color_eyre::eyre::Result;
 
 pub struct Info {
-    opts: args::InfoOpts,
+    opts: &'static args::InfoOpts,
     metadata_store: MetadataStore<'static>,
-    network: args::BackendOpts,
 }
 
 impl Info {
-    pub fn new(opts: args::InfoOpts, network: args::BackendOpts) -> Result<Self> {
+    pub fn new(opts: &'static args::InfoOpts) -> Result<Self> {
         let db = App::readonly_db()?;
         Ok(Self {
             opts,
-            network,
             metadata_store: db.into(),
         })
     }
@@ -41,17 +39,17 @@ impl Info {
     fn app(&self) -> Result<()> {
         let metadata = self
             .metadata_store
-            .get((&self.network).into())
+            .get(meta_key!())
             .ok()
             .flatten()
             .unwrap_or(Default::default());
 
-        let sqlite_stores = crate::app::App::db_directory(&self.network)?;
+        let sqlite_stores = crate::app::App::db_directory()?;
         let db_dir_size = fs_extra::dir::get_size(&sqlite_stores)? / 1_000 / 1_000;
         info!(
-            metadata.identities,
-            metadata.groups,
-            // metadata.messages,
+            identities = metadata.identities,
+            groups = metadata.groups,
+            messages = metadata.messages,
             project = crate::app::App::data_directory()?.as_value(),
             sqlite = sqlite_stores.as_value(),
             sqlite_size = %format!("{db_dir_size}MB"),

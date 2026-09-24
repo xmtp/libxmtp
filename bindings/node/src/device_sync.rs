@@ -159,6 +159,7 @@ impl DeviceSync {
 
   /// Manually trigger a device sync request to sync records from another active device on this account.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_sync_request(&self, options: ArchiveOptions, server_url: String) -> Result<()> {
     self
       .inner_client
@@ -173,6 +174,7 @@ impl DeviceSync {
   /// Manually send a sync archive to the sync group.
   /// The pin is used for reference when importing.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn send_sync_archive(
     &self,
     options: ArchiveOptions,
@@ -191,6 +193,7 @@ impl DeviceSync {
   /// Manually process a sync archive that matches the pin given.
   /// If no pin is given, then it will process the last archive sent.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn process_sync_archive(&self, archive_pin: Option<String>) -> Result<()> {
     self
       .inner_client
@@ -205,6 +208,7 @@ impl DeviceSync {
   /// You may need to manually sync the sync group before calling
   /// this function to see recently uploaded archives.
   #[napi]
+  #[xmtp_common::err_span]
   pub fn list_available_archives(&self, days_cutoff: i64) -> Result<Vec<AvailableArchiveInfo>> {
     let available = self
       .inner_client
@@ -217,6 +221,7 @@ impl DeviceSync {
 
   /// Archive application elements to file for later restoration.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_archive(
     &self,
     path: String,
@@ -234,6 +239,7 @@ impl DeviceSync {
 
   /// Import a previous archive from a file.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn import_archive(&self, path: String, key: Uint8Array) -> Result<()> {
     let key = check_key(&key)?;
     let mut importer = ArchiveImporter::from_file(path, &key)
@@ -251,6 +257,7 @@ impl DeviceSync {
   /// Load the metadata for an archive to see what it contains.
   /// Reads only the metadata without loading the entire file, so this function is quick.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn archive_metadata(&self, path: String, key: Uint8Array) -> Result<ArchiveMetadata> {
     let key = check_key(&key)?;
     let importer = ArchiveImporter::from_file(path, &key)
@@ -263,6 +270,7 @@ impl DeviceSync {
 
   /// Manually sync all device sync groups.
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary> {
     self
       .inner_client

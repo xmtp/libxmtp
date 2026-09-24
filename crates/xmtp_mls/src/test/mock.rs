@@ -21,6 +21,7 @@ use crate::{
 use alloy::signers::local::PrivateKeySigner;
 use mockall::mock;
 use tokio::sync::broadcast;
+use tokio_util::sync::CancellationToken;
 use xmtp_api::ApiClientWrapper;
 use xmtp_api_d14n::MockApiClient;
 use xmtp_cryptography::XmtpInstallationCredential;
@@ -78,7 +79,6 @@ impl Clone for NewMockContext {
         Self {
             identity: self.identity.clone(),
             api_client: self.api_client.clone(),
-            sync_api_client: self.sync_api_client.clone(),
             store: self.store.clone(),
             mls_storage: self.mls_storage.clone(),
             mutexes: self.mutexes.clone(),
@@ -89,8 +89,14 @@ impl Clone for NewMockContext {
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
+            change_callbacks: self.change_callbacks.clone(),
+            worker_config: self.worker_config.clone(),
             task_channels: self.task_channels.clone(),
+            disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(
+            ),
             worker_metrics: self.worker_metrics.clone(),
+            cancellation_token: self.cancellation_token.clone(),
+            shutdown_complete: self.shutdown_complete.clone(),
         }
     }
 }
@@ -127,6 +133,10 @@ impl XmtpSharedContext for NewMockContext {
         &self.fork_recovery_opts
     }
 
+    fn worker_config(&self) -> &crate::worker::WorkerConfig {
+        &self.worker_config
+    }
+
     fn mls_storage(&self) -> &Self::MlsStorage {
         &self.mls_storage
     }
@@ -159,6 +169,14 @@ impl XmtpSharedContext for NewMockContext {
         &self.task_channels
     }
 
+    fn disappearing_channels(&self) -> &crate::worker::disappearing_messages::DisappearingChannels {
+        &self.disappearing_channels
+    }
+
+    fn change_callbacks(&self) -> &crate::groups::change_callbacks::UnstableChangeCallbacks {
+        &self.change_callbacks
+    }
+
     fn sync_metrics(&self) -> Option<Arc<crate::worker::metrics::WorkerMetrics<SyncMetric>>> {
         self.worker_metrics
             .lock()
@@ -166,7 +184,17 @@ impl XmtpSharedContext for NewMockContext {
             .as_sync_metrics()
     }
 
-    fn sync_api(&self) -> &ApiClientWrapper<Self::ApiClient> {
-        &self.sync_api_client
+    fn cancellation_token(&self) -> &CancellationToken {
+        &self.cancellation_token
+    }
+
+    fn shutdown_complete(&self) -> bool {
+        self.shutdown_complete
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    fn mark_shutdown_complete(&self) {
+        self.shutdown_complete
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }

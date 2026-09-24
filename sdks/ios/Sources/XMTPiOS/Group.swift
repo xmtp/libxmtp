@@ -234,8 +234,58 @@ public struct Group: Identifiable, Equatable, Hashable {
 		)
 	}
 
-	public func updateAppData(appData: String) async throws {
-		try await ffiGroup.updateAppData(appData: appData)
+	/// Set the group's opaque `appData`.
+	///
+	/// `expectedAppData` is an optional compare-and-swap guard. When provided,
+	/// the update is abandoned — rather than overwriting — if the committed
+	/// value is no longer that, including when another member's commit wins
+	/// the race after this update was published. Callers reconciling
+	/// structured state should pass the value they merged against, so a
+	/// concurrent write surfaces as an error instead of silently discarding
+	/// someone else's change. Omit it for last-writer-wins.
+	public func updateAppData(
+		appData: String,
+		expectedAppData: String? = nil
+	) async throws {
+		try await ffiGroup.updateAppData(
+			options: FfiUpdateAppDataOptions(
+				value: appData,
+				expectedValue: expectedAppData
+			)
+		)
+	}
+
+	/// Pre-release APIs, grouped under ``UnstableGroup`` and gated behind
+	/// `@_spi(Unstable)` — they are not part of the stable API surface for
+	/// the v1.11 cut. Reach them via `@_spi(Unstable) import XMTPiOS`.
+	/// Opting in once here covers every function on ``UnstableGroup``; when
+	/// one graduates it moves onto `Group` and the `.unstable` access
+	/// breaks at compile time, forcing a migration.
+	@_spi(Unstable) public var unstable: UnstableGroup {
+		UnstableGroup(ffiGroup: ffiGroup)
+	}
+
+	/// Whether this group has migrated to AppData-proposal-based metadata
+	/// updates. `false` means the group is still on the legacy
+	/// GroupContextExtensions path. Prefer this semantic bool over scanning
+	/// ``membershipCapabilities()`` for the marker extension.
+	public func proposalsEnabled() throws -> Bool {
+		try ffiGroup.proposalsEnabled()
+	}
+
+	/// Snapshot this group's membership capabilities: the group context's
+	/// extension types plus, per member inbox and installation, the extension
+	/// types each advertises.
+	///
+	/// These are generic facts you filter to a specific question. For the
+	/// proposal (app-data-dictionary) migration: use ``proposalsEnabled()``
+	/// to ask "is this group migrated" — this snapshot answers the other
+	/// question: an inbox blocks migration when one of its installations'
+	/// ``InstallationCapabilities/supportedExtensions`` does not contain
+	/// ``MlsExtensionType/appDataDictionary``. Pair with
+	/// ``UnstableGroup/enableProposals(force:minVersion:)``.
+	public func membershipCapabilities() async throws -> GroupMembershipCapabilities {
+		try await GroupMembershipCapabilities(ffi: ffiGroup.membershipCapabilities())
 	}
 
 	public func updateAddMemberPermission(newPermissionOption: PermissionOption)
@@ -433,7 +483,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		}
 
 		let visibilityOptions = try MessageVisibilityOptions(
-			shouldPush: shouldPush(codec: codec, content: content)
+			shouldPush: shouldPush(codec: codec, content: content),
+			idempotencyKey: options?.idempotencyKey
 		)
 
 		return (encoded, visibilityOptions)
@@ -451,7 +502,8 @@ public struct Group: Identifiable, Equatable, Hashable {
 		if noSend {
 			messageId = try ffiGroup.prepareMessage(
 				contentBytes: encodedContent.serializedData(),
-				shouldPush: shouldPush
+				shouldPush: shouldPush,
+				idempotencyKey: visibilityOptions?.idempotencyKey
 			)
 		} else {
 			let opts = visibilityOptions?.toFfi() ?? FfiSendMessageOpts(shouldPush: true)

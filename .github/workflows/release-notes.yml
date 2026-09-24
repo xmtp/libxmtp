@@ -3,6 +3,16 @@ name: Release Notes
 on:
   push:
     branches: ["release/**"]
+    # Notes-only pushes (e.g. merging the drafter's own PR) must not
+    # retrigger drafting — that redrafts the redraft, forever (#3919/#3920).
+    paths-ignore:
+      - "docs/release-notes/**"
+  workflow_dispatch:
+    inputs:
+      release-branch:
+        description: "Release branch name (e.g. release/1.2.0)"
+        required: false
+        type: string
   workflow_call:
     inputs:
       release-branch:
@@ -10,16 +20,42 @@ on:
         required: true
         type: string
 
-concurrency:
-  group: release-notes-${{ inputs.release-branch || github.ref_name }}
-  cancel-in-progress: true
-
 jobs:
-  update-release-notes:
+  # claude-code-action rejects push-triggered runs ("Unsupported event
+  # type: push"), so convert the push into a workflow_dispatch of this
+  # same workflow. GITHUB_TOKEN-created workflow_dispatch events are
+  # exempt from Actions' recursion prevention, and the dispatched run
+  # (a supported event type) does the real work below.
+  redispatch:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Redispatch as workflow_dispatch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          gh workflow run release-notes.yml \
+            --repo "${{ github.repository }}" \
+            --ref "$BRANCH" \
+            -f release-branch="$BRANCH"
+
+  update-release-notes:
+    if: github.event_name != 'push'
+    runs-on: ubuntu-latest
+    # Job-level (not workflow-level) so the push shim above never joins
+    # the group — its dispatched child was cancelling it, leaving a
+    # spurious cancelled run on every release-branch push.
+    concurrency:
+      group: release-notes-${{ inputs.release-branch || github.ref_name }}
+      cancel-in-progress: true
     permissions:
       contents: write
       pull-requests: write
+      # claude-code-action exchanges an OIDC token for its GitHub token
+      id-token: write
     steps:
       - uses: actions/checkout@v6
         with:
@@ -30,8 +66,10 @@ jobs:
         env:
           BRANCH: ${{ inputs.release-branch || github.ref_name }}
         run: |
-          if ! echo "$BRANCH" | grep -qE '^release/[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$'; then
-            echo "::error::Invalid branch name format: $BRANCH (expected release/X.Y.Z)"
+          # Two branch shapes exist: pipeline-created release/X.Y.Z and
+          # long-lived maintenance lines like release/v1.11 (patch optional).
+          if ! echo "$BRANCH" | grep -qE '^release/v?[0-9]+\.[0-9]+(\.[0-9]+)?(-[a-zA-Z0-9.]+)?$'; then
+            echo "::error::Invalid branch name format: $BRANCH (expected release/X.Y.Z or release/vX.Y)"
             exit 1
           fi
 
@@ -40,7 +78,10 @@ jobs:
         env:
           BRANCH: ${{ inputs.release-branch || github.ref_name }}
         run: |
+          # Label-only downstream (commit messages, PR titles, suggestion
+          # branch name) — a partial version like "1.11" is fine.
           VERSION="${BRANCH#release/}"
+          VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
           echo "Detected release version: $VERSION from branch: $BRANCH"
@@ -70,7 +111,21 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 15"
+          # Agent mode denies tools not allow-listed here. Enumerated
+          # subcommands only — a blanket Bash(git:*) would allow
+          # arbitrary shell via `git -c alias.x='!cmd' x`, and this job
+          # holds write perms + API keys while reading untrusted commit
+          # history. The --no-pager variants are listed because prefix
+          # rules match literally. 100 turns: six SDK note files over a
+          # full release range didn't fit in 50.
+          claude_args: >-
+            --max-turns 100
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(git --no-pager diff:*),Bash(git --no-pager log:*),Bash(git --no-pager show:*),Read,Edit,Write,Glob,Grep"
+          # The redispatch shim initiates runs as github-actions[bot]
+          allowed_bots: "github-actions"
+          # Transcript in the job log — debugging denials/caps is blind
+          # without it. Nothing secret runs in this workflow.
+          show_full_output: true
           prompt: |
             You are drafting release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
@@ -102,6 +157,11 @@ jobs:
 
             After editing all files, commit with message:
             docs: draft release notes for ${{ steps.version.outputs.version }} [skip ci]
+
+            Tool constraints: only plain git subcommands (diff, log, show,
+            status, add, commit) are allowed, optionally with --no-pager.
+            Do not use `git -c`, aliases, pipes, command substitution, or
+            heredocs — commit with a single `git commit -m "<message>"`.
 
       - name: Push draft release notes
         if: steps.classify.outputs.has_empty == 'true'
@@ -148,7 +208,21 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          claude_args: "--max-turns 15"
+          # Agent mode denies tools not allow-listed here. Enumerated
+          # subcommands only — a blanket Bash(git:*) would allow
+          # arbitrary shell via `git -c alias.x='!cmd' x`, and this job
+          # holds write perms + API keys while reading untrusted commit
+          # history. The --no-pager variants are listed because prefix
+          # rules match literally. 100 turns: six SDK note files over a
+          # full release range didn't fit in 50.
+          claude_args: >-
+            --max-turns 100
+            --allowed-tools "Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git status:*),Bash(git add:*),Bash(git commit:*),Bash(git --no-pager diff:*),Bash(git --no-pager log:*),Bash(git --no-pager show:*),Read,Edit,Write,Glob,Grep"
+          # The redispatch shim initiates runs as github-actions[bot]
+          allowed_bots: "github-actions"
+          # Transcript in the job log — debugging denials/caps is blind
+          # without it. Nothing secret runs in this workflow.
+          show_full_output: true
           prompt: |
             You are reviewing release notes for a software SDK. The audience is end users
             of this SDK, not contributors to this repo.
@@ -184,6 +258,11 @@ jobs:
 
             If you make changes, commit with message:
             docs: suggest release notes updates for ${{ steps.version.outputs.version }}
+
+            Tool constraints: only plain git subcommands (diff, log, show,
+            status, add, commit) are allowed, optionally with --no-pager.
+            Do not use `git -c`, aliases, pipes, command substitution, or
+            heredocs — commit with a single `git commit -m "<message>"`.
 
       - name: Push suggestions and manage PR
         if: steps.classify.outputs.has_content == 'true'

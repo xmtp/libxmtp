@@ -1,177 +1,41 @@
 use crate::FfiError;
-use log::Subscriber;
-use log::level_filters::LevelFilter;
-use parking_lot::Mutex;
-use std::io::Write;
-use std::sync::{
-    Arc, LazyLock, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
-use tracing_appender::non_blocking::NonBlockingBuilder;
-use tracing_appender::non_blocking::WorkerGuard;
-use tracing_appender::rolling::RollingFileAppender;
-use tracing_subscriber::fmt::MakeWriter;
-use tracing_subscriber::fmt::format::DefaultFields;
-use tracing_subscriber::fmt::format::Format;
-use tracing_subscriber::{
-    EnvFilter, Layer, filter::Filtered, fmt, layer::Layered, layer::SubscriberExt,
-    registry::LookupSpan, registry::Registry, reload, util::SubscriberInitExt,
-};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use xmtp_logging::{FileConfig, Level, LoggingHandle, ProcessType, Rotation, XmtpLogging};
 
-#[cfg(target_os = "android")]
-pub use android::*;
-#[cfg(target_os = "android")]
-mod android {
-    use super::*;
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        use tracing_subscriber::EnvFilter;
-        let api_calls_filter = EnvFilter::builder().parse_lossy("xmtp_api=debug");
-        let libxmtp_filter = xmtp_common::filter_directive("debug");
+// Process-global logging handle, built once on first use. `None` when the host
+// process already installed a subscriber (install -> AlreadyInitialized); the
+// runtime log controls then become no-ops rather than fighting it.
+static HANDLE: OnceLock<Option<LoggingHandle>> = OnceLock::new();
 
-        vec![
-            paranoid_android::layer(env!("CARGO_PKG_NAME"))
-                .with_thread_names(true)
-                .with_filter(libxmtp_filter)
-                .boxed(),
-            tracing_android_trace::AndroidTraceAsyncLayer::new()
-                .with_filter(api_calls_filter)
-                .boxed(),
-        ]
-    }
+// Guards the one-shot debug-file enable: only the first `enter_debug_writer` wins
+// until `exit_debug_writer` resets it.
+static FILE_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+fn handle() -> Option<&'static LoggingHandle> {
+    HANDLE
+        .get_or_init(|| {
+            match XmtpLogging::builder()
+                .level(Level::Trace)
+                .with_native(true)
+                .install()
+            {
+                Ok(h) => Some(h),
+                // Already installed by the host: don't panic across the FFI
+                // boundary — leave logging to whoever owns the subscriber.
+                Err(e) => {
+                    tracing::debug!("xmtp_logging install skipped: {e}");
+                    None
+                }
+            }
+        })
+        .as_ref()
 }
 
-#[cfg(target_os = "ios")]
-pub use ios::*;
-#[cfg(target_os = "ios")]
-mod ios {
-    use super::*;
-    use tracing_oslog::OsLogger;
-    use tracing_subscriber::EnvFilter;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        let libxmtp_filter = xmtp_common::filter_directive("debug");
-        let subsystem = format!("org.xmtp.{}", env!("CARGO_PKG_NAME"));
-        OsLogger::new(subsystem, "default").with_filter(libxmtp_filter)
-    }
+/// Force-initialize the global logging handle (installs the subscriber).
+pub fn init_logger() {
+    let _ = handle();
 }
-
-// production logger for anything not ios/android mobile
-#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-pub use other::*;
-#[cfg(not(any(target_os = "ios", target_os = "android", test)))]
-mod other {
-    use super::*;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        use tracing_subscriber::{
-            EnvFilter, Layer,
-            fmt::{self, format},
-        };
-        let filter = EnvFilter::builder()
-            .with_default_directive(tracing::metadata::LevelFilter::INFO.into())
-            .from_env_lossy();
-        fmt::layer()
-            .compact()
-            .fmt_fields({
-                format::debug_fn(move |writer, field, value| {
-                    if field.name() == "message" {
-                        write!(writer, "{:?}", value)?;
-                    }
-                    Ok(())
-                })
-            })
-            .with_filter(filter)
-    }
-}
-
-#[derive(Default)]
-enum EmptyOrFileWriter {
-    #[default]
-    Empty,
-    File(tracing_appender::non_blocking::NonBlocking),
-}
-
-impl Write for EmptyOrFileWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Empty => Ok(buf.len()),
-            Self::File(f) => f.write(buf),
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Self::Empty => Ok(()),
-            Self::File(f) => f.flush(),
-        }
-    }
-}
-
-impl MakeWriter<'_> for EmptyOrFileWriter {
-    type Writer = Self;
-
-    fn make_writer(&self) -> Self::Writer {
-        match self {
-            Self::Empty => Self::Empty,
-            Self::File(f) => Self::File(f.make_writer()),
-        }
-    }
-}
-
-// this is a crazy type b/c tracing uses recursive "Layer" types to allow for an arbitrary number
-// of layers
-// however, this allows us to dynamically reload the debug file at runtime
-#[allow(clippy::type_complexity)]
-static LOGGER: LazyLock<
-    Arc<
-        Mutex<
-            reload::Handle<
-                Filtered<
-                    fmt::Layer<
-                        Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                        DefaultFields,
-                        Format,
-                        EmptyOrFileWriter,
-                    >,
-                    EnvFilter,
-                    Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-                >,
-                Layered<Box<dyn Layer<Registry> + Send + Sync>, Registry>,
-            >,
-        >,
-    >,
-> = LazyLock::new(|| {
-    let native_layer = native_layer();
-    // just turn the layer off for now
-    let fmt = fmt::Layer::default()
-        .with_writer(EmptyOrFileWriter::default())
-        .with_filter(
-            EnvFilter::builder()
-                .with_default_directive(LevelFilter::OFF.into())
-                .parse_lossy("off"),
-        );
-    let (filter, reload_handle) = reload::Layer::new(fmt);
-    let _ = tracing_subscriber::registry()
-        .with(native_layer.boxed())
-        .with(filter)
-        .try_init();
-    Arc::new(Mutex::new(reload_handle))
-});
-
-// needs to be alive for the duration of execution
-static WORKER: OnceLock<Arc<Mutex<Option<WorkerGuard>>>> = OnceLock::new();
-
-static FILE_INITIALIZED: LazyLock<Arc<AtomicBool>> =
-    LazyLock::new(|| Arc::new(AtomicBool::new(false)));
 
 /// Enum representing log file rotation options
 #[derive(uniffi::Enum, PartialEq, Debug, Clone)]
@@ -186,13 +50,13 @@ pub enum FfiLogRotation {
     Never = 3,
 }
 
-impl From<FfiLogRotation> for tracing_appender::rolling::Rotation {
-    fn from(rotation: FfiLogRotation) -> Self {
-        match rotation {
-            FfiLogRotation::Minutely => tracing_appender::rolling::Rotation::MINUTELY,
-            FfiLogRotation::Hourly => tracing_appender::rolling::Rotation::HOURLY,
-            FfiLogRotation::Daily => tracing_appender::rolling::Rotation::DAILY,
-            FfiLogRotation::Never => tracing_appender::rolling::Rotation::NEVER,
+impl From<FfiLogRotation> for Rotation {
+    fn from(r: FfiLogRotation) -> Self {
+        match r {
+            FfiLogRotation::Minutely => Rotation::Minutely,
+            FfiLogRotation::Hourly => Rotation::Hourly,
+            FfiLogRotation::Daily => Rotation::Daily,
+            FfiLogRotation::Never => Rotation::Never,
         }
     }
 }
@@ -206,11 +70,11 @@ pub enum FfiProcessType {
     NotificationExtension = 1,
 }
 
-impl FfiProcessType {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::Main => "main",
-            Self::NotificationExtension => "notif",
+impl From<FfiProcessType> for ProcessType {
+    fn from(p: FfiProcessType) -> Self {
+        match p {
+            FfiProcessType::Main => ProcessType::Main,
+            FfiProcessType::NotificationExtension => ProcessType::NotificationExtension,
         }
     }
 }
@@ -230,15 +94,24 @@ pub enum FfiLogLevel {
     Trace = 4,
 }
 
-impl FfiLogLevel {
-    fn to_str(&self) -> &str {
-        match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
+impl From<FfiLogLevel> for Level {
+    fn from(l: FfiLogLevel) -> Self {
+        match l {
+            FfiLogLevel::Error => Level::Error,
+            FfiLogLevel::Warn => Level::Warn,
+            FfiLogLevel::Info => Level::Info,
+            FfiLogLevel::Debug => Level::Debug,
+            FfiLogLevel::Trace => Level::Trace,
         }
+    }
+}
+
+// Map to `Log` (not `Generic`) so mobile keeps the stable `[Log]` error code.
+// Into `GenericError` because the blanket `From<Into<GenericError>>` for
+// `FfiError` would conflict with a direct `FfiError` impl.
+impl From<xmtp_logging::Error> for crate::GenericError {
+    fn from(e: xmtp_logging::Error) -> Self {
+        crate::GenericError::Log(e.to_string())
     }
 }
 
@@ -247,6 +120,7 @@ impl FfiLogLevel {
 /// i.e "libxmtp-v1.6.0.abc123.main.12345.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn enter_debug_writer(
     directory: String,
     log_level: FfiLogLevel,
@@ -262,6 +136,7 @@ pub fn enter_debug_writer(
 /// i.e "libxmtp-v1.6.0.abc123.notif.67890.log.2025-04-02"
 /// A maximum of 'max_files' log files are kept.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn enter_debug_writer_with_level(
     directory: String,
     rotation: FfiLogRotation,
@@ -269,57 +144,23 @@ pub fn enter_debug_writer_with_level(
     log_level: FfiLogLevel,
     process_type: FfiProcessType,
 ) -> Result<(), FfiError> {
-    if !FILE_INITIALIZED.load(Ordering::Relaxed) {
-        enable_debug_file_inner(directory, rotation, max_files, log_level, process_type)?;
-        FILE_INITIALIZED.store(true, Ordering::Relaxed);
+    let Some(h) = handle() else { return Ok(()) };
+    if FILE_INITIALIZED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        let cfg = FileConfig {
+            dir: directory,
+            rotation: rotation.into(),
+            max_files,
+            process_type: process_type.into(),
+            level: log_level.into(),
+        };
+        if let Err(e) = h.enable_file(cfg) {
+            FILE_INITIALIZED.store(false, Ordering::Release);
+            return Err(e.into());
+        }
     }
-    Ok(())
-}
-
-fn enable_debug_file_inner(
-    directory: String,
-    rotation: FfiLogRotation,
-    max_files: u32,
-    log_level: FfiLogLevel,
-    process_type: FfiProcessType,
-) -> Result<(), FfiError> {
-    // First, ensure any previous logger is properly shut down
-    let _ = exit_debug_writer();
-
-    let version = env!("CARGO_PKG_VERSION");
-    let commit_sha = option_env!("VERGEN_GIT_SHA").unwrap_or("unknown");
-    let process_id = std::process::id();
-    let process_suffix = process_type.to_str();
-
-    let file_appender = RollingFileAppender::builder()
-        .filename_prefix(format!(
-            "libxmtp-v{}.{}.{}.{}.log",
-            version, commit_sha, process_suffix, process_id
-        ))
-        .rotation(rotation.into())
-        .max_log_files(max_files as usize)
-        .build(&directory)?;
-
-    let (non_blocking, worker) = NonBlockingBuilder::default()
-        .thread_name("libxmtp-log-writer")
-        .finish(file_appender);
-
-    // Initialize the worker container if needed
-    if WORKER.get().is_none() {
-        let _ = WORKER.set(Arc::new(Mutex::new(None)));
-    }
-
-    // Now we can safely update the worker
-    if let Some(worker_container) = WORKER.get() {
-        *worker_container.lock() = Some(worker);
-    }
-
-    let handle = LOGGER.lock();
-    handle.modify(|l| {
-        *l.inner_mut().writer_mut() = EmptyOrFileWriter::File(non_blocking);
-        let filter = xmtp_common::filter_directive(log_level.to_str());
-        *l.filter_mut() = filter;
-    })?;
     Ok(())
 }
 
@@ -327,41 +168,155 @@ fn enable_debug_file_inner(
 /// This should be called before the program exits, to ensure all the logs in memory have been
 /// written. this ends the writer thread.
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn exit_debug_writer() -> Result<(), FfiError> {
-    let handle = LOGGER.lock();
-    handle.modify(|l| {
-        *l.inner_mut().writer_mut() = EmptyOrFileWriter::Empty;
-        *l.filter_mut() = EnvFilter::builder()
-            .with_default_directive(LevelFilter::OFF.into())
-            .parse_lossy("off");
-    })?;
-    if let Some(w) = WORKER.get()
-        && let Some(w) = w.lock().take()
-    {
-        drop(w)
+    if let Some(h) = handle() {
+        h.disable_file()?;
     }
-    FILE_INITIALIZED.store(false, Ordering::Relaxed);
+    FILE_INITIALIZED.store(false, Ordering::Release);
     Ok(())
 }
 
-pub fn init_logger() {
-    let _ = *LOGGER;
+/// Updates the log level of the native log layer (oslog on iOS, logcat on Android).
+/// Activity spans are emitted as os_signpost on iOS — set to `Trace` to see span
+/// activity in Console.app / Instruments. No-op on non-mobile builds.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn set_native_log_level(log_level: FfiLogLevel) -> Result<(), FfiError> {
+    if let Some(h) = handle() {
+        h.set_native_level(log_level.into())?;
+    }
+    Ok(())
+}
+
+/// Sentry telemetry configuration. `user_stable_id` is the app-computed HKDF
+/// stable id (MetricsStableIdEncoder derivation), never a raw inbox id.
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiSentryConfig {
+    /// The app's Sentry DSN.
+    pub dsn: String,
+    /// Sentry environment name (e.g. "production", "staging").
+    pub environment: Option<String>,
+    /// Release identifier reported to Sentry. Defaults to the libxmtp version
+    /// when `None`.
+    pub release: Option<String>,
+    /// Fraction of transactions sampled for tracing. Valid range is
+    /// `[0.0, 1.0]`; `0.0` reports error events only, with no transactions.
+    pub traces_sample_rate: f32,
+    /// Number of breadcrumbs kept in the rolling buffer before the oldest are
+    /// evicted; pass 100 to match the underlying crate default.
+    pub max_breadcrumbs: u32,
+    /// The app-computed HKDF stable id, never a raw inbox id.
+    pub user_stable_id: Option<String>,
+    /// Tags attached to every event. `component=libxmtp` is always added.
+    pub tags: Vec<FfiSentryTag>,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct FfiSentryTag {
+    /// Tag name.
+    pub key: String,
+    /// Tag value.
+    pub value: String,
+}
+
+impl From<FfiSentryConfig> for xmtp_logging::SentryConfig {
+    fn from(c: FfiSentryConfig) -> Self {
+        Self {
+            dsn: c.dsn,
+            environment: c.environment,
+            release: c.release,
+            traces_sample_rate: c.traces_sample_rate,
+            max_breadcrumbs: c.max_breadcrumbs as usize,
+            user_stable_id: c.user_stable_id,
+            tags: c.tags.into_iter().map(|t| (t.key, t.value)).collect(),
+        }
+    }
+}
+
+// Sentry setup errors carry the actionable reason (bad DSN, sample rate, OTLP
+// already active), so keep the message instead of the `Log` variant's fixed
+// "error initializing debug log file" text.
+fn sentry_err(e: xmtp_logging::Error) -> FfiError {
+    FfiError::generic(e.to_string())
+}
+
+const NO_HANDLE: &str = "logging subscriber owned by host process";
+
+/// Enable Sentry error/trace export. Errors if logging is owned by the host
+/// process, the DSN is invalid, `traces_sample_rate` is outside `[0.0, 1.0]`,
+/// or OTLP telemetry is already active.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn enable_sentry_telemetry(config: FfiSentryConfig) -> Result<(), FfiError> {
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.enable_sentry(config.into()).map_err(sentry_err)
+}
+
+/// Disable Sentry export: remove the layer, then, if this handle owns the
+/// installed client, flush and drop it. Clears the stamped user id.
+#[uniffi::export]
+#[xmtp_common::err_span]
+pub fn disable_sentry_telemetry() -> Result<(), FfiError> {
+    // Clear the staged user id even when logging is host-owned and there is no
+    // handle to disable: the slot is ours regardless, and a stale id would
+    // attribute a later session's events.
+    xmtp_logging::sentry::set_user_stable_id(None);
+    let h = handle().ok_or_else(|| FfiError::generic(NO_HANDLE))?;
+    h.disable_sentry().map_err(sentry_err)
+}
+
+/// Late identify: stamp (or clear) the pseudonymous user id on future events.
+/// Call at inbox-ready with the HKDF stable id.
+#[uniffi::export]
+pub fn set_sentry_user(stable_id: Option<String>) {
+    xmtp_logging::sentry::set_user_stable_id(stable_id);
+}
+
+/// Flush pending telemetry (file, OTLP, and Sentry). Call on app background.
+#[uniffi::export]
+pub fn flush_telemetry() {
+    // Flush only an already-installed pipeline: `handle()` would lazily install
+    // our global subscriber, permanently claiming it from a host that flushes
+    // before configuring logging.
+    if let Some(h) = HANDLE.get().and_then(|h| h.as_ref()) {
+        h.flush();
+    }
 }
 
 #[cfg(test)]
-pub use test_logger::*;
+mod sentry_tests {
+    use super::*;
+
+    #[test]
+    fn ffi_config_maps_and_bad_dsn_errors() {
+        let cfg = FfiSentryConfig {
+            dsn: "not a dsn".into(),
+            environment: Some("dev".into()),
+            release: None,
+            traces_sample_rate: 0.0,
+            max_breadcrumbs: 50,
+            user_stable_id: None,
+            tags: vec![],
+        };
+        // Invalid DSN must surface as an error, not a silent no-op (unlike the
+        // log-level controls, which no-op without a handle). Which of the two
+        // error paths fires depends on whether this test binary won the
+        // subscriber install race, so accept either.
+        let err = enable_sentry_telemetry(cfg).unwrap_err().to_string();
+        assert!(
+            err.contains("invalid sentry dsn") || err.contains("owned by host process"),
+            "unexpected error: {err}"
+        );
+        set_sentry_user(None);
+        flush_telemetry();
+    }
+}
 
 #[cfg(test)]
 mod test_logger {
     use super::*;
     use std::io::Read;
-
-    pub fn native_layer<S>() -> impl Layer<S>
-    where
-        S: Subscriber + for<'a> LookupSpan<'a>,
-    {
-        xmtp_common::logger_layer()
-    }
 
     // _NOTE:_ this test **fails** if there are rogue loggers
     // started with `ctor::ctor` in other crates.

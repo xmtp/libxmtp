@@ -3,7 +3,7 @@ use openmls_rust_crypto::RustCrypto;
 use openmls_traits::{crypto::OpenMlsCrypto, random::OpenMlsRand};
 use rand::{TryRng, rngs::SysRng};
 use xmtp_configuration::{CIPHERSUITE, POST_QUANTUM_CIPHERSUITE};
-use xmtp_mls::utils::bench::re_export::{WrapperAlgorithm, wrap_welcome};
+use xmtp_mls::utils::bench::re_export::{WELCOME_HPKE_LABEL, WrapperAlgorithm, wrap_payload_hpke};
 
 const BENCH_SIZES: [usize; 24] = [
     16,
@@ -50,7 +50,15 @@ fn bench_encrypt_welcome_curve25519(c: &mut Criterion) {
                     SysRng.try_fill_bytes(payload.as_mut_slice()).unwrap();
                     (payload, keypair.public)
                 },
-                |(payload, key)| wrap_welcome(&payload, &[], &key, WrapperAlgorithm::Curve25519),
+                |(payload, key)| {
+                    wrap_payload_hpke(
+                        &payload,
+                        &[],
+                        &key,
+                        WrapperAlgorithm::Curve25519,
+                        WELCOME_HPKE_LABEL,
+                    )
+                },
                 BatchSize::SmallInput,
             )
         });
@@ -80,7 +88,13 @@ fn bench_encrypt_welcome_post_quantum(c: &mut Criterion) {
                     (payload, keypair.public)
                 },
                 |(payload, key)| {
-                    wrap_welcome(&payload, &[], &key, WrapperAlgorithm::XWingMLKEM768Draft6)
+                    wrap_payload_hpke(
+                        &payload,
+                        &[],
+                        &key,
+                        WrapperAlgorithm::XWingMLKEM768Draft6,
+                        WELCOME_HPKE_LABEL,
+                    )
                 },
                 BatchSize::SmallInput,
             )

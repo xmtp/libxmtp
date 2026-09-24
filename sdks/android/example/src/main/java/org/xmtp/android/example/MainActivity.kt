@@ -122,11 +122,15 @@ class MainActivity :
                         is ClientManager.ClientState.Error -> {
                             retryCreateClientWithBackoff()
                         }
+
                         is ClientManager.ClientState.Ready -> {
                             retryJob?.cancel()
                             retryJob = null
                         }
-                        else -> Unit
+
+                        else -> {
+                            Unit
+                        }
                     }
                 }
             }
@@ -197,10 +201,12 @@ class MainActivity :
                 disconnectWallet()
                 true
             }
+
             R.id.copy_address -> {
                 copyWalletAddress()
                 true
             }
+
             R.id.activate_logs -> {
                 Client.activatePersistentLibXMTPLogWriter(
                     applicationContext,
@@ -212,13 +218,17 @@ class MainActivity :
                 Toast.makeText(this, "Persistent logs activated", Toast.LENGTH_SHORT).show()
                 true
             }
+
             R.id.deactivate_logs -> {
                 Client.deactivatePersistentLibXMTPLogWriter()
                 setLogsActivated(false)
                 Toast.makeText(this, "Persistent logs deactivated", Toast.LENGTH_SHORT).show()
                 true
             }
-            else -> super.onOptionsItemSelected(item)
+
+            else -> {
+                super.onOptionsItemSelected(item)
+            }
         }
 
     override fun onConversationClick(conversation: Conversation) {
@@ -243,8 +253,14 @@ class MainActivity :
                 binding.groupFab.visibility = View.VISIBLE
                 binding.logsFab.visibility = View.VISIBLE
             }
-            is ClientManager.ClientState.Error -> showError(clientState.message)
-            is ClientManager.ClientState.Unknown -> Unit
+
+            is ClientManager.ClientState.Error -> {
+                showError(clientState.message)
+            }
+
+            is ClientManager.ClientState.Unknown -> {
+                Unit
+            }
         }
     }
 
@@ -264,10 +280,12 @@ class MainActivity :
                     adapter.setData(uiState.listItems)
                 }
             }
+
             is MainViewModel.UiState.Success -> {
                 binding.refresh.isRefreshing = false
                 adapter.setData(uiState.listItems)
             }
+
             is MainViewModel.UiState.Error -> {
                 binding.refresh.isRefreshing = false
                 showError(uiState.message)

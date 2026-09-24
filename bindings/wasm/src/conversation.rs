@@ -53,6 +53,7 @@ use xmtp_mls::{
     group_mutable_metadata::MetadataField as XmtpMetadataField,
   },
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent as XmtpEncodedContent;
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
@@ -63,16 +64,132 @@ pub struct SendMessageOpts {
   #[tsify(optional)]
   #[serde(skip_serializing_if = "Option::is_none")]
   pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idempotency_key: Option<String>,
 }
 
 impl From<SendMessageOpts> for xmtp_mls::groups::send_message_opts::SendMessageOpts {
   fn from(opts: SendMessageOpts) -> Self {
     xmtp_mls::groups::send_message_opts::SendMessageOpts {
       should_push: opts.should_push,
+      idempotency_key: opts.idempotency_key,
     }
   }
 }
 
+/// Options for the top-level `send*` convenience helpers. `shouldPush` is
+/// derived from the content type's codec, so callers only control optimistic
+/// delivery and the idempotency key.
+#[derive(Clone, Default, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct SendOpts {
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub optimistic: Option<bool>,
+  /// Optional idempotency key. Re-sending identical content with the same key
+  /// produces the same message id and is deduplicated. Defaults to a timestamp.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub idempotency_key: Option<String>,
+}
+
+impl SendMessageOpts {
+  /// Build full send opts from a codec-derived `should_push` and the caller's
+  /// convenience `SendOpts` bag.
+  fn from_send_opts(should_push: bool, opts: Option<SendOpts>) -> Self {
+    let opts = opts.unwrap_or_default();
+    SendMessageOpts {
+      should_push,
+      optimistic: opts.optimistic,
+      idempotency_key: opts.idempotency_key,
+    }
+  }
+}
+
+/// Options for [`Conversation::enableProposals`]. Mirrors
+/// [`xmtp_mls::groups::EnableProposalsOptions`].
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct EnableProposalsOptions {
+  /// Skip the pre-flight key-package capability check. Post-d14n
+  /// every client supports proposals by version floor alone; set
+  /// `true` to bypass the per-member scan in that environment.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub force: Option<bool>,
+  /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
+  /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
+  #[tsify(optional)]
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub min_version: Option<String>,
+}
+
+impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
+  fn from(opts: EnableProposalsOptions) -> Self {
+    xmtp_mls::groups::EnableProposalsOptions {
+      force: opts.force.unwrap_or(false),
+      min_version: opts.min_version,
+    }
+  }
+}
+
+/// The pre-release surface of a [`Conversation`], reached through
+/// `conversation.unstable`.
+///
+/// Everything here is unstable: the API shape may still change and, in
+/// some cases (see [`UnstableConversation::enable_proposals`]), the
+/// effect is one-way and irreversible. Reaching into `.unstable` is the
+/// deliberate opt-in. When an API graduates it moves onto
+/// [`Conversation`] directly and is removed here, so callers of the
+/// `unstable` form get a compile-time break to migrate against.
+#[wasm_bindgen]
+pub struct UnstableConversation {
+  inner: Conversation,
+}
+
+#[wasm_bindgen]
+impl UnstableConversation {
+  /// Enable AppData-proposal-based metadata updates on this group.
+  ///
+  /// Stages the bootstrap commit that migrates the group's metadata
+  /// from the legacy GroupContextExtensions shape into the OpenMLS
+  /// AppData dictionary. Hard-fails if any member's latest key package
+  /// doesn't advertise `ProposalType::AppDataUpdate`. One-way:
+  /// migrated groups cannot return to the legacy path.
+  #[wasm_bindgen(js_name = enableProposals)]
+  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
+    let group = self.inner.to_mls_group();
+    group
+      .enable_proposals(options.into())
+      .await
+      .map_err(ErrorWrapper::js)
+  }
+}
+
+/// Options for [`Conversation::updateAppData`]. An object (rather than
+/// a bare string parameter) so future knobs can be added without
+/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// New fields must be `Option` + `#[serde(default)]` to stay non-breaking.
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateAppDataOptions {
+  /// The new value for the group's opaque `APP_DATA` string slot.
+  pub value: String,
+  /// Optional compare-and-swap guard. When set, the update is abandoned with
+  /// an `AppDataSuperseded` error — rather than overwriting — if the committed
+  /// value is no longer this, including when another member's commit wins the
+  /// race after this update was published. Omit for the historical
+  /// last-writer-wins behavior.
+  #[tsify(optional)]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub expected_value: Option<String>,
+}
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -112,7 +229,7 @@ pub struct GroupMember {
 #[derive(Clone)]
 pub struct Conversation {
   inner_group: RustMlsGroup,
-  group_id: Vec<u8>,
+  group_id: GroupId,
   dm_id: Option<String>,
   created_at_ns: i64,
 }
@@ -120,7 +237,7 @@ pub struct Conversation {
 impl Conversation {
   pub fn new(
     inner_group: RustMlsGroup,
-    group_id: Vec<u8>,
+    group_id: GroupId,
     dm_id: Option<String>,
     created_at_ns: i64,
   ) -> Self {
@@ -135,7 +252,7 @@ impl Conversation {
   pub fn to_mls_group(&self) -> RustMlsGroup {
     MlsGroup::new(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id,
       self.dm_id.clone(),
       self.inner_group.conversation_type,
       self.created_at_ns,
@@ -146,7 +263,7 @@ impl Conversation {
 impl From<RustMlsGroup> for Conversation {
   fn from(mls_group: RustMlsGroup) -> Self {
     Conversation {
-      group_id: mls_group.group_id.clone(),
+      group_id: mls_group.group_id,
       dm_id: mls_group.dm_id.clone(),
       created_at_ns: mls_group.created_at_ns,
       inner_group: mls_group,
@@ -158,7 +275,7 @@ impl From<RustMlsGroup> for Conversation {
 impl Conversation {
   #[wasm_bindgen]
   pub fn id(&self) -> String {
-    hex::encode(self.group_id.clone())
+    hex::encode(self.group_id)
   }
 
   #[wasm_bindgen]
@@ -190,11 +307,16 @@ impl Conversation {
     &self,
     #[wasm_bindgen(js_name = encodedContent)] encoded_content: EncodedContent,
     #[wasm_bindgen(js_name = shouldPush)] should_push: bool,
+    #[wasm_bindgen(js_name = idempotencyKey)] idempotency_key: Option<String>,
   ) -> Result<String, JsError> {
     let encoded_content: XmtpEncodedContent = encoded_content.into();
     let group = self.to_mls_group();
     let message_id = group
-      .prepare_message_for_later_publish(encoded_content.encode_to_vec().as_slice(), should_push)
+      .prepare_message_for_later_publish(
+        encoded_content.encode_to_vec().as_slice(),
+        should_push,
+        idempotency_key,
+      )
       .map_err(ErrorWrapper::js)?;
     Ok(hex::encode(message_id))
   }
@@ -216,12 +338,9 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = sendText)]
-  pub async fn send_text(&self, text: String, optimistic: Option<bool>) -> Result<String, JsError> {
+  pub async fn send_text(&self, text: String, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = TextCodec::encode(text).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: TextCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(TextCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -229,13 +348,10 @@ impl Conversation {
   pub async fn send_markdown(
     &self,
     markdown: String,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = MarkdownCodec::encode(markdown).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: MarkdownCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(MarkdownCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -243,37 +359,24 @@ impl Conversation {
   pub async fn send_reaction(
     &self,
     reaction: Reaction,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = ReactionCodec::encode(reaction.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReactionCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReactionCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
   #[wasm_bindgen(js_name = sendReply)]
-  pub async fn send_reply(
-    &self,
-    reply: Reply,
-    optimistic: Option<bool>,
-  ) -> Result<String, JsError> {
+  pub async fn send_reply(&self, reply: Reply, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = ReplyCodec::encode(reply.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReplyCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReplyCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
   #[wasm_bindgen(js_name = sendReadReceipt)]
-  pub async fn send_read_receipt(&self, optimistic: Option<bool>) -> Result<String, JsError> {
+  pub async fn send_read_receipt(&self, opts: Option<SendOpts>) -> Result<String, JsError> {
     let encoded_content = ReadReceiptCodec::encode(ReadReceipt {}).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ReadReceiptCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ReadReceiptCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -281,13 +384,10 @@ impl Conversation {
   pub async fn send_attachment(
     &self,
     attachment: Attachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = AttachmentCodec::encode(attachment.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: AttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(AttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -295,14 +395,11 @@ impl Conversation {
   pub async fn send_remote_attachment(
     &self,
     #[wasm_bindgen(js_name = remoteAttachment)] remote_attachment: RemoteAttachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content =
       RemoteAttachmentCodec::encode(remote_attachment.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: RemoteAttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(RemoteAttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -310,14 +407,11 @@ impl Conversation {
   pub async fn send_multi_remote_attachment(
     &self,
     #[wasm_bindgen(js_name = multiRemoteAttachment)] multi_remote_attachment: MultiRemoteAttachment,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = MultiRemoteAttachmentCodec::encode(multi_remote_attachment.into())
       .map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: MultiRemoteAttachmentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(MultiRemoteAttachmentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -325,14 +419,11 @@ impl Conversation {
   pub async fn send_transaction_reference(
     &self,
     #[wasm_bindgen(js_name = transactionReference)] transaction_reference: TransactionReference,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content =
       TransactionReferenceCodec::encode(transaction_reference.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: TransactionReferenceCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(TransactionReferenceCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -340,15 +431,12 @@ impl Conversation {
   pub async fn send_wallet_send_calls(
     &self,
     #[wasm_bindgen(js_name = walletSendCalls)] wallet_send_calls: WalletSendCalls,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let wsc: xmtp_content_types::wallet_send_calls::WalletSendCalls =
       wallet_send_calls.try_into()?;
     let encoded_content = WalletSendCallsCodec::encode(wsc).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: WalletSendCallsCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(WalletSendCallsCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -356,13 +444,10 @@ impl Conversation {
   pub async fn send_actions(
     &self,
     actions: Actions,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = ActionsCodec::encode(actions.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: ActionsCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(ActionsCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -370,13 +455,10 @@ impl Conversation {
   pub async fn send_intent(
     &self,
     intent: Intent,
-    optimistic: Option<bool>,
+    opts: Option<SendOpts>,
   ) -> Result<String, JsError> {
     let encoded_content = IntentCodec::encode(intent.into()).map_err(ErrorWrapper::js)?;
-    let opts = SendMessageOpts {
-      should_push: IntentCodec::should_push(),
-      optimistic,
-    };
+    let opts = SendMessageOpts::from_send_opts(IntentCodec::should_push(), opts);
     self.send(encoded_content.into(), opts).await
   }
 
@@ -645,6 +727,25 @@ impl Conversation {
     Ok(())
   }
 
+  /// Pre-release APIs, gated behind an explicit `.unstable` opt-in.
+  /// See [`UnstableConversation`].
+  #[wasm_bindgen(getter)]
+  pub fn unstable(&self) -> UnstableConversation {
+    UnstableConversation {
+      inner: self.clone(),
+    }
+  }
+
+  /// Whether this group has migrated to AppData-proposal-based
+  /// metadata updates (the `AppDataDictionary` group-context
+  /// extension is present). `false` means the group is still on
+  /// the legacy GroupContextExtensions path.
+  #[wasm_bindgen(js_name = proposalsEnabled)]
+  pub fn proposals_enabled(&self) -> Result<bool, JsError> {
+    let group = self.to_mls_group();
+    group.is_proposals_enabled().map_err(ErrorWrapper::js)
+  }
+
   #[wasm_bindgen(js_name = groupName)]
   pub fn group_name(&self) -> Result<String, JsError> {
     let group = self.to_mls_group();
@@ -655,14 +756,11 @@ impl Conversation {
   }
 
   #[wasm_bindgen(js_name = updateAppData)]
-  pub async fn update_app_data(
-    &self,
-    #[wasm_bindgen(js_name = appData)] app_data: String,
-  ) -> Result<(), JsError> {
+  pub async fn update_app_data(&self, options: UpdateAppDataOptions) -> Result<(), JsError> {
     let group = self.to_mls_group();
 
     group
-      .update_app_data(app_data)
+      .update_app_data(options.value, options.expected_value)
       .await
       .map_err(ErrorWrapper::js)?;
 
@@ -731,7 +829,7 @@ impl Conversation {
     let on_close_cb = callback.clone();
     let stream_closer = MlsGroup::stream_with_callback(
       self.inner_group.context.clone(),
-      self.group_id.clone(),
+      self.group_id,
       move |message| match message {
         Ok(item) => callback.on_message(item.into()),
         Err(e) => callback.on_error(JsError::from(e)),
@@ -881,7 +979,7 @@ impl Conversation {
 
     let mut hmac_map: HashMap<String, Vec<HmacKey>> = HashMap::new();
     for conversation in dms {
-      let id = hex::encode(&conversation.group_id);
+      let id = hex::encode(conversation.group_id);
       let keys = conversation
         .hmac_keys(-1..=1)
         .map_err(ErrorWrapper::js)?
@@ -975,7 +1073,7 @@ mod tests {
   fn test_group_message_to_object() {
     let stored_message = StoredGroupMessage {
       id: xmtp_common::rand_vec::<32>(),
-      group_id: xmtp_common::rand_vec::<32>(),
+      group_id: xmtp_common::rand_array::<16>().into(),
       decrypted_message_bytes: xmtp_common::rand_vec::<32>(),
       sent_at_ns: 1738354508964432000,
       inserted_at_ns: 1738354508964432000,
@@ -992,6 +1090,7 @@ mod tests {
       sequence_id: 0,
       expire_at_ns: None,
       should_push: true,
+      idempotency_key: 1738354508964432000i64.to_string(),
     };
     crate::to_value(&stored_message).unwrap();
   }

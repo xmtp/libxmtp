@@ -30,7 +30,9 @@ public struct Notifications_V1_DeliveryMechanism {
 
 	public var apnsDeviceToken: String {
 		get {
-			if case let .apnsDeviceToken(v)? = deliveryMechanismType { return v }
+			if case let .apnsDeviceToken(v)? = deliveryMechanismType {
+				return v
+			}
 			return String()
 		}
 		set { deliveryMechanismType = .apnsDeviceToken(newValue) }
@@ -38,7 +40,9 @@ public struct Notifications_V1_DeliveryMechanism {
 
 	public var firebaseDeviceToken: String {
 		get {
-			if case let .firebaseDeviceToken(v)? = deliveryMechanismType { return v }
+			if case let .firebaseDeviceToken(v)? = deliveryMechanismType {
+				return v
+			}
 			return String()
 		}
 		set { deliveryMechanismType = .firebaseDeviceToken(newValue) }
@@ -46,7 +50,9 @@ public struct Notifications_V1_DeliveryMechanism {
 
 	public var customToken: String {
 		get {
-			if case let .customToken(v)? = deliveryMechanismType { return v }
+			if case let .customToken(v)? = deliveryMechanismType {
+				return v
+			}
 			return String()
 		}
 		set { deliveryMechanismType = .customToken(newValue) }
@@ -261,7 +267,9 @@ extension Notifications_V1_DeliveryMechanism: SwiftProtobuf.Message, SwiftProtob
 					var v: String?
 					try decoder.decodeSingularStringField(value: &v)
 					if let v {
-						if self.deliveryMechanismType != nil { try decoder.handleConflictingOneOf() }
+						if self.deliveryMechanismType != nil {
+							try decoder.handleConflictingOneOf()
+						}
 						self.deliveryMechanismType = .apnsDeviceToken(v)
 					}
 				}()
@@ -269,7 +277,9 @@ extension Notifications_V1_DeliveryMechanism: SwiftProtobuf.Message, SwiftProtob
 					var v: String?
 					try decoder.decodeSingularStringField(value: &v)
 					if let v {
-						if self.deliveryMechanismType != nil { try decoder.handleConflictingOneOf() }
+						if self.deliveryMechanismType != nil {
+							try decoder.handleConflictingOneOf()
+						}
 						self.deliveryMechanismType = .firebaseDeviceToken(v)
 					}
 				}()
@@ -277,7 +287,9 @@ extension Notifications_V1_DeliveryMechanism: SwiftProtobuf.Message, SwiftProtob
 					var v: String?
 					try decoder.decodeSingularStringField(value: &v)
 					if let v {
-						if self.deliveryMechanismType != nil { try decoder.handleConflictingOneOf() }
+						if self.deliveryMechanismType != nil {
+							try decoder.handleConflictingOneOf()
+						}
 						self.deliveryMechanismType = .customToken(v)
 					}
 				}()
@@ -310,8 +322,12 @@ extension Notifications_V1_DeliveryMechanism: SwiftProtobuf.Message, SwiftProtob
 	}
 
 	public static func == (lhs: Notifications_V1_DeliveryMechanism, rhs: Notifications_V1_DeliveryMechanism) -> Bool {
-		if lhs.deliveryMechanismType != rhs.deliveryMechanismType { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.deliveryMechanismType != rhs.deliveryMechanismType {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -346,9 +362,11 @@ extension Notifications_V1_RegisterInstallationRequest: SwiftProtobuf.Message, S
 		if !installationID.isEmpty {
 			try visitor.visitSingularStringField(value: installationID, fieldNumber: 1)
 		}
-		try { if let v = self._deliveryMechanism {
-			try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
-		} }()
+		try {
+			if let v = self._deliveryMechanism {
+				try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
+			}
+		}()
 		try unknownFields.traverse(visitor: &visitor)
 	}
 
@@ -356,9 +374,15 @@ extension Notifications_V1_RegisterInstallationRequest: SwiftProtobuf.Message, S
 		lhs: Notifications_V1_RegisterInstallationRequest,
 		rhs: Notifications_V1_RegisterInstallationRequest
 	) -> Bool {
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs._deliveryMechanism != rhs._deliveryMechanism { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs._deliveryMechanism != rhs._deliveryMechanism {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -400,9 +424,15 @@ extension Notifications_V1_RegisterInstallationResponse: SwiftProtobuf.Message,
 		lhs: Notifications_V1_RegisterInstallationResponse,
 		rhs: Notifications_V1_RegisterInstallationResponse
 	) -> Bool {
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs.validUntil != rhs.validUntil { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs.validUntil != rhs.validUntil {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -437,8 +467,12 @@ extension Notifications_V1_DeleteInstallationRequest: SwiftProtobuf.Message, Swi
 	public static func == (lhs: Notifications_V1_DeleteInstallationRequest,
 	                       rhs: Notifications_V1_DeleteInstallationRequest) -> Bool
 	{
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -481,10 +515,18 @@ extension Notifications_V1_Subscription: SwiftProtobuf.Message, SwiftProtobuf._M
 	}
 
 	public static func == (lhs: Notifications_V1_Subscription, rhs: Notifications_V1_Subscription) -> Bool {
-		if lhs.topic != rhs.topic { return false }
-		if lhs.hmacKeys != rhs.hmacKeys { return false }
-		if lhs.isSilent != rhs.isSilent { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.topic != rhs.topic {
+			return false
+		}
+		if lhs.hmacKeys != rhs.hmacKeys {
+			return false
+		}
+		if lhs.isSilent != rhs.isSilent {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -524,9 +566,15 @@ extension Notifications_V1_Subscription.HmacKey: SwiftProtobuf.Message, SwiftPro
 	public static func == (lhs: Notifications_V1_Subscription.HmacKey,
 	                       rhs: Notifications_V1_Subscription.HmacKey) -> Bool
 	{
-		if lhs.thirtyDayPeriodsSinceEpoch != rhs.thirtyDayPeriodsSinceEpoch { return false }
-		if lhs.key != rhs.key { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.thirtyDayPeriodsSinceEpoch != rhs.thirtyDayPeriodsSinceEpoch {
+			return false
+		}
+		if lhs.key != rhs.key {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -568,9 +616,15 @@ extension Notifications_V1_SubscribeWithMetadataRequest: SwiftProtobuf.Message,
 		lhs: Notifications_V1_SubscribeWithMetadataRequest,
 		rhs: Notifications_V1_SubscribeWithMetadataRequest
 	) -> Bool {
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs.subscriptions != rhs.subscriptions { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs.subscriptions != rhs.subscriptions {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -608,9 +662,15 @@ extension Notifications_V1_SubscribeRequest: SwiftProtobuf.Message, SwiftProtobu
 	}
 
 	public static func == (lhs: Notifications_V1_SubscribeRequest, rhs: Notifications_V1_SubscribeRequest) -> Bool {
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs.topics != rhs.topics { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs.topics != rhs.topics {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }
@@ -648,9 +708,15 @@ extension Notifications_V1_UnsubscribeRequest: SwiftProtobuf.Message, SwiftProto
 	}
 
 	public static func == (lhs: Notifications_V1_UnsubscribeRequest, rhs: Notifications_V1_UnsubscribeRequest) -> Bool {
-		if lhs.installationID != rhs.installationID { return false }
-		if lhs.topics != rhs.topics { return false }
-		if lhs.unknownFields != rhs.unknownFields { return false }
+		if lhs.installationID != rhs.installationID {
+			return false
+		}
+		if lhs.topics != rhs.topics {
+			return false
+		}
+		if lhs.unknownFields != rhs.unknownFields {
+			return false
+		}
 		return true
 	}
 }

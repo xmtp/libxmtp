@@ -6,6 +6,8 @@ mod clients;
 mod export;
 /// Generate functionality
 mod generate;
+/// E2E health check across all protocol ops
+mod health;
 /// Information about this app
 mod info;
 /// Inspect data on the XMTP Network
@@ -20,6 +22,8 @@ mod send;
 mod store;
 /// Message/Conversation Streaming
 mod stream;
+/// Sync loaded identities against the network and reconcile redb
+mod sync;
 /// E2E latency test scenarios
 mod test;
 /// Types shared between App Functions
@@ -28,32 +32,57 @@ mod types;
 use clap::CommandFactory;
 use color_eyre::eyre::{self, Result};
 use directories::ProjectDirs;
-use redb::DatabaseError;
-use std::{fs, path::PathBuf, sync::Arc};
+use redb::{DatabaseError, ReadableDatabase, TableHandle};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    sync::Arc,
+    sync::OnceLock,
+};
 use xmtp_db::EncryptedMessageStore;
 use xmtp_id::InboxOwner;
 use xmtp_mls::identity::IdentityStrategy;
+use xxhash_rust::xxh3;
 
-use crate::args::{self, AppOpts};
+use crate::args::{self, AppOpts, BackendOpts};
 
 pub use clients::*;
 
-#[derive(Debug)]
-pub struct App {
-    /// Local K/V Store/Cache for values
-    opts: AppOpts,
+static STRICT_VERSIONING: OnceLock<bool> = OnceLock::new();
+static FDLIMIT: OnceLock<usize> = OnceLock::new();
+static NETWORK: OnceLock<BackendOpts> = OnceLock::new();
+static NETWORK_HASH: OnceLock<u64> = OnceLock::new();
+/// Tries to raise the open file descriptor limit
+/// returns a default low-enough number if unsuccessful
+/// useful when dealing with lots of different sqlite databases
+fn get_fdlimit() -> usize {
+    *FDLIMIT.get_or_init(|| {
+        if let Ok(fdlimit::Outcome::LimitRaised { to, .. }) = fdlimit::raise_fd_limit() {
+            if to > 2048 { 2048 } else { to as usize }
+        } else {
+            64
+        }
+    })
 }
 
+#[derive(Debug)]
+pub struct App;
+
 impl App {
-    pub fn new(opts: AppOpts) -> Result<Self> {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn init_db(&self) -> Result<()> {
         fs::create_dir_all(&Self::data_directory()?)?;
-        fs::create_dir_all(&Self::db_directory(&opts.backend)?)?;
+        fs::create_dir_all(&Self::db_directory()?)?;
+        Self::detect_legacy_db(&Self::redb()?)?;
         debug!(
             directory = %Self::data_directory()?.display(),
-            sqlite_stores = %Self::db_directory(&opts.backend)?.display(),
+            sqlite_stores = %Self::db_directory()?.display(),
             "created project directories",
         );
-        Ok(Self { opts })
+        Ok(())
     }
 
     fn readonly_db() -> Result<Arc<redb::ReadOnlyDatabase>> {
@@ -103,10 +132,69 @@ impl App {
         Ok(data)
     }
 
-    /// Directory for all SQLite files
-    fn db_directory(network: impl Into<u64>) -> Result<PathBuf> {
+    /// Hash of `crate::get_version()`'s raw output, used as the version
+    /// dimension of `IdentityKey` and as the SQLite-path version
+    /// segment. Computed once per process.
+    pub fn current_version_hash() -> u64 {
+        static CACHE: OnceLock<u64> = OnceLock::new();
+        *CACHE.get_or_init(|| xxh3::xxh3_64(crate::get_version().as_bytes()))
+    }
+
+    /// Returns whether `--strict-versioning` was set at startup. Read
+    /// from a process-global `OnceLock` populated by `App::run` so
+    /// internal helpers (`load_all_identities`, `HealthContext`,
+    /// `Sync`, etc.) don't have to thread the flag through every
+    /// constructor. Defaults to `false` when not yet initialized (only
+    /// meaningful in tests that haven't booted via `App::run`).
+    pub fn strict_versioning() -> bool {
+        STRICT_VERSIONING.get().copied().unwrap_or(false)
+    }
+
+    /// Record the strict-versioning flag at startup. Called once from
+    /// `App::run`. Subsequent calls are silently ignored — the first
+    /// write wins so accidental re-initialization in tests can't
+    /// corrupt state.
+    fn set_strict_versioning(value: bool) {
+        let _ = STRICT_VERSIONING.set(value);
+    }
+
+    pub fn network() -> &'static BackendOpts {
+        if NETWORK.get().is_none() {
+            let network = crate::config_unchecked();
+            let network = network.backend.clone();
+            NETWORK.set(network).expect("checked for initialization");
+        }
+        NETWORK.get().expect("just set network")
+    }
+
+    pub fn network_hash() -> u64 {
+        if NETWORK_HASH.get().is_none() {
+            let network_hash = Self::network().hash();
+            NETWORK_HASH
+                .set(network_hash)
+                .expect("checked network hash for init")
+        }
+        *NETWORK_HASH.get().expect("just set network hash")
+    }
+
+    /// Directory for SQLite files belonging to the *current* binary
+    /// version. Always version-bucketed via `current_version_hash`.
+    /// Same shape in both strict and non-strict mode — the
+    /// `--strict-versioning` flag does not influence path construction.
+    fn db_directory() -> Result<PathBuf> {
+        Self::db_directory_for(Self::current_version_hash())
+    }
+
+    /// Directory for SQLite files belonging to a specific
+    /// `version_hash`. Used by non-strict reads that load identities
+    /// written by another xdbg binary version. Most callers should use
+    /// `db_directory()` instead.
+    fn db_directory_for(version_hash: u64) -> Result<PathBuf> {
         let data = Self::data_directory()?;
-        let dir = data.join("sqlite").join(network.into().to_string());
+        let dir = data
+            .join("sqlite")
+            .join(App::network_hash().to_string())
+            .join(format!("{version_hash:016x}"));
         Ok(dir)
     }
 
@@ -118,15 +206,50 @@ impl App {
         Ok(dir)
     }
 
+    /// Refuse to run against a redb file written by an xdbg version
+    /// whose `Identity` value layout is incompatible with the current
+    /// binary. Each schema bump renames the table namespace
+    /// (`xdbg:N//identity`); presence of any old namespace (v1, v2)
+    /// triggers abort. v3 adds a fixed-width `version_string` field
+    /// to `Identity`.
+    ///
+    /// Called by `App::new` before any other DB activity.
+    pub fn detect_legacy_db(redb_path: &Path) -> Result<()> {
+        if !redb_path.exists() {
+            return Ok(());
+        }
+        let db = redb::Database::open(redb_path)?;
+        let r = db.begin_read()?;
+        const LEGACY_NAMESPACES: &[&str] = &[
+            const_format::concatcp!(crate::constants::STORAGE_PREFIX, ":1//identity"),
+            const_format::concatcp!(crate::constants::STORAGE_PREFIX, ":2//identity"),
+        ];
+        for handle in r.list_tables()? {
+            if LEGACY_NAMESPACES.contains(&handle.name()) {
+                eyre::bail!(
+                    "this XDBG_DB_ROOT was written by an older xdbg with an \
+                     incompatible IdentityStore schema ({}). Run `xdbg --clear` \
+                     to remove all xdbg state, or use a different XDBG_DB_ROOT.",
+                    handle.name()
+                );
+            }
+        }
+        Ok(())
+    }
+
     pub async fn run(self) -> Result<()> {
-        let App { opts } = self;
-        use args::Commands::*;
         let AppOpts {
-            cmd,
-            backend,
             clear,
+            cmd,
+            strict_versioning,
             ..
-        } = opts;
+        } = crate::config_unchecked();
+        if !clear {
+            self.init_db()?
+        }
+        use args::Commands::*;
+
+        Self::set_strict_versioning(*strict_versioning);
         debug!(fdlimit = get_fdlimit(), "setting fdlimit");
 
         if cmd.is_none() && !clear {
@@ -136,19 +259,21 @@ impl App {
 
         if let Some(cmd) = cmd {
             match cmd {
-                Generate(g) => generate::Generate::new(g, backend).run().await,
-                Send(s) => send::Send::new(s, backend)?.run().await,
-                Inspect(i) => inspect::Inspect::new(i, backend)?.run().await,
-                Query(q) => query::Query::new(q, backend)?.run().await,
-                Info(i) => info::Info::new(i, backend)?.run().await,
-                Export(e) => export::Export::new(e, backend)?.run(),
-                Modify(m) => modify::Modify::new(m, backend)?.run().await,
-                Stream(s) => stream::Stream::new(s, backend)?.run().await,
-                Test(t) => test::Test::new(t, backend).run().await,
+                Generate(g) => generate::Generate::new(g).run().await,
+                Send(s) => send::Send::new(s)?.run().await,
+                Inspect(i) => inspect::Inspect::new(i)?.run().await,
+                Query(q) => query::Query::new(q)?.run().await,
+                Info(i) => info::Info::new(i)?.run().await,
+                Export(e) => export::Export::new(e)?.run(),
+                Modify(m) => modify::Modify::new(m)?.run().await,
+                Stream(s) => stream::Stream::new(s)?.run().await,
+                Test(t) => test::Test::new(t).run().await,
+                Healthcheck(h) => health::Health::new(h).run().await,
+                Sync(s) => sync::Sync::new(s).run().await,
             }?;
         }
 
-        if clear {
+        if *clear {
             info!("Clearing app data");
             let data = Self::data_directory()?;
             let _ = std::fs::remove_dir_all(data);
@@ -157,20 +282,6 @@ impl App {
     }
 }
 
-fn generate_wallet() -> types::EthereumWallet {
+pub(super) fn generate_wallet() -> types::EthereumWallet {
     types::EthereumWallet::default()
-}
-
-static FDLIMIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-/// Tries to raise the open file descriptor limit
-/// returns a default low-enough number if unsuccessful
-/// useful when dealing with lots of different sqlite databases
-fn get_fdlimit() -> usize {
-    *FDLIMIT.get_or_init(|| {
-        if let Ok(fdlimit::Outcome::LimitRaised { to, .. }) = fdlimit::raise_fd_limit() {
-            if to > 2048 { 2048 } else { to as usize }
-        } else {
-            64
-        }
-    })
 }

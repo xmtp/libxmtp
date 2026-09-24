@@ -1,10 +1,7 @@
 #![allow(unused)]
 
 use super::FullXmtpClient;
-use crate::worker::{
-    device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric},
-    key_package_cleaner::KeyPackagesCleanerWorker,
-};
+use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection, worker::SyncMetric};
 use crate::{
     Client, MlsContext,
     builder::{ClientBuilder, DeviceSyncMode, ForkRecoveryOpts, ForkRecoveryPolicy},
@@ -30,7 +27,7 @@ use futures::{
 use futures_executor::block_on;
 use parking_lot::Mutex;
 use passkey::{
-    authenticator::{Authenticator, UserCheck, UserValidationMethod},
+    authenticator::{Authenticator, UiHint, UserCheck, UserValidationMethod},
     client::{Client as PasskeyClient, DefaultClientData},
     types::{Bytes, Passkey, ctap2::*, rand::random_vec, webauthn::*},
 };
@@ -53,7 +50,6 @@ use xmtp_api_d14n::{
 };
 use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
-use xmtp_common::TestLogReplace;
 use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};
 use xmtp_cryptography::{signature::SignatureError, utils::generate_local_wallet};
@@ -110,9 +106,6 @@ where
     pub stream_handle:
         Option<Box<dyn StreamHandle<StreamOutput = Result<(), SubscribeError>> + Send>>,
     pub proxy: Option<ToxicProxies>,
-    /// Replacement names for this tester
-    /// Replacements are removed on drop
-    pub replace: TestLogReplace,
 }
 
 impl<Owner> Tester<Owner, FullXmtpClient>
@@ -185,14 +178,6 @@ where
     Owner: InboxOwner + Clone + 'static,
 {
     async fn build(&self) -> Tester<Owner, FullXmtpClient> {
-        let mut replace = TestLogReplace::default();
-        if let Some(name) = &self.name
-            && !self.installation
-        {
-            let ident = self.owner.get_identifier().unwrap();
-            replace.add(&ident.to_string(), &format!("{name}_ident"));
-        }
-
         let strategy = match (&self.external_identity, &self.snapshot) {
             (Some(identity), _) => IdentityStrategy::ExternalIdentity(identity.clone()),
             (_, Some(snapshot)) => IdentityStrategy::CachedOnly,
@@ -217,36 +202,30 @@ where
 
         let mut proxy = None;
         let store = Arc::new(SqliteCursorStore::new(client.store.as_ref().unwrap().db()));
-        let (local_client, sync_api_client) = match (&self.api_endpoint, self.proxy) {
-            (ApiEndpoint::Local, false) => (
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
-                LocalOnlyTestClientCreator::with_cursor_store(store.clone()),
-            ),
-            (ApiEndpoint::Dev, false) => (
-                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-                DevOnlyTestClientCreator::with_cursor_store(store.clone()),
-            ),
+        let local_client = match (&self.api_endpoint, self.proxy) {
+            (ApiEndpoint::Local, false) => {
+                LocalOnlyTestClientCreator::with_cursor_store(store.clone())
+            }
+            (ApiEndpoint::Dev, false) => DevOnlyTestClientCreator::with_cursor_store(store.clone()),
             (ApiEndpoint::Local, true) => {
                 proxy = Some(ToxicOnlyTestClientCreator::proxies().await);
-                (
-                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
-                    ToxicOnlyTestClientCreator::with_cursor_store(store.clone()),
-                )
+                ToxicOnlyTestClientCreator::with_cursor_store(store.clone())
             }
             (ApiEndpoint::Dev, true) => (unimplemented!("toxiproxy not supported on dev")),
         };
 
         let api_client = local_client.build().unwrap();
-        let sync_api_client = sync_api_client.build().unwrap();
 
         let mut client = client
-            .api_clients(api_client, sync_api_client)
+            .api_client(api_client)
             .with_disable_workers(self.disable_workers)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_device_sync_worker_mode(Some(self.sync_mode))
             .maybe_version(self.version.clone())
             .with_commit_log_worker(self.commit_log_worker)
-            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default());
+            .fork_recovery_opts(self.fork_recovery_opts.clone().unwrap_or_default())
+            .worker_config(self.worker_config.clone().unwrap_or_default())
+            .unstable_change_callbacks(self.change_callbacks.clone());
 
         if self.in_memory_cursors {
             client = client.cursor_store(Arc::new(InMemoryCursorStore::new()) as Arc<_>);
@@ -262,13 +241,6 @@ where
             register_client(&client, &self.owner).await;
         }
 
-        if let Some(name) = &self.name {
-            replace.add(
-                &client.installation_public_key().to_string(),
-                &format!("{name}_installation"),
-            );
-            replace.add(client.inbox_id(), name);
-        }
         let mut worker = None;
         if self.wait_for_init && self.sync_mode != DeviceSyncMode::Disabled {
             while worker.is_none() {
@@ -282,7 +254,6 @@ where
             builder: self.clone(),
             client,
             worker,
-            replace,
             stream_handle: None,
             proxy,
         };
@@ -455,6 +426,8 @@ where
     /// whether this builder represents a second installation
     pub installation: bool,
     pub disable_workers: bool,
+    pub worker_config: Option<crate::worker::WorkerConfig>,
+    pub change_callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
 }
 
 #[derive(Clone)]
@@ -490,6 +463,8 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             snapshot: None,
             snapshot_path: None,
             disable_workers: false,
+            worker_config: None,
+            change_callbacks: Default::default(),
         }
     }
 }
@@ -521,6 +496,8 @@ where
             snapshot: self.snapshot,
             snapshot_path: self.snapshot_path,
             disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
+            change_callbacks: self.change_callbacks,
         }
     }
 
@@ -584,6 +561,19 @@ where
 
     pub fn disable_workers(mut self) -> Self {
         self.disable_workers = true;
+        self
+    }
+
+    pub fn worker_config(mut self, cfg: crate::worker::WorkerConfig) -> Self {
+        self.worker_config = Some(cfg);
+        self
+    }
+
+    pub fn change_callbacks(
+        mut self,
+        callbacks: crate::groups::change_callbacks::UnstableChangeCallbacks,
+    ) -> Self {
+        self.change_callbacks = callbacks;
         self
     }
 
@@ -683,7 +673,7 @@ where
 }
 
 pub type PKCredential = PublicKeyCredential<AuthenticatorAttestationResponse>;
-pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList>;
+pub type PKClient = PasskeyClient<Option<Passkey>, PkUserValidationMethod, PublicSuffixList, ()>;
 
 #[derive(Clone)]
 pub struct PasskeyUser {
@@ -809,7 +799,7 @@ impl UserValidationMethod for PkUserValidationMethod {
     type PasskeyItem = Passkey;
     async fn check_user<'a>(
         &self,
-        _credential: Option<&'a Passkey>,
+        _hint: UiHint<'a, Passkey>,
         presence: bool,
         verification: bool,
     ) -> Result<UserCheck, Ctap2Error> {

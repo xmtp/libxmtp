@@ -10,6 +10,8 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_mls::groups::MlsGroup;
 
 pub mod backend;
+mod catch_up;
+pub mod change_callbacks;
 mod consent_state;
 pub mod create_client;
 pub(crate) mod gateway_auth;
@@ -49,6 +51,7 @@ impl Client {
 
   #[napi]
   /// The resulting vec will be the same length as the input and should be zipped for the results.
+  #[xmtp_common::err_span]
   pub async fn can_message(
     &self,
     account_identities: Vec<Identifier>,
@@ -79,6 +82,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn release_db_connection(&self) -> Result<()> {
     self
       .inner_client
@@ -88,10 +92,28 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn db_reconnect(&self) -> Result<()> {
     self
       .inner_client
       .reconnect_db()
+      .map_err(ErrorWrapper::from)?;
+    Ok(())
+  }
+
+  /// Cleanly shut down this client: cancel in-flight workers and streams, then
+  /// release the DB connection. Idempotent — a second call resolves to `Ok`.
+  ///
+  /// `await` this before deleting the SQLite file or dropping the client
+  /// reference to avoid late log spew from detached workers/streams firing
+  /// against a dead DB.
+  #[napi]
+  #[xmtp_common::err_span]
+  pub async fn close(&self) -> Result<()> {
+    self
+      .inner_client
+      .close()
+      .await
       .map_err(ErrorWrapper::from)?;
     Ok(())
   }

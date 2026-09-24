@@ -44,7 +44,7 @@ impl<ApiClient> ApiClientWrapper<ApiClient>
 where
     ApiClient: XmtpIdentityClient,
 {
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn publish_identity_update<U: Into<IdentityUpdate>>(
         &self,
         update: U,
@@ -64,7 +64,7 @@ where
         Ok(cursor)
     }
 
-    #[tracing::instrument(level = "trace", skip_all, fields(len = filters.len()))]
+    #[xmtp_common::rpc_span]
     pub async fn get_identity_updates_v2<T>(
         &self,
         filters: Vec<GetIdentityUpdatesV2Filter>,
@@ -109,7 +109,7 @@ where
         Ok(res)
     }
 
-    #[tracing::instrument(level = "trace", skip_all, fields(len = account_identifiers.len()))]
+    #[xmtp_common::rpc_span]
     pub async fn get_inbox_ids(
         &self,
         account_identifiers: Vec<ApiIdentifier>,
@@ -157,7 +157,7 @@ where
             .collect())
     }
 
-    #[tracing::instrument(level = "trace", skip_all)]
+    #[xmtp_common::rpc_span]
     pub async fn verify_smart_contract_wallet_signatures(
         &self,
         request: VerifySmartContractWalletSignaturesRequest,

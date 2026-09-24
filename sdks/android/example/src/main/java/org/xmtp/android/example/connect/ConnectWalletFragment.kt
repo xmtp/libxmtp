@@ -67,7 +67,6 @@ class ConnectWalletFragment : Fragment() {
             is ConnectWalletViewModel.ConnectUiState.Error -> showError(uiState.message)
             ConnectWalletViewModel.ConnectUiState.Loading -> showLoading()
             is ConnectWalletViewModel.ConnectUiState.Success -> signIn(uiState.address)
-
             ConnectWalletViewModel.ConnectUiState.Unknown -> Unit
         }
     }

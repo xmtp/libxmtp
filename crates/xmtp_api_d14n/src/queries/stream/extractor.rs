@@ -13,10 +13,10 @@ use crate::protocol::{
 };
 
 #[pin_project]
-pub struct TryExtractorStream<S, E: TryExtractor> {
+pub struct TryExtractorStream<S: TryStream, E: TryExtractor> {
     #[pin]
     inner: S,
-    buffered: VecDeque<<E as TryExtractor>::Ok>,
+    buffered: VecDeque<Result<<E as TryExtractor>::Ok, S::Error>>,
     _marker: PhantomData<E>,
 }
 
@@ -25,6 +25,7 @@ pub struct TryExtractorStream<S, E: TryExtractor> {
 // specifying `Stream` type
 pub fn try_extractor<S, E>(s: S) -> TryExtractorStream<S, E>
 where
+    S: TryStream,
     E: TryExtractor,
 {
     TryExtractorStream::<S, E> {
@@ -52,18 +53,26 @@ where
     ) -> std::task::Poll<Option<Self::Item>> {
         let this = self.as_mut().project();
         if let Some(item) = this.buffered.pop_front() {
-            return Poll::Ready(Some(Ok(item)));
+            return Poll::Ready(Some(item));
         }
         let envelope = ready!(this.inner.try_poll_next(cx));
         match envelope {
             Some(item) => {
                 let item = item?;
-                let (success, _failure) = item.try_consume::<E>()?;
-                let mut consumed = success.into_iter();
-                let ready_item = consumed.next();
-                this.buffered.extend(consumed);
-                if let Some(item) = ready_item {
-                    return Poll::Ready(Some(Ok(item)));
+                let (success, failure) = item.try_consume::<E>()?;
+                // Previously `failure` was discarded here (bound to `_failure`),
+                // so an item whose extraction produced only errors yielded
+                // nothing at all instead of surfacing those errors. Buffer
+                // both: successes as `Ok`, extraction failures converted and
+                // surfaced as `Err`, so no result is silently dropped.
+                this.buffered.extend(success.into_iter().map(Ok));
+                this.buffered.extend(
+                    failure
+                        .into_iter()
+                        .map(|e| Err(S::Error::from(EnvelopeError::from(e)))),
+                );
+                if let Some(item) = this.buffered.pop_front() {
+                    return Poll::Ready(Some(item));
                 }
                 cx.waker().wake_by_ref();
                 Poll::Pending
@@ -156,8 +165,6 @@ mod test {
         assert!(results[1].is_err());
     }
 
-    //TODO ignored until https://github.com/xmtp/libxmtp/issues/2604
-    #[ignore]
     #[xmtp_common::test]
     async fn test_extraction_error_propagation() {
         let items: Vec<Result<Vec<u32>, EnvelopeError>> = vec![Ok(vec![1])];

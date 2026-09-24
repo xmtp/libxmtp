@@ -107,7 +107,7 @@ fn main() -> Result<()> {
         &format!("{}/googleapis/", out_dir.display()),
     ];
 
-    let proto_files = WalkDir::new(out_dir.join("proto").join("proto"))
+    let mut proto_files = WalkDir::new(out_dir.join("proto").join("proto"))
         .min_depth(1)
         .into_iter()
         .filter_entry(|f| {
@@ -118,6 +118,10 @@ fn main() -> Result<()> {
             if p.is_dir() { None } else { Some(p) }
         })
         .collect::<Vec<_>>();
+    // prost emits each package file in input order, and WalkDir yields raw
+    // readdir order — filesystem- and machine-dependent. Sort, or every
+    // regen on a different machine rewrites unchanged generated files.
+    proto_files.sort();
 
     let files = &proto_files
         .iter()

@@ -48,6 +48,7 @@ impl From<XmtpConversationDebugInfo> for ConversationDebugInfo {
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn debug_info(&self) -> Result<ConversationDebugInfo> {
     let group = self.create_mls_group();
 

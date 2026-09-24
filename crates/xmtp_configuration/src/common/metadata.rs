@@ -20,7 +20,9 @@ pub const GROUP_MEMBERSHIP_EXTENSION_ID: u16 = 0xff01;
 pub const GROUP_PERMISSIONS_EXTENSION_ID: u16 = 0xff02;
 pub const WELCOME_WRAPPER_ENCRYPTION_EXTENSION_ID: u16 = 0xff03;
 pub const WELCOME_POINTEE_ENCRYPTION_AEAD_TYPES_EXTENSION_ID: u16 = 0xff04;
-/// Extension ID for proposal support.
-/// - On leaf nodes: indicates the installation supports proposal-by-reference flow
-/// - On group context: indicates the group uses proposal-by-reference flow exclusively
-pub const PROPOSAL_SUPPORT_EXTENSION_ID: u16 = 0xff05;
+// 0xff05 was the custom XMTP `PROPOSAL_SUPPORT` extension id, removed
+// in favor of the standard MLS `ExtensionType::AppDataDictionary`
+// advertisement + `RequiredCapabilities` mechanism. Do not reuse this
+// id — any historical artifact carrying it on the wire should be
+// treated as a no-op opaque extension by the unknown-component
+// tolerance machinery.

@@ -43,7 +43,10 @@ where
         Ok(responses
             .into_iter()
             .next()
-            .expect("Api given one request will return one response")
+            .ok_or(VerifierError::Io(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "API returned empty response for signature verification request",
+            )))?
             .into())
     }
 }

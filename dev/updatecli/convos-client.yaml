@@ -1,0 +1,57 @@
+# Opens/updates the libxmtp dev-release bump PR in xmtplabs/convos-client.
+# Invoked by the open-consumer-prs job in .github/workflows/release.yml with
+# VERSION, SOURCE_BRANCH, UPDATECLI_GITHUB_TOKEN in env.
+name: 'convos-client: bump libxmtp to {{ requiredEnv "VERSION" }}'
+
+# One PR per libxmtp source branch: hash of the real branch name keys the
+# working branch, so feature/foo and feature-foo never collide and both ref
+# forms (refs/heads/x and x) key identically.
+pipelineid: '{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" | sha256sum | trunc 8 }}'
+
+scms:
+  consumer:
+    kind: github
+    spec:
+      owner: xmtplabs
+      repository: convos-client
+      branch: dev
+      username: x-access-token
+      token: '{{ requiredEnv "UPDATECLI_GITHUB_TOKEN" }}'
+      user: 'xmtp-dev-release[bot]'
+      email: '319876561+xmtp-dev-release[bot]@users.noreply.github.com'
+      workingbranchprefix: libxmtp-dev
+      force: true
+      # convos-shared is declared with an SSH url in .gitmodules, which the
+      # HTTP token auth cannot clone ("invalid auth method"). Nothing we pin
+      # lives in it, so skip submodules entirely.
+      submodules: false
+
+actions:
+  pr:
+    kind: github/pullrequest
+    scmid: consumer
+    spec:
+      title: 'chore(deps): bump libxmtp to {{ requiredEnv "VERSION" }}'
+      labels:
+        - dependencies
+      description: |
+        Automated dev-release bump from [xmtp/libxmtp](https://github.com/xmtp/libxmtp) branch `{{ requiredEnv "SOURCE_BRANCH" | trimPrefix "refs/heads/" }}`.
+
+        | Package | Version |
+        | --- | --- |
+        | `org.xmtp:android` | `{{ requiredEnv "VERSION" }}` |
+
+        Release run: {{ env "GITHUB_SERVER_URL" }}/{{ env "GITHUB_REPOSITORY" }}/actions/runs/{{ env "GITHUB_RUN_ID" }}
+
+        Re-running a dev release from the same branch updates this PR in place; close it if the branch is abandoned.
+
+targets:
+  gradle-catalog-pin:
+    name: 'pin org.xmtp:android {{ requiredEnv "VERSION" }}'
+    kind: file
+    scmid: consumer
+    disablesourceinput: true
+    spec:
+      file: android/gradle/libs.versions.toml
+      matchpattern: '(?m)^(xmtp\s*=\s*")[^"]+(")'
+      replacepattern: '${1}{{ requiredEnv "VERSION" }}${2}'

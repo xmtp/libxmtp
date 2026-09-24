@@ -1,3 +1,16 @@
 allow-unwrap-in-tests = true
 large-error-threshold = 256
 ignore-interior-mutability = ["xmtp_mls::groups::MlsGroup", "bytes::Bytes"]
+
+# Every reqwest client must be built through `xmtp_common::http`, which is what keeps Android
+# off `rustls-platform-verifier`: a default-built reqwest client aborts the process on its first
+# TLS connection there. See `crates/xmtp_common/src/http.rs` for the full explanation and
+# `HistorySyncTlsTest` for the on-device check.
+#
+# Clippy resolves paths, so this also catches `use reqwest::Client; Client::new()`, which a grep
+# for `reqwest::Client::new` misses.
+disallowed-methods = [
+  { path = "reqwest::Client::new", reason = "use xmtp_common::http::client()" },
+  { path = "reqwest::Client::builder", reason = "use xmtp_common::http::client_builder()" },
+  { path = "reqwest::ClientBuilder::new", reason = "use xmtp_common::http::client_builder()" },
+]

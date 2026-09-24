@@ -38,6 +38,7 @@ impl CreateGroupOptions {
 #[napi]
 impl Conversations {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn create_group_optimistic(
     &self,
     options: Option<CreateGroupOptions>,
@@ -90,6 +91,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_group_by_identity(
     &self,
     account_identities: Vec<Identifier>,
@@ -107,6 +109,7 @@ impl Conversations {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn create_group(
     &self,
     inbox_ids: Vec<String>,

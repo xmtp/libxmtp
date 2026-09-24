@@ -23,11 +23,13 @@ impl EnrichedReply {
   }
 
   #[napi(getter)]
+  #[xmtp_common::err_span]
   pub fn content(&self) -> Result<DecodedMessageContent> {
     self.content.as_ref().clone().try_into()
   }
 
   #[napi(getter)]
+  #[xmtp_common::err_span]
   pub fn in_reply_to(&self) -> Result<Option<DecodedMessage>> {
     self
       .in_reply_to

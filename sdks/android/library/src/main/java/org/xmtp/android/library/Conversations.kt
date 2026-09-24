@@ -555,7 +555,7 @@ data class Conversations(
     private suspend fun FfiConversationListItem.toConversation(): Conversation =
         withContext(Dispatchers.IO) {
             when (conversation().conversationType()) {
-                FfiConversationType.DM ->
+                FfiConversationType.DM -> {
                     Conversation.Dm(
                         Dm(
                             client,
@@ -564,8 +564,9 @@ data class Conversations(
                             isCommitLogForked(),
                         ),
                     )
+                }
 
-                else ->
+                else -> {
                     Conversation.Group(
                         Group(
                             client,
@@ -574,6 +575,7 @@ data class Conversations(
                             isCommitLogForked(),
                         ),
                     )
+                }
             }
         }
 
@@ -587,7 +589,7 @@ data class Conversations(
                     override fun onConversation(conversation: FfiConversation) {
                         launch(Dispatchers.IO) {
                             when (conversation.conversationType()) {
-                                FfiConversationType.DM ->
+                                FfiConversationType.DM -> {
                                     trySend(
                                         Conversation.Dm(
                                             Dm(
@@ -596,8 +598,11 @@ data class Conversations(
                                             ),
                                         ),
                                     )
+                                }
 
-                                else -> trySend(Conversation.Group(Group(client, conversation)))
+                                else -> {
+                                    trySend(Conversation.Group(Group(client, conversation)))
+                                }
                             }
                         }
                     }
@@ -614,13 +619,19 @@ data class Conversations(
 
             val stream =
                 when (type) {
-                    ConversationFilterType.ALL -> ffiConversations.stream(conversationCallback)
-                    ConversationFilterType.GROUPS ->
+                    ConversationFilterType.ALL -> {
+                        ffiConversations.stream(conversationCallback)
+                    }
+
+                    ConversationFilterType.GROUPS -> {
                         ffiConversations.streamGroups(
                             conversationCallback,
                         )
+                    }
 
-                    ConversationFilterType.DMS -> ffiConversations.streamDms(conversationCallback)
+                    ConversationFilterType.DMS -> {
+                        ffiConversations.streamDms(conversationCallback)
+                    }
                 }
 
             awaitClose { stream.end() }
@@ -653,23 +664,26 @@ data class Conversations(
 
             val stream =
                 when (type) {
-                    ConversationFilterType.ALL ->
+                    ConversationFilterType.ALL -> {
                         ffiConversations.streamAllMessages(
                             messageCallback,
                             states,
                         )
+                    }
 
-                    ConversationFilterType.GROUPS ->
+                    ConversationFilterType.GROUPS -> {
                         ffiConversations.streamAllGroupMessages(
                             messageCallback,
                             states,
                         )
+                    }
 
-                    ConversationFilterType.DMS ->
+                    ConversationFilterType.DMS -> {
                         ffiConversations.streamAllDmMessages(
                             messageCallback,
                             states,
                         )
+                    }
                 }
 
             awaitClose { stream.end() }

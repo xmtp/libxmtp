@@ -17,7 +17,6 @@ on:
       - "Release WASM Bindings"
       - "Release Kotlin Bindings"
       - "Build (and push/deploy) MLS Validation Service"
-      - "Release XNet GUI"
       - "Release Notes"
       - "Create Release Branch"
       # Docs & publishing

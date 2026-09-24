@@ -10,7 +10,7 @@ use xmtp_proto::identity_v1::{
 use xmtp_proto::{
     api::{ApiClientError, Client, EndpointExt, Query},
     mls_v1::{PagingInfo, SortDirection},
-    types::{GlobalCursor, Topic, TopicKind},
+    types::{GlobalCursor, GroupId, Topic, TopicKind},
 };
 
 #[xmtp_common::async_trait]
@@ -30,7 +30,7 @@ where
             GroupMessagesV1 => {
                 let id_cursor = at.map(|c| c.v3_message()).unwrap_or(0);
                 let result = QueryGroupMessages::builder()
-                    .group_id(topic.identifier())
+                    .group_id(GroupId::try_from(topic.identifier())?)
                     .paging_info(PagingInfo {
                         direction: SortDirection::Ascending as i32,
                         limit: MAX_PAGE_SIZE,

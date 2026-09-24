@@ -31,6 +31,7 @@ impl From<XmtpMessageDisappearingSettings> for MessageDisappearingSettings {
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn update_message_disappearing_settings(
     &self,
     settings: MessageDisappearingSettings,
@@ -45,6 +46,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn remove_message_disappearing_settings(&self) -> Result<()> {
     let group = self.create_mls_group();
 
@@ -57,6 +59,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn message_disappearing_settings(&self) -> Result<Option<MessageDisappearingSettings>> {
     let settings = self
       .create_mls_group()
@@ -70,6 +73,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub fn is_message_disappearing_enabled(&self) -> Result<bool> {
     self.message_disappearing_settings().map(|settings| {
       settings

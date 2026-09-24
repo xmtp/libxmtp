@@ -145,6 +145,9 @@ public struct ClientOptions {
 	public var forkRecoveryOptions: ForkRecoveryOptions?
 	public var waitForRegistrationVisible: VisibilityConfirmationOptions?
 	public var dbPoolOptions: DbPoolOptions?
+	/// Unstable: notifications for group state changes, for clients that
+	/// reconcile a group's `appData` themselves. See ``UnstableChangeCallbacks``.
+	public var unstableChangeCallbacks: UnstableChangeCallbacks?
 
 	public init(
 		api: Api = Api(),
@@ -156,7 +159,8 @@ public struct ClientOptions {
 		debugEventsEnabled: Bool = false,
 		forkRecoveryOptions: ForkRecoveryOptions? = nil,
 		waitForRegistrationVisible: VisibilityConfirmationOptions? = nil,
-		dbPoolOptions: DbPoolOptions? = nil
+		dbPoolOptions: DbPoolOptions? = nil,
+		unstableChangeCallbacks: UnstableChangeCallbacks? = nil
 	) {
 		self.api = api
 		self.codecs = codecs
@@ -168,6 +172,7 @@ public struct ClientOptions {
 		self.forkRecoveryOptions = forkRecoveryOptions
 		self.waitForRegistrationVisible = waitForRegistrationVisible
 		self.dbPoolOptions = dbPoolOptions
+		self.unstableChangeCallbacks = unstableChangeCallbacks
 	}
 }
 
@@ -182,7 +187,6 @@ struct ApiCacheKey {
 /// To be removed in a future release
 actor ApiClientCache {
 	private var apiClientCache: [String: XmtpApiClient] = [:]
-	private var syncApiClientCache: [String: XmtpApiClient] = [:]
 
 	func getClient(forKey key: String) -> XmtpApiClient? {
 		apiClientCache[key]
@@ -191,19 +195,25 @@ actor ApiClientCache {
 	func setClient(_ client: XmtpApiClient, forKey key: String) {
 		apiClientCache[key] = client
 	}
-
-	func getSyncClient(forKey key: String) -> XmtpApiClient? {
-		syncApiClientCache[key]
-	}
-
-	func setSyncClient(_ client: XmtpApiClient, forKey key: String) {
-		syncApiClientCache[key] = client
-	}
 }
 
 public typealias InboxId = String
 
 public final class Client {
+	/// Sentinel value assigned to ``dbPath`` when the client was created via
+	/// ``createInMemory(account:options:)``. No file exists at this path.
+	public static let inMemoryDbPath = ":memory:"
+
+	/// Process-wide control for automatic stream-lifecycle management. When
+	/// `true` (the default), the first ``Client`` created registers app-lifecycle
+	/// observers that park the shared streaming wire while the app is
+	/// backgrounded and revive it on foreground. The streaming wire is shared
+	/// across every client in the process, so this is a **process-global**
+	/// setting, not per-client: set it to `false` **before creating your first
+	/// client** to opt out (e.g. in an app extension, or to manage the lifecycle
+	/// yourself). Has no effect on platforms without UIKit.
+	public static var manageStreamLifecycle = true
+
 	public let inboxID: InboxId
 	public let libXMTPVersion: String = getVersionInfo()
 	public let dbPath: String
@@ -212,6 +222,14 @@ public final class Client {
 	public let environment: XMTPEnvironment
 	private let ffiClient: FfiXmtpClient
 	private static let apiCache = ApiClientCache()
+
+	/// `true` when this client is backed by an in-memory database. In that case
+	/// ``deleteLocalDatabase()``, ``dropLocalDatabaseConnection()`` and
+	/// ``reconnectLocalDatabase()`` are no-ops and the underlying state is
+	/// discarded when the client is deallocated.
+	public var isInMemory: Bool {
+		dbPath == Client.inMemoryDbPath
+	}
 
 	public lazy var conversations: Conversations = .init(
 		clientInboxId: inboxID,
@@ -239,13 +257,15 @@ public final class Client {
 		signingKey: SigningKey?,
 		inboxId: InboxId,
 		apiClient _: XmtpApiClient? = nil,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> Client {
 		let (libxmtpClient, dbPath) = try await initFFiClient(
 			accountIdentifier: publicIdentity,
 			options: options,
 			inboxId: inboxId,
-			buildOffline: buildOffline
+			buildOffline: buildOffline,
+			inMemory: inMemory
 		)
 
 		let client = try Client(
@@ -299,6 +319,13 @@ public final class Client {
 			register(codec: codec)
 		}
 
+		// Keep the shared streaming wire in step with app foreground/background.
+		// Process-global and idempotent — the first managed client registers it
+		// for every client in the process.
+		if Client.manageStreamLifecycle {
+			StreamLifecycleManager.shared.enableIfNeeded()
+		}
+
 		return client
 	}
 
@@ -317,6 +344,40 @@ public final class Client {
 			options: options,
 			signingKey: account,
 			inboxId: inboxId
+		)
+	}
+
+	/// Creates a Client backed by an in-memory SQLCipher database.
+	///
+	/// This bypasses all on-disk database management — no `.db3` file is created
+	/// and no directory is touched. The returned client has ``dbPath`` equal to
+	/// ``Client/inMemoryDbPath`` (`":memory:"`) and ``isInMemory`` returns `true`.
+	///
+	/// On in-memory clients, ``deleteLocalDatabase()``,
+	/// ``dropLocalDatabaseConnection()`` and ``reconnectLocalDatabase()`` are
+	/// no-ops — state lives only in the FFI pool and is discarded when the
+	/// client is deallocated.
+	///
+	/// Intended for tests and other ephemeral flows where a real client is
+	/// needed but persistence is not. `options.dbDirectory` and
+	/// `options.dbEncryptionKey` are ignored — libxmtp manages the in-memory
+	/// store itself.
+	public static func createInMemory(
+		account: SigningKey, options: ClientOptions
+	)
+		async throws -> Client
+	{
+		let identity = account.identity
+		let inboxId = try await getOrCreateInboxId(
+			api: options.api, publicIdentity: identity
+		)
+
+		return try await initializeClient(
+			publicIdentity: identity,
+			options: options,
+			signingKey: account,
+			inboxId: inboxId,
+			inMemory: true
 		)
 	}
 
@@ -365,7 +426,7 @@ public final class Client {
 			inboxId: recoveredInboxId
 		)
 
-		return try Client(
+		let client = try Client(
 			ffiClient: ffiClient,
 			dbPath: dbPath,
 			installationID: ffiClient.installationId().toHex,
@@ -373,14 +434,45 @@ public final class Client {
 			environment: clientOptions.api.env,
 			publicIdentity: identity
 		)
+		if Client.manageStreamLifecycle {
+			StreamLifecycleManager.shared.enableIfNeeded()
+		}
+		return client
 	}
 
 	private static func initFFiClient(
 		accountIdentifier: PublicIdentity,
 		options: ClientOptions,
 		inboxId: InboxId,
-		buildOffline: Bool = false
+		buildOffline: Bool = false,
+		inMemory: Bool = false
 	) async throws -> (FfiXmtpClient, String) {
+		if inMemory {
+			let deviceSyncMode: FfiDeviceSyncMode =
+				!options.deviceSyncEnabled ? .disabled : .enabled
+
+			let ffiClient = try await createClient(
+				api: connectToApiBackend(api: options.api),
+				db: DbOptions(
+					db: nil,
+					encryptionKey: nil,
+					maxDbPoolSize: options.dbPoolOptions?.maxPoolSize,
+					minDbPoolSize: options.dbPoolOptions?.minPoolSize
+				),
+				inboxId: inboxId,
+				accountIdentifier: accountIdentifier.ffiPrivate,
+				nonce: 0,
+				legacySignedPrivateKeyProto: nil,
+				deviceSyncMode: deviceSyncMode,
+				allowOffline: buildOffline,
+				forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+				workerConfig: nil,
+				changeCallbacks: options.unstableChangeCallbacks?.toFfi()
+			)
+
+			return (ffiClient, Client.inMemoryDbPath)
+		}
+
 		let mlsDbDirectory = options.dbDirectory
 		var directoryURL: URL
 		if let mlsDbDirectory {
@@ -428,7 +520,6 @@ public final class Client {
 
 		let ffiClient = try await createClient(
 			api: connectToApiBackend(api: options.api),
-			syncApi: connectToSyncApiBackend(api: options.api),
 			db: DbOptions(
 				db: dbURL,
 				encryptionKey: options.dbEncryptionKey,
@@ -441,7 +532,9 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: deviceSyncMode,
 			allowOffline: buildOffline,
-			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi()
+			forkRecoveryOpts: options.forkRecoveryOptions?.toFfi(),
+			workerConfig: nil,
+			changeCallbacks: options.unstableChangeCallbacks?.toFfi()
 		)
 
 		return (ffiClient, dbURL)
@@ -497,32 +590,6 @@ public final class Client {
 			authHandle: nil
 		)
 		await apiCache.setClient(newClient, forKey: cacheKey)
-		return newClient
-	}
-
-	public static func connectToSyncApiBackend(api: ClientOptions.Api)
-		async throws
-		-> XmtpApiClient
-	{
-		let cacheKey = ApiCacheKey(api: api).stringValue
-
-		// Check for an existing connected client
-		if let cached = await apiCache.getSyncClient(forKey: cacheKey),
-		   try await isConnected(api: cached)
-		{
-			return cached
-		}
-
-		// Either not cached or not connected; create new client
-		let newClient = try await connectToBackend(
-			v3Host: api.env.url,
-			gatewayHost: api.gatewayHost,
-			clientMode: FfiClientMode.default,
-			appVersion: api.appVersion,
-			authCallback: nil,
-			authHandle: nil
-		)
-		await apiCache.setSyncClient(newClient, forKey: cacheKey)
 		return newClient
 	}
 
@@ -652,7 +719,6 @@ public final class Client {
 		)
 		return try await createClient(
 			api: connectToApiBackend(api: api),
-			syncApi: connectToApiBackend(api: api),
 			db: DbOptions(db: nil, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
 			inboxId: inboxId,
 			accountIdentifier: identity.ffiPrivate,
@@ -660,7 +726,11 @@ public final class Client {
 			legacySignedPrivateKeyProto: nil,
 			deviceSyncMode: nil,
 			allowOffline: false,
-			forkRecoveryOpts: nil
+			forkRecoveryOpts: nil,
+			workerConfig: nil,
+			// Identity-probe client: never processes messages, so nothing to
+			// notify about.
+			changeCallbacks: nil
 		)
 	}
 
@@ -867,6 +937,8 @@ public final class Client {
 	}
 
 	public func deleteLocalDatabase() throws {
+		// In-memory clients have no on-disk file; nothing to drop or remove.
+		guard !isInMemory else { return }
 		try dropLocalDatabaseConnection()
 		let fm = FileManager.default
 		try fm.removeItem(atPath: dbPath)
@@ -878,11 +950,36 @@ public final class Client {
 		"This function is delicate and should be used with caution. App will error if database not properly reconnected. See: reconnectLocalDatabase()"
 	)
 	public func dropLocalDatabaseConnection() throws {
+		// In-memory clients hold their state in the FFI pool; releasing the
+		// connection would discard data that cannot be restored on reconnect.
+		guard !isInMemory else { return }
 		try ffiClient.releaseDbConnection()
 	}
 
 	public func reconnectLocalDatabase() async throws {
+		guard !isInMemory else { return }
 		try await ffiClient.dbReconnect()
+	}
+
+	/// Bring the local store current with the network, then stop — for
+	/// background fetch and cold start, where holding a live stream is wasted
+	/// because the wire is about to go away.
+	///
+	/// Pass `timeoutMs` to bound the run against an OS background budget (a
+	/// `BGAppRefreshTask` window, an NSE budget); `nil` runs to the live edge.
+	/// Cutting it short is safe: everything processed is persisted and a later
+	/// call resumes from durable state.
+	///
+	/// Check ``CatchUpSummary/completed`` before treating the counts as the
+	/// whole story: on the deadline path it is `false`, whatever was processed
+	/// before the cut is already stored (the counts may undercount it), and a
+	/// later call resumes from there.
+	public func catchUpToLive(timeoutMs: UInt64? = nil) async throws
+		-> CatchUpSummary
+	{
+		try await CatchUpSummary(
+			ffiClient.catchUpToLive(opts: FfiCatchUpOptions(timeoutMs: timeoutMs))
+		)
 	}
 
 	public func inboxIdFromIdentity(identity: PublicIdentity) async throws
@@ -1153,6 +1250,9 @@ public extension Client {
 		case info
 		/// Debug level and above
 		case debug
+		/// Trace level — includes span/activity events (visible as
+		/// signposts in Console.app and Instruments).
+		case trace
 
 		fileprivate var ffiLogLevel: FfiLogLevel {
 			switch self {
@@ -1160,6 +1260,7 @@ public extension Client {
 			case .warn: .warn
 			case .info: .info
 			case .debug: .debug
+			case .trace: .trace
 			}
 		}
 	}
@@ -1264,6 +1365,20 @@ public extension Client {
 		} catch {
 			os_log(
 				"Failed to deactivate persistent log writer: %{public}@",
+				log: OSLog.default, type: .error, error.localizedDescription
+			)
+		}
+	}
+
+	/// Sets the log level for the native log layer (oslog on iOS).
+	/// Use `.trace` to surface tracing spans as os_signpost activities visible
+	/// in Console.app and Instruments. Independent of the persistent file log writer.
+	static func setLibXMTPNativeLogLevel(_ logLevel: LogLevel) {
+		do {
+			try setNativeLogLevel(logLevel: logLevel.ffiLogLevel)
+		} catch {
+			os_log(
+				"Failed to set native log level: %{public}@",
 				log: OSLog.default, type: .error, error.localizedDescription
 			)
 		}

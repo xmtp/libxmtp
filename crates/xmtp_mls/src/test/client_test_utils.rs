@@ -73,14 +73,20 @@ where
         let other_sync = other.device_sync_client();
         let mut sync_group = this_sync.get_sync_group().await?;
         let mut other_sync_group = other_sync.get_sync_group().await?;
-        for i in 0..10 {
+        for _ in 0..10 {
             sync_group = this_sync.get_sync_group().await?;
             other_sync_group = other_sync.get_sync_group().await?;
 
             sync_group.sync().await?;
             other_sync_group.sync().await?;
 
-            if sync_group.group_id == other_sync_group.group_id {
+            // Converge on epoch too, not just the group id: a commit published
+            // right after one side joins (e.g. the post-join KeyUpdate that
+            // rides the first HMAC-cycle message) is in flight exactly when
+            // the ids first match.
+            if sync_group.group_id == other_sync_group.group_id
+                && sync_group.epoch().await? == other_sync_group.epoch().await?
+            {
                 break;
             }
         }

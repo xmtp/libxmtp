@@ -208,7 +208,7 @@ impl Metrics {
             parity_extra,
             continuity_pass,
             continuity_fail,
-            client: Client::new(),
+            client: xmtp_common::http::client().expect("build metrics http client"),
         }
     }
 

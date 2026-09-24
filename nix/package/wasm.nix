@@ -88,14 +88,17 @@ let
         ;
       version = xmtp.mkVersion rust;
       doInstallCargoArtifacts = false;
+      # wasm-pack installs to $out/dist itself; there is no cargo build log to install binaries from
+      doNotPostBuildInstallCargoBinaries = true;
+      installPhaseCommand = "true";
       buildPhaseCargoCommand = ''
         mkdir -p $out/dist
-        cargoBuildLog=$(mktemp cargoBuildLogXXXX.json)
 
+        # wasm-pack appends its own --message-format=json to cargo; passing another kind is an error
         HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
           --verbose build --target web --out-dir $out/dist \
           --no-pack --release ./bindings/wasm -- \
-          ${features} --message-format json-render-diagnostics > "$cargoBuildLog"
+          ${features}
       '';
     }
   );

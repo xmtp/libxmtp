@@ -24,7 +24,6 @@ use xmtp_proto::api::{ApiClientError, Query};
 use xmtp_proto::api_client::XmtpMlsClient;
 use xmtp_proto::mls_v1;
 use xmtp_proto::mls_v1::BatchQueryCommitLogResponse;
-use xmtp_proto::types::GroupId;
 use xmtp_proto::types::GroupMessageMetadata;
 use xmtp_proto::types::InstallationId;
 use xmtp_proto::types::Topic;
@@ -34,6 +33,7 @@ use xmtp_proto::types::WelcomeMessage;
 use xmtp_proto::xmtp::xmtpv4::envelopes::ClientEnvelope;
 use xmtp_proto::xmtp::xmtpv4::message_api::GetNewestEnvelopeResponse;
 
+use xmtp_proto::types::GroupId;
 #[xmtp_common::async_trait]
 impl<C, Store> XmtpMlsClient for D14nClient<C, Store>
 where
@@ -76,7 +76,7 @@ where
             .build()?
             .query(&self.client)
             .await?;
-        tracing::info!("got {} envelopes", result.results.len());
+        tracing::debug!("got {} envelopes", result.results.len());
         let extractor = CollectionExtractor::new(result.results, KeyPackagesExtractor::new());
         let key_packages = extractor.get()?;
         Ok(mls_v1::FetchKeyPackagesResponse { key_packages })
@@ -137,7 +137,7 @@ where
         &self,
         group_id: GroupId,
     ) -> Result<Vec<xmtp_proto::types::GroupMessage>, Self::Error> {
-        let topic = TopicKind::GroupMessagesV1.create(&group_id);
+        let topic = TopicKind::GroupMessagesV1.create(group_id);
         let cursor = self.cursor_store.latest(&topic, None)?;
         tracing::debug!(%topic, %cursor, "querying messages");
         let mut topic_cursor = TopicCursor::default();
@@ -193,7 +193,7 @@ where
     ) -> Result<Vec<WelcomeMessage>, Self::Error> {
         let topic = TopicKind::WelcomeMessagesV1.create(installation_key);
         let cursor = self.cursor_store.latest(&topic, None)?;
-        tracing::info!("querying welcomes @{:?}", cursor);
+        tracing::debug!("querying welcomes @{:?}", cursor);
         let response = QueryEnvelope::builder()
             .topic(topic)
             .last_seen(cursor)

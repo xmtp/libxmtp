@@ -1,9 +1,24 @@
 name: "Setup Nix"
-description: "Install Nix with Cachix caching for XMTP"
+description: "Install Nix with Blacksmith sticky-disk store persistence (Linux) and Cachix caching for XMTP"
 inputs:
   github-token:
     description: "GitHub token for Nix installation"
     required: true
+  disk-key:
+    description: >-
+      Closure-family namespace for the /nix sticky disk (rust, web, android,
+      fh-cache); workflows with near-identical Nix closures share a disk.
+      Required on Linux unless nix-disk is "false". Keep the value a literal:
+      reset-sticky-disks.yml greps workflows for `disk-key:` to enumerate disks.
+    required: false
+    default: ""
+  nix-disk:
+    description: >-
+      Mount the persistent /nix sticky disk (Linux). Set "false" in rarely-run
+      workflows (releases): Cachix substitution costs minutes per run, cheaper
+      than a sticky disk storing the closure 24/7.
+    required: false
+    default: "true"
   cachix-auth-token:
     description: "Cachix auth token for xmtp cache"
     required: false
@@ -11,28 +26,113 @@ inputs:
     description: "Enable sccache with GitHub Actions cache backend"
     required: false
     default: "false"
-  with-warpbuild-cache:
-    description: "whether to enable the warpbuild nix cache"
+  gradle-disk:
+    description: "Mount the shared repo-wide sticky disk at ~/.gradle (Linux); enable in jobs that run Gradle"
     required: false
-    default: "true"
-  gc-max-store-size:
-    description: "Max Nix store size before garbage collection (e.g. 5G, 10G). Only applies on WarpBuild runners."
+    default: "false"
+  docker-builder:
+    description: "Set up Blacksmith buildx builder with sticky-disk Docker layer caching"
     required: false
-    default: "20G"
+    default: "false"
 runs:
   using: "composite"
   steps:
-    - uses: cachix/install-nix-action@v31
+    # Persistent /nix sticky disk, one per (repo, closure family, OS, arch);
+    # must mount before Nix installs. Workflows with near-identical closures
+    # share a family disk so storage doesn't hold N copies of the same
+    # toolchains. Commits are last-write-wins, so concurrent workflows in a
+    # family can drop each other's store paths; Cachix backfills anything a
+    # lost commit misses.
+    - name: Require disk-key on Linux
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' && inputs.disk-key == '' }}
+      run: |
+        echo "::error::setup-nix needs a disk-key input on Linux (a closure-family key, e.g. rust)"
+        exit 1
+      shell: bash
+    - name: Prepare /nix mount point
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' }}
+      run: |
+        sudo mkdir -p /nix/store
+        sudo chmod -R 777 /nix
+      shell: bash
+    - name: Mount /nix sticky disk
+      if: ${{ runner.os == 'Linux' && inputs.nix-disk == 'true' }}
+      uses: useblacksmith/stickydisk@v1
       with:
-        # https://github.com/nixos/nix/issues/15619 2.34.4 causes pach failures
+        key: ${{ github.repository }}-nix-${{ inputs.disk-key }}-${{ runner.os }}-${{ runner.arch }}
+        path: /nix
+        # Untrusted PR jobs never commit — a malicious PR could persist
+        # tampered store paths that release builds later consume. Trusted
+        # events (push/tag/dispatch/schedule) commit on-change.
+        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
+    # Gradle wrapper dist + dependency/transform caches for Android jobs.
+    # One disk repo-wide (not per workflow): contents are append-only
+    # downloads, so a lost commit race just re-downloads a few jars.
+    # Must be registered before the busy-process cleanup below so the cleanup
+    # post (which kills gradle/kotlin daemons) runs before this unmounts.
+    - name: Mount ~/.gradle sticky disk
+      if: ${{ inputs.gradle-disk == 'true' && runner.os == 'Linux' }}
+      uses: useblacksmith/stickydisk@v1
+      with:
+        key: ${{ github.repository }}-gradle-${{ runner.os }}-${{ runner.arch }}
+        path: ~/.gradle
+        commit: ${{ !startsWith(github.event_name, 'pull_request') && 'on-change' || 'false' }}
+    # Posts run in reverse order: registered after the mounts = runs right
+    # before unmount+commit. Store-binary daemons (gradle/kotlin/adb) hold
+    # /nix and ~/.gradle busy; spare cachix daemon, its own post stops it.
+    # See convos-releases#31.
+    # action-post-run exec()s its `run` input as a bare executable (no
+    # shell), so the script must live in a file.
+    - name: Write /nix busy-process cleanup script
+      if: ${{ runner.os == 'Linux' && (inputs.nix-disk == 'true' || inputs.gradle-disk == 'true') }}
+      run: |
+        cat > "$RUNNER_TEMP/nix-unmount-cleanup.sh" << 'EOF'
+        #!/usr/bin/env bash
+        keep="$(pgrep -f 'cachix daemon' || true)"
+        # fuser -M no-ops when the path is not a mount point (gradle-disk off)
+        for mnt in /nix "$HOME/.gradle"; do
+          for pid in $(sudo fuser -M -m "$mnt" 2>/dev/null); do
+            echo "$keep" | grep -qx "$pid" || sudo kill -9 "$pid" 2>/dev/null
+          done
+        done
+        sleep 2
+        exit 0
+        EOF
+        chmod +x "$RUNNER_TEMP/nix-unmount-cleanup.sh"
+      shell: bash
+    - name: Register /nix busy-process cleanup
+      if: ${{ runner.os == 'Linux' && (inputs.nix-disk == 'true' || inputs.gradle-disk == 'true') }}
+      uses: webiny/action-post-run@3.1.0
+      with:
+        run: bash ${{ runner.temp }}/nix-unmount-cleanup.sh
+    # Buildx builder backed by a sticky-disk layer cache (per Dockerfile,
+    # shared repo-wide, LWW commits). Speeds up compose-built backend
+    # images (validation service, anvil).
+    - name: Setup Blacksmith Docker builder
+      if: ${{ inputs.docker-builder == 'true' && runner.os == 'Linux' }}
+      uses: useblacksmith/setup-docker-builder@v1
+      with:
+        # Prune cap so stale layers don't grow the disk unbounded.
+        max-cache-size-mb: "10240"
+    # Single-user install, works with pre-populated /nix. Stay on 2.31.x:
+    # 2.34.4 breaks patches (https://github.com/nixos/nix/issues/15619).
+    - name: Install Nix (Linux)
+      if: ${{ runner.os == 'Linux' }}
+      uses: nixbuild/nix-quick-install-action@v35
+      with:
+        nix_version: 2.31.5
+        nix_conf: |
+          accept-flake-config = true
+          access-tokens = github.com=${{ inputs.github-token }}
+    - name: Install Nix (macOS)
+      if: ${{ runner.os != 'Linux' }}
+      uses: cachix/install-nix-action@v31
+      with:
+        # https://github.com/nixos/nix/issues/15619 2.34.4 causes patch failures
         install_url: https://releases.nixos.org/nix/nix-2.31.2/install
         github_access_token: ${{ inputs.github-token }}
         extra_nix_config: |
           accept-flake-config = true
-    - uses: ./.github/actions/setup-nix-cache
-      if: ${{ inputs.with-warpbuild-cache == 'true' }}
-      with:
-        gc-max-store-size: ${{ inputs.gc-max-store-size }}
     - uses: cachix/cachix-action@v17
       if: ${{ inputs.cachix-auth-token != '' }}
       with:
@@ -45,9 +145,6 @@ runs:
     - name: Setup sccache
       if: ${{ inputs.sccache == 'true' }}
       uses: mozilla-actions/sccache-action@v0.0.9
-    - name: Install nix-fast-build
-      run: nix profile add github:Mic92/nix-fast-build
-      shell: bash
     - name: Configure sccache env
       if: ${{ inputs.sccache == 'true' }}
       run: |

@@ -43,7 +43,7 @@ Note: `SDKROOT` is explicitly **unset** so xcrun discovers the right SDK per tar
 - `wasm32-unknown-unknown`
 - `x86_64-unknown-linux-gnu`
 - `aarch64-linux-android`, `armv7-linux-androideabi`, `x86_64-linux-android`, `i686-linux-android`
-- Darwin only: `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-darwin`, `aarch64-apple-darwin`
+- Darwin only: `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `aarch64-apple-darwin`
 
 ## Rust Components
 

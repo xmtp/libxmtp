@@ -8,11 +8,13 @@ pub mod logger;
 pub mod message;
 pub mod mls;
 pub mod worker;
+pub mod worker_config;
 
 #[cfg(test)]
 mod builder_test;
 
 pub use crate::inbox_owner::SigningError;
+use log::level_filters::ParseLevelFilterError;
 pub use logger::{enter_debug_writer, exit_debug_writer};
 pub use message::*;
 pub use mls::*;
@@ -96,6 +98,9 @@ pub enum GenericError {
     Subscription(#[from] xmtp_mls::subscriptions::SubscribeError),
     #[error(transparent)]
     #[error_code(inherit)]
+    CatchUp(#[from] xmtp_mls::subscriptions::catch_up::CatchUpError),
+    #[error(transparent)]
+    #[error_code(inherit)]
     ApiClientBuild(#[from] xmtp_api_grpc::error::GrpcBuilderError),
     #[error(transparent)]
     #[error_code(inherit)]
@@ -103,16 +108,6 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
-    /// Log init error.
-    ///
-    /// Failed to initialize log file. Not retryable.
-    #[error("Error initializing rolling log file")]
-    LogInit(#[from] tracing_appender::rolling::InitError),
-    /// Reload log error.
-    ///
-    /// Failed to reload log subscriber. Not retryable.
-    #[error(transparent)]
-    ReloadLog(#[from] tracing_subscriber::reload::Error),
     /// Log error.
     ///
     /// Error initializing debug log file. Not retryable.
@@ -132,6 +127,9 @@ pub enum GenericError {
     #[error(transparent)]
     #[error_code(inherit)]
     Enrich(#[from] EnrichMessageError),
+    /// Log Level failed to parse because it was invalid
+    #[error(transparent)]
+    Level(#[from] ParseLevelFilterError),
 }
 
 // this impl allows us to gracefully handle unexpected errors from foreign code without panicking
@@ -350,7 +348,7 @@ mod lib_tests {
     }
 
     // Execute once before any tests are run
-    #[ctor::ctor]
+    #[ctor::ctor(unsafe)]
     fn _setup() {
         let _ = fdlimit::raise_fd_limit();
     }

@@ -167,4 +167,21 @@ class MultiRemoteAttachmentTests: XCTestCase {
 		XCTAssertEqual(decodedAttachments[0].filename, "test1.txt")
 		XCTAssertEqual(decodedAttachments[1].filename, "test2.txt")
 	}
+
+	func testFromSetsContentLengthFromCiphertext() throws {
+		let payload = Data(repeating: 7, count: 2048)
+		let encrypted = EncryptedEncodedContent(
+			secret: Data(repeating: 1, count: 32),
+			digest: "deadbeef",
+			salt: Data(repeating: 2, count: 32),
+			nonce: Data(repeating: 3, count: 12),
+			payload: payload
+		)
+		let url = try XCTUnwrap(URL(string: "https://example.com/x.bin"))
+		let info = try MultiRemoteAttachment.RemoteAttachmentInfo.from(
+			url: url,
+			encryptedEncodedContent: encrypted
+		)
+		XCTAssertEqual(info.contentLength, UInt32(payload.count))
+	}
 }

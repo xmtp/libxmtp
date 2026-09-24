@@ -191,6 +191,21 @@ impl RetryableError for ConnectionError {
     }
 }
 
+impl ConnectionError {
+    /// True when the pool can't currently hand out a connection. Mirrors
+    /// [`StorageError::db_needs_connection`].
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn db_needs_connection(&self) -> bool {
+        use PlatformStorageError::{Pool, PoolNeedsConnection};
+        matches!(self, Self::Platform(PoolNeedsConnection | Pool(_)))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn db_needs_connection(&self) -> bool {
+        false
+    }
+}
+
 pub trait ConnectionExt: MaybeSend + MaybeSync {
     /// Run a scoped query against the underlying SQLite connection.
     fn raw_query<T, F>(&self, fun: F) -> Result<T, crate::ConnectionError>
@@ -537,5 +552,55 @@ pub(crate) mod tests {
             assert_eq!(fetched_identity.inbox_id, inbox_id);
         }
         EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+
+    /// A query failing because the pool can't hand out a connection must report
+    /// `db_needs_connection()`. Uses a persistent store since only it has a pool to drop.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test]
+    async fn pool_failure_needs_connection() {
+        let db_path = tmp_path();
+        {
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = store.conn();
+
+            // Healthy pool: a query succeeds.
+            let ok: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            assert!(ok.is_ok());
+
+            // Drop the pool, then run a real query against it.
+            conn.disconnect().unwrap();
+            let res: Result<Option<StoredIdentity>, _> = conn.fetch(&());
+            let err = res.expect_err("query against a disconnected pool should fail");
+
+            assert!(
+                err.db_needs_connection(),
+                "expected db_needs_connection() for a pool failure, got: {err:?}"
+            );
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path)
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod db_needs_connection_tests {
+    use crate::{ConnectionError, PlatformStorageError, StorageError};
+
+    /// Pool errors must classify as "needs reconnect" (direct and `Connection`-wrapped);
+    /// non-pool errors must not. `Pool(_)` is covered e2e in `pool_failure_needs_connection`.
+    #[test]
+    fn pool_errors_need_connection() {
+        assert!(
+            StorageError::Platform(PlatformStorageError::PoolNeedsConnection).db_needs_connection()
+        );
+        assert!(
+            StorageError::Connection(ConnectionError::Platform(
+                PlatformStorageError::PoolNeedsConnection
+            ))
+            .db_needs_connection()
+        );
+
+        // A non-pool error must NOT be classified as needing a reconnect.
+        assert!(!StorageError::DbSerialize.db_needs_connection());
     }
 }

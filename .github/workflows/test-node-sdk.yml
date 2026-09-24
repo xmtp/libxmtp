@@ -1,0 +1,29 @@
+name: Test Node SDK
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: js
+jobs:
+  test:
+    name: Test (node-sdk) shard ${{ matrix.shard }}
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just js install-ci
+      - name: Start backend
+        run: just backend up
+      - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
+        run: just js test-node-sdk-ci -- --shard ${{ matrix.shard }}/2

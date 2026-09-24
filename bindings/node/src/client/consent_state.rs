@@ -9,6 +9,7 @@ use xmtp_db::consent_record::StoredConsentRecord;
 #[napi]
 impl Client {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn set_consent_states(&self, records: Vec<Consent>) -> Result<()> {
     let stored_records: Vec<StoredConsentRecord> =
       records.into_iter().map(StoredConsentRecord::from).collect();
@@ -23,6 +24,7 @@ impl Client {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn get_consent_state(
     &self,
     entity_type: ConsentEntityType,

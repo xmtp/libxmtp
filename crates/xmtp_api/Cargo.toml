@@ -28,7 +28,7 @@ xmtp_proto.workspace = true
 # test utils
 [dev-dependencies]
 chrono.workspace = true
-http = "1.2"
+http = "1.4"
 tls_codec.workspace = true
 xmtp_api_d14n = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }

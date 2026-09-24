@@ -31,6 +31,10 @@ impl<C> Client for BoxedClient<C>
 where
     C: Client,
 {
+    fn host(&self) -> &str {
+        self.inner.host()
+    }
+
     async fn request(
         &self,
         request: request::Builder,
@@ -47,6 +51,15 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         self.inner.stream(request, path, body).await
+    }
+
+    async fn bidi_stream(
+        &self,
+        request: request::Builder,
+        path: http::uri::PathAndQuery,
+        body: xmtp_common::BoxDynStream<'static, Bytes>,
+    ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        self.inner.bidi_stream(request, path, body).await
     }
 }
 

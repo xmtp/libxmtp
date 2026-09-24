@@ -1,17 +1,18 @@
 use super::*;
 use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 use xmtp_common::{assert_ok, rand_vec};
+use xmtp_proto::types::GroupId;
 
 // Helper function to create a message with specific sequence_id and originator_id
 fn generate_message_with_cursor(
-    group_id: &[u8],
+    group_id: &GroupId,
     originator_id: i64,
     sequence_id: i64,
     sent_at_ns: i64,
 ) -> StoredGroupMessage {
     StoredGroupMessage {
         id: rand_vec::<24>(),
-        group_id: group_id.to_vec(),
+        group_id: *group_id,
         decrypted_message_bytes: rand_vec::<24>(),
         sent_at_ns,
         sender_installation_id: rand_vec::<24>(),
@@ -28,6 +29,7 @@ fn generate_message_with_cursor(
         originator_id,
         expire_at_ns: None,
         should_push: true,
+        idempotency_key: sent_at_ns.to_string(),
     }
 }
 
@@ -55,7 +57,7 @@ fn test_messages_newer_than_basic() {
         cursor.insert(2, 15);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return messages newer than cursor
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -64,12 +66,12 @@ fn test_messages_newer_than_basic() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 1 && c.sequence_id == 20)
+                .any(|(g, c)| *g == group.id && c.originator_id == 1 && c.sequence_id == 20)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 25)
+                .any(|(g, c)| *g == group.id && c.originator_id == 2 && c.sequence_id == 25)
         );
     })
 }
@@ -96,7 +98,7 @@ fn test_messages_newer_than_new_originator() {
         cursor.insert(1, 10);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         // Should return all messages from originator 2 (new originator)
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -105,12 +107,12 @@ fn test_messages_newer_than_new_originator() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 5)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 5)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 10)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 10)
         );
     })
 }
@@ -143,14 +145,23 @@ fn test_messages_newer_than_multiple_groups() {
         cursor2.insert(1, 5);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.clone(), cursor1);
-        cursors_by_group.insert(group2.id.clone(), cursor2);
+        cursors_by_group.insert(group1.id.to_vec(), cursor1);
+        cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
         assert_eq!(newer.len(), 2);
-        assert!(newer.iter().any(|c| c.sequence_id == 20)); // from group1
-        assert!(newer.iter().any(|c| c.sequence_id == 15)); // from group2
+        // Each cursor is attributed to the group it came from.
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group1.id && c.sequence_id == 20)
+        );
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group2.id && c.sequence_id == 15)
+        );
     })
 }
 
@@ -180,7 +191,7 @@ fn test_messages_newer_than_batching() {
         let mut cursors_by_group = HashMap::new();
         for group in &groups {
             let cursor = GlobalCursor::default();
-            cursors_by_group.insert(group.id.clone(), cursor);
+            cursors_by_group.insert(group.id.to_vec(), cursor);
         }
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
@@ -209,7 +220,7 @@ fn test_messages_newer_than_empty_cursor() {
         // Empty cursor - all messages should be newer
         let cursor = GlobalCursor::default();
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -238,7 +249,7 @@ fn test_messages_newer_than_no_new_messages() {
         cursor.insert(2, 15);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -273,7 +284,7 @@ fn test_messages_newer_than_mixed_originators() {
         cursor.insert(2, 3);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -282,24 +293,24 @@ fn test_messages_newer_than_mixed_originators() {
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 1 && c.sequence_id == 10)
+                .any(|(_, c)| c.originator_id == 1 && c.sequence_id == 10)
         );
         // From originator 2: seq 7 (newer than 3)
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 2 && c.sequence_id == 7)
+                .any(|(_, c)| c.originator_id == 2 && c.sequence_id == 7)
         );
         // From originator 3: both messages (new originator)
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 3 && c.sequence_id == 2)
+                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 2)
         );
         assert!(
             newer
                 .iter()
-                .any(|c| c.originator_id == 3 && c.sequence_id == 4)
+                .any(|(_, c)| c.originator_id == 3 && c.sequence_id == 4)
         );
     })
 }
@@ -316,7 +327,7 @@ fn test_messages_newer_than_empty_groups() {
         // No messages in group
         let cursor = GlobalCursor::default();
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group.id.clone(), cursor);
+        cursors_by_group.insert(group.id.to_vec(), cursor);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -355,8 +366,8 @@ fn test_messages_newer_than_per_group_cursors() {
         cursor2.insert(1, 300);
 
         let mut cursors_by_group = HashMap::new();
-        cursors_by_group.insert(group1.id.clone(), cursor1);
-        cursors_by_group.insert(group2.id.clone(), cursor2);
+        cursors_by_group.insert(group1.id.to_vec(), cursor1);
+        cursors_by_group.insert(group2.id.to_vec(), cursor2);
 
         let newer = conn.messages_newer_than(&cursors_by_group).unwrap();
 
@@ -364,15 +375,23 @@ fn test_messages_newer_than_per_group_cursors() {
         assert_eq!(newer.len(), 2);
 
         // From group 1: sequence_id 150 (> 100)
-        assert!(newer.iter().any(|c| c.sequence_id == 150));
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group1.id && c.sequence_id == 150)
+        );
 
         // From group 2: sequence_id 400 (> 300)
-        assert!(newer.iter().any(|c| c.sequence_id == 400));
+        assert!(
+            newer
+                .iter()
+                .any(|(g, c)| *g == group2.id && c.sequence_id == 400)
+        );
 
         // Should NOT include group 2's message with sequence_id 200 (< 300)
-        assert!(!newer.iter().any(|c| c.sequence_id == 200));
+        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 200));
 
         // Should NOT include group 1's message with sequence_id 50 (< 100)
-        assert!(!newer.iter().any(|c| c.sequence_id == 50));
+        assert!(!newer.iter().any(|(_, c)| c.sequence_id == 50));
     })
 }

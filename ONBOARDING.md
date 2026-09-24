@@ -15,7 +15,7 @@ Here we describe each component, as well as providing links to the interface bou
 
 This is the backend, currently a set of centralized nodes operated by Ephemera, sharing a Postgres instance. The current API interface is captured in the [protos](https://github.com/xmtp/proto) repo, mostly [here](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/identity/api/v1/identity.proto#L19) and [here](https://github.com/xmtp/proto/blob/8b46912744d89e29236f21ed81b33facb5384239/proto/mls/api/v1/mls.proto#L23). A simple mental model of the backend is a pub/sub system, with append-only, ordered lists of payloads categorized by [topic](https://docs.xmtp.org/protocol/topics) and indexed by [cursors](https://docs.xmtp.org/protocol/cursors).
 
-A trustless, decentralized replacement is currently under development. More information can be found in the [explainer](https://xmtp.org/docs/concepts/decentralizing-xmtp) and [XIP](https://community.xmtp.org/t/xip-49-decentralized-backend-for-mls-messages/856).
+A trustless, decentralized replacement is currently under development. More information can be found in the [explainer](https://xmtp.org/decentralization) and [XIP](https://community.xmtp.org/t/xip-49-decentralized-backend-for-mls-messages/856).
 
 #### Rust SDK (libxmtp)
 
@@ -59,10 +59,10 @@ The XMTP protocol can be understood via three core concepts:
   - [OpenMLS library](https://book.openmls.tech/): Familiarize yourself with common operations
   - [MLS spec](https://www.rfc-editor.org/rfc/rfc9420.html): Use as a reference for specifics later, read it end-to-end if dedicated (or feed it into an AI and chat about it)
 - Identity protocol (authentication service)
-  - [Explainer](https://xmtp.org/docs/concepts/identity) and [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
+  - [Explainer](https://docs.xmtp.org/protocol/identity) and [XIP](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-46-multi-wallet-identity.md)
 - Message delivery protocol (delivery service)
   - See 'backend node' section above to understand the centralized system
-  - Decentralization [explainer](https://xmtp.org/docs/concepts/decentralizing-xmtp) and [XIP](https://community.xmtp.org/t/xip-49-decentralized-backend-for-mls-messages/856) (still under development)
+  - Decentralization [explainer](https://xmtp.org/decentralization) and [XIP](https://community.xmtp.org/t/xip-49-decentralized-backend-for-mls-messages/856) (still under development)
 
 ## Going deeper
 

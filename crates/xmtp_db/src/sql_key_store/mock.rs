@@ -9,7 +9,7 @@ use crate::{
     MemoryStorage,
     sql_key_store::{SqlKeyStore, SqlKeyStoreError},
 };
-use crate::{MockTransactionalKeyStore, XmtpMlsStorageProvider};
+use crate::{MockTransactionalKeyStore, TransactionOutcome, XmtpMlsStorageProvider};
 
 /// An Mls provider that delegates MLS stuff to
 /// in-memory sqlite store,
@@ -53,18 +53,18 @@ impl XmtpMlsStorageProvider for MockSqlKeyStore {
     }
 
     #[tracing::instrument(level = "trace", skip_all)]
-    fn transaction<T, E, F>(&self, f: F) -> Result<T, E>
+    fn transaction<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let mut store = self.mock_mls.lock();
         f(&mut store)
     }
 
-    fn savepoint<T, E, F>(&self, f: F) -> Result<T, E>
+    fn savepoint<T, E, F>(&self, f: F) -> Result<TransactionOutcome<T>, E>
     where
-        F: FnOnce(&mut Self::TxQuery) -> Result<T, E>,
+        F: FnOnce(&mut Self::TxQuery) -> Result<TransactionOutcome<T>, E>,
         E: From<diesel::result::Error> + From<crate::ConnectionError> + std::error::Error,
     {
         let mut store = self.mock_mls.lock();

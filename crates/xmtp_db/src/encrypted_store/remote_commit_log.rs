@@ -19,11 +19,12 @@ use serde::{Deserialize, Serialize};
 use xmtp_common::snippet::Snippet;
 use xmtp_proto::xmtp::mls::message_contents::CommitResult as ProtoCommitResult;
 
+use xmtp_proto::types::GroupId;
 #[derive(Insertable, Debug, Clone)]
 #[diesel(table_name = remote_commit_log)]
 pub struct NewRemoteCommitLog {
     pub log_sequence_id: i64,
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     pub commit_sequence_id: i64,
     pub commit_result: CommitResult,
     pub applied_epoch_number: i64,
@@ -40,7 +41,7 @@ pub struct RemoteCommitLog {
     // The sequence ID of the log entry on the server
     pub log_sequence_id: i64,
     // The group ID of the conversation
-    pub group_id: Vec<u8>,
+    pub group_id: GroupId,
     // The sequence ID of the commit being referenced
     pub commit_sequence_id: i64,
     // Whether the commit was successfully applied or not
@@ -85,11 +86,11 @@ impl std::fmt::Debug for RemoteCommitLog {
             "RemoteCommitLog {{ rowid: {:?}, log_sequence_id: {:?}, group_id {:?}, commit_sequence_id: {:?}, commit_result: {:?}, applied_epoch_number: {:?}, applied_epoch_authenticator: {:?} }}",
             self.rowid,
             self.log_sequence_id,
-            &self.group_id.snippet(),
+            self.group_id.as_slice().snippet(),
             self.commit_sequence_id,
             self.commit_result,
             self.applied_epoch_number,
-            &self.applied_epoch_authenticator.snippet()
+            self.applied_epoch_authenticator.snippet()
         )
     }
 }
@@ -140,12 +141,12 @@ pub enum RemoteCommitLogOrder {
 pub trait QueryRemoteCommitLog {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError>;
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
@@ -157,14 +158,14 @@ where
 {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         (**self).get_latest_remote_log_for_group(group_id)
     }
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order_by: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {
@@ -175,7 +176,7 @@ where
 impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
     fn get_latest_remote_log_for_group(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
     ) -> Result<Option<RemoteCommitLog>, crate::ConnectionError> {
         self.raw_query(|db| {
             dsl::remote_commit_log
@@ -189,7 +190,7 @@ impl<C: ConnectionExt> QueryRemoteCommitLog for DbConnection<C> {
 
     fn get_remote_commit_log_after_cursor(
         &self,
-        group_id: &[u8],
+        group_id: &GroupId,
         after_cursor: i64,
         order: RemoteCommitLogOrder,
     ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError> {

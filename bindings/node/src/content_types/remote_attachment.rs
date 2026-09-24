@@ -74,6 +74,7 @@ pub fn content_type_remote_attachment() -> ContentTypeId {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn encode_remote_attachment(remote_attachment: RemoteAttachment) -> Result<EncodedContent> {
   Ok(
     RemoteAttachmentCodec::encode(remote_attachment.into())
@@ -131,6 +132,7 @@ impl From<xmtp_content_types::remote_attachment::EncryptedAttachment> for Encryp
 
 /// Encrypts an attachment for storage as a remote attachment.
 #[napi]
+#[xmtp_common::err_span]
 pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment> {
   Ok(
     xmtp_encrypt_attachment(attachment.into())
@@ -141,6 +143,7 @@ pub fn encrypt_attachment(attachment: Attachment) -> Result<EncryptedAttachment>
 
 /// Decrypts an encrypted payload from a remote attachment.
 #[napi]
+#[xmtp_common::err_span]
 pub fn decrypt_attachment(
   encrypted_bytes: Uint8Array,
   remote_attachment: RemoteAttachment,

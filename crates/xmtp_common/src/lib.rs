@@ -36,6 +36,7 @@ pub use stream_handles::*;
 
 pub mod fmt;
 pub mod hex;
+pub mod http;
 pub mod snippet;
 pub mod time;
 pub mod types;
@@ -49,11 +50,15 @@ pub use event_logging::*;
 pub use xmtp_cryptography::hash::*;
 pub use xmtp_cryptography::rand::*;
 
-pub use xmtp_macro::log_event;
-pub use xmtp_macro::parser;
-pub use xmtp_macro::timeout;
+pub mod telemetry;
+// Re-exported at the crate root: `::xmtp_common::bind_task_hub` is what the span
+// macros emit and what call sites use.
+pub use telemetry::bind_task_hub;
 
-#[cfg(feature = "logging")]
-pub mod logging;
-#[cfg(feature = "logging")]
-pub use logging::*;
+pub use xmtp_macro::db_span;
+pub use xmtp_macro::err_span;
+pub use xmtp_macro::log_event;
+pub use xmtp_macro::mls_span;
+pub use xmtp_macro::rpc_span;
+pub use xmtp_macro::span;
+pub use xmtp_macro::timeout;

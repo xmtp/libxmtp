@@ -18,7 +18,7 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
 
         Ok(Self {
             id: value.id,
-            group_id: value.group_id,
+            group_id: value.group_id.try_into()?,
             decrypted_message_bytes: value.decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind,
@@ -37,6 +37,10 @@ impl TryFrom<GroupMessageSave> for StoredGroupMessage {
             expire_at_ns: None,
             inserted_at_ns: 0,  // Will be set by database
             should_push: false, // Default to false for synced messages
+            // GroupMessageSave does not carry the idempotency key; fall back to
+            // the historical default (the send timestamp). Restored messages are
+            // already published, so this value is only informational.
+            idempotency_key: value.sent_at_ns.to_string(),
         })
     }
 }
@@ -94,7 +98,7 @@ impl From<StoredGroupMessage> for GroupMessageSave {
 
         Self {
             id: value.id,
-            group_id: value.group_id,
+            group_id: value.group_id.into(),
             decrypted_message_bytes: value.decrypted_message_bytes,
             sent_at_ns: value.sent_at_ns,
             kind: kind as i32,

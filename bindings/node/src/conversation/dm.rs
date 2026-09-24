@@ -6,6 +6,7 @@ use xmtp_db::group::DmIdExt;
 #[napi]
 impl Conversation {
   #[napi]
+  #[xmtp_common::err_span]
   pub fn dm_peer_inbox_id(&self) -> Result<String> {
     let group = self.create_mls_group();
     let inbox_id = group.context.inbox_id();
@@ -17,6 +18,7 @@ impl Conversation {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn duplicate_dms(&self) -> Result<Vec<Conversation>> {
     let group = self.create_mls_group();
     let dms = group.find_duplicate_dms().map_err(ErrorWrapper::from)?;

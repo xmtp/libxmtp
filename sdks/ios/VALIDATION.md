@@ -4,7 +4,7 @@
 
 ### Build (`./sdks/ios/dev/build`)
 
-- [x] Rust cross-compilation succeeds for all targets (aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-darwin, aarch64-apple-darwin)
+- [x] Rust cross-compilation succeeds for all targets (aarch64-apple-ios, aarch64-apple-ios-sim, aarch64-apple-darwin)
 - [x] xcframework created at `sdks/ios/.build/LibXMTPSwiftFFI.xcframework`
 - [x] Swift package builds successfully (108 files compiled)
 

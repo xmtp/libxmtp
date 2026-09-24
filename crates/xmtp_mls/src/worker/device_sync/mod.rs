@@ -2,20 +2,16 @@ use crate::{
     client::ClientError,
     context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, PreconfiguredPolicies, intents::QueueIntent, send_message_opts,
-        summary::SyncSummary, welcome_sync::WelcomeService,
+        GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
+        welcome_sync::WelcomeService,
     },
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, SyncWorkerEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
-use futures::{StreamExt, TryStreamExt, stream};
 use owo_colors::OwoColorize;
 use prost::Message;
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 use thiserror::Error;
 use tokio::sync::broadcast::error::RecvError;
 use tracing::instrument;
@@ -24,6 +20,7 @@ use xmtp_archive::{ArchiveError, BackupMetadata};
 use xmtp_common::ErrorCode;
 use xmtp_common::{NS_IN_DAY, RetryableError, time::now_ns};
 use xmtp_content_types::encoded_content_to_bytes;
+use xmtp_db::tasks::NewTask;
 use xmtp_db::{
     NotFound, StorageError, consent_record::ConsentState, group::GroupQueryArgs,
     group_message::StoredGroupMessage,
@@ -31,14 +28,20 @@ use xmtp_db::{
 use xmtp_db::{XmtpDb, group::ConversationType, prelude::*};
 use xmtp_id::{InboxIdRef, associations::DeserializationError};
 use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_proto::types::InstallationId;
+use xmtp_proto::types::{GroupId, InstallationId};
 use xmtp_proto::xmtp::{
     device_sync::content::{
         DeviceSyncContent as DeviceSyncContentProto, device_sync_content::Content as ContentProto,
     },
-    mls::message_contents::{
-        ContentTypeId, EncodedContent, PlaintextEnvelope,
-        plaintext_envelope::{Content, V1},
+    mls::{
+        database::{
+            AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
+            task::Task as TaskKindProto,
+        },
+        message_contents::{
+            ContentTypeId, EncodedContent, PlaintextEnvelope,
+            plaintext_envelope::{Content, V1},
+        },
     },
 };
 
@@ -181,9 +184,11 @@ pub enum DeviceSyncError {
     MissingField(MissingField, String),
     /// Missing payload.
     ///
-    /// Sync payload not found for PIN. Retryable.
-    #[error("Could not find payload with pin {0:?}")]
-    MissingPayload(Option<String>),
+    /// Sync payload not found for PIN. Retryable. The PIN itself is a secret
+    /// archive reference token and must never appear in the error (it is
+    /// logged on the FFI error path), only whether one was provided.
+    #[error("Could not find payload (pin provided: {0})")]
+    MissingPayload(bool),
 }
 
 #[derive(Debug)]
@@ -205,6 +210,13 @@ impl NeedsDbReconnect for DeviceSyncError {
     fn needs_db_reconnect(&self) -> bool {
         match self {
             Self::Client(s) => s.db_needs_connection(),
+            Self::Storage(s) => s.db_needs_connection(),
+            // A dropped pool can hide in these wrapped errors; forward so the
+            // worker stops instead of hot-looping (was `_ => false`).
+            Self::Db(c) => c.db_needs_connection(),
+            Self::Group(e) => e.needs_db_reconnect(),
+            Self::MlsStore(e) => e.needs_db_reconnect(),
+            Self::Subscribe(e) => e.needs_db_reconnect(),
             _ => false,
         }
     }
@@ -271,7 +283,7 @@ where
     /// Sends a device sync message.
     /// If the `group_id` is `None`, the message will be sent
     /// to the primary sync group ID.
-    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(who = self.context.inbox_id()), skip(self)))]
+    #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self)))]
     #[cfg_attr(
         not(any(test, feature = "test-utils")),
         tracing::instrument(level = "trace", skip(self))
@@ -289,7 +301,7 @@ where
         let msg = format!(
             "[{}] Sending sync message to group {:?}",
             self.context.installation_id(),
-            xmtp_common::fmt::debug_hex(&sync_group.group_id)
+            xmtp_common::fmt::debug_hex(sync_group.group_id)
         );
         tracing::info!("{}", msg.yellow());
 
@@ -314,11 +326,14 @@ where
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
-            send_message_opts::SendMessageOpts { should_push: false },
-            |now| PlaintextEnvelope {
+            send_message_opts::SendMessageOpts {
+                should_push: false,
+                idempotency_key: None,
+            },
+            |key| PlaintextEnvelope {
                 content: Some(Content::V1(V1 {
                     content: content_bytes.clone(),
-                    idempotency_key: now.to_string(),
+                    idempotency_key: key.to_string(),
                 })),
             },
         )?;
@@ -350,9 +365,19 @@ where
                 tracing::info!(
                     "[{}] Creating sync group: {}",
                     hex::encode(self.context.installation_id()),
-                    hex::encode(&sync_group.group_id)
+                    hex::encode(sync_group.group_id)
                 );
-                sync_group.add_missing_installations().await?;
+                if let Err(inline_err) = sync_group.add_missing_installations().await {
+                    // The group row is already persisted, so this add is never
+                    // re-attempted (later calls take the `Some` branch) — arm
+                    // the durable reconcile task so the TaskRunner heals it,
+                    // then surface the original error. Armed only on failure:
+                    // enqueue-first duplicated the reconcile (and its identity
+                    // fetch) on every sync-group creation.
+                    self.schedule_add_missing_installations_task(sync_group.group_id)
+                        .map_err(Box::new)?;
+                    return Err(inline_err);
+                }
                 sync_group.sync_with_conn().await?;
 
                 self.metrics.increment_metric(SyncMetric::SyncGroupCreated);
@@ -366,36 +391,47 @@ where
 
     /// This should be triggered when a new sync group appears,
     /// indicating the presence of a new installation.
+    ///
+    /// Schedules one durable AddMissingInstallations task per eligible group
+    /// on the TaskRunner (deduped by payload hash) so the membership add is
+    /// retried with backoff instead of being lost if a single inline attempt
+    /// fails (e.g. identity propagation lag → MissingSequenceId).
     #[cfg_attr(
         any(test, feature = "test-utils"),
         tracing::instrument(level = "info", skip_all)
     )]
-    pub async fn add_new_installation_to_groups(&self) -> Result<(), DeviceSyncError> {
+    pub fn schedule_add_installations_to_groups(&self) -> Result<usize, DeviceSyncError> {
         let groups = self.mls_store.find_groups(GroupQueryArgs {
             last_activity_after_ns: Some(now_ns() - NS_IN_DAY * 90),
             consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
             ..Default::default()
         })?;
 
-        let groups = HashSet::from_iter(groups);
-        let intents = QueueIntent::update_group_membership()
-            .queue_for_each(groups, move |group| async move {
-                let intent = group.get_membership_update_intent(&[], &[]).await?;
-                let intent: Vec<u8> = intent.into();
-                Ok::<_, GroupError>(intent)
-            })
-            .await?;
+        for group in &groups {
+            self.schedule_add_missing_installations_task(group.group_id)?;
+        }
+        Ok(groups.len())
+    }
 
-        let context = &self.context;
-        stream::iter(intents)
-            .map(Ok::<_, GroupError>)
-            .try_for_each_concurrent(10, |intent| async move {
-                let (group, _) = MlsGroup::new_cached(context, &intent.group_id)?;
-                group.sync_until_intent_resolved(intent.id).await?;
-                Ok(())
-            })
-            .await?;
-
+    /// Durably enqueue one AddMissingInstallations task for `group_id`
+    /// (deduped by payload hash against any pending row for the same group)
+    /// and wake the TaskRunner.
+    pub(crate) fn schedule_add_missing_installations_task(
+        &self,
+        group_id: GroupId,
+    ) -> Result<(), DeviceSyncError> {
+        let task = NewTask::builder()
+            .originating_message_sequence_id(0)
+            .originating_message_originator_id(0)
+            .build(TaskProto {
+                task: Some(TaskKindProto::AddMissingInstallations(
+                    AddMissingInstallationsProto {
+                        group_id: group_id.to_vec(),
+                    },
+                )),
+            })?;
+        self.context.db().create_or_ignore_task(task)?;
+        self.context.task_channels().wake();
         Ok(())
     }
 }

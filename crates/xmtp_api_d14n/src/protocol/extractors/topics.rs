@@ -19,7 +19,9 @@ use xmtp_proto::xmtp::identity::associations::IdentityUpdate;
 use xmtp_proto::xmtp::mls::api::v1::KeyPackageUpload;
 use xmtp_proto::xmtp::mls::api::v1::UploadKeyPackageRequest;
 use xmtp_proto::xmtp::mls::api::v1::{
+    group_message::V1 as V3GroupMessage,
     group_message_input::V1 as GroupMessageV1,
+    welcome_message::{V1 as V3WelcomeMessage, WelcomePointer as V3WelcomePointer},
     welcome_message_input::{
         V1 as WelcomeMessageV1, WelcomePointer as WelcomeMessageWelcomePointer,
     },
@@ -86,6 +88,23 @@ impl EnvelopeVisitor<'_> for TopicExtractor {
         let protocol_message: ProtocolMessage = msg_result.try_into_protocol_message()?;
         self.topic =
             Some(TopicKind::GroupMessagesV1.create(protocol_message.group_id().as_slice()));
+        Ok(())
+    }
+
+    // The v3 response shapes carry their topic identifier as a plain field —
+    // no MLS deserialization needed, unlike the input shapes above.
+    fn visit_v3_group_message(&mut self, message: &V3GroupMessage) -> Result<(), Self::Error> {
+        self.topic = Some(TopicKind::GroupMessagesV1.create(message.group_id.as_slice()));
+        Ok(())
+    }
+
+    fn visit_v3_welcome_message(&mut self, message: &V3WelcomeMessage) -> Result<(), Self::Error> {
+        self.topic = Some(TopicKind::WelcomeMessagesV1.create(message.installation_key.as_slice()));
+        Ok(())
+    }
+
+    fn visit_v3_welcome_pointer(&mut self, message: &V3WelcomePointer) -> Result<(), Self::Error> {
+        self.topic = Some(TopicKind::WelcomeMessagesV1.create(message.installation_key.as_slice()));
         Ok(())
     }
 
@@ -181,6 +200,58 @@ mod tests {
 
         let expected_topic = TopicKind::WelcomeMessagesV1.create([5, 6, 7, 8]);
         assert_eq!(topic, expected_topic);
+    }
+
+    #[xmtp_common::test]
+    fn test_extract_v3_group_message_topic() {
+        let msg = xmtp_proto::mls_v1::GroupMessage {
+            version: Some(xmtp_proto::mls_v1::group_message::Version::V1(
+                xmtp_proto::mls_v1::group_message::V1 {
+                    group_id: vec![1, 2, 3],
+                    ..Default::default()
+                },
+            )),
+        };
+        assert_eq!(
+            msg.topic().unwrap(),
+            TopicKind::GroupMessagesV1.create([1, 2, 3])
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_extract_v3_welcome_message_topic() {
+        let msg = xmtp_proto::mls_v1::WelcomeMessage {
+            version: Some(xmtp_proto::mls_v1::welcome_message::Version::V1(
+                xmtp_proto::mls_v1::welcome_message::V1 {
+                    installation_key: vec![5, 6, 7, 8],
+                    ..Default::default()
+                },
+            )),
+        };
+        assert_eq!(
+            msg.topic().unwrap(),
+            TopicKind::WelcomeMessagesV1.create([5, 6, 7, 8])
+        );
+    }
+
+    #[xmtp_common::test]
+    fn test_extract_v3_welcome_pointer_topic() {
+        // The pointer shape keys by the same installation topic as a full
+        // welcome; extraction must not depend on the variant.
+        let msg = xmtp_proto::mls_v1::WelcomeMessage {
+            version: Some(
+                xmtp_proto::mls_v1::welcome_message::Version::WelcomePointer(
+                    xmtp_proto::mls_v1::welcome_message::WelcomePointer {
+                        installation_key: vec![5, 6, 7, 8],
+                        ..Default::default()
+                    },
+                ),
+            ),
+        };
+        assert_eq!(
+            msg.topic().unwrap(),
+            TopicKind::WelcomeMessagesV1.create([5, 6, 7, 8])
+        );
     }
 
     #[xmtp_common::test]

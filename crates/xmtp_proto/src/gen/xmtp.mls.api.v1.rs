@@ -762,6 +762,364 @@ impl ::prost::Name for SubscribeWelcomeMessagesRequest {
         "/xmtp.mls.api.v1.SubscribeWelcomeMessagesRequest".into()
     }
 }
+/// Client -> server. Sent one or more times over the life of the stream.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribeRequest {
+    #[prost(oneof = "subscribe_request::Version", tags = "1")]
+    pub version: ::core::option::Option<subscribe_request::Version>,
+}
+/// Nested message and enum types in `SubscribeRequest`.
+pub mod subscribe_request {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct V1 {
+        /// Each frame is exactly one of: a mutation, a Ping, or a Pong.
+        #[prost(oneof = "v1::Request", tags = "1, 2, 3")]
+        pub request: ::core::option::Option<v1::Request>,
+    }
+    /// Nested message and enum types in `V1`.
+    pub mod v1 {
+        /// Add and/or remove subscriptions in place (applied atomically per frame).
+        /// Topics use the kind-prefixed binary representation shared with the
+        /// decentralized backend (XIP-49 §3.3.2): the first byte is the topic kind,
+        /// the remainder is the identifier. This RPC initially serves
+        /// TOPIC_KIND_GROUP_MESSAGES_V1 (0x00, identifier = group_id) and
+        /// TOPIC_KIND_WELCOME_MESSAGES_V1 (0x01, identifier = installation_key);
+        /// a topic whose kind the node does not serve fails the stream with
+        /// INVALID_ARGUMENT. Future kinds (key packages, identity updates) are
+        /// adopted via the capabilities advertised on Started.
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Mutate {
+            /// begin delivering these topics
+            #[prost(message, repeated, tag = "1")]
+            pub adds: ::prost::alloc::vec::Vec<mutate::Subscription>,
+            /// stop delivering; clears the topic's cursor floor so a re-add replays
+            #[prost(bytes = "vec", repeated, tag = "2")]
+            pub removes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+            /// Catch this Mutate's adds up — history, TopicsLive markers, and the
+            /// wave's CatchupComplete — but do NOT register them for live delivery.
+            /// The markers then mean "you have everything as of the wave's start";
+            /// later messages arrive on no lane of this stream. Combined with
+            /// half-closing the request stream, this is the
+            /// bounded catch-up ("sync") mode: the server finishes the wave and then
+            /// closes the stream itself. Removals in the Mutate are unaffected.
+            #[prost(bool, tag = "3")]
+            pub history_only: bool,
+            /// Client-chosen correlation id: echoed on this wave's CatchupComplete,
+            /// and stamped on every delivery frame of the wave's catch-up replay
+            /// (Messages.mutate_id). MUST be nonzero when adds are present (0 is the
+            /// live tag), and MUST NOT match the mutate_id of a wave still in flight
+            /// on the stream (an in-flight collision would make two waves' frames and
+            /// completions indistinguishable) — either violation fails the stream
+            /// with INVALID_ARGUMENT. SHOULD be unique per stream so completed waves
+            /// stay attributable too.
+            #[prost(uint64, tag = "4")]
+            pub mutate_id: u64,
+        }
+        /// Nested message and enum types in `Mutate`.
+        pub mod mutate {
+            /// A topic to subscribe, with the cursor to resume from.
+            #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+            pub struct Subscription {
+                #[prost(bytes = "vec", tag = "1")]
+                pub topic: ::prost::alloc::vec::Vec<u8>,
+                /// Deliver ids greater than this; 0 = from the beginning. For a newly
+                /// joined group, a client SHOULD seed this from the welcome's encrypted
+                /// WelcomeMetadata.message_cursor so a new membership does not refetch
+                /// pre-join history it cannot decrypt; for a new installation's welcome
+                /// topic, 0 is how pending welcomes are collected.
+                #[prost(uint64, tag = "2")]
+                pub id_cursor: u64,
+            }
+            impl ::prost::Name for Subscription {
+                const NAME: &'static str = "Subscription";
+                const PACKAGE: &'static str = "xmtp.mls.api.v1";
+                fn full_name() -> ::prost::alloc::string::String {
+                    "xmtp.mls.api.v1.SubscribeRequest.V1.Mutate.Subscription".into()
+                }
+                fn type_url() -> ::prost::alloc::string::String {
+                    "/xmtp.mls.api.v1.SubscribeRequest.V1.Mutate.Subscription".into()
+                }
+            }
+        }
+        impl ::prost::Name for Mutate {
+            const NAME: &'static str = "Mutate";
+            const PACKAGE: &'static str = "xmtp.mls.api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.mls.api.v1.SubscribeRequest.V1.Mutate".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.mls.api.v1.SubscribeRequest.V1.Mutate".into()
+            }
+        }
+        /// Each frame is exactly one of: a mutation, a Ping, or a Pong.
+        #[derive(Clone, PartialEq, ::prost::Oneof)]
+        pub enum Request {
+            #[prost(message, tag = "1")]
+            Mutate(Mutate),
+            /// liveness challenge (e.g. probe the link after resuming)
+            #[prost(message, tag = "2")]
+            Ping(super::super::Ping),
+            /// answer to a server Ping
+            #[prost(message, tag = "3")]
+            Pong(super::super::Pong),
+        }
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeRequest.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeRequest.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for SubscribeRequest {
+    const NAME: &'static str = "SubscribeRequest";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeRequest".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeRequest".into()
+    }
+}
+/// Server -> client.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribeResponse {
+    #[prost(oneof = "subscribe_response::Version", tags = "1")]
+    pub version: ::core::option::Option<subscribe_response::Version>,
+}
+/// Nested message and enum types in `SubscribeResponse`.
+pub mod subscribe_response {
+    #[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct V1 {
+        #[prost(oneof = "v1::Response", tags = "1, 2, 3, 4, 5, 6")]
+        pub response: ::core::option::Option<v1::Response>,
+    }
+    /// Nested message and enum types in `V1`.
+    pub mod v1 {
+        /// A batch of new messages; group and welcome messages share the stream,
+        /// depending on which subscriptions are active. A frame belongs to exactly
+        /// one catch-up wave or to live — the server never mixes lanes, or two
+        /// waves, in one frame — and each lane is delivered in ascending id order
+        /// per message kind (live: across all live topics on the stream; a wave:
+        /// across the wave's topics, one merged cursor-ordered pass).
+        #[derive(Clone, PartialEq, ::prost::Message)]
+        pub struct Messages {
+            #[prost(message, repeated, tag = "1")]
+            pub group_messages: ::prost::alloc::vec::Vec<super::super::GroupMessage>,
+            #[prost(message, repeated, tag = "2")]
+            pub welcome_messages: ::prost::alloc::vec::Vec<super::super::WelcomeMessage>,
+            /// The catch-up wave that produced this frame: the Mutate's mutate_id
+            /// for wave replay, 0 for live tail.
+            #[prost(uint64, tag = "3")]
+            pub mutate_id: u64,
+        }
+        impl ::prost::Name for Messages {
+            const NAME: &'static str = "Messages";
+            const PACKAGE: &'static str = "xmtp.mls.api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.mls.api.v1.SubscribeResponse.V1.Messages".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.mls.api.v1.SubscribeResponse.V1.Messages".into()
+            }
+        }
+        /// The first frame on every stream.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct Started {
+            /// The server's ping cadence (ms): the basis for the client's staleness
+            /// threshold and the server's reap deadline.
+            #[prost(uint32, tag = "1")]
+            pub keepalive_interval_ms: u32,
+            /// Optional protocol features the node supports on this stream. The node
+            /// silently ignores request types it does not understand, so a client
+            /// MUST NOT send an optional request type whose capability the node did
+            /// not advertise (it would hang waiting on a response that never comes).
+            #[prost(enumeration = "Capability", repeated, tag = "2")]
+            pub capabilities: ::prost::alloc::vec::Vec<i32>,
+        }
+        impl ::prost::Name for Started {
+            const NAME: &'static str = "Started";
+            const PACKAGE: &'static str = "xmtp.mls.api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.mls.api.v1.SubscribeResponse.V1.Started".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.mls.api.v1.SubscribeResponse.V1.Started".into()
+            }
+        }
+        /// Sent once per Mutate: at wave completion (after the wave's last
+        /// TopicsLive) for a Mutate that started a catch-up "wave", immediately for
+        /// one that did not (nothing added — removes-only or empty — or every add
+        /// a no-op). Also the catch-up
+        /// seam: live frames (mutate_id 0) for the wave's topics begin only after
+        /// this frame.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct CatchupComplete {
+            /// echoes the Mutate; 0 only if a waveless Mutate carried 0
+            #[prost(uint64, tag = "1")]
+            pub mutate_id: u64,
+        }
+        impl ::prost::Name for CatchupComplete {
+            const NAME: &'static str = "CatchupComplete";
+            const PACKAGE: &'static str = "xmtp.mls.api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.mls.api.v1.SubscribeResponse.V1.CatchupComplete".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.mls.api.v1.SubscribeResponse.V1.CatchupComplete".into()
+            }
+        }
+        /// Emitted when topics finish catch-up, AFTER the last history frame for
+        /// them — including messages that arrived mid-wave and were folded into it,
+        /// which were equally historical from the client's perspective — so no
+        /// further replay for a listed topic follows; its live (mutate_id 0) frames
+        /// begin after the wave's CatchupComplete. Informational only: delivery
+        /// correctness (no duplicates, no gaps) never depends on it. Re-adding a
+        /// topic re-runs catch-up and re-emits it; receivers treat it idempotently.
+        #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+        pub struct TopicsLive {
+            /// kind-prefixed topics done replaying
+            #[prost(bytes = "vec", repeated, tag = "1")]
+            pub topics: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
+        }
+        impl ::prost::Name for TopicsLive {
+            const NAME: &'static str = "TopicsLive";
+            const PACKAGE: &'static str = "xmtp.mls.api.v1";
+            fn full_name() -> ::prost::alloc::string::String {
+                "xmtp.mls.api.v1.SubscribeResponse.V1.TopicsLive".into()
+            }
+            fn type_url() -> ::prost::alloc::string::String {
+                "/xmtp.mls.api.v1.SubscribeResponse.V1.TopicsLive".into()
+            }
+        }
+        /// Optional per-stream protocol features (none defined yet; future
+        /// revisions add values, e.g. fetch-over-stream lookups answered with the
+        /// same read view that feeds the stream, or new streamable topic kinds).
+        #[derive(
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            PartialOrd,
+            Ord,
+            ::prost::Enumeration
+        )]
+        #[repr(i32)]
+        pub enum Capability {
+            Unspecified = 0,
+        }
+        impl Capability {
+            /// String value of the enum field names used in the ProtoBuf definition.
+            ///
+            /// The values are not transformed in any way and thus are considered stable
+            /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+            pub fn as_str_name(&self) -> &'static str {
+                match self {
+                    Self::Unspecified => "CAPABILITY_UNSPECIFIED",
+                }
+            }
+            /// Creates an enum from field names used in the ProtoBuf definition.
+            pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+                match value {
+                    "CAPABILITY_UNSPECIFIED" => Some(Self::Unspecified),
+                    _ => None,
+                }
+            }
+        }
+        #[derive(Clone, PartialEq, ::prost::Oneof)]
+        pub enum Response {
+            #[prost(message, tag = "1")]
+            Messages(Messages),
+            /// sent once, immediately on open, before any catch-up
+            #[prost(message, tag = "2")]
+            Started(Started),
+            /// idle liveness challenge; receiver MUST answer with Pong
+            #[prost(message, tag = "3")]
+            Ping(super::super::Ping),
+            /// answer to a client Ping
+            #[prost(message, tag = "4")]
+            Pong(super::super::Pong),
+            /// no more replay for these topics; live begins after CatchupComplete
+            #[prost(message, tag = "5")]
+            TopicsLive(TopicsLive),
+            /// acks a Mutate; wave completion if it started one
+            #[prost(message, tag = "6")]
+            CatchupComplete(CatchupComplete),
+        }
+    }
+    impl ::prost::Name for V1 {
+        const NAME: &'static str = "V1";
+        const PACKAGE: &'static str = "xmtp.mls.api.v1";
+        fn full_name() -> ::prost::alloc::string::String {
+            "xmtp.mls.api.v1.SubscribeResponse.V1".into()
+        }
+        fn type_url() -> ::prost::alloc::string::String {
+            "/xmtp.mls.api.v1.SubscribeResponse.V1".into()
+        }
+    }
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Version {
+        #[prost(message, tag = "1")]
+        V1(V1),
+    }
+}
+impl ::prost::Name for SubscribeResponse {
+    const NAME: &'static str = "SubscribeResponse";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.SubscribeResponse".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.SubscribeResponse".into()
+    }
+}
+/// Liveness challenge/response, shared across versions. Either peer MAY send a
+/// Ping; the receiver MUST reply with a Pong echoing the nonce. The sender closes
+/// the stream if no Pong arrives within its deadline — how a node reaps a vanished
+/// peer (e.g. a mobile client the OS suspended behind a proxy that still ACKs the
+/// transport).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Ping {
+    #[prost(uint64, tag = "1")]
+    pub nonce: u64,
+}
+impl ::prost::Name for Ping {
+    const NAME: &'static str = "Ping";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.Ping".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.Ping".into()
+    }
+}
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct Pong {
+    /// echoes the nonce of the Ping it answers
+    #[prost(uint64, tag = "1")]
+    pub nonce: u64,
+}
+impl ::prost::Name for Pong {
+    const NAME: &'static str = "Pong";
+    const PACKAGE: &'static str = "xmtp.mls.api.v1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "xmtp.mls.api.v1.Pong".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/xmtp.mls.api.v1.Pong".into()
+    }
+}
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct BatchPublishCommitLogRequest {
     #[prost(message, repeated, tag = "1")]
@@ -1057,6 +1415,20 @@ pub mod mls_api_server {
             tonic::Response<Self::SubscribeWelcomeMessagesStream>,
             tonic::Status,
         >;
+        /// Server streaming response type for the Subscribe method.
+        type SubscribeStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::SubscribeResponse, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
+        /// Bidirectional subscription (XIP-83). One long-lived stream the client mutates
+        /// in place via add/remove topic deltas, with WebSocket-style liveness ping/pong.
+        /// A single stream MAY carry both group-message and welcome topics.
+        /// gRPC-only: bidirectional streaming has no HTTP/grpc-gateway mapping.
+        async fn subscribe(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::SubscribeRequest>>,
+        ) -> std::result::Result<tonic::Response<Self::SubscribeStream>, tonic::Status>;
         async fn batch_publish_commit_log(
             &self,
             request: tonic::Request<super::BatchPublishCommitLogRequest>,
@@ -1652,6 +2024,54 @@ pub mod mls_api_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/xmtp.mls.api.v1.MlsApi/Subscribe" => {
+                    #[allow(non_camel_case_types)]
+                    struct SubscribeSvc<T: MlsApi>(pub Arc<T>);
+                    impl<
+                        T: MlsApi,
+                    > tonic::server::StreamingService<super::SubscribeRequest>
+                    for SubscribeSvc<T> {
+                        type Response = super::SubscribeResponse;
+                        type ResponseStream = T::SubscribeStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<super::SubscribeRequest>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as MlsApi>::subscribe(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SubscribeSvc(inner);
+                        let codec = tonic_prost::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

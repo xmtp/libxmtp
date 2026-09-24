@@ -130,6 +130,6 @@ mod tests {
     #[xmtp_common::test]
     fn test_grpc_endpoint_delegates_to_wrapped_endpoint() {
         let ignore_endpoint = ignore(TestEndpoint);
-        assert_eq!(ignore_endpoint.grpc_endpoint(), "");
+        assert_eq!(ignore_endpoint.grpc_endpoint(), "/test.mock/TestEndpoint");
     }
 }

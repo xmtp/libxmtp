@@ -10,6 +10,7 @@ use xmtp_db::group_message::{
 use xmtp_db::message_deletion::StoredMessageDeletion;
 use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
 
+use xmtp_proto::types::GroupId;
 /// Content type ID for deleted message placeholders shown in enriched message lists
 pub fn deleted_message_content_type() -> ContentTypeId {
     ContentTypeId {
@@ -58,13 +59,13 @@ type DeletionMap = HashMap<Vec<u8>, StoredMessageDeletion>;
 pub(crate) fn is_deletion_valid(
     deletion: &StoredMessageDeletion,
     message: &StoredGroupMessage,
-    group_id: &[u8],
+    group_id: &GroupId,
 ) -> bool {
     if deletion.deleted_message_id != message.id {
         return false;
     }
 
-    if deletion.group_id != group_id || message.group_id != group_id {
+    if deletion.group_id != *group_id || message.group_id != *group_id {
         return false;
     }
 
@@ -76,9 +77,10 @@ pub(crate) fn is_deletion_valid(
     is_sender || deletion.is_super_admin_deletion
 }
 
+#[xmtp_common::mls_span]
 pub fn enrich_messages(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
 ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
     let initial_message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_ref()).collect();
@@ -130,7 +132,18 @@ pub fn enrich_messages(
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
                     let _ = hex::decode(&reply_body.reference_id)
                         .inspect_err(|err| {
-                            tracing::warn!("could not parse reference ID as hex: {:?}", err)
+                            // The reference is sender-controlled; truncate so a
+                            // malformed value can't flood the log line.
+                            let reference_id: String =
+                                reply_body.reference_id.chars().take(64).collect();
+                            tracing::warn!(
+                                group_id = %group_id,
+                                message_id = %hex::encode(&stored_message.id),
+                                sender_inbox_id = %stored_message.sender_inbox_id,
+                                reference_id = %reference_id,
+                                "could not parse reference ID as hex: {:?}",
+                                err
+                            )
                         })
                         .inspect(|id| {
                             let mut in_reply_to = relations
@@ -170,7 +183,7 @@ pub fn enrich_messages(
 
 fn get_relations(
     conn: impl DbQuery,
-    group_id: &[u8],
+    group_id: &GroupId,
     message_ids: &[&[u8]],
     reference_ids: &[&[u8]],
 ) -> Result<GetRelationsResults, EnrichMessageError> {

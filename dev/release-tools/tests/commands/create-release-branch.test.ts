@@ -53,6 +53,18 @@ describe("create-release-branch", () => {
       `{\n  "name": "@xmtp/wasm-bindings",\n  "version": "0.0.0"\n}\n`,
     );
 
+    // Create JS SDK structures
+    fs.mkdirSync(path.join(tmpDir, "sdks/js/node-sdk"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/js/node-sdk/package.json"),
+      `{\n  "name": "@xmtp/node-sdk",\n  "version": "6.0.0"\n}\n`,
+    );
+    fs.mkdirSync(path.join(tmpDir, "sdks/js/browser-sdk"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
+      `{\n  "name": "@xmtp/browser-sdk",\n  "version": "7.0.0"\n}\n`,
+    );
+
     // Create release notes directory
     fs.mkdirSync(path.join(tmpDir, "docs/release-notes"), { recursive: true });
 
@@ -236,6 +248,72 @@ describe("create-release-branch", () => {
     );
   });
 
+  it("creates branch with node-sdk and browser-sdk bumps", async () => {
+    const { handler } =
+      await import("../../src/commands/create-release-branch");
+
+    handler({
+      repoRoot: tmpDir,
+      version: "1.1.0",
+      base: "HEAD",
+      ios: "none",
+      android: "none",
+      nodeSdk: "minor",
+      browserSdk: "patch",
+      node: false,
+      wasm: false,
+      _: [],
+      $0: "",
+    });
+
+    // Check branch was created
+    const branch = execSync("git branch --show-current", { cwd: tmpDir })
+      .toString()
+      .trim();
+    expect(branch).toBe("release/1.1.0");
+
+    // Check JS SDK versions were bumped off their own bases
+    const nodeSdkPackageJson = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, "sdks/js/node-sdk/package.json"),
+        "utf-8",
+      ),
+    );
+    expect(nodeSdkPackageJson.version).toBe("6.1.0");
+
+    const browserSdkPackageJson = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
+        "utf-8",
+      ),
+    );
+    expect(browserSdkPackageJson.version).toBe("7.0.1");
+
+    // Check the bindings manifests were NOT touched
+    const nodeBindingsPackageJson = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "bindings/node/package.json"), "utf-8"),
+    );
+    expect(nodeBindingsPackageJson.version).toBe("0.0.0");
+
+    // Check release notes were created for both JS SDKs
+    expect(
+      fs.existsSync(path.join(tmpDir, "docs/release-notes/node-sdk/6.1.0.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(tmpDir, "docs/release-notes/browser-sdk/7.0.1.md"),
+      ),
+    ).toBe(true);
+
+    // Check commit message
+    const commitMsg = execSync("git log -1 --pretty=%B", { cwd: tmpDir })
+      .toString()
+      .trim();
+    expect(commitMsg).toBe(
+      "chore: create release 1.1.0 (node-sdk 6.1.0, browser-sdk 7.0.1)",
+    );
+  });
+
   it("creates branch with --node flag", async () => {
     const { handler } =
       await import("../../src/commands/create-release-branch");
@@ -260,10 +338,7 @@ describe("create-release-branch", () => {
 
     // Check Node version was set to release version
     const packageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "bindings/node/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "bindings/node/package.json"), "utf-8"),
     );
     expect(packageJson.version).toBe("1.1.0");
 
@@ -305,10 +380,7 @@ describe("create-release-branch", () => {
 
     // Check WASM version was set to release version
     const packageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "bindings/wasm/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "bindings/wasm/package.json"), "utf-8"),
     );
     expect(packageJson.version).toBe("1.1.0");
 
@@ -336,6 +408,8 @@ describe("create-release-branch", () => {
       base: "HEAD",
       ios: "major",
       android: "minor",
+      nodeSdk: "major",
+      browserSdk: "minor",
       node: true,
       wasm: true,
       _: [],
@@ -362,20 +436,30 @@ describe("create-release-branch", () => {
     expect(gradle).toContain("version=1.1.0");
 
     const nodePackageJson = JSON.parse(
-      fs.readFileSync(
-        path.join(tmpDir, "bindings/node/package.json"),
-        "utf-8",
-      ),
+      fs.readFileSync(path.join(tmpDir, "bindings/node/package.json"), "utf-8"),
     );
     expect(nodePackageJson.version).toBe("2.0.0");
 
     const wasmPackageJson = JSON.parse(
+      fs.readFileSync(path.join(tmpDir, "bindings/wasm/package.json"), "utf-8"),
+    );
+    expect(wasmPackageJson.version).toBe("2.0.0");
+
+    const nodeSdkPackageJson = JSON.parse(
       fs.readFileSync(
-        path.join(tmpDir, "bindings/wasm/package.json"),
+        path.join(tmpDir, "sdks/js/node-sdk/package.json"),
         "utf-8",
       ),
     );
-    expect(wasmPackageJson.version).toBe("2.0.0");
+    expect(nodeSdkPackageJson.version).toBe("7.0.0");
+
+    const browserSdkPackageJson = JSON.parse(
+      fs.readFileSync(
+        path.join(tmpDir, "sdks/js/browser-sdk/package.json"),
+        "utf-8",
+      ),
+    );
+    expect(browserSdkPackageJson.version).toBe("7.1.0");
 
     // Check release notes were created for all
     expect(
@@ -383,6 +467,14 @@ describe("create-release-branch", () => {
     ).toBe(true);
     expect(
       fs.existsSync(path.join(tmpDir, "docs/release-notes/android/1.1.0.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(path.join(tmpDir, "docs/release-notes/node-sdk/7.0.0.md")),
+    ).toBe(true);
+    expect(
+      fs.existsSync(
+        path.join(tmpDir, "docs/release-notes/browser-sdk/7.1.0.md"),
+      ),
     ).toBe(true);
     expect(
       fs.existsSync(
@@ -400,7 +492,7 @@ describe("create-release-branch", () => {
       .toString()
       .trim();
     expect(commitMsg).toBe(
-      "chore: create release 2.0.0 (ios 2.0.0, android 1.1.0, node-bindings 2.0.0, wasm-bindings 2.0.0)",
+      "chore: create release 2.0.0 (ios 2.0.0, android 1.1.0, node-sdk 7.0.0, browser-sdk 7.1.0, node-bindings 2.0.0, wasm-bindings 2.0.0)",
     );
   });
 

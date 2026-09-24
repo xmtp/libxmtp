@@ -49,11 +49,11 @@ use async_trait::async_trait;
 use bollard::{
     Docker,
     models::ContainerCreateBody,
+    models::PortBinding,
     query_parameters::{
         CreateContainerOptionsBuilder, CreateImageOptionsBuilder, EventsOptions,
         RemoveContainerOptionsBuilder, StopContainerOptionsBuilder,
     },
-    secret::PortBinding,
 };
 use color_eyre::eyre::{OptionExt, Result, eyre};
 use futures::{StreamExt, TryStreamExt};

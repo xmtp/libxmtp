@@ -55,7 +55,11 @@ export function setDevcontainerImage(
   };
 
   let result = source;
-  const edit = (path: (string | number)[], value: unknown, extra = {}): void => {
+  const edit = (
+    path: (string | number)[],
+    value: unknown,
+    extra = {},
+  ): void => {
     result = applyEdits(
       result,
       modify(result, path, value, { formattingOptions, ...extra }),
@@ -66,7 +70,8 @@ export function setDevcontainerImage(
     edit([IMAGE_KEY], image);
   } else {
     edit([IMAGE_KEY], image, {
-      getInsertionIndex: (properties: string[]) => properties.indexOf(BUILD_KEY),
+      getInsertionIndex: (properties: string[]) =>
+        properties.indexOf(BUILD_KEY),
     });
     edit([BUILD_KEY], undefined);
   }

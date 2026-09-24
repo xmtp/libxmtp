@@ -40,6 +40,7 @@ impl StreamCloser {
   /// Returns the `Result` of the task.
   /// End the stream and asynchronously wait for it to shutdown
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn end_and_wait(&self) -> Result<(), Error> {
     use StreamHandleError::*;
     if self.abort.is_finished() {
@@ -63,6 +64,7 @@ impl StreamCloser {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn wait_for_ready(&self) -> Result<(), Error> {
     let mut stream_handle = self.handle.lock().await;
     futures::future::OptionFuture::from((*stream_handle).as_mut().map(|s| s.wait_for_ready()))

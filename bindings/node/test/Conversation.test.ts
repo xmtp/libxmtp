@@ -120,12 +120,15 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembersByIdentity([
+    const addByIdentityResult = await conversation.addMembersByIdentity([
       {
         identifier: user3.account.address,
         identifierKind: IdentifierKind.Ethereum,
       },
     ])
+    expect(addByIdentityResult.addedMembers[client3.inboxId()]).toBeDefined()
+    expect(addByIdentityResult.removedMembers).toEqual([])
+    expect(addByIdentityResult.failedInstallations).toEqual([])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -171,7 +174,10 @@ describe.concurrent('Conversation', () => {
     expect(memberInboxIds).toContain(client2.inboxId())
     expect(memberInboxIds).not.toContain(client3.inboxId())
 
-    await conversation.addMembers([client3.inboxId()])
+    const addMembersResult = await conversation.addMembers([client3.inboxId()])
+    expect(addMembersResult.addedMembers[client3.inboxId()]).toBeDefined()
+    expect(addMembersResult.removedMembers).toEqual([])
+    expect(addMembersResult.failedInstallations).toEqual([])
 
     const members2 = await conversation.listMembers()
     expect(members2.length).toBe(3)
@@ -234,7 +240,7 @@ describe.concurrent('Conversation', () => {
       },
     ])
 
-    await conversation.sendText('gm', true)
+    await conversation.sendText('gm', { optimistic: true })
 
     const messages = await conversation.listMessages()
     expect(messages.length).toBe(2)
@@ -257,6 +263,34 @@ describe.concurrent('Conversation', () => {
 
     const messages4 = await conversation2.listMessages()
     expect(messages4.length).toBe(2)
+  })
+
+  it('should produce deterministic ids for a caller-set idempotency key', async () => {
+    const user1 = createUser()
+    const user2 = createUser()
+    const client1 = await createRegisteredClient(user1)
+    await createRegisteredClient(user2)
+    const conversation = await client1.conversations().createGroupByIdentity([
+      {
+        identifier: user2.account.address,
+        identifierKind: IdentifierKind.Ethereum,
+      },
+    ])
+
+    // Same content + same key => same id, deduplicated (no new stored message).
+    const id1 = await conversation.sendText('gm', { idempotencyKey: 'key-1' })
+    const countAfterFirst = (await conversation.listMessages()).length
+    const id2 = await conversation.sendText('gm', { idempotencyKey: 'key-1' })
+    expect(id2).toBe(id1)
+    expect((await conversation.listMessages()).length).toBe(countAfterFirst)
+
+    // Different key (or no key) => different id, stored as a new message.
+    const id3 = await conversation.sendText('gm', { idempotencyKey: 'key-2' })
+    const id4 = await conversation.sendText('gm')
+    expect(id3).not.toBe(id1)
+    expect(id4).not.toBe(id1)
+    expect(id4).not.toBe(id3)
+    expect((await conversation.listMessages()).length).toBe(countAfterFirst + 2)
   })
 
   it('should stream messages', async () => {

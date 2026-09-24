@@ -25,14 +25,22 @@ export interface ClassifyResult {
 export function parseFrontmatter(text: string): ReleaseNoteFrontmatter {
   const match = text.match(/^---\n([\s\S]*?)\n---/);
   if (!match) {
-    return { sdk: null, previousReleaseVersion: null, previousReleaseTag: null };
+    return {
+      sdk: null,
+      previousReleaseVersion: null,
+      previousReleaseTag: null,
+    };
   }
 
   let parsed: Record<string, unknown>;
   try {
     parsed = parse(match[1]);
   } catch {
-    return { sdk: null, previousReleaseVersion: null, previousReleaseTag: null };
+    return {
+      sdk: null,
+      previousReleaseVersion: null,
+      previousReleaseTag: null,
+    };
   }
 
   const sdk = typeof parsed.sdk === "string" ? parsed.sdk : null;

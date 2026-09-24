@@ -7,11 +7,11 @@
   openssl,
   sqlite,
   pkg-config,
-  perl,
   darwin,
   stdenv,
   zlib,
   pkgsBuildHost,
+  perl,
 }:
 let
   # Narrow fileset for buildDepsOnly — only Cargo.toml, Cargo.lock, build.rs,
@@ -47,7 +47,11 @@ let
       perl
       zlib
     ]
-    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ];
+    ++ lib.optionals stdenv.buildPlatform.isDarwin [ darwin.libiconv ]
+    # crane#1059 stopped adding toolchain cc's to nativeBuildInputs; restore the
+    # build-platform cc so its setup hook feeds build-role NIX_LDFLAGS (-liconv
+    # for darwin build scripts) and keeps unprefixed `cc` on PATH (aws-lc-sys).
+    ++ lib.optionals (stdenv.buildPlatform != stdenv.hostPlatform) [ pkgsBuildHost.stdenv.cc ];
     # these inputs do get cross compiled
     buildInputs = [
       zstd
@@ -61,6 +65,7 @@ let
     hardeningDisable = [ "zerocallusedregs" ];
     CARGO_BUILD_TARGET = stdenv.hostPlatform.rust.rustcTarget;
     CARGO_PROFILE = "release";
+    doInstallCargoArtifacts = false;
 
     # aws-lc-sys is tricky to x-compile, since it needs host CC to compile libraries to do host-side checks.
     # aws-lc-sys's build script resolves CC via TARGET_CC (set by Nix to the cross-compiler) and
@@ -81,12 +86,14 @@ let
     let
       maybeTestFeature = if test then "--features test-utils" else "";
       overrides' = if overrides == null then { } else overrides;
+      # these attrs need to be removed otherwise cache becomes invalidated on every different commit
     in
     rust.buildDepsOnly (
       commonArgs
       // {
         src = rust.cleanCargoSource ../..;
         buildPhaseCargoCommand = "cargo build ${maybeTestFeature} --profile $CARGO_PROFILE --locked";
+        doInstallCargoArtifacts = true;
       }
       // overrides'
     );

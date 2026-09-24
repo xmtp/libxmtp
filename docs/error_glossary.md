@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**30 error types** across **10 crates** with **341 total error codes**.
+**30 error types** across **10 crates** with **342 total error codes**.
 
 ## mobile
 
@@ -62,6 +62,7 @@ when surfaced to JavaScript.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `MessageBackendBuilderError::MissingXmtpdHost` | Missing XMTPD host. XMTPD host was not set on the builder. Not retryable. |
 | `MessageBackendBuilderError::MissingV3Host` | Missing V3 host. V3 host was not set on the builder. Not retryable. |
 | `MessageBackendBuilderError::GrpcBuilder` | gRPC builder error. gRPC client builder failed. Not retryable. |
 | `MessageBackendBuilderError::MultiNode` | Multi-node error. Multi-node client builder failed. Not retryable. |

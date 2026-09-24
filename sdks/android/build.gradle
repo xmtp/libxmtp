@@ -28,12 +28,12 @@ subprojects {
         kotlin {
             target '**/*.kt'
             targetExclude '**/build/**', '**/generated/**', '**/xmtpv3.kt'
-            ktlint('1.7.1')
+            ktlint('1.8.0')
         }
 
         kotlinGradle {
             target '**/*.gradle.kts'
-            ktlint('1.7.1')
+            ktlint('1.8.0')
         }
 
         format 'misc', {

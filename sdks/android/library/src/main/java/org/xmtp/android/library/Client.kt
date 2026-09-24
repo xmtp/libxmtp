@@ -18,6 +18,7 @@ import org.xmtp.android.library.libxmtp.PublicIdentity
 import org.xmtp.android.library.libxmtp.SignatureRequest
 import org.xmtp.android.library.libxmtp.toFfi
 import uniffi.xmtpv3.DbOptions
+import uniffi.xmtpv3.FfiCatchUpOptions
 import uniffi.xmtpv3.FfiClientMode
 import uniffi.xmtpv3.FfiDeviceSyncMode
 import uniffi.xmtpv3.FfiForkRecoveryOpts
@@ -43,6 +44,7 @@ import uniffi.xmtpv3.inboxStateFromInboxIds
 import uniffi.xmtpv3.isConnected
 import uniffi.xmtpv3.revokeInstallations
 import java.io.File
+import uniffi.xmtpv3.setNativeLogLevel as ffiSetNativeLogLevel
 
 typealias PreEventCallback = suspend () -> Unit
 typealias ProcessType = FfiProcessType
@@ -58,6 +60,11 @@ data class ClientOptions(
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
     val dbPoolOptions: DbPoolOptions? = null,
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
+    /**
+     * Unstable: notifications for group state changes, for clients that
+     * reconcile a group's `appData` themselves. See [UnstableChangeCallbacks].
+     */
+    val unstableChangeCallbacks: UnstableChangeCallbacks? = null,
 ) {
     data class Api(
         val env: XMTPEnvironment = XMTPEnvironment.DEV,
@@ -138,8 +145,36 @@ class Client(
     val libXMTPVersion: String = getVersionInfo()
     private val ffiClient: FfiXmtpClient = libXMTPClient
 
+    /**
+     * `true` when this client is backed by an in-memory database. In that case
+     * [deleteLocalDatabase], [dropLocalDatabaseConnection] and
+     * [reconnectLocalDatabase] are no-ops and the underlying state is
+     * discarded when the client is garbage collected.
+     */
+    val isInMemory: Boolean
+        get() = dbPath == IN_MEMORY_DB_PATH
+
     companion object {
         private const val TAG = "Client"
+
+        /**
+         * Process-wide control for automatic stream-lifecycle management. When
+         * true (the default), the first [Client] created registers a
+         * [androidx.lifecycle.ProcessLifecycleOwner] observer that parks the
+         * shared streaming wire while the app is backgrounded and revives it on
+         * foreground. The streaming wire is shared across every client in the
+         * process, so this is a **process-global** setting, not per-client: set
+         * it to false **before creating your first client** to opt out (e.g. to
+         * manage the lifecycle yourself).
+         */
+        @JvmStatic
+        var manageStreamLifecycle: Boolean = true
+
+        /**
+         * Sentinel value assigned to [Client.dbPath] when the client was created
+         * via [createInMemory]. No file exists at this path.
+         */
+        const val IN_MEMORY_DB_PATH: String = ":memory:"
 
         var codecRegistry =
             run {
@@ -153,9 +188,6 @@ class Client(
 
         private val apiClientCache = mutableMapOf<String, XmtpApiClient>()
         private val cacheLock = Mutex()
-
-        private val syncApiClientCache = mutableMapOf<String, XmtpApiClient>()
-        private val syncCacheLock = Mutex()
 
         fun activatePersistentLibXMTPLogWriter(
             appContext: Context,
@@ -179,6 +211,15 @@ class Client(
 
         fun deactivatePersistentLibXMTPLogWriter() {
             exitDebugWriter()
+        }
+
+        /**
+         * Sets the log level for the native log layer (logcat on Android). Use
+         * `FfiLogLevel.TRACE` to capture span/activity events. Independent of the
+         * persistent file log writer.
+         */
+        fun setLibXMTPNativeLogLevel(logLevel: FfiLogLevel) {
+            ffiSetNativeLogLevel(logLevel)
         }
 
         fun getXMTPLogFilePaths(appContext: Context): List<String> {
@@ -236,30 +277,6 @@ class Client(
                         null,
                     )
                 apiClientCache[cacheKey] = newClient
-                return@withLock newClient
-            }
-        }
-
-        suspend fun connectToSyncApiBackend(api: ClientOptions.Api): XmtpApiClient {
-            val cacheKey = api.toCacheKey()
-            return syncCacheLock.withLock {
-                val cached = syncApiClientCache[cacheKey]
-
-                if (cached != null && isConnected(cached)) {
-                    return cached
-                }
-
-                // If not cached or not connected, create a fresh client
-                val newClient =
-                    connectToBackend(
-                        api.env.getUrl(),
-                        api.gatewayHost,
-                        FfiClientMode.DEFAULT,
-                        api.appVersion,
-                        null,
-                        null,
-                    )
-                syncApiClientCache[cacheKey] = newClient
                 return@withLock newClient
             }
         }
@@ -342,7 +359,6 @@ class Client(
                 val ffiClient =
                     createClient(
                         api = connectToApiBackend(api),
-                        syncApi = connectToApiBackend(api),
                         db =
                             DbOptions(
                                 db = null,
@@ -357,6 +373,10 @@ class Client(
                         deviceSyncMode = null,
                         allowOffline = false,
                         forkRecoveryOpts = null,
+                        workerConfig = null,
+                        // Identity-probe client: never processes messages, so
+                        // nothing to notify about.
+                        changeCallbacks = null,
                     )
 
                 useClient(ffiClient)
@@ -419,6 +439,7 @@ class Client(
             signingKey: SigningKey? = null,
             inboxId: InboxId? = null,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Client =
             withContext(Dispatchers.IO) {
                 val recoveredInboxId =
@@ -431,6 +452,7 @@ class Client(
                         clientOptions,
                         clientOptions.appContext,
                         buildOffline,
+                        inMemory,
                     )
                 clientOptions.preAuthenticateToInboxCallback?.let {
                     runBlocking {
@@ -461,14 +483,24 @@ class Client(
                     )
                 }
 
-                Client(
-                    ffiClient,
-                    dbPath,
-                    ffiClient.installationId().toHex(),
-                    ffiClient.inboxId(),
-                    clientOptions.api.env,
-                    publicIdentity,
-                )
+                val client =
+                    Client(
+                        ffiClient,
+                        dbPath,
+                        ffiClient.installationId().toHex(),
+                        ffiClient.inboxId(),
+                        clientOptions.api.env,
+                        publicIdentity,
+                    )
+
+                // Keep the shared streaming wire in step with app
+                // foreground/background. Process-global and idempotent — the
+                // first managed client registers it for every client.
+                if (manageStreamLifecycle) {
+                    StreamLifecycleManager.enableIfNeeded()
+                }
+
+                client
             }
 
         // Function to create a client with a signing key
@@ -481,6 +513,41 @@ class Client(
                     initializeV3Client(account.publicIdentity, options, account)
                 } catch (e: Exception) {
                     throw XMTPException("Error creating V3 client: ${e.message}", e)
+                }
+            }
+
+        /**
+         * Creates a Client backed by an in-memory SQLCipher database.
+         *
+         * Bypasses all on-disk database management — no `.db3` file is created
+         * and no directory is touched. The returned client has [Client.dbPath]
+         * equal to [IN_MEMORY_DB_PATH] (`":memory:"`) and [Client.isInMemory]
+         * returns `true`.
+         *
+         * On in-memory clients, [Client.deleteLocalDatabase],
+         * [Client.dropLocalDatabaseConnection] and
+         * [Client.reconnectLocalDatabase] are no-ops — state lives only in the
+         * FFI pool and is discarded when the client is garbage collected.
+         *
+         * Intended for tests and other ephemeral flows where a real client is
+         * needed but persistence is not. [ClientOptions.dbDirectory] and
+         * [ClientOptions.dbEncryptionKey] are ignored — libxmtp manages the
+         * in-memory store itself.
+         */
+        suspend fun createInMemory(
+            account: SigningKey,
+            options: ClientOptions,
+        ): Client =
+            withContext(Dispatchers.IO) {
+                try {
+                    initializeV3Client(
+                        account.publicIdentity,
+                        options,
+                        account,
+                        inMemory = true,
+                    )
+                } catch (e: Exception) {
+                    throw XMTPException("Error creating in-memory V3 client: ${e.message}", e)
                 }
             }
 
@@ -509,8 +576,38 @@ class Client(
             options: ClientOptions,
             appContext: Context,
             buildOffline: Boolean = false,
+            inMemory: Boolean = false,
         ): Pair<FfiXmtpClient, String> =
             withContext(Dispatchers.IO) {
+                if (inMemory) {
+                    val ffiClient =
+                        createClient(
+                            api = connectToApiBackend(options.api),
+                            db =
+                                DbOptions(
+                                    db = null,
+                                    encryptionKey = null,
+                                    maxDbPoolSize = options.dbPoolOptions?.maxPoolSize,
+                                    minDbPoolSize = options.dbPoolOptions?.minPoolSize,
+                                ),
+                            accountIdentifier = publicIdentity.ffiPrivate,
+                            inboxId = inboxId,
+                            nonce = 0.toULong(),
+                            legacySignedPrivateKeyProto = null,
+                            deviceSyncMode =
+                                if (!options.deviceSyncEnabled) {
+                                    FfiDeviceSyncMode.DISABLED
+                                } else {
+                                    FfiDeviceSyncMode.ENABLED
+                                },
+                            allowOffline = buildOffline,
+                            forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
+                            workerConfig = null,
+                            changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
+                        )
+                    return@withContext Pair(ffiClient, IN_MEMORY_DB_PATH)
+                }
+
                 val alias = "xmtp-${options.api.env}-$inboxId"
 
                 val mlsDbDirectory = options.dbDirectory
@@ -532,7 +629,6 @@ class Client(
                 val ffiClient =
                     createClient(
                         api = connectToApiBackend(options.api),
-                        syncApi = connectToSyncApiBackend(options.api),
                         db =
                             DbOptions(
                                 db = dbPath,
@@ -552,6 +648,8 @@ class Client(
                             },
                         allowOffline = buildOffline,
                         forkRecoveryOpts = options.forkRecoveryOptions?.toFfi(),
+                        workerConfig = null,
+                        changeCallbacks = options.unstableChangeCallbacks?.toFfi(),
                     )
                 Pair(ffiClient, dbPath)
             }
@@ -597,14 +695,19 @@ class Client(
                         clientOptions,
                         clientOptions.appContext,
                     )
-                Client(
-                    ffiClient,
-                    dbPath,
-                    ffiClient.installationId().toHex(),
-                    ffiClient.inboxId(),
-                    clientOptions.api.env,
-                    publicIdentity,
-                )
+                val client =
+                    Client(
+                        ffiClient,
+                        dbPath,
+                        ffiClient.installationId().toHex(),
+                        ffiClient.inboxId(),
+                        clientOptions.api.env,
+                        publicIdentity,
+                    )
+                if (manageStreamLifecycle) {
+                    StreamLifecycleManager.enableIfNeeded()
+                }
+                client
             }
     }
 
@@ -689,6 +792,8 @@ class Client(
 
     suspend fun deleteLocalDatabase() =
         withContext(Dispatchers.IO) {
+            // In-memory clients have no on-disk file; nothing to drop or remove.
+            if (isInMemory) return@withContext
             dropLocalDatabaseConnection()
             File(dbPath).delete()
         }
@@ -698,12 +803,41 @@ class Client(
     )
     suspend fun dropLocalDatabaseConnection() =
         withContext(Dispatchers.IO) {
+            // In-memory clients hold their state in the FFI pool; releasing the
+            // connection would discard data that cannot be restored on reconnect.
+            if (isInMemory) return@withContext
             ffiClient.releaseDbConnection()
         }
 
     suspend fun reconnectLocalDatabase() =
         withContext(Dispatchers.IO) {
+            if (isInMemory) return@withContext
             ffiClient.dbReconnect()
+        }
+
+    /**
+     * Bring the local store current with the network, then stop — for background
+     * fetch and cold start, where holding a live stream is wasted because the
+     * wire is about to go away.
+     *
+     * Pass [timeoutMs] to bound the run against a background budget (a
+     * WorkManager job, an FCM handler); null runs to the live edge. A negative
+     * value is treated as 0 (return immediately). Cutting it short is safe:
+     * everything processed is persisted and a later call resumes from durable
+     * state.
+     *
+     * Check [CatchUpSummary.completed] before treating the counts as the whole
+     * story: on the deadline path it is false, whatever was processed before
+     * the cut is already stored (the counts may undercount it), and a later
+     * call resumes from there.
+     */
+    suspend fun catchUpToLive(timeoutMs: Long? = null): CatchUpSummary =
+        withContext(Dispatchers.IO) {
+            CatchUpSummary(
+                ffiClient.catchUpToLive(
+                    FfiCatchUpOptions(timeoutMs = timeoutMs?.coerceAtLeast(0)?.toULong()),
+                ),
+            )
         }
 
     suspend fun inboxStatesForInboxIds(

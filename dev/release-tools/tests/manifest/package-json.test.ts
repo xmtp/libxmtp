@@ -65,10 +65,7 @@ describe("package.json manifest", () => {
   });
 
   it("throws if version field is missing", () => {
-    fs.writeFileSync(
-      packageJsonPath,
-      '{"name": "test"}\n',
-    );
+    fs.writeFileSync(packageJsonPath, '{"name": "test"}\n');
     expect(() => readPackageJsonVersion(packageJsonPath)).toThrow(
       "Could not find version",
     );

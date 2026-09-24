@@ -100,12 +100,14 @@ mkShell (
         jdk17
         kotlin-language-server
 
-        # Swift
+        # Swift (prebuilt binary from the xmtp overlay)
         swiftformat
 
         # Misc dev
         mktemp
         diesel-cli
+        xmtp.cross-version-test
+        xmtp.cross-talk-test
       ]
       # Wasm, cargo, CI, proto, lint tools
       ++ shellCommon.wasmTools

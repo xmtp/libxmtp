@@ -1,6 +1,5 @@
 use std::fmt::Display;
 
-use crate::api_client::AggregateStats;
 use crate::{ApiEndpoint, ProtoError};
 use thiserror::Error;
 use xmtp_common::{BoxDynError, RetryableError, retryable};
@@ -8,22 +7,6 @@ use xmtp_common::{BoxDynError, RetryableError, retryable};
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ApiClientError {
-    #[error(
-        "api client at endpoint \"{}\" has error {}. \n {:?} \n",
-        endpoint,
-        source,
-        stats
-    )]
-    ClientWithEndpointAndStats {
-        endpoint: String,
-        source: NetworkError,
-        stats: AggregateStats,
-    },
-    #[error("API Error {}, \n {:?} \n", e, stats)]
-    ErrorWithStats {
-        e: NetworkError,
-        stats: AggregateStats,
-    },
     /// The client encountered an error.
     #[error("api client at endpoint \"{}\" has error {}", endpoint, source)]
     ClientWithEndpoint {
@@ -119,10 +102,7 @@ impl ApiClientError {
     pub fn network_error(&self) -> Option<&NetworkError> {
         use ApiClientError::*;
         match self {
-            ClientWithEndpointAndStats { source, .. }
-            | ClientWithEndpoint { source, .. }
-            | ErrorWithStats { e: source, .. }
-            | Client { source, .. } => Some(source),
+            ClientWithEndpoint { source, .. } | Client { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -138,8 +118,6 @@ impl RetryableError for ApiClientError {
     fn is_retryable(&self) -> bool {
         use ApiClientError::*;
         match self {
-            ClientWithEndpointAndStats { source, .. } => retryable!(source),
-            ErrorWithStats { e, .. } => retryable!(e),
             Client { source } => retryable!(*source),
             ClientWithEndpoint { source, .. } => retryable!(source),
             Body(e) => retryable!(e),

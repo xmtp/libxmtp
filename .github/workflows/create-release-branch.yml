@@ -32,6 +32,36 @@ on:
           - "minor"
           - "major"
         default: "none"
+      node-sdk-bump:
+        description: "Node SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
+      browser-sdk-bump:
+        description: "Browser SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
+      agent-sdk-bump:
+        description: "Agent SDK version bump"
+        required: false
+        type: choice
+        options:
+          - "none"
+          - "patch"
+          - "minor"
+          - "major"
+        default: "none"
       node:
         description: "Include Node bindings in release"
         required: false
@@ -61,12 +91,18 @@ jobs:
           BASE_REF: ${{ inputs.base-ref || github.ref_name }}
           IOS_BUMP: ${{ inputs.ios-bump }}
           ANDROID_BUMP: ${{ inputs.android-bump }}
+          NODE_SDK_BUMP: ${{ inputs.node-sdk-bump }}
+          BROWSER_SDK_BUMP: ${{ inputs.browser-sdk-bump }}
+          AGENT_SDK_BUMP: ${{ inputs.agent-sdk-bump }}
         run: |
           xmtp-release create-release-branch \
             --version "$RELEASE_VERSION" \
             --base "$BASE_REF" \
             --ios "$IOS_BUMP" \
             --android "$ANDROID_BUMP" \
+            --node-sdk "$NODE_SDK_BUMP" \
+            --browser-sdk "$BROWSER_SDK_BUMP" \
+            --agent-sdk "$AGENT_SDK_BUMP" \
             ${{ inputs.node && '--node' || '' }} \
             ${{ inputs.wasm && '--wasm' || '' }}
 
@@ -99,6 +135,12 @@ jobs:
   release-notes:
     needs: create-branch
     uses: ./.github/workflows/release-notes.yml
+    # A called workflow's permissions are capped by the caller job's grant,
+    # and id-token defaults to none — it must be granted here too.
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     with:
       release-branch: release/${{ inputs.version }}
     secrets: inherit

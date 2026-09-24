@@ -2,6 +2,7 @@
 
 use super::*;
 
+use xmtp_proto::types::GroupId;
 #[tokio::test]
 async fn test_find_or_create_dm() {
     // Create two test users
@@ -573,7 +574,7 @@ async fn test_set_disappearing_messages_when_creating_dm() {
     let group_from_db = alix_provider
         .key_store()
         .db()
-        .find_group(&alix_group.id())
+        .find_group(&GroupId::try_from(alix_group.id()).unwrap())
         .unwrap();
     assert_eq!(
         group_from_db
@@ -626,8 +627,14 @@ async fn test_can_successfully_thread_dms() {
     convo_bo.send_text("Bo hey").await.unwrap();
     convo_alix.send_text("Alix hey").await.unwrap();
 
-    let group_bo = bo_conn.find_group(&convo_bo.id()).unwrap().unwrap();
-    let group_alix = alix_conn.find_group(&convo_alix.id()).unwrap().unwrap();
+    let group_bo = bo_conn
+        .find_group(&GroupId::try_from(convo_bo.id()).unwrap())
+        .unwrap()
+        .unwrap();
+    let group_alix = alix_conn
+        .find_group(&GroupId::try_from(convo_alix.id()).unwrap())
+        .unwrap()
+        .unwrap();
     assert!(group_bo.last_message_ns.unwrap() < group_alix.last_message_ns.unwrap());
     assert_eq!(group_bo.id, convo_bo.id());
 

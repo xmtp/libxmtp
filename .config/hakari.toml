@@ -30,36 +30,45 @@ platforms = [
 # Including mio/tokio breaks webassembly builds since net features are mutually exclusive with wasm
 [traversal-excludes]
 workspace-members = [
-  "xmtp_cli",
-  "log_parser",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
   "xnet-cli",
-  "xnet-gui",
   "xnet-lib",
+  "keepalive-probe",
 ]
 third-party = [
   { name = "tonic" },
   { name = "tokio" },
   { name = "uniffi" },
   { name = "wasm-bindgen" },
+  # Excluded so workspace-hack does not unify libsqlite3-sys's
+  # `bundled-sqlcipher-vendored-openssl` feature into every workspace member,
+  # which would drag openssl-sys/openssl into builds (e.g. mls-validation-service)
+  # that have no need for SQLite.
+  { name = "libsqlite3-sys" },
 ]
 
 [final-excludes]
 workspace-members = [
-  "xmtp_cli",
-  "log_parser",
   "xmtp-db-tools",
   "xdbg",
   "error_glossary",
   "xnet-cli",
-  "xnet-gui",
   "xnet-lib",
+  "keepalive-probe",
 ]
 third-party = [
   { name = "tonic" },
-  { name = "tonic" },
+  { name = "tokio" },
   { name = "uniffi" },
   { name = "wasm-bindgen" },
+  { name = "libsqlite3-sys" },
+  # xmtp_logging/xmtp_common enable `sentry`/`sentry-core`'s `test` feature as a
+  # dev-dependency. Unifying that into the workspace-hack would put it in every
+  # native crate's *normal* build, and `test` implies `release-health` — which
+  # makes `sentry::init` start a session and the guard end one in production.
+  # Sentry stays a plain dependency of the two crates that actually use it.
+  { name = "sentry" },
+  { name = "sentry-core" },
 ]

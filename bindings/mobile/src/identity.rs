@@ -34,6 +34,7 @@ impl Display for FfiIdentifier {
 
 #[allow(unused)]
 #[uniffi::export]
+#[xmtp_common::err_span]
 pub fn generate_inbox_id(
     account_identifier: FfiIdentifier,
     nonce: u64,

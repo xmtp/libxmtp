@@ -38,6 +38,7 @@ impl From<VisibilityConfirmationOptions>
 #[napi]
 impl Client {
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn wait_for_registration_visible(
     &self,
     options: Option<VisibilityConfirmationOptions>,

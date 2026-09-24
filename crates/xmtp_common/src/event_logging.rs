@@ -16,6 +16,9 @@ pub enum Event {
     /// Client dropped.
     #[context(icon = "⬇️")]
     ClientDropped,
+    /// Client cleanly closed via `Client::close`.
+    #[context(icon = "🔒")]
+    ClientClosed,
     /// Associating name with installation.
     #[context(name)]
     AssociateName,
@@ -36,7 +39,14 @@ pub enum Event {
 
     // ===================== MLS Operations =====================
     /// Received staged commit. Merging and clearing any pending commits.
-    #[context(group_id, sender_installation_id, msg_epoch, epoch, hash, icon = "❗")]
+    #[context(
+        group_id,
+        sender_installation_id,
+        message_epoch,
+        epoch,
+        hash,
+        icon = "❗"
+    )]
     MLSReceivedStagedCommit,
     /// Processed staged commit.
     #[context(
@@ -49,12 +59,12 @@ pub enum Event {
         left_inboxes,
         metadata_changes,
         cursor,
-        originator,
+        originator_id,
         icon = "😮‍💨"
     )]
     MLSProcessedStagedCommit,
     /// Received application message.
-    #[context(group_id, epoch, msg_epoch, sender_inbox_id)]
+    #[context(group_id, epoch, message_epoch, sender_inbox_id)]
     MLSReceivedApplicationMessage,
 
     // ===================== Network =====================
@@ -78,14 +88,16 @@ pub enum Event {
     /// Attempted to sync on an inactive group.
     #[context(group_id, icon = "⏸️")]
     GroupSyncGroupInactive,
-    /// Intent failed to sync but did not error. This can happen for a variety of reasons.
+    /// Intent failed to sync and will be retried.
     #[context(group_id, intent_id, intent_kind, state, icon = "🔁")]
     GroupSyncIntentRetry,
     /// Intent was found to be in error after attempting to sync.
-    #[context(group_id, intent_id, intent_kind, summary, icon = "⚠️")]
+    /// The summary is logged once by `GroupSyncFinished`; this only marks
+    /// which intent errored.
+    #[context(group_id, intent_id, intent_kind, icon = "⚠️")]
     GroupSyncIntentErrored,
     /// Attempt to publish intent failed.
-    #[context(group_id, intent_id, intent_kind, err, icon = "❌")]
+    #[context(group_id, intent_id, intent_kind, error, icon = "❌")]
     GroupSyncPublishFailed,
     /// Application message published successfully.
     #[context(group_id, intent_id, icon = "📤")]
@@ -97,7 +109,7 @@ pub enum Event {
     #[context(group_id, hash, icon = "🛑")]
     GroupSyncStagedCommitPresent,
     /// Updating group cursor.
-    #[context(group_id, cursor, originator, icon = "📍")]
+    #[context(group_id, cursor, originator_id, icon = "📍")]
     GroupCursorUpdate,
 
     // ===================== Group Membership =====================
@@ -119,13 +131,13 @@ pub enum Event {
     #[context(group_id)]
     DeviceSyncSentSyncRequest,
     /// Processing new sync message.
-    #[context(msg_type, external, msg_id, group_id)]
+    #[context(msg_type, external, message_id, group_id)]
     DeviceSyncProcessingMessages,
     /// Failed to process device sync message.
-    #[context(msg_id, err)]
+    #[context(message_id, error)]
     DeviceSyncMessageProcessingError,
     /// Processing sync archive.
-    #[context(msg_id, group_id)]
+    #[context(message_id, group_id)]
     DeviceSyncArchiveProcessingStart,
     /// Received a V1 sync payload. V1 is no longer supported. Ignoring.
     DeviceSyncV1Archive,
@@ -134,14 +146,14 @@ pub enum Event {
     /// Downloading sync archive.
     DeviceSyncArchiveDownloading,
     /// Sync archive download failure.
-    #[context(status, err)]
+    #[context(status, error)]
     DeviceSyncPayloadDownloadFailure,
     /// Beginning archive import.
     DeviceSyncArchiveImportStart,
     /// Finished sync archive import.
     DeviceSyncArchiveImportSuccess,
     /// Archive import failed.
-    #[context(err)]
+    #[context(error)]
     DeviceSyncArchiveImportFailure,
     /// Attempted to acknowledge a sync request, but it was already acknowledged
     /// by another installation.
@@ -157,7 +169,7 @@ pub enum Event {
     #[context(group_id, server_url)]
     DeviceSyncArchiveUploadStart,
     /// Failed to send sync archive.
-    #[context(group_id, pin, err)]
+    #[context(group_id, pin, error)]
     DeviceSyncArchiveUploadFailure,
     /// Archive upload complete.
     #[context(group_id)]
@@ -165,4 +177,15 @@ pub enum Event {
     /// Cannot send sync archive. No server_url present.
     #[context(pin)]
     DeviceSyncNoServerUrl,
+
+    // ===================== AppData Migration =====================
+    /// `enable_proposals` started — pre-flight passed, about to publish
+    /// the legacy-GMM bump (step A) and/or bootstrap commit (step B).
+    #[context(group_id, min_version, force, icon = "🌱")]
+    EnableProposalsStart,
+    /// `enable_proposals` completed. `already_migrated = true` means
+    /// the call was a no-op fast-path; `false` means a bootstrap
+    /// commit was actually published.
+    #[context(group_id, already_migrated, min_version, icon = "🌳")]
+    EnableProposalsCompleted,
 }

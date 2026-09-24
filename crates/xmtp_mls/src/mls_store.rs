@@ -9,7 +9,7 @@ use xmtp_db::{
     Fetch, NotFound, XmtpOpenMlsProvider,
     group::{GroupQueryArgs, StoredGroup},
 };
-use xmtp_proto::types::{GroupMessage, WelcomeMessage};
+use xmtp_proto::types::{GroupId, GroupMessage, WelcomeMessage};
 
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
@@ -36,6 +36,18 @@ impl RetryableError for MlsStoreError {
             Self::Api(e) => e.is_retryable(),
             Self::Connection(e) => e.is_retryable(),
             Self::NotFound(e) => e.is_retryable(),
+        }
+    }
+}
+
+impl crate::worker::NeedsDbReconnect for MlsStoreError {
+    /// Forwards a dropped-pool signal from the storage/connection variants so a
+    /// worker loading groups can stop on disconnect. `Api`/`NotFound` return `false`.
+    fn needs_db_reconnect(&self) -> bool {
+        match self {
+            Self::Storage(s) => s.db_needs_connection(),
+            Self::Connection(c) => c.db_needs_connection(),
+            Self::Api(_) | Self::NotFound(_) => false,
         }
     }
 }
@@ -67,7 +79,7 @@ where
             .api()
             .query_welcome_messages(installation_id)
             .await?;
-        tracing::info!("returning {} welcomes", welcomes.len());
+        tracing::debug!("returning {} welcomes", welcomes.len());
         Ok(welcomes)
     }
 
@@ -75,13 +87,9 @@ where
     /// found in the local database
     pub(crate) async fn query_group_messages(
         &self,
-        group_id: &[u8],
+        group_id: GroupId,
     ) -> Result<Vec<GroupMessage>, MlsStoreError> {
-        let messages = self
-            .context
-            .sync_api()
-            .query_group_messages(group_id.into())
-            .await?;
+        let messages = self.context.api().query_group_messages(group_id).await?;
 
         Ok(messages)
     }
@@ -149,7 +157,7 @@ where
     ///
     /// Returns a [`MlsGroup`] if the group exists, or an error if it does not
     ///
-    pub fn group(&self, group_id: &Vec<u8>) -> Result<MlsGroup<Context>, MlsStoreError> {
+    pub fn group(&self, group_id: &GroupId) -> Result<MlsGroup<Context>, MlsStoreError> {
         let conn = self.context.db();
         let stored_group: Option<StoredGroup> = conn.fetch(group_id)?;
         stored_group
@@ -162,7 +170,7 @@ where
                     g.created_at_ns,
                 )
             })
-            .ok_or(NotFound::GroupById(group_id.clone()))
+            .ok_or(NotFound::GroupById(*group_id))
             .map_err(Into::into)
     }
 }

@@ -9,7 +9,7 @@ on:
 jobs:
   push_to_registry:
     name: Build MLS Validation Docker Image
-    runs-on: warp-ubuntu-latest-x64-16x
+    runs-on: blacksmith-16vcpu-ubuntu-2404
     permissions:
       contents: read
       packages: write
@@ -71,7 +71,7 @@ jobs:
       # ---- Single build step with conditional push ----
       - name: Build (and conditionally push)
         id: build
-        uses: docker/build-push-action@v7
+        uses: useblacksmith/build-push-action@v2
         with:
           context: .
           file: ./dev/validation_service/Dockerfile
@@ -86,7 +86,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' }}  # manual only
     strategy:
       matrix:
-        environment: [ dev, production, testnet-staging, testnet-dev, testnet ]
+        environment: [ dev, production, testnet ]
     steps:
       - name: Checkout
         uses: actions/checkout@v6

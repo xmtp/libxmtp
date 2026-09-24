@@ -4,3 +4,8 @@
 #  https://docs.github.com/en/repositories/working-with-files/managing-files/customizing-how-changed-files-appear-on-github
 **/generated/** linguist-generated=true
 **/bridge_generated.* linguist-generated=true
+# Proptest writes these out automatically when a shrink succeeds on a
+# failing case, then re-runs them ahead of novel inputs on subsequent
+# test runs. They're text, but not hand-authored prose — they're
+# checked in only so the seeds persist across machines.
+**/proptest-regressions/** linguist-generated=true

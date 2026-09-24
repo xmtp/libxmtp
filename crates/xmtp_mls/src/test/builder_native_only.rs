@@ -256,7 +256,7 @@ async fn test_two_smart_contract_wallets_group_messaging(
 
     // Create a group with client1
     let group1 = client1.create_group(None, None).unwrap();
-    println!("Created group with ID: {:?}", hex::encode(&group1.group_id));
+    println!("Created group with ID: {:?}", hex::encode(group1.group_id));
 
     group1.sync().await.unwrap();
 

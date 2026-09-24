@@ -46,6 +46,57 @@ pub enum ProcessWelcomeResult<Context> {
     Ignore,
 }
 
+/// Outcome of running a single raw welcome through the processing pipeline,
+/// independent of any stream/poll machinery — the welcome analog of
+/// [`super::process_message::Processed`].
+///
+/// As with messages, dedup bookkeeping is the caller's job: record `seen`
+/// into whatever known-welcome set the caller owns (every stream keeps its
+/// own).
+pub struct WelcomeOutcome<Context> {
+    /// The conversation to surface to the subscriber, if this welcome produced one
+    /// that passed the stream's filters.
+    pub group: Option<MlsGroup<Context>>,
+    /// The welcome cursor to record as seen for dedup, if any.
+    pub seen: Option<Cursor>,
+}
+
+impl<Context> ProcessWelcomeResult<Context> {
+    /// Interpret a processing result into a [`WelcomeOutcome`]: which group (if any)
+    /// to surface, and which welcome cursor (if any) to record as seen. This mirrors
+    /// the logic previously inlined in `StreamConversations::filter_welcome`, lifted
+    /// out so both the live conversation stream and the bidi manager interpret results
+    /// identically.
+    pub fn into_outcome(self) -> WelcomeOutcome<Context> {
+        match self {
+            ProcessWelcomeResult::New { group, id } => WelcomeOutcome {
+                group: Some(group),
+                seen: Some(id),
+            },
+            ProcessWelcomeResult::NewStored {
+                group,
+                maybe_sequence_id,
+                maybe_originator,
+            } => WelcomeOutcome {
+                group: Some(group),
+                seen: maybe_sequence_id
+                    .zip(maybe_originator)
+                    .map(|(id, originator)| {
+                        Cursor::new(id as SequenceId, originator as OriginatorId)
+                    }),
+            },
+            ProcessWelcomeResult::IgnoreId { id } => WelcomeOutcome {
+                group: None,
+                seen: Some(id),
+            },
+            ProcessWelcomeResult::Ignore => WelcomeOutcome {
+                group: None,
+                seen: None,
+            },
+        }
+    }
+}
+
 impl<Context> ProcessWelcomeFuture<Context>
 where
     Context: XmtpSharedContext,
@@ -144,7 +195,7 @@ where
                             .await;
                     }
                 }
-                tracing::info!(
+                tracing::debug!(
                     "could not find group for welcome {}, processing",
                     welcome.cursor
                 );
@@ -155,12 +206,12 @@ where
                         id: welcome.cursor,
                     }
                 } else {
-                    tracing::info!("Oneshot welcome message processed, skipping stream event.");
+                    tracing::debug!("Oneshot welcome message processed, skipping stream event.");
                     ProcessWelcomeResult::IgnoreId { id: welcome.cursor }
                 }
             }
             Group(ref id) => {
-                tracing::info!("stream got existing group, pulling from db.");
+                tracing::debug!("stream got existing group, pulling from db.");
                 let (group, stored_group) = MlsGroup::new_cached(self.context.clone(), id)?;
 
                 ProcessWelcomeResult::NewStored {
@@ -352,7 +403,7 @@ where
         };
         tracing::info!(
             inbox_id = self.context.inbox_id(),
-            group_id = hex::encode(&group.id),
+            group_id = %group.id,
             dm_id = group.dm_id,
             welcome_id = ?group.sequence_id,
             "loading existing group for welcome_id: {:?}",
@@ -365,5 +416,27 @@ where
             group.conversation_type,
             group.created_at_ns,
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `Ignore` surfaces no group and records nothing for dedup.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn into_outcome_ignore_yields_nothing() {
+        let outcome = ProcessWelcomeResult::<()>::Ignore.into_outcome();
+        assert!(outcome.group.is_none());
+        assert!(outcome.seen.is_none());
+    }
+
+    /// `IgnoreId` surfaces no group but records the welcome cursor for dedup.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn into_outcome_ignore_id_records_seen_without_group() {
+        let cursor = Cursor::new(42, 7u32);
+        let outcome = ProcessWelcomeResult::<()>::IgnoreId { id: cursor }.into_outcome();
+        assert!(outcome.group.is_none());
+        assert_eq!(outcome.seen, Some(cursor));
     }
 }

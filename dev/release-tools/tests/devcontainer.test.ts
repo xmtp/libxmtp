@@ -104,9 +104,10 @@ describe("setDevcontainerImage", () => {
 
     setDevcontainerImage(jsonPath, NEW_IMAGE);
 
-    const parsed = parseJsonc(
-      fs.readFileSync(jsonPath, "utf-8"),
-    ) as Record<string, unknown>;
+    const parsed = parseJsonc(fs.readFileSync(jsonPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
     expect(parsed.name).toBe("libxmtp (Nix)");
     expect(parsed.runArgs).toEqual(["--ulimit", "stack=-1:-1"]);
     expect(parsed.workspaceFolder).toBe("/workspaces/libxmtp");

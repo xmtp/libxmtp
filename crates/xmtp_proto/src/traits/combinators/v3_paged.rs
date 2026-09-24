@@ -121,7 +121,7 @@ mod tests {
         type Output = TestV3Pageable;
 
         fn grpc_endpoint(&self) -> std::borrow::Cow<'static, str> {
-            Cow::Borrowed("")
+            Cow::Borrowed("/test.mock/TestEndpoint")
         }
 
         fn body(&self) -> Result<bytes::Bytes, api::BodyError> {
@@ -256,7 +256,7 @@ mod tests {
         let base_endpoint = PageableTestEndpoint::default();
         let paged_endpoint: V3Paged<PageableTestEndpoint, TestV3Pageable> =
             v3_paged(base_endpoint, Some(0));
-        assert_eq!(paged_endpoint.grpc_endpoint(), "");
+        assert_eq!(paged_endpoint.grpc_endpoint(), "/test.mock/TestEndpoint");
     }
 
     #[xmtp_common::test]

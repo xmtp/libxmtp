@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 866d1aee800f7b9dcfc4775fd2f918edbfc066175d79c528d6817fd6b9535d98 # shrinks to ops = [Publish { topic: 0, n: 2 }, Lease { asks: [(0, Zero)] }, ServeWave, Publish { topic: 0, n: 2 }, KillWire, Publish { topic: 0, n: 1 }, Lease { asks: [(0, Zero)] }]
+cc 0bdf69cd13bd0b5b99aaad0332e0574429c45d102755875b1d6ba65df355ce43 # shrinks to ops = [Publish { topic: 0, n: 1 }, Lease { asks: [(0, Zero)] }, Publish { topic: 1, n: 3 }, Lease { asks: [(1, Mid)] }, Lease { asks: [(1, Zero)] }]

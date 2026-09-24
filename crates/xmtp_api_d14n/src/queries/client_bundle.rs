@@ -94,6 +94,8 @@ struct __ClientBundleBuilder {
     #[builder(setter(into))]
     v3_host: String,
     #[builder(setter(into))]
+    xmtpd_host: String,
+    #[builder(setter(into))]
     gateway_host: String,
     #[builder(setter(into))]
     auth_callback: Arc<dyn AuthCallback>,
@@ -102,7 +104,6 @@ struct __ClientBundleBuilder {
     readonly: bool,
 }
 
-// getters
 impl ClientBundleBuilder {
     pub fn get_v3_host(&self) -> Option<&String> {
         self.v3_host.as_ref()
@@ -117,7 +118,6 @@ impl ClientBundleBuilder {
     }
 }
 
-// setters
 impl ClientBundleBuilder {
     /// Set the v3 host if `host` is `Some`
     /// Overwrites any value that may already be set
@@ -151,6 +151,12 @@ impl ClientBundleBuilder {
         self.app_version = version.map(Into::into).or_else(|| self.app_version.take());
         self
     }
+
+    pub fn maybe_xmtpd_host<U: Into<String>>(&mut self, host: Option<U>) -> &mut Self {
+        self.xmtpd_host = host.map(Into::into).or_else(|| self.xmtpd_host.take());
+        self
+    }
+
     /// Specify a fallback value for the V3 Host. Only used as a fallback.
     /// `v3_host()` always takes precedence. Never overwrites `v3_host` if already set.
     pub fn env(&mut self, env: XmtpEnv) -> &mut Self {
@@ -166,53 +172,69 @@ impl ClientBundleBuilder {
         &mut self,
     ) -> Result<(ArcClient, Option<xmtp_proto::types::AppVersion>), MessageBackendBuilderError>
     {
-        let Self {
-            app_version,
-            auth_callback,
-            auth_handle,
-            ..
-        } = self.clone();
+        use MessageBackendBuilderError::*;
+        let app_version = self.app_version.clone();
         let gw_host = self
             .gateway_host
             .as_ref()
-            .ok_or(MessageBackendBuilderError::MissingGatewayHost)?;
+            .ok_or(MissingGatewayHost)?
+            .clone();
         let readonly = self.readonly.unwrap_or_default();
 
-        let mut gateway_client_builder = GrpcClient::builder();
-        gateway_client_builder.set_host(
+        let mut gw_builder = GrpcClient::builder();
+        gw_builder.set_host(
             gw_host
                 .parse()
-                .map_err(|e| MessageBackendBuilderError::invalid_url(e, gw_host.clone()))?,
+                .map_err(|e| MessageBackendBuilderError::bad_url(e, gw_host.to_string()))?,
         );
-
-        if let Some(ref version) = app_version {
-            gateway_client_builder.set_app_version(version.clone())?;
+        if let Some(ref version) = self.app_version {
+            gw_builder.set_app_version(version.clone())?;
         }
 
-        let gateway_client = gateway_client_builder.build()?;
-        let gateway_client = if auth_callback.is_some() || auth_handle.is_some() {
-            crate::AuthMiddleware::new(gateway_client, auth_callback, auth_handle).arced()
+        let gateway_client = gw_builder.build()?;
+        let gateway_client = if self.auth_callback.is_some() || self.auth_handle.is_some() {
+            crate::AuthMiddleware::new(
+                gateway_client,
+                self.auth_callback.clone(),
+                self.auth_handle.clone(),
+            )
+            .arced()
         } else {
             gateway_client.arced()
         };
 
-        let mut multi_node = crate::middleware::MultiNodeClient::builder();
-        let multi_node = multi_node.gateway_client(gateway_client.clone());
-        let mut template = GrpcClient::builder();
-        if let Some(ref version) = app_version {
-            template.set_app_version(version.clone())?;
-        }
-        let multi_node = multi_node.node_client_template(template).build()?;
+        // if the xmtpd host is explicitly specified, build a client
+        // that will use only that host.
+        let xmtpd: ArcClient = if let Some(xmtpd_host) = &self.xmtpd_host {
+            let mut xmtpd = GrpcClient::builder();
+            xmtpd.set_host(
+                xmtpd_host
+                    .parse()
+                    .map_err(|e| MessageBackendBuilderError::bad_url(e, xmtpd_host.to_string()))?,
+            );
+            if let Some(ref version) = self.app_version {
+                xmtpd.set_app_version(version.clone())?;
+            }
+            Ok::<_, MessageBackendBuilderError>(xmtpd.build()?.arced())
+        } else {
+            let mut multi_node = crate::middleware::MultiNodeClient::builder();
+            let multi_node = multi_node.gateway_client(gateway_client.clone());
+            let mut template = GrpcClient::builder();
+            if let Some(ref version) = app_version {
+                template.set_app_version(version.clone())?;
+            }
+            Ok(multi_node.node_client_template(template).build()?.arced())
+        }?;
 
         if readonly {
             return Ok((
-                ReadonlyClient::builder().inner(multi_node).build()?.arced(),
+                ReadonlyClient::builder().inner(xmtpd).build()?.arced(),
                 app_version,
             ));
         }
 
         let client = ReadWriteClient::builder()
-            .read(multi_node)
+            .read(xmtpd)
             .write(gateway_client)
             .filter(PAYER_WRITE_FILTER)
             .build()?;
@@ -229,16 +251,14 @@ impl ClientBundleBuilder {
     }
 
     fn inner_build_v3(&mut self) -> Result<ArcClient, MessageBackendBuilderError> {
-        let v3_host = self
-            .v3_host
-            .as_ref()
-            .ok_or(MessageBackendBuilderError::MissingV3Host)?;
+        use MessageBackendBuilderError::*;
+        let v3_host = self.v3_host.as_ref().ok_or(MissingV3Host)?;
         let readonly = self.readonly.unwrap_or_default();
         let mut v3_client = GrpcClient::builder();
         v3_client.set_host(
             v3_host
                 .parse()
-                .map_err(|e| MessageBackendBuilderError::invalid_url(e, v3_host.clone()))?,
+                .map_err(|e| MessageBackendBuilderError::bad_url(e, v3_host.clone()))?,
         );
         if let Some(ref version) = self.app_version {
             v3_client.set_app_version(version.clone())?;

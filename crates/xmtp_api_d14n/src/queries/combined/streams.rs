@@ -51,3 +51,44 @@ where
             .await?)
     }
 }
+
+xmtp_common::if_native! {
+    // The v3-shaped XIP-83 bidi surface (`mls_v1` frames). This client cannot
+    // serve it — the d14n wire speaks its own envelope binding — so it refuses
+    // at runtime with an unretryable error. The dyn full API always *has*
+    // `subscribe_bidi`; support is a runtime property of the backend. The
+    // unretryable refusal is what trips xmtp_mls's per-destination fallback
+    // latch (its router callbacks): the stream that hit it is served on the
+    // legacy path in place and every later dispatch to this client's host
+    // goes straight to legacy, so the opt-in env gate is safe to enable with
+    // this client in the process — its streams ride legacy while a
+    // bidi-capable backend at another host keeps its own wire.
+    #[xmtp_common::async_trait]
+    impl<V3, D14n, Store> xmtp_proto::api_client::XmtpMlsBidiStreams for MigrationClient<V3, D14n, Store>
+    where
+        V3: Client,
+        D14n: Client,
+        Store: CursorStore + Clone,
+    {
+        type SubscribeStream = xmtp_proto::api_client::BoxedSubscribeS<ApiClientError>;
+        type Error = ApiClientError;
+
+        // A reserved key, not the v3 URL this client also dials: this
+        // surface never opens a wire, and keying by the real v3 backend
+        // would let its refusal latch a destination a bidi-capable pure-v3
+        // sibling could actually serve (order-dependent poisoning). The
+        // reserved scheme can never collide with a servable destination.
+        fn host(&self) -> &str {
+            "unsupported://migration"
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            _requests: futures::stream::BoxStream<'static, xmtp_proto::mls_v1::SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            Err(ApiClientError::OtherUnretryable(
+                "the v3 bidi subscription is not available on this client".into(),
+            ))
+        }
+    }
+}

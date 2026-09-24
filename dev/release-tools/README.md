@@ -66,14 +66,16 @@ yarn cli update-spm-checksum --sdk ios \
 
 Orchestrate a full release branch — bumps versions, scaffolds release notes, and commits everything.
 
-| Flag        | Type                                     | Required | Description                                 |
-| ----------- | ---------------------------------------- | -------- | ------------------------------------------- |
-| `--version` | string                                   | yes      | Release version (used in branch name)       |
-| `--ios`     | `major` \| `minor` \| `patch` \| `none` | no       | iOS SDK version bump type (default: `none`) |
-| `--android` | `major` \| `minor` \| `patch` \| `none` | no       | Android SDK version bump type (default: `none`) |
-| `--node`    | boolean                                  | no       | Include Node bindings in release            |
-| `--wasm`    | boolean                                  | no       | Include WASM bindings in release            |
-| `--base`    | string                                   | no       | Base ref to branch from (default: `HEAD`)   |
+| Flag            | Type                                    | Required | Description                                     |
+| --------------- | --------------------------------------- | -------- | ----------------------------------------------- |
+| `--version`     | string                                  | yes      | Release version (used in branch name)           |
+| `--ios`         | `major` \| `minor` \| `patch` \| `none` | no       | iOS SDK version bump type (default: `none`)     |
+| `--android`     | `major` \| `minor` \| `patch` \| `none` | no       | Android SDK version bump type (default: `none`) |
+| `--node-sdk`    | `major` \| `minor` \| `patch` \| `none` | no       | Node SDK version bump type (default: `none`)    |
+| `--browser-sdk` | `major` \| `minor` \| `patch` \| `none` | no       | Browser SDK version bump type (default: `none`) |
+| `--node`        | boolean                                 | no       | Include Node bindings in release                |
+| `--wasm`        | boolean                                 | no       | Include WASM bindings in release                |
+| `--base`        | string                                  | no       | Base ref to branch from (default: `HEAD`)       |
 
 ```bash
 yarn cli create-release-branch \
@@ -81,13 +83,15 @@ yarn cli create-release-branch \
   --base main \
   --ios minor \
   --android patch \
+  --node-sdk minor \
+  --browser-sdk minor \
   --node \
   --wasm
 ```
 
 ## Supported SDKs
 
-All five SDKs are configured: `ios`, `android`, `node-bindings`, `wasm-bindings`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
+All seven SDKs are configured: `ios`, `android`, `node-bindings`, `wasm-bindings`, `node-sdk`, `browser-sdk`, and `libxmtp`. SDK definitions live in `src/lib/sdk-config.ts`.
 
 ## Development
 

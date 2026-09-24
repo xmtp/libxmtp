@@ -200,4 +200,52 @@ class RemoteAttachmentTests: XCTestCase {
 
 		await fulfillment(of: [expect], timeout: 3)
 	}
+
+	func testEncodeOmitsContentLengthWhenNil() throws {
+		let codec = RemoteAttachmentCodec()
+		let attachment = try RemoteAttachment(
+			url: "https://example.com/x.bin",
+			contentDigest: "deadbeef",
+			secret: Data(repeating: 1, count: 32),
+			salt: Data(repeating: 2, count: 32),
+			nonce: Data(repeating: 3, count: 12),
+			scheme: .https,
+			contentLength: nil,
+			filename: "x.bin"
+		)
+		let encoded = try codec.encode(content: attachment)
+		XCTAssertNil(encoded.parameters["contentLength"])
+		XCTAssertNotEqual(encoded.parameters["contentLength"], "-1")
+	}
+
+	func testEncodeWritesContentLengthWhenPresent() throws {
+		let codec = RemoteAttachmentCodec()
+		var attachment = try RemoteAttachment(
+			url: "https://example.com/x.bin",
+			contentDigest: "deadbeef",
+			secret: Data(repeating: 1, count: 32),
+			salt: Data(repeating: 2, count: 32),
+			nonce: Data(repeating: 3, count: 12),
+			scheme: .https
+		)
+		attachment.contentLength = 1234
+		let encoded = try codec.encode(content: attachment)
+		XCTAssertEqual(encoded.parameters["contentLength"], "1234")
+	}
+
+	func testInitFromEncryptedSetsContentLength() throws {
+		let payload = Data(repeating: 7, count: 4096)
+		let encrypted = EncryptedEncodedContent(
+			secret: Data(repeating: 1, count: 32),
+			digest: "deadbeef",
+			salt: Data(repeating: 2, count: 32),
+			nonce: Data(repeating: 3, count: 12),
+			payload: payload
+		)
+		let attachment = try RemoteAttachment(
+			url: "https://example.com/x.bin",
+			encryptedEncodedContent: encrypted
+		)
+		XCTAssertEqual(attachment.contentLength, payload.count)
+	}
 }

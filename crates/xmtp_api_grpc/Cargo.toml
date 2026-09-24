@@ -11,7 +11,7 @@ publish.workspace = true
 async-trait.workspace = true
 futures = { workspace = true, features = ["alloc"] }
 h2 = "0.4"
-http = "1.2"
+http = "1.4"
 http-body-util.workspace = true
 pin-project.workspace = true
 prost = { workspace = true, features = ["derive"] }

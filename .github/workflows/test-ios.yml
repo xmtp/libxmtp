@@ -44,13 +44,13 @@ jobs:
     runs-on: warp-macos-15-arm64-6x
     needs: deploy-backend
     name: Tests (iOS)
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          with-warpbuild-cache: "false"
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: "26"

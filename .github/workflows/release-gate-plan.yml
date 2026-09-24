@@ -1,0 +1,151 @@
+name: release-gate-plan
+
+# Reusable: cross-test gate + version oracle (the nightly "plan"). Computes the
+# pending libxmtp {version,kind}, caps at minor, asserts not-major, prints the
+# plan. Does NO publishing. Called by release.yml (real nightly) and
+# nightly-dry-run.yml (manual preview) so both run identical logic.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        required: true
+        type: string
+    outputs:
+      sha:
+        value: ${{ jobs.gate.outputs.sha }}
+      gate-skip:
+        value: ${{ jobs.gate.outputs.gate-skip }}
+      version:
+        value: ${{ jobs.pending.outputs.version }}
+      kind:
+        value: ${{ jobs.pending.outputs.kind }}
+      nothing-pending:
+        value: ${{ jobs.pending.outputs.nothing-pending }}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+      gate-skip: ${{ steps.gate.outputs.gate-skip }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 1
+      - uses: ./.github/actions/setup-release-tools
+      - name: Resolve exact SHA
+        id: sha
+        run: |
+          set -euo pipefail
+          # Use the SHA of the commit actually checked out above (inputs.ref).
+          # This is correct for an arbitrary requested ref (e.g. a dry-run
+          # previewing a specific branch) AND avoids a TOCTOU race — it's the
+          # literal checked-out tree, not a second branch-HEAD lookup that a
+          # concurrent push could move. (Earlier this preferred github.sha,
+          # which ignored a dispatched inputs.ref and gated the wrong commit.)
+          SHA=$(git rev-parse HEAD)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Evaluate cross-test gate
+        id: gate
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ steps.sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${REPO}/actions/workflows/cross-test.yml/runs?head_sha=${SHA}&status=completed" > /tmp/cross-runs.json
+          RESULT=$(xmtp-release cross-test-gate --input=/tmp/cross-runs.json --sha "$SHA")
+          PASS=$(printf '%s' "$RESULT" | jq -r '.pass')
+          if [ "$PASS" = "true" ]; then
+            echo "gate-skip=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::cross-test green for ${SHA}; nightly may proceed."
+          else
+            REASON=$(printf '%s' "$RESULT" | jq -r '.reason')
+            echo "gate-skip=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::Nightly skipped — ${REASON}"
+          fi
+
+  pending:
+    needs: [gate]
+    if: needs.gate.outputs.gate-skip != 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.pending.outputs.version }}
+      kind: ${{ steps.pending.outputs.kind }}
+      # 'true' when there are no conventional commits since the last tag — a
+      # legitimate "nothing to release" nightly that downstream jobs skip.
+      nothing-pending: ${{ steps.pending.outputs.nothing-pending }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-release-tools
+      - name: Install git-cliff
+        run: |
+          set -euo pipefail
+          # Pinned for reproducibility — an unpinned/floating git-cliff once
+          # computed a major bump in CI that didn't reproduce locally, which
+          # published a bogus version. Keep in sync with the devshell's nixpkgs
+          # git-cliff (nix/lib/shell-common.nix).
+          cargo binstall -y git-cliff --version 2.13.1 \
+            || cargo install git-cliff --version 2.13.1 --locked
+          git cliff --version
+      - name: Compute pending libxmtp release (git-cliff oracle)
+        id: pending
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          LAST=$(gh api "repos/${REPO}/git/matching-refs/tags/v" \
+            --jq '[.[].ref | sub("refs/tags/v";"")]
+                  | map(select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$")))
+                  | sort_by(split(".")|map(tonumber)) | last // ""')
+          # Fail loudly if no stable libxmtp tag exists rather than silently
+          # diffing against a stale hardcoded baseline.
+          if [ -z "$LAST" ]; then
+            echo "::error::No stable v* libxmtp tag found to use as the bump baseline"
+            exit 1
+          fi
+          git cliff --config cliff.toml --bump --context > /tmp/cliff-context.json
+          # Default (no --require): emits {version:null,kind:null} on exit 0 when
+          # there are no conventional commits since the last tag — a legitimate
+          # no-op nightly we skip rather than fail.
+          # --max-bump minor: a nightly must NEVER auto-major. A real major is a
+          # deliberate, manual stable decision. capBumpKind recomputes the
+          # version from $LAST when it clamps.
+          PENDING=$(xmtp-release pending-version \
+            --input=/tmp/cliff-context.json --last-shipped "$LAST" --max-bump minor)
+          VERSION=$(printf '%s' "$PENDING" | jq -r '.version')
+          KIND=$(printf '%s' "$PENDING" | jq -r '.kind')
+          if [ "$VERSION" = "null" ] && [ "$KIND" = "null" ]; then
+            echo "nothing-pending=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::No conventional commits since the last tag; skipping nightly (nothing to release)."
+            exit 0
+          fi
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ] || [ -z "$KIND" ] || [ "$KIND" = "null" ]; then
+            echo "::error::pending-version produced malformed version/kind: '$PENDING'"
+            exit 1
+          fi
+          # Defense-in-depth: the cap above should make this impossible. If a
+          # major still reaches here the cap regressed — fail BEFORE any publish.
+          # Failing this job fails the caller's `plan` job, and every
+          # release-*/hub job needs: [plan], so this blocks them all.
+          if [ "$KIND" = "major" ]; then
+            echo "::error::nightly computed a major bump ($VERSION) after cap — refusing to publish"
+            exit 1
+          fi
+          echo "nothing-pending=false" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "kind=$KIND" >> "$GITHUB_OUTPUT"
+          # Human-readable release plan.
+          {
+            echo "## Nightly release plan"
+            echo ""
+            echo "- libxmtp: \`$VERSION\` (bump: $KIND, baseline: $LAST)"
+            echo ""
+            echo "Per-SDK versions are resolved in each release job from this pending bump."
+          } >> "$GITHUB_STEP_SUMMARY"

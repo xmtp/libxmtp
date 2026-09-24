@@ -24,6 +24,7 @@ pub struct SignatureRequestHandle {
 }
 
 #[napi]
+#[xmtp_common::err_span]
 pub fn verify_signed_with_public_key(
   signature_text: String,
   signature_bytes: Uint8Array,
@@ -47,6 +48,7 @@ pub fn verify_signed_with_public_key(
 
 #[allow(dead_code)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn revoke_installations_signature_request(
   backend: &Backend,
   recovery_identifier: Identifier,
@@ -73,6 +75,7 @@ pub async fn revoke_installations_signature_request(
 
 #[allow(dead_code)]
 #[napi]
+#[xmtp_common::err_span]
 pub async fn apply_signature_request(
   backend: &Backend,
   signature_request: &SignatureRequestHandle,
@@ -109,11 +112,13 @@ impl SignatureRequestHandle {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn signature_text(&self) -> Result<String> {
     Ok(self.inner.lock().await.signature_text())
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_ecdsa_signature(&self, signature_bytes: Uint8Array) -> Result<()> {
     let signature = UnverifiedSignature::new_recoverable_ecdsa(signature_bytes.to_vec());
     let mut inner = self.inner.lock().await;
@@ -127,6 +132,7 @@ impl SignatureRequestHandle {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_passkey_signature(&self, signature: PasskeySignature) -> Result<()> {
     let new_signature = UnverifiedSignature::new_passkey(
       signature.public_key,
@@ -146,6 +152,7 @@ impl SignatureRequestHandle {
   }
 
   #[napi]
+  #[xmtp_common::err_span]
   pub async fn add_scw_signature(
     &self,
     account_identifier: Identifier,

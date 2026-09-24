@@ -1,0 +1,25 @@
+name: Test Agent SDK
+on:
+  workflow_call:
+env:
+  NIX_DEVSHELL: js
+jobs:
+  test:
+    name: Test (agent-sdk)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: web
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+      - uses: taiki-e/install-action@just
+      - name: Install dependencies
+        run: just js install-ci
+      - name: Start backend
+        run: just backend up
+      - name: Run agent-sdk tests
+        run: just js test-agent-sdk-ci

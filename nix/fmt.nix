@@ -9,7 +9,7 @@
       treefmt = {
         flakeFormatter = true;
         flakeCheck = true;
-        projectRootFile = ".git/config";
+        projectRootFile = "flake.nix";
         programs = {
           nixfmt.enable = true;
           rustfmt = {
@@ -20,6 +20,10 @@
               "crates/xmtp-workspace-hack/*"
             ];
           };
+          ruff-format.enable = true;
+          ruff-check.enable = true;
+          # Rule set lives in /.editorconfig so spotless and treefmt agree.
+          ktlint.enable = true;
           taplo.enable = true;
           shellcheck = {
             enable = true;
@@ -31,6 +35,26 @@
             excludes = [
               "*.env"
               "**/Dockerfile"
+            ];
+          };
+          # Formats the JS SDKs (sdks/js). This is the formatter of record for
+          # TypeScript/JS there; the SDK eslint config intentionally omits the
+          # prettier plugin so the two don't fight.
+          prettier = {
+            enable = true;
+            includes = [
+              "sdks/js/**/*.ts"
+              "sdks/js/**/*.tsx"
+              "sdks/js/**/*.js"
+              "sdks/js/**/*.cjs"
+              "sdks/js/**/*.mjs"
+              "sdks/js/**/*.json"
+              "sdks/js/**/*.md"
+            ];
+            excludes = [
+              "sdks/js/**/dist/**"
+              "sdks/js/.yarn/**"
+              "sdks/js/**/CHANGELOG.md"
             ];
           };
         };
@@ -49,6 +73,14 @@
             "-e"
             "SC2181"
           ];
+          # nicklockwood/swiftformat — not bundled in treefmt-nix's program
+          # list (only apple/swift-format is, and that one is broken).
+          # Settings live in .swiftformat at repo root. pkgs.swiftformat is
+          # the xmtp overlay's prebuilt binary (nix/lib/packages/swiftformat.nix).
+          swiftformat = {
+            command = "${pkgs.swiftformat}/bin/swiftformat";
+            includes = [ "*.swift" ];
+          };
         };
       };
     };

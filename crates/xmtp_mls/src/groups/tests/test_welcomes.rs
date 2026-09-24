@@ -20,6 +20,7 @@ use xmtp_db::prelude::QueryRefreshState;
 use xmtp_db::refresh_state::EntityKind;
 use xmtp_mls_common::group::GroupMetadataOptions;
 
+use xmtp_proto::types::GroupId;
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_welcome_cursor() {
     // Welcomes now come with a cursor so that clients no longer pull down
@@ -35,7 +36,7 @@ async fn test_welcome_cursor() {
 
     alix2.sync_welcomes().await?;
     let alix2_refresh_state = alix2.context.db().latest_cursor_for_id(
-        &group.group_id,
+        group.group_id,
         &[EntityKind::CommitMessage],
         None,
     )?;
@@ -45,13 +46,13 @@ async fn test_welcome_cursor() {
 }
 
 #[track_caller]
-fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
+fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     let msg = db
         .get_group_messages(group_id, &Default::default())
         .unwrap();
     let msg = msg.last().unwrap();
     let cursor = db
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()
@@ -74,7 +75,7 @@ fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &[u8]) {
         "GroupMessage must equal group message of db2"
     );
     let other_cursor = db2
-        .get_last_cursor_for_ids(&[&group_id], &[EntityKind::CommitMessage])
+        .get_last_cursor_for_ids(&[group_id.as_slice()], &[EntityKind::CommitMessage])
         .unwrap()
         .values()
         .next()
@@ -149,7 +150,6 @@ async fn test_spoofed_inbox_id() {
     let malicious_context = Arc::new(XmtpMlsLocalContext {
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
-        sync_api_client: alix.context.sync_api_client.clone(),
         store: alix.context.store.clone(),
         mls_storage: alix.context.mls_storage.clone(),
         mutexes: alix.context.mutexes.clone(),
@@ -160,8 +160,13 @@ async fn test_spoofed_inbox_id() {
         scw_verifier: alix.context.scw_verifier.clone(),
         device_sync: alix.context.device_sync.clone(),
         fork_recovery_opts: alix.context.fork_recovery_opts.clone(),
+        change_callbacks: alix.context.change_callbacks.clone(),
+        worker_config: alix.context.worker_config.clone(),
         task_channels: alix.context.task_channels.clone(),
+        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: alix.context.worker_metrics.clone(),
+        cancellation_token: alix.context.cancellation_token.clone(),
+        shutdown_complete: alix.context.shutdown_complete.clone(),
     });
     let group = MlsGroup::create_and_insert(
         malicious_context,
