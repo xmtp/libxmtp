@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdtemp, readdir } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -74,9 +74,9 @@ assert.equal(
 const client = await sdk.Client.create(signer, options);
 const inboxID = client.inboxID();
 assert.equal(typeof inboxID.toString(), "string");
-const group = await client.conversations().createGroup([]);
+const group = await client.conversations().createGroup([], undefined);
 const sentID = await group.sendText("conformance message");
-const history = await group.messages();
+const history = await group.messages(undefined);
 const sent = history.find(
   (message) => message.id.toString() === sentID.toString(),
 );
@@ -117,9 +117,11 @@ try {
 let releasedMessage: sdk.Message;
 const weak = await (async () => {
   const shortLived = await sdk.Client.build(identity, options, inboxID);
-  const shortGroup = await shortLived.conversations().createGroup([]);
+  const shortGroup = await shortLived
+    .conversations()
+    .createGroup([], undefined);
   const id = await shortGroup.sendText("weak owner");
-  releasedMessage = (await shortGroup.messages()).find(
+  releasedMessage = (await shortGroup.messages(undefined)).find(
     (value) => value.id.toString() === id.toString(),
   )!;
   return new WeakRef(shortLived);
@@ -141,7 +143,7 @@ assert.throws(
 );
 console.log("Node scenario 2: create, reopen, end passed");
 
-const reopenedGroup = await reopened.conversations().createGroup([]);
+const reopenedGroup = await reopened.conversations().createGroup([], undefined);
 const reader = await reopenedGroup.messageReader();
 const messageID = await reopenedGroup.sendText("durable stream");
 const first = await reader.next();
@@ -160,7 +162,7 @@ const pending = stream.next();
 setTimeout(() => void stream.return(), 50);
 assert.equal((await pending).done, true);
 await stream.return();
-const protocolGroup = await reopened.conversations().createGroup([]);
+const protocolGroup = await reopened.conversations().createGroup([], undefined);
 const firstID = await protocolGroup.sendText("ack on request");
 const firstStream = new sdk.MessageStream(
   (signal) => protocolGroup.messageReader({ signal }),
@@ -548,6 +550,124 @@ await unsigned.raw.unsafeApplySignatureRequest(request);
 assert.equal(await unsigned.raw.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
+
+const familyGroup = await reopened.conversations().createGroup([], {
+  permissions: undefined,
+  name: "family group",
+  imageUrl: undefined,
+  description: undefined,
+  disappearing: undefined,
+  appData: undefined,
+});
+assert.equal((await familyGroup.state()).name, "family group");
+assert.equal(familyGroup.creatorInboxID().toString(), inboxID.toString());
+assert.ok(
+  (await reopened.conversations().listGroups(undefined)).some(
+    (value) => value.id().toString() === familyGroup.id().toString(),
+  ),
+);
+console.log("Node scenario 4: group options, state, and list passed");
+
+const parentID = await familyGroup.sendText("parent");
+const reactionID = await reopened.conversations().reactToMessage(
+  parentID,
+  {
+    content: "👍",
+    action: sdk.ReactionAction.Added,
+    schema: sdk.ReactionSchema.Unicode,
+  },
+  undefined,
+);
+const replyID = await reopened
+  .conversations()
+  .replyToMessage(parentID, sdk.encodeText("reply"), undefined);
+assert.equal((await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag, sdk.MessageContent_Tags.Text);
+const familyMessages = await familyGroup.messages(undefined);
+const parent = familyMessages.find(
+  (value) => value.id.toString() === parentID.toString(),
+);
+const reply = familyMessages.find(
+  (value) => value.id.toString() === replyID.toString(),
+);
+assert.equal(parent?.reactions[0]?.id.toString(), reactionID.toString());
+assert.equal(parent?.replyCount, 1n);
+assert.equal(reply?.inReplyTo?.id.toString(), parentID.toString());
+console.log("Node scenario 5: message records, reaction, and reply passed");
+
+const customType = sdk.ContentTypeID.create({
+  authorityID: "example.org",
+  typeID: "sample",
+  versionMajor: 1,
+  versionMinor: 0,
+});
+const customCodec = {
+  type: customType,
+  encode(value: string) {
+    return sdk.EncodedContent.create({
+      type: customType,
+      content: new TextEncoder().encode(value).buffer,
+    });
+  },
+  decode(value: sdk.EncodedContent) {
+    return new TextDecoder().decode(value.content);
+  },
+};
+const ownerWithCodec = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [customCodec] },
+  inboxID,
+);
+const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxID);
+const customID = await familyGroup.send(
+  customCodec.encode("codec value"),
+  undefined,
+);
+const decoded = await ownerWithCodec.conversations().getMessageByID(customID);
+const undecoded = await ownerWithoutCodec
+  .conversations()
+  .getMessageByID(customID);
+assert.equal(
+  (decoded?.content as { inner?: { value?: string } }).inner?.value,
+  "codec value",
+);
+assert.equal(
+  (undecoded?.content as { inner?: { value?: string } }).inner?.value,
+  undefined,
+);
+await ownerWithCodec.end();
+await ownerWithoutCodec.end();
+console.log("Node scenario 6: custom codec stayed with its client");
+
+const archive = await reopened.raw
+  .archives()
+  .exportToBytes(new Uint8Array(32).fill(7).buffer, undefined);
+assert.ok(archive.byteLength > 0);
+assert.equal(
+  (
+    await reopened.raw
+      .archives()
+      .metadataFromBytes(archive, new Uint8Array(32).fill(7).buffer)
+  ).backupVersion,
+  0,
+);
+const archiveDir = await mkdtemp(join(tmpdir(), "xmtp-sdk-archive-"));
+try {
+  const archivePath = join(archiveDir, "snapshot.xmtp");
+  await reopened.raw
+    .archives()
+    .exportToFile(archivePath, new Uint8Array(32).fill(7).buffer, undefined);
+  assert.equal(
+    (
+      await reopened.raw
+        .archives()
+        .metadataFromFile(archivePath, new Uint8Array(32).fill(7).buffer)
+    ).backupVersion,
+    0,
+  );
+} finally {
+  await rm(archiveDir, { recursive: true, force: true });
+}
+console.log("Node scenario 9: archive bytes and file passed");
 
 await reopened.end();
 console.log("Node scenario 7: durable stream and idle cancellation passed");

@@ -505,7 +505,7 @@ async fn backend_only_identity_and_message_queries() {
         )
         .await?
     );
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     group.send_text("metadata".into()).await?;
     let metadata = crate::static_helpers::newest_message_metadata_with_backend(
         source.clone(),
@@ -685,15 +685,12 @@ async fn slice_create_send_read_stream_end() {
     );
     let group = alix
         .conversations()
-        .create_group(vec![bo.inbox_id()])
+        .create_group(vec![bo.inbox_id()], None)
         .await?;
     bo.inner.sync_welcomes().await?;
-    let bo_group = crate::Group {
-        inner: bo.inner.group(&group.inner.group_id)?,
-        client_key: bo.key,
-    };
+    let bo_group = crate::Group::from_core(bo.inner.group(&group.inner.group_id)?, bo.key).await?;
     let id = group.send_text("hello from the slice".into()).await?;
-    let history = group.messages().await?;
+    let history = group.messages(None).await?;
     let sent = history
         .into_iter()
         .find(|message| message.0.id == id)
@@ -734,7 +731,7 @@ async fn idle_read_cancel_settles() {
         )
         .await?,
     );
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader().await?;
     let mut cancelled = false;
     for _ in 0..32 {
@@ -877,14 +874,14 @@ async fn group_actions_return_client_closed_after_end() {
         options(),
     )
     .await?;
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     client.end().await?;
     assert!(matches!(
         group.send_text("after end".into()).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(matches!(
-        group.messages().await,
+        group.messages(None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(matches!(
@@ -965,7 +962,7 @@ async fn reader_end_rejects_pending_handoff() {
         options(),
     )
     .await?;
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader().await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
@@ -1006,8 +1003,8 @@ async fn reader_skips_handoff_removed_from_scope() {
         options(),
     )
     .await?;
-    let stale_group = client.conversations().create_group(vec![]).await?;
-    let live_group = client.conversations().create_group(vec![]).await?;
+    let stale_group = client.conversations().create_group(vec![], None).await?;
+    let live_group = client.conversations().create_group(vec![], None).await?;
     let reader = stale_group.message_reader().await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
@@ -1250,4 +1247,423 @@ async fn callback_errors_convert() {
     fn assert_from<T: From<uniffi::UnexpectedUniFFICallbackError>>() {}
     assert_from::<SignerError>();
     assert_from::<CredentialError>();
+}
+
+// verifies: CTYPE-023
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_list_state_and_last_activity() {
+    use crate::{Conversation, ConversationOrder, ListConversationsOptions};
+    use xmtp_db::{count_sql_queries, sql_key_store::count_kv_reads};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let older = client.conversations().create_group(vec![], None).await?;
+    let newer = client.conversations().create_group(vec![], None).await?;
+    older.send_text("most recent".into()).await?;
+    let ordered = client
+        .conversations()
+        .list(Some(ListConversationsOptions {
+            order_by: Some(ConversationOrder::LastActivity),
+            ..Default::default()
+        }))
+        .await?;
+    let ids = ordered
+        .into_iter()
+        .map(|conversation| match conversation {
+            Conversation::Group { group } => group.id(),
+            Conversation::Dm { dm } => dm.id(),
+        })
+        .collect::<Vec<_>>();
+    let core_ids = client
+        .inner
+        .list_conversations(xmtp_db::group::GroupQueryArgs {
+            order_by: Some(xmtp_db::group::GroupQueryOrderBy::LastActivity),
+            ..Default::default()
+        })?
+        .into_iter()
+        .map(|item| ConversationID::from(item.group.group_id))
+        .collect::<Vec<_>>();
+    assert_eq!(ids, core_ids);
+    assert_eq!(ids.first(), Some(&older.id()));
+    assert!(older.last_activity_at_ns(None).await?.0 > newer.last_activity_at_ns(None).await?.0);
+
+    let ((snapshot, core_kv_reads), core_queries, core_writes) =
+        count_sql_queries(|| count_kv_reads(|| older.inner.state_snapshot()));
+    let snapshot = snapshot?;
+    let facade_state = older.state().await?;
+    assert_eq!(
+        facade_state.name,
+        snapshot.group.expect("group metadata").name
+    );
+    let (queries, kv_reads, writes) = *older.state_counts.lock();
+    assert!(
+        queries <= 3,
+        "facade state read used {queries} SQL queries and {kv_reads} key reads"
+    );
+    assert!(kv_reads <= 2, "state read used {kv_reads} key-value reads");
+    assert_eq!(writes, 0, "state read began a write transaction");
+    assert!(core_queries.saturating_sub(core_kv_reads) <= 3);
+    assert!(core_kv_reads <= 2);
+    assert_eq!(core_writes, 0);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_actions_use_ids_and_compression_is_opt_in() {
+    use crate::{
+        Compression, EncodedContent, Reaction, ReactionAction, ReactionSchema, SendOptions,
+    };
+    use prost::Message as _;
+    use xmtp_content_types::{ContentCodec, text::TextCodec};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let text: EncodedContent = TextCodec::encode("plain".into())?.into();
+    let plain = group.send(text, None).await?;
+    let stored = client.inner.message(hex::decode(&plain.0)?)?;
+    assert_eq!(
+        ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.compression,
+        None
+    );
+
+    let compressed: EncodedContent = TextCodec::encode("compressed".into())?.into();
+    let compressed_id = group
+        .send(
+            compressed,
+            Some(SendOptions {
+                compression: Some(Compression::Gzip),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let stored = client.inner.message(hex::decode(&compressed_id.0)?)?;
+    assert!(
+        ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?
+            .compression
+            .is_some()
+    );
+    assert!(
+        client
+            .conversations()
+            .get_message_by_id(plain.clone())
+            .await?
+            .is_some()
+    );
+
+    let reaction_id = client
+        .conversations()
+        .react_to_message(
+            plain.clone(),
+            Reaction {
+                content: "👍".into(),
+                action: ReactionAction::Added,
+                schema: ReactionSchema::Unicode,
+            },
+            None,
+        )
+        .await?;
+    let reply: EncodedContent = TextCodec::encode("answer".into())?.into();
+    let reply_id = client
+        .conversations()
+        .reply_to_message(plain.clone(), reply, None)
+        .await?;
+    assert_ne!(reaction_id, reply_id);
+    assert_ne!(plain, reply_id);
+    let enriched = group.messages(None).await?;
+    let original = enriched
+        .iter()
+        .find(|value| value.0.id == plain)
+        .expect("original message");
+    assert_eq!(original.0.reply_count, 1);
+    assert_eq!(original.0.reactions.len(), 1);
+    assert_eq!(original.0.reactions[0].id, reaction_id);
+    let answer = enriched
+        .iter()
+        .find(|value| value.0.id == reply_id)
+        .expect("reply message");
+    assert_eq!(
+        answer.0.in_reply_to.as_ref().map(|parent| &parent.id),
+        Some(&plain)
+    );
+    assert!(
+        !answer
+            .0
+            .in_reply_to
+            .as_ref()
+            .expect("parent")
+            .encoded
+            .content
+            .is_empty()
+    );
+    let local_message = group.send_text("delete through group".into()).await?;
+    assert_ne!(
+        group.delete_message(local_message.clone()).await?,
+        local_message
+    );
+    let deleted = client.conversations().delete_message(plain.clone()).await?;
+    assert_ne!(deleted, plain);
+    client.end().await?;
+}
+
+// verifies: CTYPE-024, CTYPE-025
+#[xmtp_common::test(unwrap_try = true)]
+fn decode_rejects_compression_bomb_with_bounded_output() {
+    use flate2::{Compression as FlateCompression, write::ZlibEncoder};
+    use prost::Message as _;
+    use std::io::Write;
+    use xmtp_content_types::{
+        ContentCodec,
+        compression::{COMPRESSION_CHUNK_BYTES, DecompressionBudget, MAX_DECOMPRESSED_BYTES},
+        text::TextCodec,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::Compression as WireCompression;
+
+    let mut encoder = ZlibEncoder::new(Vec::new(), FlateCompression::default());
+    encoder.write_all(&vec![b'x'; MAX_DECOMPRESSED_BYTES + 1])?;
+    let mut content = TextCodec::encode("placeholder".into())?;
+    content.content = encoder.finish()?;
+    content.compression = Some(WireCompression::Deflate as i32);
+    assert!(MessageContent::decode(content.clone().encode_to_vec()).is_err());
+    let mut budget = DecompressionBudget::new();
+    assert!(xmtp_content_types::compression::decompress_with_budget(content, &mut budget).is_err());
+    assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn consent_archive_storage_and_diagnostics() {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let preferences = client.preferences();
+    let entity = ConsentEntity::Inbox {
+        inbox_id: client.inbox_id(),
+    };
+    preferences
+        .set_consent_states(vec![ConsentRecord {
+            entity: entity.clone(),
+            state: ConsentState::Allowed,
+        }])
+        .await?;
+    assert!(matches!(
+        preferences.consent_state(entity).await?,
+        ConsentState::Allowed
+    ));
+    assert!(client.storage().path()?.is_none());
+    client.diagnostics().clear_statistics().await?;
+    let stats = client.diagnostics().api_statistics().await?;
+    assert_eq!(stats.query, 0);
+    let archive = client.archives().export_to_bytes(vec![7; 32], None).await?;
+    assert!(!archive.is_empty());
+    let metadata = client
+        .archives()
+        .metadata_from_bytes(archive, vec![7; 32])
+        .await?;
+    assert_eq!(metadata.backup_version, 0);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn group_options_metadata_members_and_message_filters() {
+    use crate::{CreateGroupOptions, GroupPermissionMode, ListMessagesOptions, MessageOrder};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client
+        .conversations()
+        .create_group(
+            vec![],
+            Some(CreateGroupOptions {
+                permissions: Some(GroupPermissionMode::AdminOnly),
+                name: Some("first name".into()),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let state = group.state().await?;
+    assert_eq!(state.name, "first name");
+    let (_, immutable_reads, _) = xmtp_db::count_sql_queries(|| {
+        assert_eq!(group.creator_inbox_id(), client.inbox_id());
+        assert_eq!(group.added_by_inbox_id(), client.inbox_id());
+        assert!(group.is_creator());
+        assert!(!group.topic().is_empty());
+    });
+    assert_eq!(immutable_reads, 0, "immutable fields read the database");
+    assert!(matches!(
+        state.permissions.policy_type,
+        crate::GroupPolicyType::AdminOnly
+    ));
+    assert!(
+        group
+            .members()
+            .await?
+            .iter()
+            .any(|member| member.inbox_id == client.inbox_id())
+    );
+    let debug = group.debug_info().await?;
+    assert!(!debug.cursor.is_empty());
+    let capabilities = group.membership_capabilities().await?;
+    assert!(capabilities.members.iter().any(|member| {
+        member.inbox_id == client.inbox_id()
+            && member
+                .installations
+                .iter()
+                .any(|installation| installation.is_own)
+    }));
+    group.update_name("second name".into()).await?;
+    assert_eq!(group.state().await?.name, "second name");
+    let first = group.send_text("first".into()).await?;
+    let second = group.send_text("second".into()).await?;
+    let messages = group
+        .messages(Some(ListMessagesOptions {
+            limit: Some(1),
+            direction: Some(MessageOrder::Descending),
+            ..Default::default()
+        }))
+        .await?;
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].0.id, second);
+    assert_ne!(first, second);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn duplicate_dm_message_actions_keep_typed_results() {
+    use crate::{Reaction, ReactionAction, ReactionSchema};
+
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let first_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
+    let first = first_dm.send_text("first duplicate".into()).await?;
+    let second_dm = b.conversations().create_dm(a.inbox_id(), None).await?;
+    let second = second_dm.send_text("second duplicate".into()).await?;
+    b.conversations().sync_all(None).await?;
+    a.conversations().sync_all(None).await?;
+
+    let mut inactive = None;
+    for id in [first, second] {
+        let bytes = hex::decode(&id.0)?;
+        if let Some((stored, stitched)) = a.inner.message_with_group(&bytes).await?
+            && stored.group_id != stitched.group_id
+        {
+            inactive = Some(id);
+            break;
+        }
+    }
+    let id = inactive.expect("one duplicate DM must be inactive");
+    let reaction = a
+        .conversations()
+        .react_to_message(
+            id.clone(),
+            Reaction {
+                content: "👍".into(),
+                action: ReactionAction::Added,
+                schema: ReactionSchema::Unicode,
+            },
+            None,
+        )
+        .await?;
+    let reply = a
+        .conversations()
+        .reply_to_message(id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    assert_ne!(reaction, reply);
+    assert!(matches!(
+        a.conversations().delete_message(id).await,
+        Err(crate::XmtpError::PermissionDenied(_))
+    ));
+    a.end().await?;
+    b.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn standard_content_types_decode_to_records() {
+    use prost::Message as _;
+    use xmtp_content_types::{
+        ContentCodec,
+        actions::{Action, Actions, ActionsCodec},
+        attachment::{Attachment, AttachmentCodec},
+        group_updated::GroupUpdatedCodec,
+        intent::{Intent, IntentCodec},
+        leave_request::LeaveRequestCodec,
+        remote_attachment::{RemoteAttachment, RemoteAttachmentCodec},
+        transaction_reference::{TransactionReference, TransactionReferenceCodec},
+        wallet_send_calls::{WalletSendCalls, WalletSendCallsCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{GroupUpdated, content_types::LeaveRequest};
+
+    let attachment = Attachment {
+        filename: Some("file.txt".into()),
+        mime_type: "text/plain".into(),
+        content: b"data".to_vec(),
+    };
+    assert!(
+        matches!(MessageContent::decode(AttachmentCodec::encode(attachment)?.encode_to_vec())?, MessageContent::Attachment(value) if value.content == b"data")
+    );
+    let remote = RemoteAttachment {
+        url: "https://example.org/file".into(),
+        content_digest: "abc".into(),
+        secret: vec![1],
+        salt: vec![2],
+        nonce: vec![3],
+        scheme: "https".into(),
+        content_length: Some(1),
+        filename: None,
+    };
+    assert!(
+        matches!(MessageContent::decode(RemoteAttachmentCodec::encode(remote)?.encode_to_vec())?, MessageContent::RemoteAttachment(value) if value.url == "https://example.org/file")
+    );
+    let transaction = TransactionReference {
+        namespace: None,
+        network_id: "1".into(),
+        reference: "0xabc".into(),
+        metadata: None,
+    };
+    assert!(
+        matches!(MessageContent::decode(TransactionReferenceCodec::encode(transaction)?.encode_to_vec())?, MessageContent::TransactionReference(value) if value.network_id == "1")
+    );
+    let calls = WalletSendCalls {
+        version: "1".into(),
+        chain_id: "1".into(),
+        from: "0x1".into(),
+        calls: vec![],
+        capabilities: None,
+    };
+    assert!(
+        matches!(MessageContent::decode(WalletSendCallsCodec::encode(calls)?.encode_to_vec())?, MessageContent::WalletSendCalls(value) if value.chain_id == "1")
+    );
+    let intent = Intent {
+        id: "intent".into(),
+        action_id: "action".into(),
+        metadata: None,
+    };
+    assert!(
+        matches!(MessageContent::decode(IntentCodec::encode(intent)?.encode_to_vec())?, MessageContent::Intent(value) if value.action_id == "action")
+    );
+    let actions = Actions {
+        id: "actions".into(),
+        description: "desc".into(),
+        actions: vec![Action {
+            id: "one".into(),
+            label: "One".into(),
+            image_url: None,
+            style: None,
+            expires_at: None,
+        }],
+        expires_at: None,
+    };
+    assert!(
+        matches!(MessageContent::decode(ActionsCodec::encode(actions)?.encode_to_vec())?, MessageContent::Actions(value) if value.id == "actions")
+    );
+    let update = GroupUpdated {
+        initiated_by_inbox_id: "inbox".into(),
+        ..Default::default()
+    };
+    assert!(
+        matches!(MessageContent::decode(GroupUpdatedCodec::encode(update)?.encode_to_vec())?, MessageContent::GroupUpdated(value) if value.initiated_by_inbox_id.0 == "inbox")
+    );
+    let leave = LeaveRequest {
+        authenticated_note: Some(b"note".to_vec()),
+    };
+    assert!(
+        matches!(MessageContent::decode(LeaveRequestCodec::encode(leave)?.encode_to_vec())?, MessageContent::LeaveRequest(value) if value.authenticated_note == Some(b"note".to_vec()))
+    );
 }
