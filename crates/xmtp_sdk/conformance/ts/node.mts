@@ -378,6 +378,9 @@ sdk.setLogSink({
   log(record) {
     try {
       assert.ok(record.target.length > 0);
+      assert.ok(record.level !== undefined);
+      assert.ok(record.fields instanceof Map);
+      assert.equal(typeof record.droppedRecords, "bigint");
       assert.equal(
         reopened.raw.serverConfiguration().identifier,
         snapshot.identifier,

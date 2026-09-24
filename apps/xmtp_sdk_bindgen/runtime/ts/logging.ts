@@ -1,7 +1,8 @@
 import * as raw from "../xmtp_sdk";
+import type { LogRecord } from "../xmtp_sdk";
 
 export interface LogSink {
-  log(record: { message: string; target: string; timestampNs: bigint }): void;
+  log(record: LogRecord): void;
 }
 
 // JavaScript callbacks run on the bounded sink thread. Rust calls never wait for them.

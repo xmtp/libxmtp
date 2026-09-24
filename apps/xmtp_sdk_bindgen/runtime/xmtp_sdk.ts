@@ -70,6 +70,14 @@ export type InboxState = object;
 export type KeyPackageStatusEntry = object;
 export type MessageMetadataEntry = object;
 export type ServerConfiguration = object;
+export type LogRecord = {
+  level: number;
+  target: string;
+  message: string;
+  fields: Map<string, string>;
+  timestampNs: bigint;
+  droppedRecords: bigint;
+};
 export type ConversationsLike = object;
 
 export declare function fetchServerConfiguration(
