@@ -22,6 +22,7 @@ mod bidi_fuzz_tests;
 pub mod barrier;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod catch_up;
+pub(crate) mod connection_state;
 pub mod incoming;
 #[doc(hidden)]
 pub mod internal;

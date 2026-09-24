@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::{Mutex, oneshot};
 use xmtp_api_grpc::error::GrpcError;
 use xmtp_common::RetryableError;
+use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, LockoutChange, PublicBusWriter};
 
 #[derive(Clone, Debug, PartialEq)]
 struct Marker(u32);
@@ -304,6 +305,40 @@ async fn lockout_blocks_all_paths_and_set_clears_it() {
         peer.sent.lock().await.last()?.0.headers["authorization"],
         "manual"
     );
+}
+
+// verifies: EVENT-001, EVENT-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn shared_auth_handle_fans_lockout_transitions_to_live_clients() {
+    let (client, peer, _) = fixture();
+    let first_bus = EventBus::<()>::new();
+    let second_bus = EventBus::<()>::new();
+    let first = first_bus.subscribe(EventFilter::new([EventKind::ClientLockoutChanged]), Some(8));
+    let second = second_bus.subscribe(EventFilter::new([EventKind::ClientLockoutChanged]), Some(8));
+    let first_writer: Arc<dyn EventWriter<()>> = Arc::new(PublicBusWriter::new(&first_bus));
+    let second_writer: Arc<dyn EventWriter<()>> = Arc::new(PublicBusWriter::new(&second_bus));
+    client.handle.register_event_writer(&first_writer);
+    client.handle.register_event_writer(&second_writer);
+
+    exhaust(&client, &peer).await;
+    client.handle.set(credential("replacement")).await;
+    for subscription in [&first, &second] {
+        let changes: Vec<_> = subscription
+            .drain()
+            .into_iter()
+            .filter_map(|item| match item.client {
+                Some(ClientEvent::ClientLockoutChanged(change)) => Some(change.change),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(changes, [LockoutChange::Entered, LockoutChange::Left]);
+    }
+
+    drop(second_writer);
+    client.handle.inner.emit_lockout(LockoutChange::Entered);
+    assert_eq!(first.drain().len(), 1);
+    assert!(second.drain().is_empty());
+    assert_eq!(client.handle.inner.event_writers.lock().len(), 1);
 }
 
 // verifies: AUTH-023

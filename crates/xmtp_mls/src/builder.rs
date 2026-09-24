@@ -440,6 +440,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
 
         let events = xmtp_events::EventBus::new();
+        let events_for_lifetime = events.clone();
+        let public_event_writer: Arc<dyn xmtp_events::EventWriter<()>> =
+            Arc::new(xmtp_events::PublicBusWriter::new(&events));
+        server_configuration.set_event_writer(public_event_writer.clone());
+        api_client
+            .api_client
+            .register_client_event_writer(&public_event_writer);
         let mut workers = WorkerRunner::new();
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
@@ -453,6 +460,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             #[cfg(test)]
             mls_commit_lock: Arc::new(GroupCommitLock::new()),
             events,
+            public_event_writer,
+            registration_event_pending: Arc::new(AtomicBool::new(false)),
             device_sync: DeviceSync {
                 mode: device_sync_worker_mode,
             },
@@ -568,6 +577,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             context,
             installation_id,
             workers,
+            app_lifetime: Arc::new(crate::client::AppLifetime {
+                events: events_for_lifetime,
+            }),
         };
 
         // Cleanup old unstitched group updated messages.

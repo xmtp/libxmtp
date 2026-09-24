@@ -89,6 +89,21 @@ pub struct StoredGroupMessage {
 }
 
 impl StoredGroupMessage {
+    /// Store the message and report whether this call inserted it.
+    pub fn store_or_ignore_changed<C: ConnectionExt>(
+        &self,
+        into: &C,
+    ) -> Result<bool, crate::StorageError> {
+        let new_msg = NewStoredGroupMessage::from(self);
+        super::stream_storage::stream_transaction(into, |conn| {
+            let inserted = diesel::insert_or_ignore_into(group_messages::table)
+                .values(&new_msg)
+                .execute(conn)?;
+            super::delivery::assign_sequence(conn, &self.id)?;
+            Ok(inserted > 0)
+        })
+    }
+
     pub fn cursor(&self) -> Cursor {
         Cursor(self.sequence_id as u64)
     }
@@ -437,14 +452,7 @@ where
     type Output = ();
 
     fn store_or_ignore(&self, into: &C) -> Result<(), crate::StorageError> {
-        let new_msg = NewStoredGroupMessage::from(self);
-        super::stream_storage::stream_transaction(into, |conn| {
-            diesel::insert_or_ignore_into(group_messages::table)
-                .values(&new_msg)
-                .execute(conn)?;
-            super::delivery::assign_sequence(conn, &self.id)?;
-            Ok(())
-        })
+        self.store_or_ignore_changed(into).map(|_| ())
     }
 }
 

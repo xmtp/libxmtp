@@ -4,7 +4,7 @@ use crate::{
     client::notifications::{NotificationConfig, NotificationError, decode, effective, encode},
     context::XmtpSharedContext,
     groups::MlsGroup,
-    state_tx::state_write,
+    state_tx::{state_write, state_write_with_events},
     worker::tasks::TaskOutcome,
 };
 use prost::Message;
@@ -23,6 +23,7 @@ use xmtp_db::{
     tasks::{NewTask, TaskDataHash, data_hash_for},
     user_preferences::{HmacKey, StoredUserPreferences},
 };
+use xmtp_events::{ClientEvent, EventWriter, NotificationsFailed};
 use xmtp_proto::{
     backend_v1::{RecipientState, Subscription, UpdateSubscriptionsRequest},
     types::{GroupId, Topic},
@@ -238,7 +239,7 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
     error: &NotificationError,
     desired_fingerprint: Option<&[u8]>,
 ) -> Result<bool, StorageError> {
-    state_write(context.mls_storage(), |tx| {
+    state_write_with_events(context.mls_storage(), context.events(), |tx, events| {
         let storage = tx.storage();
         let db = storage.db();
         let mut record = db.notification_record()?;
@@ -253,6 +254,12 @@ pub(crate) fn record_error<Context: XmtpSharedContext>(
         if let Some(failure) = error.failure() {
             record.push_state = 2;
             record.push_failed_error = Some(encode(&failure)?);
+            events.emit(
+                Some(ClientEvent::NotificationsFailed(NotificationsFailed {
+                    cause: error.to_string(),
+                })),
+                None,
+            );
         } else if matches!(error, NotificationError::NotFound) {
             db.clear_uploaded_topics()?;
             record.push_repairing = true;

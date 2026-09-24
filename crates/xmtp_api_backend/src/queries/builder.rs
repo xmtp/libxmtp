@@ -64,9 +64,10 @@ impl MessageBackendBuilder {
             builder.set_app_version(version)?;
         }
         let client = builder.build()?;
-        let client = if self.auth_callback.is_some() || self.auth_handle.is_some() {
-            AuthMiddleware::new(client, self.auth_callback.clone(), self.auth_handle.clone())
-                .arced()
+        let auth_handle = (self.auth_callback.is_some() || self.auth_handle.is_some())
+            .then(|| self.auth_handle.clone().unwrap_or_default());
+        let client = if let Some(handle) = auth_handle.clone() {
+            AuthMiddleware::new(client, self.auth_callback.clone(), Some(handle)).arced()
         } else {
             client.arced()
         };
@@ -75,9 +76,9 @@ impl MessageBackendBuilder {
         } else {
             client
         };
-        Ok(Arc::new(TrackedStatsClient::new(BackendClient::new(
-            client,
-        ))))
+        Ok(Arc::new(TrackedStatsClient::new(
+            BackendClient::new(client).with_auth_handle(auth_handle),
+        )))
     }
 }
 

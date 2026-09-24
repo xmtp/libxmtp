@@ -1,5 +1,59 @@
 use super::*;
 
+// verifies: EVENT-001, EVENT-010, EVENT-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn registration_event_waits_for_visibility_and_fires_once() {
+    use crate::utils::DefaultTestClientCreator;
+    use crate::utils::test::{identity_setup, register_client};
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_events::{ClientEvent, EventFilter, EventKind};
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+
+    let wallet = generate_local_wallet();
+    let client = Client::builder(identity_setup(wallet.clone()))
+        .temp_store()
+        .await
+        .api_client(DefaultTestClientCreator::create().build()?)
+        .default_mls_store()?
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = client
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::IdentityRegistered]), Some(4));
+    register_client(&client, wallet).await;
+    assert!(events.drain().is_empty());
+    client
+        .wait_for_registration_visible(Default::default())
+        .await?;
+    client
+        .wait_for_registration_visible(Default::default())
+        .await?;
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::IdentityRegistered(registered)), ..
+        }] if registered.inbox_id == client.inbox_id()
+            && registered.installation_key == client.installation_id.to_vec()
+    ));
+}
+
+// verifies: EVENT-025, EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn dropping_the_last_client_handle_closes_app_events() {
+    tester!(alix, disable_workers);
+    let bus = alix.context.events().clone();
+    let subscription = bus.subscribe_app(xmtp_events::EventFilter::new([
+        xmtp_events::EventKind::ClientLockoutChanged,
+    ]))?;
+    drop(alix);
+    assert!(subscription.is_closed());
+    assert!(subscription.drain().is_empty());
+}
+
 // verifies: EVENT-005, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn created_group_emits_one_join_event() {
@@ -222,10 +276,15 @@ async fn registration_visibility_waits_for_serving_head(#[case] newer_head: bool
         .build()
         .await
         .unwrap();
+    let events = reader.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::IdentityRegistered]),
+        Some(4),
+    );
     reader
         .wait_for_registration_visible(VisibilityConfirmationOptions { timeout_ms: 1_000 })
         .await
         .unwrap();
+    assert!(events.drain().is_empty());
 }
 
 /// A response with a different metadata topic cannot confirm registration.

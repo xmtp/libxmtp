@@ -252,6 +252,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         for status in self.state.statuses.lock().values_mut() {
             status.cancel();
         }
+        for id in self.state.connection_states.open_ids() {
+            self.state.connection_states.close(id);
+        }
         self.state.notify();
     }
 
@@ -285,6 +288,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .get(id)
                 .is_none_or(|state| state.snapshot.terminal.is_none())
         });
+        for id in self.state.connection_states.open_ids() {
+            if self
+                .state
+                .consumer_recovery
+                .lock()
+                .get(&id)
+                .is_some_and(|state| state.snapshot.terminal.is_some())
+            {
+                self.state.connection_states.close(id);
+            }
+        }
     }
 
     fn command(&mut self, command: Command) {

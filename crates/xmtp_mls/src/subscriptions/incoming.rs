@@ -2,6 +2,7 @@
 
 mod controller;
 mod status;
+use super::connection_state::ConnectionStates;
 
 use crate::context::XmtpSharedContext;
 use controller::Controller;
@@ -174,6 +175,7 @@ struct SharedState {
     recovery: Arc<Mutex<super::recovery::RecoverySnapshot>>,
     consumer_recovery: Mutex<HashMap<u64, super::recovery::RecoveryState>>,
     changed: watch::Sender<u64>,
+    connection_states: ConnectionStates,
 }
 
 impl Default for SharedState {
@@ -184,6 +186,7 @@ impl Default for SharedState {
             recovery: Arc::new(Mutex::new(Default::default())),
             consumer_recovery: Mutex::new(HashMap::new()),
             changed,
+            connection_states: ConnectionStates::default(),
         }
     }
 }
@@ -221,6 +224,11 @@ impl IncomingCoordinator {
         }
         let (commands, receiver) = mpsc::unbounded_channel();
         let state = Arc::new(SharedState::default());
+        state
+            .connection_states
+            .set_writer(Arc::new(xmtp_events::PublicBusWriter::new(
+                context.events(),
+            )));
         let coordinator = Arc::new(Self {
             commands,
             generations: AtomicU64::new(0),
@@ -249,6 +257,9 @@ impl IncomingCoordinator {
         bounded: bool,
     ) -> IncomingLease {
         let id = self.generations.fetch_add(1, Ordering::Relaxed) + 1;
+        if bounded {
+            self.state.connection_states.open(id);
+        }
         self.state
             .statuses
             .lock()
@@ -372,6 +383,7 @@ impl IncomingLease {
         if self.closed.swap(true, Ordering::AcqRel) {
             return;
         }
+        self.coordinator.state.connection_states.close(self.id);
         statuses.remove(&self.id);
         self.coordinator
             .state

@@ -242,6 +242,7 @@ async fn test_commit_log_fork_detection_no_fork() -> Result<(), Box<dyn std::err
     Ok(())
 }
 
+// verifies: EVENT-001, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::error::Error>> {
     tester!(alix);
@@ -301,6 +302,10 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
     remote_entry_2.store(&alix.context.db())?;
 
     // Test fork detection
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConversationForkDetected]),
+        Some(4),
+    );
     let mut worker = CommitLogWorker::new(alix.context.clone());
     let results = worker
         .run_test(CommitLogTestFunction::CheckForkedState, None)
@@ -317,6 +322,15 @@ async fn test_commit_log_fork_detection_forked() -> Result<(), Box<dyn std::erro
         .get(group_id.as_ref())
         .unwrap();
     assert_eq!(*fork_status, Some(true), "Should detect a fork");
+    worker
+        .run_test(CommitLogTestFunction::CheckForkedState, None)
+        .await?;
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationForkDetected(fork)), ..
+        }] if fork.group_id == group_id.to_vec()
+    ));
 
     Ok(())
 }

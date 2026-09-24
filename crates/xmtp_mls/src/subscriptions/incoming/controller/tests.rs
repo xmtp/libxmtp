@@ -1,4 +1,35 @@
 use super::*;
+
+// verifies: EVENT-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn internal_interest_does_not_change_client_connection_state() {
+    tester!(alix, disable_workers);
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConnectionStateChanged]),
+        Some(4),
+    );
+    let coordinator = IncomingCoordinator::for_context(&alix.context);
+    let internal = coordinator.acquire(IncomingScope::DeviceSyncGroups);
+    xmtp_common::task::yield_now().await;
+    assert!(events.drain().is_empty());
+    let app = coordinator.acquire_stream(IncomingScope::Topics(Vec::new()));
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConnectionStateChanged(change)), ..
+        }] if change.previous == xmtp_events::ConnectionState::Closed
+            && change.current == xmtp_events::ConnectionState::Connecting
+    ));
+    app.close();
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConnectionStateChanged(change)), ..
+        }] if change.current == xmtp_events::ConnectionState::Closed
+    ));
+    internal.close();
+    assert!(events.drain().is_empty());
+}
 use crate::{test::mock::context, tester};
 use xmtp_common::Generate;
 use xmtp_proto::{
@@ -16,6 +47,11 @@ fn coordinated_controller<C: XmtpSharedContext + 'static>(
 ) -> (Arc<IncomingCoordinator>, Controller<C>) {
     let (commands, receiver) = mpsc::unbounded_channel();
     let state = Arc::new(SharedState::default());
+    state
+        .connection_states
+        .set_writer(Arc::new(xmtp_events::PublicBusWriter::new(
+            context.events(),
+        )));
     let coordinator = Arc::new(IncomingCoordinator {
         commands,
         generations: AtomicU64::new(0),
@@ -2193,10 +2229,14 @@ async fn a_stream_opened_before_status_refresh_does_not_pay_prior_failures() {
     }
 }
 
-// verifies: PROC-021, PROC-038
+// verifies: PROC-021, PROC-038, EVENT-001, EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn an_application_stream_retries_a_nonretryable_source_response_and_recovers() {
     tester!(alix, disable_workers);
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::ConnectionStateChanged]),
+        Some(8),
+    );
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
     let topic = Topic::new_welcome_message(alix.context.installation_id());
     let application = coordinator.acquire_stream(IncomingScope::Topics(vec![topic.clone()]));
@@ -2226,6 +2266,38 @@ async fn an_application_stream_retries_a_nonretryable_source_response_and_recove
     controller.refresh_statuses_at(Instant::now() + crate::subscriptions::recovery::HEALTHY_PERIOD);
     application.check_recovery()?;
     assert!(application.recovery_snapshot().terminal.is_none());
+    application.close();
+    let transitions: Vec<_> = events
+        .drain()
+        .into_iter()
+        .filter_map(|item| match item.client {
+            Some(xmtp_events::ClientEvent::ConnectionStateChanged(change)) => {
+                Some((change.previous, change.current))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        transitions,
+        [
+            (
+                xmtp_events::ConnectionState::Closed,
+                xmtp_events::ConnectionState::Connecting
+            ),
+            (
+                xmtp_events::ConnectionState::Connecting,
+                xmtp_events::ConnectionState::Failed
+            ),
+            (
+                xmtp_events::ConnectionState::Failed,
+                xmtp_events::ConnectionState::Connected
+            ),
+            (
+                xmtp_events::ConnectionState::Connected,
+                xmtp_events::ConnectionState::Closed
+            ),
+        ]
+    );
 }
 
 // verifies: AUTH-025, PROC-039

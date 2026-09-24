@@ -16,14 +16,30 @@ const WAIT: Duration = Duration::from_secs(20);
 mod tcp_proxy;
 
 #[cfg(not(target_arch = "wasm32"))]
+// verifies: EVENT-001, EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
     use super::incoming::{IncomingConnection, IncomingRegistration};
     use crate::utils::DefaultTestClientCreator;
     use xmtp_db::prelude::*;
+    use xmtp_events::{ClientEvent, ConnectionState, EventFilter, EventKind};
     use xmtp_proto::api_client::{
         ApiBuilder, NetConnectConfig, XmtpMlsBidiStreams, XmtpTestClient,
     };
+
+    fn state_path<I>(
+        items: Vec<xmtp_events::EventEnvelope<I>>,
+    ) -> Vec<(ConnectionState, ConnectionState)> {
+        items
+            .into_iter()
+            .filter_map(|item| match item.client {
+                Some(ClientEvent::ConnectionStateChanged(change)) => {
+                    Some((change.previous, change.current))
+                }
+                _ => None,
+            })
+            .collect()
+    }
 
     let api = DefaultTestClientCreator::create().build()?;
     let address = api
@@ -47,6 +63,10 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
     group.invite(&bo).await?;
     bo.sync_welcomes().await?;
     let bo_group = bo.group(&group.group_id)?;
+    let events = bo.context.events().subscribe(
+        EventFilter::new([EventKind::ConnectionStateChanged]),
+        Some(64),
+    );
     let mut reader = MessageReader::new(
         bo.context.clone(),
         DeliveryScope::Groups(vec![group.group_id]),
@@ -68,6 +88,46 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
         true,
     )
     .await?;
+    xmtp_common::wait_for_eq(
+        || async { control.catch_up_snapshot().connection == IncomingConnection::Connected },
+        true,
+    )
+    .await?;
+    let first_events = state_path(events.drain());
+    assert_eq!(
+        first_events.first(),
+        Some(&(ConnectionState::Closed, ConnectionState::Connecting))
+    );
+    assert_eq!(
+        first_events.last().map(|change| change.1),
+        Some(ConnectionState::Connected)
+    );
+    assert!(first_events.windows(2).all(|pair| pair[0].1 == pair[1].0));
+    let mut second_reader = MessageReader::new(
+        bo.context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        Some(xmtp_db::delivery::DeliveryCursor {
+            database_id: bo.context.db().stream_database_id()?,
+            delivery_sequence: 0,
+        }),
+    )?;
+    let second_control = second_reader.control();
+    xmtp_common::wait_for_eq(
+        || async { second_control.catch_up_snapshot().connection == IncomingConnection::Connected },
+        true,
+    )
+    .await?;
+    let second_events = state_path(events.drain());
+    assert_eq!(
+        second_events.first(),
+        Some(&(ConnectionState::Connected, ConnectionState::Connecting))
+    );
+    assert_eq!(
+        second_events.last().map(|change| change.1),
+        Some(ConnectionState::Connected)
+    );
+    assert!(second_events.windows(2).all(|pair| pair[0].1 == pair[1].0));
     let generation = control.catch_up_snapshot().connection_generation;
     let refused = proxy.pause().await;
     xmtp_common::time::timeout(WAIT, proxy.wait_for_refusal_after(refused)).await?;
@@ -75,6 +135,19 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
         control.catch_up_snapshot().connection,
         IncomingConnection::Connected
     );
+    xmtp_common::wait_for_eq(
+        || async {
+            events.drain().into_iter().any(|event| {
+                matches!(
+                    event.client,
+                    Some(ClientEvent::ConnectionStateChanged(change))
+                        if matches!(change.current, ConnectionState::Reconnecting | ConnectionState::Failed)
+                )
+            })
+        },
+        true,
+    )
+    .await?;
     group
         .update_group_name("committed during outage".into())
         .await?;
@@ -97,6 +170,16 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
             snapshot.connection == IncomingConnection::Connected
                 && snapshot.connection_generation > generation
         },
+        true,
+    )
+    .await?;
+    assert!(events.drain().into_iter().any(|event| matches!(
+        event.client,
+        Some(ClientEvent::ConnectionStateChanged(change))
+            if change.current == ConnectionState::Connected
+    )));
+    xmtp_common::wait_for_eq(
+        || async { second_control.catch_up_snapshot().connection == IncomingConnection::Connected },
         true,
     )
     .await?;
@@ -130,6 +213,15 @@ async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {
         assert_eq!(actual, expected);
     }
     reader.close();
+    assert!(events.drain().is_empty());
+    second_reader.close();
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::ConnectionStateChanged(change)), ..
+        }] if change.previous == ConnectionState::Connected
+            && change.current == ConnectionState::Closed
+    ));
 }
 
 async fn next_application<C: XmtpSharedContext + 'static>(

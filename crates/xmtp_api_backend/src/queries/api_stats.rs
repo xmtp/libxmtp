@@ -25,6 +25,18 @@ impl<C> TrackedStatsClient<C> {
 #[xmtp_common::async_trait]
 impl<C: XmtpBackendClient> XmtpBackendClient for TrackedStatsClient<C> {
     type Error = C::Error;
+    fn register_client_event_writer(
+        &self,
+        writer: &std::sync::Arc<dyn xmtp_events::EventWriter<()>>,
+    ) {
+        self.inner.register_client_event_writer(writer);
+    }
+    fn unregister_client_event_writer(
+        &self,
+        writer: &std::sync::Arc<dyn xmtp_events::EventWriter<()>>,
+    ) {
+        self.inner.unregister_client_event_writer(writer);
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         self.stats.publish.count_request();
         self.inner.publish(request).await

@@ -9,6 +9,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         *self.state.recovery.lock() = self.transport.recovery.clone();
         let conn = self.context.db();
         let mut snapshots = self.state.statuses.lock();
+        let mut connections = Vec::new();
         for (id, scope) in &self.scopes {
             let Some(snapshot) = snapshots.get_mut(id) else {
                 continue;
@@ -178,6 +179,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             snapshot.scope_generation = scope.generation;
             snapshot.connection_generation = self.transport.generation;
             snapshot.connection = self.transport.connection();
+            connections.push((*id, snapshot.connection));
             snapshot.discovery_pending = matches!(
                 scope.scope,
                 ScopeKind::AllGroups | ScopeKind::DeviceSyncGroups
@@ -212,6 +214,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             snapshot.topics = topics;
         }
         drop(snapshots);
+        for (id, connection) in connections {
+            self.state.connection_states.update(id, connection);
+        }
         self.state.notify();
     }
 }

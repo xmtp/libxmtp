@@ -18,6 +18,18 @@ impl<C> BoxedStreamsClient<C> {
 #[xmtp_common::async_trait]
 impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
     type Error = C::Error;
+    fn register_client_event_writer(
+        &self,
+        writer: &std::sync::Arc<dyn xmtp_events::EventWriter<()>>,
+    ) {
+        self.inner.register_client_event_writer(writer);
+    }
+    fn unregister_client_event_writer(
+        &self,
+        writer: &std::sync::Arc<dyn xmtp_events::EventWriter<()>>,
+    ) {
+        self.inner.unregister_client_event_writer(writer);
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         self.inner.publish(request).await
     }
