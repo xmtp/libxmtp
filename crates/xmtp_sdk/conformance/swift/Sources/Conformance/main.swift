@@ -1,6 +1,14 @@
 import Foundation
 @testable import XmtpSdk
 
+struct ConformanceFailure: LocalizedError {
+    let errorDescription: String?
+
+    init(_ check: String) {
+        errorDescription = check
+    }
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -11,7 +19,7 @@ final class TestSigner: Signer, @unchecked Sendable {
         process.standardOutput = output
         try process.run()
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw SDKValueError.invalidID }
+        guard process.terminationStatus == 0 else { throw ConformanceFailure("sign command failed") }
         return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -85,7 +93,7 @@ struct Conformance {
         let defaultFolder = appFolder.appendingPathComponent("xmtp")
         let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
         guard defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("Default storage has no database file")
         }
         try await defaultHost.end()
         try FileManager.default.removeItem(at: appFolder)
@@ -174,17 +182,17 @@ struct Conformance {
         let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
         var openedIterator = opened.makeAsyncIterator()
         guard let lateReader = await openedIterator.next() else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("reader did not open before cancellation")
         }
         cancelledOpening.cancel()
         releaseSignal.yield(())
         do {
             _ = try await cancelledOpening.value
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("cancelled reader creation returned a stream")
         } catch is CancellationError {}
         SDKClient.readerOpenedForTest = nil
         guard try await lateReader.next() == nil else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("late reader was not closed")
         }
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()

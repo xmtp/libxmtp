@@ -13,9 +13,6 @@ class SDKClient private constructor(
     val raw: Client,
 ) {
     companion object {
-        @Volatile
-        internal var readerOpenedForTest: (suspend (MessageReader) -> Unit)? = null
-
         private fun resolved(
             options: ClientOptions,
             defaultDirectory: String?,
@@ -57,10 +54,7 @@ class SDKClient private constructor(
     fun messages(group: Group): Flow<Message> =
         flow {
             val owner = this@SDKClient
-            val opening =
-                CoroutineScope(Dispatchers.Default).async {
-                    group.messageReader().also { readerOpenedForTest?.invoke(it) }
-                }
+            val opening = CoroutineScope(Dispatchers.Default).async { group.messageReader() }
             var reader: MessageReader? = null
             try {
                 reader = opening.await()

@@ -65,12 +65,13 @@ impl Message {
             .as_ref()
             .and_then(|content| content.r#type.clone())
             .unwrap_or_default();
-        let content = match encoded.as_ref() {
+        let fallback = encoded.as_ref().and_then(|content| content.fallback.clone());
+        let content = match encoded {
             Some(encoded)
                 if content_type.authority_id == "xmtp.org"
                     && content_type.type_id == TextCodec::TYPE_ID =>
             {
-                TextCodec::decode(encoded.clone())
+                TextCodec::decode(encoded)
                     .map(MessageContent::Text)
                     .unwrap_or(MessageContent::Unknown {
                         encoded: value.decrypted_message_bytes,
@@ -103,7 +104,7 @@ impl Message {
                 version_major: content_type.version_major,
                 version_minor: content_type.version_minor,
             },
-            fallback: encoded.and_then(|content| content.fallback),
+            fallback,
             content,
         }))
     }

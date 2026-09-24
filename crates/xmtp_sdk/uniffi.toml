@@ -70,22 +70,22 @@ lower = "{}.data"
 
 [bindings.typescript.customTypes.InboxID]
 imports = [["InboxID", "./runtime"]]
-lift = "InboxID.fromString({})"
+lift = "InboxID.fromRust({})"
 lower = "{}.toString()"
 
 [bindings.typescript.customTypes.InstallationID]
 imports = [["InstallationID", "./runtime"]]
-lift = "InstallationID.fromString({})"
+lift = "InstallationID.fromRust({})"
 lower = "{}.toString()"
 
 [bindings.typescript.customTypes.ConversationID]
 imports = [["ConversationID", "./runtime"]]
-lift = "ConversationID.fromString({})"
+lift = "ConversationID.fromRust({})"
 lower = "{}.toString()"
 
 [bindings.typescript.customTypes.MessageID]
 imports = [["MessageID", "./runtime"]]
-lift = "MessageID.fromString({})"
+lift = "MessageID.fromRust({})"
 lower = "{}.toString()"
 
 [bindings.typescript.customTypes.Timestamp]
