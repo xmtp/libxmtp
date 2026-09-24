@@ -1,3 +1,4 @@
+mod bridge;
 mod callback_cursor;
 mod forwarding;
 mod id_names;
@@ -189,6 +190,9 @@ fn generate(
             let mut source = fs::read_to_string(&index)?;
             source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
             fs::write(index, source)?;
+            if is_wasm {
+                bridge::generate(lib, out)?;
+            }
             for stale in [".bindgen-manifest", "abi"] {
                 let stale_dir = out.join(stale);
                 if stale_dir.is_dir() {
