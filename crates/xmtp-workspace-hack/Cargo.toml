@@ -206,6 +206,7 @@ zeroize = { version = "1", features = ["zeroize_derive"] }
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -229,6 +230,7 @@ cc = { version = "1", default-features = false, features = ["parallel"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -251,6 +253,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -276,6 +279,7 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -299,6 +303,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -324,6 +329,7 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -347,6 +353,7 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
@@ -371,6 +378,7 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
+getrandom-468e82937335b1c9 = { package = "getrandom", version = "0.3", default-features = false, features = ["std"] }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hex = { version = "0.4", features = ["serde"] }
