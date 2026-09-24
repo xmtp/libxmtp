@@ -75,6 +75,25 @@ async fn encryption_round_trips_and_rejects_changed_bytes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn encoded_content_encryption_rejects_missing_content_type() {
+    use prost::Message as _;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+    assert!(matches!(
+        crate::crypto::encrypt_encoded_content(Vec::new()).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    let without_type = EncodedContent {
+        content: b"content".to_vec(),
+        ..Default::default()
+    };
+    assert!(matches!(
+        crate::crypto::encrypt_encoded_content(without_type.encode_to_vec()).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn standard_content_decodes_text() {
     use prost::Message as _;
     use xmtp_content_types::{ContentCodec, text::TextCodec};

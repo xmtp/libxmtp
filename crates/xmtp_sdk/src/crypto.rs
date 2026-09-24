@@ -71,7 +71,14 @@ pub async fn decrypt_bytes(
 pub async fn encrypt_encoded_content(
     content: Vec<u8>,
 ) -> Result<EncryptedEncodedContent, XmtpError> {
-    let content = EncodedContent::decode(content.as_slice()).map_err(XmtpError::unknown)?;
+    if content.is_empty() {
+        return Err(XmtpError::invalid("encoded content is empty"));
+    }
+    let content = EncodedContent::decode(content.as_slice())
+        .map_err(|_| XmtpError::invalid("invalid encoded content"))?;
+    if content.r#type.is_none() {
+        return Err(XmtpError::invalid("encoded content has no content type"));
+    }
     core::encrypt_encoded_content(content)
         .map(Into::into)
         .map_err(XmtpError::unknown)
