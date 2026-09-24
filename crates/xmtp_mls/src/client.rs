@@ -34,7 +34,7 @@ use itertools::Itertools;
 use openmls::prelude::tls_codec::Error as TlsCodecError;
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
+    sync::{Arc, atomic::Ordering},
 };
 use thiserror::Error;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
@@ -72,7 +72,7 @@ use xmtp_mls_common::{
 use xmtp_proto::{
     ConversionError,
     api::HasStats,
-    api_client::{ApiStats, IdentityStats},
+    api_client::{ApiStats, IdentityStats, XmtpBackendClient},
 };
 use xmtp_proto::{types::InstallationId, xmtp::identity::associations::IdentifierKind};
 
@@ -319,6 +319,17 @@ pub struct Client<Context> {
     pub context: Context,
     pub installation_id: InstallationId,
     pub(crate) workers: Arc<WorkerRunner>,
+    pub(crate) app_lifetime: Arc<AppLifetime>,
+}
+
+pub(crate) struct AppLifetime {
+    pub(crate) events: xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent>,
+}
+
+impl Drop for AppLifetime {
+    fn drop(&mut self) {
+        self.events.close_app_subscriptions();
+    }
 }
 
 impl<Context> Drop for Client<Context> {
@@ -339,6 +350,7 @@ impl<Context: Clone> Clone for Client<Context> {
             context: self.context.clone(),
             installation_id: self.installation_id,
             workers: self.workers.clone(),
+            app_lifetime: self.app_lifetime.clone(),
         }
     }
 }
@@ -428,6 +440,10 @@ where
         if self.context.shutdown_complete() {
             return Ok(());
         }
+        self.context
+            .api()
+            .api_client
+            .unregister_client_event_writer(self.context.public_event_writer());
         self.context.events().close_app_subscriptions();
         self.context.cancellation_token().cancel();
         let delivery_result = self.context.close_message_delivery();
@@ -1248,6 +1264,9 @@ where
         let mut stored_identity = StoredIdentity::try_from(self.identity())?;
         stored_identity.registration_cursor_sequence_id = Some(registration_cursor.0 as i64);
         stored_identity.store(&self.context.db())?;
+        self.context
+            .registration_event_pending()
+            .store(true, Ordering::Release);
         self.identity().set_ready();
         Ok(())
     }
@@ -1286,14 +1305,31 @@ where
                         "registration identity head",
                     ))?;
                 if head.0 >= sequence_id {
-                    return Ok(());
+                    return Ok::<(), ClientError>(());
                 }
                 sleep(delay).await;
                 delay = (delay * 2).min(REGISTRATION_MAX_BACKOFF);
             }
         })
         .await
-        .map_err(|_| ClientError::RegistrationNotVisible)?
+        .map_err(|_| ClientError::RegistrationNotVisible)??;
+        if self
+            .context
+            .registration_event_pending()
+            .swap(false, Ordering::AcqRel)
+        {
+            xmtp_events::EventWriter::emit(
+                self.context.events(),
+                Some(xmtp_events::ClientEvent::IdentityRegistered(
+                    xmtp_events::IdentityRegistered {
+                        inbox_id: self.inbox_id().to_string(),
+                        installation_key: self.installation_id.to_vec(),
+                    },
+                )),
+                None,
+            );
+        }
+        Ok(())
     }
 
     /// If no key rotation is scheduled, queue it to occur in the next 5 seconds.

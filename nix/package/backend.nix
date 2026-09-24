@@ -31,6 +31,7 @@ let
         "xmtp_common"
         "xmtp_configuration"
         "xmtp_cryptography"
+        "xmtp_events"
         "xmtp_id"
         "xmtp_logging"
         "xmtp_macro"

@@ -83,6 +83,9 @@ impl<T> XmtpApi for T where T: XmtpBackendClient + ?Sized {}
 #[xmtp_common::async_trait]
 pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     type Error: RetryableError + MaybeSend + MaybeSync + 'static;
+    /// Register this client's public event writer with a shared credential.
+    fn register_client_event_writer(&self, _writer: &Arc<dyn xmtp_events::EventWriter<()>>) {}
+    fn unregister_client_event_writer(&self, _writer: &Arc<dyn xmtp_events::EventWriter<()>>) {}
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error>;
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
     async fn query_newest(

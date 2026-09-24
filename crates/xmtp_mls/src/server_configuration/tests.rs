@@ -76,6 +76,45 @@ fn the_first_blocked_connection_cause_wins_for_network_checks() {
     assert_eq!(received, "org.example.two");
 }
 
+// verifies: EVENT-001, EVENT-008, EVENT-016
+#[xmtp_common::test(unwrap_try = true)]
+fn a_new_rejection_emits_once_and_keeps_the_subscription_open() {
+    use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, PublicBusWriter};
+
+    let bus = EventBus::<()>::new();
+    let subscription = bus.subscribe_app(EventFilter::new([EventKind::ClientRejectedByServer]))?;
+    let handle = ServerConfigurationHandle::default();
+    handle.set_event_writer(Arc::new(PublicBusWriter::new(&bus)));
+    let reason = BlockedConnection::ClientVersionTooOld {
+        client: "1.0.0".into(),
+        minimum: "2.0.0".into(),
+    };
+    handle.block_connection(reason.clone());
+    handle.block_connection(reason);
+    assert!(matches!(
+        subscription.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::ClientRejectedByServer(rejection)), ..
+        }] if rejection.cause == RejectionCause::VersionTooOld
+            && rejection.min_libxmtp_version.as_deref() == Some("2.0.0")
+    ));
+    assert!(!subscription.is_closed());
+
+    let mismatch = ServerConfigurationHandle::default();
+    mismatch.set_event_writer(Arc::new(PublicBusWriter::new(&bus)));
+    mismatch.block_connection(BlockedConnection::BackendMismatch {
+        stored: "old".into(),
+        received: "new".into(),
+    });
+    assert!(matches!(
+        subscription.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::ClientRejectedByServer(rejection)), ..
+        }] if rejection.cause == RejectionCause::BackendMismatch
+            && rejection.min_libxmtp_version.is_none()
+    ));
+}
+
 // A stored copy that does not decode is a warning, not a failure. The
 // identifier survives so the binding check still works.
 #[xmtp_common::test(unwrap_try = true)]

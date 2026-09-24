@@ -1,12 +1,13 @@
 use crate::endpoints::backend::GET_CONFIGURATION_PATH;
 use arc_swap::ArcSwap;
 use prost::bytes::Bytes;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use tokio::sync::OnceCell;
 use xmtp_common::{BoxDynError, MaybeSend, MaybeSync, time::Instant};
 #[cfg(not(test))]
 use xmtp_configuration::AUTH_LOCKOUT_COOLDOWN;
 use xmtp_configuration::MAX_CONSECUTIVE_AUTH_FAILURES;
+use xmtp_events::{ClientEvent, EventWriter, LockoutChange, LockoutChanged};
 use xmtp_proto::api::{
     ApiClientError, AuthError, BytesStream, Client, IsConnectedCheck, grpc_status,
 };
@@ -55,11 +56,13 @@ struct AuthState {
 
 impl AuthState {
     // implements: AUTH-023
-    fn fail(&mut self) {
+    fn fail(&mut self) -> bool {
         self.failures = (self.failures + 1).min(MAX_CONSECUTIVE_AUTH_FAILURES);
         if self.failures == MAX_CONSECUTIVE_AUTH_FAILURES && self.locked_until.is_none() {
             self.locked_until = Some(Instant::now() + AUTH_LOCKOUT_COOLDOWN);
+            return true;
         }
+        false
     }
 }
 
@@ -72,9 +75,22 @@ struct AuthInner {
     /// pushes its credential through the handle would deadlock on a lock this
     /// function held across the await. Tokio's mutex is not reentrant.
     refresh: tokio::sync::Mutex<()>,
+    event_writers: parking_lot::Mutex<Vec<Weak<dyn EventWriter<()>>>>,
 }
 
 impl AuthInner {
+    fn emit_lockout(&self, change: LockoutChange) {
+        let mut writers = self.event_writers.lock();
+        let live: Vec<_> = writers.iter().filter_map(Weak::upgrade).collect();
+        writers.retain(|writer| writer.strong_count() > 0);
+        drop(writers);
+        for writer in live {
+            writer.emit(
+                Some(ClientEvent::ClientLockoutChanged(LockoutChanged { change })),
+                None,
+            );
+        }
+    }
     /// Store only while the state lock is held. This operation cannot be cancelled.
     fn store(&self, credential: Credential) {
         if let Some(current) = self.current.get() {
@@ -92,6 +108,12 @@ pub struct AuthHandle {
     inner: Arc<AuthInner>,
 }
 
+impl std::fmt::Debug for AuthHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthHandle").finish_non_exhaustive()
+    }
+}
+
 impl AuthHandle {
     pub fn new() -> Self {
         Self::default()
@@ -100,11 +122,28 @@ impl AuthHandle {
     // implements: AUTH-024
     pub async fn set(&self, credential: Credential) {
         let mut state = self.inner.state.lock().await;
+        let was_locked = state.locked_until.is_some();
         self.inner.store(credential);
         *state = AuthState {
             generation: state.generation + 1,
             ..AuthState::default()
         };
+        if was_locked {
+            self.inner.emit_lockout(LockoutChange::Left);
+        }
+    }
+
+    pub fn register_event_writer(&self, writer: &Arc<dyn EventWriter<()>>) {
+        let mut writers = self.inner.event_writers.lock();
+        writers.retain(|writer| writer.strong_count() > 0);
+        writers.push(Arc::downgrade(writer));
+    }
+
+    pub fn unregister_event_writer(&self, writer: &Arc<dyn EventWriter<()>>) {
+        self.inner.event_writers.lock().retain(|held| {
+            held.upgrade()
+                .is_some_and(|held| !Arc::ptr_eq(&held, writer))
+        });
     }
 
     pub fn id(&self) -> usize {
@@ -155,8 +194,10 @@ impl<C> AuthMiddleware<C> {
         // await, because `AuthHandle::set` needs it while a callback runs.
         let _refresh = inner.refresh.lock().await;
         let mut state = *inner.state.lock().await;
+        let now = Instant::now();
+        let lockout_left = state.locked_until.is_some_and(|until| until <= now);
         if let Some(until) = state.locked_until {
-            if until > Instant::now() {
+            if until > now {
                 return Err(AuthError::Exhausted);
             }
             state.locked_until = None;
@@ -192,8 +233,14 @@ impl<C> AuthMiddleware<C> {
                     state.stale = false;
                 }
                 Err(_) => {
-                    state.fail();
+                    let entered = state.fail();
                     *guard = state;
+                    if lockout_left {
+                        inner.emit_lockout(LockoutChange::Left);
+                    }
+                    if entered {
+                        inner.emit_lockout(LockoutChange::Entered);
+                    }
                     // Distinguish this failed refresh from later refusals.
                     // Both keep the same public error code and cool-down.
                     return Err(if state.locked_until.is_some() {
@@ -204,8 +251,14 @@ impl<C> AuthMiddleware<C> {
                 }
             }
             *guard = state;
+            if lockout_left {
+                inner.emit_lockout(LockoutChange::Left);
+            }
         } else {
             *inner.state.lock().await = state;
+            if lockout_left {
+                inner.emit_lockout(LockoutChange::Left);
+            }
         }
         let credential = credential.ok_or(AuthError::MissingCredential)?;
         Ok((credential, state.generation))
@@ -229,8 +282,8 @@ impl<C> AuthMiddleware<C> {
                 state.failures = 0;
             } else if rejected {
                 state.stale = true;
-                if self.callback.is_some() {
-                    state.fail();
+                if self.callback.is_some() && state.fail() {
+                    self.handle.inner.emit_lockout(LockoutChange::Entered);
                 }
             }
         }

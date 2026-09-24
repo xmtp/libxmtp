@@ -6,10 +6,10 @@ use crate::{
     groups::{MlsGroup, group_permissions::PolicySet},
     worker::device_sync::MissingField,
 };
-use futures::StreamExt;
+use futures::{Stream, StreamExt};
 pub use xmtp_archive::*;
 use xmtp_db::{
-    ConnectionExt, StoreOrIgnore, XmtpMlsStorageProvider,
+    ConnectionExt, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     group::{ConversationType, DmIdExt, GroupMembershipState},
     group_message::StoredGroupMessage,
@@ -19,37 +19,41 @@ use xmtp_mls_common::group::GroupMetadataOptions;
 use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
+use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
 use xmtp_proto::types::GroupId;
 #[derive(Default)]
 struct ImportContext {
     group_timestamps: HashMap<Vec<u8>, Option<i64>>,
+    changed: bool,
 }
 
 impl ImportContext {
-    fn post_import(&self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
+    fn post_import(&mut self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
         use xmtp_db::diesel::prelude::*;
-        use xmtp_db::diesel::sql_types::{BigInt, Nullable};
         use xmtp_db::schema::groups::dsl;
 
         // Keep a newer timestamp written by message receipt during the import.
         // Each group update acquires the writer and uses the current row value.
         for (group_id, timestamp) in &self.group_timestamps {
-            crate::state_tx::state_write(context.mls_storage(), |tx| {
+            let Some(timestamp) = *timestamp else {
+                continue;
+            };
+            let changed = crate::state_tx::state_write(context.mls_storage(), |tx| {
                 let storage = tx.storage();
-                storage.db().raw_query(|conn| {
-                    let newest = xmtp_db::diesel::dsl::sql::<Nullable<BigInt>>(
-                        "CASE WHEN last_message_ns IS NULL OR last_message_ns < ",
-                    )
-                    .bind::<Nullable<BigInt>, _>(*timestamp)
-                    .sql(" THEN ")
-                    .bind::<Nullable<BigInt>, _>(*timestamp)
-                    .sql(" ELSE last_message_ns END");
+                let changed = storage.db().raw_query(|conn| {
                     xmtp_db::diesel::update(dsl::groups.find(group_id))
-                        .set(dsl::last_message_ns.eq(newest))
+                        .filter(
+                            dsl::last_message_ns
+                                .is_null()
+                                .or(dsl::last_message_ns.lt(timestamp)),
+                        )
+                        .set(dsl::last_message_ns.eq(Some(timestamp)))
                         .execute(conn)
                 })?;
-                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(()))
-            })?;
+                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(changed > 0))
+            })?
+            .into_continued();
+            self.changed |= changed;
         }
 
         Ok(())
@@ -60,17 +64,37 @@ pub async fn insert_importer(
     importer: &mut ArchiveImporter,
     context: &impl XmtpSharedContext,
 ) -> Result<(), DeviceSyncError> {
+    insert_elements(importer, context).await
+}
+
+async fn insert_elements<S, E>(
+    elements: &mut S,
+    context: &impl XmtpSharedContext,
+) -> Result<(), DeviceSyncError>
+where
+    S: Stream<Item = Result<BackupElement, E>> + Unpin,
+    DeviceSyncError: From<E>,
+{
     let mut import_ctx = ImportContext::default();
-
-    while let Some(element) = importer.next().await {
-        let element = element?;
-        // Propagate insert failures to the supervisor rather than skipping the record.
-        insert(element, context, &mut import_ctx)?;
+    let result = async {
+        while let Some(element) = elements.next().await {
+            let element = element.map_err(DeviceSyncError::from)?;
+            // Propagate insert failures to the supervisor rather than skipping the record.
+            insert(element, context, &mut import_ctx)?;
+        }
+        import_ctx.post_import(context)?;
+        Ok(())
     }
-
-    import_ctx.post_import(context)?;
-
-    Ok(())
+    .await;
+    if import_ctx.changed {
+        context.events().emit(
+            Some(ClientEvent::ArchiveRestored(ArchiveRestored {
+                complete: result.is_ok(),
+            })),
+            None,
+        );
+    }
+    result
 }
 
 fn insert(
@@ -85,7 +109,7 @@ fn insert(
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            context.db().insert_newer_consent_record(consent)?;
+            import_context.changed |= context.db().insert_newer_consent_record(consent)?;
         }
         Element::Group(save) => {
             // Propagate a lookup error (incl. a dropped pool); only a genuine
@@ -166,10 +190,11 @@ fn insert(
                     )?;
                 }
             }
+            import_context.changed = true;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            message.store_or_ignore(&context.db())?;
+            import_context.changed |= message.store_or_ignore_changed(&context.db())?;
         }
         _ => {}
     }
@@ -204,12 +229,48 @@ mod tests {
         group_mutable_metadata::MessageDisappearingSettings,
     };
 
+    // verifies: EVENT-001, EVENT-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn partial_import_reports_incomplete_after_a_stored_change() {
+        tester!(alix, disable_workers);
+        let events = alix.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
+        let record = StoredConsentRecord::new(
+            xmtp_db::consent_record::ConsentType::InboxId,
+            xmtp_db::consent_record::ConsentState::Allowed,
+            "failed-import".into(),
+        );
+        let element = BackupElement {
+            element: Some(Element::Consent(record.into())),
+        };
+        let mut elements =
+            futures::stream::iter([Ok(element), Err(std::io::Error::other("archive cut"))]);
+        assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+        assert!(
+            alix.db()
+                .get_consent_record(
+                    "failed-import".into(),
+                    xmtp_db::consent_record::ConsentType::InboxId,
+                )?
+                .is_some()
+        );
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::ArchiveRestored(restored)), ..
+            }] if !restored.complete
+        ));
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_timestamp_keeps_a_message_received_during_import() {
         tester!(alix, disable_workers);
         let group = alix.create_group(None, None)?;
-        let pending_import = ImportContext {
+        let mut pending_import = ImportContext {
             group_timestamps: [(group.group_id.to_vec(), Some(0))].into(),
+            ..Default::default()
         };
 
         group.send_message_optimistic(b"message during import", Default::default())?;
@@ -410,6 +471,7 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
+    // verifies: EVENT-001, EVENT-017
     #[rstest::rstest]
     #[xmtp_common::test]
     async fn test_buffer_export_import() {
@@ -447,6 +509,10 @@ mod tests {
 
         let alix2_wallet = generate_local_wallet();
         let alix2 = ClientBuilder::new_test_client(&alix2_wallet).await;
+        let events = alix2.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
 
         // No messages
         let messages: Vec<StoredGroupMessage> = alix2
@@ -460,12 +526,23 @@ mod tests {
             .unwrap();
         assert_eq!(messages.len(), 0);
 
-        let reader = BufReader::new(Cursor::new(file));
+        let reader = BufReader::new(Cursor::new(file.clone()));
         let reader = Box::pin(reader);
         let mut importer = ArchiveImporter::load(reader, &key).await.unwrap();
         insert_importer(&mut importer, &alix2.context)
             .await
             .unwrap();
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(xmtp_events::ClientEvent::ArchiveRestored(restored)), ..
+            }] if restored.complete
+        ));
+
+        let reader = Box::pin(BufReader::new(Cursor::new(file)));
+        let mut second = ArchiveImporter::load(reader, &key).await.unwrap();
+        insert_importer(&mut second, &alix2.context).await.unwrap();
+        assert!(events.drain().is_empty());
 
         // One message.
         let messages: Vec<StoredGroupMessage> = alix2

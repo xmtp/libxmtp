@@ -19,6 +19,7 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
+    let events = xmtp_events::EventBus::new();
     XmtpMlsLocalContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
@@ -28,7 +29,9 @@ pub fn context() -> NewMockContext {
         mls_commit_lock: Default::default(),
         version_info: VersionInfo::default(),
         server_configuration: Default::default(),
-        events: xmtp_events::EventBus::new(),
+        public_event_writer: Arc::new(xmtp_events::PublicBusWriter::new(&events)),
+        events,
+        registration_event_pending: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
             mode: DeviceSyncMode::Disabled,

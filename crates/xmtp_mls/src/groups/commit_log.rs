@@ -43,6 +43,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     OneshotMessage, ReaddRequest, oneshot_message::MessageType,
 };
 
+use xmtp_events::{ClientEvent, EventWriter, GroupRef};
 use xmtp_proto::types::GroupId;
 /// Interval at which the CommitLogWorker runs to publish commit log entries.
 pub const DEFAULT_INTERVAL_DURATION: Duration = Duration::from_secs(60 * 5); // 5 minutes
@@ -625,18 +626,28 @@ where
 
         for conversation_id in conversation_ids_for_forked_state_check {
             let conversation_id = GroupId::try_from(conversation_id)?;
-            self.context
-                .mls_provider()
-                .storage()
-                .transaction(|conn| {
-                    let key_store = conn.key_store();
-                    let db = key_store.db();
+            crate::state_tx::state_write_with_events(
+                self.context.mls_storage(),
+                self.context.events(),
+                |tx, events| {
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    let was_forked = db.get_group_commit_log_forked_status(&conversation_id)?;
                     let is_forked = self.check_conversation_fork_state(&db, &conversation_id)?;
                     // Persist the fork status to the database
                     db.set_group_commit_log_forked_status(&conversation_id, is_forked)?;
+                    if was_forked != Some(true) && is_forked == Some(true) {
+                        events.emit(
+                            Some(ClientEvent::ConversationForkDetected(GroupRef {
+                                group_id: conversation_id.to_vec(),
+                            })),
+                            None,
+                        );
+                    }
                     Ok::<_, CommitLogError>(Continue(()))
-                })
-                .map(TransactionOutcome::into_continued)?;
+                },
+            )
+            .map(TransactionOutcome::into_continued)?;
             tokio::task::yield_now().await;
         }
 

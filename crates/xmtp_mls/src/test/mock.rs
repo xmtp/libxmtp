@@ -78,6 +78,8 @@ impl Clone for NewMockContext {
             version_info: self.version_info.clone(),
             server_configuration: self.server_configuration.clone(),
             events: self.events.clone(),
+            registration_event_pending: self.registration_event_pending.clone(),
+            public_event_writer: self.public_event_writer.clone(),
             scw_verifier: self.scw_verifier.clone(),
             device_sync: self.device_sync.clone(),
             fork_recovery_opts: self.fork_recovery_opts.clone(),
@@ -148,6 +150,14 @@ impl XmtpSharedContext for NewMockContext {
 
     fn events(&self) -> &xmtp_events::EventBus<crate::subscriptions::internal::InternalEvent> {
         &self.events
+    }
+
+    fn registration_event_pending(&self) -> &AtomicBool {
+        &self.registration_event_pending
+    }
+
+    fn public_event_writer(&self) -> &Arc<dyn xmtp_events::EventWriter<()>> {
+        &self.public_event_writer
     }
 
     #[cfg(test)]

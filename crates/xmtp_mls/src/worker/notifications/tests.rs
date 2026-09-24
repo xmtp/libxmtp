@@ -22,6 +22,65 @@ pub(crate) fn config() -> NotificationConfig {
     })
 }
 
+// verifies: EVENT-001, EVENT-010, EVENT-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn stored_terminal_notification_failure_emits_once() {
+    use xmtp_events::{ClientEvent, EventFilter, EventKind};
+
+    tester!(alix, disable_workers);
+    let mut record = alix.db().notification_record()?;
+    record.push_state = 1;
+    record.push_generation += 1;
+    alix.db().save_notification_record(&record)?;
+    let events = alix
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::NotificationsFailed]), Some(4));
+    assert!(record_error(
+        &alix.context,
+        record.push_generation,
+        &NotificationError::PermissionDenied,
+        None,
+    )?);
+    assert!(!record_error(
+        &alix.context,
+        record.push_generation,
+        &NotificationError::PermissionDenied,
+        None,
+    )?);
+    assert_eq!(alix.db().notification_record()?.push_state, 2);
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::NotificationsFailed(failure)), ..
+        }] if failure.cause == NotificationError::PermissionDenied.to_string()
+    ));
+}
+
+// verifies: EVENT-001, EVENT-010, EVENT-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn background_notification_failure_emits_once() {
+    use xmtp_events::{ClientEvent, EventFilter, EventKind};
+
+    let (client, peer) = support::client().await;
+    client.enable_notifications(config()).await?;
+    let events = client
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::NotificationsFailed]), Some(4));
+    peer.state.lock().next_error = Some(tonic::Code::InvalidArgument);
+    assert_eq!(run(&client.context).await?, TaskOutcome::Done);
+    assert_eq!(client.db().notification_record()?.push_state, 2);
+    assert!(matches!(
+        events.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(ClientEvent::NotificationsFailed(failure)), ..
+        }] if failure.cause == NotificationError::InvalidArgument.to_string()
+    ));
+    assert_eq!(run(&client.context).await?, TaskOutcome::Done);
+    assert!(events.drain().is_empty());
+}
+
 fn synthetic_desired(count: u128) -> Desired {
     (1..=count)
         .map(|index| {

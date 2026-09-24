@@ -542,7 +542,7 @@ id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No shared client event bus emits the 19 specified change kinds: conversation.joined, conversation.removed, conversation.membership_changed, conversation.metadata_changed, conversation.paused, message.received, message.status_changed, message.deleted, message.expired, consent.changed, hmac_keys.updated, identity.registered, identity.own_installation_added, identity.own_installation_revoked, client.rejected_by_server, client.lockout_changed, conversation.fork_detected, notifications.failed, and archive.restored."
+reason = "The shared client event bus has emission paths and focused tests for all 20 change kinds, including connection.state_changed. EVENT-001 remains open for alternate change paths such as replacing an ended group and activating a restored group, and for a transaction that aborts before commit and then succeeds on retry. These paths do not yet have one-event assertions."
 
 [[waiver]]
 id = "EVENT-002"
@@ -585,13 +585,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No message.deleted payload distinguishes an app-requested local deletion from a received deletion."
-
-[[waiver]]
-id = "EVENT-008"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No client.rejected_by_server payload includes the minimum version for a version rejection."
 
 [[waiver]]
 id = "EVENT-009"
@@ -640,14 +633,7 @@ id = "EVENT-016"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "Current blocked connection handling closes local streams; the event subscription that must survive a server rejection does not exist."
-
-[[waiver]]
-id = "EVENT-017"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No archive.restored payload reports whether an import ended with an error."
+reason = "The Rust event bus retains subscriptions through server rejection, but no SDK facade exposes an event subscription to an app or verifies that it stays open across a blocked connection."
 
 [[waiver]]
 id = "EVENT-018"
@@ -703,7 +689,7 @@ id = "EVENT-025"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No per-client event bus and app subscription API enforce instance-local delivery when clients share storage or credentials."
+reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
 
 [[waiver]]
 id = "EVENT-026"
@@ -711,13 +697,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
-
-[[waiver]]
-id = "EVENT-027"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No client-wide aggregator reports connection state transitions of app streams that hold network interest."
 
 [[waiver]]
 id = "EVENT-030"

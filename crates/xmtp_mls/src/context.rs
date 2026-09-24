@@ -25,6 +25,7 @@ use xmtp_db::XmtpDb;
 use xmtp_db::XmtpMlsStorageProvider;
 use xmtp_db::xmtp_openmls_provider::XmtpOpenMlsProviderRef;
 use xmtp_events::EventBus;
+use xmtp_events::EventWriter;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
 use xmtp_proto::types::InstallationId;
@@ -54,6 +55,9 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     /// plus the blocked connection a refresh may set.
     pub(crate) server_configuration: ServerConfigurationHandle,
     pub(crate) events: EventBus<InternalEvent>,
+    pub(crate) public_event_writer: Arc<dyn EventWriter<()>>,
+    /// Set by a new registration and cleared after its visibility event.
+    pub(crate) registration_event_pending: Arc<AtomicBool>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
@@ -132,6 +136,8 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             version_info: self.version_info,
             server_configuration: self.server_configuration,
             events: self.events,
+            public_event_writer: self.public_event_writer,
+            registration_event_pending: self.registration_event_pending,
             delivery_owner: self.delivery_owner,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
@@ -263,6 +269,8 @@ where
     /// The configuration snapshot every consumer reads.
     fn server_configuration(&self) -> &ServerConfigurationHandle;
     fn events(&self) -> &EventBus<InternalEvent>;
+    fn registration_event_pending(&self) -> &AtomicBool;
+    fn public_event_writer(&self) -> &Arc<dyn EventWriter<()>>;
     /// This context's default-consumer token; the database is the ownership authority.
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
 
@@ -370,6 +378,14 @@ where
 
     fn events(&self) -> &EventBus<InternalEvent> {
         &self.events
+    }
+
+    fn registration_event_pending(&self) -> &AtomicBool {
+        &self.registration_event_pending
+    }
+
+    fn public_event_writer(&self) -> &Arc<dyn EventWriter<()>> {
+        &self.public_event_writer
     }
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {
@@ -480,6 +496,14 @@ where
 
     fn events(&self) -> &EventBus<InternalEvent> {
         <T as XmtpSharedContext>::events(self)
+    }
+
+    fn registration_event_pending(&self) -> &AtomicBool {
+        <T as XmtpSharedContext>::registration_event_pending(self)
+    }
+
+    fn public_event_writer(&self) -> &Arc<dyn EventWriter<()>> {
+        <T as XmtpSharedContext>::public_event_writer(self)
     }
 
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>> {

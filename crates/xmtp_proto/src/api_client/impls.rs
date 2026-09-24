@@ -3,6 +3,12 @@ use super::*;
 #[xmtp_common::async_trait]
 impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
     type Error = T::Error;
+    fn register_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).register_client_event_writer(writer);
+    }
+    fn unregister_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).unregister_client_event_writer(writer);
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
     }
@@ -110,6 +116,12 @@ impl<T: XmtpMlsStreams + ?Sized> XmtpMlsStreams for Box<T> {
 #[xmtp_common::async_trait]
 impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
     type Error = T::Error;
+    fn register_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).register_client_event_writer(writer);
+    }
+    fn unregister_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).unregister_client_event_writer(writer);
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
     }
@@ -217,6 +229,12 @@ impl<T: XmtpMlsStreams + ?Sized> XmtpMlsStreams for Arc<T> {
 #[xmtp_common::async_trait]
 impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
     type Error = T::Error;
+    fn register_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).register_client_event_writer(writer);
+    }
+    fn unregister_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        (**self).unregister_client_event_writer(writer);
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
     }

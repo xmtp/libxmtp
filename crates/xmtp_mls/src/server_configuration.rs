@@ -16,6 +16,7 @@ use xmtp_configuration::{
 };
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, server_configuration::StoredServerConfiguration};
+use xmtp_events::{ClientEvent, ClientRejectedByServer, EventWriter, RejectionCause};
 use xmtp_proto::api_client::XmtpBackendClient;
 use xmtp_proto::backend_v1;
 
@@ -82,6 +83,7 @@ impl From<&BlockedConnection> for ClientError {
 pub struct ServerConfigurationHandle {
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
+    event_writer: Arc<RwLock<Option<Arc<dyn EventWriter<()>>>>>,
     /// The chains an app-supplied smart contract wallet signature may name.
     /// `None` when the app supplied its own verifier.
     restricted_chains: Option<Arc<[String]>>,
@@ -127,6 +129,7 @@ impl ServerConfigurationHandle {
                 None => provider,
             },
             blocked_connection: Arc::default(),
+            event_writer: Arc::default(),
             restricted_chains: None,
         }
     }
@@ -167,6 +170,10 @@ impl ServerConfigurationHandle {
         self.blocked_connection.read().clone()
     }
 
+    pub(crate) fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
+        *self.event_writer.write() = Some(writer);
+    }
+
     /// Fail when the connection is blocked. Every call that reaches the network goes
     /// through here.
     // implements: CONF-075
@@ -181,8 +188,26 @@ impl ServerConfigurationHandle {
     /// first cause is the one worth reporting.
     pub(crate) fn block_connection(&self, reason: BlockedConnection) -> ClientError {
         let mut guard = self.blocked_connection.write();
-        let held = guard.get_or_insert(reason);
-        ClientError::from(&*held)
+        if let Some(held) = guard.as_ref() {
+            return held.into();
+        }
+        let error = ClientError::from(&reason);
+        let event = match &reason {
+            BlockedConnection::BackendMismatch { .. } => ClientRejectedByServer {
+                cause: RejectionCause::BackendMismatch,
+                min_libxmtp_version: None,
+            },
+            BlockedConnection::ClientVersionTooOld { minimum, .. } => ClientRejectedByServer {
+                cause: RejectionCause::VersionTooOld,
+                min_libxmtp_version: Some(minimum.clone()),
+            },
+        };
+        *guard = Some(reason);
+        drop(guard);
+        if let Some(writer) = self.event_writer.read().as_ref() {
+            writer.emit(Some(ClientEvent::ClientRejectedByServer(event)), None);
+        }
+        error
     }
 }
 

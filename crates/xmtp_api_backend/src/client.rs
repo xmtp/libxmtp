@@ -12,6 +12,7 @@ use xmtp_proto::{
 #[derive(Clone, Debug)]
 pub struct BackendClient<C> {
     pub(crate) client: C,
+    pub(crate) auth_handle: Option<crate::AuthHandle>,
     /// The shapes this deployment accepts. Swapped in once, by
     /// `build`, after the configuration is read and before any stream opens.
     /// The compiled defaults until then, which is what every transport built
@@ -22,11 +23,19 @@ impl<C> BackendClient<C> {
     pub fn new(client: C) -> Self {
         Self {
             client,
+            auth_handle: None,
             limits: Arc::new(ArcSwap::from_pointee(LimitsConfiguration::default())),
         }
     }
     pub fn inner(&self) -> &C {
         &self.client
+    }
+    pub fn with_auth_handle(mut self, handle: Option<crate::AuthHandle>) -> Self {
+        self.auth_handle = handle;
+        self
+    }
+    pub fn auth_handle(&self) -> Option<crate::AuthHandle> {
+        self.auth_handle.clone()
     }
     /// What this transport chunks its streams and metadata reads to.
     pub(crate) fn limits(&self) -> arc_swap::Guard<Arc<LimitsConfiguration>> {
@@ -36,6 +45,16 @@ impl<C> BackendClient<C> {
 #[xmtp_common::async_trait]
 impl<C: Client> XmtpBackendClient for BackendClient<C> {
     type Error = ApiClientError;
+    fn register_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        if let Some(handle) = &self.auth_handle {
+            handle.register_event_writer(writer);
+        }
+    }
+    fn unregister_client_event_writer(&self, writer: &Arc<dyn xmtp_events::EventWriter<()>>) {
+        if let Some(handle) = &self.auth_handle {
+            handle.unregister_event_writer(writer);
+        }
+    }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         backend::Publish(request).query(&self.client).await
     }
