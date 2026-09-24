@@ -202,11 +202,15 @@ mod tests {
 
         amal_a.test_has_same_sync_group_as(&amal_b).await?;
 
-        amal_a
-            .worker()
-            .register_interest(SyncMetric::HmacSent, 1)
-            .wait()
-            .await?;
+        xmtp_common::wait_for_eq(
+            || async {
+                amal_a.worker().get(SyncMetric::HmacSent)
+                    + amal_b.worker().get(SyncMetric::HmacSent)
+                    >= 1
+            },
+            true,
+        )
+        .await?;
 
         amal_a.sync_all_welcomes_and_device_sync_groups().await?;
         amal_a
@@ -234,6 +238,8 @@ mod tests {
 
         assert_eq!(pref_a.hmac_key, pref_b.hmac_key);
 
+        let sent_before_revoke = amal_a.worker().get(SyncMetric::HmacSent);
+        let received_before_revoke = amal_a.worker().get(SyncMetric::HmacReceived);
         let mut revoke = amal_a
             .identity_updates()
             .revoke_installations(vec![amal_b.context.installation_id().to_vec()])
@@ -245,14 +251,14 @@ mod tests {
             .await?;
         amal_a
             .worker()
-            .register_interest(SyncMetric::HmacSent, 2)
+            .register_interest(SyncMetric::HmacSent, sent_before_revoke + 1)
             .wait()
             .await?;
 
         amal_a.sync_all_welcomes_and_device_sync_groups().await?;
         amal_a
             .worker()
-            .register_interest(SyncMetric::HmacReceived, 2)
+            .register_interest(SyncMetric::HmacReceived, received_before_revoke + 1)
             .wait()
             .await?;
         let new_pref_a = StoredUserPreferences::load(amal_a.context.db())?;
