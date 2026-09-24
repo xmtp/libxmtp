@@ -179,7 +179,44 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xmtp_events::{EventBus, EventWriter};
+    use crate::tester;
+    use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, EventWriter};
+    use xmtp_mls_common::group::GroupMetadataOptions;
+    use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+
+    // verifies: EVENT-001
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn expired_message_worker_emits_once_after_deletion() {
+        tester!(alix, disable_workers);
+        let group = alix.create_group(
+            None,
+            Some(GroupMetadataOptions {
+                message_disappearing_settings: Some(MessageDisappearingSettings::new(1, 1)),
+                ..Default::default()
+            }),
+        )?;
+        let events = alix
+            .context
+            .events()
+            .subscribe_app(EventFilter::new([EventKind::MessageExpired]))?;
+        let message_id = group.send_message(b"expires", Default::default()).await?;
+        let db = alix.context.db();
+        let stored = db.get_group_message(&message_id)?.unwrap();
+        assert!(stored.expire_at_ns.is_some_and(|expiry| expiry <= now_ns()));
+
+        let mut worker = DisappearingMessagesWorker::new(alix.context.clone());
+        worker.delete_expired_messages().await?;
+        assert!(db.get_group_message(&message_id)?.is_none());
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::MessageExpired(expired)), ..
+            }] if expired.group_id == group.group_id.to_vec()
+                && expired.message_id == message_id
+        ));
+        worker.delete_expired_messages().await?;
+        assert!(events.drain().is_empty());
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn stored_expiring_message_wakes_subscription_after_emit() {

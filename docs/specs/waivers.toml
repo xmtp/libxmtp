@@ -580,41 +580,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Archive import does not use the specified client event bus or suppress its per-element kinds through that bus."
 
 [[waiver]]
-id = "EVENT-005"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No conversation.joined payload records whether this installation created or joined the group."
-
-[[waiver]]
-id = "EVENT-006"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No conversation.removed payload distinguishes a published leave from removal by another member."
-
-[[waiver]]
-id = "EVENT-007"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No message.deleted payload distinguishes an app-requested local deletion from a received deletion."
-
-[[waiver]]
-id = "EVENT-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No consent.changed payload carries the record entity and new stored state."
-
-[[waiver]]
-id = "EVENT-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "Current event sends are not collected and released only after the relevant stored change is readable."
-
-[[waiver]]
 id = "EVENT-012"
 kind = "gap"
 owner = "protocol"
@@ -683,13 +648,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No event subscription hands off lagged regardless of its kind filter."
-
-[[waiver]]
-id = "EVENT-023"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No conversation.joined payload carries the Welcome adder inbox."
 
 [[waiver]]
 id = "EVENT-024"

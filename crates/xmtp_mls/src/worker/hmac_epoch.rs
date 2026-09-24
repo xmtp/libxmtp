@@ -115,6 +115,7 @@ mod tests {
         assert!(worker.observe_epoch(12));
     }
 
+    // verifies: EVENT-001
     #[xmtp_common::test(unwrap_try = true)]
     async fn epoch_timer_turn_emits_once_and_invalidates_notifications() {
         tester!(alix, disable_workers);
@@ -126,7 +127,7 @@ mod tests {
         let events = alix
             .context
             .events()
-            .subscribe(EventFilter::new([EventKind::HmacKeysUpdated]), Some(10));
+            .subscribe_app(EventFilter::new([EventKind::HmacKeysUpdated]))?;
         let boundary = (current + 1) * xmtp_push_types::HMAC_EPOCH_SECONDS;
         assert_eq!(
             worker.wait_until_next_epoch(boundary - 1),
@@ -136,7 +137,13 @@ mod tests {
         worker.report_epoch(current);
         assert!(events.drain().is_empty());
         worker.report_epoch(current + 1);
-        assert_eq!(events.drain().len(), 1);
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::HmacKeysUpdated(_)),
+                ..
+            }]
+        ));
         assert_eq!(
             alix.context.task_channels().notification_revision(),
             previous_revision + 1
