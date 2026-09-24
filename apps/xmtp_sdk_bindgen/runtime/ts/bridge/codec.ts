@@ -178,24 +178,37 @@ export class ValueCodec {
             const variant = layout.variants[error.variant];
             if (!variant || !Array.isArray(variant))
               throw new TypeError(`unknown ${shape.name} error`);
-            if (!variant[0]) return error;
-            const detail: unknown = Array.isArray(error.details)
-              ? error.details[0]
-              : error.details;
-            return { ...error, details: this.convert(variant[0], detail) };
+            const details = Array.isArray(error.details)
+              ? error.details
+              : error.details === undefined
+                ? []
+                : [error.details];
+            return {
+              variant: error.variant,
+              code: error.code,
+              category: error.category,
+              retryable: error.retryable,
+              message: error.message,
+              details: variant.map((field, index) =>
+                this.convert(field, details[index]),
+              ),
+            };
           }
           const error = errorWire(value);
           const variant = layout.variants[error.variant];
           if (!variant || !Array.isArray(variant))
             throw new TypeError(`unknown ${shape.name} error`);
+          const details = error.details;
+          if (!Array.isArray(details))
+            throw new TypeError(`invalid ${shape.name} error details`);
           if (!variant[0])
             return (
               this.enumFactory?.(shape.name, error.variant, []) ??
               decodeError(error)
             );
-          const details = this.convert(variant[0], error.details);
+          const detail = this.convert(variant[0], details[0]);
           return (
-            this.enumFactory?.(shape.name, error.variant, [details]) ??
+            this.enumFactory?.(shape.name, error.variant, [detail]) ??
             decodeError(error)
           );
         }

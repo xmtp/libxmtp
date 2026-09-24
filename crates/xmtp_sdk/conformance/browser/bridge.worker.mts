@@ -27,13 +27,16 @@ const endpoint: WireEndpoint = {
   onExit(handler) {
     port.on("close", handler);
   },
+  close() {
+    port.close();
+  },
 };
 
 const wasm = new URL(
   "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
   import.meta.url,
 );
-new WorkerHost(
+const host = new WorkerHost(
   endpoint,
   PROTOCOL_VERSION,
   CONTRACT_HASH,
@@ -63,3 +66,5 @@ new WorkerHost(
     },
   }),
 );
+process.on("unhandledRejection", (error) => host.fatal(error));
+process.on("uncaughtException", (error) => host.fatal(error));

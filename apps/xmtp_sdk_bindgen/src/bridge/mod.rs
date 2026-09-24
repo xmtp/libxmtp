@@ -889,7 +889,7 @@ fn render(
                     } else if object.name == "Client" && op.name == "end" {
                         writeln!(
                             proxy,
-                            "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => undefined).finally(() => this.endOwner()); }} return this.closing; }}"
+                            "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                         )?;
                     } else {
                         let comma = if params.is_empty() { "" } else { ", " };
@@ -1129,6 +1129,42 @@ mod tests {
         });
         assert!(validate_bridge(&[item.clone()]).is_ok());
         assert!(operations(&[item], &BTreeMap::new())[0].immutable);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_immutable_getter_with_inputs() {
+        let item = Metadata::Method(MethodMetadata {
+            module_path: "test".into(),
+            self_name: "Group".into(),
+            name: "with_input".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![uniffi_meta::FnParamMetadata::simple("value", Type::UInt64)],
+            return_type: Some(Type::UInt64),
+            throws: None,
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        });
+        assert!(validate_bridge(&[item]).is_err());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_immutable_getter_that_throws() {
+        let item = Metadata::Method(MethodMetadata {
+            module_path: "test".into(),
+            self_name: "Group".into(),
+            name: "that_throws".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![],
+            return_type: Some(Type::UInt64),
+            throws: Some(Type::String),
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        });
+        assert!(validate_bridge(&[item]).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

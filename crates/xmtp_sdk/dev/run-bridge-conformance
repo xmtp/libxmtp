@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+
+bash crates/xmtp_sdk/dev/check-wasm-init
+bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture
+NODE_OPTIONS=--preserve-symlinks \
+  sdks/browser/node_modules/.bin/vitest run \
+  --config crates/xmtp_sdk/conformance/browser/vitest.config.mts \
+  --browser.enabled=false
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx \
+  crates/xmtp_sdk/conformance/browser/bridge.panic.real.mts
+NODE_OPTIONS="--preserve-symlinks --expose-gc" \
+  sdks/node/node_modules/.bin/tsx \
+  crates/xmtp_sdk/conformance/browser/release.gc.mts

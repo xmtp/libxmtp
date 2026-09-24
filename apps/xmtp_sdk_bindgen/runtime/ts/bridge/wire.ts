@@ -139,6 +139,8 @@ export interface WireEndpoint {
   postMessage(message: WireMessage, transfer?: Transferable[]): void;
   onMessage(handler: (message: WireMessage) => void): void;
   onExit(handler: () => void): void;
+  close?(): void;
+  terminate?(): void;
 }
 
 export function assertCloneable(value: unknown): void {

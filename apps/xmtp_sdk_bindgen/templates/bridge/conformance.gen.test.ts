@@ -1,21 +1,27 @@
+import { execFileSync } from "node:child_process";
 import { serialize } from "node:v8";
 
 import { describe, expect, it } from "vitest";
 
 import { mainDecoder, mainEncoder } from "./codec.main.gen.js";
 import { workerDecoder, workerEncoder } from "./codec.worker.gen.js";
+import * as P from "./proxy.gen.js";
+import { registerForeign } from "./reverse.gen.js";
 import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
 import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
 import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
 import { WorkerHost } from "./runtime/bridge/worker/host.js";
+import { foreignStub } from "./stubs.gen.js";
 import { BRIDGED_OBJECTS, FOREIGN_OBJECTS, LAYOUTS } from "./wire.gen.js";
 import * as B from "./xmtp_sdk.js";
 
 class Endpoint implements WireEndpoint {
   peer?: Endpoint;
+  readonly sent: WireMessage[] = [];
   private receive: (message: WireMessage) => void = () => {};
   postMessage(message: WireMessage): void {
+    this.sent.push(message);
     const copy = structuredClone(message);
     queueMicrotask(() => this.peer?.receive(copy));
   }
@@ -63,8 +69,10 @@ function sample(shape: Shape, seed: number): unknown {
       const layout = LAYOUTS.records[shape.name];
       if (!layout) throw new Error(`unknown record ${shape.name}`);
       const result: Record<string, unknown> = {};
-      for (const [name, field] of Object.entries(layout.fields))
-        result[name] = sample(field, seed);
+      for (const [index, [name, field]] of Object.entries(
+        layout.fields,
+      ).entries())
+        result[name] = sample(field, seed + index);
       return result;
     }
     case "enum": {
@@ -139,10 +147,25 @@ async function roundTrip(
     (handle) => session.proxy(handle) ?? new RemoteObject(session, handle),
   );
   const wire = workerOut.convert(shape, original);
+  if (shape.kind === "enum" && LAYOUTS.enums[shape.name]?.error) {
+    expect(wire !== null && typeof wire === "object").toBe(true);
+    if (wire !== null && typeof wire === "object")
+      expect(Array.isArray(Reflect.get(wire, "details"))).toBe(true);
+  }
   const received = mutate
     ? mutate(structuredClone(wire))
     : structuredClone(wire);
-  const mainValue = mainIn.convert(shape, received);
+  const generated =
+    shape.kind === "record" || shape.kind === "enum" || shape.kind === "object"
+      ? Reflect.get(
+          P,
+          `decode${shape.kind[0].toUpperCase()}${shape.kind.slice(1)}${shape.name}`,
+        )
+      : undefined;
+  const mainValue =
+    typeof generated === "function" && !containsForeign(shape, original)
+      ? Reflect.apply(generated, undefined, [session, received])
+      : mainIn.convert(shape, received);
   const returned = mainOut.convert(shape, mainValue);
   const decoded = workerIn.convert(shape, structuredClone(returned));
   const restored = mutateRestored ? mutateRestored(decoded) : decoded;
@@ -159,7 +182,65 @@ async function roundTrip(
   if (shape.kind === "object") expect(restored).toBe(original);
 }
 
+function containsForeign(shape: Shape, value: unknown): boolean {
+  if (value === undefined || value === null) return false;
+  switch (shape.kind) {
+    case "foreign":
+    case "callback":
+      return true;
+    case "record": {
+      const fields = LAYOUTS.records[shape.name]?.fields;
+      if (!fields || typeof value !== "object") return false;
+      return Object.entries(fields).some(([name, field]) =>
+        containsForeign(field, Reflect.get(value, name)),
+      );
+    }
+    case "optional":
+      return containsForeign(shape.inner, value);
+    case "sequence":
+      return (
+        Array.isArray(value) &&
+        value.some((item) => containsForeign(shape.inner, item))
+      );
+    case "set":
+      return (
+        value instanceof Set &&
+        Array.from(value).some((item) => containsForeign(shape.inner, item))
+      );
+    case "map":
+      return (
+        value instanceof Map &&
+        Array.from(value).some(
+          ([key, item]) =>
+            containsForeign(shape.key, key) ||
+            containsForeign(shape.value, item),
+        )
+      );
+    case "enum":
+    case "object":
+    case "value":
+      return false;
+  }
+}
+
 describe("generated bridge value conformance", () => {
+  it("loads the real WASM bridge in worker_threads", () => {
+    const output = execFileSync(
+      "sdks/node/node_modules/.bin/tsx",
+      ["crates/xmtp_sdk/conformance/browser/bridge.real.mts"],
+      {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          NODE_OPTIONS: "--preserve-symlinks --expose-gc",
+        },
+        encoding: "utf8",
+        timeout: 120000,
+      },
+    );
+    expect(output).toContain("real WASM client");
+  }, 120000);
+
   for (const type of [
     "UInt8",
     "Int8",
@@ -289,5 +370,82 @@ describe("generated bridge value conformance", () => {
         leaked: "spread",
       })),
     ).rejects.toThrow();
+  });
+
+  it("keeps the Client owner open if end rejects", async () => {
+    const [main, worker] = endpoints();
+    let calls = 0;
+    const host = new WorkerHost(
+      worker,
+      1,
+      "end",
+      async () => {},
+      async () => {
+        calls++;
+        throw new Error("end failed");
+      },
+    );
+    const session = new MainSession(main, 1, "end");
+    await session.ready();
+    const handle = host.registry.add({}, "Client");
+    const client = new P.Client(session, handle);
+    const ending = client.end();
+    expect(() => session.checkHandle(handle)).toThrow("clientClosed");
+    await expect(ending).rejects.toThrow("end failed");
+    expect(() => session.checkHandle(handle)).not.toThrow();
+    expect(
+      main.sent.some(
+        (message) =>
+          message.t === "release" && message.owners?.includes(handle.owner),
+      ),
+    ).toBe(false);
+    await expect(client.end()).rejects.toThrow("end failed");
+    expect(calls).toBe(2);
+    client.release();
+  });
+
+  it("reenters through generated foreign registration and stub", async () => {
+    const [main, worker] = endpoints();
+    let signed = false;
+    const host = new WorkerHost(
+      worker,
+      1,
+      "reentrant",
+      async () => {},
+      async (key, args, context) => {
+        if (key === "inner") return "inner result";
+        const raw = args[0];
+        if (
+          raw === null ||
+          typeof raw !== "object" ||
+          !("cb" in raw) ||
+          typeof raw.cb !== "number"
+        )
+          throw new TypeError("missing signer callback");
+        const stub = foreignStub(
+          { cb: raw.cb, type: "Signer" },
+          context.callbacks,
+          context.registry,
+        );
+        const sign = Reflect.get(stub, "sign");
+        const signature: unknown = await Reflect.apply(sign, stub, [
+          { text: "sign me" },
+        ]);
+        signed = B.Signature.Ecdsa.instanceOf(signature);
+        return "signed";
+      },
+    );
+    const session = new MainSession(main, 1, "reentrant");
+    await session.ready();
+    class ReentrantSigner {
+      async sign(): Promise<B.Signature> {
+        expect(await session.call("inner", [])).toBe("inner result");
+        return B.Signature.Ecdsa.new(new Uint8Array([1, 2, 3]).buffer);
+      }
+    }
+    const callback = registerForeign("Signer", new ReentrantSigner(), session);
+    expect(await session.call("outer", [callback])).toBe("signed");
+    expect(signed).toBe(true);
+    expect(host.registry.size).toBe(0);
   });
 });

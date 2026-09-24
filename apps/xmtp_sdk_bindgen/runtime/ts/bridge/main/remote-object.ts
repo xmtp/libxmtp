@@ -58,6 +58,10 @@ export class RemoteObject {
     this.session.fenceOwner(this.handle.owner);
   }
 
+  protected unfence(): void {
+    this.session.unfenceOwner(this.handle.owner);
+  }
+
   release(): void {
     if (this.released) return;
     this.released = true;

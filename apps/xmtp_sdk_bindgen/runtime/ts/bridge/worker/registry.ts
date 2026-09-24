@@ -49,8 +49,14 @@ export class WorkerRegistry {
     return entry.value;
   }
 
-  release(handles: number[]): void {
-    for (const h of handles) this.entries.delete(h);
+  release(handles: number[]): number[] {
+    const closedOwners = new Set<number>();
+    for (const h of handles) {
+      const entry = this.entries.get(h);
+      if (entry?.type === "Client") closedOwners.add(entry.owner);
+      this.entries.delete(h);
+    }
+    return [...closedOwners];
   }
 
   closeOwner(owner: number): void {

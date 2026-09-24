@@ -210,6 +210,10 @@ export class MainSession {
     this.closedOwners.add(owner);
   }
 
+  unfenceOwner(owner: number): void {
+    if (!this.dead) this.closedOwners.delete(owner);
+  }
+
   terminate(cause: unknown = bridgeError("workerTerminated")): void {
     if (this.dead) return;
     this.dead = true;
@@ -251,6 +255,7 @@ export class MainSession {
         break;
       case "fatal":
         this.terminate(bridgeError("workerTerminated", message.error));
+        this.endpoint.terminate?.();
         break;
       default:
         console.error("unknown bridge message", message);
