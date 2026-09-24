@@ -54,6 +54,7 @@ third-party = [
 workspace-members = [
   "xmtp_backend",
   "xmtp_common",
+  "xmtp_events",
   "xmtp_cryptography",
   "xmtp_configuration",
   "xmtp_proto",
