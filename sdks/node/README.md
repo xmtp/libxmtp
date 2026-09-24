@@ -55,7 +55,7 @@ yarn add @xmtp/node-sdk
 
 ## Developing
 
-For repository development, run `just install` once, then run `just js build`.
+For repository development, run `just install-js` once, then run `just js build`.
 
 ## Testing
 

@@ -6,7 +6,7 @@ They must share one native module instance for authenticated backends.
 
 ## Commands
 
-- `just install`: install the root workspace dependencies.
+- `just install-js`: install the root workspace dependencies.
 - `just cli check`: build the linked SDK and typecheck the CLI.
 - `just cli lint`: run oxlint.
 - `just cli build`: build the linked SDK and CLI.

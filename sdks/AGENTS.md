@@ -10,7 +10,7 @@ stay `@xmtp/node-sdk`, `@xmtp/browser-sdk`, and `@xmtp/agent-sdk`.
 ## Commands
 
 ```bash
-just install                           # install the root pnpm workspace once
+just install-js                        # install the root pnpm workspace once
 just js bindings                        # build node + wasm bindings via Nix, stage into bindings/*/dist
 just js bindings-node                    # build only Node bindings via Nix
 just js check-node                       # typecheck Node and agent SDKs
@@ -34,24 +34,14 @@ Native streams stay open during retryable network faults and resume in order.
 
 ## Task graph
 
-The root pnpm workspace runs package scripts through its task graph. SDK recipes
-first stage the Node or WASM bindings with Nix, then run the selected package
-tasks. Recursive SDK commands select workspace packages under `sdks/*`; they do
-not build the binding packages. Do not use `--parallel` or `--no-sort`, because
-either option can bypass task dependencies.
-
-SDK packages build with tsdown. Use `pnpm build` for one build and `pnpm dev`
-to run tsdown in watch mode from an SDK package.
+SDK recipes stage the Node or WASM bindings before package tasks. Do not use
+`--parallel` or `--no-sort`; they can bypass task dependencies. See the
+`writing-typescript` skill for the root pnpm workspace and formatting.
 
 ## Gotchas
 
-- Tests require `XMTP_BACKEND_URL`. The `just js` recipes load this worktree's value.
-- Needs `just backend up`. Run `just install` and `just js bindings` once first for full local SDK work.
-- Node and agent CI uses `NIX_DEVSHELL=js-node`, `just install`, and `just js bindings-node`.
-- Verify dependency changes with the root install. Declare required tools in the selected workspace and run them with `pnpm --filter <name> exec`.
+- Start `just backend up` for tests; `just js` loads this worktree's backend URL.
 - `agent` reads types from `node/dist`. Build `node` first.
-- Formatting uses Oxfmt. Run `just format-js` to write package formatting, or
-  `just lint-js-format` to check it. Oxlint does not format files.
 
 ## Durable message delivery
 
@@ -63,8 +53,8 @@ to run tsdown in watch mode from an SDK package.
 - Close and fence a failed reader before `onError` runs. Preserve the original error if cleanup fails. The caller can repair storage and open another stream on the same client.
 - Use `from` with a `DeliveryCursor` for replay. Replay does not change default delivery progress.
 - Use `beginningDeliveryCursor` for the first retained item, or the cursor from `messageHistorySnapshot` for history plus live delivery.
-- `catchUpSnapshot` and `catchUpChanged` report network and processing state. They do not depend on application acknowledgement.
-- `getStreamFailureDetails(error)` reads typed barrier, catch-up, and published-but-unconfirmed details. It preserves all topic obligations. Sequence values are `bigint`. A null target means that target capture did not complete.
+- Catch-up state does not depend on application acknowledgement. Keep typed
+  stream failure details and all topic obligations when reporting errors.
 
 The pure delivery-boundary tests do not need a backend or generated bindings:
 

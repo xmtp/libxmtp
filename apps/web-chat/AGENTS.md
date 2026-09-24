@@ -4,7 +4,7 @@ pnpm workspace package for xmtp.chat, linked to the in-tree browser SDK.
 
 ## Commands
 
-- `just install`: install the root workspace dependencies.
+- `just install-js`: install the root workspace dependencies.
 - `just web-chat check`: build the linked SDK and typecheck the app.
 - `just web-chat lint`: run oxlint.
 - `just web-chat build`: build the linked SDK and app.

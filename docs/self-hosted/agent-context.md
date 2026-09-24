@@ -11,22 +11,14 @@ test conventions are in `writing-rust-tests`. Both are under `.agents/skills/`.
 ## 1. Project rules
 
 1. Branch from `origin/self-hosted`. Open every PR into `self-hosted`, as a `gh stack` for a very large phase. Never into `main`.
-2. `cargo build` must pass at the end of each phase. Mid-phase it may fail.
-3. Failing tests are allowed mid-phase.
-4. `just lint` must pass before a PR is opened. Mid-phase commits may skip it.
-5. Work in one checkout. Add a worktree only for work that shares no files and has no dependency on other work.
-6. Every implementation task needs an approved plan in Ref before you write code.
-7. Approved specs go in `docs/specs/`, one file per capability, in the format `docs/specs/SPEC-spec-format.md` defines. Specs state behavior and errors, and name no files. The specs they superseded are deleted; their history is in git. Plans may name files, modules, and lines, and carry a clearly marked "Spec changes" section listing the requirement IDs they implement and every ID they add, amend, or remove.
-8. Public API surface belongs in the plan. When a change adds or alters a type exposed through `bindings/*` or `sdks/*`, describe that surface in the plan so it is approved with the rest of the work. Default to constants - a configuration knob should name the caller that needs a non-default value.
-9. Ask when a rule here blocks you. Do not work around it.
+2. Work in one checkout. Add a worktree only for work that shares no files and has no dependency on other work.
+3. Only tasks that add, amend, or remove a requirement in a spec need an approved Ref plan before implementation.
+4. Approved specs go in `docs/specs/`, one file per capability, in the format `docs/specs/SPEC-spec-format.md` defines. Specs state behavior and errors, and name no files. The specs they superseded are deleted; their history is in git. Plans may name files, modules, and lines, and carry a clearly marked "Spec changes" section listing the requirement IDs they implement and every ID they add, amend, or remove.
+5. When a Ref plan is required, describe any added or changed public type exposed through `bindings/*` or `sdks/*` in it. Default to constants - a configuration knob should name the caller that needs a non-default value.
+6. When planning new tasks, call out any conflicts with these rules loudly in the project plan.
 
 ## 2. Deleting code
 
-11. Delete dead code in the same PR that orphans it. Do not comment it out. Do not deprecate.
-12. Delete a test when its behavior no longer exists.
-13. Never add a compatibility shim for the xmtpd or xmtp-node-go wire formats.
-
-## 3. Architecture
-
-- The backend is one binary. It scales horizontally behind a load balancer.
-- Durable state lives in Postgres. Instance-local stream state and caches are disposable; reconnect must not depend on them.
+1. Delete dead code in the same PR that orphans it. Do not comment it out. Do not deprecate.
+2. Delete a test when its behavior no longer exists.
+3. Never add a compatibility shim for the xmtpd or xmtp-node-go wire formats.

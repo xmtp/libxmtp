@@ -10,7 +10,7 @@
 
 ## Useful commands
 
-- `just install`: Install root workspace dependencies before the first build.
+- `just install-js`: Install root workspace dependencies before the first build.
 - `just wasm build`: Build a release version of the WASM bindings.
 - `just wasm lint`: Run cargo clippy and rustfmt checks.
 - `just wasm test`: Run cargo tests with the `wasm32-unknown-unknown` target.

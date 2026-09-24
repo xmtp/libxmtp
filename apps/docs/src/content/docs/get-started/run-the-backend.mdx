@@ -17,8 +17,8 @@ instance it left. It reconnects with its own topic cursors.
 - One TOML configuration document.
 - A TCP port for the gRPC listener. The default is `5050`.
 
-The backend applies its schema from a single migration. Startup never deletes a
-database.
+The backend applies pending schema migrations at startup. Startup never
+deletes a database.
 
 ## Configuration
 

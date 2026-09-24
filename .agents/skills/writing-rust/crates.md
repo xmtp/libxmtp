@@ -72,4 +72,5 @@ a shared crate.
   `install_crypto_provider()` first.
 - `dist/` and `src/gen/**` are build products. Regenerate with the commands in
   the binding's `AGENTS.md`; never hand-edit.
-- New or changed public surface belongs in the approved plan (root `AGENTS.md`).
+- When a Ref plan is required, include new or changed public surface in it
+  (root `AGENTS.md`).

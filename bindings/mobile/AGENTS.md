@@ -6,10 +6,7 @@ uniffi bindings. Feeds `sdks/android` and `sdks/ios`.
 
 ```bash
 just check crate xmtpv3
-dev/nix-shell 'dev/agent-run cargo test --locked -p xmtpv3 --test otlp_logger' # isolated OTLP logger lifecycle
 just test crate xmtpv3
-just test workspace -p xmtpv3 --ignore-default-filter test_can_send_and_receive_reaction   # one test
-just test workspace -p xmtpv3 mls::   # one module
 just android build                      # .so + Kotlin bindings, via Nix
 just ios build                          # xcframework + Swift bindings, via Nix
 ```
@@ -22,38 +19,37 @@ just ios build                          # xcframework + Swift bindings, via Nix
 
 ## Conventions
 
-`enable_otlp_telemetry(FfiOtlpConfig)` enables OTLP gRPC trace export. Configure
-endpoint, optional service name, sample ratio, and resource attributes. The shared
-logger initializes on first use. Disable Sentry before enabling OTLP if it owns
-the telemetry slot. `flush_telemetry` flushes before background or exit;
-`disable_otlp_telemetry` stops export. Never put secrets in resource attributes.
-See [backend observability](../../docs/backend-observability.md) for a trace walkthrough.
-`just backend observe-check` checks propagation with xdbg against the full stack.
+See [backend observability](../../docs/backend-observability.md) for mobile OTLP
+setup and trace checks. Never put secrets in resource attributes.
 
-A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a shared crate.
-
-- Errors (both in `src/lib.rs`, no `error.rs`): `:37 GenericError` (variants use `#[from]` + `#[error_code(inherit)]`) and `:160 FfiError` (`#[uniffi(flat_error)]`). A blanket `impl<T: Into<GenericError>> From<T> for FfiError` (`:277`) means a new core error only needs a `GenericError` variant. `Display for FfiError` (`:210`) emits `"[{error_code}] {message}"` for every variant, which is how the mobile SDKs read the code. Do not write a new conversion for an error that has an `ErrorCode`. Callback errors (`src/inbox_owner.rs:9`) keep their own conversion.
-- `FfiError` has one variant per server-configuration condition of spec 006 CFG-083 beside its `Error` catch-all, so Kotlin and Swift match on `FfiException.BackendMismatch` rather than on a message. The blanket conversion routes them by inspecting the inner `ClientError`; each variant keeps the originating `GenericError` beside the structured fields, so its code and message are unchanged. `flat_error` publishes only the `Display` string, so the fields do not cross the boundary — read them from `FfiServerConfiguration` instead, which carries every one of them.
-- Naming: `Ffi*` prefix (`FfiIdentifier`, `FfiSentryConfig`). A convention, not a rule (`src/mls.rs:127 XmtpApiClient`, `mls.rs:348 DbOptions` predate it). Follow it for new types.
-- Exporting: `#[uniffi::export]`, `#[derive(uniffi::Record)]` for plain data, `uniffi::Object` for opaque handles, `uniffi::Enum`. Async must name the runtime: `#[uniffi::export(async_runtime = "tokio")]` (`src/mls.rs:142`). Foreign-implemented callback traits use `#[uniffi::export(with_foreign)]` (`src/inbox_owner.rs:29`). Scaffolding: `src/lib.rs:31 uniffi::setup_scaffolding!("xmtpv3")`.
-- Builders: `#[xmtp_macro::uniffi_builder]` (so far only in `src/builder_test.rs`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
-- Server configuration (spec 006 §7): `src/server_configuration.rs` mirrors `xmtp_configuration::ServerConfiguration` as one record per nested struct with a `From<&..>` each. `usize` becomes `u64` there; nothing else changes shape. `FfiXmtpClient::server_configuration` returns the build snapshot, `refresh_server_configuration` fetches and rewrites the stored copy, and the top-level `fetch_server_configuration(backend_url, app_version)` reads a deployment with no database, no client, and no credential. Business logic stays in `xmtp_mls::server_configuration`.
-- Regeneration: no `.udl`. Bindings come from the proc macros via `bindgen/bin.rs` (`[[bin]] ffi-uniffi-bindgen`, `required-features = ["uniffi/cli"]`), driven by `nix/lib/uniffiGenerate.nix` (`--language swift|kotlin` only). `just ios build` / `just android build` run inside the SDK directories, where `sdks/android/dev/bindings` and `sdks/ios/dev/bindings` exist. There is no root-level `dev/bindings`. Nix targets `ios-xcframeworks` / `ios-xcframeworks-fast` (`flake.nix:108`) are an alternative.
+- `src/lib.rs` owns `GenericError` and `FfiError`. The blanket conversion from
+  `GenericError` preserves stable error codes; callback errors have a separate
+  conversion. Server-configuration failures have distinct `FfiError` variants
+  for Kotlin and Swift. `flat_error` exports only the display string; read
+  structured fields from `FfiServerConfiguration`.
+- Prefix new exported types with `Ffi`. Async exports name the Tokio runtime;
+  foreign callback traits use `#[uniffi::export(with_foreign)]`.
+- Builders use `#[xmtp_macro::uniffi_builder]`. Server-configuration records
+  mirror `xmtp_configuration::ServerConfiguration`; `usize` becomes `u64`.
+  Keep business logic in `xmtp_mls::server_configuration`.
+- Bindings come from proc macros, not a `.udl`. Regenerate them with
+  `just ios build` or `just android build`.
 
 ## Message delivery
 
-- `src/mls/local_delivery.rs` owns the mobile reader and opaque acknowledgement token. A callback receives `FfiMessageDelivery`, not only `FfiMessage`.
-- Carry the token through each SDK queue. Call `check_owner` only before the app handoff. False means discard the stale selection and read again. Queue insertion never acknowledges delivery.
-- SDK callbacks acknowledge after success. SDK iterators acknowledge on the next request. Cancellation and drop reject pending tokens. Kotlin Flow uses the direct collector return; app-added buffering has a separate boundary.
+- `src/mls/local_delivery.rs` owns the reader. Callbacks receive
+  `FfiMessageDelivery`, which carries the token through each SDK queue.
+  `check_owner` rejects stale selections. Kotlin Flow uses the direct collector
+  return as its acknowledgement boundary.
 - `FfiMessageReader` exposes scope and filter updates, catch-up snapshots, and change waits. Catch-up includes the current generation and at most one previous generation with typed cause codes.
 - Its native shutdown method is `end`. UniFFI reserves `close` for generated Kotlin object disposal. SDK readers keep their public `close` method and call native `end` first.
-- A typed delivery cursor contains the database identity and local delivery number. `from` opens independent replay. History snapshots return messages and a cursor from the same database snapshot.
+- A typed delivery cursor contains the database identity and local delivery
+  number.
 - `create_client` accepts optional `change_callbacks`, which defaults to `None`. Stream limits and default timers are internal policy, not client options.
-- `FfiError` keeps its flat callback type. Processing failures append the shared `XMTP_STREAM_FAILURE_V1` detail suffix. `get_stream_failure_details` decodes it to typed records. Do not parse the normal error message for barrier state.
+- `get_stream_failure_details` decodes the shared stream failure suffix into
+  typed records.
 - Barrier details keep missing targets separate from zero, all unfinished topics, received and processed cursors, unresolved Welcome IDs, cause codes, published intent IDs, and partial catch-up counts.
 
-Auth callback bridges return only `auth callback failed` on failure. Never retain
-or log callback error text or credential values. The middleware owns retryability.
 `FfiAuthCallback` uses the non-flat `FfiAuthCallbackError` so UniFFI can lift
 foreign callback failures. Do not use the flat `FfiError` here; it cannot be
 lifted and aborts the process when a callback throws.

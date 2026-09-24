@@ -43,7 +43,7 @@ src/
 
 ## Useful commands
 
-- `just install`: Install root workspace dependencies before the first build.
+- `just install-js`: Install root workspace dependencies before the first build.
 - `just node build`: Build a release version of the Node bindings for the current platform.
 - `just node lint`: Run cargo clippy and rustfmt checks.
 - `just node test`: Run the test suite on Node.
