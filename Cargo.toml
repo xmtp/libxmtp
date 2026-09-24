@@ -49,6 +49,7 @@ base64 = "0.23"
 bincode = { version = "1.3" }
 bon = "3.9"
 bytes = "1.12.1"
+camino = "1.1"
 chrono = "0.4.45"
 clap = { version = "4", features = ["derive", "env"] }
 color-eyre = "0.6"
@@ -242,6 +243,8 @@ zeroize = "1.9"
 # Internal Crate Dependencies
 bindings-wasm = { path = "bindings/wasm" }
 bindings_wasm_macros = { path = "crates/wasm_macros" }
+uniffi_bindgen = "=0.32.2"
+uniffi_meta = "=0.32.2"
 xmtp-workspace-hack = "0.1.0"
 xmtp_api = { path = "crates/xmtp_api" }
 xmtp_api_backend = { path = "crates/xmtp_api_backend" }

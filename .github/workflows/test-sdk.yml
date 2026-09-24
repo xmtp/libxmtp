@@ -1,0 +1,40 @@
+name: Test SDK façade
+on:
+  workflow_call:
+jobs:
+  sdk:
+    name: Generate and test SDK façade
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    env:
+      SQLX_OFFLINE: "true"
+      DATABASE_URL: postgres://xmtp:xmtp@localhost:55432/xmtp_backend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: rust
+          docker-builder: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - name: Install JavaScript tools
+        run: just install
+      - name: Check SDK isolation
+        run: just sdk check-isolation
+      - name: Start backend
+        run: just backend up
+      - name: Generate SDK bindings
+        run: just sdk generate
+      - name: Lint generated SDK bindings
+        run: just sdk lint
+      - name: Test SDK crate
+        run: just test crate xmtp_sdk
+      - name: Dump Docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2
+      # Task 9 adds Swift, Kotlin, Node, and browser conformance jobs.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: check-id-spelling <swift-output-dir> <kotlin-output-dir>" >&2
+if [ "$#" -ne 2 ] && [ "$#" -ne 4 ]; then
+  echo "usage: check-id-spelling <swift-dir> <kotlin-dir> [<node-ts-dir> <wasm-ts-dir>]" >&2
   exit 2
 fi
 
@@ -36,4 +36,8 @@ check_dir() {
 
 check_dir "$1" '*.swift'
 check_dir "$2" '*.kt'
-echo "Swift and Kotlin ID spellings are correct"
+if [ "$#" -eq 4 ]; then
+  check_dir "$3" '*.ts'
+  check_dir "$4" '*.ts'
+fi
+echo "Generated ID spellings are correct"

@@ -8,7 +8,7 @@
     "typeAware": true,
     "reportUnusedDisableDirectives": "error"
   },
-  "ignorePatterns": ["**/dist/**", "**/coverage/**"],
+  "ignorePatterns": ["**/dist/**", "**/coverage/**", "target/sdk-generated/**"],
   "rules": {
     "no-array-constructor": "error",
     "no-unused-expressions": "error",

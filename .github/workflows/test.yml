@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       workspace: ${{ steps.filter.outputs.workspace }}
+      sdk: ${{ steps.filter.outputs.sdk }}
       wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
@@ -58,6 +59,13 @@ jobs:
               - 'flake.lock'
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
+            sdk:
+              - 'crates/**'
+              - 'apps/xmtp_sdk_bindgen/**'
+              - 'nix/**'
+              - 'Cargo.lock'
+              - '.github/workflows/test-sdk.yml'
+              - '.github/workflows/test.yml'
             wasm:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -262,6 +270,13 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/test-workspace.yml
+    secrets: inherit
+
+  # This job is informational until Task 9 adds conformance coverage.
+  test-sdk:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.sdk == 'true'
+    uses: ./.github/workflows/test-sdk.yml
     secrets: inherit
 
   test-keepalive-probe:

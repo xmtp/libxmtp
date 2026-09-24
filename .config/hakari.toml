@@ -36,6 +36,8 @@ workspace-members = [
   "xdbg",
   "error_glossary",
   "keepalive-probe",
+  # The generator uses the fork's build-only dependency graph.
+  "xmtp-sdk-bindgen",
 ]
 third-party = [
   { name = "tonic" },
@@ -68,6 +70,7 @@ workspace-members = [
   "xdbg",
   "error_glossary",
   "keepalive-probe",
+  "xmtp-sdk-bindgen",
 ]
 third-party = [
   { name = "tonic" },
