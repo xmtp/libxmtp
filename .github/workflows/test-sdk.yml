@@ -179,6 +179,9 @@ jobs:
       - name: Generate TypeScript bindings
         shell: bash
         run: |
+          # The Rust cache restores target/, so clear the staging output first.
+          # Otherwise `cp -R` below copies into the cached @ubjs folders.
+          rm -rf target/sdk-generated/typescript-napi
           mkdir -p target/sdk-generated/typescript-napi
           target/debug/xmtp-sdk-bindgen.exe generate --lib target/debug/xmtp_sdk.dll --language typescript-napi --out target/sdk-generated/typescript-napi --config apps/xmtp_sdk_bindgen/uniffi-global.toml
           cp target/debug/xmtp_sdk.dll target/sdk-generated/typescript-napi/
