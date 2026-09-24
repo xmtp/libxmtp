@@ -48,6 +48,7 @@ const options = {
     url: process.env.XMTP_BACKEND_URL!,
     appVersion: undefined,
     credentials: undefined,
+    credential: undefined,
   },
   storage: {
     location: new sdk.StorageLocation.Directory(
@@ -55,8 +56,13 @@ const options = {
     ),
     label: undefined,
     encryptionKey: undefined,
+    pool: undefined,
+    singleConnection: false,
   },
   deviceSync: false,
+  registration: { auto: true, nonce: undefined },
+  forkRecovery: undefined,
+  workers: undefined,
 };
 
 const client = await sdk.Client.create(signer, options);
@@ -227,5 +233,156 @@ const rejectedOpening = new sdk.MessageStream(
 const rejectedRead = rejectedOpening.next();
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
+
+const largeExpiry = 9_007_199_254_740_993n;
+const credentialOptions = {
+  ...options,
+  backend: {
+    ...options.backend,
+    credential: {
+      name: undefined,
+      value: "Bearer initial",
+      expiresAtSeconds: largeExpiry,
+    },
+  },
+  storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
+};
+const credentialClient = await sdk.Client.build(
+  identity,
+  credentialOptions,
+  inboxID,
+);
+assert.equal(
+  credentialClient.raw.options().backend.credential?.expiresAtSeconds,
+  largeExpiry,
+);
+await credentialClient.raw.setCredential({
+  name: undefined,
+  value: "Bearer refreshed",
+  expiresAtSeconds: largeExpiry,
+});
+await credentialClient.end();
+let sourceCalls = 0;
+const sourceClient = await sdk.Client.build(
+  identity,
+  {
+    ...credentialOptions,
+    backend: {
+      ...options.backend,
+      credentials: {
+        async credential() {
+          sourceCalls += 1;
+          return {
+            name: undefined,
+            value: "Bearer source",
+            expiresAtSeconds: largeExpiry,
+          };
+        },
+      },
+    },
+  },
+  inboxID,
+);
+assert.ok(sourceCalls > 0, "credential source was not called");
+await sourceClient.end();
+console.log("Node scenario 3: credential update and 64-bit value passed");
+
+const snapshot = reopened.raw.serverConfiguration();
+const fetched = await sdk.fetchServerConfiguration(options.backend);
+assert.equal(snapshot.identifier, fetched.identifier);
+const staticBackend = await sdk.Backend.connect(options.backend);
+assert.equal(
+  (await sdk.Client.inboxIDFor(identity, staticBackend)).toString(),
+  inboxID.toString(),
+);
+assert.equal(
+  (await sdk.Client.canMessage([identity], staticBackend))[0]?.canMessage,
+  true,
+);
+assert.equal(
+  (await reopened.raw.refreshServerConfiguration()).identifier,
+  snapshot.identifier,
+);
+await assert.rejects(
+  sdk.fetchServerConfiguration({
+    ...options.backend,
+    url: "http://127.0.0.1:1",
+  }),
+  (error) => error instanceof sdk.XmtpError.ConfigurationUnavailable,
+);
+console.log("Node scenario 10: configuration and typed error passed");
+
+sdk.initLogging({
+  level: sdk.LogLevel.Error,
+  structured: false,
+  performance: false,
+  otel: undefined,
+  resourceAttributes: new Map(),
+});
+let sinkDelivered!: () => void;
+const sinkRecord = new Promise<void>((resolve) => {
+  sinkDelivered = resolve;
+});
+let sinkError: unknown;
+sdk.setLogSink({
+  log(record) {
+    try {
+      assert.ok(record.target.length > 0);
+      assert.equal(
+        reopened.raw.serverConfiguration().identifier,
+        snapshot.identifier,
+      );
+    } catch (error) {
+      sinkError = error;
+    }
+    sinkDelivered();
+  },
+});
+await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer));
+await Promise.race([
+  sinkRecord,
+  new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("queued log sink did not run")), 3_000),
+  ),
+]);
+sdk.setLogSink(undefined);
+if (sinkError !== undefined) throw sinkError;
+console.log("Node logging: queued sink called Rust without a deadlock");
+let sinkThrew = false;
+sdk.setLogSink({
+  log() {
+    sinkThrew = true;
+    throw new Error("test sink failure");
+  },
+});
+await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer));
+for (let attempt = 0; attempt < 30 && !sinkThrew; attempt += 1) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
+}
+sdk.setLogSink(undefined);
+assert.equal(sinkThrew, true, "failing sink was not called");
+assert.match(sdk.sdkVersion(), /^1\.12\.0/);
+console.log("Node logging: sink error did not stop the process");
+
+const local = await sdk.generateLocalSigner();
+await assert.rejects(
+  sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer),
+  (error) => error instanceof sdk.XmtpError.InvalidInput,
+);
+const unsigned = await sdk.Client.create(local, {
+  ...options,
+  storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
+  registration: { auto: false, nonce: undefined },
+});
+assert.equal(await unsigned.raw.isRegistered(), false);
+const request = await unsigned.raw.unsafeCreateInboxSignatureRequest();
+assert.ok(request);
+assert.ok((await request.signatureText()).length > 0);
+await request.sign(local);
+await unsigned.raw.unsafeApplySignatureRequest(request);
+assert.equal(await unsigned.raw.isRegistered(), true);
+await unsigned.end();
+console.log("Node scenario 11: local signer and signature request passed");
+
 await reopened.end();
 console.log("Node scenario 7: durable stream and idle cancellation passed");

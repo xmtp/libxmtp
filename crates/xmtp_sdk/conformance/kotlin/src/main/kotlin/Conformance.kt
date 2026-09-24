@@ -178,6 +178,85 @@ fun main() =
         check(withTimeout(10_000) { lateReader.next() } == null) { "late reader was not ended" }
         val reopenedReader = protocolGroup.messageReader()
         reopenedReader.end()
-        reopenedHost.end()
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
+
+        val largeExpiry = 9_007_199_254_740_993L
+        val credentialOptions =
+            options.copy(
+                backend =
+                    BackendOptions(
+                        url = options.backend.url,
+                        credential = Credential(null, "Bearer initial", largeExpiry),
+                    ),
+                storage = StorageOptions(location = StorageLocation.InMemory),
+            )
+        val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxID)
+        check(
+            credentialHost.raw
+                .options()
+                .backend.credential
+                ?.expiresAtSeconds == largeExpiry,
+        ) {
+            "credential expiry lost 64-bit precision"
+        }
+        credentialHost.raw.setCredential(Credential(null, "Bearer renewed", largeExpiry))
+        credentialHost.end()
+        println("Kotlin scenario 3: credential update and 64-bit value passed")
+
+        val snapshot = reopened.serverConfiguration()
+        val fetched = fetchServerConfiguration(options.backend)
+        val staticBackend = Backend.connect(options.backend)
+        check(SDKClient.inboxIDFor(signer.identity(), staticBackend) == inboxID)
+        check(SDKClient.canMessage(listOf(signer.identity()), staticBackend).first().canMessage)
+        check(fetched.identifier == snapshot.identifier)
+        check(reopened.refreshServerConfiguration().identifier == snapshot.identifier)
+        check(
+            runCatching { fetchServerConfiguration(BackendOptions(url = "http://127.0.0.1:1")) }
+                .exceptionOrNull() is XmtpException.ConfigurationUnavailable,
+        )
+        println("Kotlin scenario 10: configuration and typed error passed")
+
+        val local = generateLocalSigner()
+        val unsignedOptions =
+            options.copy(
+                storage = StorageOptions(location = StorageLocation.InMemory),
+                registration = RegistrationOptions(auto = false),
+            )
+        val unsignedHost = SDKClient.create(local, unsignedOptions)
+        check(!unsignedHost.raw.isRegistered())
+        val request = checkNotNull(unsignedHost.raw.unsafeCreateInboxSignatureRequest())
+        check(request.signatureText().isNotEmpty())
+        request.sign(local)
+        unsignedHost.raw.unsafeApplySignatureRequest(request)
+        check(unsignedHost.raw.isRegistered())
+        unsignedHost.end()
+        println("Kotlin scenario 11: local signer and signature request passed")
+
+        check(reopened.notificationState() == NotificationState.Disabled)
+        check(
+            runCatching {
+                reopened.enableNotifications(
+                    NotificationConfig(channel = NotificationChannel.Http("https://example.com", byteArrayOf(1))),
+                )
+            }.exceptionOrNull() is XmtpException.InvalidArgument,
+        )
+        println("Kotlin scenario 12: notification state and typed error passed")
+
+        val fresh = generateLocalSigner()
+        val errorSigner =
+            object : Signer {
+                override suspend fun identity() = fresh.identity()
+
+                override suspend fun kind() = fresh.kind()
+
+                override suspend fun sign(request: SigningRequest): Signature = throw Error("signer failed")
+            }
+        val errorHost = SDKClient.create(errorSigner, unsignedOptions)
+        check(
+            withTimeout(10_000) { runCatching { errorHost.raw.register() }.exceptionOrNull() } is XmtpException.Signer,
+        )
+        errorHost.end()
+        println("Kotlin signer Error: call failed without a hang")
+
+        reopenedHost.end()
     }

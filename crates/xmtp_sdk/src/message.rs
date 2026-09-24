@@ -34,6 +34,21 @@ pub enum MessageContent {
     Unknown { encoded: Vec<u8> },
 }
 
+impl MessageContent {
+    pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
+        let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::unknown)?;
+        let kind = content.r#type.as_ref();
+        if kind.is_some_and(|value| {
+            value.authority_id == "xmtp.org" && value.type_id == TextCodec::TYPE_ID
+        }) {
+            return TextCodec::decode(content)
+                .map(Self::Text)
+                .map_err(XmtpError::unknown);
+        }
+        Ok(Self::Unknown { encoded })
+    }
+}
+
 /// A message value contains records and enums only.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageData {
@@ -65,7 +80,9 @@ impl Message {
             .as_ref()
             .and_then(|content| content.r#type.clone())
             .unwrap_or_default();
-        let fallback = encoded.as_ref().and_then(|content| content.fallback.clone());
+        let fallback = encoded
+            .as_ref()
+            .and_then(|content| content.fallback.clone());
         let content = match encoded {
             Some(encoded)
                 if content_type.authority_id == "xmtp.org"

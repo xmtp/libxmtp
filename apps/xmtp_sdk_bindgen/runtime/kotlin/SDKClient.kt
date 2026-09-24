@@ -13,6 +13,30 @@ class SDKClient private constructor(
     val raw: Client,
 ) {
     companion object {
+        private fun guarded(signer: Signer): Signer =
+            object : Signer {
+                override suspend fun identity(): PublicIdentity =
+                    try {
+                        signer.identity()
+                    } catch (_: Error) {
+                        throw SignerException.Failed()
+                    }
+
+                override suspend fun kind(): SignerKind =
+                    try {
+                        signer.kind()
+                    } catch (_: Error) {
+                        throw SignerException.Failed()
+                    }
+
+                override suspend fun sign(request: SigningRequest): Signature =
+                    try {
+                        signer.sign(request)
+                    } catch (_: Error) {
+                        throw SignerException.Failed()
+                    }
+            }
+
         private fun resolved(
             options: ClientOptions,
             defaultDirectory: String?,
@@ -27,7 +51,7 @@ class SDKClient private constructor(
             options: ClientOptions,
             defaultDirectory: String? = null,
         ): SDKClient =
-            SDKClient(Client.create(signer, resolved(options, defaultDirectory))).also {
+            SDKClient(Client.create(guarded(signer), resolved(options, defaultDirectory))).also {
                 ClientRegistry.register(it)
             }
 
@@ -40,6 +64,59 @@ class SDKClient private constructor(
             SDKClient(
                 Client.build(identity, resolved(options, defaultDirectory), inboxID),
             ).also { ClientRegistry.register(it) }
+
+        suspend fun fetchServerConfiguration(options: BackendOptions): ServerConfiguration =
+            uniffi.xmtp_sdk.fetchServerConfiguration(options)
+
+        suspend fun canMessage(
+            identities: List<PublicIdentity>,
+            backend: Backend,
+        ): List<CanMessageEntry> = canMessageWithBackend(backend, identities)
+
+        suspend fun inboxIDFor(
+            identity: PublicIdentity,
+            backend: Backend,
+        ): InboxID = inboxIDForWithBackend(backend, identity)
+
+        suspend fun inboxStates(
+            ids: List<InboxID>,
+            backend: Backend,
+        ): List<InboxState> = inboxStatesWithBackend(backend, ids)
+
+        suspend fun keyPackageStatuses(
+            ids: List<InstallationID>,
+            backend: Backend,
+        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(backend, ids)
+
+        suspend fun newestMessageMetadata(
+            ids: List<ConversationID>,
+            backend: Backend,
+        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(backend, ids)
+
+        suspend fun revokeInstallations(
+            signer: Signer,
+            inboxID: InboxID,
+            ids: List<InstallationID>,
+            backend: Backend,
+        ) = revokeInstallationsWithBackend(backend, guarded(signer), inboxID, ids)
+
+        suspend fun isAddressAuthorized(
+            address: String,
+            inboxID: InboxID,
+            backend: Backend,
+        ): Boolean = isAddressAuthorizedWithBackend(backend, inboxID, address)
+
+        suspend fun isInstallationAuthorized(
+            installationID: InstallationID,
+            inboxID: InboxID,
+            backend: Backend,
+        ): Boolean = isInstallationAuthorizedWithBackend(backend, inboxID, installationID)
+
+        suspend fun verifySignedWithPublicKey(
+            text: String,
+            signature: ByteArray,
+            publicKey: ByteArray,
+        ): Boolean = uniffi.xmtp_sdk.verifySignedWithPublicKey(text, signature, publicKey)
     }
 
     suspend fun end() {

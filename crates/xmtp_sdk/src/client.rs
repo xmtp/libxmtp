@@ -6,7 +6,10 @@ use xmtp_id::associations::{
     AccountId,
     unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
 };
-use xmtp_mls::{builder::DeviceSyncMode, identity::IdentityStrategy};
+use xmtp_mls::{
+    builder::{DeviceSyncMode, ForkRecoveryOpts},
+    identity::IdentityStrategy,
+};
 
 use crate::{
     Backend, BackendOptions, Conversations, InboxID, InstallationID, PublicIdentity, Signature,
@@ -33,6 +36,134 @@ pub struct StorageOptions {
     pub label: Option<String>,
     #[uniffi(default = None)]
     pub encryption_key: Option<Vec<u8>>,
+    #[uniffi(default = None)]
+    pub pool: Option<StoragePoolOptions>,
+    #[uniffi(default = false)]
+    pub single_connection: bool,
+}
+
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct StoragePoolOptions {
+    #[uniffi(default = None)]
+    pub min: Option<u32>,
+    #[uniffi(default = None)]
+    pub max: Option<u32>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct RegistrationOptions {
+    #[uniffi(default = true)]
+    pub auto: bool,
+    #[uniffi(default = None)]
+    pub nonce: Option<u64>,
+}
+
+impl Default for RegistrationOptions {
+    fn default() -> Self {
+        Self {
+            auto: true,
+            nonce: None,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, uniffi::Enum)]
+pub enum ForkRecoveryPolicy {
+    #[default]
+    None,
+    AllowlistedGroups,
+    All,
+}
+
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct ForkRecoveryOptions {
+    pub policy: ForkRecoveryPolicy,
+    #[uniffi(default)]
+    pub groups: Vec<crate::ConversationID>,
+    #[uniffi(default = false)]
+    pub disable_responses: bool,
+    #[uniffi(default = None)]
+    pub worker_interval_ns: Option<u64>,
+}
+
+impl From<ForkRecoveryOptions> for ForkRecoveryOpts {
+    fn from(value: ForkRecoveryOptions) -> Self {
+        use xmtp_mls::builder::ForkRecoveryPolicy as CorePolicy;
+        Self {
+            enable_recovery_requests: match value.policy {
+                ForkRecoveryPolicy::None => CorePolicy::None,
+                ForkRecoveryPolicy::AllowlistedGroups => CorePolicy::AllowlistedGroups,
+                ForkRecoveryPolicy::All => CorePolicy::All,
+            },
+            groups_to_request_recovery: value.groups.into_iter().map(|id| id.0).collect(),
+            disable_recovery_responses: value.disable_responses,
+            worker_interval_ns: value.worker_interval_ns,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum WorkerKind {
+    DeviceSync,
+    DisappearingMessages,
+    KeyPackageCleaner,
+    CommitLog,
+    TaskRunner,
+    ConfigurationRefresh,
+    HmacEpoch,
+}
+
+impl From<WorkerKind> for xmtp_mls::worker::WorkerKind {
+    fn from(value: WorkerKind) -> Self {
+        use xmtp_mls::worker::WorkerKind as CoreKind;
+        match value {
+            WorkerKind::DeviceSync => CoreKind::DeviceSync,
+            WorkerKind::DisappearingMessages => CoreKind::DisappearingMessages,
+            WorkerKind::KeyPackageCleaner => CoreKind::KeyPackageCleaner,
+            WorkerKind::CommitLog => CoreKind::CommitLog,
+            WorkerKind::TaskRunner => CoreKind::TaskRunner,
+            WorkerKind::ConfigurationRefresh => CoreKind::ConfigurationRefresh,
+            WorkerKind::HmacEpoch => CoreKind::HmacEpoch,
+        }
+    }
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct WorkerInterval {
+    pub kind: WorkerKind,
+    pub interval_ns: Option<u64>,
+    pub jitter_ns: Option<u64>,
+    pub enabled: Option<bool>,
+}
+
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct WorkerOptions {
+    #[uniffi(default = None)]
+    pub default_interval_ns: Option<u64>,
+    #[uniffi(default)]
+    pub intervals: Vec<WorkerInterval>,
+}
+
+impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
+    fn from(value: WorkerOptions) -> Self {
+        let mut config = Self {
+            default_interval_ns: value.default_interval_ns,
+            ..Default::default()
+        };
+        for entry in value.intervals {
+            let kind = entry.kind.into();
+            if let Some(interval) = entry.interval_ns {
+                config.interval_overrides.insert(kind, interval);
+            }
+            if let Some(jitter) = entry.jitter_ns {
+                config.jitter_overrides.insert(kind, jitter);
+            }
+            if let Some(enabled) = entry.enabled {
+                config.enabled.insert(kind, enabled);
+            }
+        }
+        config
+    }
 }
 
 #[derive(Clone, uniffi::Record)]
@@ -42,6 +173,12 @@ pub struct ClientOptions {
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
+    #[uniffi(default)]
+    pub registration: RegistrationOptions,
+    #[uniffi(default = None)]
+    pub fork_recovery: Option<ForkRecoveryOptions>,
+    #[uniffi(default = None)]
+    pub workers: Option<WorkerOptions>,
 }
 
 impl Default for ClientOptions {
@@ -50,6 +187,9 @@ impl Default for ClientOptions {
             backend: BackendOptions::default(),
             storage: StorageOptions::default(),
             device_sync: true,
+            registration: RegistrationOptions::default(),
+            fork_recovery: None,
+            workers: None,
         }
     }
 }
@@ -58,6 +198,10 @@ impl Default for ClientOptions {
 pub struct Client {
     pub(crate) inner: Arc<CoreClient>,
     pub(crate) key: u64,
+    pub(crate) identity: PublicIdentity,
+    pub(crate) options: ClientOptions,
+    pub(crate) signer: Option<Arc<dyn Signer>>,
+    pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
 }
 
 impl Client {
@@ -70,7 +214,8 @@ impl Client {
             return Err(XmtpError::storage_location_required());
         }
         let identifier = identity.to_core()?;
-        let backend = Backend::from_options(options.backend)?;
+        let backend = Backend::connect(options.backend.clone()).await?;
+        let auth_handle = backend.auth_handle.clone();
         let inbox_id = match inbox_id {
             Some(value) => value.0,
             None => {
@@ -81,7 +226,9 @@ impl Client {
                     .map_err(XmtpError::unknown)?;
                 match found.into_iter().next().flatten() {
                     Some(value) => value,
-                    None => identifier.inbox_id(0).map_err(XmtpError::unknown)?,
+                    None => identifier
+                        .inbox_id(options.registration.nonce.unwrap_or(0))
+                        .map_err(XmtpError::unknown)?,
                 }
             }
         };
@@ -91,12 +238,24 @@ impl Client {
         } else {
             DeviceSyncMode::Disabled
         };
-        let inner = xmtp_mls::Client::builder(IdentityStrategy::new(inbox_id, identifier, 0, None))
-            .api_client_with_streams(backend.api)
-            .with_remote_verifier()
-            .map_err(XmtpError::unknown)?
-            .store(store)
-            .device_sync_worker_mode(mode)
+        let mut builder = xmtp_mls::Client::builder(IdentityStrategy::new(
+            inbox_id,
+            identifier,
+            options.registration.nonce.unwrap_or(0),
+            None,
+        ))
+        .api_client_with_streams(backend.api)
+        .with_remote_verifier()
+        .map_err(XmtpError::unknown)?
+        .store(store)
+        .device_sync_worker_mode(mode);
+        if let Some(recovery) = options.fork_recovery.clone() {
+            builder = builder.fork_recovery_opts(recovery.into());
+        }
+        if let Some(workers) = options.workers.clone() {
+            builder = builder.worker_config(workers.into());
+        }
+        let inner = builder
             .default_mls_store()
             .map_err(XmtpError::unknown)?
             .build()
@@ -110,10 +269,14 @@ impl Client {
         Ok(Self {
             inner: Arc::new(inner),
             key,
+            identity,
+            options,
+            signer: None,
+            auth_handle,
         })
     }
 
-    async fn register_with_signer(
+    pub(crate) async fn register_with_signer(
         &self,
         signer: Arc<dyn Signer>,
         kind: SignerKind,
@@ -184,7 +347,7 @@ impl Client {
         self.inner
             .register_identity(request)
             .await
-            .map_err(XmtpError::unknown)
+            .map_err(XmtpError::from_client)
     }
 }
 
@@ -197,8 +360,11 @@ impl Client {
     ) -> Result<Self, XmtpError> {
         let identity = signer::identity(signer.clone()).await?;
         let kind = signer::kind(signer.clone()).await?;
-        let client = Self::build_inner(identity, options, None).await?;
-        client.register_with_signer(signer, kind).await?;
+        let mut client = Self::build_inner(identity, options, None).await?;
+        if client.options.registration.auto {
+            client.register_with_signer(signer.clone(), kind).await?;
+        }
+        client.signer = Some(signer);
         Ok(client)
     }
 
@@ -233,7 +399,7 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
-        self.inner.close().await.map_err(XmtpError::unknown)
+        self.inner.close().await.map_err(XmtpError::from_client)
     }
 }
 
@@ -249,12 +415,36 @@ pub(crate) async fn open_store(
         Some(path) => NativeDb::builder().persistent(path),
         None => NativeDb::builder().ephemeral(),
     };
-    let db = match &options.encryption_key {
-        Some(bytes) => {
-            let key = EncryptionKey::try_from(bytes.as_slice()).map_err(XmtpError::unknown)?;
-            builder.key(key).build().map_err(XmtpError::unknown)?
-        }
-        None => builder.build_unencrypted().map_err(XmtpError::unknown)?,
+    let min = options
+        .pool
+        .as_ref()
+        .and_then(|pool| pool.min)
+        .unwrap_or(xmtp_configuration::MIN_DB_POOL_SIZE);
+    let max = options
+        .pool
+        .as_ref()
+        .and_then(|pool| pool.max)
+        .unwrap_or(xmtp_configuration::MAX_DB_POOL_SIZE);
+    if min > max {
+        return Err(XmtpError::invalid("storage pool minimum exceeds maximum"));
+    }
+    let builder = builder.min_pool_size(min).max_pool_size(max);
+    macro_rules! finish {
+        ($builder:expr) => {{
+            match &options.encryption_key {
+                Some(bytes) => {
+                    let key =
+                        EncryptionKey::try_from(bytes.as_slice()).map_err(XmtpError::unknown)?;
+                    $builder.key(key).build().map_err(XmtpError::unknown)?
+                }
+                None => $builder.build_unencrypted().map_err(XmtpError::unknown)?,
+            }
+        }};
+    }
+    let db = if options.single_connection {
+        finish!(builder.single_connection())
+    } else {
+        finish!(builder)
     };
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
 }

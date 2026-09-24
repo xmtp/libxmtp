@@ -20,6 +20,166 @@ use crate::{
     XmtpError, client::native_storage_path, credentials::AuthBridge, reader, signer,
 };
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn local_signer_and_signature_request_register() {
+    assert!(matches!(
+        crate::local_signer_from_private_key(vec![0; 31]).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.registration.auto = false;
+    let client = Client::create(signer.clone(), settings).await?;
+    assert!(!client.is_registered().await?);
+    let request = client
+        .unsafe_create_inbox_signature_request()
+        .await?
+        .expect("new inbox request");
+    assert!(!request.signature_text().await.is_empty());
+    request.sign(signer).await?;
+    client.unsafe_apply_signature_request(request).await?;
+    assert!(client.is_registered().await?);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn added_account_opens_the_existing_inbox() {
+    let owner = Client::create(crate::generate_local_signer().await, options()).await?;
+    let second_signer = crate::generate_local_signer().await;
+    owner
+        .unsafe_add_account(second_signer.clone(), false)
+        .await?;
+    let second = Client::create(second_signer, options()).await?;
+    assert_eq!(second.inbox_id(), owner.inbox_id());
+    assert!(owner.inbox_state(true).await?.identities.len() >= 2);
+    second.end().await?;
+    owner.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn encryption_round_trips_and_rejects_changed_bytes() {
+    let plaintext = b"sdk attachment".to_vec();
+    let encrypted = crate::crypto::encrypt_bytes(plaintext.clone()).await?;
+    assert_eq!(
+        crate::crypto::decrypt_bytes(encrypted.ciphertext.clone(), encrypted.keys.clone()).await?,
+        plaintext
+    );
+    let mut changed = encrypted.ciphertext;
+    changed[0] ^= 1;
+    assert!(
+        crate::crypto::decrypt_bytes(changed, encrypted.keys)
+            .await
+            .is_err()
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn standard_content_decodes_text() {
+    use prost::Message as _;
+    use xmtp_content_types::{ContentCodec, text::TextCodec};
+    let encoded = TextCodec::encode("hello".into())?.encode_to_vec();
+    assert!(
+        matches!(crate::MessageContent::decode(encoded)?, crate::MessageContent::Text(value) if value == "hello")
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_configuration_and_credential_update() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let configured = client.server_configuration();
+    let fetched = crate::client_identity::fetch_server_configuration(options().backend).await?;
+    assert_eq!(configured.identifier, fetched.identifier);
+    let refreshed = client.refresh_server_configuration().await?;
+    assert_eq!(refreshed.identifier, configured.identifier);
+    client.end().await?;
+    let mut authenticated_options = options();
+    authenticated_options.backend.credential = Some(Credential {
+        name: None,
+        value: "Bearer first".into(),
+        expires_at_seconds: i64::MAX,
+    });
+    let authenticated =
+        Client::create(crate::generate_local_signer().await, authenticated_options).await?;
+    authenticated
+        .set_credential(Credential {
+            name: None,
+            value: "Bearer test".into(),
+            expires_at_seconds: i64::MAX,
+        })
+        .await?;
+    assert!(matches!(
+        authenticated
+            .set_credential(Credential {
+                name: Some("not a header".into()),
+                value: "a".into(),
+                expires_at_seconds: 0,
+            })
+            .await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    authenticated.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_notification_key_has_typed_error() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let result = client
+        .enable_notifications(crate::NotificationConfig {
+            channel: crate::NotificationChannel::Http {
+                url: "https://example.com".into(),
+                signing_key: vec![1],
+            },
+            consent_states: None,
+            include_welcomes: None,
+            include_sync_groups: None,
+            include_commits: None,
+        })
+        .await;
+    assert!(matches!(result, Err(XmtpError::InvalidArgument(_))));
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn backend_only_identity_and_message_queries() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let backend = Arc::new(crate::Backend::connect(options().backend).await?);
+    let identity = client.identity();
+    let inbox =
+        crate::static_helpers::inbox_id_for_with_backend(backend.clone(), identity.clone()).await?;
+    assert_eq!(inbox, client.inbox_id());
+    let availability =
+        crate::static_helpers::can_message_with_backend(backend.clone(), vec![identity.clone()])
+            .await?;
+    assert!(availability[0].can_message);
+    let states =
+        crate::static_helpers::inbox_states_with_backend(backend.clone(), vec![inbox.clone()])
+            .await?;
+    assert_eq!(states[0].inbox_id, inbox);
+    assert!(
+        crate::static_helpers::is_address_authorized_with_backend(
+            backend.clone(),
+            inbox.clone(),
+            identity.identifier,
+        )
+        .await?
+    );
+    assert!(
+        crate::static_helpers::is_installation_authorized_with_backend(
+            backend.clone(),
+            inbox,
+            client.installation_id(),
+        )
+        .await?
+    );
+    let group = client.conversations().create_group(vec![]).await?;
+    group.send_text("metadata".into()).await?;
+    let metadata =
+        crate::static_helpers::newest_message_metadata_with_backend(backend, vec![group.id()])
+            .await?;
+    assert_eq!(metadata.len(), 1);
+    client.end().await?;
+}
+
 struct WalletSigner(PrivateKeySigner);
 
 #[xmtp_common::async_trait]
@@ -57,13 +217,17 @@ fn options() -> ClientOptions {
             url: xmtp_configuration::backend_test_url(),
             app_version: None,
             credentials: None,
+            credential: None,
         },
         storage: StorageOptions {
             location: StorageLocation::InMemory,
             label: None,
             encryption_key: None,
+            pool: None,
+            single_connection: false,
         },
         device_sync: false,
+        ..ClientOptions::default()
     }
 }
 
@@ -178,6 +342,8 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
         location: StorageLocation::Directory(directory.to_string_lossy().into_owned()),
         label: None,
         encryption_key: None,
+        pool: None,
+        single_connection: false,
     };
     let first_path = native_storage_path(&options, "inbox-a")?.expect("directory path");
     let second_path = native_storage_path(&options, "inbox-b")?.expect("directory path");

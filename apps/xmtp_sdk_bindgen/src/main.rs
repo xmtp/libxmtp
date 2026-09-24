@@ -1,3 +1,4 @@
+mod callback_cursor;
 mod id_names;
 mod validate;
 
@@ -171,9 +172,14 @@ fn generate(
             let names =
                 id_names::typescript_rename_map(&metadata, &crate_root.join("uniffi.toml"))?;
             id_names::rewrite_generated_bindings(out, &names)?;
+            let binding = out.join("xmtp_sdk.ts");
+            fs::write(
+                &binding,
+                callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
+            )?;
             let index = out.join("index.ts");
             let mut source = fs::read_to_string(&index)?;
-            source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream } from './runtime';\n");
+            source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, setLogSink } from './runtime';\n");
             fs::write(index, source)?;
             for stale in [".bindgen-manifest", "abi"] {
                 let stale_dir = out.join(stale);

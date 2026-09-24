@@ -45,13 +45,19 @@ async function run(): Promise<void> {
       url: import.meta.env.VITE_XMTP_BACKEND_URL,
       appVersion: undefined,
       credentials: undefined,
+      credential: undefined,
     },
     storage: {
       location: new sdk.StorageLocation.Directory("xmtp-sdk-conformance"),
       label: crypto.randomUUID(),
       encryptionKey: undefined,
+      pool: undefined,
+      singleConnection: false,
     },
     deviceSync: false,
+    registration: { auto: true, nonce: undefined },
+    forkRecovery: undefined,
+    workers: undefined,
   };
   if (!("storage" in navigator) || !navigator.storage.getDirectory) {
     throw new Error("OPFS is unavailable in the dedicated worker");

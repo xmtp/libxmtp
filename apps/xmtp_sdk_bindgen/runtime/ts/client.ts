@@ -2,12 +2,29 @@ import {
   Client as RawClient,
   StorageLocation,
   StorageLocation_Tags,
+  canMessageWithBackend,
+  fetchServerConfiguration,
+  inboxIdForWithBackend,
+  inboxStatesWithBackend,
+  isAddressAuthorizedWithBackend,
+  isInstallationAuthorizedWithBackend,
+  keyPackageStatusesWithBackend,
+  newestMessageMetadataWithBackend,
+  revokeInstallationsWithBackend,
+  verifySignedWithPublicKey,
+  type BackendOptions,
+  type BackendLike,
+  type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
+  type InboxState,
+  type KeyPackageStatusEntry,
+  type MessageMetadataEntry,
   type PublicIdentity,
+  type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
-import type { InboxID, InstallationID } from "./ids";
+import type { ConversationID, InboxID, InstallationID } from "./ids";
 
 declare const process: { cwd(): string } | undefined;
 
@@ -66,6 +83,84 @@ export class Client {
     return new Client(
       await RawClient.build(identity, resolvedOptions(options), inboxID),
     );
+  }
+
+  static fetchServerConfiguration(
+    options: BackendOptions,
+  ): Promise<ServerConfiguration> {
+    return fetchServerConfiguration(options);
+  }
+
+  static canMessage(
+    identities: PublicIdentity[],
+    backend: BackendLike,
+  ): Promise<CanMessageEntry[]> {
+    return canMessageWithBackend(backend, identities);
+  }
+
+  static inboxIDFor(
+    identity: PublicIdentity,
+    backend: BackendLike,
+  ): Promise<InboxID> {
+    return inboxIdForWithBackend(backend, identity);
+  }
+
+  static inboxStates(
+    ids: InboxID[],
+    backend: BackendLike,
+  ): Promise<InboxState[]> {
+    return inboxStatesWithBackend(backend, ids);
+  }
+
+  static keyPackageStatuses(
+    ids: InstallationID[],
+    backend: BackendLike,
+  ): Promise<KeyPackageStatusEntry[]> {
+    return keyPackageStatusesWithBackend(backend, ids);
+  }
+
+  static newestMessageMetadata(
+    ids: ConversationID[],
+    backend: BackendLike,
+  ): Promise<MessageMetadataEntry[]> {
+    return newestMessageMetadataWithBackend(backend, ids);
+  }
+
+  static revokeInstallations(
+    signer: Signer,
+    inboxID: InboxID,
+    ids: InstallationID[],
+    backend: BackendLike,
+  ): Promise<void> {
+    return revokeInstallationsWithBackend(backend, signer, inboxID, ids);
+  }
+
+  static isAddressAuthorized(
+    inboxID: InboxID,
+    address: string,
+    backend: BackendLike,
+  ): Promise<boolean> {
+    return isAddressAuthorizedWithBackend(backend, inboxID, address);
+  }
+
+  static isInstallationAuthorized(
+    inboxID: InboxID,
+    installationID: InstallationID,
+    backend: BackendLike,
+  ): Promise<boolean> {
+    return isInstallationAuthorizedWithBackend(
+      backend,
+      inboxID,
+      installationID,
+    );
+  }
+
+  static verifySignedWithPublicKey(
+    text: string,
+    signature: ArrayBuffer,
+    publicKey: ArrayBuffer,
+  ): Promise<boolean> {
+    return verifySignedWithPublicKey(text, signature, publicKey);
   }
 
   inboxID(): InboxID {

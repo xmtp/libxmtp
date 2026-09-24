@@ -17,6 +17,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 bench = []
 
 [dependencies]
+alloy.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 hex.workspace = true
@@ -30,10 +31,12 @@ xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
 xmtp_api_backend.workspace = true
 xmtp_common.workspace = true
+xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
 xmtp_cryptography.workspace = true
 xmtp_db.workspace = true
 xmtp_id.workspace = true
+xmtp_logging.workspace = true
 xmtp_macro.workspace = true
 xmtp_mls.workspace = true
 xmtp_proto.workspace = true
@@ -49,6 +52,5 @@ uniffi-runtime-wasm.workspace = true
 wasm-bindgen-futures.workspace = true
 
 [dev-dependencies]
-alloy.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
