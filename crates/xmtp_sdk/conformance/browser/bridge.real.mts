@@ -51,6 +51,9 @@ function start(): {
       worker.on("exit", handler);
       worker.on("error", handler);
     },
+    terminate() {
+      void worker.terminate();
+    },
   };
   return {
     worker,
@@ -192,16 +195,8 @@ try {
   assert.throws(() => live.conversations(), { code: "clientClosed" });
   await ending;
 
-  const pending = first.session.call("__bridgeNever", []);
-  const trap = first.session.call("bridgeTestPanic", []);
-  await assert.rejects(trap, { code: "workerTerminated" });
-  await assert.rejects(pending, { code: "workerTerminated" });
-  assert.ok(first.fatal(), "real WASM panic must send fatal");
-  assert.throws(() => first.session.checkHandle(backend.handle), {
-    code: "clientClosed",
-  });
   console.log(
-    "real WASM client, messages, reader, typed error, GC, end fence, and panic fatal passed",
+    "real WASM client, messages, reader, typed error, GC, and end fence passed",
   );
 } finally {
   await first.worker.terminate();

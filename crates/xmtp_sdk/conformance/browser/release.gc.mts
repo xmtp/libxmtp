@@ -6,6 +6,11 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.ts";
+import {
+  PoolLocks,
+  WorkerHost,
+  type LockProvider,
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.ts";
 
 if (typeof global.gc !== "function")
   throw new Error("run this proof with --expose-gc");
@@ -135,4 +140,66 @@ assert.ok(
   ),
   "collected snapshot did not release its handle",
 );
+
+const held = new Set<string>();
+const provider: LockProvider = {
+  async request(name, _options, callback) {
+    if (held.has(name)) return callback(null);
+    held.add(name);
+    try {
+      await callback({});
+    } finally {
+      held.delete(name);
+    }
+  },
+};
+let mainReceive: (message: WireMessage) => void = () => {};
+let workerReceive: (message: WireMessage) => void = () => {};
+const mainEndpoint: WireEndpoint = {
+  postMessage(message) {
+    queueMicrotask(() => workerReceive(structuredClone(message)));
+  },
+  onMessage(handler) {
+    mainReceive = handler;
+  },
+  onExit() {},
+};
+const workerEndpoint: WireEndpoint = {
+  postMessage(message) {
+    queueMicrotask(() => mainReceive(structuredClone(message)));
+  },
+  onMessage(handler) {
+    workerReceive = handler;
+  },
+  onExit() {},
+};
+const locks = new PoolLocks(provider);
+const otherTab = new PoolLocks(provider);
+const host = new WorkerHost(
+  workerEndpoint,
+  1,
+  "gc-pool",
+  async () => {},
+  async () => undefined,
+  locks,
+);
+const lockSession = new MainSession(mainEndpoint, 1, "gc-pool");
+await lockSession.ready();
+await locks.open("collected-client");
+const lockHandle = host.registry.add({}, "Client");
+locks.attachOwner(lockHandle.owner, "collected-client");
+function temporaryLockedClient(): void {
+  new Client(lockSession, lockHandle);
+}
+temporaryLockedClient();
+await assert.rejects(otherTab.open("collected-client"), {
+  code: "storageBusy",
+});
+for (let attempt = 0; attempt < 100 && host.registry.size > 0; attempt++) {
+  global.gc();
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+}
+assert.equal(host.registry.size, 0, "GC did not release the Client handle");
+await otherTab.open("collected-client");
+otherTab.close("collected-client");
 console.log("proxy identity, snapshot pin, and finalizer release passed");

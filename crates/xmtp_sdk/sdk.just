@@ -33,6 +33,9 @@ conformance target:
       *) echo "Expected swift, kotlin, node, browser, or bridge" >&2; exit 2 ;; \
     esac
 
+conformance-bridge:
+    bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-conformance"
+
 manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
 

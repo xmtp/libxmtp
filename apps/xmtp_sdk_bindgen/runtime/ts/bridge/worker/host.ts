@@ -165,6 +165,7 @@ export class WorkerHost {
   private readonly active = new Map<number, AbortController>();
   private initialized = false;
   private failed = false;
+  private restorePanicLogger?: () => void;
 
   constructor(
     private readonly endpoint: WireEndpoint,
@@ -181,9 +182,11 @@ export class WorkerHost {
     this.callbacks = new WorkerCallbacks(endpoint);
     endpoint.onMessage((message) => this.receive(message));
     endpoint.onExit(() => this.fatal(bridgeError("workerTerminated")));
+    if (endpoint.close) this.watchRustPanics();
   }
 
   private receive(message: WireMessage): void {
+    if (this.failed) return;
     switch (message.t) {
       case "hello":
         void this.hello(message);
@@ -195,8 +198,10 @@ export class WorkerHost {
         this.active.get(message.id)?.abort();
         break;
       case "release":
-        this.registry.release(message.handles);
-        for (const owner of message.owners ?? []) {
+        for (const owner of new Set([
+          ...this.registry.release(message.handles),
+          ...(message.owners ?? []),
+        ])) {
           this.registry.closeOwner(owner);
           this.locks?.closeOwner(owner);
         }
@@ -267,6 +272,7 @@ export class WorkerHost {
     if (this.failed) return;
     this.failed = true;
     this.initialized = false;
+    this.restorePanicLogger?.();
     for (const controller of this.active.values()) controller.abort();
     this.active.clear();
     this.callbacks.terminate();
@@ -276,6 +282,24 @@ export class WorkerHost {
     } catch {
       // The worker can close the endpoint before the fatal message is sent.
     }
+    queueMicrotask(() => {
+      if (this.endpoint.close) this.endpoint.close();
+      else if (typeof self !== "undefined" && typeof self.close === "function")
+        self.close();
+    });
+  }
+
+  private watchRustPanics(): void {
+    const previous = console.error;
+    const logger = (...args: unknown[]): void => {
+      previous(...args);
+      if (typeof args[0] === "string" && args[0].startsWith("[Rust panic]"))
+        this.fatal(new WebAssembly.RuntimeError(args[0]));
+    };
+    console.error = logger;
+    this.restorePanicLogger = () => {
+      if (console.error === logger) console.error = previous;
+    };
   }
 
   private isFailed(): boolean {

@@ -16,12 +16,12 @@ if (!compiler)
   throw new Error("TypeScript parser is missing: run just install");
 const { default: ts } = await import(pathToFileURL(compiler).href);
 
-function files(path) {
+function files(path, extensions = [".ts"]) {
   return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
     const name = join(path, entry.name);
     return entry.isDirectory()
-      ? files(name)
-      : name.endsWith(".ts")
+      ? files(name, extensions)
+      : extensions.some((extension) => name.endsWith(extension))
         ? [name]
         : [];
   });
@@ -53,5 +53,22 @@ for (const path of paths) {
     ts.forEachChild(node, visit);
   }
   visit(source);
+}
+for (const path of [
+  "swift",
+  "kotlin",
+  "typescript-napi",
+  "typescript-wasm",
+].flatMap((language) =>
+  files(join("target/sdk-generated", language), [".ts", ".swift", ".kt"]),
+)) {
+  if (
+    /bridgeTest(?:Background)?Panic|bridge_test_(?:background_)?panic/.test(
+      readFileSync(path, "utf8"),
+    )
+  ) {
+    console.error(`${path}: test-only panic export reached shipped bindings`);
+    failed = true;
+  }
 }
 if (failed) process.exitCode = 1;

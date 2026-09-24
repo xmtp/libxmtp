@@ -101,5 +101,20 @@ pub fn sdk_version() -> String {
 #[xmtp_macro::sdk_export]
 pub async fn sdk_empty_call() {}
 
+#[cfg(feature = "bridge-panic-test")]
+#[uniffi::export]
+pub async fn bridge_test_panic() -> Result<(), XmtpError> {
+    panic!("bridge panic proof");
+}
+
+#[cfg(all(feature = "bridge-panic-test", target_arch = "wasm32"))]
+#[uniffi::export]
+pub async fn bridge_test_background_panic() -> Result<(), XmtpError> {
+    wasm_bindgen_futures::spawn_local(async {
+        panic!("bridge background panic proof");
+    });
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;
