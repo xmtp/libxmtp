@@ -103,17 +103,8 @@ class InboxCapabilities(
 /**
  * A generic membership/capability snapshot for a group.
  *
- * Reports raw facts rather than answers. For the proposal (app-data-dictionary)
- * migration specifically: to ask whether the group is already migrated, prefer
- * [org.xmtp.android.library.Group.proposalsEnabled] over scanning
- * [contextExtensions] for [MlsExtensionType.AppDataDictionary]. The snapshot's
- * job is eligibility: the group can migrate when every installation's
- * [InstallationCapabilities.supportedExtensions] contains that extension, and
- * the inboxes blocking migration are those with an installation that doesn't.
- *
- * Read it with [org.xmtp.android.library.Group.membershipCapabilities]; drive
- * the upgrade with [org.xmtp.android.library.UnstableGroup.enableProposals]
- * (via `group.unstable`, opting in with `@OptIn(UnstableApi::class)`).
+ * It reports the group context extensions and each installation's supported
+ * extensions. Read it with [org.xmtp.android.library.Group.membershipCapabilities].
  */
 class GroupMembershipCapabilities(
     private val ffi: FfiGroupMembershipCapabilities,

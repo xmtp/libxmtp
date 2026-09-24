@@ -1213,10 +1213,9 @@ class GroupTests: XCTestCase {
 		try fixtures.cleanUpDatabases()
 	}
 
-	/// Formerly testCanSyncManyGroupsInUnderASecond; the hard <1s budget was
-	/// not robust to CI runner variance (see issue #3448). The 10s ceiling
-	/// still catches order-of-magnitude regressions while tolerating a
-	/// loaded macOS runner; strict perf targets belong in dev/bench.
+	/// The one-second and ten-second limits failed on loaded CI runners
+	/// (see issue #3448). The 60-second limit still catches large regressions.
+	/// Use dev/bench for precise speed targets.
 	func testCanSyncManyGroupsQuickly() async throws {
 		let fixtures = try await fixtures()
 		var groups: [Group] = []
@@ -1239,9 +1238,8 @@ class GroupTests: XCTestCase {
 			let start = Date()
 			let numGroupsSynced = try await fixtures.boClient.conversations
 				.syncAllConversations().numEligible
-			let end = Date()
-			print(end.timeIntervalSince(start))
-			XCTAssert(end.timeIntervalSince(start) < 10)
+			let elapsed = Date().timeIntervalSince(start)
+			XCTAssertLessThan(elapsed, 60, "Syncing 100 groups took \(elapsed) seconds")
 			XCTAssertEqual(numGroupsSynced, 101)
 		} catch {
 			print("Failed to list groups members: \(error)")

@@ -124,28 +124,6 @@ impl From<FfiVisibilityConfirmationOptions> for xmtp_mls::client::VisibilityConf
     }
 }
 
-/// Options for [`FfiConversation::enable_proposals`]. Mirrors
-/// [`xmtp_mls::groups::EnableProposalsOptions`].
-#[derive(uniffi::Record, Default, Clone, Debug)]
-pub struct FfiEnableProposalsOptions {
-    /// Skip the pre-flight key-package capability check. Post-d14n
-    /// every client supports proposals by version floor alone; set
-    /// `true` to bypass the per-member scan in that environment.
-    pub force: Option<bool>,
-    /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
-    /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
-    pub min_version: Option<String>,
-}
-
-impl From<FfiEnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
-    fn from(opts: FfiEnableProposalsOptions) -> Self {
-        xmtp_mls::groups::EnableProposalsOptions {
-            force: opts.force.unwrap_or(false),
-            min_version: opts.min_version,
-        }
-    }
-}
-
 /// Signature kind used in identity operations
 #[derive(uniffi::Enum, Clone, Debug, PartialEq)]
 pub enum FfiSignatureKind {
@@ -498,9 +476,8 @@ impl TryFrom<FfiPermissionPolicySet> for PolicySet {
 }
 
 /// Options for [`FfiConversation::update_app_data`]. A record (rather
-/// than a bare `String` parameter) so future knobs can be added
-/// without breaking compiled apps — same pattern as
-/// [`FfiEnableProposalsOptions`].
+/// than a bare `String` parameter) so future fields can be added
+/// without breaking compiled apps.
 ///
 /// WARNING: uniffi Records get NO default field values unless the field
 /// carries `#[uniffi(default = ...)]`. Any field added later MUST carry
@@ -682,14 +659,8 @@ pub struct FfiInboxCapabilities {
 }
 
 /// A generic membership/capability snapshot for a group. Mirrors
-/// [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
-/// an inbox blocks the proposal migration when one of its
-/// installations' `supported_extensions` lacks `AppDataDictionary`.
-///
-/// To ask "is this group migrated?", use
-/// [`FfiConversation::proposals_enabled`] instead of scanning
-/// `context_extensions` — the marker extension is an internal
-/// protocol detail and the semantic bool is the stable contract.
+/// [`xmtp_mls::groups::GroupMembershipCapabilities`]. It lists the
+/// group context extensions and each installation's supported extensions.
 #[derive(uniffi::Record, Clone, Debug)]
 pub struct FfiGroupMembershipCapabilities {
     pub context_extensions: Vec<FfiMlsExtensionType>,

@@ -28,7 +28,6 @@ import uniffi.xmtpv3.FfiConversation
 import uniffi.xmtpv3.FfiConversationMetadata
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiDirection
-import uniffi.xmtpv3.FfiEnableProposalsOptions
 import uniffi.xmtpv3.FfiGroupMembershipState
 import uniffi.xmtpv3.FfiGroupPermissions
 import uniffi.xmtpv3.FfiListMessagesOptions
@@ -568,46 +567,9 @@ class Group(
     }
 
     /**
-     * Pre-release APIs, grouped under [UnstableGroup]. The `@UnstableApi`
-     * opt-in is applied once here, so every function on [UnstableGroup] is
-     * covered without a per-function annotation. Call sites must
-     * `@OptIn(UnstableApi::class)`; when a function graduates it moves onto
-     * [Group] and the opt-in stops resolving, forcing a migration.
-     */
-    @UnstableApi(
-        "APIs on Group.unstable are pre-release: shapes may change and some (e.g. enableProposals) are one-way and irreversible.",
-    )
-    val unstable: UnstableGroup
-        get() = UnstableGroup(libXMTPGroup)
-
-    /**
-     * Whether this group has migrated to AppData-proposal-based metadata
-     * updates. `false` means the group is still on the legacy
-     * GroupContextExtensions path. Prefer this semantic bool over scanning
-     * [membershipCapabilities] for the marker extension.
-     */
-    suspend fun proposalsEnabled(): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                libXMTPGroup.proposalsEnabled()
-            } catch (e: Exception) {
-                throw XMTPException("Unable to read proposals enabled state on group", e)
-            }
-        }
-
-    /**
      * Snapshot this group's membership capabilities: the group context's
      * extension types plus, per member inbox and installation, the extension
      * types each advertises.
-     *
-     * These are generic facts you filter to a specific question. For the
-     * proposal (app-data-dictionary) migration: use [proposalsEnabled] to ask
-     * "is this group migrated" — this snapshot answers the other question: an
-     * inbox blocks migration when one of its installations'
-     * [org.xmtp.android.library.libxmtp.InstallationCapabilities.supportedExtensions]
-     * does not contain
-     * [org.xmtp.android.library.libxmtp.MlsExtensionType.AppDataDictionary].
-     * Pair with [UnstableGroup.enableProposals].
      */
     suspend fun membershipCapabilities(): GroupMembershipCapabilities =
         withContext(Dispatchers.IO) {

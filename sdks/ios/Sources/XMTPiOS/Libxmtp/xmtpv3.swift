@@ -1579,29 +1579,6 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     
     func dmPeerInboxId()  -> String?
     
-    /**
-     * Enable AppData-proposal-based metadata updates on this group.
-     *
-     * Builds and stages the bootstrap commit that migrates this
-     * group's per-field metadata, admin lists, permissions, and
-     * membership from the legacy `GroupContextExtensions` shape into
-     * the unified OpenMLS `AppDataDictionary`. After it returns
-     * successfully, all subsequent metadata updates flow as
-     * `AppDataUpdate` proposals rather than GCE proposals.
-     *
-     * **Requires**: every existing member's latest key package must
-     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
-     * adoption with the migration code shipped before flipping any
-     * group; the call hard-fails with `ProposalsNotSupported` if
-     * any member lags. (The error currently surfaces a static
-     * message; structured per-inbox lag info is a future
-     * enhancement.)
-     *
-     * **One-way**: a migrated group cannot return to the legacy
-     * path. Operationally treated as a flag day per group.
-     */
-    func enableProposals(options: FfiEnableProposalsOptions) async throws 
-    
     func findDuplicateDms() async throws  -> [FfiConversation]
     
     func findEnrichedMessages(opts: FfiListMessagesOptions) throws  -> [FfiDecodedMessage]
@@ -1667,11 +1644,6 @@ public protocol FfiConversationProtocol: AnyObject, Sendable {
     func prepareMessage(contentBytes: Data, shouldPush: Bool, idempotencyKey: String?) throws  -> Data
     
     func processStreamedConversationMessage(envelopeBytes: Data) async throws  -> [FfiMessage]
-    
-    /**
-     * Proposals are available on every group at creation.
-     */
-    func proposalsEnabled() throws  -> Bool
     
     /**
      * Publish all unpublished messages
@@ -1965,43 +1937,6 @@ open func dmPeerInboxId() -> String?  {
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
-}
-    
-    /**
-     * Enable AppData-proposal-based metadata updates on this group.
-     *
-     * Builds and stages the bootstrap commit that migrates this
-     * group's per-field metadata, admin lists, permissions, and
-     * membership from the legacy `GroupContextExtensions` shape into
-     * the unified OpenMLS `AppDataDictionary`. After it returns
-     * successfully, all subsequent metadata updates flow as
-     * `AppDataUpdate` proposals rather than GCE proposals.
-     *
-     * **Requires**: every existing member's latest key package must
-     * advertise `ProposalType::AppDataUpdate`. Hosts should ramp
-     * adoption with the migration code shipped before flipping any
-     * group; the call hard-fails with `ProposalsNotSupported` if
-     * any member lags. (The error currently surfaces a static
-     * message; structured per-inbox lag info is a future
-     * enhancement.)
-     *
-     * **One-way**: a migrated group cannot return to the legacy
-     * path. Operationally treated as a flag day per group.
-     */
-open func enableProposals(options: FfiEnableProposalsOptions)async throws   {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtpv3_fn_method_fficonversation_enable_proposals(
-                        self.uniffiCloneHandle(),FfiConverterTypeFfiEnableProposalsOptions_lower(options)
-                )
-            },
-            pollFunc: ffi_xmtpv3_rust_future_poll_void,
-            completeFunc: ffi_xmtpv3_rust_future_complete_void,
-            freeFunc: ffi_xmtpv3_rust_future_free_void,
-            liftFunc: { $0 },
-            errorHandler: FfiConverterTypeFfiError_lift
-        )
 }
     
 open func findDuplicateDms()async throws  -> [FfiConversation]  {
@@ -2299,18 +2234,6 @@ open func processStreamedConversationMessage(envelopeBytes: Data)async throws  -
             liftFunc: FfiConverterSequenceTypeFfiMessage.lift,
             errorHandler: FfiConverterTypeFfiError_lift
         )
-}
-    
-    /**
-     * Proposals are available on every group at creation.
-     */
-open func proposalsEnabled()throws  -> Bool  {
-    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeFfiError_lift) {
-        uniffiCallStatus in
-    uniffi_xmtpv3_fn_method_fficonversation_proposals_enabled(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-})
 }
     
     /**
@@ -8836,82 +8759,6 @@ public func FfiConverterTypeFfiDeliveryCursor_lower(_ value: FfiDeliveryCursor) 
 }
 
 
-/**
- * Options for [`FfiConversation::enable_proposals`]. Mirrors
- * [`xmtp_mls::groups::EnableProposalsOptions`].
- */
-public struct FfiEnableProposalsOptions: Equatable, Hashable {
-    /**
-     * Skip the pre-flight key-package capability check. Post-d14n
-     * every client supports proposals by version floor alone; set
-     * `true` to bypass the per-member scan in that environment.
-     */
-    public var force: Bool?
-    /**
-     * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
-     * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
-     */
-    public var minVersion: String?
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * Skip the pre-flight key-package capability check. Post-d14n
-         * every client supports proposals by version floor alone; set
-         * `true` to bypass the per-member scan in that environment.
-         */force: Bool?, 
-        /**
-         * Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
-         * defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
-         */minVersion: String?) {
-        self.force = force
-        self.minVersion = minVersion
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FfiEnableProposalsOptions: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFfiEnableProposalsOptions: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiEnableProposalsOptions {
-        return
-            try FfiEnableProposalsOptions(
-                force: FfiConverterOptionBool.read(from: &buf), 
-                minVersion: FfiConverterOptionString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FfiEnableProposalsOptions, into buf: inout [UInt8]) {
-        FfiConverterOptionBool.write(value.force, into: &buf)
-        FfiConverterOptionString.write(value.minVersion, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiEnableProposalsOptions_lift(_ buf: RustBuffer) throws -> FfiEnableProposalsOptions {
-    return try FfiConverterTypeFfiEnableProposalsOptions.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFfiEnableProposalsOptions_lower(_ value: FfiEnableProposalsOptions) -> RustBuffer {
-    return FfiConverterTypeFfiEnableProposalsOptions.lower(value)
-}
-
-
 public struct FfiEncodedContent: Equatable, Hashable {
     public var typeId: FfiContentTypeId?
     public var parameters: [String: String]
@@ -9100,14 +8947,8 @@ public func FfiConverterTypeFfiForkRecoveryOpts_lower(_ value: FfiForkRecoveryOp
 
 /**
  * A generic membership/capability snapshot for a group. Mirrors
- * [`xmtp_mls::groups::GroupMembershipCapabilities`]. Callers filter it — e.g.
- * an inbox blocks the proposal migration when one of its
- * installations' `supported_extensions` lacks `AppDataDictionary`.
- *
- * To ask "is this group migrated?", use
- * [`FfiConversation::proposals_enabled`] instead of scanning
- * `context_extensions` — the marker extension is an internal
- * protocol detail and the semantic bool is the stable contract.
+ * [`xmtp_mls::groups::GroupMembershipCapabilities`]. It lists the
+ * group context extensions and each installation's supported extensions.
  */
 public struct FfiGroupMembershipCapabilities: Equatable, Hashable {
     public var contextExtensions: [FfiMlsExtensionType]
@@ -12822,9 +12663,8 @@ public func FfiConverterTypeFfiUnstableChangeCallbacks_lower(_ value: FfiUnstabl
 
 /**
  * Options for [`FfiConversation::update_app_data`]. A record (rather
- * than a bare `String` parameter) so future knobs can be added
- * without breaking compiled apps — same pattern as
- * [`FfiEnableProposalsOptions`].
+ * than a bare `String` parameter) so future fields can be added
+ * without breaking compiled apps.
  *
  * WARNING: uniffi Records get NO default field values unless the field
  * carries `#[uniffi(default = ...)]`. Any field added later MUST carry
@@ -21430,9 +21270,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_fficonversation_dm_peer_inbox_id() != 62747) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_enable_proposals() != 31370) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_xmtpv3_checksum_method_fficonversation_find_duplicate_dms() != 11846) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -21503,9 +21340,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_process_streamed_conversation_message() != 53257) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtpv3_checksum_method_fficonversation_proposals_enabled() != 47214) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_fficonversation_publish_messages() != 5110) {
