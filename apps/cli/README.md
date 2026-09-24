@@ -13,7 +13,7 @@ npm install --global @xmtp/cli
 For repository development, run commands through Nix:
 
 ```bash
-dev/nix-shell 'just install'
+dev/nix-shell 'just install-js'
 dev/nix-shell 'just cli check'
 dev/nix-shell 'just cli lint'
 dev/nix-shell 'just cli test'

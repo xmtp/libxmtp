@@ -9,15 +9,15 @@ just check crate xmtp_db
 just test crate xmtp_db
 just test workspace -p xmtp_db --ignore-default-filter test_it_stores_group   # one test
 just test workspace -p xmtp_db encrypted_store::group::   # one module
-dev/nix-shell 'cargo update-schema'      # regen schema.rs after a migration
+dev/nix-shell 'cargo update-schema'      # regenerate schema_gen.rs after a migration
 ```
 
 ## Gotchas
 
-- One baseline lives in `crates/xmtp_db/migrations/`. Pre-transition databases are rejected before migrations run.
-- Older self-hosted databases are also rejected: without durable stream progress, and without the `server_configuration` table the baseline gained for spec 006. Keep a backup and create a new client database. Initialization never deletes old data.
-- Amending the baseline needs a schema probe in `XmtpDb::init()`, not a second migration. Diesel records one version for the whole baseline, so an already-migrated database is never re-migrated, and a second migration would make every existing database fail the one-baseline check as `PreTransitionDatabase`.
-- Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply the baseline to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
+- Keep existing migrations unchanged. Add a new migration directory for each schema change. Pre-transition databases are rejected before migrations run.
+- Initialization also rejects older self-hosted formats without durable stream progress or the `server_configuration` table. Keep a backup and create a new client database for those formats. Initialization never deletes old data.
+- `XmtpDb::init()` currently accepts only the baseline as an applied version. When adding the next migration, update that check and its tests to accept later self-hosted versions while it still rejects pre-transition databases.
+- Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply all migrations to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
 
 ## Conventions
 

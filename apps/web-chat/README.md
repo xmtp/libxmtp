@@ -20,7 +20,7 @@ The development recipe loads the worktree backend URL automatically. Set
 ### Start the app
 
 ```bash
-dev/nix-shell 'just install'
+dev/nix-shell 'just install-js'
 dev/nix-shell 'just web-chat dev'
 ```
 

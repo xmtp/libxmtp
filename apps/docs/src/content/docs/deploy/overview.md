@@ -75,9 +75,9 @@ Use PostgreSQL 17 or later. No extensions are required.
 Migrations run in the backend process against the primary at boot, before the
 RPC listener binds. There is no separate migration job.
 
-The backend currently ships a single migration that can change between
-releases. **There is no in-place upgrade path yet,** so a schema change can
-require a fresh database. Startup never deletes an existing database.
+Each schema change adds a new migration. There is no supported in-place
+upgrade path yet, so a schema change can require a fresh database. Back up
+the database before deployment. Startup never deletes an existing database.
 
 ### Connection budget
 

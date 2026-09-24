@@ -7,7 +7,7 @@ Starlight site for the self-hosted backend and SDKs. Specs are read from
 
 Commands run in the `docs` Nix shell through the root `justfile`.
 
-- `just install`: install the locked root workspace dependencies.
+- `just install-js`: install the locked root workspace dependencies.
 - `just docs browsers`: install Chromium on macOS. Linux uses the Nix browser.
 - `just docs dev`: start the local site.
 - `just docs build`: build the site.
@@ -28,26 +28,10 @@ add a separate SDK build before either command.
 
 ## Build and check scripts
 
-Keep scripts only when the site build, CI, or local checks need them.
-Do not keep one-time migration checks or copies of old page prose.
-
-- `compose.mjs` and `references.mjs`: assemble the deployment artifact and native API references.
-- `check-site.mjs` and `validation-lib.mjs`: check links, redirects, native assets, and LLM exports.
-- `check-serve.mjs`: serve the composed artifact for browser and Lighthouse tests.
-- `check-lighthouse.mjs`: check accessibility in deployment CI; check performance before DNS cutover.
-- `check-search.mjs` and `search-config.mjs`: define search regression cases and ranking settings.
-- `check-ts-regions.mjs`, `example-config.mjs`, and `example-regions.mjs`: check SDK examples and render their source regions.
-- `typedoc-validation.mjs`: fail API reference builds on TypeDoc warnings or errors.
-- `llms-diagrams.mjs`: retain Mermaid source for text exports and rendered diagrams for website pages.
-- `agent-doc-coverage.mjs`: require TSDoc for reachable public Agent SDK declarations in CI.
-
-The files in `parity/` keep old URLs working and set Lighthouse score limits.
-They do not freeze page text or require access to the old site.
-
-The composed `llms-full.txt` contains the developer guide. Specs are in
-`llms-specs.txt`. Both are linked from `llms.txt`; `llms-small.txt` excludes
-specs. Text exports contain Mermaid source, not embedded SVG data or heading
-navigation links. Keep resolved SDK examples in the developer guide.
+Keep scripts in `scripts/` only when the site build, CI, or local checks need
+them. Keep resolved SDK examples in the developer guide and Mermaid source in
+text exports. `parity/` preserves old URLs and Lighthouse score limits; it does
+not freeze page text.
 
 Oxfmt formats docs source except `.astro` files. Prettier with the Astro plugin
 formats `.astro` files. `just docs format-check` checks both formatters.
@@ -59,28 +43,16 @@ Use MDX only when a page needs components. Platform tabs use `syncKey="sdk"`
 and the labels `Browser`, `Node`, `Kotlin`, and `Swift`. Package manager tabs
 use `syncKey="pkg"`. Do not add React Native examples until they can be verified.
 
-The public site deploys from `self-hosted`, which is the branch this project
-targets. A push to `main` runs the full build but does not publish.
-
-The Kotlin and Swift references are built on push only, because each is a
-from-scratch Rust cross-compile. A pull request builds the site and the Rust
-reference, and composes without the native references; the workflow sets
-`DOCS_SKIP_NATIVE_REFERENCES=1` so `compose.mjs` and `check-site.mjs` do not
-require them.
-The deployment domain is `self-hosted-docs.xmtp.to`. GitHub Pages uses the
-repository Pages setting for this domain; the workflow does not read `CNAME`.
-Cloudflare holds a DNS-only CNAME to `xmtp.github.io`. Enable HTTPS after the
-GitHub certificate is issued. See `dev/fly/README.md` for deployment setup.
+The public site deploys from `self-hosted`. Pull requests skip the Kotlin and
+Swift references with `DOCS_SKIP_NATIVE_REFERENCES=1`; pushes build them.
 
 ## TypeScript examples
 
 Docs uses TypeScript 6 because Astro, TypeDoc, and Twoslash need its compiler
 API. The other workspace packages use TypeScript 7.
 
-`just docs build` stages the local bindings and builds the SDK dependencies.
-The examples resolve the local SDK declaration files. The docs build runs
-TypeScript and Twoslash checks. `just docs typecheck` runs the Astro check and
-the executable example checks.
+`just docs build` checks TypeScript and Twoslash examples against the local
+SDK declarations. `just docs typecheck` checks Astro and executable examples.
 
 The site tsconfig excludes `examples/`. Astro's language server forces
 `isolatedModules`, which rejects the Node bindings' ambient const enums.

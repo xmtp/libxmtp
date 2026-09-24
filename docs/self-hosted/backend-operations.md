@@ -261,21 +261,18 @@ Tempo-derived client metrics depend on `sample_ratio` and successful export.
 
 ## Schema changes and builds
 
-Until completion of Phase 6, edit the single backend migration. There are no
-permanent deployments that need an incremental upgrade path. Recreate the
-disposable database after a migration edit, then refresh checked SQL metadata:
+Add a new versioned file in `apps/backend/migrations/` for each schema change.
+Keep existing migrations unchanged. Apply pending migrations to the local primary,
+then refresh checked SQL metadata:
 
 ```sh
-just backend db-down
 just backend db-up
 just backend sql-prepare
 just backend sql-check
 ```
 
-Stopping this test topology deletes its temporary database state. It cannot be
-recovered. Service startup never deletes a database when a migration has changed.
-At completion of Phase 6, freeze the migration and use new migrations for later
-schema changes.
+Test upgrades from an existing database and creation of a fresh database.
+Service startup never deletes a database.
 
 Commit `apps/backend/.sqlx` metadata with the SQL change. The root recipes run
 prepare/check from that package, without `--workspace`. SQLx and its CLI must use matching
@@ -309,6 +306,31 @@ passes HTTP bytes to the service without gRPC conversion. The check requires a
 Started frame before publication, then requires the published envelope while the
 same response stays open. It also checks CORS, request headers, and error details.
 Run this check with `just backend test --lib https_passthrough`.
+
+### Local TLS checks
+
+`dev/tls/` contains the reusable HAProxy config and a separate `libxmtp-tls`
+validation stack. Run `dev/nix-shell 'just backend tls-check'` to check native
+gRPC trailers, HTTP/1.1 gRPC-Web, CORS, incremental streaming, and TLS health.
+The stack uses port 18443, an internal PostgreSQL 18 database, and a disposable
+self-signed certificate. Do not use that certificate for deployment. The check
+needs `grpcurl`, `protoc`, Python 3, OpenSSL, Docker, and Nix; it gets
+`grpc-health-probe` from `nix shell nixpkgs#grpc-health-probe`.
+
+To test an idle-stream failure, run `dev/tls/up`,
+`dev/tls/check.sh --short-timeout`, and `dev/tls/down` through `dev/nix-shell`.
+The check uses 12-second client and server timeouts and a one-hour tunnel
+timeout. It confirms an HTTP/2 PING before the stream drops, then restores the
+normal 24-hour timeouts. HTTP/2 uses client and server timeouts, not `timeout
+tunnel`. PING frames do not refresh stream timers. Application keepalive
+messages carry stream data, but the default 30-second interval cannot prevent
+a 12-second timeout.
+
+This local stack cannot prove Railway TCP proxy passthrough, the public port,
+or `*.railway.internal` DNS behavior. Check those on Railway. To check only the
+HAProxy config, run `dev/tls/up --cert-only`, set `XMTP_TLS_PEM` to the absolute
+`dev/tls/.generated/server.pem` path and `XMTP_TLS_BACKEND=backend:5050`, then
+run `nix shell nixpkgs#haproxy --command haproxy -c -f dev/tls/haproxy.cfg`.
 
 Shutdown stops request admission and ends active subscriptions. Unary requests
 already admitted can finish within `server.max_drain_duration_ms`. At the end of

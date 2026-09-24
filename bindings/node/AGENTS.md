@@ -5,14 +5,11 @@ NAPI-RS bindings for Node. API tests are TypeScript (`test/*.test.ts`). Error co
 ## Commands
 
 ```bash
-just install                            # install the root workspace once
+just install-js                         # install the root workspace once
 just node check                         # build release NAPI to dist/
 just node lint                          # clippy + rustfmt
-dev/nix-shell 'pnpm --filter @xmtp/node-bindings run lint:rust'   # clippy + rustfmt
 just node test                          # install + build with test-utils + vitest
 just node test-ci                       # what CI runs (Nix build)
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && pnpm --filter @xmtp/node-bindings exec vitest run test/inboxId.test.ts' # one file
-dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && pnpm --filter @xmtp/node-bindings exec vitest run -t "should generate an inbox id"' # one test
 ```
 
 ## Gotchas
@@ -27,28 +24,20 @@ dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && pnpm --filter @xmtp/
 
 ## Conventions
 
-A binding is a thin translation layer. Business logic belongs in `xmtp_mls` or a shared crate.
-
-- Errors: `src/lib.rs:ErrorWrapper<E: ErrorCode>` maps to `napi::Error::from_reason("[{code}] {msg}")`. Call sites use `.map_err(ErrorWrapper::from)?` (`src/client/backend.rs:88`). Do not write a new conversion for an error that has an `ErrorCode`.
-- Structured stream failures append the shared `[XMTP_STREAM_FAILURE_V1]` JSON suffix. Use the core encoder. Do not flatten nested barrier obligations. The JS SDK exposes `getStreamFailureDetails` to read the suffix.
-- Naming: bare names, deliberately identical to `bindings/wasm` (`Client`, `Conversation`, `BackendBuilder`) so the two JS SDKs stay symmetric. Pick the same name on both.
+- `src/lib.rs:ErrorWrapper<E: ErrorCode>` maps errors to `napi::Error` with a
+  stable code. Structured stream failures use the shared
+  `[XMTP_STREAM_FAILURE_V1]` suffix; the JS SDK reads it with
+  `getStreamFailureDetails`.
 - Exporting: `#[napi]`, `#[napi(object)]`, `#[napi(getter)]`, `#[napi(string_enum)]`, `#[napi(js_name = "...")]`. `pub async fn` becomes a Promise. Add `#[xmtp_common::err_span]` to exported methods (`src/client/mod.rs:54`).
-- Builders: `#[xmtp_macro::napi_builder]` (`src/client/backend.rs:9`). Field attributes: `#[builder(required)]`, `#[builder(optional)]`, `#[builder(default = "expr")]`, `#[builder(skip)]`. `build()` is always hand-written (`crates/xmtp_macro/src/builders.rs`).
-- Regeneration: `just node build` (`pnpm --filter @xmtp/node-bindings exec napi build --platform --esm`, then `node.just:_prepare-dist` moves output to `dist/`). `dist/` is a build product. Never hand-edit it.
+- Builders use `#[xmtp_macro::napi_builder]`. Run `just node build` to
+  regenerate `dist/`; never hand-edit it.
 
 ## Durable message readers
 
-- `messageReader` returns one message and one opaque acknowledgement token.
-- Call `checkOwner` immediately before the app callback. If it returns false, read again. Do not acknowledge that item.
-- Use `enrichedMessage` to read the pending message without hiding storage errors. A null result requires reselection. Run app codecs after this read; codec errors remain terminal.
-- Storage errors end the reader after the operation's normal retry policy. Preserve saved acknowledgement state and fence old tokens. The caller can open a new reader after storage repair.
-- A callback acknowledges after the app returns. An iterator acknowledges when the app requests the next item.
-- `close` releases the default owner. A dropped or rejected item stays unacknowledged.
-- An explicit `DeliveryCursor` starts replay. Replay does not change default delivery progress.
-- `messageHistorySnapshot` returns history and its cursor from one database snapshot. `beginningDeliveryCursor` starts replay from the first retained item.
-
-Auth callback bridges return only `auth callback failed` on failure. Never retain
-or log callback error text or credential values. The middleware owns retryability.
+- Call `checkOwner` before app handoff. Use `enrichedMessage` to read the
+  pending item; a null result requires reselection. Codec errors are terminal.
+- `close` releases the default owner. `beginningDeliveryCursor` starts replay
+  from the first retained item.
 
 Run the error conversion test without a Node runtime:
 `just test workspace -p bindings_node auth_codes_reach_node_errors`.

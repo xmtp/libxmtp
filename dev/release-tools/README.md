@@ -8,7 +8,7 @@ Use Node.js 26 and pnpm from the Nix shell. Run the commands below with
 `dev/nix-shell '<command>'` from the repository root.
 
 ```bash
-just install
+just install-js
 ```
 
 ## Usage

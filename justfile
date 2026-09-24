@@ -52,7 +52,7 @@ default:
     just --list --list-submodules
 
 # Install all JavaScript workspace dependencies from the root lockfile.
-install:
+install-js:
     pnpm install --frozen-lockfile
 
 # --- CHECK ---

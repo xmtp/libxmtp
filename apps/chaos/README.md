@@ -25,8 +25,8 @@ Do not run other proxy tests at the same time. The recipes select the correct
 worktree ports and set `XMTP_NO_PANIC_ON_DB_LOCK=1` for child processes.
 
 The implementation is delivered as one PR. Actual Murmur runs require the
-user's approval of that PR and successful small local runs first. Follow the
-[agent runbook](AGENTS.md) after those conditions are met.
+user's approval of that PR and successful small local runs first. The
+[agent instructions](AGENTS.md) state the run gate and evidence rules.
 
 ## Commands and options
 
@@ -45,6 +45,22 @@ Runs accept `--rounds`, `--hours`, `--seed`, `--faults`, `--strict`, and
 `--directory`. Fault sets are `none`, `network`, `disk`, `crash`, and `all`.
 Use a comma-separated list to combine sets, such as `--faults network,disk`.
 Baseline always disables faults.
+
+## Murmur run sequence
+
+Before the approved run, test short baselines with seeds 1337 and 1338 and
+short network and all-fault schedules with seeds 1339 and 1340. Use three
+rounds each. An exit code of 2 or 3 is not a pass. Inspect the evidence and
+fix the cause before a longer run. Report the faults the short runs covered.
+
+After approval, run `just chaos baseline --rounds 50` and confirm exit 0.
+Check the contention counters; no contention gives weak evidence for
+concurrent commits. Then start `just chaos soak --hours 8` as a managed
+background process. Keep its process handle and exit status. Poll
+`just chaos status` about every five minutes. On exit 2, inspect and report
+the seed, round, verdict, group, affected installations, and bundle path. On
+exit 3, report a harness or service error. On interruption, wait for child
+exit and cleanup before copying databases.
 
 Network faults include disconnects, latency, bandwidth limits, timeouts,
 byte limits, resets, slicing, and backend pauses. Disk faults include failed
@@ -67,13 +83,22 @@ Exit codes are 0 for completion, 2 for a violation, 3 for a harness error,
 and 130 for interruption. Healthy stdout contains the seed and one summary
 line per round. Status includes contention counters.
 
+A `STALL` records an incomplete obligation and its cause. Repeated stalls can
+escalate without shortening the SDK retry budget. Inspect an escalated stall
+through traces before a longer run. A `WARN` alone does not stop a normal run;
+`--strict` enables the stricter policy. Pending roll-call checks use fault-free
+recovery rounds before new operations, restarts, or stream handoff. The round
+line marks these with `recovery=true`.
+
 On a violation, the supervisor stops writers before it copies databases.
 Use `just chaos inspect [bundle] --group GROUP_ID` for group evidence or
 `just chaos inspect [bundle] --db DATABASE_NAME` for a database record.
 Inspection hides keys and caps output. Do not read raw logs or databases.
+Narrow a capped result with a group or database selector.
 
 Run data under `.chaos/` is private and ignored by Git. Healthy runs retain
 two rounds of ledgers and have limits on file count and total bytes.
+Report a limit stop as a harness error; do not remove evidence to conceal it.
 The suite is outside the workspace's default members and CI.
 
 ## Traces and fork warnings
