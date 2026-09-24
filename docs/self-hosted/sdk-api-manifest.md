@@ -2,9 +2,9 @@
 
 This manifest classifies the public exports of the four current SDKs before they move to the Rust facade. The [design Ref](https://plan.ref.tools/eG4NJ6emCjsHcWH0) is the authority. Its Section 11.4 tables are applied by SDK and sub-table. The implementation plan's Decisions adopt design Section 20 items 1, 2, 3, 4, and 7 and use `end()` for async shutdown. Final names use stock generator spelling: `ID` suffixes, `unsafe` camel case, string IDs, and one `Timestamp` value with `.ns` and `.date`.
 
-`generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. `platform helper` means native OS code stays in the SDK. `alias` means a deprecated compatibility name. `approved removal` means the current export leaves the API. A dash in Final name marks a removal.
+`generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. `platform helper` means native OS code stays in the SDK. `alias` means a deprecated name kept for one major release (11.5), from a Rename row or an explicit alias row. `approved removal` means the current export leaves the API. A dash in Final name marks a removal.
 
-Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. A free property is `var name`, `val name`, or `let name`. Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. A final method may show a call shape such as `Group.state().name` or `Conversation.lastActivityAtNs(contentTypes?)`. A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; each declaration matches the first family only. The final `^.+$` family closes that partition. A source path and line in Notes distinguish overloads. Kind names the source declaration. The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. If Section 11.4, another design section, or a plan decision does not cover a symbol, the SDK row gives a proposed status and Open items lists it.
+Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. A free property is `var name`, `val name`, or `let name`. Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxID(for:)`, or `Conversation.lastActivityAtNs(contentTypes?)`; `Client.inboxID` without parentheses is the field. An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. Kotlin `Client.Companion.register(codec:)` is today's global codec method and is removed; final `Client.register()` registers an identity. A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; each declaration matches the first family only. The final `^.+$` family closes that partition. A source path and line in Notes distinguish overloads. Kind names the source declaration. The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. If Section 11.4, another design section, or a plan decision does not cover a symbol, the SDK row gives a proposed status and Open items lists it.
 
 | SDK | Public declarations |
 | --- | ---: |
@@ -33,10 +33,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ClientError.invalidInboxId` | case | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:10`. |
 | `ClientError.description` | var | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:12`. |
 | `ClientError.errorDescription` | var | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:23`. |
-| `ForkRecoveryPolicy` | enum | `ForkRecoveryPolicy` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:28`. |
-| `ForkRecoveryPolicy.none` | case | `ForkRecoveryPolicy.none` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:29`. |
-| `ForkRecoveryPolicy.allowlistedGroups` | case | `ForkRecoveryPolicy.allowlistedGroups` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:30`. |
-| `ForkRecoveryPolicy.all` | case | `ForkRecoveryPolicy.all` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:31`. |
+| `ForkRecoveryPolicy` | enum | `ForkRecoveryOptions.policy` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:28`. |
+| `ForkRecoveryPolicy.none` | case | `ForkRecoveryOptions.policy.none` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:29`. |
+| `ForkRecoveryPolicy.allowlistedGroups` | case | `ForkRecoveryOptions.policy.allowlistedGroups` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:30`. |
+| `ForkRecoveryPolicy.all` | case | `ForkRecoveryOptions.policy.all` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:31`. |
 | `ForkRecoveryOptions` | struct | `ForkRecoveryOptions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:45`. |
 | `ForkRecoveryOptions.enableRecoveryRequests` | var | `ForkRecoveryOptions.enableRecoveryRequests` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:46`. |
 | `ForkRecoveryOptions.groupsToRequestRecovery` | var | `ForkRecoveryOptions.groupsToRequestRecovery` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:47`. |
@@ -46,12 +46,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `VisibilityConfirmationOptions` | struct | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:73`. |
 | `VisibilityConfirmationOptions.timeoutMs` | var | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:74`. |
 | `VisibilityConfirmationOptions.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:76`. |
-| `DbPoolOptions` | struct | `DbPoolOptions` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:89`. |
-| `DbPoolOptions.maxPoolSize` | var | `DbPoolOptions.maxPoolSize` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:90`. |
-| `DbPoolOptions.minPoolSize` | var | `DbPoolOptions.minPoolSize` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:91`. |
-| `DbPoolOptions.init` | init | `DbPoolOptions.init` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:93`. |
+| `DbPoolOptions` | struct | `StorageOptions.pool` | generated | 11.1, StorageOptions.pool | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:89`. |
+| `DbPoolOptions.maxPoolSize` | var | `StorageOptions.pool.max` | generated | 11.1, StorageOptions.pool | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:90`. |
+| `DbPoolOptions.minPoolSize` | var | `StorageOptions.pool.min` | generated | 11.1, StorageOptions.pool | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:91`. |
+| `DbPoolOptions.init` | init | — | approved removal | 11.1, StorageOptions.pool | Old constructor folds into StorageOptions. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:93`. |
 | `ClientOptions` | struct | `ClientOptions` | static runtime | 11.4 Swift, Client and options | Host options wrapper holds codecs and callbacks. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:100`. |
-| `ClientOptions.Api` | struct | `BackendOptions` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:102`. |
+| `ClientOptions.Api` | struct | `BackendOptions` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:102`. |
 | `ClientOptions.Api.backendUrl` | var | `BackendOptions.url` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:104`. |
 | `ClientOptions.Api.env` | var | `StorageOptions.label` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:106`. |
 | `ClientOptions.Api.appVersion` | var | `BackendOptions.appVersion` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:107`. |
@@ -65,11 +65,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ClientOptions.deviceSyncEnabled` | var | `ClientOptions.deviceSync` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:131`. |
 | `ClientOptions.debugEventsEnabled` | var | — | approved removal | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:132`. |
 | `ClientOptions.forkRecoveryOptions` | var | `ClientOptions.forkRecovery` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:133`. |
-| `ClientOptions.waitForRegistrationVisible` | var | `ClientOptions.waitForRegistrationVisible` | alias | plan Decisions, waitForRegistrationVisible | Deprecated option keeps its shape and has no effect. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:134`. |
+| `ClientOptions.waitForRegistrationVisible` | var | — | approved removal | 11.4 Swift, Client and options | Registration always waits for visibility; the old option leaves the final API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:134`. |
 | `ClientOptions.dbPoolOptions` | var | `ClientOptions.storage.pool` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:135`. |
 | `ClientOptions.unstableChangeCallbacks` | var | — | approved removal | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:138`. |
 | `ClientOptions.init` | init | `ClientOptions.init` | static runtime | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:140`. |
-| `InboxId` | typealias | `InboxID` | generated | 11.4 Swift, Messages, codecs, preferences, values; plan Decisions | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:188`. |
+| `InboxId` | typealias | `InboxID` | alias | 11.4 Swift, Messages, codecs, preferences, values; plan Decisions | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:188`. |
 | `Client` | class | `Client` | generated | 11.1-11.2, live objects | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:190`. |
 | `Client.enableNotifications` | func | `Client.enableNotifications` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:192`. |
 | `Client.disableNotifications` | func | `Client.disableNotifications` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:201`. |
@@ -77,30 +77,30 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.inMemoryDbPath` | let | `Client.inMemoryDbPath` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:216`. |
 | `Client.manageStreamLifecycle` | var | `Client.manageStreamLifecycle` | platform helper | 2, platform files | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:226`. |
 | `Client.inboxID` | let | `Client.inboxID` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:228`. |
-| `Client.libXMTPVersion` | let | `Client.libxmtpVersion` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:229`. |
-| `Client.dbPath` | let | `Client.storage.path` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:230`. |
+| `Client.libXMTPVersion` | let | `Client.libxmtpVersion` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:229`. |
+| `Client.dbPath` | let | `Client.storage.path` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:230`. |
 | `Client.installationID` | let | `Client.installationID` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:231`. |
-| `Client.publicIdentity` | let | `Client.identity` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:232`. |
-| `Client.environment` | let | `Client.options.storage.label` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:233`. |
+| `Client.publicIdentity` | let | `Client.identity` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:232`. |
+| `Client.environment` | let | `Client.options.storage.label` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:233`. |
 | `Client.isInMemory` | var | `Client.isInMemory` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:241`. |
 | `Client.conversations` | var | `Client.conversations` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:245`. |
 | `Client.preferences` | var | `Client.preferences` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:251`. |
-| `Client.debugInformation` | var | `Client.diagnostics` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:255`. |
+| `Client.debugInformation` | var | `Client.diagnostics` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:255`. |
 | `Client.register` | func | — | approved removal | 11.4 Swift, Client and options | Global codec registration moves to ClientOptions.codecs. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:261`. |
 | `Client.create` | func | `Client.create` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:350`. |
 | `Client.createInMemory` | func | — | approved removal | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:383`. |
 | `Client.build` | func | `Client.build` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:402`. |
 | `Client.ffiCreateClient` | func | — | approved removal | 11.4 Swift, Client and options | Deprecated binding entry point; create/build are host wrappers. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:434`. |
-| `Client.connectToApiBackend` | func | `Backend.connect` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:599`. |
-| `Client.getOrCreateInboxId` | func | `Client.inboxID` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:633`. |
+| `Client.connectToApiBackend` | func | `Backend.connect` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:599`. |
+| `Client.getOrCreateInboxId` | func | `Client.inboxID(for:)` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:633`. |
 | `Client.revokeInstallations` | func | `Client.revokeInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:645`. |
-| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:688`. |
-| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:710`. |
+| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:688`. |
+| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:710`. |
 | `Client.canMessage` | func | `Client.canMessage` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:763`. |
-| `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:777`. |
-| `Client.keyPackageStatusesForInstallationIds` | func | `Client.keyPackageStatuses` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:788`. |
-| `Client.getNewestMessageMetadata` | func | `Client.newestMessageMetadata` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:807`. |
-| `Client.addAccount` | func | `Client.unsafeAddAccount` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:848`. |
+| `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:777`. |
+| `Client.keyPackageStatusesForInstallationIds` | func | `Client.keyPackageStatuses` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:788`. |
+| `Client.getNewestMessageMetadata` | func | `Client.newestMessageMetadata` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:807`. |
+| `Client.addAccount` | func | `Client.unsafeAddAccount` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:848`. |
 | `Client.removeAccount` | func | `Client.removeAccount` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:880`. |
 | `Client.revokeAllOtherInstallations` | func | `Client.revokeAllOtherInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:899`. |
 | `Client.revokeInstallations` | func | `Client.revokeInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:917`. |
@@ -110,23 +110,23 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.dropLocalDatabaseConnection` | func | `Client.end()` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:970`. |
 | `Client.reconnectLocalDatabase` | func | `Client.storage.reconnect` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:977`. |
 | `Client.catchUpToLive` | func | `Client.catchUpToLive` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:995`. |
-| `Client.inboxIdFromIdentity` | func | `Client.inboxID` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1003`. |
+| `Client.inboxIdFromIdentity` | func | `Client.inboxID(for:)` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1003`. |
 | `Client.signWithInstallationKey` | func | `Client.signWithInstallationKey` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1009`. |
-| `Client.verifySignature` | func | `Client.verifySignedWithInstallationKey` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1013`. |
-| `Client.verifySignatureWithInstallationId` | func | `Client.verifySignedWithPublicKey` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1024`. |
+| `Client.verifySignature` | func | `Client.verifySignedWithInstallationKey` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1013`. |
+| `Client.verifySignatureWithInstallationId` | func | `Client.verifySignedWithPublicKey` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1024`. |
 | `Client.inboxState` | func | `Client.inboxState` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1038`. |
-| `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1046`. |
+| `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1046`. |
 | `Client.syncAllDeviceSyncGroups` | func | `Client.syncAllDeviceSyncGroups` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1055`. |
 | `Client.createArchive` | func | `Client.archives.exportToFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1061`. |
 | `Client.importArchive` | func | `Client.archives.importFromFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1069`. |
 | `Client.archiveMetadata` | func | `Client.archives.metadataFromFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1073`. |
-| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1091`. |
-| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1108`. |
-| `Client.ffiRevokeAllOtherInstallations` | func | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1126`. |
-| `Client.ffiRevokeIdentity` | func | `Client.unsafeRemoveAccountSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1143`. |
-| `Client.ffiAddIdentity` | func | `Client.unsafeAddAccountSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1161`. |
-| `Client.ffiSignatureRequest` | func | `Client.unsafeCreateInboxSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1196`. |
-| `Client.ffiRegisterIdentity` | func | `Client.register` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1212`. |
+| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1091`. |
+| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1108`. |
+| `Client.ffiRevokeAllOtherInstallations` | func | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1126`. |
+| `Client.ffiRevokeIdentity` | func | `Client.unsafeRemoveAccountSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1143`. |
+| `Client.ffiAddIdentity` | func | `Client.unsafeAddAccountSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1161`. |
+| `Client.ffiSignatureRequest` | func | `Client.unsafeCreateInboxSignatureRequest` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1196`. |
+| `Client.ffiRegisterIdentity` | func | `Client.register` | alias | 11.4 Swift, Client and options | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1212`. |
 | `Client.serverConfiguration` | func | `Client.serverConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1233`. |
 | `Client.refreshServerConfiguration` | func | `Client.refreshServerConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1245`. |
 | `Client.fetchServerConfiguration` | func | `Client.fetchServerConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift:1263`. |
@@ -172,7 +172,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ContentTypeID.description` | var | `ContentTypeID.description` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ContentTypeID.swift:26`. |
 | `let ContentTypeDeleteMessageRequest` | let | `let ContentTypeDeleteMessageRequest` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:3`. |
 | `DeleteMessageRequest` | struct | `DeleteMessageRequest` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:13`. |
-| `DeleteMessageRequest.messageId` | var | `DeleteMessageRequest.messageID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:15`. |
+| `DeleteMessageRequest.messageId` | var | `DeleteMessageRequest.messageID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:15`. |
 | `DeleteMessageRequest.init` | init | `DeleteMessageRequest.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:17`. |
 | `DeleteMessageCodec` | struct | `DeleteMessageCodec` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:22`. |
 | `DeleteMessageCodec.T` | typealias | `DeleteMessageCodec.T` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/DeleteMessageCodec.swift:23`. |
@@ -221,13 +221,13 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `LeaveRequestCodec.fallback` | func | `LeaveRequestCodec.fallback` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/LeaveRequestCodec.swift:49`. |
 | `LeaveRequestCodec.shouldPush` | func | `LeaveRequestCodec.shouldPush` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/LeaveRequestCodec.swift:53`. |
 | `let ContentTypeMultiRemoteAttachment` | let | `let ContentTypeMultiRemoteAttachment` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:5`. |
-| `MultiRemoteAttachmentError` | enum | `MultiRemoteAttachmentError` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:12`. |
-| `MultiRemoteAttachmentError.invalidURL` | case | `MultiRemoteAttachmentError.invalidURL` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
-| `MultiRemoteAttachmentError.v1NotSupported` | case | `MultiRemoteAttachmentError.v1NotSupported` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
-| `MultiRemoteAttachmentError.invalidParameters` | case | `MultiRemoteAttachmentError.invalidParameters` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
-| `MultiRemoteAttachmentError.invalidDigest` | case | `MultiRemoteAttachmentError.invalidDigest` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
-| `MultiRemoteAttachmentError.invalidScheme` | case | `MultiRemoteAttachmentError.invalidScheme` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
-| `MultiRemoteAttachmentError.description` | var | `MultiRemoteAttachmentError.description` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:16`. |
+| `MultiRemoteAttachmentError` | enum | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:12`. |
+| `MultiRemoteAttachmentError.invalidURL` | case | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
+| `MultiRemoteAttachmentError.v1NotSupported` | case | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
+| `MultiRemoteAttachmentError.invalidParameters` | case | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
+| `MultiRemoteAttachmentError.invalidDigest` | case | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
+| `MultiRemoteAttachmentError.invalidScheme` | case | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`. |
+| `MultiRemoteAttachmentError.description` | var | — | approved removal | 11.1, XmtpError; 11.4 Swift, Client and options | The error folds into the common error model. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:16`. |
 | `MultiRemoteAttachment` | struct | `MultiRemoteAttachment` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:34`. |
 | `MultiRemoteAttachment.Scheme` | enum | `MultiRemoteAttachment.Scheme` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:35`. |
 | `MultiRemoteAttachment.Scheme.https` | case | `MultiRemoteAttachment.Scheme.https` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:36`. |
@@ -255,7 +255,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `let ContentTypeReaction` | let | `let ContentTypeReaction` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:10`. |
 | `Reaction` | struct | `Reaction` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:17`. |
 | `Reaction.reference` | var | `Reaction.reference` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:18`. |
-| `Reaction.referenceInboxId` | var | `Reaction.referenceInboxID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:19`. |
+| `Reaction.referenceInboxId` | var | `Reaction.referenceInboxID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:19`. |
 | `Reaction.action` | var | `Reaction.action` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:20`. |
 | `Reaction.content` | var | `Reaction.content` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:21`. |
 | `Reaction.schema` | var | `Reaction.schema` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:22`. |
@@ -336,10 +336,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Reply` | struct | `MessageContent.Reply` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:12`. |
 | `Reply.reference` | var | `MessageContent.Reply.referenceID` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:13`. |
 | `Reply.content` | var | `MessageContent.Reply.body` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:14`. |
-| `Reply.contentType` | var | `Reply.contentType` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:15`. |
+| `Reply.contentType` | var | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:15`. |
 | `Reply.inReplyTo` | var | `Message.inReplyTo` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:16`. |
-| `Reply.init` | init | `Reply.init` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:18`. |
-| `Reply.init` | init | `Reply.init` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:25`. |
+| `Reply.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:18`. |
+| `Reply.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:25`. |
 | `ReplyCodec` | struct | `ReplyCodec` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:33`. |
 | `ReplyCodec.contentType` | var | `ReplyCodec.contentType` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:34`. |
 | `ReplyCodec.init` | init | `ReplyCodec.init` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:36`. |
@@ -367,7 +367,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `TransactionReference.Metadata.toAddress` | let | `TransactionReference.Metadata.toAddress` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:24`. |
 | `TransactionReference.Metadata.init` | init | `TransactionReference.Metadata.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:26`. |
 | `TransactionReference.namespace` | let | `TransactionReference.namespace` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:43`. |
-| `TransactionReference.networkId` | let | `TransactionReference.networkID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:44`. |
+| `TransactionReference.networkId` | let | `TransactionReference.networkID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:44`. |
 | `TransactionReference.reference` | let | `TransactionReference.reference` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:45`. |
 | `TransactionReference.metadata` | let | `TransactionReference.metadata` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:46`. |
 | `TransactionReference.init` | init | `TransactionReference.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Codecs/TransactionReferenceCodec.swift:48`. |
@@ -384,9 +384,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.dm` | case | `Conversation.dm` | generated | 11.4 Swift, Conversation, Group, Dm | Tagged conversation variant stays. Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:5`. |
 | `Conversation.==` | func | `Conversation.==` | static runtime | 11.7, value equality | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:7`. |
 | `Conversation.hash` | func | `Conversation.hash` | static runtime | 11.7, value equality | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:11`. |
-| `Conversation.XMTPConversationType` | enum | `ConversationKind` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:15`. |
-| `Conversation.XMTPConversationType.group` | case | `ConversationKind.group` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:16`. |
-| `Conversation.XMTPConversationType.dm` | case | `ConversationKind.dm` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:16`. |
+| `Conversation.XMTPConversationType` | enum | `ConversationKind` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:15`. |
+| `Conversation.XMTPConversationType.group` | case | `ConversationKind.group` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:16`. |
+| `Conversation.XMTPConversationType.dm` | case | `ConversationKind.dm` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:16`. |
 | `Conversation.id` | var | `Conversation.id` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:19`. |
 | `Conversation.disappearingMessageSettings` | var | `Conversation.state().disappearingSettings` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:28`. |
 | `Conversation.isDisappearingMessagesEnabled` | func | `Conversation.state().isDisappearingEnabled` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:37`. |
@@ -412,7 +412,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.send` | func | `Conversation.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:245`. |
 | `Conversation.send` | func | `Conversation.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:260`. |
 | `Conversation.topic` | var | `Conversation.topic` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:271`. |
-| `Conversation.streamMessages` | func | `Conversation.stream` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:281`. |
+| `Conversation.streamMessages` | func | `Conversation.stream` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:281`. |
 | `Conversation.messageReader` | func | `Conversation.messageReader` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:292`. |
 | `Conversation.messageHistorySnapshot` | func | `Conversation.messageHistorySnapshot` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:299`. |
 | `Conversation.beginningDeliveryCursor` | func | `Conversation.beginningDeliveryCursor` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:306`. |
@@ -421,12 +421,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.clientInboxId` | var | `Conversation.clientInboxID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:370`. |
 | `Conversation.enrichedMessages` | func | — | approved removal | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:394`. |
 | `Conversation.countMessages` | func | `Conversation.countMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:430`. |
-| `Conversation.getHmacKeys` | func | `Conversation.hmacKeys` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:459`. |
+| `Conversation.getHmacKeys` | func | `Conversation.hmacKeys` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:459`. |
 | `Conversation.setNotifications` | func | `Conversation.setNotifications` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:469`. |
 | `Conversation.notificationsEnabled` | func | `Conversation.state().notificationsEnabled` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:479`. |
-| `Conversation.getDebugInformation` | func | `Conversation.debugInfo` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:488`. |
+| `Conversation.getDebugInformation` | func | `Conversation.debugInfo` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:488`. |
 | `Conversation.isActive` | func | `Conversation.state().isActive` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:497`. |
-| `Conversation.getLastReadTimes` | func | `Conversation.lastReadTimes` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:508`. |
+| `Conversation.getLastReadTimes` | func | `Conversation.lastReadTimes` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:508`. |
 | `Conversation.deleteMessage` | func | `Conversation.deleteMessage` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Conversation.swift:521`. |
 | `ConversationError` | enum | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:3`. |
 | `ConversationError.memberCannotBeSelf` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:4`. |
@@ -437,27 +437,27 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ConversationError.description` | var | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:8`. |
 | `ConversationError.errorDescription` | var | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:23`. |
 | `GroupSyncSummary` | struct | `GroupSyncSummary` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:28`. |
-| `GroupSyncSummary.numEligible` | var | `GroupSyncSummary.numEligible` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:29`. |
-| `GroupSyncSummary.numSynced` | var | `GroupSyncSummary.numSynced` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:30`. |
+| `GroupSyncSummary.numEligible` | var | `GroupSyncSummary.eligible` | generated | 11.1, GroupSyncSummary | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:29`. |
+| `GroupSyncSummary.numSynced` | var | `GroupSyncSummary.synced` | generated | 11.1, GroupSyncSummary | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:30`. |
 | `GroupSyncSummary.init` | init | `GroupSyncSummary.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:32`. |
 | `ConversationFilterType` | enum | — | approved removal | 11.4 Swift, Conversations | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:43`. |
 | `ConversationFilterType.all` | case | — | approved removal | 11.4 Swift, Conversations | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:44`. |
 | `ConversationFilterType.groups` | case | — | approved removal | 11.4 Swift, Conversations | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:44`. |
 | `ConversationFilterType.dms` | case | — | approved removal | 11.4 Swift, Conversations | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:44`. |
-| `ConversationsOrderBy` | enum | `ConversationOrder` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:47`. |
-| `ConversationsOrderBy.createdAt` | case | `ConversationOrder.createdAt` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:48`. |
-| `ConversationsOrderBy.lastActivity` | case | `ConversationOrder.lastActivity` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:48`. |
+| `ConversationsOrderBy` | enum | `ConversationOrder` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:47`. |
+| `ConversationsOrderBy.createdAt` | case | `ConversationOrder.createdAt` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:48`. |
+| `ConversationsOrderBy.lastActivity` | case | `ConversationOrder.lastActivity` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:48`. |
 | `Conversations` | class | `Conversations` | generated | 11.1-11.2, live objects | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:121`. |
-| `Conversations.findGroup` | func | `Conversations.getByID` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:152`. |
-| `Conversations.findConversation` | func | `Conversations.getByID` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:165`. |
-| `Conversations.findConversationByTopic` | func | `Conversations.getByID` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:180`. |
-| `Conversations.findDmByInboxId` | func | `Conversations.getDmByInboxID` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:207`. |
-| `Conversations.findDmByIdentity` | func | `Conversations.getDmByIdentity` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:221`. |
-| `Conversations.findMessage` | func | `Conversations.getMessageByID` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:234`. |
+| `Conversations.findGroup` | func | `Conversations.getByID` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:152`. |
+| `Conversations.findConversation` | func | `Conversations.getByID` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:165`. |
+| `Conversations.findConversationByTopic` | func | `Conversations.getByID` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:180`. |
+| `Conversations.findDmByInboxId` | func | `Conversations.getDmByInboxID` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:207`. |
+| `Conversations.findDmByIdentity` | func | `Conversations.getDmByIdentity` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:221`. |
+| `Conversations.findMessage` | func | `Conversations.getMessageByID` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:234`. |
 | `Conversations.findEnrichedMessage` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:246`. |
 | `Conversations.deleteMessageLocally` | func | `Conversations.deleteMessageLocally` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:257`. |
 | `Conversations.sync` | func | `Conversations.sync` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:261`. |
-| `Conversations.syncAllConversations` | func | `Conversations.syncAll` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:265`. |
+| `Conversations.syncAllConversations` | func | `Conversations.syncAll` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:265`. |
 | `Conversations.listGroups` | func | `Conversations.listGroups` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:274`. |
 | `Conversations.listDms` | func | `Conversations.listDms` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:306`. |
 | `Conversations.list` | func | `Conversations.list` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:339`. |
@@ -478,7 +478,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.streamMessageDeletions` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:759`. |
 | `Conversations.fromWelcome` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:798`. |
 | `Conversations.getHmacKeys` | func | `Conversations.hmacKeys` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift:812`. |
-| `CipherText` | typealias | `CipherText` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Crypto.swift:4`. |
+| `CipherText` | typealias | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 11.1, attachment encryption | The protobuf ciphertext wrapper is replaced by Rust encryption records. Source: `sdks/ios/Sources/XMTPiOS/Crypto.swift:4`. |
 | `Dm` | struct | `Dm` | generated | 11.1-11.2, live objects | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:3`. |
 | `Dm.clientInboxId` | var | `Dm.clientInboxID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:9`. |
 | `Dm.ConversationError` | enum | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:12`. |
@@ -494,8 +494,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.hash` | func | `Dm.hash` | static runtime | 11.7, value equality | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:59`. |
 | `Dm.isCreator` | func | `Dm.isCreator` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:63`. |
 | `Dm.isActive` | func | `Dm.state().isActive` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:67`. |
-| `Dm.creatorInboxId` | func | `Dm.creatorInboxID` | generated | 11.2, immutable conversation fields | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:71`. |
-| `Dm.addedByInboxId` | func | `Dm.addedByInboxID` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:75`. |
+| `Dm.creatorInboxId` | func | `Dm.creatorInboxID` | alias | 11.2, immutable conversation fields | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:71`. |
+| `Dm.addedByInboxId` | func | `Dm.addedByInboxID` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:75`. |
 | `Dm.members` | var | `Dm.members` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:79`. |
 | `Dm.peerInboxId` | var | `Dm.peerInboxID` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:88`. |
 | `Dm.createdAt` | var | `Dm.createdAt.date` | generated | 11.4 Swift, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:97`. |
@@ -515,7 +515,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.publishMessages` | func | `Dm.publishMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:265`. |
 | `Dm.publishMessage` | func | `Dm.publishMessage` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:269`. |
 | `Dm.endStream` | func | — | approved removal | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:273`. |
-| `Dm.streamMessages` | func | `Dm.stream` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:278`. |
+| `Dm.streamMessages` | func | `Dm.stream` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:278`. |
 | `Dm.messageReader` | func | `Dm.messageReader` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:286`. |
 | `Dm.messageHistorySnapshot` | func | `Dm.messageHistorySnapshot` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:290`. |
 | `Dm.beginningDeliveryCursor` | func | `Dm.beginningDeliveryCursor` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:294`. |
@@ -524,22 +524,22 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.messages` | func | `Dm.messages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:325`. |
 | `Dm.countMessages` | func | `Dm.countMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:397`. |
 | `Dm.enrichedMessages` | func | — | approved removal | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:436`. |
-| `Dm.getHmacKeys` | func | `Dm.hmacKeys` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:507`. |
+| `Dm.getHmacKeys` | func | `Dm.hmacKeys` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:507`. |
 | `Dm.setNotifications` | func | `Dm.setNotifications` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:533`. |
 | `Dm.notificationsEnabled` | func | `Dm.state().notificationsEnabled` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:538`. |
-| `Dm.getDebugInformation` | func | `Dm.debugInfo` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:542`. |
-| `Dm.getLastReadTimes` | func | `Dm.lastReadTimes` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:548`. |
+| `Dm.getDebugInformation` | func | `Dm.debugInfo` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:542`. |
+| `Dm.getLastReadTimes` | func | `Dm.lastReadTimes` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:548`. |
 | `Dm.deleteMessage` | func | `Dm.deleteMessage` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Dm.swift:556`. |
 | `EncodedContentCompression` | enum | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/EncodedContentCompression.swift:4`. |
 | `EncodedContentCompression.deflate` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/EncodedContentCompression.swift:5`. |
 | `EncodedContentCompression.gzip` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/EncodedContentCompression.swift:6`. |
-| `String.hexToData` | var | `String.hexToData` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Extensions/String.swift:5`. |
-| `GroupMembershipState` | enum | `GroupMembershipState` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:3`. |
-| `GroupMembershipState.allowed` | case | `GroupMembershipState.allowed` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
-| `GroupMembershipState.rejected` | case | `GroupMembershipState.rejected` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
-| `GroupMembershipState.pending` | case | `GroupMembershipState.pending` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
-| `GroupMembershipState.restored` | case | `GroupMembershipState.restored` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
-| `GroupMembershipState.pendingRemove` | case | `GroupMembershipState.pendingRemove` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
+| `String.hexToData` | var | — | approved removal | 11.1, ID custom types | Validated ID conversion replaces the old hex helper. Source: `sdks/ios/Sources/XMTPiOS/Extensions/String.swift:5`. |
+| `GroupMembershipState` | enum | `GroupMembershipState` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:3`. |
+| `GroupMembershipState.allowed` | case | `GroupMembershipState.allowed` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
+| `GroupMembershipState.rejected` | case | `GroupMembershipState.rejected` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
+| `GroupMembershipState.pending` | case | `GroupMembershipState.pending` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
+| `GroupMembershipState.restored` | case | `GroupMembershipState.restored` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
+| `GroupMembershipState.pendingRemove` | case | `GroupMembershipState.pendingRemove` | generated | 11.2, GroupState.membershipState | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:4`. |
 | `Group` | struct | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:7`. |
 | `Group.clientInboxId` | var | `Group.clientInboxID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:13`. |
 | `Group.id` | var | `Group.id` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:16`. |
@@ -560,11 +560,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.listAdmins` | func | `Group.listAdmins` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:88`. |
 | `Group.listSuperAdmins` | func | `Group.listSuperAdmins` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:92`. |
 | `Group.permissionPolicySet` | func | `Group.state().permissions.policySet` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:96`. |
-| `Group.creatorInboxId` | func | `Group.creatorInboxID` | generated | 11.2, immutable conversation fields | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:102`. |
-| `Group.addedByInboxId` | func | `Group.addedByInboxID` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:106`. |
+| `Group.creatorInboxId` | func | `Group.creatorInboxID` | alias | 11.2, immutable conversation fields | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:102`. |
+| `Group.addedByInboxId` | func | `Group.addedByInboxID` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:106`. |
 | `Group.members` | var | `Group.members` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:110`. |
 | `Group.membershipState` | var | `Group.state().membershipState` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:118`. |
-| `Group.peerInboxIds` | var | `Group.peerInboxIDs` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:124`. |
+| `Group.peerInboxIds` | var | `Group.peerInboxIDs` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:124`. |
 | `Group.createdAt` | var | `Group.createdAt.date` | generated | 11.4 Swift, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:134`. |
 | `Group.createdAtNs` | var | `Group.createdAt.ns` | generated | 11.4 Swift, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/ios/Sources/XMTPiOS/Group.swift:138`. |
 | `Group.lastActivityAtNs` | var | `Group.lastActivityAtNs(contentTypes?)` | generated | 11.4 Swift, Conversation, Group, Dm | Plan Decisions: optional filter is a method outside state(). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:142`. |
@@ -604,7 +604,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.publishMessages` | func | `Group.publishMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:502`. |
 | `Group.publishMessage` | func | `Group.publishMessage` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:506`. |
 | `Group.endStream` | func | — | approved removal | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:510`. |
-| `Group.streamMessages` | func | `Group.stream` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:515`. |
+| `Group.streamMessages` | func | `Group.stream` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:515`. |
 | `Group.messageReader` | func | `Group.messageReader` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:523`. |
 | `Group.messageHistorySnapshot` | func | `Group.messageHistorySnapshot` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:527`. |
 | `Group.beginningDeliveryCursor` | func | `Group.beginningDeliveryCursor` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:531`. |
@@ -613,12 +613,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.messages` | func | `Group.messages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:562`. |
 | `Group.enrichedMessages` | func | — | approved removal | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:648`. |
 | `Group.countMessages` | func | `Group.countMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:719`. |
-| `Group.getHmacKeys` | func | `Group.hmacKeys` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:743`. |
+| `Group.getHmacKeys` | func | `Group.hmacKeys` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:743`. |
 | `Group.setNotifications` | func | `Group.setNotifications` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:769`. |
 | `Group.notificationsEnabled` | func | `Group.state().notificationsEnabled` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:774`. |
-| `Group.getDebugInformation` | func | `Group.debugInfo` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:778`. |
-| `Group.getLastReadTimes` | func | `Group.lastReadTimes` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:784`. |
-| `Group.leaveGroup` | func | `Group.requestRemoval` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:788`. |
+| `Group.getDebugInformation` | func | `Group.debugInfo` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:778`. |
+| `Group.getLastReadTimes` | func | `Group.lastReadTimes` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:784`. |
+| `Group.leaveGroup` | func | `Group.requestRemoval` | alias | 11.4 Swift, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Group.swift:788`. |
 | `Group.deleteMessage` | func | `Group.deleteMessage` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift:796`. |
 | `ArchiveOptions` | struct | `ArchiveOptions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ArchiveOptions.swift:10`. |
 | `ArchiveOptions.startNs` | var | `ArchiveOptions.startNs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ArchiveOptions.swift:11`. |
@@ -639,10 +639,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ArchiveMetadata.exportedAtNs` | var | `ArchiveMetadata.exportedAt.ns` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ArchiveOptions.swift:78`. |
 | `ArchiveMetadata.startNs` | var | `ArchiveMetadata.startNs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ArchiveOptions.swift:82`. |
 | `ArchiveMetadata.endNs` | var | `ArchiveMetadata.endNs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ArchiveOptions.swift:86`. |
-| `CommitLogForkStatus` | enum | `CommitLogForkStatus` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:1`. |
-| `CommitLogForkStatus.forked` | case | `CommitLogForkStatus.forked` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:2`. |
-| `CommitLogForkStatus.notForked` | case | `CommitLogForkStatus.notForked` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:3`. |
-| `CommitLogForkStatus.unknown` | case | `CommitLogForkStatus.unknown` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:4`. |
+| `CommitLogForkStatus` | enum | `ConversationState.commitLogForkStatus` | generated | 11.2, ConversationState | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:1`. |
+| `CommitLogForkStatus.forked` | case | `ConversationState.commitLogForkStatus.forked` | generated | 11.2, ConversationState | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:2`. |
+| `CommitLogForkStatus.notForked` | case | `ConversationState.commitLogForkStatus.notForked` | generated | 11.2, ConversationState | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:3`. |
+| `CommitLogForkStatus.unknown` | case | `ConversationState.commitLogForkStatus.unknown` | generated | 11.2, ConversationState | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:4`. |
 | `ConversationDebugInfo` | struct | `ConversationDebugInfo` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:7`. |
 | `ConversationDebugInfo.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | FFI constructor becomes internal plumbing. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:10`. |
 | `ConversationDebugInfo.epoch` | var | `ConversationDebugInfo.epoch` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:14`. |
@@ -651,18 +651,18 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ConversationDebugInfo.localCommitLog` | var | `ConversationDebugInfo.localCommitLog` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:26`. |
 | `ConversationDebugInfo.remoteCommitLog` | var | `ConversationDebugInfo.remoteCommitLog` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:30`. |
 | `ConversationDebugInfo.commitLogForkStatus` | var | `ConversationDebugInfo.commitLogForkStatus` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:34`. |
-| `MessageDeliveryStatus` | enum | `MessageDeliveryStatus` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:7`. |
-| `MessageDeliveryStatus.all` | case | `MessageDeliveryStatus.all` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:8`. |
-| `MessageDeliveryStatus.published` | case | `MessageDeliveryStatus.published` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:9`. |
-| `MessageDeliveryStatus.unpublished` | case | `MessageDeliveryStatus.unpublished` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:10`. |
-| `MessageDeliveryStatus.failed` | case | `MessageDeliveryStatus.failed` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:11`. |
-| `SortDirection` | enum | `SortDirection` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:38`. |
-| `SortDirection.ascending` | case | `SortDirection.ascending` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:39`. |
-| `SortDirection.descending` | case | `SortDirection.descending` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:40`. |
-| `MessageSortBy` | enum | `MessageSortBy` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:61`. |
-| `MessageSortBy.sentAt` | case | `MessageSortBy.sentAt` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:62`. |
-| `MessageSortBy.insertedAt` | case | `MessageSortBy.insertedAt` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:63`. |
-| `DecodedMessage` | struct | `Message` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:84`. |
+| `MessageDeliveryStatus` | enum | `DeliveryStatus` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:7`. |
+| `MessageDeliveryStatus.all` | case | — | approved removal | 11.2, ListMessagesOptions | An absent filter includes all statuses. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:8`. |
+| `MessageDeliveryStatus.published` | case | `DeliveryStatus.published` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:9`. |
+| `MessageDeliveryStatus.unpublished` | case | `DeliveryStatus.unpublished` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:10`. |
+| `MessageDeliveryStatus.failed` | case | `DeliveryStatus.failed` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:11`. |
+| `SortDirection` | enum | `ListMessagesOptions.direction` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:38`. |
+| `SortDirection.ascending` | case | `ListMessagesOptions.direction.ascending` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:39`. |
+| `SortDirection.descending` | case | `ListMessagesOptions.direction.descending` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:40`. |
+| `MessageSortBy` | enum | `ListMessagesOptions.sortBy` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:61`. |
+| `MessageSortBy.sentAt` | case | `ListMessagesOptions.sortBy.sentAt` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:62`. |
+| `MessageSortBy.insertedAt` | case | `ListMessagesOptions.sortBy.insertedAt` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:63`. |
+| `DecodedMessage` | struct | `Message` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.5 | Deprecated alias for the Message host class. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:84`. |
 | `DecodedMessage.deliveryCursor` | let | `Message.deliveryCursor` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:88`. |
 | `DecodedMessage.id` | var | `Message.id` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:90`. |
 | `DecodedMessage.conversationId` | var | `Message.conversationID` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:94`. |
@@ -678,12 +678,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.topic` | var | `Message.topic` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:147`. |
 | `DecodedMessage.content` | func | `Message.content` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:151`. |
 | `DecodedMessage.fallback` | var | `Message.fallback` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:160`. |
-| `DecodedMessage.body` | var | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:166`. |
+| `DecodedMessage.body` | var | `Message.content` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:166`. |
 | `DecodedMessage.encodedContent` | var | `Message.encodedContent` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:176`. |
 | `DecodedMessage.create` | func | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:182`. |
 | `Intent` | typealias | `Intent` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:3`. |
 | `Actions` | typealias | `Actions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:4`. |
-| `DecodedMessageV2` | struct | `Message` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:6`. |
+| `DecodedMessageV2` | struct | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 19, decision 5 | The V2 type leaves the API; its value fields move to Message. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:6`. |
 | `DecodedMessageV2.id` | var | `Message.id` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:9`. |
 | `DecodedMessageV2.conversationId` | var | `Message.conversationID` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:13`. |
 | `DecodedMessageV2.senderInboxId` | var | `Message.senderInboxID` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift:17`. |
@@ -706,27 +706,27 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DisappearingMessageSettings.disappearStartingAtNs` | let | `DisappearingMessageSettings.disappearStartingAt.ns` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift:9`. |
 | `DisappearingMessageSettings.retentionDurationInNs` | let | `DisappearingMessageSettings.retentionDurationInNs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift:10`. |
 | `DisappearingMessageSettings.init` | init | `DisappearingMessageSettings.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift:12`. |
-| `MlsExtensionType` | enum | `MlsExtensionType` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:10`. |
-| `MlsExtensionType.applicationId` | case | `MlsExtensionType.applicationID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:11`. |
-| `MlsExtensionType.ratchetTree` | case | `MlsExtensionType.ratchetTree` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:12`. |
-| `MlsExtensionType.requiredCapabilities` | case | `MlsExtensionType.requiredCapabilities` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:13`. |
-| `MlsExtensionType.externalPub` | case | `MlsExtensionType.externalPub` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:14`. |
-| `MlsExtensionType.externalSenders` | case | `MlsExtensionType.externalSenders` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:15`. |
-| `MlsExtensionType.lastResort` | case | `MlsExtensionType.lastResort` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:16`. |
-| `MlsExtensionType.immutableMetadata` | case | `MlsExtensionType.immutableMetadata` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:17`. |
-| `MlsExtensionType.appDataDictionary` | case | `MlsExtensionType.appDataDictionary` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:18`. |
-| `MlsExtensionType.unknown` | case | `MlsExtensionType.unknown` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:19`. |
-| `MlsExtensionType.grease` | case | `MlsExtensionType.grease` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:20`. |
-| `InstallationCapabilities` | struct | `InstallationCapabilities` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:39`. |
-| `InstallationCapabilities.init` | init | `InstallationCapabilities.init` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:42`. |
-| `InstallationCapabilities.installationId` | var | `InstallationCapabilities.installationID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:47`. |
-| `InstallationCapabilities.isOwn` | var | `InstallationCapabilities.isOwn` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:52`. |
-| `InstallationCapabilities.supportedExtensions` | var | `InstallationCapabilities.supportedExtensions` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:58`. |
-| `InstallationCapabilities.capabilitiesKnown` | var | `InstallationCapabilities.capabilitiesKnown` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:65`. |
-| `InboxCapabilities` | struct | `InboxCapabilities` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:72`. |
-| `InboxCapabilities.init` | init | `InboxCapabilities.init` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:75`. |
-| `InboxCapabilities.inboxId` | var | `InboxCapabilities.inboxID` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:79`. |
-| `InboxCapabilities.installations` | var | `InboxCapabilities.installations` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:83`. |
+| `MlsExtensionType` | enum | `MlsExtensionType` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:10`. |
+| `MlsExtensionType.applicationId` | case | `MlsExtensionType.applicationId` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:11`. |
+| `MlsExtensionType.ratchetTree` | case | `MlsExtensionType.ratchetTree` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:12`. |
+| `MlsExtensionType.requiredCapabilities` | case | `MlsExtensionType.requiredCapabilities` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:13`. |
+| `MlsExtensionType.externalPub` | case | `MlsExtensionType.externalPub` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:14`. |
+| `MlsExtensionType.externalSenders` | case | `MlsExtensionType.externalSenders` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:15`. |
+| `MlsExtensionType.lastResort` | case | `MlsExtensionType.lastResort` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:16`. |
+| `MlsExtensionType.immutableMetadata` | case | `MlsExtensionType.immutableMetadata` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:17`. |
+| `MlsExtensionType.appDataDictionary` | case | `MlsExtensionType.appDataDictionary` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:18`. |
+| `MlsExtensionType.unknown` | case | `MlsExtensionType.unknown` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:19`. |
+| `MlsExtensionType.grease` | case | `MlsExtensionType.grease` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:20`. |
+| `InstallationCapabilities` | struct | `InstallationCapabilities` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:39`. |
+| `InstallationCapabilities.init` | init | — | approved removal | 11.2, Group.membershipCapabilities | FFI wrapper constructor is internal. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:42`. |
+| `InstallationCapabilities.installationId` | var | `InstallationCapabilities.installationID` | alias | 11.2, Group.membershipCapabilities | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:47`. |
+| `InstallationCapabilities.isOwn` | var | `InstallationCapabilities.isOwn` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:52`. |
+| `InstallationCapabilities.supportedExtensions` | var | `InstallationCapabilities.supportedExtensions` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:58`. |
+| `InstallationCapabilities.capabilitiesKnown` | var | `InstallationCapabilities.capabilitiesKnown` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:65`. |
+| `InboxCapabilities` | struct | `InboxCapabilities` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:72`. |
+| `InboxCapabilities.init` | init | — | approved removal | 11.2, Group.membershipCapabilities | FFI wrapper constructor is internal. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:75`. |
+| `InboxCapabilities.inboxId` | var | `InboxCapabilities.inboxID` | alias | 11.2, Group.membershipCapabilities | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:79`. |
+| `InboxCapabilities.installations` | var | `InboxCapabilities.installations` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:83`. |
 | `GroupMembershipCapabilities` | struct | `GroupMembershipCapabilities` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:102`. |
 | `GroupMembershipCapabilities.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | FFI constructor becomes internal plumbing. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:105`. |
 | `GroupMembershipCapabilities.contextExtensions` | var | `GroupMembershipCapabilities.contextExtensions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:110`. |
@@ -734,10 +734,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `GroupMembershipResult` | struct | `GroupMembershipResult` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipResult.swift:10`. |
 | `GroupMembershipResult.addedMembers` | var | `GroupMembershipResult.addedMembers` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipResult.swift:13`. |
 | `GroupMembershipResult.removedMembers` | var | `GroupMembershipResult.removedMembers` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipResult.swift:17`. |
-| `GroupMembershipResult.failedInstallationIds` | var | `GroupMembershipResult.failedInstallationIDs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipResult.swift:21`. |
+| `GroupMembershipResult.failedInstallationIds` | var | `GroupMembershipResult.failedInstallationIDs` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipResult.swift:21`. |
 | `SignatureKind` | typealias | `SignatureKind` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:10`. |
 | `InboxState` | struct | `InboxState` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:12`. |
-| `InboxState.inboxId` | var | `InboxState.inboxID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:15`. |
+| `InboxState.inboxId` | var | `InboxState.inboxID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:15`. |
 | `InboxState.identities` | var | `InboxState.identities` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:19`. |
 | `InboxState.installations` | var | `InboxState.installations` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:23`. |
 | `InboxState.recoveryIdentity` | var | `InboxState.recoveryIdentity` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/InboxState.swift:27`. |
@@ -745,24 +745,24 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Installation` | struct | `Installation` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Installation.swift:10`. |
 | `Installation.id` | var | `Installation.id` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Installation.swift:13`. |
 | `Installation.createdAt` | var | `Installation.createdAt.date` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Installation.swift:17`. |
-| `PermissionLevel` | enum | `PermissionLevel` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:10`. |
-| `PermissionLevel.Member` | case | `PermissionLevel.Member` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
-| `PermissionLevel.Admin` | case | `PermissionLevel.Admin` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
-| `PermissionLevel.SuperAdmin` | case | `PermissionLevel.SuperAdmin` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
+| `PermissionLevel` | enum | `Member.permissionLevel` | generated | 11.2, Member.permissionLevel | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:10`. |
+| `PermissionLevel.Member` | case | `Member.permissionLevel.member` | generated | 11.2, Member.permissionLevel | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
+| `PermissionLevel.Admin` | case | `Member.permissionLevel.admin` | generated | 11.2, Member.permissionLevel | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
+| `PermissionLevel.SuperAdmin` | case | `Member.permissionLevel.superAdmin` | generated | 11.2, Member.permissionLevel | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`. |
 | `Member` | struct | `Member` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:14`. |
-| `Member.inboxId` | var | `Member.inboxID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:17`. |
+| `Member.inboxId` | var | `Member.inboxID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:17`. |
 | `Member.identities` | var | `Member.identities` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:21`. |
 | `Member.permissionLevel` | var | `Member.permissionLevel` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:25`. |
 | `Member.consentState` | var | `Member.consentState` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:36`. |
-| `PermissionOption` | enum | `PermissionOption` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:3`. |
-| `PermissionOption.allow` | case | `PermissionOption.allow` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:4`. |
-| `PermissionOption.deny` | case | `PermissionOption.deny` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:5`. |
-| `PermissionOption.admin` | case | `PermissionOption.admin` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:6`. |
-| `PermissionOption.superAdmin` | case | `PermissionOption.superAdmin` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:7`. |
-| `PermissionOption.unknown` | case | `PermissionOption.unknown` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:8`. |
-| `GroupPermissionPreconfiguration` | enum | `GroupPermissionPreconfiguration` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:45`. |
-| `GroupPermissionPreconfiguration.allMembers` | case | `GroupPermissionPreconfiguration.allMembers` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:46`. |
-| `GroupPermissionPreconfiguration.adminOnly` | case | `GroupPermissionPreconfiguration.adminOnly` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:47`. |
+| `PermissionOption` | enum | `PermissionPolicy` | generated | 11.2, Group.updatePermission and PermissionPolicySet | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:3`. |
+| `PermissionOption.allow` | case | `PermissionPolicy.allow` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:4`. |
+| `PermissionOption.deny` | case | `PermissionPolicy.deny` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:5`. |
+| `PermissionOption.admin` | case | `PermissionPolicy.admin` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:6`. |
+| `PermissionOption.superAdmin` | case | `PermissionPolicy.superAdmin` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:7`. |
+| `PermissionOption.unknown` | case | `PermissionPolicy.unknown` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:8`. |
+| `GroupPermissionPreconfiguration` | enum | `CreateGroupOptions.permissions` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:45`. |
+| `GroupPermissionPreconfiguration.allMembers` | case | `CreateGroupOptions.permissions.allMembers` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:46`. |
+| `GroupPermissionPreconfiguration.adminOnly` | case | `CreateGroupOptions.permissions.adminOnly` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:47`. |
 | `PermissionPolicySet` | class | `PermissionPolicySet` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:61`. |
 | `PermissionPolicySet.addMemberPolicy` | var | `PermissionPolicySet.addMemberPolicy` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:62`. |
 | `PermissionPolicySet.removeMemberPolicy` | var | `PermissionPolicySet.removeMemberPolicy` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:63`. |
@@ -794,7 +794,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `XMTPDebugInformation.apiStatistics` | var | `Diagnostics.apiStatistics` | generated | 11.4 Swift, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:17`. |
 | `XMTPDebugInformation.identityStatistics` | var | `Diagnostics.identityStatistics` | generated | 11.4 Swift, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:21`. |
 | `XMTPDebugInformation.aggregateStatistics` | var | `Diagnostics.aggregateStatistics` | generated | 11.4 Swift, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:25`. |
-| `XMTPDebugInformation.clearAllStatistics` | func | `Diagnostics.clearAllStatistics` | generated | 11.4 Swift, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:29`. |
+| `XMTPDebugInformation.clearAllStatistics` | func | `Diagnostics.clearStatistics` | generated | 11.4 Swift, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:29`. |
 | `XMTPDebugInformation.uploadDebugInformation` | func | — | approved removal | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:34`. |
 | `ApiStats` | class | `ApiStats` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:40`. |
 | `ApiStats.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | FFI constructor becomes internal plumbing. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:43`. |
@@ -805,7 +805,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ApiStats.subscribeStatic` | var | `ApiStats.subscribeStatic` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:63`. |
 | `IdentityStats` | class | `IdentityStats` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:68`. |
 | `IdentityStats.init` | init | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | FFI constructor becomes internal plumbing. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:71`. |
-| `IdentityStats.getInboxIds` | var | `IdentityStats.getInboxIDs` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:75`. |
+| `IdentityStats.getInboxIds` | var | `IdentityStats.getInboxIDs` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:75`. |
 | `IdentityStats.verifySmartContractWalletSignatures` | var | `IdentityStats.verifySmartContractWalletSignatures` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/XMTPDebugInformation.swift:79`. |
 | `pattern: ^(?:FfiConverter[^.]*\|func FfiConverter[^ ]*)(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (858 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^Ffi(?!Converter)[A-Za-z0-9_]*(?:Callback\|Listener)(?:Impl)?(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (72 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
@@ -1200,7 +1200,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `FfiStreamFailureKind.publishedButUnconfirmed` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift:17423`. |
 | `FfiStreamFailureKind.catchUp` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift:17424`. |
 | `DeliveryCursor` | typealias | `DeliveryCursor` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:3`. |
-| `MessageCatchUpSnapshot` | typealias | `MessageCatchUpSnapshot` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:4`. |
+| `MessageCatchUpSnapshot` | typealias | `CatchUp` | generated | 11.2, MessageReader.catchUpSnapshot | Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:4`. |
 | `MessageHistorySnapshot` | struct | `MessageHistorySnapshot` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:7`. |
 | `MessageHistorySnapshot.messages` | let | `MessageHistorySnapshot.messages` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:8`. |
 | `MessageHistorySnapshot.cursor` | let | `MessageHistorySnapshot.cursor` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift:9`. |
@@ -1249,14 +1249,14 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `EntryType` | enum | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:7`. |
 | `EntryType.conversation_id` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:8`. |
 | `EntryType.inbox_id` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:8`. |
-| `PreferenceType` | enum | `PreferenceType` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:11`. |
-| `PreferenceType.hmac_keys` | case | `PreferenceType.hmac_keys` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:12`. |
+| `PreferenceType` | enum | — | approved removal | 11.8, hmacKeysUpdated event | The preference stream becomes a live event. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:11`. |
+| `PreferenceType.hmac_keys` | case | — | approved removal | 11.8, hmacKeysUpdated event | The preference stream becomes a live event. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:12`. |
 | `ConsentRecord` | struct | `ConsentRecord` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:15`. |
 | `ConsentRecord.init` | init | `ConsentRecord.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:16`. |
 | `ConsentRecord.value` | var | `ConsentRecord.entity.value` | generated | 11.4 Swift, Messages, codecs, preferences, values | ConsentRecord uses an entity and a state. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:39`. |
 | `ConsentRecord.entryType` | var | `ConsentRecord.entity.kind` | generated | 11.4 Swift, Messages, codecs, preferences, values | ConsentRecord uses an entity and a state. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:40`. |
 | `ConsentRecord.consentType` | var | `ConsentRecord.state` | generated | 11.4 Swift, Messages, codecs, preferences, values | ConsentRecord uses an entity and a state. Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:41`. |
-| `PrivatePreferences` | actor | `Preferences` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:49`. |
+| `PrivatePreferences` | actor | `Preferences` | alias | 11.4 Swift, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:49`. |
 | `PrivatePreferences.setConsentState` | func | `Preferences.setConsentStates` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:56`. |
 | `PrivatePreferences.conversationState` | func | `Preferences.consentState` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:60`. |
 | `PrivatePreferences.inboxIdState` | func | `Preferences.consentState` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:69`. |
@@ -1270,9 +1270,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `SendOptions.ephemeral` | var | `SendOptions.ephemeral` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift:13`. |
 | `SendOptions.idempotencyKey` | var | `SendOptions.idempotencyKey` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift:16`. |
 | `SendOptions.init` | init | `SendOptions.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift:18`. |
-| `SigningKeyDescription` | struct | `SigningKeyDescription` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:17`. |
-| `SigningKeyDescription.kid` | let | `SigningKeyDescription.kid` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:18`. |
-| `SigningKeyDescription.alg` | let | `SigningKeyDescription.alg` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:19`. |
+| `SigningKeyDescription` | struct | `AuthConfiguration.keys` | generated | 11.1, AuthConfiguration | Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:17`. |
+| `SigningKeyDescription.kid` | let | `AuthConfiguration.keys.kid` | generated | 11.1, AuthConfiguration | Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:18`. |
+| `SigningKeyDescription.alg` | let | `AuthConfiguration.keys.alg` | generated | 11.1, AuthConfiguration | Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:19`. |
 | `AuthConfiguration` | struct | `AuthConfiguration` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:29`. |
 | `AuthConfiguration.enabled` | let | `AuthConfiguration.enabled` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:30`. |
 | `AuthConfiguration.keys` | let | `AuthConfiguration.keys` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:31`. |
@@ -1352,12 +1352,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `SigningKey.type` | var | `Signer.kind` | generated | 11.4 Swift, Client and options; 11.1 | Source: `sdks/ios/Sources/XMTPiOS/SigningKey.swift:27`. |
 | `SigningKey.chainId` | var | `Signer.chainID` | generated | 11.4 Swift, Client and options; 11.1 | Source: `sdks/ios/Sources/XMTPiOS/SigningKey.swift:31`. |
 | `SigningKey.blockNumber` | var | `Signer.blockNumber` | generated | 11.4 Swift, Client and options; 11.1 | Source: `sdks/ios/Sources/XMTPiOS/SigningKey.swift:35`. |
-| `StreamFailureKind` | typealias | `StreamFailureKind` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:3`. |
-| `StreamBarrierReason` | typealias | `StreamBarrierReason` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:4`. |
-| `StreamBarrierCauseKind` | typealias | `StreamBarrierCauseKind` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:5`. |
-| `StreamBarrierCause` | typealias | `StreamBarrierCause` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:6`. |
-| `StreamBarrierTopic` | typealias | `StreamBarrierTopic` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:7`. |
-| `StreamBarrierFailure` | typealias | `StreamBarrierFailure` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:8`. |
+| `StreamFailureKind` | typealias | `StreamFailureKind` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:3`. |
+| `StreamBarrierReason` | typealias | `StreamBarrierReason` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:4`. |
+| `StreamBarrierCauseKind` | typealias | `StreamBarrierCauseKind` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:5`. |
+| `StreamBarrierCause` | typealias | `StreamBarrierCause` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:6`. |
+| `StreamBarrierTopic` | typealias | `StreamBarrierTopic` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:7`. |
+| `StreamBarrierFailure` | typealias | `StreamBarrierFailure` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:8`. |
 | `StreamFailureDetails` | typealias | `StreamFailureDetails` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:9`. |
 | `Error.streamFailureDetails` | var | — | approved removal | 11.4 Swift, Client and options | Typed XmtpError details replace this extension. Source: `sdks/ios/Sources/XMTPiOS/StreamFailure.swift:15`. |
 | `CatchUpSummary` | struct | `CatchUpSummary` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/StreamLifecycle.swift:10`. |
@@ -1368,7 +1368,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Topic` | enum | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Topic.swift:8`. |
 | `Topic.userWelcome` | case | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Topic.swift:9`. |
 | `AppDataChange` | struct | `AppDataChange` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:4`. |
-| `AppDataChange.groupId` | let | `AppDataChange.groupID` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:6`. |
+| `AppDataChange.groupId` | let | `AppDataChange.groupID` | alias | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:6`. |
 | `AppDataChange.oldValue` | let | `AppDataChange.oldValue` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:8`. |
 | `AppDataChange.newValue` | let | `AppDataChange.newValue` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:10`. |
 | `AppDataChangeHandler` | protocol | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/UnstableChangeCallbacks.swift:26`. |
@@ -1404,17 +1404,17 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ClientOptions.deviceSyncEnabled` | constructor property | `ClientOptions.deviceSync` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:59`. |
 | `ClientOptions.forkRecoveryOptions` | constructor property | `ClientOptions.forkRecovery` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:60`. |
 | `ClientOptions.dbPoolOptions` | constructor property | `ClientOptions.storage.pool` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:61`. |
-| `ClientOptions.waitForRegistrationVisible` | constructor property | `ClientOptions.waitForRegistrationVisible` | alias | plan Decisions, waitForRegistrationVisible | Deprecated option keeps its shape and has no effect. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:62`. |
+| `ClientOptions.waitForRegistrationVisible` | constructor property | — | approved removal | 11.4 Kotlin, Client and options | Registration always waits for visibility; the old option leaves the final API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:62`. |
 | `ClientOptions.unstableChangeCallbacks` | constructor property | — | approved removal | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:67`. |
-| `ClientOptions.Api` | class | `BackendOptions` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:69`. |
+| `ClientOptions.Api` | class | `BackendOptions` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:69`. |
 | `ClientOptions.Api.backendUrl` | constructor property | `BackendOptions.url` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:70`. |
 | `ClientOptions.Api.env` | constructor property | `StorageOptions.label` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:71`. |
 | `ClientOptions.Api.appVersion` | constructor property | `BackendOptions.appVersion` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:72`. |
 | `ClientOptions.Api.authCallback` | constructor property | `BackendOptions.credentials` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:73`. |
-| `ForkRecoveryPolicy` | class | `ForkRecoveryPolicy` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:91`. |
-| `ForkRecoveryPolicy.None` | enum case | `ForkRecoveryPolicy.None` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:92`. |
-| `ForkRecoveryPolicy.AllowlistedGroups` | enum case | `ForkRecoveryPolicy.AllowlistedGroups` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:93`. |
-| `ForkRecoveryPolicy.All` | enum case | `ForkRecoveryPolicy.All` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:94`. |
+| `ForkRecoveryPolicy` | class | `ForkRecoveryOptions.policy` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:91`. |
+| `ForkRecoveryPolicy.None` | enum case | `ForkRecoveryOptions.policy.none` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:92`. |
+| `ForkRecoveryPolicy.AllowlistedGroups` | enum case | `ForkRecoveryOptions.policy.allowlistedGroups` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:93`. |
+| `ForkRecoveryPolicy.All` | enum case | `ForkRecoveryOptions.policy.all` | generated | 11.1, ForkRecoveryOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:94`. |
 | `ForkRecoveryPolicy.toFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:97`. |
 | `ForkRecoveryOptions` | class | `ForkRecoveryOptions` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:105`. |
 | `ForkRecoveryOptions.enableRecoveryRequests` | constructor property | `ForkRecoveryOptions.enableRecoveryRequests` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:106`. |
@@ -1425,20 +1425,20 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `VisibilityConfirmationOptions` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:120`. |
 | `VisibilityConfirmationOptions.timeoutMs` | constructor property | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:121`. |
 | `VisibilityConfirmationOptions.toFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:123`. |
-| `DbPoolOptions` | class | `DbPoolOptions` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:129`. |
-| `DbPoolOptions.maxPoolSize` | constructor property | `DbPoolOptions.maxPoolSize` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:130`. |
-| `DbPoolOptions.minPoolSize` | constructor property | `DbPoolOptions.minPoolSize` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:131`. |
-| `InboxId` | typealias | `InboxID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; plan Decisions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:134`. |
+| `DbPoolOptions` | class | `StorageOptions.pool` | generated | 11.1, StorageOptions.pool | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:129`. |
+| `DbPoolOptions.maxPoolSize` | constructor property | `StorageOptions.pool.max` | generated | 11.1, StorageOptions.pool | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:130`. |
+| `DbPoolOptions.minPoolSize` | constructor property | `StorageOptions.pool.min` | generated | 11.1, StorageOptions.pool | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:131`. |
+| `InboxId` | typealias | `InboxID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; plan Decisions | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:134`. |
 | `Client` | class | `Client` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:136`. |
-| `Client.dbPath` | constructor property | `Client.storage.path` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:138`. |
-| `Client.installationId` | constructor property | `Client.installationID` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:139`. |
-| `Client.inboxId` | constructor property | `Client.inboxID` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:140`. |
-| `Client.environment` | constructor property | `Client.options.storage.label` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:141`. |
-| `Client.publicIdentity` | constructor property | `Client.identity` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:142`. |
+| `Client.dbPath` | constructor property | `Client.storage.path` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:138`. |
+| `Client.installationId` | constructor property | `Client.installationID` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:139`. |
+| `Client.inboxId` | constructor property | `Client.inboxID` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:140`. |
+| `Client.environment` | constructor property | `Client.options.storage.label` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:141`. |
+| `Client.publicIdentity` | constructor property | `Client.identity` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:142`. |
 | `Client.preferences` | val | `Client.preferences` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:144`. |
 | `Client.conversations` | val | `Client.conversations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:146`. |
-| `Client.debugInformation` | val | `Client.diagnostics` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:152`. |
-| `Client.libXMTPVersion` | val | `Client.libxmtpVersion` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:154`. |
+| `Client.debugInformation` | val | `Client.diagnostics` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:152`. |
+| `Client.libXMTPVersion` | val | `Client.libxmtpVersion` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:154`. |
 | `Client.enableNotifications` | fun | `Client.enableNotifications` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:158`. |
 | `Client.disableNotifications` | fun | `Client.disableNotifications` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:168`. |
 | `Client.notificationState` | fun | `Client.notificationState` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:178`. |
@@ -1452,17 +1452,17 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.Companion.setLibXMTPNativeLogLevel` | fun | `Client.setLibXMTPNativeLogLevel` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:251`. |
 | `Client.Companion.getXMTPLogFilePaths` | fun | `Client.getXMTPLogFilePaths` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:255`. |
 | `Client.Companion.clearXMTPLogs` | fun | `Client.clearXMTPLogs` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:268`. |
-| `Client.Companion.connectToApiBackend` | fun | `Backend.connect` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:290`. |
-| `Client.Companion.getOrCreateInboxId` | fun | `Client.inboxID` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:323`. |
+| `Client.Companion.connectToApiBackend` | fun | `Backend.connect` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:290`. |
+| `Client.Companion.getOrCreateInboxId` | fun | `Client.inboxID(for:)` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:323`. |
 | `Client.Companion.revokeInstallations` | fun | `Client.revokeInstallations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:340`. |
-| `Client.Companion.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:357`. |
-| `Client.Companion.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:374`. |
-| `Client.Companion.register` | fun | `Client.register` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:382`. |
-| `Client.Companion.inboxStatesForInboxIds` | fun | `Client.inboxStates` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:424`. |
+| `Client.Companion.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:357`. |
+| `Client.Companion.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:374`. |
+| `Client.Companion.register(codec)` | fun | — | approved removal | 11.4 Kotlin, Client and options | The global codec registration method moves to ClientOptions.codecs; Client.register() registers an identity. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:382`. |
+| `Client.Companion.inboxStatesForInboxIds` | fun | `Client.inboxStates` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:424`. |
 | `Client.Companion.fetchServerConfiguration` | fun | `Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:445`. |
 | `Client.Companion.fetchServerConfiguration` | fun | `Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:454`. |
-| `Client.Companion.getNewestMessageMetadata` | fun | `Client.newestMessageMetadata` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:457`. |
-| `Client.Companion.keyPackageStatusesForInstallationIds` | fun | `Client.keyPackageStatuses` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:470`. |
+| `Client.Companion.getNewestMessageMetadata` | fun | `Client.newestMessageMetadata` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:457`. |
+| `Client.Companion.keyPackageStatusesForInstallationIds` | fun | `Client.keyPackageStatuses` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:470`. |
 | `Client.Companion.canMessage` | fun | `Client.canMessage` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:484`. |
 | `Client.Companion.create` | fun | `Client.create` | static runtime | 11.4 Kotlin, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:570`. |
 | `Client.Companion.createInMemory` | fun | — | approved removal | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:600`. |
@@ -1470,13 +1470,13 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.Companion.ffiCreateClient` | fun | — | approved removal | 11.4 Kotlin, Client and options | Deprecated binding entry point; create/build are host wrappers. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:747`. |
 | `Client.revokeInstallations` | fun | `Client.revokeInstallations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:777`. |
 | `Client.revokeAllOtherInstallations` | fun | `Client.revokeAllOtherInstallations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:787`. |
-| `Client.addAccount` | fun | `Client.unsafeAddAccount` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:798`. |
+| `Client.addAccount` | fun | `Client.unsafeAddAccount` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:798`. |
 | `Client.removeAccount` | fun | `Client.removeAccount` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:807`. |
 | `Client.signWithInstallationKey` | fun | `Client.signWithInstallationKey` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:816`. |
-| `Client.verifySignature` | fun | `Client.verifySignedWithInstallationKey` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:818`. |
-| `Client.verifySignatureWithInstallationId` | fun | `Client.verifySignedWithPublicKey` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:829`. |
+| `Client.verifySignature` | fun | `Client.verifySignedWithInstallationKey` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:818`. |
+| `Client.verifySignatureWithInstallationId` | fun | `Client.verifySignedWithPublicKey` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:829`. |
 | `Client.canMessage` | fun | `Client.canMessage` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:841`. |
-| `Client.inboxIdFromIdentity` | fun | `Client.inboxID` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:851`. |
+| `Client.inboxIdFromIdentity` | fun | `Client.inboxID(for:)` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:851`. |
 | `Client.deleteLocalDatabase` | fun | `Client.storage.delete` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:856`. |
 | `Client.dropLocalDatabaseConnection` | fun | `Client.end()` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:867`. |
 | `Client.reconnectLocalDatabase` | fun | `Client.storage.reconnect` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:875`. |
@@ -1489,26 +1489,26 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.createArchive` | fun | `Client.archives.exportToFile` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:956`. |
 | `Client.importArchive` | fun | `Client.archives.importFromFile` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:964`. |
 | `Client.archiveMetadata` | fun | `Client.archives.metadataFromFile` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:971`. |
-| `Client.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:982`. |
-| `Client.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:989`. |
-| `Client.ffiRevokeAllOtherInstallations` | fun | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:995`. |
-| `Client.ffiRevokeIdentity` | fun | `Client.unsafeRemoveAccountSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1001`. |
-| `Client.ffiAddIdentity` | fun | `Client.unsafeAddAccountSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1007`. |
-| `Client.ffiSignatureRequest` | fun | `Client.unsafeCreateInboxSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1033`. |
-| `Client.ffiRegisterIdentity` | fun | `Client.register` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1038`. |
+| `Client.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:982`. |
+| `Client.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:989`. |
+| `Client.ffiRevokeAllOtherInstallations` | fun | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:995`. |
+| `Client.ffiRevokeIdentity` | fun | `Client.unsafeRemoveAccountSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1001`. |
+| `Client.ffiAddIdentity` | fun | `Client.unsafeAddAccountSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1007`. |
+| `Client.ffiSignatureRequest` | fun | `Client.unsafeCreateInboxSignatureRequest` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1033`. |
+| `Client.ffiRegisterIdentity` | fun | `Client.register` | alias | 11.4 Kotlin, Client and options | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:1038`. |
 | `CodecRegistry` | class | `CodecRegistry` | static runtime | 4, per-client codec registry | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:8`. |
 | `CodecRegistry.codecs` | constructor property | `CodecRegistry.codecs` | static runtime | 4, per-client codec registry | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:9`. |
 | `CodecRegistry.register` | fun | `CodecRegistry.register` | static runtime | 4, per-client codec registry | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:11`. |
 | `CodecRegistry.find` | fun | `CodecRegistry.find` | static runtime | 4, per-client codec registry | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:16`. |
-| `CodecRegistry.findFromId` | fun | `CodecRegistry.findFromID` | static runtime | 4, per-client codec registry | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:26`. |
+| `CodecRegistry.findFromId` | fun | `CodecRegistry.findFromID` | alias | 4, per-client codec registry | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/CodecRegistry.kt:26`. |
 | `Conversation` | class | `Conversation` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:18`. |
 | `Conversation.Group` | class | `Conversation.Group` | generated | 11.4 Kotlin, Conversation, Group, Dm | Tagged conversation variant stays. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:19`. |
 | `Conversation.Group.group` | constructor property | `Conversation.Group.group` | generated | 11.4 Kotlin, Conversation, Group, Dm | Tagged conversation variant stays. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:20`. |
 | `Conversation.Dm` | class | `Conversation.Dm` | generated | 11.4 Kotlin, Conversation, Group, Dm | Tagged conversation variant stays. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:23`. |
 | `Conversation.Dm.dm` | constructor property | `Conversation.Dm.dm` | generated | 11.4 Kotlin, Conversation, Group, Dm | Tagged conversation variant stays. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:24`. |
-| `Conversation.Type` | class | `ConversationKind` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:27`. |
-| `Conversation.Type.GROUP` | enum case | `ConversationKind.GROUP` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:28`. |
-| `Conversation.Type.DM` | enum case | `ConversationKind.DM` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:29`. |
+| `Conversation.Type` | class | `ConversationKind` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:27`. |
+| `Conversation.Type.GROUP` | enum case | `ConversationKind.GROUP` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:28`. |
+| `Conversation.Type.DM` | enum case | `ConversationKind.DM` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:29`. |
 | `Conversation.type` | val | `Conversation.kind` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:32`. |
 | `Conversation.id` | val | `Conversation.id` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:40`. |
 | `Conversation.topic` | val | `Conversation.topic` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:48`. |
@@ -1540,38 +1540,38 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.publishMessages` | fun | `Conversation.publishMessages` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:435`. |
 | `Conversation.publishMessage` | fun | `Conversation.publishMessage` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:447`. |
 | `Conversation.pausedForVersion` | fun | `Conversation.state().pausedForVersion` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:457`. |
-| `Conversation.client` | val | `Conversation.client` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:465`. |
+| `Conversation.client` | val | — | approved removal | 11.1-11.2, generated live objects | The old wrapper's internal client field is not public on the facade. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:465`. |
 | `Conversation.messageReader` | fun | `Conversation.messageReader` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:473`. |
 | `Conversation.messageHistorySnapshot` | fun | `Conversation.messageHistorySnapshot` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:479`. |
 | `Conversation.beginningDeliveryCursor` | fun | `Conversation.beginningDeliveryCursor` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:485`. |
-| `Conversation.streamMessages` | fun | `Conversation.stream` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:492`. |
+| `Conversation.streamMessages` | fun | `Conversation.stream` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:492`. |
 | `Conversation.getHmacKeys` | fun | `Conversation.hmacKeys` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:498`. |
 | `Conversation.setNotifications` | fun | `Conversation.setNotifications` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:507`. |
 | `Conversation.notificationsEnabled` | fun | `Conversation.state().notificationsEnabled` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:516`. |
-| `Conversation.getDebugInformation` | fun | `Conversation.debugInfo` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:524`. |
+| `Conversation.getDebugInformation` | fun | `Conversation.debugInfo` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:524`. |
 | `Conversation.isActive` | fun | `Conversation.state().isActive` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:532`. |
 | `Conversation.getLastReadTimes` | fun | `Conversation.lastReadTimes` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:542`. |
 | `GroupSyncSummary` | class | `GroupSyncSummary` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:36`. |
-| `GroupSyncSummary.numEligible` | constructor property | `GroupSyncSummary.numEligible` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:37`. |
-| `GroupSyncSummary.numSynced` | constructor property | `GroupSyncSummary.numSynced` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:38`. |
+| `GroupSyncSummary.numEligible` | constructor property | `GroupSyncSummary.eligible` | generated | 11.1, GroupSyncSummary | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:37`. |
+| `GroupSyncSummary.numSynced` | constructor property | `GroupSyncSummary.synced` | generated | 11.1, GroupSyncSummary | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:38`. |
 | `GroupSyncSummary.Companion` | object | `GroupSyncSummary.Companion` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:40`. |
 | `GroupSyncSummary.Companion.fromFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:41`. |
 | `GroupSyncSummary.toFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:48`. |
 | `Conversations` | class | `Conversations` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:55`. |
-| `Conversations.client` | constructor property | `Conversations.client` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:56`. |
+| `Conversations.client` | constructor property | — | approved removal | 11.1-11.2, generated live objects | The old wrapper's internal client field is not public on the facade. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:56`. |
 | `Conversations.ConversationFilterType` | class | — | approved removal | 11.4 Kotlin, Conversations | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:60`. |
 | `Conversations.ConversationFilterType.ALL` | enum case | — | approved removal | 11.4 Kotlin, Conversations | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:61`. |
 | `Conversations.ConversationFilterType.GROUPS` | enum case | — | approved removal | 11.4 Kotlin, Conversations | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:62`. |
 | `Conversations.ConversationFilterType.DMS` | enum case | — | approved removal | 11.4 Kotlin, Conversations | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:63`. |
-| `Conversations.ListConversationsOrderBy` | class | `ConversationOrder` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:66`. |
-| `Conversations.ListConversationsOrderBy.CREATED_AT` | enum case | `ConversationOrder.CREATED_AT` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:67`. |
-| `Conversations.ListConversationsOrderBy.LAST_ACTIVITY` | enum case | `ConversationOrder.LAST_ACTIVITY` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:68`. |
-| `Conversations.findGroup` | fun | `Conversations.getByID` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:77`. |
-| `Conversations.findConversation` | fun | `Conversations.getByID` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:86`. |
-| `Conversations.findConversationByTopic` | fun | `Conversations.getByID` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:100`. |
-| `Conversations.findDmByInboxId` | fun | `Conversations.getDmByInboxID` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:117`. |
-| `Conversations.findDmByIdentity` | fun | `Conversations.getDmByIdentity` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:126`. |
-| `Conversations.findMessage` | fun | `Conversations.getMessageByID` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:134`. |
+| `Conversations.ListConversationsOrderBy` | class | `ConversationOrder` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:66`. |
+| `Conversations.ListConversationsOrderBy.CREATED_AT` | enum case | `ConversationOrder.CREATED_AT` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:67`. |
+| `Conversations.ListConversationsOrderBy.LAST_ACTIVITY` | enum case | `ConversationOrder.LAST_ACTIVITY` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:68`. |
+| `Conversations.findGroup` | fun | `Conversations.getByID` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:77`. |
+| `Conversations.findConversation` | fun | `Conversations.getByID` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:86`. |
+| `Conversations.findConversationByTopic` | fun | `Conversations.getByID` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:100`. |
+| `Conversations.findDmByInboxId` | fun | `Conversations.getDmByInboxID` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:117`. |
+| `Conversations.findDmByIdentity` | fun | `Conversations.getDmByIdentity` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:126`. |
+| `Conversations.findMessage` | fun | `Conversations.getMessageByID` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:134`. |
 | `Conversations.findEnrichedMessage` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:143`. |
 | `Conversations.fromWelcome` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:153`. |
 | `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:164`. |
@@ -1580,7 +1580,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.newGroupCustomPermissions` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:276`. |
 | `Conversations.newGroupOptimistic` | fun | `Conversations.createGroupOptimistic` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:333`. |
 | `Conversations.sync` | fun | `Conversations.sync` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:370`. |
-| `Conversations.syncAllConversations` | fun | `Conversations.syncAll` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:373`. |
+| `Conversations.syncAllConversations` | fun | `Conversations.syncAll` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:373`. |
 | `Conversations.newConversationWithIdentity` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:384`. |
 | `Conversations.findOrCreateDmWithIdentity` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:393`. |
 | `Conversations.newConversation` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:420`. |
@@ -1596,7 +1596,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.streamMessageDeletions` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:720`. |
 | `Conversations.getHmacKeys` | fun | `Conversations.hmacKeys` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:740`. |
 | `Conversations.deleteMessageLocally` | fun | `Conversations.deleteMessageLocally` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:761`. |
-| `CipherText` | typealias | `CipherText` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:13`. |
+| `CipherText` | typealias | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1, attachment encryption | The protobuf ciphertext wrapper is replaced by Rust encryption records. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:13`. |
 | `Crypto` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:15`. |
 | `Crypto.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:16`. |
 | `Crypto.Companion.encrypt` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:19`. |
@@ -1604,7 +1604,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DelicateApi` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/DelicateApi.kt:6`. |
 | `DelicateApi.message` | constructor property | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/DelicateApi.kt:7`. |
 | `Dm` | class | `Dm` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:31`. |
-| `Dm.client` | constructor property | `Dm.client` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:32`. |
+| `Dm.client` | constructor property | — | approved removal | 11.1-11.2, generated live objects | The old wrapper's internal client field is not public on the facade. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:32`. |
 | `Dm.id` | val | `Dm.id` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:37`. |
 | `Dm.topic` | val | `Dm.topic` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:40`. |
 | `Dm.createdAt` | val | `Dm.createdAt.date` | generated | 11.4 Kotlin, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:43`. |
@@ -1631,14 +1631,14 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.countMessages` | fun | `Dm.countMessages` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:309`. |
 | `Dm.enrichedMessages` | fun | — | approved removal | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:370`. |
 | `Dm.processMessage` | fun | `Dm.processStreamedMessage` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:432`. |
-| `Dm.creatorInboxId` | fun | `Dm.creatorInboxID` | generated | 11.2, immutable conversation fields | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:439`. |
+| `Dm.creatorInboxId` | fun | `Dm.creatorInboxID` | alias | 11.2, immutable conversation fields | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:439`. |
 | `Dm.isCreator` | fun | `Dm.isCreator` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:441`. |
 | `Dm.isActive` | fun | `Dm.state().isActive` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:443`. |
 | `Dm.members` | fun | `Dm.members` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:445`. |
 | `Dm.messageReader` | fun | `Dm.messageReader` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:448`. |
 | `Dm.messageHistorySnapshot` | fun | `Dm.messageHistorySnapshot` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:451`. |
 | `Dm.beginningDeliveryCursor` | fun | `Dm.beginningDeliveryCursor` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:454`. |
-| `Dm.streamMessages` | fun | `Dm.stream` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:458`. |
+| `Dm.streamMessages` | fun | `Dm.stream` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:458`. |
 | `Dm.clearDisappearingMessageSettings` | fun | `Dm.updateDisappearingSettings` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:463`. |
 | `Dm.updateDisappearingMessageSettings` | fun | `Dm.updateDisappearingSettings` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:475`. |
 | `Dm.updateConsentState` | fun | `Dm.updateConsentState` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:496`. |
@@ -1647,7 +1647,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.getHmacKeys` | fun | `Dm.hmacKeys` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:510`. |
 | `Dm.setNotifications` | fun | `Dm.setNotifications` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:532`. |
 | `Dm.notificationsEnabled` | fun | `Dm.state().notificationsEnabled` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:536`. |
-| `Dm.getDebugInformation` | fun | `Dm.debugInfo` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:538`. |
+| `Dm.getDebugInformation` | fun | `Dm.debugInfo` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:538`. |
 | `Dm.getLastReadTimes` | fun | `Dm.lastReadTimes` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:543`. |
 | `Dm.equals` | fun | `Dm.equals` | static runtime | 11.7, value equality | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:545`. |
 | `Dm.hashCode` | fun | `Dm.hashCode` | static runtime | 11.7, value equality | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:554`. |
@@ -1657,7 +1657,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `EncodedContentCompression.compress` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/EncodedContentCompression.kt:15`. |
 | `EncodedContentCompression.decompress` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/EncodedContentCompression.kt:38`. |
 | `Group` | class | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:43`. |
-| `Group.client` | constructor property | `Group.client` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:44`. |
+| `Group.client` | constructor property | — | approved removal | 11.1-11.2, generated live objects | The old wrapper's internal client field is not public on the facade. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:44`. |
 | `Group.id` | val | `Group.id` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:49`. |
 | `Group.topic` | val | `Group.topic` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:52`. |
 | `Group.createdAt` | val | `Group.createdAt.date` | generated | 11.4 Kotlin, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:55`. |
@@ -1695,16 +1695,16 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.consentState` | fun | `Group.state().consentState` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:447`. |
 | `Group.isActive` | fun | `Group.state().isActive` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:452`. |
 | `Group.membershipState` | fun | `Group.state().membershipState` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:454`. |
-| `Group.addedByInboxId` | fun | `Group.addedByInboxID` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:459`. |
+| `Group.addedByInboxId` | fun | `Group.addedByInboxID` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:459`. |
 | `Group.permissionPolicySet` | fun | `Group.state().permissions.policySet` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:461`. |
-| `Group.creatorInboxId` | fun | `Group.creatorInboxID` | generated | 11.2, immutable conversation fields | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:466`. |
+| `Group.creatorInboxId` | fun | `Group.creatorInboxID` | alias | 11.2, immutable conversation fields | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:466`. |
 | `Group.isCreator` | fun | `Group.isCreator` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:468`. |
 | `Group.addMembersByIdentity` | fun | `Group.addMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:470`. |
 | `Group.removeMembersByIdentity` | fun | `Group.removeMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:480`. |
 | `Group.addMembers` | fun | `Group.addMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:489`. |
 | `Group.removeMembers` | fun | `Group.removeMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:500`. |
 | `Group.members` | fun | `Group.members` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:510`. |
-| `Group.peerInboxIds` | fun | `Group.peerInboxIDs` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:512`. |
+| `Group.peerInboxIds` | fun | `Group.peerInboxIDs` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:512`. |
 | `Group.updateName` | fun | `Group.updateName` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:519`. |
 | `Group.updateImageUrl` | fun | `Group.updateImageUrl` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:528`. |
 | `Group.updateDescription` | fun | `Group.updateDescription` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:537`. |
@@ -1733,14 +1733,14 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.messageReader` | fun | `Group.messageReader` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:766`. |
 | `Group.messageHistorySnapshot` | fun | `Group.messageHistorySnapshot` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:769`. |
 | `Group.beginningDeliveryCursor` | fun | `Group.beginningDeliveryCursor` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:772`. |
-| `Group.streamMessages` | fun | `Group.stream` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:776`. |
+| `Group.streamMessages` | fun | `Group.stream` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:776`. |
 | `Group.getHmacKeys` | fun | `Group.hmacKeys` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:781`. |
 | `Group.countMessages` | fun | `Group.countMessages` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:802`. |
 | `Group.setNotifications` | fun | `Group.setNotifications` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:848`. |
 | `Group.notificationsEnabled` | fun | `Group.state().notificationsEnabled` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:852`. |
-| `Group.getDebugInformation` | fun | `Group.debugInfo` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:854`. |
+| `Group.getDebugInformation` | fun | `Group.debugInfo` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:854`. |
 | `Group.getLastReadTimes` | fun | `Group.lastReadTimes` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:859`. |
-| `Group.leaveGroup` | fun | `Group.requestRemoval` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:861`. |
+| `Group.leaveGroup` | fun | `Group.requestRemoval` | alias | 11.4 Kotlin, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:861`. |
 | `Group.equals` | fun | `Group.equals` | static runtime | 11.7, value equality | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:863`. |
 | `Group.hashCode` | fun | `Group.hashCode` | static runtime | 11.7, value equality | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:872`. |
 | `KeyUtil` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/KeyUtil.kt:7`. |
@@ -1750,7 +1750,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `KeyUtil.getSignatureData` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/KeyUtil.kt:31`. |
 | `KeyUtil.getSignatureBytes` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/KeyUtil.kt:41`. |
 | `DeliveryCursor` | typealias | `DeliveryCursor` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:16`. |
-| `MessageCatchUpSnapshot` | typealias | `MessageCatchUpSnapshot` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:17`. |
+| `MessageCatchUpSnapshot` | typealias | `CatchUp` | generated | 11.2, MessageReader.catchUpSnapshot | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:17`. |
 | `MessageHistorySnapshot` | class | `MessageHistorySnapshot` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:19`. |
 | `MessageHistorySnapshot.messages` | constructor property | `MessageHistorySnapshot.messages` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:20`. |
 | `MessageHistorySnapshot.cursor` | constructor property | `MessageHistorySnapshot.cursor` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:21`. |
@@ -1802,8 +1802,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `EntryType.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:44`. |
 | `EntryType.Companion.toFfiConsentEntityType` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:45`. |
 | `EntryType.Companion.fromFfiConsentEntityType` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:51`. |
-| `PreferenceType` | class | `PreferenceType` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:59`. |
-| `PreferenceType.HMAC_KEYS` | enum case | `PreferenceType.HMAC_KEYS` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:60`. |
+| `PreferenceType` | class | — | approved removal | 11.8, hmacKeysUpdated event | The preference stream becomes a live event. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:59`. |
+| `PreferenceType.HMAC_KEYS` | enum case | — | approved removal | 11.8, hmacKeysUpdated event | The preference stream becomes a live event. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:60`. |
 | `ConsentRecord` | class | `ConsentRecord` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:63`. |
 | `ConsentRecord.value` | constructor property | `ConsentRecord.entity.value` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | ConsentRecord uses an entity and a state. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:64`. |
 | `ConsentRecord.entryType` | constructor property | `ConsentRecord.entity.kind` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | ConsentRecord uses an entity and a state. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:65`. |
@@ -1812,8 +1812,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ConsentRecord.Companion.conversationId` | fun | `ConsentRecord.Companion.conversationId` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:69`. |
 | `ConsentRecord.Companion.inboxId` | fun | `ConsentRecord.Companion.inboxId` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:74`. |
 | `ConsentRecord.key` | val | `ConsentRecord.key` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:80`. |
-| `PrivatePreferences` | class | `Preferences` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:84`. |
-| `PrivatePreferences.client` | constructor property | `Preferences.client` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:85`. |
+| `PrivatePreferences` | class | `Preferences` | alias | 11.4 Kotlin, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:84`. |
+| `PrivatePreferences.client` | constructor property | — | approved removal | 11.2, Preferences | The wrapper's client field is internal to the facade. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:85`. |
 | `PrivatePreferences.sync` | fun | `Preferences.sync` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:88`. |
 | `PrivatePreferences.syncConsent` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Use Preferences.sync(). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:93`. |
 | `PrivatePreferences.streamPreferenceUpdates` | fun | — | approved removal | 11.8, live events | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:97`. |
@@ -1836,9 +1836,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ClientVersionTooOldException` | typealias | — | approved removal | 11.4 Kotlin, Client and options | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:31`. |
 | `AuthRequiredException` | typealias | — | approved removal | 11.4 Kotlin, Client and options | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:34`. |
 | `ChainNotAcceptedException` | typealias | — | approved removal | 11.4 Kotlin, Client and options | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:37`. |
-| `SigningKeyDescription` | class | `SigningKeyDescription` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:40`. |
-| `SigningKeyDescription.kid` | constructor property | `SigningKeyDescription.kid` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:41`. |
-| `SigningKeyDescription.alg` | constructor property | `SigningKeyDescription.alg` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:42`. |
+| `SigningKeyDescription` | class | `AuthConfiguration.keys` | generated | 11.1, AuthConfiguration | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:40`. |
+| `SigningKeyDescription.kid` | constructor property | `AuthConfiguration.keys.kid` | generated | 11.1, AuthConfiguration | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:41`. |
+| `SigningKeyDescription.alg` | constructor property | `AuthConfiguration.keys.alg` | generated | 11.1, AuthConfiguration | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:42`. |
 | `AuthConfiguration` | class | `AuthConfiguration` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:54`. |
 | `AuthConfiguration.enabled` | constructor property | `AuthConfiguration.enabled` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:55`. |
 | `AuthConfiguration.keys` | constructor property | `AuthConfiguration.keys` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:56`. |
@@ -1897,14 +1897,14 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `SignerType` | class | `SignerKind` | generated | 11.4 Kotlin, Client and options; 11.1 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/SigningKey.kt:24`. |
 | `SignerType.SCW` | enum case | `SignerKind.SCW` | generated | 11.4 Kotlin, Client and options; 11.1 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/SigningKey.kt:25`. |
 | `SignerType.EOA` | enum case | `SignerKind.EOA` | generated | 11.4 Kotlin, Client and options; 11.1 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/SigningKey.kt:26`. |
-| `StreamFailureKind` | typealias | `StreamFailureKind` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:13`. |
-| `StreamBarrierReason` | typealias | `StreamBarrierReason` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:14`. |
-| `StreamBarrierCauseKind` | typealias | `StreamBarrierCauseKind` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:15`. |
-| `StreamBarrierCause` | typealias | `StreamBarrierCause` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:16`. |
-| `StreamBarrierTopic` | typealias | `StreamBarrierTopic` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:17`. |
-| `StreamBarrierFailure` | typealias | `StreamBarrierFailure` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:18`. |
+| `StreamFailureKind` | typealias | `StreamFailureKind` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:13`. |
+| `StreamBarrierReason` | typealias | `StreamBarrierReason` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:14`. |
+| `StreamBarrierCauseKind` | typealias | `StreamBarrierCauseKind` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:15`. |
+| `StreamBarrierCause` | typealias | `StreamBarrierCause` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:16`. |
+| `StreamBarrierTopic` | typealias | `StreamBarrierTopic` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:17`. |
+| `StreamBarrierFailure` | typealias | `StreamBarrierFailure` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, readers | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:18`. |
 | `StreamFailureDetails` | typealias | `StreamFailureDetails` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:19`. |
-| `Throwable.streamFailureDetails` | val | `Throwable.streamFailureDetails` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:26`. |
+| `Throwable.streamFailureDetails` | val | — | approved removal | 11.4 Kotlin, Client and options | Typed XmtpException details replace this extension. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:26`. |
 | `CatchUpSummary` | class | `CatchUpSummary` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamLifecycle.kt:23`. |
 | `CatchUpSummary.messages` | constructor property | `CatchUpSummary.messages` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamLifecycle.kt:24`. |
 | `CatchUpSummary.conversations` | constructor property | `CatchUpSummary.conversations` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/StreamLifecycle.kt:25`. |
@@ -1919,7 +1919,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `UnstableApi` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableApi.kt:14`. |
 | `UnstableApi.message` | constructor property | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableApi.kt:15`. |
 | `AppDataChange` | class | `AppDataChange` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:10`. |
-| `AppDataChange.groupId` | constructor property | `AppDataChange.groupID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:12`. |
+| `AppDataChange.groupId` | constructor property | `AppDataChange.groupID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:12`. |
 | `AppDataChange.oldValue` | constructor property | `AppDataChange.oldValue` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:14`. |
 | `AppDataChange.newValue` | constructor property | `AppDataChange.newValue` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:16`. |
 | `AppDataChangeHandler` | interface | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/UnstableChangeCallbacks.kt:27`. |
@@ -1940,7 +1940,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `XMTPDebugInformation.apiStatistics` | val | `Diagnostics.apiStatistics` | generated | 11.4 Kotlin, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:10`. |
 | `XMTPDebugInformation.identityStatistics` | val | `Diagnostics.identityStatistics` | generated | 11.4 Kotlin, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:12`. |
 | `XMTPDebugInformation.aggregateStatistics` | val | `Diagnostics.aggregateStatistics` | generated | 11.4 Kotlin, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:14`. |
-| `XMTPDebugInformation.clearAllStatistics` | fun | `Diagnostics.clearAllStatistics` | generated | 11.4 Kotlin, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:17`. |
+| `XMTPDebugInformation.clearAllStatistics` | fun | `Diagnostics.clearStatistics` | generated | 11.4 Kotlin, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:17`. |
 | `ApiStats` | class | `ApiStats` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:20`. |
 | `ApiStats.publish` | val | `ApiStats.publish` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:23`. |
 | `ApiStats.query` | val | `ApiStats.query` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:25`. |
@@ -1948,7 +1948,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ApiStats.subscribe` | val | `ApiStats.subscribe` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:29`. |
 | `ApiStats.subscribeStatic` | val | `ApiStats.subscribeStatic` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:31`. |
 | `IdentityStats` | class | `IdentityStats` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:35`. |
-| `IdentityStats.getInboxIds` | val | `IdentityStats.getInboxIDs` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:38`. |
+| `IdentityStats.getInboxIds` | val | `IdentityStats.getInboxIDs` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:38`. |
 | `IdentityStats.verifySmartContractWalletSignatures` | val | `IdentityStats.verifySmartContractWalletSignatures` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPDebugInformation.kt:40`. |
 | `XMTPException` | class | — | approved removal | 11.4 Kotlin, Client and options | The old type and its members leave the API. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/XMTPException.kt:3`. |
 | `val ContentTypeAttachment` | val | `val ContentTypeAttachment` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/AttachmentCodec.kt:6`. |
@@ -1974,15 +1974,15 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ContentCodec.fallback` | fun | `ContentCodec.fallback` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentCodec.kt:103`. |
 | `ContentCodec.shouldPush` | fun | `ContentCodec.shouldPush` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentCodec.kt:105`. |
 | `val id` | val | `val id` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentCodec.kt:108`. |
-| `ContentTypeId` | typealias | `ContentTypeID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:5`. |
+| `ContentTypeId` | typealias | `ContentTypeID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:5`. |
 | `ContentTypeIdBuilder` | class | `ContentTypeIdBuilder` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:7`. |
 | `ContentTypeIdBuilder.Companion` | object | `ContentTypeIdBuilder.Companion` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:8`. |
 | `ContentTypeIdBuilder.Companion.builderFromAuthorityId` | fun | `ContentTypeIdBuilder.Companion.builderFromAuthorityID` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:9`. |
 | `ContentTypeIdBuilder.Companion.fromFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:24`. |
-| `ContentTypeId.id` | val | `ContentTypeID.id` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:36`. |
-| `ContentTypeId.description` | val | `ContentTypeID.description` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:39`. |
+| `ContentTypeId.id` | val | `ContentTypeID.id` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:36`. |
+| `ContentTypeId.description` | val | `ContentTypeID.description` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ContentTypeId.kt:39`. |
 | `DeleteMessageRequest` | class | `DeleteMessageRequest` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:11`. |
-| `DeleteMessageRequest.messageId` | constructor property | `DeleteMessageRequest.messageID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:12`. |
+| `DeleteMessageRequest.messageId` | constructor property | `DeleteMessageRequest.messageID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:12`. |
 | `val ContentTypeDeleteMessageRequest` | val | `val ContentTypeDeleteMessageRequest` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:15`. |
 | `DeleteMessageCodec` | class | `DeleteMessageCodec` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:23`. |
 | `DeleteMessageCodec.contentType` | constructor property | `DeleteMessageCodec.contentType` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/DeleteMessageCodec.kt:24`. |
@@ -2048,7 +2048,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Reaction.action` | constructor property | `Reaction.action` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:23`. |
 | `Reaction.content` | constructor property | `Reaction.content` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:24`. |
 | `Reaction.schema` | constructor property | `Reaction.schema` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:25`. |
-| `Reaction.referenceInboxId` | constructor property | `Reaction.referenceInboxID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:26`. |
+| `Reaction.referenceInboxId` | constructor property | `Reaction.referenceInboxID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:26`. |
 | `ReactionAction` | class | `ReactionAction` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:29`. |
 | `ReactionAction.Removed` | object | `ReactionAction.Removed` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:30`. |
 | `ReactionAction.Added` | object | `ReactionAction.Added` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:32`. |
@@ -2120,7 +2120,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Reply` | class | `MessageContent.Reply` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:14`. |
 | `Reply.reference` | constructor property | `MessageContent.Reply.referenceID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:15`. |
 | `Reply.content` | constructor property | `MessageContent.Reply.body` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:16`. |
-| `Reply.contentType` | constructor property | `Reply.contentType` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:17`. |
+| `Reply.contentType` | constructor property | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:17`. |
 | `ReplyCodec` | class | `ReplyCodec` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:20`. |
 | `ReplyCodec.contentType` | constructor property | `ReplyCodec.contentType` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:21`. |
 | `ReplyCodec.encode` | fun | `ReplyCodec.encode` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard codec host class or codec protocol. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:23`. |
@@ -2137,7 +2137,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `val ContentTypeTransactionReference` | val | `val ContentTypeTransactionReference` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 4 | Standard content type constant. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:3`. |
 | `TransactionReference` | class | `TransactionReference` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:11`. |
 | `TransactionReference.namespace` | constructor property | `TransactionReference.namespace` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:12`. |
-| `TransactionReference.networkId` | constructor property | `TransactionReference.networkID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:13`. |
+| `TransactionReference.networkId` | constructor property | `TransactionReference.networkID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:13`. |
 | `TransactionReference.reference` | constructor property | `TransactionReference.reference` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:14`. |
 | `TransactionReference.metadata` | constructor property | `TransactionReference.metadata` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:15`. |
 | `TransactionReference.Metadata` | class | `TransactionReference.Metadata` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/codecs/TransactionReferenceCodec.kt:17`. |
@@ -2183,20 +2183,20 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ConversationDebugInfo.localCommitLog` | val | `ConversationDebugInfo.localCommitLog` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/ConversationDebugInfo.kt:20`. |
 | `ConversationDebugInfo.remoteCommitLog` | val | `ConversationDebugInfo.remoteCommitLog` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/ConversationDebugInfo.kt:22`. |
 | `ConversationDebugInfo.commitLogForkStatus` | val | `ConversationDebugInfo.commitLogForkStatus` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/ConversationDebugInfo.kt:24`. |
-| `DecodedMessage` | class | `Message` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:16`. |
+| `DecodedMessage` | class | `Message` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.5 | Deprecated alias for the Message host class. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:16`. |
 | `DecodedMessage.encodedContent` | constructor property | `Message.encodedContent` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:18`. |
 | `DecodedMessage.deliveryCursor` | constructor property | `Message.deliveryCursor` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:21`. |
-| `DecodedMessage.MessageDeliveryStatus` | class | `Message.MessageDeliveryStatus` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:23`. |
-| `DecodedMessage.MessageDeliveryStatus.ALL` | enum case | `Message.ALL` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:24`. |
-| `DecodedMessage.MessageDeliveryStatus.PUBLISHED` | enum case | `Message.PUBLISHED` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:25`. |
-| `DecodedMessage.MessageDeliveryStatus.UNPUBLISHED` | enum case | `Message.UNPUBLISHED` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:26`. |
-| `DecodedMessage.MessageDeliveryStatus.FAILED` | enum case | `Message.FAILED` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:27`. |
-| `DecodedMessage.SortDirection` | class | `Message.SortDirection` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:30`. |
-| `DecodedMessage.SortDirection.ASCENDING` | enum case | `Message.ASCENDING` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:31`. |
-| `DecodedMessage.SortDirection.DESCENDING` | enum case | `Message.DESCENDING` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:32`. |
-| `DecodedMessage.SortBy` | class | `Message.SortBy` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:35`. |
-| `DecodedMessage.SortBy.SENT_TIME` | enum case | `Message.SENT_TIME` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:36`. |
-| `DecodedMessage.SortBy.INSERTED_TIME` | enum case | `Message.INSERTED_TIME` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:37`. |
+| `DecodedMessage.MessageDeliveryStatus` | class | `DeliveryStatus` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:23`. |
+| `DecodedMessage.MessageDeliveryStatus.ALL` | enum case | — | approved removal | 11.2, ListMessagesOptions | No filter selects every delivery status. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:24`. |
+| `DecodedMessage.MessageDeliveryStatus.PUBLISHED` | enum case | `DeliveryStatus.published` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:25`. |
+| `DecodedMessage.MessageDeliveryStatus.UNPUBLISHED` | enum case | `DeliveryStatus.unpublished` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:26`. |
+| `DecodedMessage.MessageDeliveryStatus.FAILED` | enum case | `DeliveryStatus.failed` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:27`. |
+| `DecodedMessage.SortDirection` | class | `ListMessagesOptions.direction` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:30`. |
+| `DecodedMessage.SortDirection.ASCENDING` | enum case | `ListMessagesOptions.direction.ascending` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:31`. |
+| `DecodedMessage.SortDirection.DESCENDING` | enum case | `ListMessagesOptions.direction.descending` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:32`. |
+| `DecodedMessage.SortBy` | class | `ListMessagesOptions.sortBy` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:35`. |
+| `DecodedMessage.SortBy.SENT_TIME` | enum case | `ListMessagesOptions.sortBy.sentAt` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:36`. |
+| `DecodedMessage.SortBy.INSERTED_TIME` | enum case | `ListMessagesOptions.sortBy.insertedAt` | generated | 11.2, MessageData and ListMessagesOptions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:37`. |
 | `DecodedMessage.id` | val | `Message.id` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:40`. |
 | `DecodedMessage.conversationId` | val | `Message.conversationID` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:43`. |
 | `DecodedMessage.senderInboxId` | val | `Message.senderInboxID` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:46`. |
@@ -2210,11 +2210,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.topic` | val | `Message.topic` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:75`. |
 | `DecodedMessage.content` | fun | `Message.content` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:79`. |
 | `DecodedMessage.fallback` | val | `Message.fallback` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:81`. |
-| `DecodedMessage.body` | val | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:84`. |
+| `DecodedMessage.body` | val | `Message.content` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:84`. |
 | `DecodedMessage.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:89`. |
 | `DecodedMessage.Companion.create` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:90`. |
 | `DecodedMessage.Companion.create` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt:92`. |
-| `DecodedMessageV2` | class | `Message` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:44`. |
+| `DecodedMessageV2` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 19, decision 5 | The V2 type leaves the API; its value fields move to Message. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:44`. |
 | `DecodedMessageV2.id` | val | `Message.id` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:47`. |
 | `DecodedMessageV2.conversationId` | val | `Message.conversationID` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:50`. |
 | `DecodedMessageV2.senderInboxId` | val | `Message.senderInboxID` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:53`. |
@@ -2225,8 +2225,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessageV2.expiresAt` | val | `Message.expiresAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:68`. |
 | `DecodedMessageV2.deliveryStatus` | val | `Message.deliveryStatus` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:71`. |
 | `DecodedMessageV2.reactions` | val | `Message.reactions` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:79`. |
-| `DecodedMessageV2.hasReactions` | val | `Message.hasReactions` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:82`. |
-| `DecodedMessageV2.reactionCount` | val | `Message.reactionCount` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:85`. |
+| `DecodedMessageV2.hasReactions` | val | `Message.reactions` | static runtime | 11.2, MessageData; 11.7 | The host derives this value from Message.reactions; it is not a Message field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:82`. |
+| `DecodedMessageV2.reactionCount` | val | `Message.reactions` | static runtime | 11.2, MessageData; 11.7 | The host derives this value from Message.reactions; it is not a Message field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:85`. |
 | `DecodedMessageV2.fallbackText` | val | `Message.fallback` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:88`. |
 | `DecodedMessageV2.contentTypeId` | val | `Message.contentType` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:91`. |
 | `DecodedMessageV2.content` | fun | `Message.content` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt:95`. |
@@ -2237,75 +2237,75 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DisappearingMessageSettings.retentionDurationInNs` | constructor property | `DisappearingMessageSettings.retentionDurationInNs` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt:7`. |
 | `DisappearingMessageSettings.Companion` | object | `DisappearingMessageSettings.Companion` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt:9`. |
 | `DisappearingMessageSettings.Companion.createFromFfi` | fun | `DisappearingMessageSettings.Companion.createFromFfi` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt:10`. |
-| `MlsExtensionType` | class | `MlsExtensionType` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:17`. |
-| `MlsExtensionType.ApplicationId` | object | `MlsExtensionType.ApplicationID` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:18`. |
-| `MlsExtensionType.RatchetTree` | object | `MlsExtensionType.RatchetTree` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:20`. |
-| `MlsExtensionType.RequiredCapabilities` | object | `MlsExtensionType.RequiredCapabilities` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:22`. |
-| `MlsExtensionType.ExternalPub` | object | `MlsExtensionType.ExternalPub` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:24`. |
-| `MlsExtensionType.ExternalSenders` | object | `MlsExtensionType.ExternalSenders` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:26`. |
-| `MlsExtensionType.LastResort` | object | `MlsExtensionType.LastResort` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:28`. |
-| `MlsExtensionType.ImmutableMetadata` | object | `MlsExtensionType.ImmutableMetadata` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:30`. |
-| `MlsExtensionType.AppDataDictionary` | object | `MlsExtensionType.AppDataDictionary` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:32`. |
-| `MlsExtensionType.Unknown` | class | `MlsExtensionType.Unknown` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:34`. |
-| `MlsExtensionType.Unknown.id` | constructor property | `MlsExtensionType.Unknown.id` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:35`. |
-| `MlsExtensionType.Grease` | class | `MlsExtensionType.Grease` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:38`. |
-| `MlsExtensionType.Grease.id` | constructor property | `MlsExtensionType.Grease.id` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:39`. |
-| `InstallationCapabilities` | class | `InstallationCapabilities` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:62`. |
-| `InstallationCapabilities.installationId` | val | `InstallationCapabilities.installationID` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:66`. |
-| `InstallationCapabilities.isOwn` | val | `InstallationCapabilities.isOwn` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:70`. |
-| `InstallationCapabilities.supportedExtensions` | val | `InstallationCapabilities.supportedExtensions` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:77`. |
-| `InstallationCapabilities.capabilitiesKnown` | val | `InstallationCapabilities.capabilitiesKnown` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:85`. |
-| `InboxCapabilities` | class | `InboxCapabilities` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:93`. |
-| `InboxCapabilities.inboxId` | val | `InboxCapabilities.inboxID` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:96`. |
-| `InboxCapabilities.installations` | val | `InboxCapabilities.installations` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:99`. |
+| `MlsExtensionType` | class | `MlsExtensionType` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:17`. |
+| `MlsExtensionType.ApplicationId` | object | `MlsExtensionType.ApplicationId` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:18`. |
+| `MlsExtensionType.RatchetTree` | object | `MlsExtensionType.RatchetTree` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:20`. |
+| `MlsExtensionType.RequiredCapabilities` | object | `MlsExtensionType.RequiredCapabilities` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:22`. |
+| `MlsExtensionType.ExternalPub` | object | `MlsExtensionType.ExternalPub` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:24`. |
+| `MlsExtensionType.ExternalSenders` | object | `MlsExtensionType.ExternalSenders` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:26`. |
+| `MlsExtensionType.LastResort` | object | `MlsExtensionType.LastResort` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:28`. |
+| `MlsExtensionType.ImmutableMetadata` | object | `MlsExtensionType.ImmutableMetadata` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:30`. |
+| `MlsExtensionType.AppDataDictionary` | object | `MlsExtensionType.AppDataDictionary` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:32`. |
+| `MlsExtensionType.Unknown` | class | `MlsExtensionType.Unknown` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:34`. |
+| `MlsExtensionType.Unknown.id` | constructor property | `MlsExtensionType.Unknown.id` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:35`. |
+| `MlsExtensionType.Grease` | class | `MlsExtensionType.Grease` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:38`. |
+| `MlsExtensionType.Grease.id` | constructor property | `MlsExtensionType.Grease.id` | generated | 11.2, Group.membershipCapabilities | Extension type is part of GroupMembershipCapabilities. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:39`. |
+| `InstallationCapabilities` | class | `InstallationCapabilities` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:62`. |
+| `InstallationCapabilities.installationId` | val | `InstallationCapabilities.installationID` | alias | 11.2, Group.membershipCapabilities | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:66`. |
+| `InstallationCapabilities.isOwn` | val | `InstallationCapabilities.isOwn` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:70`. |
+| `InstallationCapabilities.supportedExtensions` | val | `InstallationCapabilities.supportedExtensions` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:77`. |
+| `InstallationCapabilities.capabilitiesKnown` | val | `InstallationCapabilities.capabilitiesKnown` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:85`. |
+| `InboxCapabilities` | class | `InboxCapabilities` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:93`. |
+| `InboxCapabilities.inboxId` | val | `InboxCapabilities.inboxID` | alias | 11.2, Group.membershipCapabilities | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:96`. |
+| `InboxCapabilities.installations` | val | `InboxCapabilities.installations` | generated | 11.2, Group.membershipCapabilities | Generated capability record. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:99`. |
 | `GroupMembershipCapabilities` | class | `GroupMembershipCapabilities` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:118`. |
 | `GroupMembershipCapabilities.contextExtensions` | val | `GroupMembershipCapabilities.contextExtensions` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:122`. |
 | `GroupMembershipCapabilities.members` | val | `GroupMembershipCapabilities.members` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:126`. |
 | `GroupMembershipResult` | class | `GroupMembershipResult` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipResult.kt:7`. |
 | `GroupMembershipResult.addedMembers` | val | `GroupMembershipResult.addedMembers` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipResult.kt:10`. |
 | `GroupMembershipResult.removedMembers` | val | `GroupMembershipResult.removedMembers` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipResult.kt:12`. |
-| `GroupMembershipResult.failedInstallationIds` | val | `GroupMembershipResult.failedInstallationIDs` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipResult.kt:14`. |
-| `GroupMembershipState` | class | `GroupMembershipState` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:10`. |
-| `GroupMembershipState.ALLOWED` | enum case | `GroupMembershipState.ALLOWED` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:14`. |
-| `GroupMembershipState.REJECTED` | enum case | `GroupMembershipState.REJECTED` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:19`. |
-| `GroupMembershipState.PENDING` | enum case | `GroupMembershipState.PENDING` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:24`. |
-| `GroupMembershipState.RESTORED` | enum case | `GroupMembershipState.RESTORED` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:29`. |
-| `GroupMembershipState.PENDING_REMOVE` | enum case | `GroupMembershipState.PENDING_REMOVE` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:34`. |
-| `GroupMembershipState.Companion` | object | `GroupMembershipState.Companion` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:38`. |
+| `GroupMembershipResult.failedInstallationIds` | val | `GroupMembershipResult.failedInstallationIDs` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipResult.kt:14`. |
+| `GroupMembershipState` | class | `GroupMembershipState` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:10`. |
+| `GroupMembershipState.ALLOWED` | enum case | `GroupMembershipState.allowed` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:14`. |
+| `GroupMembershipState.REJECTED` | enum case | `GroupMembershipState.rejected` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:19`. |
+| `GroupMembershipState.PENDING` | enum case | `GroupMembershipState.pending` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:24`. |
+| `GroupMembershipState.RESTORED` | enum case | `GroupMembershipState.restored` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:29`. |
+| `GroupMembershipState.PENDING_REMOVE` | enum case | `GroupMembershipState.pendingRemove` | generated | 11.2, GroupState.membershipState | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:34`. |
+| `GroupMembershipState.Companion` | object | — | approved removal | 11.2, GroupState.membershipState | Converter companion is internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:38`. |
 | `GroupMembershipState.Companion.fromFfiGroupMembershipState` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:42`. |
 | `GroupMembershipState.toFfi` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:55`. |
 | `SignatureKind` | typealias | `SignatureKind` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:7`. |
 | `InboxState` | class | `InboxState` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:9`. |
-| `InboxState.inboxId` | val | `InboxState.inboxID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:12`. |
+| `InboxState.inboxId` | val | `InboxState.inboxID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:12`. |
 | `InboxState.identities` | val | `InboxState.identities` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:14`. |
 | `InboxState.installations` | val | `InboxState.installations` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:17`. |
 | `InboxState.recoveryPublicIdentity` | val | `InboxState.recoveryPublicIdentity` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:20`. |
 | `InboxState.creationSignatureKind` | val | `InboxState.creationSignatureKind` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/InboxState.kt:23`. |
 | `Installation` | class | `Installation` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Installation.kt:7`. |
-| `Installation.installationId` | val | `Installation.installationID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Installation.kt:10`. |
+| `Installation.installationId` | val | `Installation.installationID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Installation.kt:10`. |
 | `Installation.createdAt` | val | `Installation.createdAt.date` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Installation.kt:12`. |
-| `PermissionLevel` | class | `PermissionLevel` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:8`. |
-| `PermissionLevel.MEMBER` | enum case | `PermissionLevel.MEMBER` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:9`. |
-| `PermissionLevel.ADMIN` | enum case | `PermissionLevel.ADMIN` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:10`. |
-| `PermissionLevel.SUPER_ADMIN` | enum case | `PermissionLevel.SUPER_ADMIN` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:11`. |
+| `PermissionLevel` | class | `Member.permissionLevel` | generated | 11.2, Member.permissionLevel | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:8`. |
+| `PermissionLevel.MEMBER` | enum case | `Member.permissionLevel.member` | generated | 11.2, Member.permissionLevel | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:9`. |
+| `PermissionLevel.ADMIN` | enum case | `Member.permissionLevel.admin` | generated | 11.2, Member.permissionLevel | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:10`. |
+| `PermissionLevel.SUPER_ADMIN` | enum case | `Member.permissionLevel.superAdmin` | generated | 11.2, Member.permissionLevel | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:11`. |
 | `Member` | class | `Member` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:14`. |
-| `Member.inboxId` | val | `Member.inboxID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:17`. |
+| `Member.inboxId` | val | `Member.inboxID` | alias | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:17`. |
 | `Member.identities` | val | `Member.identities` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:19`. |
 | `Member.permissionLevel` | val | `Member.permissionLevel` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:21`. |
 | `Member.consentState` | val | `Member.consentState` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:29`. |
-| `PermissionOption` | class | `PermissionOption` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:7`. |
-| `PermissionOption.Allow` | enum case | `PermissionOption.Allow` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:8`. |
-| `PermissionOption.Deny` | enum case | `PermissionOption.Deny` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:9`. |
-| `PermissionOption.Admin` | enum case | `PermissionOption.Admin` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:10`. |
-| `PermissionOption.SuperAdmin` | enum case | `PermissionOption.SuperAdmin` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:11`. |
-| `PermissionOption.Unknown` | enum case | `PermissionOption.Unknown` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:12`. |
-| `PermissionOption.Companion` | object | `PermissionOption.Companion` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:15`. |
+| `PermissionOption` | class | `PermissionPolicy` | generated | 11.2, Group.updatePermission and PermissionPolicySet | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:7`. |
+| `PermissionOption.Allow` | enum case | `PermissionPolicy.allow` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:8`. |
+| `PermissionOption.Deny` | enum case | `PermissionPolicy.deny` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:9`. |
+| `PermissionOption.Admin` | enum case | `PermissionPolicy.admin` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:10`. |
+| `PermissionOption.SuperAdmin` | enum case | `PermissionPolicy.superAdmin` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:11`. |
+| `PermissionOption.Unknown` | enum case | `PermissionPolicy.unknown` | generated | open | 11.2 names PermissionPolicy but does not specify this case. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:12`. |
+| `PermissionOption.Companion` | object | — | approved removal | 11.2, PermissionPolicy | Conversion helpers become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:15`. |
 | `PermissionOption.Companion.toFfiPermissionPolicy` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:16`. |
 | `PermissionOption.Companion.fromFfiPermissionPolicy` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:25`. |
-| `GroupPermissionPreconfiguration` | class | `GroupPermissionPreconfiguration` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:37`. |
-| `GroupPermissionPreconfiguration.ALL_MEMBERS` | enum case | `GroupPermissionPreconfiguration.ALL_MEMBERS` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:38`. |
-| `GroupPermissionPreconfiguration.ADMIN_ONLY` | enum case | `GroupPermissionPreconfiguration.ADMIN_ONLY` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:39`. |
-| `GroupPermissionPreconfiguration.Companion` | object | `GroupPermissionPreconfiguration.Companion` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:42`. |
+| `GroupPermissionPreconfiguration` | class | `CreateGroupOptions.permissions` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:37`. |
+| `GroupPermissionPreconfiguration.ALL_MEMBERS` | enum case | `CreateGroupOptions.permissions.allMembers` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:38`. |
+| `GroupPermissionPreconfiguration.ADMIN_ONLY` | enum case | `CreateGroupOptions.permissions.adminOnly` | generated | 11.2, CreateGroupOptions.permissions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:39`. |
+| `GroupPermissionPreconfiguration.Companion` | object | — | approved removal | 11.2, CreateGroupOptions.permissions | Conversion helpers become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:42`. |
 | `GroupPermissionPreconfiguration.Companion.toFfiGroupPermissionOptions` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | FFI converter is internal plumbing. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:43`. |
 | `PermissionPolicySet` | class | `PermissionPolicySet` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:51`. |
 | `PermissionPolicySet.addMemberPolicy` | constructor property | `PermissionPolicySet.addMemberPolicy` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:52`. |
@@ -2334,8 +2334,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Reply.inReplyTo` | constructor property | `Message.inReplyTo` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:6`. |
 | `Reply.content` | constructor property | `MessageContent.Reply.body` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:7`. |
 | `Reply.referenceId` | constructor property | `MessageContent.Reply.referenceID` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:8`. |
-| `Reply.Companion` | object | `Reply.Companion` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:10`. |
-| `Reply.Companion.create` | fun | `Reply.Companion.create` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:11`. |
+| `Reply.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:10`. |
+| `Reply.Companion.create` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 11.2, MessageContent.reply | The old Any/contentType constructor and FFI factory are replaced by the typed reply body. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:11`. |
 | `SignatureRequest` | class | `SignatureRequest` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/SignatureRequest.kt:5`. |
 | `SignatureRequest.ffiSignatureRequest` | constructor property | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | The live request hides its FFI handle. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/SignatureRequest.kt:6`. |
 | `SignatureRequest.addScwSignature` | fun | `SignatureRequest.addSignature` | generated | 11.4 Kotlin, Messages, codecs, preferences, values | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/SignatureRequest.kt:8`. |
@@ -2386,7 +2386,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `GroupSyncSummary` | binding re-export | `GroupSyncSummary` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `GroupUpdated` | binding re-export | `GroupUpdated` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `HmacKey` | binding re-export | `HmacKey` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
-| `Identifier` | binding re-export | `Identifier` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
+| `Identifier` | binding re-export | `PublicIdentity` | alias | 11.4 Node, Client and options | Source: `@xmtp/node-bindings:51`. |
 | `IdentityStats` | binding re-export | `IdentityStats` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `Inbox` | binding re-export | `Inbox` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
 | `InboxState` | binding re-export | `InboxState` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
@@ -2410,8 +2410,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `RemoteAttachment` | binding re-export | `RemoteAttachment` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `Reply` | binding re-export | `Reply` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `RetentionConfiguration` | binding re-export | `RetentionConfiguration` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
-| `SendMessageOpts` | binding re-export | `SendMessageOpts` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
-| `SendOpts` | binding re-export | `SendOpts` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
+| `SendMessageOpts` | binding re-export | `SendOptions` | generated | 11.4 Node, Conversation, Group, Dm | The two option shapes merge into one SendOptions record. Source: `@xmtp/node-bindings:51`. |
+| `SendOpts` | binding re-export | `SendOptions` | generated | 11.4 Node, Conversation, Group, Dm | The two option shapes merge into one SendOptions record. Source: `@xmtp/node-bindings:51`. |
 | `ServerConfiguration` | binding re-export | `ServerConfiguration` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:51`. |
 | `SignatureRequestHandle` | binding re-export | `SignatureRequestHandle` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
 | `SigningKeyDescription` | binding re-export | `SigningKeyDescription` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:51`. |
@@ -2444,7 +2444,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `func contentTypeTransactionReference` | binding re-export | `func contentTypeTransactionReference` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
 | `func contentTypeWalletSendCalls` | binding re-export | `func contentTypeWalletSendCalls` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
 | `ConversationType` | binding re-export | `ConversationType` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/node-bindings:114`. |
-| `func decryptAttachment` | binding re-export | `func decryptBytes` | generated | 11.4 Node, Messages, codecs, preferences, values | Source: `@xmtp/node-bindings:114`. |
+| `func decryptAttachment` | binding re-export | `func decryptBytes` | alias | 11.4 Node, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `@xmtp/node-bindings:114`. |
 | `DeliveryStatus` | binding re-export | `DeliveryStatus` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `func encodeActions` | binding re-export | `func encodeActions` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
 | `func encodeAttachment` | binding re-export | `func encodeAttachment` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
@@ -2457,12 +2457,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `func encodeText` | binding re-export | `func encodeText` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
 | `func encodeTransactionReference` | binding re-export | `func encodeTransactionReference` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
 | `func encodeWalletSendCalls` | binding re-export | `func encodeWalletSendCalls` | static runtime | 11.4 Node, unchanged list; 4 | Source: `@xmtp/node-bindings:114`. |
-| `func encryptAttachment` | binding re-export | `func encryptBytes` | generated | 11.4 Node, Messages, codecs, preferences, values | Source: `@xmtp/node-bindings:114`. |
+| `func encryptAttachment` | binding re-export | `func encryptBytes` | alias | 11.4 Node, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `@xmtp/node-bindings:114`. |
 | `func flushTelemetry` | binding re-export | `func flushTelemetry` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `GroupMembershipState` | binding re-export | `GroupMembershipState` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `GroupMessageKind` | binding re-export | `GroupMessageKind` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `GroupPermissionsOptions` | binding re-export | `GroupPermissionsOptions` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
-| `IdentifierKind` | binding re-export | `IdentifierKind` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
+| `IdentifierKind` | binding re-export | — | approved removal | 11.4 Node, Client and options; 11.1, PublicIdentity | PublicIdentity.kind replaces the separate enum. Source: `@xmtp/node-bindings:114`. |
 | `func initLogging` | binding re-export | `func initLogging` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `ListConversationsOrderBy` | binding re-export | `ListConversationsOrderBy` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `LogLevel` | binding re-export | `LogLevel` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
@@ -2475,52 +2475,52 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ReactionSchema` | binding re-export | `ReactionSchema` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `SortDirection` | binding re-export | `SortDirection` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
 | `WorkerKind` | binding re-export | `WorkerKind` | generated | 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/node-bindings:114`. |
-| `ResolveValue.value` | type member | `ResolveValue.value` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:2`. |
-| `ResolveValue.done` | type member | `ResolveValue.done` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:3`. |
-| `AsyncStreamProxy.next` | type member | `AsyncStreamProxy.next` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:110`. |
-| `AsyncStreamProxy.return` | type member | `AsyncStreamProxy.return` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:111`. |
-| `AsyncStreamProxy.end` | type member | `AsyncStreamProxy.end` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:112`. |
-| `AsyncStreamProxy.isDone` | type member | `AsyncStreamProxy.isDone` | generated | open | Not covered by the design. Source: `sdks/node/src/AsyncStream.ts:113`. |
+| `ResolveValue.value` | type member | `ResolveValue.value` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:2`. |
+| `ResolveValue.done` | type member | `ResolveValue.done` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:3`. |
+| `AsyncStreamProxy.next` | type member | `AsyncStreamProxy.next` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:110`. |
+| `AsyncStreamProxy.return` | type member | `AsyncStreamProxy.return` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:111`. |
+| `AsyncStreamProxy.end` | type member | `AsyncStreamProxy.end` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:112`. |
+| `AsyncStreamProxy.isDone` | type member | `AsyncStreamProxy.isDone` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/node/src/AsyncStream.ts:113`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts:112`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts:125`. |
 | `Client.create` | member | `Client.create` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts:155`. |
 | `Client.build` | member | `Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts:183`. |
-| `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:200`. |
-| `Client.appVersion` | member | `Client.appVersion` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:207`. |
+| `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts:200`. |
+| `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts:207`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:216`. |
-| `Client.options` | member | `Client.options` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:226`. |
-| `Client.signer` | member | `Client.signer` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:233`. |
-| `Client.accountIdentifier` | member | `Client.accountIdentifier` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:240`. |
-| `Client.inboxId` | member | `Client.inboxID` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:247`. |
-| `Client.installationId` | member | `Client.installationID` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:257`. |
-| `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | open | Not covered by the design. Source: `sdks/node/src/Client.ts:267`. |
+| `Client.options` | member | `Client.options` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts:226`. |
+| `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/node/src/Client.ts:233`. |
+| `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/node/src/Client.ts:240`. |
+| `Client.inboxId` | member | `Client.inboxID` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:247`. |
+| `Client.installationId` | member | `Client.installationID` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:257`. |
+| `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts:267`. |
 | `Client.isRegistered` | member | `Client.isRegistered()` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:279`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts:291`. |
-| `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:303`. |
+| `Client.debugInformation` | member | `Client.diagnostics` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:303`. |
 | `Client.preferences` | member | `Client.preferences` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts:315`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/node/src/Client.ts:334`. |
 | `Client.unsafe_addSignature` | member | — | approved removal | 11.4 Node, Client and options | SignatureRequest.sign replaces this helper. Source: `sdks/node/src/Client.ts:357`. |
-| `Client.unsafe_createInboxSignatureRequest` | member | `Client.unsafeCreateInboxSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:406`. |
-| `Client.unsafe_addAccountSignatureRequest` | member | `Client.unsafeAddAccountSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:432`. |
-| `Client.unsafe_removeAccountSignatureRequest` | member | `Client.unsafeRemoveAccountSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:461`. |
-| `Client.unsafe_revokeAllOtherInstallationsSignatureRequest` | member | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:482`. |
-| `Client.unsafe_revokeInstallationsSignatureRequest` | member | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:504`. |
-| `Client.unsafe_changeRecoveryIdentifierSignatureRequest` | member | `Client.unsafeChangeRecoveryIdentifierSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:528`. |
-| `Client.unsafe_applySignatureRequest` | member | `Client.unsafeApplySignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:551`. |
+| `Client.unsafe_createInboxSignatureRequest` | member | `Client.unsafeCreateInboxSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:406`. |
+| `Client.unsafe_addAccountSignatureRequest` | member | `Client.unsafeAddAccountSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:432`. |
+| `Client.unsafe_removeAccountSignatureRequest` | member | `Client.unsafeRemoveAccountSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:461`. |
+| `Client.unsafe_revokeAllOtherInstallationsSignatureRequest` | member | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:482`. |
+| `Client.unsafe_revokeInstallationsSignatureRequest` | member | `Client.unsafeRevokeInstallationsSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:504`. |
+| `Client.unsafe_changeRecoveryIdentifierSignatureRequest` | member | `Client.unsafeChangeRecoveryIdentifierSignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:528`. |
+| `Client.unsafe_applySignatureRequest` | member | `Client.unsafeApplySignatureRequest` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:551`. |
 | `Client.register` | member | `Client.register` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:567`. |
-| `Client.unsafe_addAccount` | member | `Client.unsafeAddAccount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:598`. |
+| `Client.unsafe_addAccount` | member | `Client.unsafeAddAccount` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:598`. |
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:628`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:644`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:666`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:722`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:737`. |
-| `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:753`. |
-| `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:769`. |
-| `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:785`. |
-| `Client.fetchInboxIdByIdentifier` | member | `Client.inboxID` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:803`. |
+| `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:753`. |
+| `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:769`. |
+| `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:785`. |
+| `Client.fetchInboxIdByIdentifier` | member | `Client.inboxID(for:)` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:803`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:818`. |
 | `Client.verifySignedWithInstallationKey` | member | `Client.verifySignedWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:834`. |
-| `Client.fetchInboxStates` | member | `Client.inboxStates` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:854`. |
+| `Client.fetchInboxStates` | member | `Client.inboxStates` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/Client.ts:854`. |
 | `Client.verifySignedWithPublicKey` | member | `Client.verifySignedWithPublicKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts:905`. |
 | `Client.isAddressAuthorized` | member | `Client.isAddressAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts:923`. |
 | `Client.isInstallationAuthorized` | member | `Client.isInstallationAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts:933`. |
@@ -2537,12 +2537,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `CodecRegistry.constructor` | member | `CodecRegistry.constructor` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts:10`. |
 | `CodecRegistry.getCodec` | member | `CodecRegistry.getCodec` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts:22`. |
 | `Conversation.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Conversation.ts:53`. |
-| `Conversation._client` | constructor parameter | `Conversation._client` | generated | open | Not covered by the design. Source: `sdks/node/src/Conversation.ts:54`. |
+| `Conversation._client` | constructor parameter | — | approved removal | 11.4 Node, Conversation, Group, Dm; 11.2 | Internal constructor storage is not a facade field. Source: `sdks/node/src/Conversation.ts:54`. |
 | `Conversation.id` | member | `Conversation.id` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts:65`. |
 | `Conversation.isActive` | member | `Conversation.state().isActive` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts:72`. |
 | `Conversation.setNotifications` | member | `Conversation.setNotifications` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Conversation.ts:77`. |
 | `Conversation.notificationsEnabled` | member | `Conversation.state().notificationsEnabled` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts:84`. |
-| `Conversation.addedByInboxId` | member | `Conversation.addedByInboxID` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts:93`. |
+| `Conversation.addedByInboxId` | member | `Conversation.addedByInboxID` | alias | 11.4 Node, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversation.ts:93`. |
 | `Conversation.createdAtNs` | member | `Conversation.createdAt.ns` | generated | 11.4 Node, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/node/src/Conversation.ts:100`. |
 | `Conversation.createdAt` | member | `Conversation.createdAt.date` | generated | 11.4 Node, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/node/src/Conversation.ts:107`. |
 | `Conversation.topic` | member | `Conversation.topic` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts:111`. |
@@ -2581,15 +2581,15 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.debugInfo` | member | `Conversation.debugInfo` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Conversation.ts:494`. |
 | `Conversation.lastReadTimes` | member | `Conversation.lastReadTimes` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Conversation.ts:504`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Conversations.ts:48`. |
-| `Conversations.topic` | member | `Conversations.topic` | generated | open | Not covered by the design. Source: `sdks/node/src/Conversations.ts:58`. |
-| `Conversations.getConversationById` | member | `Conversations.getByID` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:69`. |
-| `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxID` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:98`. |
-| `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:115`. |
-| `Conversations.getMessageById` | member | `Conversations.getMessageByID` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:130`. |
+| `Conversations.topic` | member | — | approved removal | 11.2, Conversations | These adapter fields are not on the final Conversations object. Source: `sdks/node/src/Conversations.ts:58`. |
+| `Conversations.getConversationById` | member | `Conversations.getByID` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:69`. |
+| `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxID` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:98`. |
+| `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:115`. |
+| `Conversations.getMessageById` | member | `Conversations.getMessageByID` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:130`. |
 | `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:147`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:160`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:160`. |
 | `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:184`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:202`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/Conversations.ts:202`. |
 | `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:226`. |
 | `Conversations.list` | member | `Conversations.list` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts:243`. |
 | `Conversations.listGroups` | member | `Conversations.listGroups` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts:277`. |
@@ -2607,11 +2607,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.streamMessageDeletions` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:551`. |
 | `Conversations.streamDeletedMessages` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts:578`. |
 | `Conversations.hmacKeys` | member | `Conversations.hmacKeys` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts:604`. |
-| `DebugInformation.constructor` | member | `Diagnostics.constructor` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/DebugInformation.ts:11`. |
-| `DebugInformation.apiStatistics` | member | `Diagnostics.apiStatistics` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/DebugInformation.ts:15`. |
-| `DebugInformation.apiIdentityStatistics` | member | `Diagnostics.identityStatistics` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/DebugInformation.ts:19`. |
-| `DebugInformation.apiAggregateStatistics` | member | `Diagnostics.aggregateStatistics` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/DebugInformation.ts:23`. |
-| `DebugInformation.clearAllStatistics` | member | `Diagnostics.clearAllStatistics` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/DebugInformation.ts:27`. |
+| `DebugInformation.constructor` | member | — | approved removal | 11.4 Node, Client and options; 11.1, Diagnostics | The client owns Diagnostics. Source: `sdks/node/src/DebugInformation.ts:11`. |
+| `DebugInformation.apiStatistics` | member | `Diagnostics.apiStatistics` | alias | 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/node/src/DebugInformation.ts:15`. |
+| `DebugInformation.apiIdentityStatistics` | member | `Diagnostics.identityStatistics` | alias | 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/node/src/DebugInformation.ts:19`. |
+| `DebugInformation.apiAggregateStatistics` | member | `Diagnostics.aggregateStatistics` | alias | 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/node/src/DebugInformation.ts:23`. |
+| `DebugInformation.clearAllStatistics` | member | `Diagnostics.clearStatistics` | alias | 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/node/src/DebugInformation.ts:27`. |
 | `DecodedMessage.deliveryCursor` | member | `Message.deliveryCursor` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:177`. |
 | `DecodedMessage.content` | member | `Message.content` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:178`. |
 | `DecodedMessage.contentType` | member | `Message.contentType` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:179`. |
@@ -2627,7 +2627,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.senderInboxId` | member | `Message.senderInboxID` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:189`. |
 | `DecodedMessage.sentAt` | member | `Message.sentAt.date` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:190`. |
 | `DecodedMessage.sentAtNs` | member | `Message.sentAt.ns` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:191`. |
-| `DecodedMessage.constructor` | member | `Message.constructor` | static runtime | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/DecodedMessage.ts:193`. |
+| `DecodedMessage.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/node/src/DecodedMessage.ts:193`. |
 | `Dm.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Dm.ts:24`. |
 | `Dm.peerInboxId` | member | `Dm.peerInboxID` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Dm.ts:40`. |
 | `Dm.duplicateDms` | member | `Dm.duplicateDms` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Dm.ts:44`. |
@@ -2656,21 +2656,21 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts:244`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts:251`. |
 | `Group.isPendingRemoval` | member | `Group.state().membershipState` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts:260`. |
-| `MessageAcknowledgement.checkOwner` | type member | `MessageAcknowledgement.checkOwner` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:12`. |
-| `MessageAcknowledgement.acknowledge` | type member | `MessageAcknowledgement.acknowledge` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:13`. |
-| `MessageAcknowledgement.enrichedMessage` | type member | `MessageAcknowledgement.enrichedMessage` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:14`. |
-| `MessageAcknowledgement.reject` | type member | `MessageAcknowledgement.reject` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:15`. |
-| `MessageDelivery.message` | type member | `MessageDelivery.message` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:19`. |
-| `MessageDelivery.cursor` | type member | `MessageDelivery.cursor` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:20`. |
-| `MessageDelivery.acknowledgement` | type member | `MessageDelivery.acknowledgement` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:21`. |
-| `MessageReaderSource.nextDelivery` | type member | `MessageReaderSource.nextDelivery` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:25`. |
-| `MessageReaderSource.close` | type member | `MessageReaderSource.close` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:26`. |
-| `MessageReaderSource.updateScope` | type member | `MessageReaderSource.updateScope` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:27`. |
-| `MessageReaderSource.updateFilter` | type member | `MessageReaderSource.updateFilter` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:28`. |
-| `MessageReaderSource.conversationType` | type member | `MessageReaderSource.conversationType` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:29`. |
-| `MessageReaderSource.consentStates` | type member | `MessageReaderSource.consentStates` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:30`. |
-| `MessageReaderSource.catchUpSnapshot` | type member | `MessageReaderSource.catchUpSnapshot` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:32`. |
-| `MessageReaderSource.catchUpChanged` | type member | `MessageReaderSource.catchUpChanged` | generated | open | Not covered by the design. Source: `sdks/node/src/MessageStream.ts:33`. |
+| `MessageAcknowledgement.checkOwner` | type member | `MessageAcknowledgement.checkOwner` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:12`. |
+| `MessageAcknowledgement.acknowledge` | type member | `MessageAcknowledgement.acknowledge` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:13`. |
+| `MessageAcknowledgement.enrichedMessage` | type member | `MessageAcknowledgement.enrichedMessage` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:14`. |
+| `MessageAcknowledgement.reject` | type member | `MessageAcknowledgement.reject` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:15`. |
+| `MessageDelivery.message` | type member | `MessageDelivery.message` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:19`. |
+| `MessageDelivery.cursor` | type member | `MessageDelivery.cursor` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:20`. |
+| `MessageDelivery.acknowledgement` | type member | `MessageDelivery.acknowledgement` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/MessageStream.ts:21`. |
+| `MessageReaderSource.nextDelivery` | type member | `MessageReader.next` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:25`. |
+| `MessageReaderSource.close` | type member | `MessageReader.end()` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:26`. |
+| `MessageReaderSource.updateScope` | type member | `MessageReader.updateScope` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:27`. |
+| `MessageReaderSource.updateFilter` | type member | `MessageReader.updateFilter` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:28`. |
+| `MessageReaderSource.conversationType` | type member | — | approved removal | 11.2, MessageReader.updateFilter | The reader filter is set through updateFilter, without public adapter fields. Source: `sdks/node/src/MessageStream.ts:29`. |
+| `MessageReaderSource.consentStates` | type member | — | approved removal | 11.2, MessageReader.updateFilter | The reader filter is set through updateFilter, without public adapter fields. Source: `sdks/node/src/MessageStream.ts:30`. |
+| `MessageReaderSource.catchUpSnapshot` | type member | `MessageReader.catchUpSnapshot` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:32`. |
+| `MessageReaderSource.catchUpChanged` | type member | `MessageReader.catchUpChanged` | generated | 11.2, MessageReader | Source: `sdks/node/src/MessageStream.ts:33`. |
 | `MessageStream.message` | member | `MessageStream.message` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/node/src/MessageStream.ts:40`. |
 | `MessageStream.cursor` | member | `MessageStream.cursor` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/node/src/MessageStream.ts:41`. |
 | `MessageStream.acknowledgement` | member | `MessageStream.acknowledgement` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/node/src/MessageStream.ts:42`. |
@@ -2703,7 +2703,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Preferences.getConsentState` | member | `Preferences.consentState` | generated | 11.4 Node, Messages, codecs, preferences, values | Source: `sdks/node/src/Preferences.ts:95`. |
 | `Preferences.streamConsent` | member | — | approved removal | 11.8, live events | Source: `sdks/node/src/Preferences.ts:105`. |
 | `Preferences.streamPreferences` | member | — | approved removal | 11.8, live events | Source: `sdks/node/src/Preferences.ts:121`. |
-| `ServerConfigurationError.constructor` | member | `ServerConfigurationError.constructor` | generated | open | Not covered by the design. Source: `sdks/node/src/ServerConfiguration.ts:21`. |
+| `ServerConfigurationError.constructor` | member | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/node/src/ServerConfiguration.ts:21`. |
 | `ConfigurationUnavailableError.constructor` | member | `ConfigurationUnavailableError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/node/src/ServerConfiguration.ts:38`. |
 | `ConfigurationInvalidError.constructor` | member | `ConfigurationInvalidError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/node/src/ServerConfiguration.ts:50`. |
 | `BackendMismatchError.constructor` | member | `BackendMismatchError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/node/src/ServerConfiguration.ts:62`. |
@@ -2721,12 +2721,12 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `NotificationState` | re-export | `NotificationState` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/index.ts:12`. |
 | `Conversation` | re-export | `Conversation` | generated | 11.1-11.2, live objects | Source: `sdks/node/src/index.ts:19`. |
 | `Conversations` | re-export | `Conversations` | generated | 11.1-11.2, live objects | Source: `sdks/node/src/index.ts:20`. |
-| `DecodedMessage` | re-export | `Message` | alias | 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/node/src/index.ts:21`. |
+| `DecodedMessage` | re-export | `Message` | alias | 11.4 Node, Messages, codecs, preferences, values; 11.5 | Deprecated alias for the Message host class. Source: `sdks/node/src/index.ts:21`. |
 | `MessageStream` | re-export | `MessageStream` | static runtime | 5, durable streams; 11.4 Node, unchanged list | Source: `sdks/node/src/index.ts:22`. |
-| `MessageAcknowledgement` | re-export | `MessageAcknowledgement` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:22`. |
-| `MessageDelivery` | re-export | `MessageDelivery` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:22`. |
-| `MessageReaderSource` | re-export | `MessageReaderSource` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:22`. |
-| `DebugInformation` | re-export | `Diagnostics` | generated | 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/node/src/index.ts:36`. |
+| `MessageAcknowledgement` | re-export | `MessageAcknowledgement` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/index.ts:22`. |
+| `MessageDelivery` | re-export | `MessageDelivery` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/node/src/index.ts:22`. |
+| `MessageReaderSource` | re-export | `MessageReader` | generated | 11.2, MessageReader | Source: `sdks/node/src/index.ts:22`. |
+| `DebugInformation` | re-export | `Diagnostics` | alias | 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/node/src/index.ts:36`. |
 | `Dm` | re-export | `Dm` | generated | 11.1-11.2, live objects | Source: `sdks/node/src/index.ts:37`. |
 | `Group` | re-export | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/node/src/index.ts:38`. |
 | `Preferences` | re-export | `Preferences` | generated | 11.2, preferences | Source: `sdks/node/src/index.ts:39`. |
@@ -2736,9 +2736,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ClientVersionTooOldError` | re-export | `ClientVersionTooOldError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/node/src/index.ts:40`. |
 | `ConfigurationInvalidError` | re-export | `ConfigurationInvalidError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/node/src/index.ts:40`. |
 | `ConfigurationUnavailableError` | re-export | `ConfigurationUnavailableError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/node/src/index.ts:40`. |
-| `ServerConfigurationError` | re-export | `ServerConfigurationError` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:40`. |
-| `func throwServerConfigurationError` | free function | `func throwServerConfigurationError` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:40`. |
-| `func toServerConfigurationError` | free function | `func toServerConfigurationError` | generated | open | Not covered by the design. Source: `sdks/node/src/index.ts:40`. |
+| `ServerConfigurationError` | re-export | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/node/src/index.ts:40`. |
+| `func throwServerConfigurationError` | free function | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/node/src/index.ts:40`. |
+| `func toServerConfigurationError` | free function | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/node/src/index.ts:40`. |
 | `Credential` | type | `Credential` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/types.ts:31`. |
 | `Credential.name` | type member | `Credential.name` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/types.ts:33`. |
 | `Credential.value` | type member | `Credential.value` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/types.ts:34`. |
@@ -2770,7 +2770,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `OtherOptions.workerConfig` | type member | `ClientOptions.workers` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/types.ts:166`. |
 | `OtherOptions.disableAutoRegister` | type member | `ClientOptions.registration.auto` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/types.ts:170`. |
 | `OtherOptions.nonce` | type member | `ClientOptions.registration.nonce` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/types.ts:175`. |
-| `OtherOptions.waitForRegistrationVisible` | type member | `OtherOptions.waitForRegistrationVisible` | alias | plan Decisions, waitForRegistrationVisible | Deprecated option keeps its shape and has no effect. Source: `sdks/node/src/types.ts:181`. |
+| `OtherOptions.waitForRegistrationVisible` | type member | — | approved removal | 11.4 Node, Client and options | Registration always waits for visibility; the old option leaves the final API. Source: `sdks/node/src/types.ts:181`. |
 | `OtherOptions.unstableChangeCallbacks` | type member | — | approved removal | 11.4 Node, Client and options | Source: `sdks/node/src/types.ts:196`. |
 | `OtherOptions.unstableChangeCallbacks.appData` | type member | — | approved removal | 11.4 Node, Client and options | Source: `sdks/node/src/types.ts:197`. |
 | `ClientOptions` | type | `ClientOptions` | static runtime | 11.4 Node, Client and options | Host options wrapper holds codecs and callbacks. Source: `sdks/node/src/types.ts:201`. |
@@ -2783,7 +2783,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `EnrichedReply.inReplyTo` | type member | `Message.inReplyTo` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/types.ts:221`. |
 | `BuiltInContentTypes` | type | `BuiltInContentTypes` | static runtime | 4, typed custom codecs | Source: `sdks/node/src/types.ts:224`. |
 | `ExtractCodecContentTypes` | type | `ExtractCodecContentTypes` | static runtime | 4, typed custom codecs | Source: `sdks/node/src/types.ts:239`. |
-| `func createBackend` | free function | `Backend.connect` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/createBackend.ts:11`. |
+| `func createBackend` | free function | `Backend.connect` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/createBackend.ts:11`. |
 | `InboxReassignError` | class | `InboxReassignError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/node/src/utils/errors.ts:1`. |
 | `InboxReassignError.constructor` | member | `InboxReassignError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/node/src/utils/errors.ts:2`. |
 | `AccountAlreadyAssociatedError` | class | `AccountAlreadyAssociatedError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/node/src/utils/errors.ts:9`. |
@@ -2798,8 +2798,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `StreamFailedError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts:38`. |
 | `StreamInvalidRetryAttemptsError` | class | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts:44`. |
 | `StreamInvalidRetryAttemptsError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts:45`. |
-| `func generateInboxId` | free function | `Client.inboxID` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts:8`. |
-| `func getInboxIdForIdentifier` | free function | `Client.inboxID` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts:15`. |
+| `func generateInboxId` | free function | `Client.inboxID(for:)` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/inboxId.ts:8`. |
+| `func getInboxIdForIdentifier` | free function | `Client.inboxID(for:)` | alias | 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/inboxId.ts:15`. |
 | `func isReaction` | free function | `func isReaction` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts:18`. |
 | `func isReply` | free function | `func isReply` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts:22`. |
 | `func isTextReply` | free function | `func isTextReply` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts:27`. |
@@ -2823,33 +2823,33 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Signer.type` | type member | `Signer.kind` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/signer.ts:10`. |
 | `Signer.signMessage` | type member | `Signer.sign` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/signer.ts:11`. |
 | `Signer.getIdentifier` | type member | `Signer.identity` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/signer.ts:12`. |
-| `EOASigner` | type | `EOASigner` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/signer.ts:22`. |
-| `EOASigner.type` | type member | `EOASigner.type` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/signer.ts:22`. |
-| `SCWSigner` | type | `SCWSigner` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/signer.ts:23`. |
-| `SCWSigner.type` | type member | `SCWSigner.type` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/signer.ts:23`. |
-| `StreamFailureCause` | type | `StreamFailureCause` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:4`. |
-| `StreamFailureCause.kind` | type member | `StreamFailureCause.kind` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:5`. |
-| `StreamFailureCause.code` | type member | `StreamFailureCause.code` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:13`. |
-| `StreamFailureCause.message` | type member | `StreamFailureCause.message` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:14`. |
-| `StreamFailureCause.retryable` | type member | `StreamFailureCause.retryable` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:15`. |
-| `UnfinishedStreamTopic` | type | `UnfinishedStreamTopic` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:18`. |
-| `UnfinishedStreamTopic.topic` | type member | `UnfinishedStreamTopic.topic` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:19`. |
-| `UnfinishedStreamTopic.target` | type member | `UnfinishedStreamTopic.target` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:21`. |
-| `UnfinishedStreamTopic.received` | type member | `UnfinishedStreamTopic.received` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:22`. |
-| `UnfinishedStreamTopic.processed` | type member | `UnfinishedStreamTopic.processed` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:23`. |
-| `UnfinishedStreamTopic.unresolvedWelcomes` | type member | `UnfinishedStreamTopic.unresolvedWelcomes` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:24`. |
-| `UnfinishedStreamTopic.inactive` | type member | `UnfinishedStreamTopic.inactive` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:25`. |
-| `UnfinishedStreamTopic.cause` | type member | `UnfinishedStreamTopic.cause` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:26`. |
-| `StreamBarrierFailure` | type | `StreamBarrierFailure` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:29`. |
-| `StreamBarrierFailure.reason` | type member | `StreamBarrierFailure.reason` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:30`. |
-| `StreamBarrierFailure.unfinished` | type member | `StreamBarrierFailure.unfinished` | generated | open | Not covered by the design. Source: `sdks/node/src/utils/streamFailure.ts:31`. |
+| `EOASigner` | type | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/node/src/utils/signer.ts:22`. |
+| `EOASigner.type` | type member | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/node/src/utils/signer.ts:22`. |
+| `SCWSigner` | type | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/node/src/utils/signer.ts:23`. |
+| `SCWSigner.type` | type member | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/node/src/utils/signer.ts:23`. |
+| `StreamFailureCause` | type | `StreamFailureCause` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:4`. |
+| `StreamFailureCause.kind` | type member | `StreamFailureCause.kind` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:5`. |
+| `StreamFailureCause.code` | type member | `StreamFailureCause.code` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:13`. |
+| `StreamFailureCause.message` | type member | `StreamFailureCause.message` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:14`. |
+| `StreamFailureCause.retryable` | type member | `StreamFailureCause.retryable` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:15`. |
+| `UnfinishedStreamTopic` | type | `UnfinishedStreamTopic` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:18`. |
+| `UnfinishedStreamTopic.topic` | type member | `UnfinishedStreamTopic.topic` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:19`. |
+| `UnfinishedStreamTopic.target` | type member | `UnfinishedStreamTopic.target` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:21`. |
+| `UnfinishedStreamTopic.received` | type member | `UnfinishedStreamTopic.received` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:22`. |
+| `UnfinishedStreamTopic.processed` | type member | `UnfinishedStreamTopic.processed` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:23`. |
+| `UnfinishedStreamTopic.unresolvedWelcomes` | type member | `UnfinishedStreamTopic.unresolvedWelcomes` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:24`. |
+| `UnfinishedStreamTopic.inactive` | type member | `UnfinishedStreamTopic.inactive` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:25`. |
+| `UnfinishedStreamTopic.cause` | type member | `UnfinishedStreamTopic.cause` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:26`. |
+| `StreamBarrierFailure` | type | `StreamBarrierFailure` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:29`. |
+| `StreamBarrierFailure.reason` | type member | `StreamBarrierFailure.reason` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:30`. |
+| `StreamBarrierFailure.unfinished` | type member | `StreamBarrierFailure.unfinished` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/node/src/utils/streamFailure.ts:31`. |
 | `StreamFailureDetails` | type | `StreamFailureDetails` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:34`. |
 | `StreamFailureDetails.kind` | type member | `StreamFailureDetails.kind` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:35`. |
 | `StreamFailureDetails.code` | type member | `StreamFailureDetails.code` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:36`. |
 | `StreamFailureDetails.message` | type member | `StreamFailureDetails.message` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:37`. |
 | `StreamFailureDetails.retryable` | type member | `StreamFailureDetails.retryable` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:38`. |
-| `StreamFailureDetails.intentId` | type member | `StreamFailureDetails.intentID` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:39`. |
-| `StreamFailureDetails.publishedIntentIds` | type member | `StreamFailureDetails.publishedIntentIDs` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:40`. |
+| `StreamFailureDetails.intentId` | type member | `StreamFailureDetails.intentID` | alias | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/streamFailure.ts:39`. |
+| `StreamFailureDetails.publishedIntentIds` | type member | `StreamFailureDetails.publishedIntentIDs` | alias | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/streamFailure.ts:40`. |
 | `StreamFailureDetails.summary` | type member | `StreamFailureDetails.summary` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:41`. |
 | `StreamFailureDetails.summary.messages` | type member | `StreamFailureDetails.summary.messages` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:42`. |
 | `StreamFailureDetails.summary.conversations` | type member | `StreamFailureDetails.summary.conversations` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/node/src/utils/streamFailure.ts:43`. |
@@ -2860,7 +2860,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `func DEFAULT_RETRY_DELAY` | free function | — | approved removal | 11.4 Node, Conversations | Stream retry knobs leave the public API. Source: `sdks/node/src/utils/streams.ts:10`. |
 | `func DEFAULT_RETRY_ATTEMPTS` | free function | — | approved removal | 11.4 Node, Conversations | Stream retry knobs leave the public API. Source: `sdks/node/src/utils/streams.ts:11`. |
 | `StreamOptions` | type | `StreamOptions` | static runtime | 5, stream adapters; 11.4 Node, Conversations | Source: `sdks/node/src/utils/streams.ts:39`. |
-| `StreamOptions.onEnd` | type member | `StreamOptions.onClose` | static runtime | 11.4 Node, Conversations | Source: `sdks/node/src/utils/streams.ts:43`. |
+| `StreamOptions.onEnd` | type member | `StreamOptions.onClose` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/node/src/utils/streams.ts:43`. |
 | `StreamOptions.onError` | type member | `StreamOptions.onError` | static runtime | 11.4 Node, Conversations | Source: `sdks/node/src/utils/streams.ts:47`. |
 | `StreamOptions.onFail` | type member | — | approved removal | 11.4 Node, Conversations | Source: `sdks/node/src/utils/streams.ts:51`. |
 | `StreamOptions.onRestart` | type member | — | approved removal | 11.4 Node, Conversations | Source: `sdks/node/src/utils/streams.ts:55`. |
@@ -2909,7 +2909,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `GroupSyncSummary` | binding re-export | `GroupSyncSummary` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `GroupUpdated` | binding re-export | `GroupUpdated` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `HmacKey` | binding re-export | `HmacKey` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
-| `Identifier` | binding re-export | `Identifier` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
+| `Identifier` | binding re-export | `PublicIdentity` | alias | 11.4 Browser; 11.4 Node, Client and options | Source: `@xmtp/wasm-bindings:33`. |
 | `IdentityStats` | binding re-export | `IdentityStats` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `Inbox` | binding re-export | `Inbox` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
 | `InboxState` | binding re-export | `InboxState` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
@@ -2933,8 +2933,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `RemoteAttachment` | binding re-export | `RemoteAttachment` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `Reply` | binding re-export | `Reply` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `RetentionConfiguration` | binding re-export | `RetentionConfiguration` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
-| `SendMessageOpts` | binding re-export | `SendMessageOpts` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
-| `SendOpts` | binding re-export | `SendOpts` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
+| `SendMessageOpts` | binding re-export | `SendOptions` | generated | 11.4 Node, Conversation, Group, Dm | The two option shapes merge into one SendOptions record. Source: `@xmtp/wasm-bindings:33`. |
+| `SendOpts` | binding re-export | `SendOptions` | generated | 11.4 Node, Conversation, Group, Dm | The two option shapes merge into one SendOptions record. Source: `@xmtp/wasm-bindings:33`. |
 | `ServerConfiguration` | binding re-export | `ServerConfiguration` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `@xmtp/wasm-bindings:33`. |
 | `SignatureRequestHandle` | binding re-export | `SignatureRequestHandle` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
 | `SigningKeyDescription` | binding re-export | `SigningKeyDescription` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:33`. |
@@ -2955,7 +2955,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `GroupMembershipState` | binding re-export | `GroupMembershipState` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `GroupMessageKind` | binding re-export | `GroupMessageKind` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `GroupPermissionsOptions` | binding re-export | `GroupPermissionsOptions` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
-| `IdentifierKind` | binding re-export | `IdentifierKind` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
+| `IdentifierKind` | binding re-export | — | approved removal | 11.4 Node, Client and options; 11.1, PublicIdentity | PublicIdentity.kind replaces the separate enum. Source: `@xmtp/wasm-bindings:93`. |
 | `ListConversationsOrderBy` | binding re-export | `ListConversationsOrderBy` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `LogLevel` | binding re-export | `LogLevel` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `MessageSortBy` | binding re-export | `MessageSortBy` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
@@ -2967,29 +2967,29 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ReactionSchema` | binding re-export | `ReactionSchema` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `SortDirection` | binding re-export | `SortDirection` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
 | `WorkerKind` | binding re-export | `WorkerKind` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Facade generator supplies this binding export. Source: `@xmtp/wasm-bindings:93`. |
-| `ResolveValue.value` | type member | `ResolveValue.value` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:2`. |
-| `ResolveValue.done` | type member | `ResolveValue.done` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:3`. |
-| `AsyncStreamProxy.next` | type member | `AsyncStreamProxy.next` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:110`. |
-| `AsyncStreamProxy.return` | type member | `AsyncStreamProxy.return` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:111`. |
-| `AsyncStreamProxy.end` | type member | `AsyncStreamProxy.end` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:112`. |
-| `AsyncStreamProxy.isDone` | type member | `AsyncStreamProxy.isDone` | generated | open | Not covered by the design. Source: `sdks/browser/src/AsyncStream.ts:113`. |
+| `ResolveValue.value` | type member | `ResolveValue.value` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:2`. |
+| `ResolveValue.done` | type member | `ResolveValue.done` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:3`. |
+| `AsyncStreamProxy.next` | type member | `AsyncStreamProxy.next` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:110`. |
+| `AsyncStreamProxy.return` | type member | `AsyncStreamProxy.return` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:111`. |
+| `AsyncStreamProxy.end` | type member | `AsyncStreamProxy.end` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:112`. |
+| `AsyncStreamProxy.isDone` | type member | `AsyncStreamProxy.isDone` | static runtime | 11.2, Stream; 5, reader adapters | Source: `sdks/browser/src/AsyncStream.ts:113`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts:105`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts:160`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/browser/src/Client.ts:189`. |
 | `Client.create` | member | `Client.create` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts:224`. |
 | `Client.build` | member | `Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts:259`. |
-| `Client.options` | member | `Client.options` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:285`. |
-| `Client.signer` | member | `Client.signer` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:292`. |
+| `Client.options` | member | `Client.options` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts:285`. |
+| `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/browser/src/Client.ts:292`. |
 | `Client.isReady` | member | — | approved removal | 11.4 Browser | Source: `sdks/browser/src/Client.ts:299`. |
-| `Client.inboxId` | member | `Client.inboxID` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:306`. |
-| `Client.accountIdentifier` | member | `Client.accountIdentifier` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:313`. |
-| `Client.installationId` | member | `Client.installationID` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:320`. |
-| `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:327`. |
+| `Client.inboxId` | member | `Client.inboxID` | alias | 11.4 Browser; 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:306`. |
+| `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/browser/src/Client.ts:313`. |
+| `Client.installationId` | member | `Client.installationID` | alias | 11.4 Browser; 11.4 Node, Client and options | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:320`. |
+| `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts:327`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Browser; 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/browser/src/Client.ts:334`. |
-| `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:341`. |
+| `Client.debugInformation` | member | `Client.diagnostics` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:341`. |
 | `Client.preferences` | member | `Client.preferences` | generated | 11.4 Browser; 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/browser/src/Client.ts:348`. |
-| `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:355`. |
-| `Client.appVersion` | member | `Client.appVersion` | generated | open | Not covered by the design. Source: `sdks/browser/src/Client.ts:362`. |
+| `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts:355`. |
+| `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts:362`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:369`. |
 | `Client.unsafe_createInboxSignatureText` | member | `Client.unsafeCreateInboxSignatureRequest` | generated | 11.4 Browser | Signature text changes to a SignatureRequest object. Source: `sdks/browser/src/Client.ts:384`. |
 | `Client.unsafe_addAccountSignatureText` | member | `Client.unsafeAddAccountSignatureRequest` | generated | 11.4 Browser | Signature text changes to a SignatureRequest object. Source: `sdks/browser/src/Client.ts:404`. |
@@ -2999,21 +2999,21 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.unsafe_changeRecoveryIdentifierSignatureText` | member | `Client.unsafeChangeRecoveryIdentifierSignatureRequest` | generated | 11.4 Browser | Signature text changes to a SignatureRequest object. Source: `sdks/browser/src/Client.ts:491`. |
 | `Client.unsafe_applySignatureRequest` | member | `Client.unsafeApplySignatureRequest(request)` | generated | 11.4 Browser | The request object replaces the signer and request ID pair. Source: `sdks/browser/src/Client.ts:512`. |
 | `Client.register` | member | `Client.register` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:529`. |
-| `Client.unsafe_addAccount` | member | `Client.unsafeAddAccount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:570`. |
+| `Client.unsafe_addAccount` | member | `Client.unsafeAddAccount` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:570`. |
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:613`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:637`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:667`. |
-| `Client.fetchInboxStates` | member | `Client.inboxStates` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:696`. |
+| `Client.fetchInboxStates` | member | `Client.inboxStates` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:696`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:712`. |
 | `Client.isRegistered` | member | `Client.isRegistered()` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:734`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:744`. |
-| `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:754`. |
-| `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:770`. |
-| `Client.fetchInboxIdByIdentifier` | member | `Client.inboxID` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:824`. |
+| `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:754`. |
+| `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:770`. |
+| `Client.fetchInboxIdByIdentifier` | member | `Client.inboxID(for:)` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:824`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:834`. |
 | `Client.verifySignedWithInstallationKey` | member | `Client.verifySignedWithInstallationKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:847`. |
 | `Client.verifySignedWithPublicKey` | member | `Client.verifySignedWithPublicKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts:865`. |
-| `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:884`. |
+| `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | alias | 11.4 Browser | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Client.ts:884`. |
 | `Client.createArchive` | member | `Client.archives.exportToBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:910`. |
 | `Client.importArchive` | member | `Client.archives.importFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:929`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts:943`. |
@@ -3025,7 +3025,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `CodecRegistry.getCodec` | member | `CodecRegistry.getCodec` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/browser/src/CodecRegistry.ts:22`. |
 | `Conversation.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Conversation.ts:54`. |
 | `Conversation.id` | member | `Conversation.id` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Conversation.ts:72`. |
-| `Conversation.addedByInboxId` | member | `Conversation.addedByInboxID` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Conversation.ts:76`. |
+| `Conversation.addedByInboxId` | member | `Conversation.addedByInboxID` | alias | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversation.ts:76`. |
 | `Conversation.createdAtNs` | member | `Conversation.createdAt.ns` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/browser/src/Conversation.ts:80`. |
 | `Conversation.createdAt` | member | `Conversation.createdAt.date` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Plan Decisions: one Timestamp with date and ns views. Source: `sdks/browser/src/Conversation.ts:84`. |
 | `Conversation.metadata` | member | `Conversation.metadata` | alias | 11.4 Browser | Deprecated alias; creatorInboxID and kind are immutable fields. Source: `sdks/browser/src/Conversation.ts:88`. |
@@ -3065,24 +3065,24 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.debugInfo` | member | `Conversation.debugInfo` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversation.ts:547`. |
 | `Conversation.lastReadTimes` | member | `Conversation.lastReadTimes` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversation.ts:559`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Conversations.ts:49`. |
-| `Conversations.topic` | member | `Conversations.topic` | generated | open | Not covered by the design. Source: `sdks/browser/src/Conversations.ts:59`. |
+| `Conversations.topic` | member | — | approved removal | 11.2, Conversations | These adapter fields are not on the final Conversations object. Source: `sdks/browser/src/Conversations.ts:59`. |
 | `Conversations.sync` | member | `Conversations.sync` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:70`. |
 | `Conversations.syncAll` | member | `Conversations.syncAll` | generated | 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:81`. |
-| `Conversations.getConversationById` | member | `Conversations.getByID` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:93`. |
-| `Conversations.getMessageById` | member | `Conversations.getMessageByID` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:129`. |
-| `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxID` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:144`. |
-| `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:159`. |
+| `Conversations.getConversationById` | member | `Conversations.getByID` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:93`. |
+| `Conversations.getMessageById` | member | `Conversations.getMessageByID` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:129`. |
+| `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxID` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:144`. |
+| `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:159`. |
 | `Conversations.list` | member | `Conversations.list` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:175`. |
 | `Conversations.listGroups` | member | `Conversations.listGroups` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:210`. |
 | `Conversations.listDms` | member | `Conversations.listDms` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:237`. |
 | `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:259`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:282`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:282`. |
 | `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:309`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:333`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | alias | 11.4 Browser; 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/Conversations.ts:333`. |
 | `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:360`. |
 | `Conversations.hmacKeys` | member | `Conversations.hmacKeys` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:379`. |
 | `Conversations.stream` | member | `Conversations.stream` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:390`. |
-| `Conversations.options` | member | `Conversations.options` | generated | open | Not covered by the design. Source: `sdks/browser/src/Conversations.ts:395`. |
+| `Conversations.options` | member | — | approved removal | 11.2, Conversations | These adapter fields are not on the final Conversations object. Source: `sdks/browser/src/Conversations.ts:395`. |
 | `Conversations.streamGroups` | member | `Conversations.streamGroups` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:456`. |
 | `Conversations.streamDms` | member | `Conversations.streamDms` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:471`. |
 | `Conversations.streamAllMessages` | member | `Conversations.streamAllMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:489`. |
@@ -3092,11 +3092,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.streamAllDmMessages` | member | `Conversations.streamAllDmMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts:567`. |
 | `Conversations.streamMessageDeletions` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:591`. |
 | `Conversations.streamDeletedMessages` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts:626`. |
-| `DebugInformation.constructor` | member | `Diagnostics.constructor` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/DebugInformation.ts:12`. |
-| `DebugInformation.apiStatistics` | member | `Diagnostics.apiStatistics` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/DebugInformation.ts:16`. |
-| `DebugInformation.apiIdentityStatistics` | member | `Diagnostics.identityStatistics` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/DebugInformation.ts:20`. |
-| `DebugInformation.apiAggregateStatistics` | member | `Diagnostics.aggregateStatistics` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/DebugInformation.ts:24`. |
-| `DebugInformation.clearAllStatistics` | member | `Diagnostics.clearAllStatistics` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/DebugInformation.ts:28`. |
+| `DebugInformation.constructor` | member | — | approved removal | 11.4 Browser; 11.4 Node, Client and options; 11.1, Diagnostics | The client owns Diagnostics. Source: `sdks/browser/src/DebugInformation.ts:12`. |
+| `DebugInformation.apiStatistics` | member | `Diagnostics.apiStatistics` | alias | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/DebugInformation.ts:16`. |
+| `DebugInformation.apiIdentityStatistics` | member | `Diagnostics.identityStatistics` | alias | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/DebugInformation.ts:20`. |
+| `DebugInformation.apiAggregateStatistics` | member | `Diagnostics.aggregateStatistics` | alias | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/DebugInformation.ts:24`. |
+| `DebugInformation.clearAllStatistics` | member | `Diagnostics.clearStatistics` | alias | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/DebugInformation.ts:28`. |
 | `DecodedMessage.deliveryCursor` | member | `Message.deliveryCursor` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:179`. |
 | `DecodedMessage.content` | member | `Message.content` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:180`. |
 | `DecodedMessage.contentType` | member | `Message.contentType` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:181`. |
@@ -3112,7 +3112,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.senderInboxId` | member | `Message.senderInboxID` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:191`. |
 | `DecodedMessage.sentAt` | member | `Message.sentAt.date` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:192`. |
 | `DecodedMessage.sentAtNs` | member | `Message.sentAt.ns` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:193`. |
-| `DecodedMessage.constructor` | member | `Message.constructor` | static runtime | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/DecodedMessage.ts:195`. |
+| `DecodedMessage.constructor` | member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/browser/src/DecodedMessage.ts:195`. |
 | `Dm.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Dm.ts:25`. |
 | `Dm.peerInboxId` | member | `Dm.peerInboxID` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Dm.ts:42`. |
 | `Dm.duplicateDms` | member | `Dm.duplicateDms` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Dm.ts:48`. |
@@ -3144,20 +3144,20 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts:331`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts:341`. |
 | `Group.isPendingRemoval` | member | `Group.state().membershipState` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts:352`. |
-| `MessageAcknowledgement.checkOwner` | type member | `MessageAcknowledgement.checkOwner` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:11`. |
-| `MessageAcknowledgement.acknowledge` | type member | `MessageAcknowledgement.acknowledge` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:12`. |
-| `MessageAcknowledgement.reject` | type member | `MessageAcknowledgement.reject` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:13`. |
-| `MessageDelivery.message` | type member | `MessageDelivery.message` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:17`. |
-| `MessageDelivery.cursor` | type member | `MessageDelivery.cursor` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:18`. |
-| `MessageDelivery.acknowledgement` | type member | `MessageDelivery.acknowledgement` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:19`. |
-| `MessageReaderSource.nextDelivery` | type member | `MessageReaderSource.nextDelivery` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:23`. |
-| `MessageReaderSource.close` | type member | `MessageReaderSource.close` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:24`. |
-| `MessageReaderSource.updateScope` | type member | `MessageReaderSource.updateScope` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:25`. |
-| `MessageReaderSource.updateFilter` | type member | `MessageReaderSource.updateFilter` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:26`. |
-| `MessageReaderSource.conversationType` | type member | `MessageReaderSource.conversationType` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:27`. |
-| `MessageReaderSource.consentStates` | type member | `MessageReaderSource.consentStates` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:28`. |
-| `MessageReaderSource.catchUpSnapshot` | type member | `MessageReaderSource.catchUpSnapshot` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:30`. |
-| `MessageReaderSource.catchUpChanged` | type member | `MessageReaderSource.catchUpChanged` | generated | open | Not covered by the design. Source: `sdks/browser/src/MessageStream.ts:31`. |
+| `MessageAcknowledgement.checkOwner` | type member | `MessageAcknowledgement.checkOwner` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:11`. |
+| `MessageAcknowledgement.acknowledge` | type member | `MessageAcknowledgement.acknowledge` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:12`. |
+| `MessageAcknowledgement.reject` | type member | `MessageAcknowledgement.reject` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:13`. |
+| `MessageDelivery.message` | type member | `MessageDelivery.message` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:17`. |
+| `MessageDelivery.cursor` | type member | `MessageDelivery.cursor` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:18`. |
+| `MessageDelivery.acknowledgement` | type member | `MessageDelivery.acknowledgement` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/MessageStream.ts:19`. |
+| `MessageReaderSource.nextDelivery` | type member | `MessageReader.next` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:23`. |
+| `MessageReaderSource.close` | type member | `MessageReader.end()` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:24`. |
+| `MessageReaderSource.updateScope` | type member | `MessageReader.updateScope` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:25`. |
+| `MessageReaderSource.updateFilter` | type member | `MessageReader.updateFilter` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:26`. |
+| `MessageReaderSource.conversationType` | type member | — | approved removal | 11.2, MessageReader.updateFilter | The reader filter is set through updateFilter, without public adapter fields. Source: `sdks/browser/src/MessageStream.ts:27`. |
+| `MessageReaderSource.consentStates` | type member | — | approved removal | 11.2, MessageReader.updateFilter | The reader filter is set through updateFilter, without public adapter fields. Source: `sdks/browser/src/MessageStream.ts:28`. |
+| `MessageReaderSource.catchUpSnapshot` | type member | `MessageReader.catchUpSnapshot` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:30`. |
+| `MessageReaderSource.catchUpChanged` | type member | `MessageReader.catchUpChanged` | generated | 11.2, MessageReader | Source: `sdks/browser/src/MessageStream.ts:31`. |
 | `MessageStream.message` | member | `MessageStream.message` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:38`. |
 | `MessageStream.cursor` | member | `MessageStream.cursor` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:39`. |
 | `MessageStream.constructor` | member | `MessageStream.constructor` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:49`. |
@@ -3171,18 +3171,18 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `MessageStream.catchUpSnapshot` | member | `MessageStream.catchUpSnapshot` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:222`. |
 | `MessageStream.catchUpChanged` | member | `MessageStream.catchUpChanged` | static runtime | 5, stream adapters; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:223`. |
 | `MessageStream[Symbol.asyncIterator]` | member | `MessageStream[Symbol.asyncIterator]` | static runtime | 5, durable streams; 11.4 Node, unchanged list | Source: `sdks/browser/src/MessageStream.ts:224`. |
-| `Opfs.constructor` | member | `Storage.admin().constructor` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:8`. |
-| `Opfs.init` | member | `Storage.admin().init` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:16`. |
-| `Opfs.close` | member | `Storage.admin().close` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:22`. |
-| `Opfs.create` | member | `Storage.admin().create` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:26`. |
-| `Opfs.listFiles` | member | `Storage.admin().listFiles` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:32`. |
-| `Opfs.fileCount` | member | `Storage.admin().fileCount` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:36`. |
-| `Opfs.poolCapacity` | member | `Storage.admin().poolCapacity` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:40`. |
-| `Opfs.fileExists` | member | `Storage.admin().fileExists` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:44`. |
-| `Opfs.deleteFile` | member | `Storage.admin().deleteFile` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:48`. |
-| `Opfs.exportDb` | member | `Storage.admin().exportDb` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:52`. |
-| `Opfs.importDb` | member | `Storage.admin().importDb` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:61`. |
-| `Opfs.clearAll` | member | `Storage.admin().clearAll` | generated | 11.4 Browser | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:65`. |
+| `Opfs.constructor` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts:8`. |
+| `Opfs.init` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts:16`. |
+| `Opfs.close` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts:22`. |
+| `Opfs.create` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts:26`. |
+| `Opfs.listFiles` | member | `StorageAdmin.listFiles` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:32`. |
+| `Opfs.fileCount` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts:36`. |
+| `Opfs.poolCapacity` | member | `StorageAdmin.capacity` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:40`. |
+| `Opfs.fileExists` | member | `StorageAdmin.fileExists` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:44`. |
+| `Opfs.deleteFile` | member | `StorageAdmin.deleteFile` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:48`. |
+| `Opfs.exportDb` | member | `StorageAdmin.exportDb` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:52`. |
+| `Opfs.importDb` | member | `StorageAdmin.importDb` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:61`. |
+| `Opfs.clearAll` | member | `StorageAdmin.clearAll` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts:65`. |
 | `Preferences.constructor` | member | `Preferences.constructor` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.8 | Source: `sdks/browser/src/Preferences.ts:30`. |
 | `Preferences.sync` | member | `Preferences.sync` | generated | 11.4 Node, Messages, codecs, preferences, values; 11.8 | Source: `sdks/browser/src/Preferences.ts:34`. |
 | `Preferences.inboxState` | member | `Client.inboxState` | alias | 11.4 Node, Conversation, Group, Dm | Deprecated Preferences alias to the Client method. Source: `sdks/browser/src/Preferences.ts:43`. |
@@ -3195,22 +3195,22 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Preferences.streamPreferences` | member | — | approved removal | 11.8, live events | Source: `sdks/browser/src/Preferences.ts:152`. |
 | `Client` | re-export | `Client` | generated | 11.1-11.2, live objects | Source: `sdks/browser/src/index.ts:1`. |
 | `CodecRegistry` | re-export | `CodecRegistry` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/browser/src/index.ts:2`. |
-| `Opfs` | re-export | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/index.ts:3`. |
+| `Opfs` | re-export | — | approved removal | 11.4 Browser | Storage.admin() replaces the old class. Source: `sdks/browser/src/index.ts:3`. |
 | `Conversations` | re-export | `Conversations` | generated | 11.1-11.2, live objects | Source: `sdks/browser/src/index.ts:4`. |
 | `Conversation` | re-export | `Conversation` | generated | 11.1-11.2, live objects | Source: `sdks/browser/src/index.ts:5`. |
 | `Dm` | re-export | `Dm` | generated | 11.1-11.2, live objects | Source: `sdks/browser/src/index.ts:6`. |
 | `Group` | re-export | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/browser/src/index.ts:7`. |
-| `DecodedMessage` | re-export | `Message` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.7 | Source: `sdks/browser/src/index.ts:8`. |
+| `DecodedMessage` | re-export | `Message` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.5 | Deprecated alias for the Message host class. Source: `sdks/browser/src/index.ts:8`. |
 | `MessageStream` | re-export | `MessageStream` | static runtime | 5, durable streams; 11.4 Node, unchanged list | Source: `sdks/browser/src/index.ts:9`. |
-| `MessageAcknowledgement` | re-export | `MessageAcknowledgement` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts:9`. |
-| `MessageDelivery` | re-export | `MessageDelivery` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts:9`. |
-| `MessageReaderSource` | re-export | `MessageReaderSource` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts:9`. |
-| `DebugInformation` | re-export | `Diagnostics` | generated | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Diagnostics methods are asynchronous. Source: `sdks/browser/src/index.ts:23`. |
+| `MessageAcknowledgement` | re-export | `MessageAcknowledgement` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/index.ts:9`. |
+| `MessageDelivery` | re-export | `MessageDelivery` | static runtime | 11.2, MessageStream; 5, reader adapters | Source: `sdks/browser/src/index.ts:9`. |
+| `MessageReaderSource` | re-export | `MessageReader` | generated | 11.2, MessageReader | Source: `sdks/browser/src/index.ts:9`. |
+| `DebugInformation` | re-export | `Diagnostics` | alias | 11.4 Browser; 11.4 Node, Client and options; 11.1 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/index.ts:23`. |
 | `Preferences` | re-export | `Preferences` | generated | 11.2, preferences | Source: `sdks/browser/src/index.ts:24`. |
 | `func createBackend` | free function | `Backend.connect` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts:25`. |
-| `func fetchServerConfiguration` | free function | `func fetchServerConfiguration` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts:26`. |
-| `func generateInboxId` | free function | `Client.inboxID` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts:27`. |
-| `func getInboxIdForIdentifier` | free function | `Client.inboxID` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts:27`. |
+| `func fetchServerConfiguration` | free function | `Client.fetchServerConfiguration` | generated | 11.1, Client static methods | Source: `sdks/browser/src/index.ts:26`. |
+| `func generateInboxId` | free function | `Client.inboxID(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts:27`. |
+| `func getInboxIdForIdentifier` | free function | `Client.inboxID(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts:27`. |
 | `func metadataFieldName` | free function | `func metadataFieldName` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts:28`. |
 | `AsyncStreamProxy` | re-export | `AsyncStreamProxy` | static runtime | 5, host stream adapter | Source: `sdks/browser/src/index.ts:32`. |
 | `ResolveValue` | re-export | `ResolveValue` | static runtime | 5, host stream adapter | Source: `sdks/browser/src/index.ts:32`. |
@@ -3238,7 +3238,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `OtherOptions.loggingLevel` | type member | `LoggingOptions.level` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/types/options.ts:108`. |
 | `OtherOptions.workerConfig` | type member | `ClientOptions.workers` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/types/options.ts:116`. |
 | `OtherOptions.disableAutoRegister` | type member | `ClientOptions.registration.auto` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/types/options.ts:120`. |
-| `OtherOptions.waitForRegistrationVisible` | type member | `OtherOptions.waitForRegistrationVisible` | alias | plan Decisions, waitForRegistrationVisible | Deprecated option keeps its shape and has no effect. Source: `sdks/browser/src/types/options.ts:126`. |
+| `OtherOptions.waitForRegistrationVisible` | type member | — | approved removal | 11.4 Browser; 11.4 Node, Client and options | Registration always waits for visibility; the old option leaves the final API. Source: `sdks/browser/src/types/options.ts:126`. |
 | `ClientOptions` | type | `ClientOptions` | static runtime | 11.4 Browser; 11.4 Node, Client and options | Host options wrapper holds codecs and callbacks. Source: `sdks/browser/src/types/options.ts:129`. |
 | `ClientOptions.backend` | type member | `ClientOptions.backend` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/types/options.ts:129`. |
 | `EnrichedReply` | type | `ReplyParent` | generated | 11.4 Node, Conversation, Group, Dm; 11.7 | Source: `sdks/browser/src/types/options.ts:135`. |
@@ -3274,8 +3274,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `func contentTypeText` | const | `func contentTypeText` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/contentTypes.ts:69`. |
 | `func contentTypeTransactionReference` | const | `func contentTypeTransactionReference` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/contentTypes.ts:70`. |
 | `func contentTypeWalletSendCalls` | const | `func contentTypeWalletSendCalls` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/contentTypes.ts:73`. |
-| `func encryptAttachment` | const | `func encryptBytes` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Source: `sdks/browser/src/utils/contentTypes.ts:76`. |
-| `func decryptAttachment` | const | `func decryptBytes` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Source: `sdks/browser/src/utils/contentTypes.ts:77`. |
+| `func encryptAttachment` | const | `func encryptBytes` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `sdks/browser/src/utils/contentTypes.ts:76`. |
+| `func decryptAttachment` | const | `func decryptBytes` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | Deprecated name for one major release (11.5). Source: `sdks/browser/src/utils/contentTypes.ts:77`. |
 | `SafeConversation` | type | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/conversions.ts:10`. |
 | `SafeConversation.id` | type member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/conversions.ts:11`. |
 | `SafeConversation.name` | type member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/conversions.ts:12`. |
@@ -3313,9 +3313,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `OpfsNotInitializedError.constructor` | member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/errors.ts:57`. |
 | `OpfsInitializationError` | class | — | approved removal | 11.4 Browser | Replaced by an XmtpError code. Source: `sdks/browser/src/utils/errors.ts:62`. |
 | `OpfsInitializationError.constructor` | member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/errors.ts:63`. |
-| `ServerConfigurationError` | class | `ServerConfigurationError` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/errors.ts:79`. |
-| `ServerConfigurationError.code` | member | `ServerConfigurationError.code` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/errors.ts:80`. |
-| `ServerConfigurationError.constructor` | member | `ServerConfigurationError.constructor` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/errors.ts:82`. |
+| `ServerConfigurationError` | class | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/browser/src/utils/errors.ts:79`. |
+| `ServerConfigurationError.code` | member | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/browser/src/utils/errors.ts:80`. |
+| `ServerConfigurationError.constructor` | member | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/browser/src/utils/errors.ts:82`. |
 | `ConfigurationUnavailableError` | class | `ConfigurationUnavailableError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/browser/src/utils/errors.ts:90`. |
 | `ConfigurationUnavailableError.constructor` | member | `ConfigurationUnavailableError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/browser/src/utils/errors.ts:91`. |
 | `ConfigurationInvalidError` | class | `ConfigurationInvalidError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/browser/src/utils/errors.ts:98`. |
@@ -3329,7 +3329,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ChainNotAcceptedError` | class | `ChainNotAcceptedError` | generated | 11.4 Node, Client and options | Generated XmtpError subclass where the error still exists. Source: `sdks/browser/src/utils/errors.ts:130`. |
 | `ChainNotAcceptedError.constructor` | member | `ChainNotAcceptedError.constructor` | generated | 11.4 Node, Client and options | Generated XmtpError subclass constructor. Source: `sdks/browser/src/utils/errors.ts:131`. |
 | `func getErrorCode` | free function | — | approved removal | 11.4 Node, Client and options | XmtpError exposes typed details. Source: `sdks/browser/src/utils/errors.ts:165`. |
-| `func toServerConfigurationError` | free function | `func toServerConfigurationError` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/errors.ts:181`. |
+| `func toServerConfigurationError` | free function | — | approved removal | 11.4 Node, Client and options; 11.1, XmtpError | Typed XmtpError variants replace the old wrapper. Source: `sdks/browser/src/utils/errors.ts:181`. |
 | `func isReaction` | free function | `func isReaction` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/messages.ts:18`. |
 | `func isReply` | free function | `func isReply` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/messages.ts:22`. |
 | `func isTextReply` | free function | `func isTextReply` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/browser/src/utils/messages.ts:27`. |
@@ -3353,10 +3353,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Signer.type` | type member | `Signer.kind` | generated | 11.4 Node, Client and options | Source: `sdks/browser/src/utils/signer.ts:12`. |
 | `Signer.getIdentifier` | type member | `Signer.identity` | generated | 11.4 Node, Client and options | Source: `sdks/browser/src/utils/signer.ts:13`. |
 | `Signer.signMessage` | type member | `Signer.sign` | generated | 11.4 Node, Client and options | Source: `sdks/browser/src/utils/signer.ts:14`. |
-| `EOASigner` | type | `EOASigner` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/signer.ts:24`. |
-| `EOASigner.type` | type member | `EOASigner.type` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/signer.ts:24`. |
-| `SCWSigner` | type | `SCWSigner` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/signer.ts:25`. |
-| `SCWSigner.type` | type member | `SCWSigner.type` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/signer.ts:25`. |
+| `EOASigner` | type | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/browser/src/utils/signer.ts:24`. |
+| `EOASigner.type` | type member | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/browser/src/utils/signer.ts:24`. |
+| `SCWSigner` | type | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/browser/src/utils/signer.ts:25`. |
+| `SCWSigner.type` | type member | — | approved removal | 11.4 Node, Client and options; 11.4 Browser; 11.1, Signer | The signer foreign trait and app wallet signer replace these old shapes. Source: `sdks/browser/src/utils/signer.ts:25`. |
 | `SafeSigner` | type | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/signer.ts:27`. |
 | `SafeSigner.type` | type member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/signer.ts:29`. |
 | `SafeSigner.identifier` | type member | — | approved removal | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/browser/src/utils/signer.ts:30`. |
@@ -3364,29 +3364,29 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `func createEOASigner` | free function | — | approved removal | 11.4 Browser | LocalSigner or generated conversation replaces this helper. Source: `sdks/browser/src/utils/signer.ts:41`. |
 | `func createSCWSigner` | free function | — | approved removal | 11.4 Browser | LocalSigner or generated conversation replaces this helper. Source: `sdks/browser/src/utils/signer.ts:56`. |
 | `func toSafeSigner` | free function | — | approved removal | 11.4 Browser | LocalSigner or generated conversation replaces this helper. Source: `sdks/browser/src/utils/signer.ts:75`. |
-| `StreamFailureCause` | type | `StreamFailureCause` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:4`. |
-| `StreamFailureCause.kind` | type member | `StreamFailureCause.kind` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:5`. |
-| `StreamFailureCause.code` | type member | `StreamFailureCause.code` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:13`. |
-| `StreamFailureCause.message` | type member | `StreamFailureCause.message` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:14`. |
-| `StreamFailureCause.retryable` | type member | `StreamFailureCause.retryable` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:15`. |
-| `UnfinishedStreamTopic` | type | `UnfinishedStreamTopic` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:18`. |
-| `UnfinishedStreamTopic.topic` | type member | `UnfinishedStreamTopic.topic` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:19`. |
-| `UnfinishedStreamTopic.target` | type member | `UnfinishedStreamTopic.target` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:21`. |
-| `UnfinishedStreamTopic.received` | type member | `UnfinishedStreamTopic.received` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:22`. |
-| `UnfinishedStreamTopic.processed` | type member | `UnfinishedStreamTopic.processed` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:23`. |
-| `UnfinishedStreamTopic.unresolvedWelcomes` | type member | `UnfinishedStreamTopic.unresolvedWelcomes` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:24`. |
-| `UnfinishedStreamTopic.inactive` | type member | `UnfinishedStreamTopic.inactive` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:25`. |
-| `UnfinishedStreamTopic.cause` | type member | `UnfinishedStreamTopic.cause` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:26`. |
-| `StreamBarrierFailure` | type | `StreamBarrierFailure` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:29`. |
-| `StreamBarrierFailure.reason` | type member | `StreamBarrierFailure.reason` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:30`. |
-| `StreamBarrierFailure.unfinished` | type member | `StreamBarrierFailure.unfinished` | generated | open | Not covered by the design. Source: `sdks/browser/src/utils/streamFailure.ts:31`. |
+| `StreamFailureCause` | type | `StreamFailureCause` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:4`. |
+| `StreamFailureCause.kind` | type member | `StreamFailureCause.kind` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:5`. |
+| `StreamFailureCause.code` | type member | `StreamFailureCause.code` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:13`. |
+| `StreamFailureCause.message` | type member | `StreamFailureCause.message` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:14`. |
+| `StreamFailureCause.retryable` | type member | `StreamFailureCause.retryable` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:15`. |
+| `UnfinishedStreamTopic` | type | `UnfinishedStreamTopic` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:18`. |
+| `UnfinishedStreamTopic.topic` | type member | `UnfinishedStreamTopic.topic` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:19`. |
+| `UnfinishedStreamTopic.target` | type member | `UnfinishedStreamTopic.target` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:21`. |
+| `UnfinishedStreamTopic.received` | type member | `UnfinishedStreamTopic.received` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:22`. |
+| `UnfinishedStreamTopic.processed` | type member | `UnfinishedStreamTopic.processed` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:23`. |
+| `UnfinishedStreamTopic.unresolvedWelcomes` | type member | `UnfinishedStreamTopic.unresolvedWelcomes` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:24`. |
+| `UnfinishedStreamTopic.inactive` | type member | `UnfinishedStreamTopic.inactive` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:25`. |
+| `UnfinishedStreamTopic.cause` | type member | `UnfinishedStreamTopic.cause` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:26`. |
+| `StreamBarrierFailure` | type | `StreamBarrierFailure` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:29`. |
+| `StreamBarrierFailure.reason` | type member | `StreamBarrierFailure.reason` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:30`. |
+| `StreamBarrierFailure.unfinished` | type member | `StreamBarrierFailure.unfinished` | generated | 11.4 Node, Client and options; 11.2, stream failure details | XmtpError.streamFailure carries the typed record. Source: `sdks/browser/src/utils/streamFailure.ts:31`. |
 | `StreamFailureDetails` | type | `StreamFailureDetails` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:34`. |
 | `StreamFailureDetails.kind` | type member | `StreamFailureDetails.kind` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:35`. |
 | `StreamFailureDetails.code` | type member | `StreamFailureDetails.code` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:36`. |
 | `StreamFailureDetails.message` | type member | `StreamFailureDetails.message` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:37`. |
 | `StreamFailureDetails.retryable` | type member | `StreamFailureDetails.retryable` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:38`. |
-| `StreamFailureDetails.intentId` | type member | `StreamFailureDetails.intentID` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:39`. |
-| `StreamFailureDetails.publishedIntentIds` | type member | `StreamFailureDetails.publishedIntentIDs` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:40`. |
+| `StreamFailureDetails.intentId` | type member | `StreamFailureDetails.intentID` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/utils/streamFailure.ts:39`. |
+| `StreamFailureDetails.publishedIntentIds` | type member | `StreamFailureDetails.publishedIntentIDs` | alias | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Deprecated name for one major release (11.5). Source: `sdks/browser/src/utils/streamFailure.ts:40`. |
 | `StreamFailureDetails.summary` | type member | `StreamFailureDetails.summary` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:41`. |
 | `StreamFailureDetails.summary.messages` | type member | `StreamFailureDetails.summary.messages` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:42`. |
 | `StreamFailureDetails.summary.conversations` | type member | `StreamFailureDetails.summary.conversations` | generated | 11.4 Browser; 11.4 Node, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/browser/src/utils/streamFailure.ts:43`. |
@@ -3397,7 +3397,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DEFAULT_RETRY_DELAY` | const | — | approved removal | 11.4 Node, Conversations | Stream retry knobs leave the public API. Source: `sdks/browser/src/utils/streams.ts:34`. |
 | `DEFAULT_RETRY_ATTEMPTS` | const | — | approved removal | 11.4 Node, Conversations | Stream retry knobs leave the public API. Source: `sdks/browser/src/utils/streams.ts:35`. |
 | `StreamOptions` | type | `StreamOptions` | static runtime | 5, stream adapters; 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts:42`. |
-| `StreamOptions.onEnd` | type member | `StreamOptions.onClose` | static runtime | 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts:46`. |
+| `StreamOptions.onEnd` | type member | `StreamOptions.onClose` | alias | 11.4 Node, Conversations | Deprecated name for one major release (11.5). Source: `sdks/browser/src/utils/streams.ts:46`. |
 | `StreamOptions.onError` | type member | `StreamOptions.onError` | static runtime | 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts:50`. |
 | `StreamOptions.onFail` | type member | — | approved removal | 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts:54`. |
 | `StreamOptions.onRestart` | type member | — | approved removal | 11.4 Node, Conversations | Source: `sdks/browser/src/utils/streams.ts:58`. |
@@ -3415,16 +3415,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 ## Open items
 
-353 exports need a design decision. Their proposed status appears in the SDK table.
+93 exports need a design decision. Their proposed status appears in the SDK table.
 
-- Swift `ForkRecoveryPolicy` (`sdks/ios/Sources/XMTPiOS/Client.swift:28`): proposed **generated**. Not covered by the design.
-- Swift `ForkRecoveryPolicy.none` (`sdks/ios/Sources/XMTPiOS/Client.swift:29`): proposed **generated**. Not covered by the design.
-- Swift `ForkRecoveryPolicy.allowlistedGroups` (`sdks/ios/Sources/XMTPiOS/Client.swift:30`): proposed **generated**. Not covered by the design.
-- Swift `ForkRecoveryPolicy.all` (`sdks/ios/Sources/XMTPiOS/Client.swift:31`): proposed **generated**. Not covered by the design.
-- Swift `DbPoolOptions` (`sdks/ios/Sources/XMTPiOS/Client.swift:89`): proposed **generated**. Not covered by the design.
-- Swift `DbPoolOptions.maxPoolSize` (`sdks/ios/Sources/XMTPiOS/Client.swift:90`): proposed **generated**. Not covered by the design.
-- Swift `DbPoolOptions.minPoolSize` (`sdks/ios/Sources/XMTPiOS/Client.swift:91`): proposed **generated**. Not covered by the design.
-- Swift `DbPoolOptions.init` (`sdks/ios/Sources/XMTPiOS/Client.swift:93`): proposed **generated**. Not covered by the design.
 - Swift `Client.inMemoryDbPath` (`sdks/ios/Sources/XMTPiOS/Client.swift:216`): proposed **generated**. Not covered by the design.
 - Swift `Client.setLibXMTPNativeLogLevel` (`sdks/ios/Sources/XMTPiOS/Client.swift:1412`): proposed **generated**. Not covered by the design.
 - Swift `AttachmentCodecError` (`sdks/ios/Sources/XMTPiOS/Codecs/AttachmentCodec.swift:16`): proposed **generated**. Not covered by the design.
@@ -3433,13 +3425,6 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Swift `DeletedBy` (`sdks/ios/Sources/XMTPiOS/Codecs/DeletedMessage.swift:22`): proposed **generated**. Not covered by the design.
 - Swift `DeletedBy.sender` (`sdks/ios/Sources/XMTPiOS/Codecs/DeletedMessage.swift:24`): proposed **generated**. Not covered by the design.
 - Swift `DeletedBy.admin` (`sdks/ios/Sources/XMTPiOS/Codecs/DeletedMessage.swift:26`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:12`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.invalidURL` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.v1NotSupported` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.invalidParameters` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.invalidDigest` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.invalidScheme` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MultiRemoteAttachmentError.description` (`sdks/ios/Sources/XMTPiOS/Codecs/MultiRemoteAttachmentCodec.swift:16`): proposed **generated**. Not covered by the design.
 - Swift `ReactionAction` (`sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:39`): proposed **generated**. Not covered by the design.
 - Swift `ReactionAction.added` (`sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:40`): proposed **generated**. Not covered by the design.
 - Swift `ReactionAction.removed` (`sdks/ios/Sources/XMTPiOS/Codecs/ReactionCodec.swift:40`): proposed **generated**. Not covered by the design.
@@ -3458,118 +3443,26 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Swift `RemoteAttachmentError.invalidDigest` (`sdks/ios/Sources/XMTPiOS/Codecs/RemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
 - Swift `RemoteAttachmentError.invalidScheme` (`sdks/ios/Sources/XMTPiOS/Codecs/RemoteAttachmentCodec.swift:13`): proposed **generated**. Not covered by the design.
 - Swift `RemoteAttachmentError.description` (`sdks/ios/Sources/XMTPiOS/Codecs/RemoteAttachmentCodec.swift:16`): proposed **generated**. Not covered by the design.
-- Swift `Reply.contentType` (`sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:15`): proposed **generated**. Not covered by the design.
-- Swift `Reply.init` (`sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:18`): proposed **generated**. Not covered by the design.
-- Swift `Reply.init` (`sdks/ios/Sources/XMTPiOS/Codecs/ReplyCodec.swift:25`): proposed **generated**. Not covered by the design.
 - Swift `Conversation.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Conversation.swift:370`): proposed **generated**. Not covered by the design.
-- Swift `CipherText` (`sdks/ios/Sources/XMTPiOS/Crypto.swift:4`): proposed **generated**. Not covered by the design.
 - Swift `Dm.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Dm.swift:9`): proposed **generated**. Not covered by the design.
 - Swift `Dm.encodeContent` (`sdks/ios/Sources/XMTPiOS/Dm.swift:174`): proposed **generated**. Not covered by the design.
-- Swift `String.hexToData` (`sdks/ios/Sources/XMTPiOS/Extensions/String.swift:5`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState` (`sdks/ios/Sources/XMTPiOS/Group.swift:3`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState.allowed` (`sdks/ios/Sources/XMTPiOS/Group.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState.rejected` (`sdks/ios/Sources/XMTPiOS/Group.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState.pending` (`sdks/ios/Sources/XMTPiOS/Group.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState.restored` (`sdks/ios/Sources/XMTPiOS/Group.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `GroupMembershipState.pendingRemove` (`sdks/ios/Sources/XMTPiOS/Group.swift:4`): proposed **generated**. Not covered by the design.
 - Swift `Group.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Group.swift:13`): proposed **generated**. Not covered by the design.
 - Swift `Group.addMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift:159`): proposed **generated**. Not covered by the design.
 - Swift `Group.removeMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift:168`): proposed **generated**. Not covered by the design.
 - Swift `Group.encodeContent` (`sdks/ios/Sources/XMTPiOS/Group.swift:411`): proposed **generated**. Not covered by the design.
-- Swift `CommitLogForkStatus` (`sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:1`): proposed **generated**. Not covered by the design.
-- Swift `CommitLogForkStatus.forked` (`sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:2`): proposed **generated**. Not covered by the design.
-- Swift `CommitLogForkStatus.notForked` (`sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:3`): proposed **generated**. Not covered by the design.
-- Swift `CommitLogForkStatus.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/ConversationDebugInfo.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `MessageDeliveryStatus` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:7`): proposed **generated**. Not covered by the design.
-- Swift `MessageDeliveryStatus.all` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:8`): proposed **generated**. Not covered by the design.
-- Swift `MessageDeliveryStatus.published` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:9`): proposed **generated**. Not covered by the design.
-- Swift `MessageDeliveryStatus.unpublished` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:10`): proposed **generated**. Not covered by the design.
-- Swift `MessageDeliveryStatus.failed` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `SortDirection` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:38`): proposed **generated**. Not covered by the design.
-- Swift `SortDirection.ascending` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:39`): proposed **generated**. Not covered by the design.
-- Swift `SortDirection.descending` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:40`): proposed **generated**. Not covered by the design.
-- Swift `MessageSortBy` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:61`): proposed **generated**. Not covered by the design.
-- Swift `MessageSortBy.sentAt` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:62`): proposed **generated**. Not covered by the design.
-- Swift `MessageSortBy.insertedAt` (`sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift:63`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:10`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.applicationId` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.ratchetTree` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:12`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.requiredCapabilities` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:13`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.externalPub` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:14`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.externalSenders` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:15`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.lastResort` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:16`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.immutableMetadata` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:17`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.appDataDictionary` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:18`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:19`): proposed **generated**. Not covered by the design.
-- Swift `MlsExtensionType.grease` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:20`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:39`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities.init` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:42`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities.installationId` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:47`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities.isOwn` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:52`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities.supportedExtensions` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:58`): proposed **generated**. Not covered by the design.
-- Swift `InstallationCapabilities.capabilitiesKnown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:65`): proposed **generated**. Not covered by the design.
-- Swift `InboxCapabilities` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:72`): proposed **generated**. Not covered by the design.
-- Swift `InboxCapabilities.init` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:75`): proposed **generated**. Not covered by the design.
-- Swift `InboxCapabilities.inboxId` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:79`): proposed **generated**. Not covered by the design.
-- Swift `InboxCapabilities.installations` (`sdks/ios/Sources/XMTPiOS/Libxmtp/GroupMembershipCapabilities.swift:83`): proposed **generated**. Not covered by the design.
-- Swift `PermissionLevel` (`sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:10`): proposed **generated**. Not covered by the design.
-- Swift `PermissionLevel.Member` (`sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `PermissionLevel.Admin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `PermissionLevel.SuperAdmin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/Member.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:3`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption.allow` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption.deny` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:5`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption.admin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:6`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption.superAdmin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:7`): proposed **generated**. Not covered by the design.
-- Swift `PermissionOption.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:8`): proposed **generated**. Not covered by the design.
-- Swift `GroupPermissionPreconfiguration` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:45`): proposed **generated**. Not covered by the design.
-- Swift `GroupPermissionPreconfiguration.allMembers` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:46`): proposed **generated**. Not covered by the design.
-- Swift `GroupPermissionPreconfiguration.adminOnly` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:47`): proposed **generated**. Not covered by the design.
+- Swift `PermissionOption.allow` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:4`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Swift `PermissionOption.deny` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:5`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Swift `PermissionOption.admin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:6`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Swift `PermissionOption.superAdmin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:7`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Swift `PermissionOption.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift:8`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `FfiXmtpClient.waitForRegistrationVisible` (`sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift:7011`): proposed **generated**. The standalone method keeps its behavior; design 11.4 does not name it.
-- Swift `MessageCatchUpSnapshot` (`sdks/ios/Sources/XMTPiOS/MessageReader.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `PreferenceType` (`sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:11`): proposed **generated**. Not covered by the design.
-- Swift `PreferenceType.hmac_keys` (`sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift:12`): proposed **generated**. Not covered by the design.
-- Swift `SigningKeyDescription` (`sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:17`): proposed **generated**. Not covered by the design.
-- Swift `SigningKeyDescription.kid` (`sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:18`): proposed **generated**. Not covered by the design.
-- Swift `SigningKeyDescription.alg` (`sdks/ios/Sources/XMTPiOS/ServerConfiguration.swift:19`): proposed **generated**. Not covered by the design.
-- Swift `StreamFailureKind` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:3`): proposed **generated**. Not covered by the design.
-- Swift `StreamBarrierReason` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:4`): proposed **generated**. Not covered by the design.
-- Swift `StreamBarrierCauseKind` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:5`): proposed **generated**. Not covered by the design.
-- Swift `StreamBarrierCause` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:6`): proposed **generated**. Not covered by the design.
-- Swift `StreamBarrierTopic` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:7`): proposed **generated**. Not covered by the design.
-- Swift `StreamBarrierFailure` (`sdks/ios/Sources/XMTPiOS/StreamFailure.swift:8`): proposed **generated**. Not covered by the design.
-- Kotlin `ForkRecoveryPolicy` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:91`): proposed **generated**. Not covered by the design.
-- Kotlin `ForkRecoveryPolicy.None` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:92`): proposed **generated**. Not covered by the design.
-- Kotlin `ForkRecoveryPolicy.AllowlistedGroups` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:93`): proposed **generated**. Not covered by the design.
-- Kotlin `ForkRecoveryPolicy.All` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:94`): proposed **generated**. Not covered by the design.
-- Kotlin `DbPoolOptions` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:129`): proposed **generated**. Not covered by the design.
-- Kotlin `DbPoolOptions.maxPoolSize` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:130`): proposed **generated**. Not covered by the design.
-- Kotlin `DbPoolOptions.minPoolSize` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:131`): proposed **generated**. Not covered by the design.
 - Kotlin `Client.Companion.setLibXMTPNativeLogLevel` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt:251`): proposed **generated**. Not covered by the design.
-- Kotlin `Conversation.client` (`sdks/android/library/src/main/java/org/xmtp/android/library/Conversation.kt:465`): proposed **generated**. Not covered by the design.
-- Kotlin `Conversations.client` (`sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt:56`): proposed **generated**. Not covered by the design.
-- Kotlin `CipherText` (`sdks/android/library/src/main/java/org/xmtp/android/library/Crypto.kt:13`): proposed **generated**. Not covered by the design.
-- Kotlin `Dm.client` (`sdks/android/library/src/main/java/org/xmtp/android/library/Dm.kt:32`): proposed **generated**. Not covered by the design.
-- Kotlin `Group.client` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:44`): proposed **generated**. Not covered by the design.
 - Kotlin `Group.addMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:470`): proposed **generated**. Not covered by the design.
 - Kotlin `Group.removeMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt:480`): proposed **generated**. Not covered by the design.
-- Kotlin `MessageCatchUpSnapshot` (`sdks/android/library/src/main/java/org/xmtp/android/library/MessageReader.kt:17`): proposed **generated**. Not covered by the design.
-- Kotlin `PreferenceType` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:59`): proposed **generated**. Not covered by the design.
-- Kotlin `PreferenceType.HMAC_KEYS` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:60`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:68`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.conversationId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:69`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.inboxId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:74`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.key` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt:80`): proposed **generated**. Not covered by the design.
-- Kotlin `SigningKeyDescription` (`sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:40`): proposed **generated**. Not covered by the design.
-- Kotlin `SigningKeyDescription.kid` (`sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:41`): proposed **generated**. Not covered by the design.
-- Kotlin `SigningKeyDescription.alg` (`sdks/android/library/src/main/java/org/xmtp/android/library/ServerConfiguration.kt:42`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamFailureKind` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:13`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamBarrierReason` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:14`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamBarrierCauseKind` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:15`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamBarrierCause` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:16`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamBarrierTopic` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:17`): proposed **generated**. Not covered by the design.
-- Kotlin `StreamBarrierFailure` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:18`): proposed **generated**. Not covered by the design.
-- Kotlin `Throwable.streamFailureDetails` (`sdks/android/library/src/main/java/org/xmtp/android/library/StreamFailure.kt:26`): proposed **generated**. Not covered by the design.
 - Kotlin `ByteArray.toHex` (`sdks/android/library/src/main/java/org/xmtp/android/library/Util.kt:15`): proposed **static runtime**. Not covered by the design.
 - Kotlin `String.hexToByteArray` (`sdks/android/library/src/main/java/org/xmtp/android/library/Util.kt:17`): proposed **static runtime**. Not covered by the design.
 - Kotlin `func validateInboxId` (`sdks/android/library/src/main/java/org/xmtp/android/library/Util.kt:19`): proposed **generated**. Not covered by the design.
@@ -3606,167 +3499,14 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Kotlin `func getReactionSchema` (`sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:47`): proposed **generated**. Not covered by the design.
 - Kotlin `func getReactionAction` (`sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReactionCodec.kt:55`): proposed **generated**. Not covered by the design.
 - Kotlin `RemoteAttachment.fetcher` (`sdks/android/library/src/main/java/org/xmtp/android/library/codecs/RemoteAttachmentCodec.kt:35`): proposed **platform helper**. The design lists the download file but does not name this injected fetcher.
-- Kotlin `Reply.contentType` (`sdks/android/library/src/main/java/org/xmtp/android/library/codecs/ReplyCodec.kt:17`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:17`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.ApplicationId` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:18`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.RatchetTree` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:20`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.RequiredCapabilities` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:22`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.ExternalPub` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:24`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.ExternalSenders` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:26`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.LastResort` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:28`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.ImmutableMetadata` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:30`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.AppDataDictionary` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:32`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.Unknown` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:34`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.Unknown.id` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:35`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.Grease` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:38`): proposed **generated**. Not covered by the design.
-- Kotlin `MlsExtensionType.Grease.id` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:39`): proposed **generated**. Not covered by the design.
-- Kotlin `InstallationCapabilities` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:62`): proposed **generated**. Not covered by the design.
-- Kotlin `InstallationCapabilities.installationId` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:66`): proposed **generated**. Not covered by the design.
-- Kotlin `InstallationCapabilities.isOwn` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:70`): proposed **generated**. Not covered by the design.
-- Kotlin `InstallationCapabilities.supportedExtensions` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:77`): proposed **generated**. Not covered by the design.
-- Kotlin `InstallationCapabilities.capabilitiesKnown` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:85`): proposed **generated**. Not covered by the design.
-- Kotlin `InboxCapabilities` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:93`): proposed **generated**. Not covered by the design.
-- Kotlin `InboxCapabilities.inboxId` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:96`): proposed **generated**. Not covered by the design.
-- Kotlin `InboxCapabilities.installations` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipCapabilities.kt:99`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:10`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.ALLOWED` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:14`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.REJECTED` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:19`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.PENDING` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:24`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.RESTORED` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:29`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.PENDING_REMOVE` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:34`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupMembershipState.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/GroupMembershipState.kt:38`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionLevel` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:8`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionLevel.MEMBER` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:9`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionLevel.ADMIN` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:10`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionLevel.SUPER_ADMIN` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Member.kt:11`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:7`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.Allow` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:8`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.Deny` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:9`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.Admin` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:10`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.SuperAdmin` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:11`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.Unknown` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:12`): proposed **generated**. Not covered by the design.
-- Kotlin `PermissionOption.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:15`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupPermissionPreconfiguration` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:37`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupPermissionPreconfiguration.ALL_MEMBERS` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:38`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupPermissionPreconfiguration.ADMIN_ONLY` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:39`): proposed **generated**. Not covered by the design.
-- Kotlin `GroupPermissionPreconfiguration.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:42`): proposed **generated**. Not covered by the design.
-- Kotlin `Reply.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:10`): proposed **generated**. Not covered by the design.
-- Kotlin `Reply.Companion.create` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/Reply.kt:11`): proposed **generated**. Not covered by the design.
+- Kotlin `PermissionOption.Allow` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:8`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Kotlin `PermissionOption.Deny` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:9`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Kotlin `PermissionOption.Admin` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:10`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Kotlin `PermissionOption.SuperAdmin` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:11`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
+- Kotlin `PermissionOption.Unknown` (`sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/PermissionPolicySet.kt:12`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Kotlin `PublicKey` (`sdks/android/library/src/main/java/org/xmtp/android/library/messages/PrivateKey.kt:18`): proposed **generated**. Not covered by the design.
 - Kotlin `PublicKey.walletAddress` (`sdks/android/library/src/main/java/org/xmtp/android/library/messages/PrivateKey.kt:88`): proposed **generated**. Not covered by the design.
-- Node `ResolveValue.value` (`sdks/node/src/AsyncStream.ts:2`): proposed **generated**. Not covered by the design.
-- Node `ResolveValue.done` (`sdks/node/src/AsyncStream.ts:3`): proposed **generated**. Not covered by the design.
-- Node `AsyncStreamProxy.next` (`sdks/node/src/AsyncStream.ts:110`): proposed **generated**. Not covered by the design.
-- Node `AsyncStreamProxy.return` (`sdks/node/src/AsyncStream.ts:111`): proposed **generated**. Not covered by the design.
-- Node `AsyncStreamProxy.end` (`sdks/node/src/AsyncStream.ts:112`): proposed **generated**. Not covered by the design.
-- Node `AsyncStreamProxy.isDone` (`sdks/node/src/AsyncStream.ts:113`): proposed **generated**. Not covered by the design.
-- Node `Client.libxmtpVersion` (`sdks/node/src/Client.ts:200`): proposed **generated**. Not covered by the design.
-- Node `Client.appVersion` (`sdks/node/src/Client.ts:207`): proposed **generated**. Not covered by the design.
-- Node `Client.options` (`sdks/node/src/Client.ts:226`): proposed **generated**. Not covered by the design.
-- Node `Client.signer` (`sdks/node/src/Client.ts:233`): proposed **generated**. Not covered by the design.
-- Node `Client.accountIdentifier` (`sdks/node/src/Client.ts:240`): proposed **generated**. Not covered by the design.
-- Node `Client.installationIdBytes` (`sdks/node/src/Client.ts:267`): proposed **generated**. Not covered by the design.
-- Node `Conversation._client` (`sdks/node/src/Conversation.ts:54`): proposed **generated**. Not covered by the design.
-- Node `Conversations.topic` (`sdks/node/src/Conversations.ts:58`): proposed **generated**. Not covered by the design.
-- Node `MessageAcknowledgement.checkOwner` (`sdks/node/src/MessageStream.ts:12`): proposed **generated**. Not covered by the design.
-- Node `MessageAcknowledgement.acknowledge` (`sdks/node/src/MessageStream.ts:13`): proposed **generated**. Not covered by the design.
-- Node `MessageAcknowledgement.enrichedMessage` (`sdks/node/src/MessageStream.ts:14`): proposed **generated**. Not covered by the design.
-- Node `MessageAcknowledgement.reject` (`sdks/node/src/MessageStream.ts:15`): proposed **generated**. Not covered by the design.
-- Node `MessageDelivery.message` (`sdks/node/src/MessageStream.ts:19`): proposed **generated**. Not covered by the design.
-- Node `MessageDelivery.cursor` (`sdks/node/src/MessageStream.ts:20`): proposed **generated**. Not covered by the design.
-- Node `MessageDelivery.acknowledgement` (`sdks/node/src/MessageStream.ts:21`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.nextDelivery` (`sdks/node/src/MessageStream.ts:25`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.close` (`sdks/node/src/MessageStream.ts:26`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.updateScope` (`sdks/node/src/MessageStream.ts:27`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.updateFilter` (`sdks/node/src/MessageStream.ts:28`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.conversationType` (`sdks/node/src/MessageStream.ts:29`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.consentStates` (`sdks/node/src/MessageStream.ts:30`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.catchUpSnapshot` (`sdks/node/src/MessageStream.ts:32`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource.catchUpChanged` (`sdks/node/src/MessageStream.ts:33`): proposed **generated**. Not covered by the design.
-- Node `ServerConfigurationError.constructor` (`sdks/node/src/ServerConfiguration.ts:21`): proposed **generated**. Not covered by the design.
-- Node `MessageAcknowledgement` (`sdks/node/src/index.ts:22`): proposed **generated**. Not covered by the design.
-- Node `MessageDelivery` (`sdks/node/src/index.ts:22`): proposed **generated**. Not covered by the design.
-- Node `MessageReaderSource` (`sdks/node/src/index.ts:22`): proposed **generated**. Not covered by the design.
-- Node `ServerConfigurationError` (`sdks/node/src/index.ts:40`): proposed **generated**. Not covered by the design.
-- Node `func throwServerConfigurationError` (`sdks/node/src/index.ts:40`): proposed **generated**. Not covered by the design.
-- Node `func toServerConfigurationError` (`sdks/node/src/index.ts:40`): proposed **generated**. Not covered by the design.
 - Node `OtherOptions.stdoutLoggingLevel` (`sdks/node/src/types.ts:139`): proposed **generated**. 11.4 moves this to initLogging; 11.1 has no matching LoggingOptions field.
 - Node `DistributiveOmit` (`sdks/node/src/types.ts:213`): proposed **generated**. Not covered by the design.
-- Node `EOASigner` (`sdks/node/src/utils/signer.ts:22`): proposed **generated**. Not covered by the design.
-- Node `EOASigner.type` (`sdks/node/src/utils/signer.ts:22`): proposed **generated**. Not covered by the design.
-- Node `SCWSigner` (`sdks/node/src/utils/signer.ts:23`): proposed **generated**. Not covered by the design.
-- Node `SCWSigner.type` (`sdks/node/src/utils/signer.ts:23`): proposed **generated**. Not covered by the design.
-- Node `StreamFailureCause` (`sdks/node/src/utils/streamFailure.ts:4`): proposed **generated**. Not covered by the design.
-- Node `StreamFailureCause.kind` (`sdks/node/src/utils/streamFailure.ts:5`): proposed **generated**. Not covered by the design.
-- Node `StreamFailureCause.code` (`sdks/node/src/utils/streamFailure.ts:13`): proposed **generated**. Not covered by the design.
-- Node `StreamFailureCause.message` (`sdks/node/src/utils/streamFailure.ts:14`): proposed **generated**. Not covered by the design.
-- Node `StreamFailureCause.retryable` (`sdks/node/src/utils/streamFailure.ts:15`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic` (`sdks/node/src/utils/streamFailure.ts:18`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.topic` (`sdks/node/src/utils/streamFailure.ts:19`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.target` (`sdks/node/src/utils/streamFailure.ts:21`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.received` (`sdks/node/src/utils/streamFailure.ts:22`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.processed` (`sdks/node/src/utils/streamFailure.ts:23`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.unresolvedWelcomes` (`sdks/node/src/utils/streamFailure.ts:24`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.inactive` (`sdks/node/src/utils/streamFailure.ts:25`): proposed **generated**. Not covered by the design.
-- Node `UnfinishedStreamTopic.cause` (`sdks/node/src/utils/streamFailure.ts:26`): proposed **generated**. Not covered by the design.
-- Node `StreamBarrierFailure` (`sdks/node/src/utils/streamFailure.ts:29`): proposed **generated**. Not covered by the design.
-- Node `StreamBarrierFailure.reason` (`sdks/node/src/utils/streamFailure.ts:30`): proposed **generated**. Not covered by the design.
-- Node `StreamBarrierFailure.unfinished` (`sdks/node/src/utils/streamFailure.ts:31`): proposed **generated**. Not covered by the design.
-- Browser `ResolveValue.value` (`sdks/browser/src/AsyncStream.ts:2`): proposed **generated**. Not covered by the design.
-- Browser `ResolveValue.done` (`sdks/browser/src/AsyncStream.ts:3`): proposed **generated**. Not covered by the design.
-- Browser `AsyncStreamProxy.next` (`sdks/browser/src/AsyncStream.ts:110`): proposed **generated**. Not covered by the design.
-- Browser `AsyncStreamProxy.return` (`sdks/browser/src/AsyncStream.ts:111`): proposed **generated**. Not covered by the design.
-- Browser `AsyncStreamProxy.end` (`sdks/browser/src/AsyncStream.ts:112`): proposed **generated**. Not covered by the design.
-- Browser `AsyncStreamProxy.isDone` (`sdks/browser/src/AsyncStream.ts:113`): proposed **generated**. Not covered by the design.
-- Browser `Client.options` (`sdks/browser/src/Client.ts:285`): proposed **generated**. Not covered by the design.
-- Browser `Client.signer` (`sdks/browser/src/Client.ts:292`): proposed **generated**. Not covered by the design.
-- Browser `Client.accountIdentifier` (`sdks/browser/src/Client.ts:313`): proposed **generated**. Not covered by the design.
-- Browser `Client.installationIdBytes` (`sdks/browser/src/Client.ts:327`): proposed **generated**. Not covered by the design.
-- Browser `Client.libxmtpVersion` (`sdks/browser/src/Client.ts:355`): proposed **generated**. Not covered by the design.
-- Browser `Client.appVersion` (`sdks/browser/src/Client.ts:362`): proposed **generated**. Not covered by the design.
-- Browser `Conversations.topic` (`sdks/browser/src/Conversations.ts:59`): proposed **generated**. Not covered by the design.
-- Browser `Conversations.options` (`sdks/browser/src/Conversations.ts:395`): proposed **generated**. Not covered by the design.
-- Browser `MessageAcknowledgement.checkOwner` (`sdks/browser/src/MessageStream.ts:11`): proposed **generated**. Not covered by the design.
-- Browser `MessageAcknowledgement.acknowledge` (`sdks/browser/src/MessageStream.ts:12`): proposed **generated**. Not covered by the design.
-- Browser `MessageAcknowledgement.reject` (`sdks/browser/src/MessageStream.ts:13`): proposed **generated**. Not covered by the design.
-- Browser `MessageDelivery.message` (`sdks/browser/src/MessageStream.ts:17`): proposed **generated**. Not covered by the design.
-- Browser `MessageDelivery.cursor` (`sdks/browser/src/MessageStream.ts:18`): proposed **generated**. Not covered by the design.
-- Browser `MessageDelivery.acknowledgement` (`sdks/browser/src/MessageStream.ts:19`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.nextDelivery` (`sdks/browser/src/MessageStream.ts:23`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.close` (`sdks/browser/src/MessageStream.ts:24`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.updateScope` (`sdks/browser/src/MessageStream.ts:25`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.updateFilter` (`sdks/browser/src/MessageStream.ts:26`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.conversationType` (`sdks/browser/src/MessageStream.ts:27`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.consentStates` (`sdks/browser/src/MessageStream.ts:28`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.catchUpSnapshot` (`sdks/browser/src/MessageStream.ts:30`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource.catchUpChanged` (`sdks/browser/src/MessageStream.ts:31`): proposed **generated**. Not covered by the design.
-- Browser `MessageAcknowledgement` (`sdks/browser/src/index.ts:9`): proposed **generated**. Not covered by the design.
-- Browser `MessageDelivery` (`sdks/browser/src/index.ts:9`): proposed **generated**. Not covered by the design.
-- Browser `MessageReaderSource` (`sdks/browser/src/index.ts:9`): proposed **generated**. Not covered by the design.
-- Browser `func fetchServerConfiguration` (`sdks/browser/src/index.ts:26`): proposed **generated**. Not covered by the design.
 - Browser `func metadataFieldName` (`sdks/browser/src/index.ts:28`): proposed **generated**. Not covered by the design.
 - Browser `DistributiveOmit` (`sdks/browser/src/types/options.ts:167`): proposed **generated**. Not covered by the design.
-- Browser `ServerConfigurationError` (`sdks/browser/src/utils/errors.ts:79`): proposed **generated**. Not covered by the design.
-- Browser `ServerConfigurationError.code` (`sdks/browser/src/utils/errors.ts:80`): proposed **generated**. Not covered by the design.
-- Browser `ServerConfigurationError.constructor` (`sdks/browser/src/utils/errors.ts:82`): proposed **generated**. Not covered by the design.
-- Browser `func toServerConfigurationError` (`sdks/browser/src/utils/errors.ts:181`): proposed **generated**. Not covered by the design.
-- Browser `EOASigner` (`sdks/browser/src/utils/signer.ts:24`): proposed **generated**. Not covered by the design.
-- Browser `EOASigner.type` (`sdks/browser/src/utils/signer.ts:24`): proposed **generated**. Not covered by the design.
-- Browser `SCWSigner` (`sdks/browser/src/utils/signer.ts:25`): proposed **generated**. Not covered by the design.
-- Browser `SCWSigner.type` (`sdks/browser/src/utils/signer.ts:25`): proposed **generated**. Not covered by the design.
-- Browser `StreamFailureCause` (`sdks/browser/src/utils/streamFailure.ts:4`): proposed **generated**. Not covered by the design.
-- Browser `StreamFailureCause.kind` (`sdks/browser/src/utils/streamFailure.ts:5`): proposed **generated**. Not covered by the design.
-- Browser `StreamFailureCause.code` (`sdks/browser/src/utils/streamFailure.ts:13`): proposed **generated**. Not covered by the design.
-- Browser `StreamFailureCause.message` (`sdks/browser/src/utils/streamFailure.ts:14`): proposed **generated**. Not covered by the design.
-- Browser `StreamFailureCause.retryable` (`sdks/browser/src/utils/streamFailure.ts:15`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic` (`sdks/browser/src/utils/streamFailure.ts:18`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.topic` (`sdks/browser/src/utils/streamFailure.ts:19`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.target` (`sdks/browser/src/utils/streamFailure.ts:21`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.received` (`sdks/browser/src/utils/streamFailure.ts:22`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.processed` (`sdks/browser/src/utils/streamFailure.ts:23`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.unresolvedWelcomes` (`sdks/browser/src/utils/streamFailure.ts:24`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.inactive` (`sdks/browser/src/utils/streamFailure.ts:25`): proposed **generated**. Not covered by the design.
-- Browser `UnfinishedStreamTopic.cause` (`sdks/browser/src/utils/streamFailure.ts:26`): proposed **generated**. Not covered by the design.
-- Browser `StreamBarrierFailure` (`sdks/browser/src/utils/streamFailure.ts:29`): proposed **generated**. Not covered by the design.
-- Browser `StreamBarrierFailure.reason` (`sdks/browser/src/utils/streamFailure.ts:30`): proposed **generated**. Not covered by the design.
-- Browser `StreamBarrierFailure.unfinished` (`sdks/browser/src/utils/streamFailure.ts:31`): proposed **generated**. Not covered by the design.
