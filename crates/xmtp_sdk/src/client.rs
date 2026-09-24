@@ -12,8 +12,8 @@ use xmtp_mls::{
 };
 
 use crate::{
-    BackendSource, Conversations, InboxID, InstallationID, PublicIdentity, Signature, Signer,
-    SignerKind, SigningRequest, XmtpError, signer,
+    Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
+    PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
@@ -402,6 +402,32 @@ impl Client {
         })
     }
 
+    pub fn preferences(&self) -> Arc<Preferences> {
+        Arc::new(Preferences {
+            client: self.inner.clone(),
+        })
+    }
+
+    pub fn diagnostics(&self) -> Arc<Diagnostics> {
+        Arc::new(Diagnostics {
+            client: self.inner.clone(),
+        })
+    }
+
+    pub fn storage(&self) -> Arc<Storage> {
+        Arc::new(Storage {
+            client: self.inner.clone(),
+            options: self.options.clone(),
+            inbox_id: self.inbox_id(),
+        })
+    }
+
+    pub fn archives(&self) -> Arc<Archives> {
+        Arc::new(Archives {
+            client: self.inner.clone(),
+        })
+    }
+
     pub async fn end(&self) -> Result<(), XmtpError> {
         self.inner.close().await.map_err(XmtpError::from_client)
     }
@@ -453,7 +479,7 @@ pub(crate) async fn open_store(
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
 }
 
-fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
+pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
     let label = options.label.as_deref().unwrap_or("");
     if [label, inbox_id]
         .iter()

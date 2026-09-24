@@ -16,6 +16,8 @@ import {
   type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
+  type ContentTypeID,
+  type EncodedContent,
   type InboxState,
   type KeyPackageStatusEntry,
   type MessageMetadataEntry,
@@ -26,6 +28,26 @@ import {
 import type { ConversationID, InboxID, InstallationID } from "./ids";
 
 declare const process: { cwd(): string } | undefined;
+
+export interface ContentCodec<T> {
+  readonly type: ContentTypeID;
+  encode(value: T): EncodedContent;
+  decode(encoded: EncodedContent): T;
+}
+
+type AnyCodec = {
+  readonly type: ContentTypeID;
+  decode(encoded: EncodedContent): unknown;
+  encode(value: never): EncodedContent;
+};
+
+export type SDKClientOptions = ClientOptions & {
+  codecs?: readonly AnyCodec[];
+};
+
+function codecKey(type: ContentTypeID): string {
+  return `${type.authorityID}/${type.typeID}/${type.versionMajor}`;
+}
 
 function resolvedOptions(options: ClientOptions): ClientOptions {
   if (options.storage.location.tag !== StorageLocation_Tags.Default)
@@ -64,23 +86,37 @@ export class ClientRegistry {
 
 export class Client {
   private readonly key: bigint;
+  private readonly codecs: ReadonlyMap<string, AnyCodec>;
 
-  private constructor(readonly raw: ClientLike) {
+  private constructor(
+    readonly raw: ClientLike,
+    codecs: readonly AnyCodec[],
+  ) {
     this.key = raw.clientKey();
+    this.codecs = new Map(codecs.map((codec) => [codecKey(codec.type), codec]));
     ClientRegistry.set(this.key, this);
   }
 
-  static async create(signer: Signer, options: ClientOptions): Promise<Client> {
-    return new Client(await RawClient.create(signer, resolvedOptions(options)));
+  static async create(
+    signer: Signer,
+    options: SDKClientOptions,
+  ): Promise<Client> {
+    const { codecs = [], ...rustOptions } = options;
+    return new Client(
+      await RawClient.create(signer, resolvedOptions(rustOptions)),
+      codecs,
+    );
   }
 
   static async build(
     identity: PublicIdentity,
-    options: ClientOptions,
+    options: SDKClientOptions,
     inboxID?: InboxID,
   ): Promise<Client> {
+    const { codecs = [], ...rustOptions } = options;
     return new Client(
-      await RawClient.build(identity, resolvedOptions(options), inboxID),
+      await RawClient.build(identity, resolvedOptions(rustOptions), inboxID),
+      codecs,
     );
   }
 
@@ -172,6 +208,18 @@ export class Client {
 
   conversations() {
     return this.raw.conversations();
+  }
+
+  decodeCustom(
+    encoded: EncodedContent,
+  ): { value?: unknown; error?: string } | undefined {
+    const codec = this.codecs.get(codecKey(encoded.type));
+    if (codec === undefined) return undefined;
+    try {
+      return { value: codec.decode(encoded) };
+    } catch (error) {
+      return { error: String(error) };
+    }
   }
 
   async end(): Promise<void> {

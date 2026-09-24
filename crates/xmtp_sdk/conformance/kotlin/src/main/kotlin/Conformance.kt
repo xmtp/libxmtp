@@ -54,15 +54,23 @@ private class OrderedLogSink : LogSink {
     }
 }
 
+private class SampleCodec : SDKContentCodec {
+    override val type = ContentTypeID("example.org", "sample", 1u, 0u)
+
+    override fun encode(value: Any) = EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
+
+    override fun decode(encoded: EncodedContent): Any = encoded.content.decodeToString()
+}
+
 private suspend fun releasedMessage(
     identity: PublicIdentity,
     options: ClientOptions,
     inboxID: InboxID,
 ): Pair<Message, WeakReference<SDKClient>> {
     val host = SDKClient.build(identity, options, inboxID)
-    val group = host.raw.conversations().createGroup(emptyList())
+    val group = host.raw.conversations().createGroup(emptyList(), null)
     val id = group.sendText("weak owner")
-    val message = group.messages().first { it.id == id }
+    val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
 }
 
@@ -92,9 +100,9 @@ fun main() =
         val host = SDKClient.create(signer, options)
         val client = host.raw
         val inboxID = client.inboxID()
-        val group = client.conversations().createGroup(emptyList())
+        val group = client.conversations().createGroup(emptyList(), null)
         val sentID = group.sendText("conformance message")
-        val sent = group.messages().first { it.id == sentID }
+        val sent = group.messages(null).first { it.id == sentID }
         check(sent.client() === host)
         host.end()
         check(runCatching { sent.client() }.exceptionOrNull() is XmtpException.ClientClosed)
@@ -122,7 +130,7 @@ fun main() =
         check(runCatching { orphan.client() }.exceptionOrNull() is XmtpException.ClientClosed)
         println("Kotlin scenario 2: create, reopen, end passed")
 
-        val liveGroup = reopened.conversations().createGroup(emptyList())
+        val liveGroup = reopened.conversations().createGroup(emptyList(), null)
         val reader = liveGroup.messageReader()
         val liveID = liveGroup.sendText("durable stream")
         check(reader.next()?.id == liveID)
@@ -146,7 +154,7 @@ fun main() =
         } catch (_: TimeoutCancellationException) {
             check(delivered)
         }
-        val protocolGroup = reopened.conversations().createGroup(emptyList())
+        val protocolGroup = reopened.conversations().createGroup(emptyList(), null)
         val firstID = protocolGroup.sendText("ack on request")
         check(
             reopenedHost
@@ -339,6 +347,57 @@ fun main() =
             failedCredential is XmtpException.CredentialCallbackFailed,
         ) { "credential Error became $failedCredential" }
         println("Kotlin signer Error: call failed without a hang")
+
+        val family = reopened.conversations().createGroup(emptyList(), CreateGroupOptions(name = "family group"))
+        check(family.state().name == "family group")
+        check(family.creatorInboxID() == inboxID)
+        check(reopened.conversations().listGroups(null).any { it.id() == family.id() })
+        println("Kotlin scenario 4: group options, state, and list passed")
+
+        val parentID = family.sendText("parent")
+        val reactionID =
+            reopened.conversations().reactToMessage(
+                parentID,
+                Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
+                null,
+            )
+        val replyID = reopened.conversations().replyToMessage(parentID, encodeText("reply"), null)
+        check(reopened.decodeContent(encodeText("decoded")) is MessageContent.Text)
+        val familyMessages = family.messages(null)
+        val parent = familyMessages.first { it.id == parentID }
+        val reply = familyMessages.first { it.id == replyID }
+        check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionID)
+        check(reply.inReplyTo?.id == parentID)
+        println("Kotlin scenario 5: message records, reaction, and reply passed")
+
+        val codec = SampleCodec()
+        val withCodec = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(codec))
+        val withoutCodec = SDKClient.build(signer.identity(), options, inboxID)
+        val customID = family.send(codec.encode("codec value"), null)
+        val decoded = checkNotNull(withCodec.raw.conversations().getMessageByID(customID))
+        val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))
+        check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
+        check(undecoded.content is SDKMessageContent.Unknown)
+        withCodec.end()
+        withoutCodec.end()
+        println("Kotlin scenario 6: custom codec stayed with its client")
+
+        val archive = reopened.archives().exportToBytes(ByteArray(32) { 7 }, null)
+        check(archive.isNotEmpty())
+        check(reopened.archives().metadataFromBytes(archive, ByteArray(32) { 7 }).backupVersion == 0u.toUShort())
+        val archiveFolder = Files.createTempDirectory("xmtp-sdk-archive-")
+        val archivePath = archiveFolder.resolve("snapshot.xmtp")
+        try {
+            reopened.archives().exportToFile(archivePath.toString(), ByteArray(32) { 7 }, null)
+            check(
+                reopened.archives().metadataFromFile(archivePath.toString(), ByteArray(32) { 7 }).backupVersion ==
+                    0u.toUShort(),
+            )
+        } finally {
+            Files.deleteIfExists(archivePath)
+            Files.deleteIfExists(archiveFolder)
+        }
+        println("Kotlin scenario 9: archive bytes and file passed")
 
         reopenedHost.end()
     }
