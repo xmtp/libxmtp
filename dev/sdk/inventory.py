@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -36,6 +37,17 @@ class Entry:
     def key(self) -> str:
         return f"{self.source}:{self.line} {self.name}"
 
+    @property
+    def display_name(self) -> str:
+        if self.name.startswith("func "):
+            return self.name
+        if self.kind in {"function", "free function"}:
+            return f"func {self.name}"
+        if self.sdk in {"Node", "Browser"} and (self.name in {"encryptAttachment", "decryptAttachment", "flushTelemetry", "initLogging"}
+                or re.match(r"^(?:encode|contentType)[A-Z]", self.name)):
+            return f"func {self.name}"
+        return self.name
+
 
 def rel(path: Path) -> str:
     return path.relative_to(ROOT).as_posix()
@@ -58,64 +70,123 @@ def compact_name(line: str, language: str) -> tuple[str, str] | None:
     return name or kind, kind
 
 
+def swift_scan(text: str, source: str) -> list[Entry]:
+    """Read source declarations, including public members and SPI declarations."""
+    entries: list[Entry] = []
+    depth = 0
+    contexts: list[tuple[int, str, str]] = []
+    pending_type: tuple[str, str] | None = None
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        if stripped.startswith(("//", "*")):
+            continue
+        while contexts and depth < contexts[-1][0]:
+            contexts.pop()
+        owner = contexts[-1][1] if contexts else ""
+        at_surface = not contexts or depth == contexts[-1][0]
+        explicit = re.match(r"^(?:@[_\w.]+(?:\([^)]*\))?\s+)*(?:public|open)\s+", stripped)
+        parsed = compact_name(stripped, "Swift") if explicit else None
+        scoped_extension = re.match(r"^extension\s+([A-Za-z_]\w*)\b", stripped) if not explicit else None
+        if explicit and parsed and at_surface:
+            name, kind = parsed
+            if kind == "extension":
+                if "{" in line:
+                    contexts.append((depth + 1, name, kind))
+                else:
+                    pending_type = (name, kind)
+            else:
+                symbol = f"{owner}.{name}" if owner else name
+                if kind == "func" and not owner:
+                    symbol = f"func {name}"
+                elif kind in {"var", "let"} and not owner:
+                    symbol = f"{kind} {name}"
+                entries.append(Entry("Swift", source, number, symbol, kind))
+                if kind in {"class", "struct", "enum", "protocol", "actor"}:
+                    if "{" in line:
+                        contexts.append((depth + 1, symbol, kind))
+                    else:
+                        pending_type = (symbol, kind)
+        elif scoped_extension and at_surface:
+            extension_scope = (scoped_extension.group(1), "scope")
+            if "{" in line:
+                contexts.append((depth + 1, *extension_scope))
+            else:
+                pending_type = extension_scope
+        elif contexts and at_surface:
+            inherited_kind = contexts[-1][2]
+            if inherited_kind in {"extension", "protocol"}:
+                member = compact_name(stripped, "Swift")
+                if member and not stripped.startswith(("private ", "internal ", "fileprivate ")):
+                    name, kind = member
+                    if kind != "extension":
+                        entries.append(Entry("Swift", source, number, f"{owner}.{name}", kind))
+            elif inherited_kind == "enum" and stripped.startswith("case "):
+                for case in re.split(r",\s*(?![^()]*\))", stripped[5:].split("//")[0]):
+                    name = re.match(r"[A-Za-z_]\w*", case.strip())
+                    if name:
+                        entries.append(Entry("Swift", source, number, f"{owner}.{name.group()}", "case"))
+        code = line.split("//", 1)[0]
+        if pending_type and "{" in code:
+            contexts.append((depth + 1, *pending_type))
+            pending_type = None
+        depth += code.count("{") - code.count("}")
+    return entries
+
+
 def swift_inventory() -> list[Entry]:
     entries: list[Entry] = []
-    generated = {"Proto/*.pb.swift": 0, "Libxmtp/xmtpv3.swift": 0}
+    generated: list[Entry] = []
+    proto_count = 0
     for path in sorted(SWIFT.rglob("*.swift")):
+        scanned = swift_scan(path.read_text(), rel(path))
         relative = path.relative_to(SWIFT).as_posix()
-        family = (
-            "Proto/*.pb.swift" if relative.startswith("Proto/")
-            else "Libxmtp/xmtpv3.swift" if relative == "Libxmtp/xmtpv3.swift"
-            else None
-        )
-        depth = 0
-        inherited: list[tuple[int, str, str]] = []
-        for number, line in enumerate(path.read_text().splitlines(), 1):
-            stripped = line.strip()
-            if stripped.startswith("//") or stripped.startswith("*"):
-                continue
-            while inherited and depth < inherited[-1][0]:
-                inherited.pop()
-            explicit = re.match(r"^(?:@[\w.]+\s+)*(?:public|open)\s+", stripped)
-            parsed = compact_name(stripped, "Swift") if explicit else None
-            if explicit and parsed:
-                name, kind = parsed
-                if family:
-                    if kind != "extension":
-                        generated[family] += 1
-                    if kind in {"extension", "enum", "protocol"}:
-                        inherited.append((depth + 1, name, kind))
-                elif kind == "extension":
-                    inherited.append((depth + 1, name, kind))
-                else:
-                    entries.append(Entry("Swift", rel(path), number, name, kind))
-                    if kind in {"enum", "protocol"}:
-                        inherited.append((depth + 1, name, kind))
-            elif inherited and depth == inherited[-1][0]:
-                owner, inherited_kind = inherited[-1][1:]
-                if inherited_kind in {"extension", "protocol"}:
-                    member = compact_name(stripped, "Swift")
-                    if member and not stripped.startswith(("private ", "internal ", "fileprivate ")):
-                        name, kind = member
-                        if kind != "extension":
-                            if family:
-                                generated[family] += 1
-                            else:
-                                entries.append(Entry("Swift", rel(path), number, f"{owner}.{name}", kind))
-                elif inherited_kind == "enum" and stripped.startswith("case "):
-                    cases = stripped[5:].split("//")[0]
-                    for case in re.split(r",\s*(?![^()]*\))", cases):
-                        name = re.match(r"[A-Za-z_]\w*", case.strip())
-                        if name:
-                            if family:
-                                generated[family] += 1
-                            else:
-                                entries.append(Entry("Swift", rel(path), number, f"{owner}.{name.group()}", "case"))
-            # Depth is sufficient to find members in a public extension or enum.
-            code = line.split("//", 1)[0]
-            depth += code.count("{") - code.count("}")
-    for family, count in generated.items():
-        entries.append(Entry("Swift", f"sdks/ios/Sources/XMTPiOS/{family}", 0, "all public declarations", "generated family", count))
+        if relative.startswith("Proto/"):
+            proto_count += len(scanned)
+        elif relative == "Libxmtp/xmtpv3.swift":
+            generated = scanned
+        else:
+            entries.extend(scanned)
+    entries.append(Entry("Swift", "sdks/ios/Sources/XMTPiOS/Proto/*.pb.swift", 0,
+                         "pattern: Proto/*.pb.swift public declarations", "generated family", proto_count))
+    # A type used in a public signature is individually listed with its
+    # members. The remaining old bridge output has disjoint family rules.
+    directly_used: set[str] = set()
+    source_lines: dict[str, list[str]] = {}
+    for entry in entries:
+        if entry.kind == "generated family":
+            continue
+        if entry.source not in source_lines:
+            source_lines[entry.source] = (ROOT / entry.source).read_text().splitlines()
+        lines = source_lines[entry.source]
+        signature: list[str] = []
+        for line in lines[entry.line - 1:entry.line + 11]:
+            signature.append(line)
+            if "{" in line or "=" in line or ";" in line:
+                break
+        directly_used.update(re.findall(r"\b(?:Ffi[A-Za-z0-9_]+|XmtpApiClient|DbOptions)\b", "\n".join(signature)))
+    patterns = [
+        ("FfiConverter internals", re.compile(r"^(?:FfiConverter[^.]*|func FfiConverter[^ ]*)(?:\..*)?$")),
+        ("callback protocols and implementations", re.compile(r"^Ffi(?!Converter)[A-Za-z0-9_]*(?:Callback|Listener)(?:Impl)?(?:\..*)?$")),
+        ("other Ffi binding types and members", re.compile(r"^Ffi[A-Za-z0-9_]+(?:\..*)?$")),
+        ("internal free functions", re.compile(r"^func .+$")),
+        ("other generated declarations", re.compile(r"^.+$")),
+    ]
+    buckets: dict[str, list[Entry]] = {label: [] for label, _ in patterns}
+    for entry in generated:
+        root = entry.name.split(".")[0]
+        if root in directly_used:
+            entries.append(entry)
+            continue
+        for label, pattern in patterns:
+            if pattern.fullmatch(entry.name):
+                buckets[label].append(entry)
+                break
+    for label, pattern in patterns:
+        count = len(buckets[label])
+        if count:
+            entries.append(Entry("Swift", "sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift", 0,
+                                 f"pattern: {pattern.pattern} [after prior family rules; excluding public-signature Ffi roots]",
+                                 "generated family", count))
     return entries
 
 
@@ -124,15 +195,15 @@ KOTLIN_DECL = re.compile(
 )
 
 
-def kotlin_inventory() -> list[Entry]:
+def kotlin_scan(text: str, source: str) -> list[Entry]:
     entries: list[Entry] = []
-    for path in sorted(KOTLIN.rglob("*.kt")):
-        depth = 0
-        contexts: list[tuple[int, str, bool]] = []
-        pending: tuple[str, bool] | None = None
-        class_header = False
-        in_block_comment = False
-        for number, line in enumerate(path.read_text().splitlines(), 1):
+    depth = 0
+    contexts: list[tuple[int, str, bool, str]] = []
+    pending: tuple[str, bool, str] | None = None
+    class_header = False
+    header_parens = 0
+    in_block_comment = False
+    for number, line in enumerate(text.splitlines(), 1):
             code = line
             if in_block_comment:
                 if "*/" not in code:
@@ -151,42 +222,69 @@ def kotlin_inventory() -> list[Entry]:
             while contexts and depth < contexts[-1][0]:
                 contexts.pop()
             owner_public = not contexts or contexts[-1][2]
-            at_surface = not contexts or (contexts[-1][1] in {"type", "enum"} and depth == contexts[-1][0])
-            hidden = bool(re.search(r"\b(private|internal|protected)\b", stripped.split("(", 1)[0]))
+            owner = contexts[-1][3] if contexts else ""
+            at_surface = (depth == 0) if not contexts else (contexts[-1][1] in {"type", "enum"} and depth == contexts[-1][0])
             match = KOTLIN_DECL.search(stripped) if stripped and not stripped.startswith("@") else None
-            if match and owner_public and not hidden and (at_surface or class_header):
+            # Visibility belongs to the declaration. A private constructor
+            # does not make its enclosing class private.
+            hidden = bool(match and re.search(r"\b(private|internal|protected)\b", stripped[:match.start()]))
+            if match and owner_public and not hidden and (at_surface or class_header) and (not class_header or (pending is not None and pending[1])):
                 kind, name = match.groups()
                 name = name or ("Companion" if kind == "object" and "companion" in stripped else kind)
+                if kind == "fun":
+                    function = re.search(r"\bfun\s+(?:<[^>]+>\s*)?([\w.]+)\s*\(", stripped)
+                    if function:
+                        name = function.group(1)
+                if kind in {"val", "var"}:
+                    prop = re.search(r"\b(?:val|var)\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)", stripped)
+                    if prop:
+                        name = prop.group(1)
                 if class_header and kind in {"val", "var"}:
                     kind = "constructor property"
-                entries.append(Entry("Kotlin", rel(path), number, name, kind))
+                    owner = pending[2] if pending else owner
+                if kind == "constructor":
+                    name = "init"
+                symbol = f"{owner}.{name}" if owner else name
+                if kind == "fun" and not owner and "." not in name:
+                    symbol = f"func {name}"
+                elif kind in {"val", "var"} and not owner and "." not in name:
+                    symbol = f"{kind} {name}"
+                entries.append(Entry("Kotlin", source, number, symbol, kind))
                 if kind == "class":
                     for prop in re.finditer(r"\b(?:val|var)\s+([A-Za-z_]\w*)", stripped[match.end():]):
-                        entries.append(Entry("Kotlin", rel(path), number, prop.group(1), "constructor property"))
+                        entries.append(Entry("Kotlin", source, number, f"{symbol}.{prop.group(1)}", "constructor property"))
             elif contexts and contexts[-1][1] == "enum" and depth == contexts[-1][0] and owner_public:
-                variant = re.match(r"([A-Za-z_]\w*)\s*[,;(]", stripped)
+                variant = re.match(r"([A-Za-z_]\w*)\s*(?:,|;|\((?!this\b))", stripped)
                 if variant:
-                    entries.append(Entry("Kotlin", rel(path), number, variant.group(1), "enum case"))
+                    entries.append(Entry("Kotlin", source, number, f"{owner}.{variant.group(1)}", "enum case"))
             if at_surface and match and match.group(1) in {"class", "interface", "object"}:
-                pending = ("enum" if "enum class" in stripped else "type", owner_public and not hidden)
-                class_header = "(" in code and ")" not in code
+                name = match.group(2) or ("Companion" if "companion" in stripped else match.group(1))
+                symbol = f"{owner}.{name}" if owner else name
+                pending = ("enum" if "enum class" in stripped else "type", owner_public and not hidden, symbol)
+                header_parens = code.count("(") - code.count(")")
+                class_header = header_parens > 0
             elif at_surface and match and match.group(1) in {"fun", "constructor"}:
-                pending = ("body", owner_public and not hidden)
+                pending = ("body", owner_public and not hidden, owner)
                 class_header = False
-            if class_header and ")" in code:
-                class_header = False
+            elif class_header:
+                header_parens += code.count("(") - code.count(")")
+                class_header = header_parens > 0
             opens = code.count("{")
             closes = code.count("}")
             if opens:
                 if pending:
-                    contexts.append((depth + 1, pending[0], pending[1]))
+                    contexts.append((depth + 1, *pending))
                     pending = None
                 elif not at_surface:
-                    contexts.append((depth + 1, "body", owner_public))
+                    contexts.append((depth + 1, "body", owner_public, owner))
             depth += opens - closes
             if depth < 0:
                 depth = 0
     return entries
+
+
+def kotlin_inventory() -> list[Entry]:
+    return [entry for path in sorted(KOTLIN.rglob("*.kt")) for entry in kotlin_scan(path.read_text(), rel(path))]
 
 
 def ts_resolve(root: Path, spec: str) -> Path | None:
@@ -218,9 +316,14 @@ def ts_exports(path: Path, seen: set[Path]) -> list[Entry]:
                     continue
                 name = item.split(" as ")[-1].strip()
                 line = text.count("\n", 0, found.start()) + 1
-                entries.append(Entry(sdk, rel(path) if target else spec, line, name, "binding re-export" if not target else "re-export"))
+                kind = "binding re-export" if not target else "re-export"
+                if target and re.search(rf"export\s+(?:const|function)\s+{re.escape(name)}\b[\s\S]{{0,200}}?=>", target.read_text()):
+                    kind = "free function"
+                entries.append(Entry(sdk, rel(path) if target else spec, line, name, kind))
                 if target and re.search(rf"export\s+(?:abstract\s+)?class\s+{re.escape(name)}\b", target.read_text()):
                     entries.extend(ts_class_members(target, name, sdk))
+                elif target:
+                    entries.extend(ts_object_members(target, name, sdk))
         elif target:
             entries.extend(ts_exports(target, seen))
     # Direct exports from modules reached by a wildcard.
@@ -228,9 +331,76 @@ def ts_exports(path: Path, seen: set[Path]) -> list[Entry]:
         found = re.match(r"^export\s+(?:(?:declare|abstract|default)\s+)*(type|interface|class|enum|function|const|let|var)\s+([A-Za-z_]\w*)", line)
         if found:
             kind, name = found.groups()
+            if kind == "const" and re.search(r"=>", "\n".join(text.splitlines()[number - 1:number + 8])):
+                kind = "free function"
             entries.append(Entry(sdk, rel(path), number, name, kind))
             if kind == "class":
                 entries.extend(ts_class_members(path, name, sdk))
+            elif kind in {"type", "interface"}:
+                entries.extend(ts_object_members(path, name, sdk))
+    return entries
+
+
+def ts_object_members(path: Path, type_name: str, sdk: str) -> list[Entry]:
+    """Inventory named fields of an exported object type or interface."""
+    lines = path.read_text().splitlines()
+    start = next((i for i, line in enumerate(lines) if re.match(
+        rf"^export\s+(?:type|interface)\s+{re.escape(type_name)}\b", line)), None)
+    if start is None:
+        return []
+    header_has_object = False
+    for index in range(start, len(lines)):
+        if index > start and re.match(r"^export\s+", lines[index]):
+            break
+        if "{" in lines[index]:
+            header_has_object = True
+            break
+        if ";" in lines[index]:
+            break
+    if not header_has_object:
+        return []
+    entries: list[Entry] = []
+    depth = 0
+    entered = False
+    block_comment = False
+    owners: list[tuple[int, str]] = []
+    for index in range(start, len(lines)):
+        line = lines[index]
+        code = line
+        if block_comment:
+            if "*/" not in code:
+                continue
+            code = code.split("*/", 1)[1]
+            block_comment = False
+        if "/*" in code:
+            before, after = code.split("/*", 1)
+            if "*/" in after:
+                code = before + after.split("*/", 1)[1]
+            else:
+                code = before
+                block_comment = True
+        code = code.split("//", 1)[0]
+        while owners and depth < owners[-1][0]:
+            owners.pop()
+        if entered and depth >= 1:
+            match = re.match(r"\s*([A-Za-z_]\w*)\??\s*[:(]", code)
+            if match:
+                owner = owners[-1][1] if owners else type_name
+                field = f"{owner}.{match.group(1)}"
+                entries.append(Entry(sdk, rel(path), index + 1, field, "type member"))
+                if "{" in code[match.end():]:
+                    owners.append((depth + 1, field))
+        elif not entered and "{" in code:
+            inline = re.search(r"\{\s*([A-Za-z_]\w*)\??\s*:", code)
+            if inline:
+                entries.append(Entry(sdk, rel(path), index + 1, f"{type_name}.{inline.group(1)}", "type member"))
+        opens = code.count("{")
+        closes = code.count("}")
+        if opens:
+            entered = True
+        depth += opens - closes
+        if entered and depth <= 0:
+            break
     return entries
 
 
@@ -242,18 +412,57 @@ def ts_class_members(path: Path, class_name: str, sdk: str) -> list[Entry]:
     entries: list[Entry] = []
     depth = 0
     entered = False
+    quote = ""
+    block_comment = False
+    pending_signature = False
     for index in range(start, len(lines)):
         line = lines[index]
         stripped = line.strip()
-        if entered and depth == 1 and stripped and not stripped.startswith(("//", "*", "#", "private ", "protected ")):
-            match = re.match(r"(?:(?:public|static|async|readonly|override|declare|get|set)\s+)*([A-Za-z_]\w*)\s*(?:[<(=:?]|$)", stripped)
-            if match and match.group(1) not in {"return", "throw", "if", "for", "while"}:
-                name = match.group(1)
-                entries.append(Entry(sdk, rel(path), index + 1, f"{class_name}.{name}", "member"))
-        code = line.split("//", 1)[0]
-        depth += code.count("{") - code.count("}")
-        if "{" in code:
+        if sdk == "Node" and class_name == "Conversation" and pending_signature and re.match(r"_client\s*:", stripped):
+            entries.append(Entry(sdk, rel(path), index + 1, "Conversation._client", "constructor parameter"))
+        if entered and depth == 1 and not pending_signature and stripped and not stripped.startswith(("//", "*", "#", "private ", "protected ")):
+            if re.match(r"\[Symbol\.asyncIterator\]\s*\(", stripped):
+                entries.append(Entry(sdk, rel(path), index + 1, f"{class_name}[Symbol.asyncIterator]", "member"))
+            else:
+                match = re.match(r"(?:(?:public|static|async|readonly|override|declare|get|set)\s+)*([A-Za-z_]\w*)\s*(?:[<(=:?]|$)", stripped)
+                if match and match.group(1) not in {"return", "throw", "if", "for", "while"}:
+                    name = match.group(1)
+                    entries.append(Entry(sdk, rel(path), index + 1, f"{class_name}.{name}", "member"))
+                    if "(" in stripped and "{" not in stripped and ";" not in stripped:
+                        pending_signature = True
+        braces: list[str] = []
+        cursor = 0
+        while cursor < len(line):
+            char = line[cursor]
+            following = line[cursor:cursor + 2]
+            if block_comment:
+                if following == "*/":
+                    block_comment = False
+                    cursor += 2
+                    continue
+            elif quote:
+                if char == "\\":
+                    cursor += 2
+                    continue
+                if char == quote:
+                    quote = ""
+            elif following == "//":
+                break
+            elif following == "/*":
+                block_comment = True
+                cursor += 2
+                continue
+            elif char in {"'", '"', "`"}:
+                quote = char
+            elif char in "{}":
+                braces.append(char)
+            cursor += 1
+        depth += braces.count("{") - braces.count("}")
+        if "{" in braces:
             entered = True
+            pending_signature = False
+        elif ";" in line and pending_signature:
+            pending_signature = False
         if entered and depth <= 0:
             break
     return entries
@@ -270,192 +479,10 @@ def ts_inventory(sdk: str) -> list[Entry]:
     return list(by_name.values())
 
 
-REMOVED_NAMES = {
-    "createInMemory", "endStream", "uploadDebugInformation",
-    "streamMessageDeletions", "streamDeletedMessages", "streamConsent",
-    "streamPreferenceUpdates", "streamPreferences", "fromWelcome",
-    "messagesWithReactions", "enrichedMessages", "findEnrichedMessage",
-    "proposalsEnabled", "isReady", "unsafe_addSignature", "encodeContent",
-    "waitForRegistrationVisible", "SafeConversation",
-    "toSafeConversation", "SafeSigner", "toSafeSigner", "WorkerBridge",
-    "WorkerAuth", "createEOASigner", "createSCWSigner", "Topic", "KeyUtil",
-    "PrivateKeyBuilder", "Crypto", "EncodedContentCompression",
-    "DecodedMessageV2", "ClientError", "ConversationError", "XMTPException",
-    "StreamFailedError", "StreamInvalidRetryAttemptsError",
-    "GroupNotFoundError", "StreamNotFoundError", "OpfsNotInitializedError",
-    "OpfsInitializationError", "DEFAULT_RETRY_DELAY", "DEFAULT_RETRY_ATTEMPTS",
-    "getStreamFailureDetails", "getErrorCode", "HexString", "isHexString",
-    "validHex", "createStream", "PreEventCallback", "VisibilityConfirmationOptions",
-    "EntryType", "PreferenceType", "encryptAttachment", "decryptAttachment",
-    "toFfi", "fromFfi", "toFfiPublicIdentifierKind", "childMessages",
-    "Opfs",
-}
-RENAMES = {
-    "DecodedMessage": "Message", "PrivatePreferences": "Preferences",
-    "findConversation": "getByID()", "findGroup": "getByID()",
-    "findConversationByTopic": "getByID()", "getConversationById": "getByID()",
-    "findDmByInboxId": "getDmByInboxID()", "findDmByIdentity": "getDmByIdentity()",
-    "findMessage": "getMessageByID()", "getDebugInformation": "debugInfo()",
-    "debugInformation": "diagnostics", "leaveGroup": "requestRemoval()",
-    "syncAllConversations": "syncAll()", "newGroup": "createGroup()",
-    "newConversation": "createDm()", "getHmacKeys": "hmacKeys()",
-    "getLastReadTimes": "lastReadTimes()", "streamMessages": "stream()",
-    "inboxId": "inboxID", "installationId": "installationID",
-    "peerInboxId": "peerInboxID", "publicIdentity": "identity",
-    "libXMTPVersion": "libxmtpVersion", "dbPath": "storage.path",
-    "metadata": "kind / creatorInboxID", "numReplies": "replyCount",
-    "connectToApiBackend": "Backend.connect()", "createBackend": "Backend.connect()",
-    "getOrCreateInboxId": "Client.inboxID()", "generateInboxId": "Client.inboxID()",
-    "getInboxIdForIdentifier": "Client.inboxID()",
-    "updateMessageDisappearingSettings": "updateDisappearingSettings()",
-    "removeMessageDisappearingSettings": "updateDisappearingSettings(null)",
-    "createGroupWithIdentifiers": "createGroupWithIdentities()",
-    "createDmWithIdentifier": "createDmWithIdentity()",
-    "fetchDmByIdentifier": "getDmByIdentity()",
-    "Api": "BackendOptions",
-    "SigningKey": "Signer", "SignedData": "Signature", "SignerType": "SignerKind",
-    "api": "backend", "backendUrl": "backend.url", "env": "storage.label",
-    "dbDirectory": "storage.location.directory", "dbEncryptionKey": "storage.encryptionKey",
-    "deviceSyncEnabled": "deviceSync", "forkRecoveryOptions": "forkRecovery",
-    "dbPoolOptions": "storage.pool", "preAuthenticateToInboxCallback": "handlers.preAuthenticate",
-    "authCallback": "backend.credentials", "environment": "options.storage.label",
-    "createGroupWithIdentities": "createGroupWithIdentities()",
-    "ffiCreateClient": "Client.build()", "ffiApplySignatureRequest": "unsafeApplySignatureRequest()",
-    "ffiRevokeInstallations": "unsafeRevokeInstallationsSignatureRequest()",
-    "ffiRevokeAllOtherInstallations": "unsafeRevokeAllOtherInstallationsSignatureRequest()",
-    "ffiRevokeIdentity": "unsafeRemoveAccountSignatureRequest()",
-    "ffiAddIdentity": "unsafeAddAccountSignatureRequest()",
-    "ffiSignatureRequest": "unsafeCreateInboxSignatureRequest()",
-    "ffiRegisterIdentity": "register()",
-    "Identifier": "PublicIdentity", "Consent": "ConsentRecord",
-    "SendOpts": "SendOptions", "SendMessageOpts": "SendOptions",
-    "ConversationFilterType": "ConversationKind", "ConversationsOrderBy": "ConversationOrder",
-    "ConversationType": "ConversationKind", "GroupMessageKind": "MessageKind",
-    "DebugInformation": "Diagnostics",
-    "deleteLocalDatabase": "storage.delete()",
-    "dropLocalDatabaseConnection": "end()",
-    "reconnectLocalDatabase": "storage.reconnect()",
-    "createArchive": "archives.exportToFile()",
-    "importArchive": "archives.importFromFile()",
-    "archiveMetadata": "archives.metadataFromFile()",
-}
-
-
-def final_spelling(name: str) -> str:
-    if name.endswith("AtNs") and not name.endswith("lastActivityAtNs"):
-        name = name[:-4] + "At.ns"
-    name = re.sub(r"Id\b", "ID", name)
-    name = re.sub(r"Ids\b", "IDs", name)
-    name = re.sub(r"^unsafe_([a-z])", lambda m: "unsafe" + m.group(1).upper(), name)
-    return name
-
-
-def classify(entry: Entry) -> tuple[str, str, str, bool]:
-    path, name = entry.source, entry.name
-    leaf = name.split(".")[-1]
-    if leaf == "register" and entry.sdk in {"Swift", "Kotlin"} and "/Client." in path:
-        return "approved removal", "—", "Global codec registration becomes ClientOptions.codecs (11.4, 19.9).", False
-    if leaf == "dbEncryptionKey" and entry.sdk == "Browser":
-        return "approved removal", "—", "The browser never used this option (11.4 Browser, 19.25).", False
-    if leaf == "codecRegistry":
-        if entry.sdk in {"Swift", "Kotlin"}:
-            return "approved removal", "—", "Global registry becomes per-client codecs (11.4, 19.9).", False
-        return "static runtime", final_spelling(name), "Per-client codec registry stays in the host runtime (11.4).", False
-    if leaf in {"SigningKey", "SignedData", "SignerType"}:
-        return "generated", final_spelling(RENAMES[leaf]), "Signer contract changes shape (11.1, 11.4).", False
-    if leaf == "metadata" and any(part in path for part in ("/Conversation.", "/Group.", "/Dm.")):
-        return "approved removal", "—", "Immutable kind and creatorInboxID replace metadata() (11.4).", False
-    if entry.sdk == "Kotlin" and entry.kind in {"val", "var"} and any(part in path for part in ("/Conversation.kt", "/Group.kt", "/Dm.kt")):
-        source_lines = (ROOT / path).read_text().splitlines()
-        if any("@Deprecated" in prior for prior in source_lines[max(0, entry.line - 8):entry.line - 1]):
-            return "approved removal", "—", "Deprecated blocking property is removed; read state() (11.4 Kotlin, 19.4).", False
-    if entry.kind == "generated family":
-        if "Proto/" in path:
-            return "approved removal", "—", "Generated SwiftProtobuf files leave the package (2, 19.34).", False
-        return "generated", "facade-generated bindings", "Old UniFFI output is replaced from the facade (2, 19.45).", False
-    if any(part in REMOVED_NAMES for part in name.split(".")) or "Unstable" in path or "Topic." in name:
-        return "approved removal", "—", "Removal or replacement approved in 11.4 and 19.", False
-    if leaf in {"debugEventsEnabled", "unstableChangeCallbacks"}:
-        return "approved removal", "—", "Debug events or unstable callbacks leave ClientOptions (11.4, 19.31/35).", False
-    if leaf.startswith("ffi") and leaf in RENAMES:
-        return "alias", final_spelling(RENAMES[leaf]), "Delicate flow takes the canonical unsafe name (11.4, 19.24).", False
-    if leaf.startswith("ffi"):
-        return "approved removal", "—", "Old binding helper leaves the public API (11.4).", False
-    if leaf == "close" and any(part in path for part in ("/Client.", "/MessageReader.", "/EventReader.")):
-        return "alias", "end()", "Async client and reader shutdown uses end() (plan Decisions, Section 20.8).", False
-    if leaf in {"latestInboxUpdatesCount", "keyPackageStatuses", "newestMessageMetadata", "hmacKeys", "lastReadTimes"}:
-        return "generated", final_spelling(name), "Returns ID-keyed entry records, not a map (plan Decisions, Section 20.7).", False
-    if leaf == "lastActivityAtNs":
-        return "generated", "lastActivityAtNs(contentTypes?)", "Optional content-type filter; outside state() (plan Decisions, 19.46).", False
-    if leaf == "lastActivityNs":
-        return "generated", "lastActivityAtNs(contentTypes?)", "Optional content-type filter; outside state() (plan Decisions, 19.46).", False
-    if any(part in path for part in ("/Conversation.", "/Group.", "/Dm.")) and leaf in {
-        "isActive", "consentState", "pausedForVersion", "isDisappearingMessagesEnabled",
-        "isMessageDisappearingEnabled", "disappearingMessageSettings", "messageDisappearingSettings",
-        "membershipState", "commitLogForkStatus", "notificationsEnabled", "name", "imageUrl",
-        "description", "appData", "admins", "superAdmins", "permissions", "permissionPolicySet",
-    }:
-        field = {"isDisappearingMessagesEnabled": "isDisappearingEnabled", "isMessageDisappearingEnabled": "isDisappearingEnabled", "disappearingMessageSettings": "disappearingSettings", "messageDisappearingSettings": "disappearingSettings", "permissionPolicySet": "permissions.policySet"}.get(leaf, leaf)
-        return "generated", f"state().{field}", "One conversation-state read (11.2, 11.4, 19.4).", False
-    if entry.sdk == "Browser" and leaf in {"createArchive", "importArchive", "archiveMetadata"}:
-        final = {"createArchive": "archives.exportToBytes()", "importArchive": "archives.importFromBytes()", "archiveMetadata": "archives.metadataFromBytes()"}[leaf]
-        return "alias", final, "Browser archives use bytes (11.4 Browser, 19.25).", False
-    if leaf in {"ClientOptions", "codecs", "preAuthenticateToInboxCallback", "appContext"} and any(part in path for part in ("/Client.", "/types.ts", "/types/options.ts")):
-        final = RENAMES.get(leaf, leaf)
-        if leaf == "appContext":
-            return "platform helper", "StorageOptions(context)", "Android Context overload stays native (2, 19.26).", False
-        return "static runtime", final_spelling(final), "Host options wrapper accepts codecs or callbacks (11.1, 20.1).", False
-    if entry.sdk in {"Node", "Browser"} and name in {"Client.create", "Client.build", "Client.decodeContent"}:
-        return "static runtime", final_spelling(name), "Host wrapper owns codecs and the client registry (11.1, 11.7).", False
-    if "DecodedMessageV2" in path and leaf not in {"Intent", "Actions"}:
-        if leaf in {"body", "create", "childMessages"}:
-            return "approved removal", "—", "Merged into the Message value model (11.4, 19.5).", False
-        return "static runtime", "Message." + final_spelling(leaf), "Old live getter moves to the Message host value (11.7).", False
-    if entry.sdk in {"Swift", "Kotlin"}:
-        if any(part in path for part in ("StreamLifecycle", "XMTPLogger", "Extensions/URL")):
-            return "platform helper", final_spelling(name), "Native OS integration stays under sdks/ (2).", False
-        if entry.sdk == "Swift" and "/Extensions/" in path:
-            return "static runtime", final_spelling(name), "Proposed host helper; the design does not name this extension export.", True
-        if "RemoteAttachmentCodec" in path and leaf in {"content", "load", "loadRemoteAttachment"}:
-            return "platform helper", "RemoteAttachmentDownload", "Native HTTPS download stays under sdks/ (2, 11.4).", False
-        if leaf in {"manageStreamLifecycle", "activatePersistentLibXMTPLogWriter", "deactivatePersistentLibXMTPLogWriter"}:
-            return "platform helper", final_spelling(name), "Native lifecycle or log writer helper (2, 19.26/35).", False
-        if any(part in path for part in ("Codecs/", "codecs/", "DecodedMessage", "CodecRegistry", "MessageReader", "MessageDelivery", "PrivatePreferences")):
-            if leaf in RENAMES:
-                return "alias", final_spelling(RENAMES[leaf]), "Deprecated name for one major release (19.2; 11.4).", False
-            return "static runtime", final_spelling(name), "Host message, codec, preference, or stream runtime (2, 11.7).", False
-        if any(part in path for part in ("KeyUtil", "Crypto.", "Messages/PrivateKey", "messages/PrivateKey", "Util.")):
-            return "approved removal", "—", "Replaced by Rust signer or encryption (11.4, 19.32/34).", False
-    else:
-        if entry.sdk == "Browser" and leaf == "metadataFieldName":
-            return "static runtime", "metadataFieldName", "Proposed host helper; the design does not name this export.", True
-        if leaf == "DecodedMessage":
-            return "alias", "Message", "Deprecated alias for one major release (11.4, 19.5).", False
-        if leaf in {"CodecRegistry", "MessageStream", "AsyncStreamProxy", "ResolveValue", "MessageAcknowledgement", "MessageDelivery", "MessageReaderSource"}:
-            return "static runtime", final_spelling(name), "Host codec or stream adapter (2, 5, 11.7).", False
-        if entry.kind == "binding re-export":
-            return "generated", final_spelling(name), "Binding export supplied by the facade generator (11.4).", False
-        if any(part in path for part in ("CodecRegistry", "DecodedMessage", "MessageStream", "AsyncStream", "/utils/contentTypes", "/utils/messages", "/utils/signer", "/types")):
-            if leaf == "DecodedMessage":
-                return "alias", "Message", "Deprecated alias for one major release (11.4, 19.5).", False
-            return "static runtime", final_spelling(name), "Host class, codec, stream, or option type (2, 11.7).", False
-        if any(part in path for part in ("/utils/conversions", "/utils/Worker", "/Opfs")):
-            return "approved removal", "—", "Browser transport or Safe* type is replaced (11.4 Browser, 19.39).", False
-        if "/utils/errors" in path:
-            return "generated", final_spelling(name), "Generated XmtpError variant or helper (11.1, 11.4).", False
-        if "/utils/streamFailure" in path:
-            return "generated", final_spelling(name), "Typed stream failure details (5, 11.4).", False
-        if "/utils/streams" in path:
-            return "static runtime", final_spelling(name), "Host stream adapter and options (5, 11.4).", False
-        if "/utils/" in path and leaf not in RENAMES:
-            return "static runtime", final_spelling(name), "Proposed host utility; design does not name this export.", True
-    if leaf in RENAMES:
-        return "alias", final_spelling(RENAMES[leaf]), "Deprecated rename for one major release (11.4, 19.2).", False
-    if "Notification" in path and entry.sdk == "Browser":
-        return "approved removal", "—", "Browser notifications remain absent (19.25).", False
-    if entry.kind in {"extension", "case"}:
-        return "generated", final_spelling(name), "Enum case or generated value (11.1-11.2).", False
-    return "generated", final_spelling(name), "Facade schema or generated record (11.1-11.4).", False
+try:
+    from dev.sdk.manifest_rules import classify
+except ModuleNotFoundError:
+    from manifest_rules import classify
 
 
 def markdown_cell(value: str) -> str:
@@ -472,17 +499,26 @@ def build() -> str:
     lines = [
         "# SDK API manifest", "",
         "This manifest classifies the public exports of the four current SDKs before they move to the Rust facade. "
-        "The [design Ref](https://plan.ref.tools/eG4NJ6emCjsHcWH0), especially Sections 11 and 19, is the authority. "
-        "The implementation plan adopts Section 20 items 1, 2, 3, 4, and 7, and uses `end()` for async shutdown. "
+        "The [design Ref](https://plan.ref.tools/eG4NJ6emCjsHcWH0) is the authority. "
+        "Its Section 11.4 tables are applied by SDK and sub-table. "
+        "The implementation plan's Decisions adopt design Section 20 items 1, 2, 3, 4, and 7 and use `end()` for async shutdown. "
         "Final names use stock generator spelling: `ID` suffixes, `unsafe` camel case, string IDs, and one `Timestamp` value with `.ns` and `.date`.", "",
         "`generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. "
         "`platform helper` means native OS code stays in the SDK. `alias` means a deprecated compatibility name. "
-        "`approved removal` means the current export leaves the API. A dash in Final name marks a removal. "
-        "Each table has one row per inventory entry; a generated Swift source-family row covers the stated number of declarations. "
-        "A source path and line number distinguish overloads. Kind names the current declaration form. "
-        "The helper counts source-declared Swift public/open items, Kotlin public declarations and constructor properties, "
-        "and TypeScript package exports plus exported class members. Compiler-synthesized members are outside this source inventory. "
-        "The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --check` to recompute them.", "",
+        "`approved removal` means the current export leaves the API. A dash in Final name marks a removal.", "",
+        "Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. "
+        "A free property is `var name`, `val name`, or `let name`. "
+        "Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. "
+        "A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. "
+        "A final method may show a call shape such as `Group.state().name` or `Conversation.lastActivityAtNs(contentTypes?)`. "
+        "A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. "
+        "The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; "
+        "each declaration matches the first family only. The final `^.+$` family closes that partition. "
+        "A source path and line in Notes distinguish overloads. Kind names the source declaration. "
+        "The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, "
+        "and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. "
+        "The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. "
+        "If Section 11.4, another design section, or a plan decision does not cover a symbol, the SDK row gives a proposed status and Open items lists it.", "",
     ]
     counts = {sdk: sum(e.count for e in entries) for sdk, entries in inventories.items()}
     lines += ["| SDK | Public declarations |", "| --- | ---: |"]
@@ -492,26 +528,24 @@ def build() -> str:
     for sdk, entries in inventories.items():
         lines += [f"## {sdk}", "", "| Current export | Kind | Final name | Status | Design ref | Notes |", "| --- | --- | --- | --- | --- | --- |"]
         seen: set[str] = set()
-        for entry in sorted(entries, key=lambda e: (e.source, e.line, e.name)):
+        for entry in sorted(entries, key=lambda e: (e.source, e.line)):
             if entry.key in seen:
                 raise ValueError(f"duplicate inventory key: {entry.key}")
             seen.add(entry.key)
-            status, final, note, is_open = classify(entry)
+            result = classify(entry)
+            status, final, source_ref, note, is_open = result.status, result.final, result.ref, result.note, result.open
             if status not in {"generated", "static runtime", "platform helper", "alias", "approved removal"}:
                 raise ValueError(status)
-            source_ref = "11.4 " + sdk if not is_open else "2; open"
-            if entry.kind == "generated family":
-                source_ref = "2; 19.34" if "Proto/" in entry.source else "2; 11.4 Swift"
-            elif status == "platform helper":
-                source_ref = "2"
-            elif status == "alias":
-                source_ref = "11.4 " + sdk + "; 19.2"
-            current = f"`{entry.key}`"
+            current = f"`{entry.display_name}`"
             if entry.count > 1:
                 current += f" ({entry.count} declarations)"
-            lines.append("| " + " | ".join(markdown_cell(v) for v in (current, entry.kind, f"`{final}`" if final != "—" else final, status, source_ref, note)) + " |")
+            location = entry.source if not entry.line else f"{entry.source}:{entry.line}"
+            details = f"{note} Source: `{location}`." if note else f"Source: `{location}`."
+            if entry.display_name.startswith("func ") and final != "—" and not final.startswith("func ") and "." not in final:
+                final = f"func {final}"
+            lines.append("| " + " | ".join(markdown_cell(v) for v in (current, entry.kind, f"`{final}`" if final != "—" else final, status, source_ref, details)) + " |")
             if is_open:
-                open_items.append(f"- {sdk} `{entry.key}`: proposed **{status}**. The design does not name this utility export.")
+                open_items.append(f"- {sdk} `{entry.display_name}` (`{location}`): proposed **{status}**. {note}")
         lines.append("")
     lines += ["## Open items", ""]
     if open_items:
@@ -523,11 +557,113 @@ def build() -> str:
     return "\n".join(lines)
 
 
+def self_test() -> None:
+    swift = swift_scan("@_spi(Unstable) public struct UnstableGroup {\n public func enableProposals() {}\n}\n"
+                       "public class Group {\n @_spi(Unstable) public var unstable: UnstableGroup { fatalError() }\n}\n", "fixture.swift")
+    assert {entry.name for entry in swift} >= {"UnstableGroup", "UnstableGroup.enableProposals", "Group.unstable"}
+    kotlin = kotlin_scan("class DecodedMessage private constructor(\n val id: String\n) {\n fun content() {}\n}\n"
+                         "class DecodedMessageV2 private constructor(\n val contentTypeId: String\n) {\n fun refresh() {}\n}\n"
+                         "class MessageReader internal constructor(\n val cursor: String\n) {\n fun next() {}\n}\n"
+                         "class NotificationError internal constructor(\n val code: String\n) {\n fun description() {}\n}\n"
+                         "enum class Kind {\n FIRST,\n SECOND;\n fun value() = when (this) {\n FIRST -> 1\n SECOND -> 2\n }\n}\n"
+                         "fun IdentityKind.toFfiPublicIdentifierKind() = 1\n", "fixture.kt")
+    names = {entry.name for entry in kotlin}
+    assert {"DecodedMessage", "DecodedMessage.id", "DecodedMessage.content", "DecodedMessageV2", "DecodedMessageV2.contentTypeId",
+            "MessageReader", "MessageReader.next", "NotificationError", "NotificationError.code", "Kind.FIRST", "Kind.SECOND",
+            "IdentityKind.toFfiPublicIdentifierKind"} <= names, names
+    assert "Kind.when" not in names, names
+    with tempfile.TemporaryDirectory(dir=ROOT) as directory:
+        path = Path(directory) / "MessageStream.ts"
+        path.write_text("export class MessageStream {\n [Symbol.asyncIterator]() { return this; }\n}\n")
+        members = ts_class_members(path, "MessageStream", "Node")
+        assert "MessageStream[Symbol.asyncIterator]" in {entry.name for entry in members}
+        path.write_text("export type Options = {\n retry?: number;\n nested?: {\n enabled: boolean;\n };\n};\n"
+                        "export type Callback = () => void;\nexport class Noise {\n run() {}\n}\n")
+        names = {entry.name for entry in ts_object_members(path, "Options", "Node")}
+        assert names == {"Options.retry", "Options.nested", "Options.nested.enabled"}, names
+        assert not ts_object_members(path, "Callback", "Node")
+    inventories = {"Swift": swift_inventory(), "Kotlin": kotlin_inventory(),
+                   "Node": ts_inventory("Node"), "Browser": ts_inventory("Browser")}
+    expected = {
+        "Swift": {
+            "Client.create": ("static runtime", "Client.create"),
+            "Client.inboxStatesForInboxIds": ("generated", "Client.inboxStates"),
+            "Client.keyPackageStatusesForInstallationIds": ("generated", "Client.keyPackageStatuses"),
+            "Client.getNewestMessageMetadata": ("generated", "Client.newestMessageMetadata"),
+            "Client.verifySignature": ("generated", "Client.verifySignedWithInstallationKey"),
+            "Conversations.newConversationWithIdentity": ("generated", "Conversations.createDm"),
+            "Conversations.newGroupCustomPermissionsWithIdentities": ("generated", "Conversations.createGroupWithIdentities"),
+            "Group.updateImageUrlPermission": ("generated", "Group.updatePermission"),
+            "Group.clearDisappearingMessageSettings": ("generated", "Group.updateDisappearingSettings"),
+            "Group.processMessage": ("generated", "Group.processStreamedMessage"),
+            "Group.unstable": ("approved removal", "—"),
+            "MessageReader.messages": ("static runtime", "MessageReader.stream()"),
+            "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
+            "ConsentRecord.entryType": ("generated", "ConsentRecord.entity.kind"),
+            "FfiXmtpClient.waitForRegistrationVisible": ("generated", "Client.waitForRegistrationVisible"),
+        },
+        "Kotlin": {
+            "Client.Companion.build": ("static runtime", "Client.build"),
+            "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
+            "MessageReader.next": ("generated", "MessageReader.next"),
+            "Group.updateNamePermission": ("generated", "Group.updatePermission"),
+            "Group.addMembersByIdentity": ("generated", "Group.addMembersByIdentity"),
+            "IdentityKind.toFfiPublicIdentifierKind": ("approved removal", "—"),
+            "EncodedContent.compress": ("approved removal", "—"),
+            "ClientOptions.appContext": ("platform helper", "StorageOptions(context)"),
+            "PrivatePreferences.syncConsent": ("approved removal", "—"),
+        },
+        "Node": {
+            "Client.unsafe_createInboxSignatureRequest": ("generated", "Client.unsafeCreateInboxSignatureRequest"),
+            "Conversations.fetchDmByIdentifier": ("generated", "Conversations.getDmByIdentity"),
+            "DecodedMessage.numReplies": ("static runtime", "Message.replyCount"),
+            "Conversation._client": ("generated", "Conversation._client"),
+            "MessageStream[Symbol.asyncIterator]": ("static runtime", "MessageStream[Symbol.asyncIterator]"),
+            "Preferences.fetchInboxStates": ("alias", "Client.inboxStates"),
+            "StorageOptions.dbEncryptionKey": ("generated", "StorageOptions.encryptionKey"),
+            "StreamOptions.retryAttempts": ("approved removal", "—"),
+        },
+        "Browser": {
+            "Client.unsafe_createInboxSignatureText": ("generated", "Client.unsafeCreateInboxSignatureRequest"),
+            "Client.unsafe_applySignatureRequest": ("generated", "Client.unsafeApplySignatureRequest(request)"),
+            "Conversation.metadata": ("alias", "Conversation.metadata"),
+            "DecodedMessage.numReplies": ("static runtime", "Message.replyCount"),
+            "MessageStream[Symbol.asyncIterator]": ("static runtime", "MessageStream[Symbol.asyncIterator]"),
+            "StorageOptions.dbEncryptionKey": ("approved removal", "—"),
+            "StreamOptions.retryAttempts": ("approved removal", "—"),
+        },
+    }
+    for sdk, cases in expected.items():
+        by_name = {entry.name: entry for entry in inventories[sdk]}
+        for current, want in cases.items():
+            assert current in by_name, (sdk, current)
+            result = classify(by_name[current])
+            assert (result.status, result.final) == want, (sdk, current, result, want)
+    expected_open = {
+        "Swift": {"Client.inMemoryDbPath", "Client.setLibXMTPNativeLogLevel", "Group.addMembersByIdentity", "Conversation.clientInboxId", "FfiXmtpClient.waitForRegistrationVisible"},
+        "Kotlin": {"Group.addMembersByIdentity", "ContentTypeIdBuilder", "func encodedContentFromFfi", "func validateInboxId", "ByteArray.toHex", "String.hexToByteArray"},
+        "Node": {"Conversation._client"},
+        "Browser": {"metadataFieldName"},
+    }
+    for sdk, names in expected_open.items():
+        by_name = {entry.name: entry for entry in inventories[sdk]}
+        assert all(name in by_name and classify(by_name[name]).open for name in names), (sdk, names)
+    generated_source = SWIFT / "Libxmtp/xmtpv3.swift"
+    actual_generated = len(swift_scan(generated_source.read_text(), rel(generated_source)))
+    covered_generated = sum(entry.count for entry in inventories["Swift"] if entry.source == rel(generated_source))
+    assert actual_generated == covered_generated, (actual_generated, covered_generated)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        print("inventory fixtures pass")
+        return
     output = build()
     if args.write:
         OUT.write_text(output)
