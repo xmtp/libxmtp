@@ -327,10 +327,10 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
-    /// This middleware exists only when a callback or a handle was
-    /// configured, so its presence in the stack is the credential source.
+    /// An empty handle can receive a credential later. It is not a source
+    /// for a deployment that requires auth at client creation.
     fn has_credential_source(&self) -> bool {
-        true
+        self.callback.is_some() || self.handle.inner.current.get().is_some()
     }
 
     fn host(&self) -> &str {
@@ -349,6 +349,9 @@ impl<C: Client> Client for AuthMiddleware<C> {
         // requires before it can know whether it needs one.
         // implements: CONF-029
         if path.path() == GET_CONFIGURATION_PATH {
+            return self.inner.request(request, path, body).await;
+        }
+        if !self.has_credential_source() {
             return self.inner.request(request, path, body).await;
         }
         let (parts, ()) = request.body(())?.into_parts();
@@ -380,6 +383,9 @@ impl<C: Client> Client for AuthMiddleware<C> {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        if !self.has_credential_source() {
+            return self.inner.stream(request, path, body).await;
+        }
         let (parts, ()) = request.body(())?.into_parts();
         let (credential, generation) = self.get_credential().await?;
         let result = self
@@ -408,6 +414,9 @@ impl<C: Client> Client for AuthMiddleware<C> {
         path: http::uri::PathAndQuery,
         body: xmtp_common::BoxDynStream<'static, Bytes>,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
+        if !self.has_credential_source() {
+            return self.inner.bidi_stream(request, path, body).await;
+        }
         let (parts, ()) = request.body(())?.into_parts();
         let (credential, generation) = self.get_credential().await?;
         let result = self

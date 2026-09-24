@@ -262,6 +262,36 @@ async fn a_deployment_requiring_authentication_refuses_a_client_with_no_credenti
     assert_eq!(required_scopes, vec!["xmtp:write".to_owned()]);
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_empty_auth_handle_does_not_count_as_a_credential_source() {
+    let owner = generate_local_wallet();
+    let mut transport = xmtp_api_backend::MessageBackendBuilder::new();
+    transport
+        .host(xmtp_configuration::backend_test_url())
+        .maybe_auth_handle(Some(xmtp_api_backend::AuthHandle::new()));
+    let error = Client::builder(identity_setup(&owner))
+        .store(xmtp_db::TestDb::create_ephemeral_store().await)
+        .api_client_with_streams(transport.build()?)
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .config_provider(provider(|c| {
+            c.auth.enabled = true;
+            c.auth.required_scopes = vec!["xmtp:write".to_owned()];
+        }))
+        .default_mls_store()?
+        .build()
+        .await
+        .map(|_| ())
+        .expect_err("an empty auth handle must not satisfy CONF-051");
+    let ClientBuilderError::ClientError(crate::client::ClientError::AuthRequired {
+        required_scopes,
+    }) = error
+    else {
+        panic!("expected AuthRequired, got {error}");
+    };
+    assert_eq!(required_scopes, vec!["xmtp:write".to_owned()]);
+}
+
 // Auth off with a callback configured is not an error. The client
 // still builds; the backend simply ignores the credential.
 #[xmtp_common::test(unwrap_try = true)]

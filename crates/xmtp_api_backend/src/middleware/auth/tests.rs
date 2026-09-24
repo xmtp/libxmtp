@@ -217,9 +217,7 @@ async fn test_auth_middleware_with_no_callback_and_handle() {
     let auth_handle = AuthHandle::new();
     let mut middleware =
         AuthMiddleware::new(TestClient::new(None), None, Some(auth_handle.clone()));
-    middleware
-        .make_requests(Err("auth credential missing".into()))
-        .await;
+    middleware.make_requests(Ok(())).await;
 
     auth_handle.set(credential.clone()).await;
     middleware.inner.expected_credential = Some(credential.clone());

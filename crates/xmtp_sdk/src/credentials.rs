@@ -145,8 +145,9 @@ impl Backend {
         if let Some(version) = options.app_version {
             builder.app_version(version);
         }
-        let has_credentials = options.credentials.is_some() || options.credential.is_some();
-        let auth_handle = has_credentials.then(xmtp_api_backend::AuthHandle::new);
+        // Keep a handle for a credential that the app sets after creation.
+        // The core builder counts only a held credential or callback as a source.
+        let auth_handle = Some(xmtp_api_backend::AuthHandle::new());
         builder.maybe_auth_handle(auth_handle.clone());
         builder.maybe_auth_callback(options.credentials.map(|source| {
             Arc::new(AuthBridge::new(source)) as Arc<dyn xmtp_api_backend::AuthCallback>

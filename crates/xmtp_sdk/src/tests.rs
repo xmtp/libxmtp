@@ -147,6 +147,20 @@ async fn client_configuration_and_credential_update() {
     authenticated.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn credential_can_be_set_after_build_without_initial_source() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    client
+        .set_credential(Credential {
+            name: None,
+            value: "Bearer added-later".into(),
+            expires_at_seconds: i64::MAX,
+        })
+        .await?;
+    client.refresh_server_configuration().await?;
+    client.end().await?;
+}
+
 #[xmtp_common::test]
 fn client_options_backend_default_keeps_empty_connection_options() {
     let client_options = ClientOptions::default();
