@@ -31,6 +31,26 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
 
     for item in &items {
         match item {
+            Metadata::Record(record) => {
+                for field in &record.fields {
+                    if let Type::Optional { inner_type } = &field.ty
+                        && type_names_record(inner_type, &record.name)
+                    {
+                        bail!("{}.{}: self-typed optional field", record.name, field.name);
+                    }
+                    if matches!(
+                        record.name.as_str(),
+                        "MessageData" | "ReactionMessage" | "ReplyParent"
+                    ) && contains_object(&field.ty)
+                    {
+                        bail!(
+                            "{}.{}: message record contains an object",
+                            record.name,
+                            field.name
+                        );
+                    }
+                }
+            }
             Metadata::Object(object) if object.name.ends_with("Reader") => {
                 let has_end = items.iter().any(|item| match item {
                     Metadata::Method(method) => {
@@ -47,6 +67,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
             }
             Metadata::Method(method) => {
                 let item_name = format!("{}.{}", method.self_name, method.name);
+                check_message_inputs(&item_name, &method.inputs)?;
                 if records.contains(method.self_name.as_str()) {
                     bail!("{item_name}: exported record method is not supported");
                 }
@@ -63,6 +84,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
             }
             Metadata::TraitMethod(method) => {
                 let item_name = format!("{}.{}", method.trait_name, method.name);
+                check_message_inputs(&item_name, &method.inputs)?;
                 if method.name == "close" {
                     bail!("{item_name}: exported object close method is not supported");
                 }
@@ -75,16 +97,72 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 check_error_type(&item_name, method.throws.as_ref())?;
             }
             Metadata::Constructor(constructor) => {
+                check_message_inputs(
+                    &format!("{}.{}", constructor.self_name, constructor.name),
+                    &constructor.inputs,
+                )?;
                 check_error_type(
                     &format!("{}.{}", constructor.self_name, constructor.name),
                     constructor.throws.as_ref(),
                 )?;
             }
             Metadata::Func(function) => {
+                check_message_inputs(&function.name, &function.inputs)?;
                 check_error_type(&function.name, function.throws.as_ref())?;
             }
             _ => {}
         }
+    }
+    Ok(())
+}
+
+fn type_names_record(ty: &Type, name: &str) -> bool {
+    match ty {
+        Type::Record { name: found, .. } => found == name,
+        Type::Box { inner_type } => type_names_record(inner_type, name),
+        _ => false,
+    }
+}
+
+fn contains_object(ty: &Type) -> bool {
+    match ty {
+        Type::Object { .. } => true,
+        Type::Optional { inner_type }
+        | Type::Sequence { inner_type }
+        | Type::Box { inner_type } => contains_object(inner_type),
+        Type::Map {
+            key_type,
+            value_type,
+        } => contains_object(key_type) || contains_object(value_type),
+        _ => false,
+    }
+}
+
+fn takes_message_record(ty: &Type) -> bool {
+    match ty {
+        Type::Record { name, .. }
+            if matches!(
+                name.as_str(),
+                "MessageData" | "ReactionMessage" | "ReplyParent"
+            ) =>
+        {
+            true
+        }
+        Type::Custom { name, .. } if name == "Message" => true,
+        Type::Optional { inner_type }
+        | Type::Sequence { inner_type }
+        | Type::Box { inner_type } => takes_message_record(inner_type),
+        Type::Map {
+            key_type,
+            value_type,
+        } => takes_message_record(key_type) || takes_message_record(value_type),
+        _ => false,
+    }
+}
+
+fn check_message_inputs(item_name: &str, inputs: &[uniffi_meta::FnParamMetadata]) -> Result<()> {
+    if inputs.iter().any(|input| takes_message_record(&input.ty)) {
+        bail!("{item_name}: exported function takes a message record; pass MessageID");
     }
     Ok(())
 }
@@ -100,8 +178,8 @@ fn check_error_type(item_name: &str, thrown: Option<&Type>) -> Result<()> {
 mod tests {
     use super::*;
     use uniffi_meta::{
-        CallbackInterfaceMetadata, FnMetadata, MethodMetadata, ObjectImpl, ObjectMetadata,
-        RecordMetadata, TraitKind, TraitMethodMetadata,
+        CallbackInterfaceMetadata, FieldMetadata, FnMetadata, FnParamMetadata, MethodMetadata,
+        ObjectImpl, ObjectMetadata, RecordMetadata, TraitKind, TraitMethodMetadata,
     };
 
     fn object(name: &str, imp: ObjectImpl) -> Metadata {
@@ -264,5 +342,102 @@ mod tests {
                 .to_string()
                 .contains("open: object Failure")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_message_objects_and_self_optional_records() -> Result<()> {
+        let record = |name: &str, field_name: &str, ty| {
+            Metadata::Record(RecordMetadata {
+                module_path: "test".into(),
+                name: name.into(),
+                orig_name: None,
+                remote: false,
+                docstring: None,
+                fields: vec![FieldMetadata {
+                    name: field_name.into(),
+                    orig_name: None,
+                    ty,
+                    default: None,
+                    docstring: None,
+                }],
+            })
+        };
+        let object = Type::Object {
+            module_path: "test".into(),
+            name: "Handle".into(),
+            imp: ObjectImpl::Struct,
+        };
+        assert!(
+            validate_items(&[record("MessageData", "handle", object)])
+                .unwrap_err()
+                .to_string()
+                .contains("contains an object")
+        );
+        let self_type = Type::Record {
+            module_path: "test".into(),
+            name: "ReplyParent".into(),
+        };
+        assert!(
+            validate_items(&[record(
+                "ReplyParent",
+                "parent",
+                Type::Optional {
+                    inner_type: Box::new(self_type)
+                }
+            )])
+            .unwrap_err()
+            .to_string()
+            .contains("self-typed optional")
+        );
+        Ok(())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_message_record_as_exported_argument() -> Result<()> {
+        let mut action = method("Conversations", "delete_message", true);
+        let Metadata::Method(ref mut value) = action else {
+            unreachable!()
+        };
+        value.inputs = vec![FnParamMetadata::simple(
+            "message",
+            Type::Custom {
+                module_path: "test".into(),
+                name: "Message".into(),
+                builtin: Box::new(Type::Record {
+                    module_path: "test".into(),
+                    name: "MessageData".into(),
+                }),
+            },
+        )];
+        assert!(
+            validate_items(&[action])
+                .unwrap_err()
+                .to_string()
+                .contains("pass MessageID")
+        );
+        let mut record_action = method("Conversations", "reply_to_message", true);
+        let Metadata::Method(ref mut value) = record_action else {
+            unreachable!()
+        };
+        value.inputs = vec![FnParamMetadata::simple(
+            "message",
+            Type::Record {
+                module_path: "test".into(),
+                name: "MessageData".into(),
+            },
+        )];
+        assert!(
+            validate_items(&[record_action])
+                .unwrap_err()
+                .to_string()
+                .contains("pass MessageID")
+        );
+        let mut valid = method("Conversations", "delete_message", true);
+        let Metadata::Method(ref mut value) = valid else {
+            unreachable!()
+        };
+        value.inputs = vec![FnParamMetadata::simple("id", Type::String)];
+        validate_items(&[valid])?;
+        Ok(())
     }
 }

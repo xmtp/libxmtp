@@ -1,4 +1,9 @@
-export { Client, ClientRegistry } from "./client";
+export {
+  Client,
+  ClientRegistry,
+  type ContentCodec,
+  type SDKClientOptions,
+} from "./client";
 export {
   ConversationID,
   InboxID,

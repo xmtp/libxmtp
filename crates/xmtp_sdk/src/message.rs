@@ -1,11 +1,12 @@
 use prost::Message as _;
-use xmtp_content_types::{ContentCodec, text::TextCodec};
 use xmtp_db::group_message::{
     DeliveryStatus as StoredDeliveryStatus, GroupMessageKind, StoredGroupMessage,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
-use crate::{ConversationID, InboxID, MessageID, Timestamp, XmtpError};
+use crate::{
+    ConversationID, EncodedContent as SdkEncodedContent, InboxID, MessageID, Timestamp, XmtpError,
+};
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum MessageKind {
@@ -31,21 +32,141 @@ pub struct ContentTypeId {
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum MessageContent {
     Text(String),
-    Unknown { encoded: Vec<u8> },
+    Markdown(String),
+    ReadReceipt,
+    Reaction(crate::Reaction),
+    Attachment(crate::Attachment),
+    RemoteAttachment(crate::RemoteAttachment),
+    MultiRemoteAttachment(crate::MultiRemoteAttachment),
+    TransactionReference(crate::TransactionReference),
+    WalletSendCalls(crate::WalletSendCalls),
+    Actions(crate::Actions),
+    Intent(crate::Intent),
+    GroupUpdated(crate::GroupUpdated),
+    LeaveRequest(crate::LeaveRequest),
+    DeletedMessage(crate::DeletedMessage),
+    Reply {
+        reference_id: MessageID,
+        body: MessageBody,
+    },
+    Custom {
+        encoded: SdkEncodedContent,
+    },
+    Unknown {
+        encoded: SdkEncodedContent,
+    },
+}
+
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum MessageBody {
+    Text(String),
+    Markdown(String),
+    ReadReceipt,
+    Attachment(crate::Attachment),
+    RemoteAttachment(crate::RemoteAttachment),
+    MultiRemoteAttachment(crate::MultiRemoteAttachment),
+    TransactionReference(crate::TransactionReference),
+    WalletSendCalls(crate::WalletSendCalls),
+    Actions(crate::Actions),
+    Intent(crate::Intent),
+    GroupUpdated(crate::GroupUpdated),
+    LeaveRequest(crate::LeaveRequest),
+    DeletedMessage(crate::DeletedMessage),
+    Custom { encoded: SdkEncodedContent },
+    Unknown { encoded: SdkEncodedContent },
 }
 
 impl MessageContent {
     pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
         let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::unknown)?;
-        let kind = content.r#type.as_ref();
-        if kind.is_some_and(|value| {
-            value.authority_id == "xmtp.org" && value.type_id == TextCodec::TYPE_ID
-        }) {
-            return TextCodec::decode(content)
-                .map(Self::Text)
-                .map_err(XmtpError::unknown);
+        Self::decode_proto(content)
+    }
+
+    fn decode_proto(content: EncodedContent) -> Result<Self, XmtpError> {
+        // The shared bounded decoder validates nested content before any standard codec runs.
+        let body = xmtp_mls::messages::decoded_message::MessageBody::try_from(content.clone())
+            .map_err(XmtpError::unknown)?;
+        use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
+        match body {
+            CoreBody::Text(value) => Ok(Self::Text(value.content)),
+            CoreBody::Markdown(value) => Ok(Self::Markdown(value.content)),
+            CoreBody::ReadReceipt(_) => Ok(Self::ReadReceipt),
+            CoreBody::Reaction(value) => Ok(Self::Reaction(crate::Reaction::from_proto(value))),
+            CoreBody::Reply(value) => Ok(Self::Reply {
+                reference_id: MessageID::try_from(value.reference_id)?,
+                body: MessageBody::from_core(*value.content, content.into())?,
+            }),
+            CoreBody::Attachment(value) => Ok(Self::Attachment(value.into())),
+            CoreBody::RemoteAttachment(value) => Ok(Self::RemoteAttachment(value.into())),
+            CoreBody::MultiRemoteAttachment(value) => Ok(Self::MultiRemoteAttachment(value.into())),
+            CoreBody::TransactionReference(value) => Ok(Self::TransactionReference(value.into())),
+            CoreBody::WalletSendCalls(value) => Ok(Self::WalletSendCalls(value.into())),
+            CoreBody::Actions(Some(value)) => Ok(Self::Actions(value.into())),
+            CoreBody::Intent(Some(value)) => Ok(Self::Intent(value.into())),
+            CoreBody::GroupUpdated(value) => Ok(Self::GroupUpdated(value.try_into()?)),
+            CoreBody::LeaveRequest(value) => Ok(Self::LeaveRequest(crate::LeaveRequest {
+                authenticated_note: value.authenticated_note,
+            })),
+            CoreBody::DeletedMessage { deleted_by } => {
+                Ok(Self::DeletedMessage(crate::DeletedMessage {
+                    deleted_by: deleted_by.try_into()?,
+                }))
+            }
+            CoreBody::Custom(value) => Ok(Self::Custom {
+                encoded: value.into(),
+            }),
+            _ => Ok(Self::Unknown {
+                encoded: content.into(),
+            }),
         }
-        Ok(Self::Unknown { encoded })
+    }
+}
+
+impl MessageBody {
+    fn from_core(
+        body: xmtp_mls::messages::decoded_message::MessageBody,
+        encoded: SdkEncodedContent,
+    ) -> Result<Self, XmtpError> {
+        use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
+        Ok(match body {
+            CoreBody::Text(value) => Self::Text(value.content),
+            CoreBody::Markdown(value) => Self::Markdown(value.content),
+            CoreBody::ReadReceipt(_) => Self::ReadReceipt,
+            CoreBody::Attachment(value) => Self::Attachment(value.into()),
+            CoreBody::RemoteAttachment(value) => Self::RemoteAttachment(value.into()),
+            CoreBody::MultiRemoteAttachment(value) => Self::MultiRemoteAttachment(value.into()),
+            CoreBody::TransactionReference(value) => Self::TransactionReference(value.into()),
+            CoreBody::WalletSendCalls(value) => Self::WalletSendCalls(value.into()),
+            CoreBody::Actions(Some(value)) => Self::Actions(value.into()),
+            CoreBody::Intent(Some(value)) => Self::Intent(value.into()),
+            CoreBody::GroupUpdated(value) => Self::GroupUpdated(value.try_into()?),
+            CoreBody::LeaveRequest(value) => Self::LeaveRequest(crate::LeaveRequest {
+                authenticated_note: value.authenticated_note,
+            }),
+            CoreBody::DeletedMessage { deleted_by } => {
+                Self::DeletedMessage(crate::DeletedMessage {
+                    deleted_by: deleted_by.try_into()?,
+                })
+            }
+            CoreBody::Custom(value) => Self::Custom {
+                encoded: value.into(),
+            },
+            _ => Self::Unknown { encoded },
+        })
+    }
+}
+
+impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedBy {
+    type Error = XmtpError;
+    fn try_from(
+        value: xmtp_mls::messages::decoded_message::DeletedBy,
+    ) -> Result<Self, Self::Error> {
+        Ok(match value {
+            xmtp_mls::messages::decoded_message::DeletedBy::Sender => Self::Sender,
+            xmtp_mls::messages::decoded_message::DeletedBy::Admin(inbox_id) => Self::Admin {
+                inbox_id: InboxID::try_from(inbox_id)?,
+            },
+        })
     }
 }
 
@@ -55,13 +176,42 @@ pub struct MessageData {
     pub id: MessageID,
     pub client_key: u64,
     pub conversation_id: ConversationID,
+    pub topic: String,
+    pub sender_inbox_id: InboxID,
+    pub sent_at: Timestamp,
+    pub inserted_at: Timestamp,
+    pub expires_at: Option<Timestamp>,
+    pub kind: MessageKind,
+    pub delivery_status: DeliveryStatus,
+    pub content_type: ContentTypeId,
+    pub fallback: Option<String>,
+    pub encoded: SdkEncodedContent,
+    pub content: MessageContent,
+    pub reply_count: u64,
+    pub reactions: Vec<ReactionMessage>,
+    pub in_reply_to: Option<ReplyParent>,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ReactionMessage {
+    pub id: MessageID,
+    pub sender_inbox_id: InboxID,
+    pub sent_at: Timestamp,
+    pub delivery_status: DeliveryStatus,
+    pub reaction: crate::Reaction,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ReplyParent {
+    pub id: MessageID,
     pub sender_inbox_id: InboxID,
     pub sent_at: Timestamp,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
     pub content_type: ContentTypeId,
     pub fallback: Option<String>,
-    pub content: MessageContent,
+    pub encoded: SdkEncodedContent,
+    pub content: MessageBody,
 }
 
 /// The host runtime lifts this value to a Message class.
@@ -83,21 +233,14 @@ impl Message {
         let fallback = encoded
             .as_ref()
             .and_then(|content| content.fallback.clone());
-        let content = match encoded {
-            Some(encoded)
-                if content_type.authority_id == "xmtp.org"
-                    && content_type.type_id == TextCodec::TYPE_ID =>
-            {
-                TextCodec::decode(encoded)
-                    .map(MessageContent::Text)
-                    .unwrap_or(MessageContent::Unknown {
-                        encoded: value.decrypted_message_bytes,
-                    })
-            }
-            _ => MessageContent::Unknown {
-                encoded: value.decrypted_message_bytes,
-            },
-        };
+        let content = encoded
+            .clone()
+            .map(MessageContent::decode_proto)
+            .transpose()
+            .unwrap_or(None)
+            .unwrap_or(MessageContent::Unknown {
+                encoded: encoded.clone().unwrap_or_default().into(),
+            });
         let kind = match value.kind {
             GroupMessageKind::Application => MessageKind::Application,
             GroupMessageKind::MembershipChange => MessageKind::MembershipChange,
@@ -111,8 +254,11 @@ impl Message {
             id: MessageID::from_bytes(&value.id)?,
             client_key,
             conversation_id: value.group_id.into(),
+            topic: xmtp_proto::types::Topic::new_group_message(value.group_id).to_string(),
             sender_inbox_id: InboxID::try_from(value.sender_inbox_id)?,
             sent_at: Timestamp(value.sent_at_ns),
+            inserted_at: Timestamp(value.inserted_at_ns),
+            expires_at: value.expire_at_ns.map(Timestamp),
             kind,
             delivery_status,
             content_type: ContentTypeId {
@@ -122,7 +268,97 @@ impl Message {
                 version_minor: content_type.version_minor,
             },
             fallback,
+            encoded: encoded
+                .map(|value| {
+                    xmtp_content_types::compression::decompress(value.clone()).unwrap_or(value)
+                })
+                .unwrap_or_default()
+                .into(),
             content,
+            reply_count: 0,
+            reactions: Vec::new(),
+            in_reply_to: None,
         }))
+    }
+
+    pub(crate) fn from_enriched(
+        value: StoredGroupMessage,
+        enriched: xmtp_mls::messages::decoded_message::DecodedMessage,
+        parent_stored: Option<StoredGroupMessage>,
+        client_key: u64,
+    ) -> Result<Self, XmtpError> {
+        use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
+        let mut message = Self::from_stored(value, client_key)?;
+        message.0.reply_count = enriched.num_replies as u64;
+        message.0.reactions = enriched
+            .reactions
+            .into_iter()
+            .filter_map(|reaction| {
+                let CoreBody::Reaction(value) = reaction.content else {
+                    return None;
+                };
+                Some((|| {
+                    Ok(ReactionMessage {
+                        id: MessageID::from_bytes(&reaction.metadata.id)?,
+                        sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id)?,
+                        sent_at: Timestamp(reaction.metadata.sent_at_ns),
+                        delivery_status: reaction.metadata.delivery_status.into(),
+                        reaction: crate::Reaction::from_proto(value),
+                    })
+                })())
+            })
+            .collect::<Result<_, XmtpError>>()?;
+        let content = enriched.content;
+        if let CoreBody::Reply(reply) = &content
+            && let Some(parent) = &reply.in_reply_to
+        {
+            let parent = parent.as_ref();
+            if let Some(parent_stored) = parent_stored {
+                let parent_data = Self::from_stored(parent_stored, client_key)?.0;
+                message.0.in_reply_to = Some(ReplyParent {
+                    id: parent_data.id,
+                    sender_inbox_id: parent_data.sender_inbox_id,
+                    sent_at: parent_data.sent_at,
+                    kind: parent_data.kind,
+                    delivery_status: parent_data.delivery_status,
+                    content_type: parent_data.content_type,
+                    fallback: parent_data.fallback,
+                    encoded: parent_data.encoded.clone(),
+                    content: MessageBody::from_core(parent.content.clone(), parent_data.encoded)?,
+                });
+            }
+        }
+        message.0.content = match content {
+            CoreBody::DeletedMessage { deleted_by } => {
+                MessageContent::DeletedMessage(crate::DeletedMessage {
+                    deleted_by: deleted_by.try_into()?,
+                })
+            }
+            CoreBody::Reply(reply) => MessageContent::Reply {
+                reference_id: MessageID::try_from(reply.reference_id)?,
+                body: MessageBody::from_core(*reply.content, message.0.encoded.clone())?,
+            },
+            _ => message.0.content,
+        };
+        Ok(message)
+    }
+}
+
+impl From<GroupMessageKind> for MessageKind {
+    fn from(value: GroupMessageKind) -> Self {
+        match value {
+            GroupMessageKind::Application => Self::Application,
+            GroupMessageKind::MembershipChange => Self::MembershipChange,
+        }
+    }
+}
+
+impl From<StoredDeliveryStatus> for DeliveryStatus {
+    fn from(value: StoredDeliveryStatus) -> Self {
+        match value {
+            StoredDeliveryStatus::Unpublished => Self::Unpublished,
+            StoredDeliveryStatus::Published => Self::Published,
+            StoredDeliveryStatus::Failed => Self::Failed,
+        }
     }
 }
