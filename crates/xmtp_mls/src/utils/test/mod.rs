@@ -165,16 +165,7 @@ pub async fn register_client<Context: XmtpSharedContext>(
     client: &Client<Context>,
     owner: impl InboxOwner,
 ) {
-    let mut signature_request = client.context.signature_request().unwrap();
-    let signature_text = signature_request.signature_text();
-    let unverified_signature = owner.sign(&signature_text).unwrap();
-
-    signature_request
-        .add_signature(unverified_signature, client.scw_verifier())
-        .await
-        .unwrap();
-
-    client.register_identity(signature_request).await.unwrap();
+    client.register_with_owner(&owner).await.unwrap();
 }
 
 /// wait for a minimum amount of intents to be published

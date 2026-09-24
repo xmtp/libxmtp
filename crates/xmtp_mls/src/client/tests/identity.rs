@@ -1,5 +1,46 @@
 use super::*;
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn register_with_owner_returns_errors() {
+    use xmtp_cryptography::signature::SignatureError;
+    use xmtp_id::{
+        InboxOwner,
+        associations::{Identifier, unverified::UnverifiedSignature},
+    };
+
+    struct FailingOwner<T>(T);
+
+    impl<T: InboxOwner> InboxOwner for FailingOwner<T> {
+        fn get_identifier(
+            &self,
+        ) -> Result<Identifier, xmtp_cryptography::signature::IdentifierValidationError> {
+            self.0.get_identifier()
+        }
+
+        fn sign(&self, _: &str) -> Result<UnverifiedSignature, SignatureError> {
+            Err(SignatureError::Unknown)
+        }
+    }
+
+    let wallet = generate_local_wallet();
+    let client = ClientBuilder::new_test_builder(&wallet)
+        .await
+        .build()
+        .await?;
+    let error = client.register_with_owner(&FailingOwner(&wallet)).await;
+    assert!(matches!(
+        error,
+        Err(crate::client::ClientError::SignatureValidation(
+            xmtp_id::associations::SignatureError::CryptoSignatureError(SignatureError::Unknown)
+        ))
+    ));
+    assert!(!client.identity().is_ready());
+
+    client.register_with_owner(&wallet).await?;
+    assert!(client.identity().is_ready());
+    assert!(client.is_registration_visible()?);
+}
+
 #[xmtp_common::test]
 fn test_client_error_signature_validation_retryability_propagates() {
     use xmtp_common::RetryableError;
