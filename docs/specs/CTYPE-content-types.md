@@ -73,7 +73,7 @@ message ContentTypeId {
 
 An `EncodedContent` carries the identifier, the parameters a decoder needs beyond the bytes, optional fallback text, optional compression, and the content. A recipient reads parameters under CTYPE-014. Fallback text is available without decoding the content. It is optional for every type, including types whose codecs can supply it (CTYPE-021).
 
-`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. Compressed publication follows CTYPE-023, and decoding follows CTYPE-024 and CTYPE-025.
+`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. Compressed publication follows CTYPE-023, and decoding follows CTYPE-024 and CTYPE-025. Older SDK releases do not share one decompression path (Known limitations).
 
 ```proto
 // Recognized compression algorithms
