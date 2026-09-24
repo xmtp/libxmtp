@@ -29,6 +29,8 @@ mod test_send_receive;
 mod test_starting_membership_sequence_id;
 #[cfg(not(target_arch = "wasm32"))]
 mod test_state_processes;
+#[cfg(not(target_arch = "wasm32"))]
+mod test_state_snapshot;
 mod test_state_writes;
 mod test_sync_concurrency;
 mod test_welcome_pointers;

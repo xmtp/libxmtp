@@ -69,6 +69,7 @@ pub trait DbQuery:
     + ReadOnly
     + QueryConsentRecord
     + QueryConversationList
+    + QueryConversationState
     + QueryDms
     + QueryGroup
     + QueryGroupVersion
@@ -104,6 +105,7 @@ impl<T> DbQuery for T where
         + ReadOnly
         + QueryConsentRecord
         + QueryConversationList
+        + QueryConversationState
         + QueryDms
         + QueryGroup
         + QueryGroupVersion

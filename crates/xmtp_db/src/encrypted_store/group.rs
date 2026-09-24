@@ -1,4 +1,8 @@
 //! The Group database table. Stored information surrounding group membership and ID's.
+use super::consent_record::ConsentType;
+use super::group_message::{ContentType, GroupMessageKind};
+use super::schema::consent_records;
+use super::schema::group_messages;
 use super::{
     ConnectionExt, Sqlite,
     consent_record::ConsentState,
@@ -110,6 +114,87 @@ pub struct StoredGroup {
 impl StoredGroup {
     pub fn cursor(&self) -> Option<Cursor> {
         self.sequence_id.map(|sequence| Cursor(sequence as u64))
+    }
+}
+
+/// Read the row values needed by a conversation state snapshot.
+pub trait QueryConversationState {
+    fn conversation_state_row(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<(StoredGroup, Option<ConsentState>)>, StorageError>;
+
+    fn last_activity_ns(
+        &self,
+        group_id: &GroupId,
+        content_types: &[ContentType],
+    ) -> Result<Option<i64>, StorageError>;
+}
+
+impl<T: QueryConversationState + ?Sized> QueryConversationState for &T {
+    fn conversation_state_row(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<(StoredGroup, Option<ConsentState>)>, StorageError> {
+        (**self).conversation_state_row(group_id)
+    }
+
+    fn last_activity_ns(
+        &self,
+        group_id: &GroupId,
+        content_types: &[ContentType],
+    ) -> Result<Option<i64>, StorageError> {
+        (**self).last_activity_ns(group_id, content_types)
+    }
+}
+
+impl<C: ConnectionExt> QueryConversationState for DbConnection<C> {
+    fn conversation_state_row(
+        &self,
+        group_id: &GroupId,
+    ) -> Result<Option<(StoredGroup, Option<ConsentState>)>, StorageError> {
+        let entity = hex::encode(group_id);
+        Ok(self.raw_query(|conn| {
+            groups::table
+                .left_join(
+                    consent_records::table.on(consent_records::entity_type
+                        .eq(ConsentType::ConversationId)
+                        .and(consent_records::entity.eq(&entity))),
+                )
+                .filter(groups::id.eq(group_id))
+                .select((StoredGroup::as_select(), consent_records::state.nullable()))
+                .first(conn)
+                .optional()
+        })?)
+    }
+
+    fn last_activity_ns(
+        &self,
+        group_id: &GroupId,
+        content_types: &[ContentType],
+    ) -> Result<Option<i64>, StorageError> {
+        let Some(created_at_ns) = self.raw_query(|conn| {
+            groups::table
+                .filter(groups::id.eq(group_id))
+                .select(groups::created_at_ns)
+                .first::<i64>(conn)
+                .optional()
+        })?
+        else {
+            return Ok(None);
+        };
+        if content_types.is_empty() {
+            return Ok(Some(created_at_ns));
+        }
+        let latest = self.raw_query(|conn| {
+            group_messages::table
+                .filter(group_messages::group_id.eq(group_id))
+                .filter(group_messages::kind.eq(GroupMessageKind::Application))
+                .filter(group_messages::content_type.eq_any(content_types))
+                .select(diesel::dsl::max(group_messages::sent_at_ns))
+                .first::<Option<i64>>(conn)
+        })?;
+        Ok(Some(latest.unwrap_or(created_at_ns)))
     }
 }
 
