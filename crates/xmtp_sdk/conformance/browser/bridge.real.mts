@@ -39,7 +39,18 @@ try {
   assert.equal(backend.handle.type, "Backend");
   assert.equal(backend.handle.epoch, session.currentEpoch);
   backend.release();
-  console.log("real WASM backend call crossed a Node worker");
+  const signer = session.callbacks.register("Signer", {
+    sign: () => session.call("__bridgeInner", []),
+  });
+  assert.equal(
+    await session.call("__bridgeReentrantSigner", [signer]),
+    "inner result",
+  );
+  const pending = session.call("__bridgeNever", []);
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  await worker.terminate();
+  await assert.rejects(pending, { code: "workerTerminated" });
+  console.log("real WASM call, reentrant signer, and worker death passed");
 } finally {
   await worker.terminate();
 }
