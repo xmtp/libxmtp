@@ -17599,6 +17599,7 @@ public enum FfiWorkerKind: Equatable, Hashable {
     case commitLog
     case taskRunner
     case configurationRefresh
+    case hmacEpoch
 
 
 
@@ -17632,6 +17633,8 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case 6: return .configurationRefresh
         
+        case 7: return .hmacEpoch
+        
         default: throw UniffiInternalError.unexpectedEnumCase
         }
     }
@@ -17662,6 +17665,10 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         
         case .configurationRefresh:
             writeInt(&buf, Int32(6))
+        
+        
+        case .hmacEpoch:
+            writeInt(&buf, Int32(7))
         
         }
     }
