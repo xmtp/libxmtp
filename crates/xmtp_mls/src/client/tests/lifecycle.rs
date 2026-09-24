@@ -58,6 +58,7 @@ async fn dropping_the_last_client_handle_closes_app_events() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn created_and_welcomed_groups_emit_one_join_event() {
     tester!(alix, disable_workers);
+    tester!(caro, disable_workers);
     tester!(bo, disable_workers);
     let created = alix
         .context
@@ -81,7 +82,16 @@ async fn created_and_welcomed_groups_emit_one_join_event() {
             && joined.origin == xmtp_events::JoinOrigin::Created
             && joined.adder_inbox_id.is_none()
     ));
-    group.add_members(&[bo.inbox_id()]).await?;
+    group.add_members(&[caro.inbox_id()]).await?;
+    let caro_group = caro.sync_welcomes().await?.pop()?;
+    group
+        .update_admin_list(
+            crate::groups::UpdateAdminListType::Add,
+            caro.inbox_id().to_string(),
+        )
+        .await?;
+    caro_group.sync().await?;
+    caro_group.add_members(&[bo.inbox_id()]).await?;
     let bo_group = bo.sync_welcomes().await?.pop()?;
     assert_eq!(bo_group.group_id, group.group_id);
     assert!(matches!(
@@ -91,7 +101,53 @@ async fn created_and_welcomed_groups_emit_one_join_event() {
         }] if joined.group_id == group.group_id.to_vec()
             && joined.conversation_type == xmtp_events::ConversationType::Group
             && joined.origin == xmtp_events::JoinOrigin::Welcomed
-            && joined.adder_inbox_id.as_deref() == Some(alix.inbox_id())
+            && joined.adder_inbox_id.as_deref() == Some(caro.inbox_id())
+    ));
+    bo.sync_welcomes().await?;
+    assert!(welcomed.drain().is_empty());
+    assert!(created.drain().is_empty());
+}
+
+// verifies: EVENT-001, EVENT-005
+#[xmtp_common::test(unwrap_try = true)]
+async fn created_and_welcomed_dms_emit_one_join_event() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let created = alix
+        .context
+        .events()
+        .subscribe_app(xmtp_events::EventFilter::new([
+            xmtp_events::EventKind::ConversationJoined,
+        ]))?;
+    let welcomed = bo
+        .context
+        .events()
+        .subscribe_app(xmtp_events::EventFilter::new([
+            xmtp_events::EventKind::ConversationJoined,
+        ]))?;
+
+    let dm = alix
+        .create_dm_by_inbox_id(bo.inbox_id().to_string(), None)
+        .await?;
+    assert!(matches!(
+        created.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationJoined(joined)), ..
+        }] if joined.group_id == dm.group_id.to_vec()
+            && joined.conversation_type == xmtp_events::ConversationType::Dm
+            && joined.origin == xmtp_events::JoinOrigin::Created
+            && joined.adder_inbox_id.is_none()
+    ));
+
+    let bo_dm = bo.sync_welcomes().await?.pop()?;
+    assert_eq!(bo_dm.group_id, dm.group_id);
+    assert!(matches!(
+        welcomed.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationJoined(joined)), ..
+        }] if joined.group_id == dm.group_id.to_vec()
+            && joined.conversation_type == xmtp_events::ConversationType::Dm
+            && joined.origin == xmtp_events::JoinOrigin::Welcomed
     ));
     bo.sync_welcomes().await?;
     assert!(welcomed.drain().is_empty());
@@ -186,6 +242,36 @@ async fn app_consent_change_emits_once_and_duplicate_emits_none() {
     same_state.consented_at_ns += 1;
     alix.set_consent_states(&[same_state]).await?;
     assert!(events.drain().is_empty());
+}
+
+// verifies: EVENT-001, EVENT-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_consent_events_report_entity_and_states() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let entity = hex::encode(group.group_id);
+    let events = alix
+        .context
+        .events()
+        .subscribe_app(xmtp_events::EventFilter::new([
+            xmtp_events::EventKind::ConsentChanged,
+        ]))?;
+
+    for (stored, expected) in [
+        (ConsentState::Denied, xmtp_events::ConsentState::Denied),
+        (ConsentState::Unknown, xmtp_events::ConsentState::Unknown),
+    ] {
+        let record = StoredConsentRecord::new(ConsentType::ConversationId, stored, entity.clone());
+        alix.set_consent_states(&[record]).await?;
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(xmtp_events::ClientEvent::ConsentChanged(change)), ..
+            }] if change.entity_kind == xmtp_events::ConsentEntityKind::Conversation
+                && change.entity == entity
+                && change.state == expected
+        ));
+    }
 }
 
 // verifies: CONS-041

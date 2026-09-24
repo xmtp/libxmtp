@@ -310,6 +310,42 @@ async fn test_self_removal_simple() {
     );
 }
 
+// verifies: EVENT-006, GMOD-031
+#[xmtp_common::test(unwrap_try = true)]
+async fn leave_request_emits_left_cause_after_explicit_sync() {
+    tester!(amal, disable_workers);
+    tester!(bola, disable_workers);
+    let amal_group = amal.create_group(None, None)?;
+    amal_group.add_members(&[bola.inbox_id()]).await?;
+    let bola_group = bola.sync_welcomes().await?.pop()?;
+    let removed = bola
+        .context
+        .events()
+        .subscribe_app(xmtp_events::EventFilter::new([
+            xmtp_events::EventKind::ConversationRemoved,
+        ]))?;
+
+    bola_group.leave_group().await?;
+    assert_eq!(
+        bola_group.membership_state()?,
+        GroupMembershipState::PendingRemove
+    );
+    amal_group.sync().await?;
+    amal_group.process_pending_self_removals().await?;
+    bola_group.sync().await?;
+
+    assert!(!bola_group.is_active()?);
+    assert!(matches!(
+        removed.drain().as_slice(),
+        [xmtp_events::EventEnvelope {
+            client: Some(xmtp_events::ClientEvent::ConversationRemoved(event)), ..
+        }] if event.group_id == bola_group.group_id.as_slice()
+            && event.cause == xmtp_events::RemovalCause::Left
+    ));
+    bola_group.sync().await?;
+    assert!(removed.drain().is_empty());
+}
+
 #[xmtp_common::test(flavor = "current_thread", unwrap_try = true)]
 async fn test_membership_state_after_readd() {
     tester!(amal);
