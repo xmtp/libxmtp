@@ -10,13 +10,16 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.ts";
-import { WorkerHost } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.ts";
+import {
+  PoolLocks,
+  WorkerHost,
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.ts";
 
 if (!parentPort) throw new Error("bridge worker has no parent port");
 const port = parentPort;
 const endpoint: WireEndpoint = {
-  postMessage(message) {
-    port.postMessage(message);
+  postMessage(message, transfer) {
+    port.postMessage(message, transfer);
   },
   onMessage(handler) {
     port.on("message", (message: WireMessage) => handler(message));
@@ -54,4 +57,9 @@ new WorkerHost(
     }
     return dispatchGenerated(key, args, context);
   },
+  new PoolLocks({
+    async request(_name, _options, callback) {
+      await callback({});
+    },
+  }),
 );

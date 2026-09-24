@@ -25,7 +25,12 @@ check-isolation:
 conformance target:
     {{ _env }} && case "{{ target }}" in \
       swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
-      *) echo "Expected swift, kotlin, node, or browser" >&2; exit 2 ;; \
+      bridge) cd "{{ root }}" && \
+        bash crates/xmtp_sdk/dev/check-wasm-init && \
+        NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false && \
+        NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.real.mts && \
+        NODE_OPTIONS="--preserve-symlinks --expose-gc" sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/release.gc.mts ;; \
+      *) echo "Expected swift, kotlin, node, browser, or bridge" >&2; exit 2 ;; \
     esac
 
 manifest-check:

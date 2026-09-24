@@ -23,9 +23,12 @@ if rg -n '@xmtp-pure' "$generated" --glob '*.swift' --glob '*.kt' --glob '*.ts';
 fi
 crates/xmtp_sdk/dev/check-consumer-types-ts
 
-echo "Stock generated TypeScript is excluded from Oxlint and Oxfmt: upstream templates emit any and as casts (95 no-explicit-any findings)."
-echo "Linting only the TypeScript runtime bridge maintained in this repository."
-node_modules/.bin/oxlint --config .oxlintrc.json apps/xmtp_sdk_bindgen/runtime
-node_modules/.bin/oxfmt --config .oxfmtrc.json --check apps/xmtp_sdk_bindgen/runtime
+echo "Linting bridge runtime and generated bridge files; stock ubrn output stays excluded."
+node_modules/.bin/oxlint --config .oxlintrc.json apps/xmtp_sdk_bindgen/runtime/ts
+node_modules/.bin/oxfmt --config .oxfmtrc.json --check apps/xmtp_sdk_bindgen/runtime/ts
+node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts
+node_modules/.bin/oxfmt --config apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json --check "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts
+sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions --typeRoots sdks/node/node_modules/@types --types node "$generated/typescript-wasm/"*.gen.ts
+node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler \
   crates/xmtp_sdk/conformance/ts/logging.typecheck.ts

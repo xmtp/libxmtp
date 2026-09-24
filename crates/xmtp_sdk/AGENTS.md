@@ -19,6 +19,7 @@ Run commands from the repository root in the Nix shell. Run
   `target/sdk-bench/`.
 - `just sdk check-isolation` rejects a façade branch that changes `sdks/` or
   `bindings/`.
+- `just sdk conformance bridge` runs the bridge Vitest and real WASM worker proofs.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
