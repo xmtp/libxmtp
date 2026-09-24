@@ -4,7 +4,7 @@ use std::io::{self, Read, Write};
 
 use flate2::{
     Compression as FlateCompression,
-    read::{DeflateDecoder, GzDecoder, ZlibDecoder},
+    read::{DeflateDecoder, MultiGzDecoder, ZlibDecoder},
     write::{GzEncoder, ZlibEncoder},
 };
 use xmtp_proto::xmtp::mls::message_contents::{Compression, EncodedContent};
@@ -20,23 +20,60 @@ enum DecompressFailure {
     Limit,
 }
 
-fn read_bounded(reader: &mut impl Read, peak: &mut usize) -> Result<Vec<u8>, DecompressFailure> {
+/// Total decompressed bytes allowed while decoding one message and its nested content.
+#[derive(Debug)]
+pub struct DecompressionBudget {
+    remaining: usize,
+    peak_capacity: usize,
+}
+
+impl Default for DecompressionBudget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DecompressionBudget {
+    pub const fn new() -> Self {
+        Self {
+            remaining: MAX_DECOMPRESSED_BYTES,
+            peak_capacity: 0,
+        }
+    }
+
+    /// Largest output buffer capacity used by one decompression.
+    pub const fn peak_capacity(&self) -> usize {
+        self.peak_capacity
+    }
+
+    /// Total bytes successfully decompressed so far.
+    pub const fn used(&self) -> usize {
+        MAX_DECOMPRESSED_BYTES - self.remaining
+    }
+}
+
+fn read_bounded(
+    reader: &mut impl Read,
+    budget: &mut DecompressionBudget,
+) -> Result<Vec<u8>, DecompressFailure> {
     let mut output = Vec::new();
     let mut chunk = [0u8; COMPRESSION_CHUNK_BYTES];
     loop {
-        let remaining = MAX_DECOMPRESSED_BYTES - output.len();
+        let remaining = budget.remaining - output.len();
         let request = remaining.saturating_add(1).min(COMPRESSION_CHUNK_BYTES);
         let read = reader
             .read(&mut chunk[..request])
             .map_err(DecompressFailure::Invalid)?;
         if read == 0 {
+            budget.remaining -= output.len();
             return Ok(output);
         }
         if read > remaining {
             return Err(DecompressFailure::Limit);
         }
+        output.reserve_exact(read);
         output.extend_from_slice(&chunk[..read]);
-        *peak = (*peak).max(output.capacity());
+        budget.peak_capacity = budget.peak_capacity.max(output.capacity());
     }
 }
 
@@ -87,24 +124,30 @@ pub fn compress_if_requested(
 
 /// Decompresses before a caller selects a content codec.
 // implements: CTYPE-024, CTYPE-025
-pub fn decompress(mut content: EncodedContent) -> Result<EncodedContent, CodecError> {
+pub fn decompress(content: EncodedContent) -> Result<EncodedContent, CodecError> {
+    decompress_with_budget(content, &mut DecompressionBudget::new())
+}
+
+/// Decompresses one envelope and charges its output to a shared message budget.
+pub fn decompress_with_budget(
+    mut content: EncodedContent,
+    budget: &mut DecompressionBudget,
+) -> Result<EncodedContent, CodecError> {
     let Some(raw_algorithm) = content.compression else {
         return Ok(content);
     };
     let algorithm = Compression::try_from(raw_algorithm)
         .map_err(|_| CodecError::Decode(format!("unknown compression value {raw_algorithm}")))?;
-    let mut peak = 0;
     let result = match algorithm {
         Compression::Gzip => {
-            read_bounded(&mut GzDecoder::new(content.content.as_slice()), &mut peak)
+            read_bounded(&mut MultiGzDecoder::new(content.content.as_slice()), budget)
         }
         Compression::Deflate => {
-            match read_bounded(&mut ZlibDecoder::new(content.content.as_slice()), &mut peak) {
+            match read_bounded(&mut ZlibDecoder::new(content.content.as_slice()), budget) {
                 Ok(bytes) => Ok(bytes),
-                Err(DecompressFailure::Invalid(_)) => read_bounded(
-                    &mut DeflateDecoder::new(content.content.as_slice()),
-                    &mut peak,
-                ),
+                Err(DecompressFailure::Invalid(_)) => {
+                    read_bounded(&mut DeflateDecoder::new(content.content.as_slice()), budget)
+                }
                 Err(DecompressFailure::Limit) => Err(DecompressFailure::Limit),
             }
         }
@@ -182,14 +225,64 @@ mod tests {
         encoder.write_all(&source)?;
         let compressed = encoder.finish()?;
         assert!(compressed.len() < 20_000);
-        let mut peak = 0;
-        let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut peak);
+        let mut budget = DecompressionBudget::new();
+        let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut budget);
         assert!(matches!(result, Err(DecompressFailure::Limit)));
-        assert!(peak <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
+        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
         let mut content = TextCodec::encode(String::new())?;
         content.content = compressed;
         content.compression = Some(Compression::Deflate as i32);
         assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
+    }
+
+    // verifies: CTYPE-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stored_block_then_compressed_tail_stays_within_capacity_limit() {
+        use flate2::write::DeflateEncoder;
+
+        let first = vec![b'B'; 49_052];
+        let tail = vec![b'A'; MAX_DECOMPRESSED_BYTES + 1 - first.len()];
+        let mut raw_tail = DeflateEncoder::new(Vec::new(), FlateCompression::default());
+        raw_tail.write_all(&tail)?;
+        let raw_tail = raw_tail.finish()?;
+
+        // One non-final stored DEFLATE block, then a final compressed block.
+        let length = u16::try_from(first.len())?;
+        let mut compressed = vec![0x78, 0x9c, 0x00];
+        compressed.extend_from_slice(&length.to_le_bytes());
+        compressed.extend_from_slice(&(!length).to_le_bytes());
+        compressed.extend_from_slice(&first);
+        compressed.extend_from_slice(&raw_tail);
+        let mut s1 = 1u32;
+        let mut s2 = 0u32;
+        for byte in first.iter().chain(&tail) {
+            s1 = (s1 + u32::from(*byte)) % 65_521;
+            s2 = (s2 + s1) % 65_521;
+        }
+        compressed.extend_from_slice(&((s2 << 16) | s1).to_be_bytes());
+
+        let mut budget = DecompressionBudget::new();
+        let result = read_bounded(&mut ZlibDecoder::new(compressed.as_slice()), &mut budget);
+        assert!(matches!(result, Err(DecompressFailure::Limit)));
+        assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
+        let mut content = TextCodec::encode(String::new())?;
+        content.content = compressed;
+        content.compression = Some(Compression::Deflate as i32);
+        assert!(matches!(decompress(content), Err(CodecError::Decode(_))));
+    }
+
+    // verifies: CTYPE-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn gzip_decodes_all_members() {
+        let mut content = TextCodec::encode(String::new())?;
+        let mut first = GzEncoder::new(Vec::new(), FlateCompression::default());
+        first.write_all(b"hello ")?;
+        let mut second = GzEncoder::new(Vec::new(), FlateCompression::default());
+        second.write_all(b"world")?;
+        content.content = first.finish()?;
+        content.content.extend(second.finish()?);
+        content.compression = Some(Compression::Gzip as i32);
+        assert_eq!(decompress(content)?.content, b"hello world");
     }
 
     // verifies: CTYPE-023, CTYPE-024
