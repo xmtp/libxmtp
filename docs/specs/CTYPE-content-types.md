@@ -73,7 +73,7 @@ message ContentTypeId {
 
 An `EncodedContent` carries the identifier, the parameters a decoder needs beyond the bytes, optional fallback text, optional compression, and the content. A recipient reads parameters under CTYPE-014. Fallback text is available without decoding the content. It is optional for every type, including types whose codecs can supply it (CTYPE-021).
 
-`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. Decompression is not shared by all receive paths (Known limitations), so CTYPE-006 excludes compressed publication.
+`compression` names an algorithm applied to `content` before encoding. `COMPRESSION_DEFLATE` is 0, so absent and deflate are told apart by presence alone. Compressed publication follows CTYPE-023, and decoding follows CTYPE-024 and CTYPE-025.
 
 ```proto
 // Recognized compression algorithms
@@ -106,7 +106,9 @@ message EncodedContent {
 | CTYPE-003 | Every message names its type | When the client publishes an application message, it MUST require a protobuf `EncodedContent` with a present `type` containing non-empty `authority_id` and `type_id`, and MUST reject input that lacks that envelope or identifier. It MUST carry the identifier as the protobuf `ContentTypeId`, not its human-readable form; a catalogue parameter that explicitly carries that form does not replace `type`. | Recipients need the structured identifier to select a decoder. |
 | CTYPE-021 | Fallback is optional | The client and an SDK MUST accept otherwise valid content without `fallback` when encoding, sending, or decoding any content type. | Missing display text does not make the content invalid. |
 | CTYPE-005 | Custom fallback recommendation | An app SHOULD set `fallback` on every content it encodes under a custom type it registers. | |
-| CTYPE-006 | No compression | When the client publishes an application message, it MUST NOT set `compression`. | |
+| CTYPE-023 | Compressed content formats | Where the client or an SDK compresses the `content` of an application message it publishes, it MUST set `compression` to `COMPRESSION_DEFLATE` and write `content` in the zlib format ([RFC 1950 §2.2](https://www.rfc-editor.org/rfc/rfc1950.html#section-2.2)), or set it to `COMPRESSION_GZIP` and write `content` in the gzip format ([RFC 1952 §2](https://www.rfc-editor.org/rfc/rfc1952.html#section-2)). | A recipient reads the bytes by the algorithm the envelope names, so any other form is undecodable. |
+| CTYPE-024 | Decompress before decoding | When the client or an SDK decodes an `EncodedContent` whose `compression` is present, including nested content, it MUST decompress `content` before it selects a codec: `COMPRESSION_GZIP` as the gzip format, and `COMPRESSION_DEFLATE` as the zlib format or, when zlib decoding fails, as raw DEFLATE ([RFC 1951 §3](https://www.rfc-editor.org/rfc/rfc1951.html#section-3)). When `compression` holds any other value, or decompression fails, it MUST report a decode failure and preserve the message under CTYPE-008. | Compressed bytes handed to a codec decode as garbage or as the wrong text, and receive paths that differ show one message differently. |
+| CTYPE-025 | Decompressed size limit | If decompressing `content` would produce more than 16777216 bytes, then the client or an SDK MUST stop decompressing at 16777216 bytes, MUST NOT pass the output to a codec, and MUST report a decode failure that preserves the message under CTYPE-008. | A small compressed payload can otherwise expand until the recipient runs out of memory. |
 
 ## 3. Codecs and undecodable content
 
@@ -385,7 +387,7 @@ Timestamp syntax is defined by [RFC 3339 §5.6](https://www.rfc-editor.org/rfc/r
 
 ## Known limitations
 
-Compression is handled by the Kotlin and Swift envelope decode helpers, but the client's standard decoders and the TypeScript receive path do not share that step. A compression flag therefore does not imply successful decompression across SDKs; CTYPE-006 forbids publishing compressed application content.
+SDK releases before the Rust decode path decompress no content, or decompress only one DEFLATE form, and some send LZFSE labelled `COMPRESSION_GZIP`; they cannot read content that other clients compress under CTYPE-023.
 
 The client's standard dispatch checks type and major version but omits authority. Kotlin, Swift, and TypeScript registries include the minor version in their keys. These are gaps in CTYPE-001, but they do not imply that every standard text message with a later minor fails: the client can decode it before the SDK registry is reached.
 
