@@ -1221,6 +1221,7 @@ public final class Client {
 		return SignatureRequest(ffiSignatureRequest: ffiReq)
 	}
 
+	/// - Parameter visibilityConfirmationOptions: Deprecated. Registration always waits, so this option has no effect.
 	@available(
 		*,
 		deprecated,
@@ -1228,6 +1229,7 @@ public final class Client {
 		This function is delicate and should be used with caution.
 		Should only be used if trying to manage the create and register flow independently;
 		otherwise use `create()` instead.
+		The visibilityConfirmationOptions parameter has no effect. Registration always waits.
 		"""
 	)
 	public func ffiRegisterIdentity(

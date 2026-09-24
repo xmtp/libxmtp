@@ -1042,6 +1042,17 @@ class Client(
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the create and register flow independently otherwise use `create()` instead",
     )
+    suspend fun ffiRegisterIdentity(signatureRequest: SignatureRequest) {
+        ffiClient.registerIdentity(signatureRequest.ffiSignatureRequest, null)
+    }
+
+    /**
+     * @param visibilityConfirmationOptions Deprecated. Registration always waits, so this option has no effect.
+     */
+    @Deprecated("The visibilityConfirmationOptions parameter has no effect. Registration always waits.")
+    @DelicateApi(
+        "This function is delicate and should be used with caution. Should only be used if trying to manage the create and register flow independently otherwise use `create()` instead",
+    )
     suspend fun ffiRegisterIdentity(
         signatureRequest: SignatureRequest,
         visibilityConfirmationOptions: VisibilityConfirmationOptions? = null,

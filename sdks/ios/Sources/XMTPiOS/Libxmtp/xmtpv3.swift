@@ -6179,6 +6179,12 @@ public protocol FfiXmtpClientProtocol: AnyObject, Sendable {
      */
     func refreshServerConfiguration() async throws  -> FfiServerConfiguration
     
+    /**
+     * Register the identity and wait until it is visible on the network.
+     *
+     * The `visibility_confirmation_options` parameter is deprecated. Registration
+     * always waits, so this parameter has no effect.
+     */
     func registerIdentity(signatureRequest: FfiSignatureRequest, visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?) async throws 
     
     func releaseDbConnection() throws 
@@ -6717,6 +6723,12 @@ open func refreshServerConfiguration()async throws  -> FfiServerConfiguration  {
         )
 }
     
+    /**
+     * Register the identity and wait until it is visible on the network.
+     *
+     * The `visibility_confirmation_options` parameter is deprecated. Registration
+     * always waits, so this parameter has no effect.
+     */
 open func registerIdentity(signatureRequest: FfiSignatureRequest, visibilityConfirmationOptions: FfiVisibilityConfirmationOptions?)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -21150,7 +21162,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_refresh_server_configuration() != 42924) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 33216) {
+    if (uniffi_xmtpv3_checksum_method_ffixmtpclient_register_identity() != 22221) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_method_ffixmtpclient_release_db_connection() != 24481) {

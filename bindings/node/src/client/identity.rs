@@ -35,6 +35,10 @@ impl Client {
     self.inner_client.installation_public_key().into()
   }
 
+  /// Register the identity and wait until it is visible on the network.
+  ///
+  /// @param visibilityConfirmationOptions Deprecated. Registration always waits,
+  /// so this option has no effect.
   #[napi]
   #[xmtp_common::err_span]
   pub async fn register_identity(

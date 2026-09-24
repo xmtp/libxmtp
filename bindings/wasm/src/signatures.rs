@@ -320,6 +320,10 @@ impl Client {
     Ok(())
   }
 
+  /// Register the identity and wait until it is visible on the network.
+  ///
+  /// @param visibilityConfirmationOptions Deprecated. Registration always waits,
+  /// so this option has no effect.
   #[wasm_bindgen(js_name = registerIdentity)]
   pub async fn register_identity(
     &mut self,

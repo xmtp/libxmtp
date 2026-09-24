@@ -855,6 +855,10 @@ impl FfiXmtpClient {
             })
     }
 
+    /// Register the identity and wait until it is visible on the network.
+    ///
+    /// The `visibility_confirmation_options` parameter is deprecated. Registration
+    /// always waits, so this parameter has no effect.
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn register_identity(
         &self,

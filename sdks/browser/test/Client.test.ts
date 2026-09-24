@@ -64,7 +64,7 @@ describe("Client", () => {
     ).rejects.toThrow(new SignerUnavailableError());
   });
 
-  it("finishes a stored registration without a signer", async () => {
+  it("accepts a confirmed registration without a signer", async () => {
     const { signer, identifier } = createSigner();
     const registered = await createRegisteredClient(signer);
     await registered.close();
