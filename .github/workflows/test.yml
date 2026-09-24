@@ -88,6 +88,7 @@ jobs:
               - 'crates/xmtp_sdk/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
+              - '.github/workflows/test.yml'
             wasm:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -295,6 +296,10 @@ jobs:
     secrets: inherit
 
   test-sdk:
+    # wait-backend reads the backend image from ghcr.io with GITHUB_TOKEN.
+    permissions:
+      contents: read
+      packages: read
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted')
     uses: ./.github/workflows/test-sdk.yml
