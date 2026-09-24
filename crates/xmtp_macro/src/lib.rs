@@ -6,6 +6,7 @@ mod builders;
 mod error_code;
 mod log_macros;
 mod logging;
+mod sdk_export;
 mod span_macro;
 mod test_macro;
 mod timeout_macro;
@@ -13,7 +14,70 @@ mod timeout_macro;
 #[cfg(test)]
 mod builder_test;
 #[cfg(test)]
+mod sdk_export_test;
+#[cfg(test)]
 mod timeout_macro_test;
+
+/// Export an impl block, trait, or function through UniFFI on native and wasm32 targets.
+///
+/// If the item has an async function, native targets use the Tokio async
+/// runtime. Sync-only items use plain `uniffi::export` on every target.
+/// Every method in an impl block and every free function gets a tracing span.
+/// Trait methods with a default body also get a span. Functions that return
+/// `Result` record errors. An existing `#[tracing::instrument]` is kept.
+///
+/// Use `native_only` or `wasm_only` to limit the whole item to one target.
+/// The caller must depend on `uniffi` and `tracing`.
+///
+/// ```ignore
+/// #[xmtp_macro::sdk_export(native_only)]
+/// impl Client {
+///     pub async fn sync(&self) -> Result<(), SyncError> { /* ... */ }
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn sdk_export(
+    attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    sdk_export::sdk_export(attr.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Check that a foreign-trait error type accepts unexpected UniFFI callback errors.
+///
+/// Put this attribute on a concrete error enum or struct. The caller must
+/// depend on `uniffi`.
+///
+/// ```
+/// #[xmtp_macro::callback_error]
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("callback failed")]
+/// struct CallbackError;
+///
+/// impl From<uniffi::UnexpectedUniFFICallbackError> for CallbackError {
+///     fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+///         Self
+///     }
+/// }
+/// ```
+///
+/// ```compile_fail
+/// #[xmtp_macro::callback_error]
+/// #[derive(Debug, thiserror::Error)]
+/// #[error("callback failed")]
+/// struct CallbackError;
+/// ```
+#[proc_macro_attribute]
+pub fn callback_error(
+    attr: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
+    sdk_export::callback_error(attr.into(), input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
 
 /// A proc macro attribute that wraps the input in an `async_trait` implementation,
 /// delegating to the appropriate `async_trait` implementation based on the target architecture.
