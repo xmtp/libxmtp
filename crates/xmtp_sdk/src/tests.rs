@@ -416,6 +416,54 @@ async fn backend_only_identity_and_message_queries() {
 
 struct WalletSigner(PrivateKeySigner);
 
+struct UnlistedChainSigner(PrivateKeySigner);
+
+#[xmtp_common::async_trait]
+impl Signer for UnlistedChainSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        WalletSigner(self.0.clone()).identity().await
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        Ok(SignerKind::Scw {
+            chain_id: u64::MAX,
+            block_number: None,
+        })
+    }
+
+    async fn sign(&self, _request: SigningRequest) -> Result<Signature, SignerError> {
+        Ok(Signature::Scw {
+            bytes: vec![0; 65],
+            address: self
+                .0
+                .get_identifier()
+                .map_err(|_| SignerError::Failed)?
+                .to_string(),
+            chain_id: u64::MAX,
+            block_number: None,
+        })
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn static_revoke_rejects_unlisted_scw_chain() {
+    let wallet = PrivateKeySigner::random();
+    let client = Client::create(Arc::new(WalletSigner(wallet.clone())), options()).await?;
+    let backend = options().backend.expect("backend");
+    let result = crate::static_helpers::revoke_installations_with_backend(
+        backend,
+        Arc::new(UnlistedChainSigner(wallet)),
+        client.inbox_id(),
+        vec![client.installation_id()],
+    )
+    .await;
+    assert!(
+        matches!(result, Err(XmtpError::ChainNotAccepted(_))),
+        "{result:?}"
+    );
+    client.end().await?;
+}
+
 #[xmtp_common::async_trait]
 impl Signer for WalletSigner {
     async fn identity(&self) -> Result<PublicIdentity, SignerError> {

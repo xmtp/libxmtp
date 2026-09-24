@@ -234,6 +234,11 @@ pub async fn revoke_installations_with_backend(
         installations,
     )
     .map_err(XmtpError::from_client)?;
+    let api = api(&backend);
+    let configuration = xmtp_mls::server_configuration::fetch_server_configuration(&api)
+        .await
+        .map_err(XmtpError::from_client)?;
+    request.restrict_chains(configuration.smart_contract_wallet_chains.clone().into());
     let signature = signer::sign(
         signer,
         SigningRequest {
@@ -241,7 +246,6 @@ pub async fn revoke_installations_with_backend(
         },
     )
     .await?;
-    let api = api(&backend);
     let verifier = Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>;
     match signature {
         Signature::Ecdsa(bytes) => request
