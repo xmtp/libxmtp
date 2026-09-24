@@ -179,6 +179,7 @@ impl Archives {
         options: Option<ArchiveOptions>,
     ) -> Result<ArchiveMetadata, XmtpError> {
         let key = key(key_bytes)?;
+        let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
             let options = options.unwrap_or(ArchiveOptions {
                 start: None,
@@ -219,7 +220,6 @@ impl Archives {
         key_bytes: Vec<u8>,
     ) -> Result<ArchiveMetadata, XmtpError> {
         let key = key(key_bytes)?;
-        let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
             ArchiveImporter::from_file(path, &key)
                 .await
