@@ -343,12 +343,24 @@ impl Conversations {
         reaction: Reaction,
         options: Option<SendOptions>,
     ) -> Result<MessageID, XmtpError> {
-        let (stored, group) = self.message_group(&id).await?;
-        let content = ReactionCodec::encode(
-            reaction.into_proto(id, InboxID::try_from(stored.sender_inbox_id)?),
-        )
-        .map_err(XmtpError::unknown)?;
-        send_encoded(group, content.into(), options.unwrap_or_default()).await
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            Box::pin(async move {
+                let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
+                let (stored, group) = client
+                    .message_with_group(&bytes)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .ok_or_else(|| XmtpError::invalid("message not found"))?;
+                let content = ReactionCodec::encode(
+                    reaction.into_proto(id, InboxID::try_from(stored.sender_inbox_id)?),
+                )
+                .map_err(XmtpError::unknown)?;
+                send_encoded(group, content.into(), options.unwrap_or_default()).await
+            })
+            .await
+        })
+        .await
     }
 
     pub async fn reply_to_message(
@@ -357,14 +369,26 @@ impl Conversations {
         content: EncodedContent,
         options: Option<SendOptions>,
     ) -> Result<MessageID, XmtpError> {
-        let (stored, group) = self.message_group(&id).await?;
-        let reply = Reply {
-            reference: id.0,
-            reference_inbox_id: Some(stored.sender_inbox_id),
-            content: content.into(),
-        };
-        let encoded = ReplyCodec::encode(reply).map_err(XmtpError::unknown)?;
-        send_encoded(group, encoded.into(), options.unwrap_or_default()).await
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            Box::pin(async move {
+                let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
+                let (stored, group) = client
+                    .message_with_group(&bytes)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .ok_or_else(|| XmtpError::invalid("message not found"))?;
+                let reply = Reply {
+                    reference: id.0,
+                    reference_inbox_id: Some(stored.sender_inbox_id),
+                    content: content.into(),
+                };
+                let encoded = ReplyCodec::encode(reply).map_err(XmtpError::unknown)?;
+                send_encoded(group, encoded.into(), options.unwrap_or_default()).await
+            })
+            .await
+        })
+        .await
     }
 
     pub async fn sync(&self) -> Result<(), XmtpError> {
@@ -553,24 +577,30 @@ async fn send_encoded(
     options: SendOptions,
 ) -> Result<MessageID, XmtpError> {
     on_sdk_worker(group.context.clone(), async move {
-        let content = compress_if_requested(content.into(), options.compression.map(Into::into))
-            .map_err(XmtpError::unknown)?;
-        let bytes = encoded_content_to_bytes(content);
-        let opts = SendMessageOpts {
-            should_push: options.should_push,
-            idempotency_key: options.idempotency_key,
-        };
-        let id = if options.optimistic {
-            group
-                .send_message_optimistic(&bytes, opts)
-                .map_err(XmtpError::unknown)?
-        } else {
-            group
-                .send_message(&bytes, opts)
-                .await
-                .map_err(XmtpError::unknown)?
-        };
-        MessageID::from_bytes(&id)
+        // Build the send future on the worker. Swift cooperative threads have
+        // a small stack and cannot hold this nested MLS future before spawn.
+        Box::pin(async move {
+            let content =
+                compress_if_requested(content.into(), options.compression.map(Into::into))
+                    .map_err(XmtpError::unknown)?;
+            let bytes = encoded_content_to_bytes(content);
+            let opts = SendMessageOpts {
+                should_push: options.should_push,
+                idempotency_key: options.idempotency_key,
+            };
+            let id = if options.optimistic {
+                group
+                    .send_message_optimistic(&bytes, opts)
+                    .map_err(XmtpError::unknown)?
+            } else {
+                group
+                    .send_message(&bytes, opts)
+                    .await
+                    .map_err(XmtpError::unknown)?
+            };
+            MessageID::from_bytes(&id)
+        })
+        .await
     })
     .await
 }

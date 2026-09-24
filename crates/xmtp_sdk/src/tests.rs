@@ -1700,7 +1700,7 @@ async fn create_group_racing_end_is_closed_and_persists_nothing() {
     let before = client.inner.find_groups(GroupQueryArgs::default())?.len();
     begin_end(&client);
     assert!(matches!(
-        client.conversations().create_group(vec![]).await,
+        client.conversations().create_group(vec![], None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert_eq!(
@@ -1717,7 +1717,7 @@ async fn send_text_racing_end_is_closed_and_persists_nothing() {
         options(),
     )
     .await?;
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     let before = group.inner.find_messages(&MsgQueryArgs::default())?.len();
     begin_end(&client);
     assert!(matches!(
@@ -1738,7 +1738,7 @@ async fn message_reader_racing_end_is_closed_and_takes_no_lease() {
         options(),
     )
     .await?;
-    let group = client.conversations().create_group(vec![]).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
     begin_end(&client);
     assert!(matches!(
         group.message_reader().await,
