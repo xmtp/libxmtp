@@ -242,6 +242,10 @@ describe("public message stream storage failure", () => {
       const received: number[] = [];
       const deliveryIds: string[] = [];
       const replies: number[] = [];
+      const observedProgress = () => ({
+        received: [...received],
+        replies: [...replies],
+      });
       const released = Promise.withResolvers<undefined>();
       const failed = Promise.withResolvers<Error>();
       let native: NativeClient | undefined;
@@ -382,8 +386,11 @@ describe("public message stream storage failure", () => {
             expect(stream.isDone).toBe(true);
             expect(received).toEqual([0]);
             const replacement = await open();
-            await expect.poll(() => replies, DELIVERY_WAIT).toEqual([0, 0, 1]);
-            expect(received).toEqual([0, 0, 1]);
+            // Peer delivery can finish before the receiver records its progress.
+            await expect.poll(observedProgress, DELIVERY_WAIT).toEqual({
+              received: [0, 0, 1],
+              replies: [0, 0, 1],
+            });
             expect(deliveryIds[1]).toBe(deliveryIds[0]);
             expect(deliveryIds[2]).not.toBe(deliveryIds[0]);
             // Ending the old handle again must not close the new reader.
@@ -392,9 +399,8 @@ describe("public message stream storage failure", () => {
               throw new Error("The storage test stopped before the final send");
             await group.sendText("storage-request:2");
             await expect
-              .poll(() => replies, DELIVERY_WAIT)
-              .toEqual([0, 0, 1, 2]);
-            expect(received).toEqual([0, 0, 1, 2]);
+              .poll(observedProgress, DELIVERY_WAIT)
+              .toEqual({ received: [0, 0, 1, 2], replies: [0, 0, 1, 2] });
             expect(replacement.isDone).toBe(false);
             expect(receiverErrors).toEqual([cause]);
             expect(peerErrors).toEqual([]);
