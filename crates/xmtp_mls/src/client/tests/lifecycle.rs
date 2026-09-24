@@ -619,7 +619,9 @@ async fn close_cleans_up_workers_when_delivery_release_fails() {
     assert!(alix.close().await.is_err());
     assert!(!alix.client.workers.is_running());
     assert!(subscription.is_closed());
+    assert!(!alix.context.shutdown_complete());
     assert!(alix.close().await.is_ok());
+    assert!(alix.context.shutdown_complete());
 }
 
 #[xmtp_common::test(unwrap_try = true)]
