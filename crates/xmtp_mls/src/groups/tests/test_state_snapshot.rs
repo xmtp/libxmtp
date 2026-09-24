@@ -1,15 +1,28 @@
-use crate::client::notifications::NotificationOverride;
+use crate::client::notifications::{
+    NotificationChannel, NotificationConfig, NotificationOverride, encode,
+};
 use crate::context::XmtpSharedContext;
-use crate::groups::{SendMessageOpts, UpdateAdminListType};
+use crate::groups::{GroupError, SendMessageOpts, UpdateAdminListType};
 use crate::tester;
+use crate::utils::TestMlsGroup;
+use xmtp_content_types::{
+    ContentCodec, encoded_content_to_bytes,
+    read_receipt::{ReadReceipt, ReadReceiptCodec},
+    text::TextCodec,
+};
 use xmtp_db::consent_record::ConsentState;
 use xmtp_db::encrypted_store::database::count_sql_queries;
 use xmtp_db::group::{GroupQueryArgs, GroupQueryOrderBy};
-use xmtp_db::group_message::ContentType;
+use xmtp_db::group_message::{ContentType, GroupMessageKind};
 use xmtp_db::prelude::*;
 use xmtp_db::sql_key_store::count_kv_reads;
 
-// verifies: P21
+fn assert_notifications(group: &TestMlsGroup, expected: bool) -> Result<(), GroupError> {
+    assert_eq!(group.state_snapshot()?.notifications_enabled, expected);
+    assert_eq!(group.notifications_enabled()?, expected);
+    Ok(())
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_state_snapshot_read_count() {
     tester!(alix);
@@ -34,7 +47,6 @@ async fn test_state_snapshot_read_count() {
     }
 }
 
-// verifies: P21
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_state_snapshot_matches_getters() {
     tester!(alix);
@@ -52,13 +64,31 @@ async fn test_state_snapshot_matches_getters() {
         .update_group_image_url_square("https://example.com/image".into())
         .await?;
     group.update_app_data("snapshot data".into(), None).await?;
-    group.update_consent_state(ConsentState::Denied)?;
-    group.set_notifications(NotificationOverride::Enabled)?;
     group
         .update_conversation_message_disappearing_settings(
             xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(1, 2),
         )
         .await?;
+
+    let db = alix.context.db();
+    let mut notification = db.notification_record()?;
+    notification.push_state = 1;
+    notification.push_config = Some(encode(&NotificationConfig::new(
+        NotificationChannel::Fcm {
+            token: "snapshot-test".into(),
+        },
+    ))?);
+    db.save_notification_record(&notification)?;
+
+    group.update_consent_state(ConsentState::Unknown)?;
+    group.set_notifications(NotificationOverride::Default)?;
+    assert_notifications(&group, false)?;
+    group.update_consent_state(ConsentState::Allowed)?;
+    assert_notifications(&group, true)?;
+    group.update_consent_state(ConsentState::Denied)?;
+    assert_notifications(&group, false)?;
+    group.set_notifications(NotificationOverride::Enabled)?;
+    assert_notifications(&group, true)?;
 
     let state = group.state_snapshot()?;
     assert_eq!(state.is_active, group.is_active()?);
@@ -90,26 +120,61 @@ async fn test_state_snapshot_matches_getters() {
     );
 }
 
-// verifies: P22
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_last_activity_matches_list_order() {
     tester!(alix);
+    tester!(bo);
     let empty = alix.create_group(None, None)?;
-    let first = alix.create_group(None, None)?;
-    let second = alix.create_group(None, None)?;
-    first
-        .send_message(b"first", SendMessageOpts::default())
+    let text_then_receipt = alix.create_group(None, None)?;
+    let member_change = alix.create_group(None, None)?;
+    let receipt_only = alix.create_group(None, None)?;
+
+    let text = encoded_content_to_bytes(TextCodec::encode("visible".into())?);
+    let receipt = encoded_content_to_bytes(ReadReceiptCodec::encode(ReadReceipt {})?);
+    text_then_receipt
+        .send_message(&text, SendMessageOpts::default())
         .await?;
-    second
-        .send_message(b"second", SendMessageOpts::default())
+    let visible_time = text_then_receipt.last_activity_ns(None)?;
+    text_then_receipt
+        .send_message(&receipt, SendMessageOpts::default())
         .await?;
+    let receipt_time = text_then_receipt.last_activity_ns(Some(&[ContentType::ReadReceipt]))?;
+    assert!(receipt_time > visible_time);
+
+    member_change
+        .send_message(&text, SendMessageOpts::default())
+        .await?;
+    let before_add = member_change.last_activity_ns(None)?;
+    member_change.add_members(&[bo.inbox_id()]).await?;
+    let member_row = alix
+        .context
+        .db()
+        .find_group(&member_change.group_id)?
+        .unwrap();
+    let member_latest = member_row.last_message_ns.unwrap();
+    assert!(member_latest > before_add);
+    assert!(
+        member_change
+            .find_messages(&Default::default())?
+            .iter()
+            .any(|message| {
+                message.sent_at_ns == member_latest
+                    && message.kind == GroupMessageKind::MembershipChange
+            })
+    );
+
+    receipt_only
+        .send_message(&receipt, SendMessageOpts::default())
+        .await?;
+    let receipt_only_time = receipt_only.last_activity_ns(Some(&[ContentType::ReadReceipt]))?;
+    assert!(receipt_only_time > receipt_only.created_at_ns);
 
     assert_eq!(empty.last_activity_ns(None)?, empty.created_at_ns);
     let ordered = alix.context.db().fetch_conversation_list(GroupQueryArgs {
         order_by: Some(GroupQueryOrderBy::LastActivity),
         ..Default::default()
     })?;
-    let expected = [&empty, &first, &second];
+    let expected = [&empty, &text_then_receipt, &member_change, &receipt_only];
     for group in expected {
         let row = ordered.iter().find(|row| row.id == group.group_id).unwrap();
         assert_eq!(
@@ -117,6 +182,24 @@ async fn test_last_activity_matches_list_order() {
             row.sent_at_ns.unwrap_or(row.created_at_ns)
         );
     }
+    for group in [&text_then_receipt, &member_change, &receipt_only] {
+        let row = ordered.iter().find(|row| row.id == group.group_id).unwrap();
+        let list_key = row.sent_at_ns.unwrap_or(row.created_at_ns);
+        let last_message_ns = alix
+            .context
+            .db()
+            .find_group(&group.group_id)?
+            .unwrap()
+            .last_message_ns
+            .unwrap();
+        assert_ne!(list_key, last_message_ns);
+    }
+    assert_eq!(text_then_receipt.last_activity_ns(None)?, visible_time);
+    assert_eq!(member_change.last_activity_ns(None)?, before_add);
+    assert_eq!(
+        receipt_only.last_activity_ns(None)?,
+        receipt_only.created_at_ns
+    );
     for pair in ordered.windows(2) {
         assert!(
             pair[0].sent_at_ns.unwrap_or(pair[0].created_at_ns)
@@ -125,27 +208,33 @@ async fn test_last_activity_matches_list_order() {
     }
 }
 
-// verifies: P22
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_last_activity_custom_content_types() {
-    use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
-
     tester!(alix);
     let group = alix.create_group(None, None)?;
+    let text = encoded_content_to_bytes(TextCodec::encode("typed".into())?);
+    let receipt = encoded_content_to_bytes(ReadReceiptCodec::encode(ReadReceipt {})?);
     group
-        .send_message(b"plain", SendMessageOpts::default())
+        .send_message(&text, SendMessageOpts::default())
         .await?;
-    let plain = group.last_activity_ns(None)?;
-    let typed = encoded_content_to_bytes(TextCodec::encode("typed".into())?);
+    let text_time = group.last_activity_ns(None)?;
     group
-        .send_message(&typed, SendMessageOpts::default())
+        .send_message(&receipt, SendMessageOpts::default())
         .await?;
-    let all = group.last_activity_ns(None)?;
-    assert!(all >= plain);
+    let receipt_time = group.last_activity_ns(Some(&[ContentType::ReadReceipt]))?;
+    assert!(receipt_time > text_time);
+    assert_eq!(group.last_activity_ns(None)?, text_time);
     assert_eq!(group.last_activity_ns(Some(&[]))?, group.created_at_ns);
-    assert_eq!(group.last_activity_ns(Some(&[ContentType::Text]))?, all);
     assert_eq!(
-        group.last_activity_ns(Some(&[ContentType::Unknown]))?,
-        plain
+        group.last_activity_ns(Some(&[ContentType::Text]))?,
+        text_time
+    );
+    assert_eq!(
+        group.last_activity_ns(Some(&[ContentType::ReadReceipt]))?,
+        receipt_time
+    );
+    assert_eq!(
+        group.last_activity_ns(Some(&[ContentType::Text, ContentType::ReadReceipt]))?,
+        receipt_time
     );
 }
