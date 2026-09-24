@@ -18,11 +18,13 @@ mod sdk_export_test;
 #[cfg(test)]
 mod timeout_macro_test;
 
-/// Export an impl block or function through UniFFI on native and wasm32 targets.
+/// Export an impl block, trait, or function through UniFFI on native and wasm32 targets.
 ///
-/// Native targets use the Tokio async runtime. Public methods get a tracing
-/// span. Methods that return `Result` also record errors. An existing
-/// `#[tracing::instrument]` attribute is kept.
+/// If the item has an async function, native targets use the Tokio async
+/// runtime. Sync-only items use plain `uniffi::export` on every target.
+/// Every method in an impl block and every free function gets a tracing span.
+/// Trait methods with a default body also get a span. Functions that return
+/// `Result` record errors. An existing `#[tracing::instrument]` is kept.
 ///
 /// Use `native_only` or `wasm_only` to limit the whole item to one target.
 /// The caller must depend on `uniffi` and `tracing`.

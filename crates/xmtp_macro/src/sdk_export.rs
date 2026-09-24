@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{ImplItem, Item, ReturnType, Type, Visibility};
+use syn::{ImplItem, Item, ReturnType, TraitItem, Type};
 
 pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
     let target = if attr.is_empty() {
@@ -20,29 +20,53 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
     };
 
     let mut item: Item = syn::parse2(input)?;
-    match &mut item {
+    let has_async = match &mut item {
         Item::Impl(item_impl) => {
+            let mut has_async = false;
             for impl_item in &mut item_impl.items {
-                if let ImplItem::Fn(method) = impl_item
-                    && matches!(method.vis, Visibility::Public(_))
-                {
+                if let ImplItem::Fn(method) = impl_item {
+                    has_async |= method.sig.asyncness.is_some();
                     instrument(&mut method.attrs, &method.sig.output);
                 }
             }
+            has_async
         }
-        Item::Fn(function) => instrument(&mut function.attrs, &function.sig.output),
+        Item::Fn(function) => {
+            instrument(&mut function.attrs, &function.sig.output);
+            function.sig.asyncness.is_some()
+        }
+        Item::Trait(item_trait) => {
+            let mut has_async = false;
+            for trait_item in &mut item_trait.items {
+                if let TraitItem::Fn(method) = trait_item {
+                    has_async |= method.sig.asyncness.is_some();
+                    if method.default.is_some() {
+                        instrument(&mut method.attrs, &method.sig.output);
+                    }
+                }
+            }
+            has_async
+        }
         _ => {
             return Err(syn::Error::new_spanned(
                 item,
-                "sdk_export requires an impl block or a function",
+                "sdk_export requires an impl block, trait, or function",
             ));
         }
-    }
+    };
+
+    let export = if has_async {
+        quote! {
+            #[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio"))]
+            #[cfg_attr(target_arch = "wasm32", uniffi::export)]
+        }
+    } else {
+        quote!(#[uniffi::export])
+    };
 
     Ok(quote! {
         #target
-        #[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio"))]
-        #[cfg_attr(target_arch = "wasm32", uniffi::export)]
+        #export
         #item
     })
 }

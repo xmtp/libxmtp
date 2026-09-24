@@ -206,6 +206,7 @@ opentelemetry-otlp = { version = "0.32", features = [
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 tracing-opentelemetry = "0.33"
 trait-variant = "0.1.3"
+trybuild = "1.0"
 tsify = { version = "0.5", default-features = false, features = ["js"] }
 url = { version = "2.5.8", default-features = false }
 uuid = "1.24"

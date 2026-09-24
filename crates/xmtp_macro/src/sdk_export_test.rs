@@ -6,7 +6,7 @@ fn export(attr: proc_macro2::TokenStream, item: proc_macro2::TokenStream) -> Str
 }
 
 #[test]
-fn export_selects_runtime_and_instruments_public_methods() {
+fn export_selects_runtime_and_instruments_every_impl_method() {
     let output = export(
         quote!(),
         quote! {
@@ -24,6 +24,42 @@ fn export_selects_runtime_and_instruments_public_methods() {
     assert!(output.contains("cfg_attr (target_arch = \"wasm32\" , uniffi :: export)"));
     assert!(output.contains("tracing :: instrument (err , skip_all)"));
     assert!(output.contains("tracing :: instrument (skip_all)"));
+    assert_eq!(output.matches("tracing :: instrument").count(), 3);
+}
+
+#[test]
+fn sync_only_impl_uses_plain_export() {
+    let output = export(
+        quote!(),
+        quote! {
+            impl Client {
+                #[uniffi::constructor]
+                pub fn new() -> Self { Self }
+                pub fn count(&self) -> usize { 0 }
+            }
+        },
+    );
+
+    assert!(output.contains("# [uniffi :: export]"));
+    assert!(!output.contains("async_runtime"));
+    assert_eq!(output.matches("tracing :: instrument").count(), 2);
+}
+
+#[test]
+fn sync_only_trait_impl_instruments_inherited_visibility_methods() {
+    let output = export(
+        quote!(),
+        quote! {
+            impl ClientApi for Client {
+                fn count(&self) -> usize { 0 }
+                fn check(&self) -> Result<(), Error> { Ok(()) }
+            }
+        },
+    );
+
+    assert!(output.contains("# [uniffi :: export]"));
+    assert!(!output.contains("async_runtime"));
+    assert!(output.contains("tracing :: instrument (err , skip_all)"));
     assert_eq!(output.matches("tracing :: instrument").count(), 2);
 }
 
@@ -66,6 +102,37 @@ fn export_accepts_free_function() {
 
     assert!(output.contains("tracing :: instrument (err , skip_all)"));
     assert!(output.contains("async fn run"));
+    assert!(output.contains("async_runtime = \"tokio\""));
+}
+
+#[test]
+fn sync_free_function_uses_plain_export() {
+    let output = export(
+        quote!(),
+        quote!(
+            pub fn count() -> usize {
+                0
+            }
+        ),
+    );
+
+    assert!(output.contains("# [uniffi :: export]"));
+    assert!(!output.contains("async_runtime"));
+    assert!(output.contains("tracing :: instrument (skip_all)"));
+}
+
+#[test]
+fn async_trait_selects_runtime() {
+    let output = export(
+        quote!(),
+        quote! {
+            trait ClientApi {
+                async fn sync(&self) -> Result<(), Error>;
+            }
+        },
+    );
+
+    assert!(output.contains("async_runtime = \"tokio\""));
 }
 
 #[test]
@@ -81,7 +148,7 @@ fn export_rejects_unknown_argument_and_wrong_item() {
         ),
     )
     .unwrap_err();
-    assert!(error.to_string().contains("impl block or a function"));
+    assert!(error.to_string().contains("impl block, trait, or function"));
 }
 
 #[test]
