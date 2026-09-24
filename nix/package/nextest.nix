@@ -22,6 +22,8 @@ let
       # db snapshots
       (fileFilter (file: file.hasExt "xmtp") (root + /crates/xmtp_mls/tests/assets))
       (fileFilter (file: file.hasExt "json") (root + /crates))
+      # trybuild compares compiler errors with checked-in output.
+      (fileFilter (file: file.hasExt "stderr") (root + /crates/xmtp_macro/tests/ui))
     ];
   };
 
