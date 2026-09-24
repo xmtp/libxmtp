@@ -519,6 +519,7 @@ mock! {
     }
 
     impl QueryIdentity for DbQuery {
+        fn clear_registration_cursor(&self, sequence_id: i64) -> Result<(), StorageError>;
         fn queue_key_package_rotation(&self) -> Result<(), StorageError>;
         fn queue_key_rotation_with_nudge(&self, rotation_task_hash: &crate::tasks::TaskDataHash, rotation_seed: crate::tasks::NewTask) -> Result<(), StorageError>;
 

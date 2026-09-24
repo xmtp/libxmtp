@@ -138,6 +138,31 @@ describe("Client", () => {
     expect(client.libxmtpVersion()).toBeDefined();
   });
 
+  it.each([undefined, { timeoutMs: 0 }])(
+    "registers with visibility options %j",
+    async (options) => {
+      const user = createUser();
+      const client = await createClient(user, undefined, true);
+      try {
+        const request = await client.createInboxSignatureRequest();
+        expect(request).toBeDefined();
+        if (!request) throw new Error("missing registration signature request");
+        const signature = await user.wallet.signMessage({
+          message: await request.signatureText(),
+        });
+        await request.addEcdsaSignature(toBytes(signature));
+        expect(client.isRegistered()).toBe(false);
+        // A supplied zero timeout would expire while the receipt is pending.
+        await client.registerIdentity(request, options);
+        expect(client.isRegistered()).toBe(true);
+        await client.registerIdentity(request, options);
+        expect(client.isRegistered()).toBe(true);
+      } finally {
+        await client.close();
+      }
+    },
+  );
+
   it("should be registered after registration", async () => {
     const user = createUser();
     // must create 2 clients to get the expected value

@@ -7,10 +7,7 @@ import type {
   ServerConfiguration,
 } from "@xmtp/wasm-bindings";
 
-import type {
-  ClientOptions,
-  VisibilityConfirmationOptions,
-} from "@/types/options";
+import type { ClientOptions } from "@/types/options";
 import type { SafeSigner } from "@/utils/signer";
 
 export type ClientAction =
@@ -124,7 +121,6 @@ export type ClientAction =
       data: {
         signer: SafeSigner;
         signatureRequestId: string;
-        waitForRegistrationVisible?: VisibilityConfirmationOptions;
       };
     }
   | {

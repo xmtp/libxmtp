@@ -259,6 +259,7 @@ pub async fn create_client(
     let store = EncryptedMessageStore::new(db)?;
 
     log::info!("Creating XMTP client");
+    let used_legacy_key = legacy_signed_private_key_proto.is_some();
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
         ident.clone().try_into()?,
@@ -291,6 +292,9 @@ pub async fn create_client(
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
+    if used_legacy_key {
+        xmtp_client.ensure_registration_visible().await?;
+    }
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
@@ -851,6 +855,10 @@ impl FfiXmtpClient {
             })
     }
 
+    /// Register the identity and wait until it is visible on the network.
+    ///
+    /// The `visibility_confirmation_options` parameter is deprecated. Registration
+    /// always waits, so this parameter has no effect.
     #[tracing::instrument(level = "debug", skip_all)]
     pub async fn register_identity(
         &self,
@@ -864,11 +872,7 @@ impl FfiXmtpClient {
                 .await?;
         }
 
-        if let Some(opts) = visibility_confirmation_options {
-            self.inner_client
-                .wait_for_registration_visible(opts.into())
-                .await?;
-        }
+        let _ = visibility_confirmation_options;
 
         Ok(())
     }

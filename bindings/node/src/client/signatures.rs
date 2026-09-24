@@ -13,6 +13,11 @@ impl Client {
   #[xmtp_common::err_span]
   pub async fn create_inbox_signature_request(&self) -> Result<Option<SignatureRequestHandle>> {
     let Some(signature_request) = self.inner_client().identity().signature_request() else {
+      self
+        .inner_client()
+        .ensure_registration_visible()
+        .await
+        .map_err(ErrorWrapper::from)?;
       return Ok(None);
     };
 

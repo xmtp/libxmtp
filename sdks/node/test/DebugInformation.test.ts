@@ -10,7 +10,9 @@ describe("DebugInformation", () => {
     // Registration publishes identity updates and a key package.
     expect(apiStats.publish).toBeGreaterThanOrEqual(2n);
     expect(apiStats.query).toBeGreaterThanOrEqual(2n);
-    expect(apiStats.queryNewest).toBe(0n);
+    // Registration confirms the new installation is visible (IDENT-072):
+    // one QueryNewest on the identity topic, more if the replica lags.
+    expect(apiStats.queryNewest).toBeGreaterThanOrEqual(1n);
     expect(apiStats.subscribe).toBe(0n);
     expect(apiStats.subscribeStatic).toBe(0n);
 

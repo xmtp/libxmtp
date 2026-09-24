@@ -522,15 +522,12 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   /**
    * Registers the client with the XMTP network
    *
-   * Requires a signer, use `Client.create` to create a client with a signer.
+   * A new registration requires a signer. A stored registration can finish
+   * visibility confirmation without one.
    *
    * @throws {SignerUnavailableError} if no signer is available
    */
   async register() {
-    if (!this.#signer) {
-      throw new SignerUnavailableError();
-    }
-
     const { signatureText, signatureRequestId } =
       await this.unsafe_createInboxSignatureText();
 
@@ -539,13 +536,16 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
       return;
     }
 
+    if (!this.#signer) {
+      throw new SignerUnavailableError();
+    }
+
     const signature = await this.#signer.signMessage(signatureText);
     const signer = await toSafeSigner(this.#signer, signature);
 
     return this.#worker.action("client.registerIdentity", {
       signer,
       signatureRequestId,
-      waitForRegistrationVisible: this.#options?.waitForRegistrationVisible,
     });
   }
 

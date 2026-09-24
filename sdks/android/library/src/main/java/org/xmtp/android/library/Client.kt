@@ -59,6 +59,7 @@ data class ClientOptions(
     val deviceSyncEnabled: Boolean = true,
     val forkRecoveryOptions: ForkRecoveryOptions? = null,
     val dbPoolOptions: DbPoolOptions? = null,
+    @Deprecated("Registration always waits; this option has no effect.")
     val waitForRegistrationVisible: VisibilityConfirmationOptions? = null,
     /**
      * Unstable: notifications for group state changes, for clients that
@@ -522,9 +523,10 @@ class Client(
                         it.invoke()
                     }
                 }
-                ffiClient.signatureRequest()?.let { signatureRequest ->
+                val signatureRequest = ffiClient.signatureRequest()
+                signatureRequest?.let { request ->
                     signingKey?.let {
-                        handleSignature(SignatureRequest(signatureRequest), it)
+                        handleSignature(SignatureRequest(request), it)
                     } ?: run {
                         Log.d("XMTP", "No signer provided. Logging DB context...")
                         Log.d("XMTP", "dbPath: $dbPath")
@@ -541,9 +543,14 @@ class Client(
                     }
 
                     ffiClient.registerIdentity(
-                        signatureRequest,
+                        request,
                         clientOptions.waitForRegistrationVisible?.toFfi(),
                     )
+                }
+
+                if (signingKey != null && signatureRequest == null) {
+                    // A create call can resume a stored registration without a signature request.
+                    ffiClient.waitForRegistrationVisible(null)
                 }
 
                 val client =
@@ -1032,6 +1039,17 @@ class Client(
     )
     fun ffiSignatureRequest(): SignatureRequest? = ffiClient.signatureRequest()?.let { SignatureRequest(it) }
 
+    @DelicateApi(
+        "This function is delicate and should be used with caution. Should only be used if trying to manage the create and register flow independently otherwise use `create()` instead",
+    )
+    suspend fun ffiRegisterIdentity(signatureRequest: SignatureRequest) {
+        ffiClient.registerIdentity(signatureRequest.ffiSignatureRequest, null)
+    }
+
+    /**
+     * @param visibilityConfirmationOptions Deprecated. Registration always waits, so this option has no effect.
+     */
+    @Deprecated("The visibilityConfirmationOptions parameter has no effect. Registration always waits.")
     @DelicateApi(
         "This function is delicate and should be used with caution. Should only be used if trying to manage the create and register flow independently otherwise use `create()` instead",
     )

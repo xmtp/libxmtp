@@ -2,6 +2,7 @@ use crate::ErrorWrapper;
 use crate::client::Client;
 use napi_derive::napi;
 
+/// Options for a standalone visibility wait.
 #[napi(object)]
 #[derive(Default)]
 pub struct VisibilityConfirmationOptions {

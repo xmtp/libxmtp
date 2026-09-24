@@ -104,27 +104,27 @@ let client = try await Client.create(account: signingKey, options: options)
 
 ### Client options
 
-| Option                                                           | Default                                | Purpose                                                            |
-| ---------------------------------------------------------------- | -------------------------------------- | ------------------------------------------------------------------ |
-| `backendUrl`                                                     | Required                               | Full HTTP or HTTPS URL of your backend                             |
-| `env`                                                            | `local` on mobile; unset in JavaScript | Label used in the default database file name                       |
-| `appVersion`                                                     | Unset                                  | App name and version sent with each request                        |
-| `dbEncryptionKey`                                                | Required on mobile                     | 32-byte database key; Browser ignores it                           |
-| `dbPath`                                                         | Unset                                  | Node path, `null`, or an inbox-ID callback; Browser path or `null` |
-| `dbDirectory`                                                    | Unset                                  | Kotlin and Swift database directory                                |
-| `codecs`                                                         | Empty                                  | Extra content-type codecs                                          |
-| `disableDeviceSync`                                              | `false`                                | Browser and Node device-sync switch                                |
-| `deviceSyncEnabled`                                              | `true`                                 | Kotlin and Swift device-sync switch                                |
-| `disableAutoRegister`                                            | `false`                                | Skip automatic identity registration                               |
-| `nonce`                                                          | `1`                                    | Node-only inbox derivation nonce                                   |
-| `structuredLogging`                                              | `false`                                | JavaScript JSON logging                                            |
-| `loggingLevel`                                                   | Unset                                  | JavaScript log level                                               |
-| `preAuthenticateToInboxCallback`                                 | Unset                                  | Callback before a mobile identity signature request                |
-| `waitForRegistrationVisible`                                     | Unset                                  | Wait until registration can be read from the backend               |
-| `maxDbPoolSize`, `minDbPoolSize`, `useSingleConnection`          | SDK defaults                           | Database connection tuning                                         |
-| `workerConfig`, `forkRecoveryOptions`, `unstableChangeCallbacks` | SDK defaults                           | Advanced worker and recovery behavior                              |
-| `otelEndpoint`, `resourceAttributes`, `stdoutLoggingLevel`       | Unset                                  | Telemetry and log output                                           |
-| `debugEventsEnabled`, `performanceLogging`                       | `false`                                | Diagnostic output                                                  |
+| Option                                                           | Default                                | Purpose                                                               |
+| ---------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| `backendUrl`                                                     | Required                               | Full HTTP or HTTPS URL of your backend                                |
+| `env`                                                            | `local` on mobile; unset in JavaScript | Label used in the default database file name                          |
+| `appVersion`                                                     | Unset                                  | App name and version sent with each request                           |
+| `dbEncryptionKey`                                                | Required on mobile                     | 32-byte database key; Browser ignores it                              |
+| `dbPath`                                                         | Unset                                  | Node path, `null`, or an inbox-ID callback; Browser path or `null`    |
+| `dbDirectory`                                                    | Unset                                  | Kotlin and Swift database directory                                   |
+| `codecs`                                                         | Empty                                  | Extra content-type codecs                                             |
+| `disableDeviceSync`                                              | `false`                                | Browser and Node device-sync switch                                   |
+| `deviceSyncEnabled`                                              | `true`                                 | Kotlin and Swift device-sync switch                                   |
+| `disableAutoRegister`                                            | `false`                                | Skip automatic identity registration                                  |
+| `nonce`                                                          | `1`                                    | Node-only inbox derivation nonce                                      |
+| `structuredLogging`                                              | `false`                                | JavaScript JSON logging                                               |
+| `loggingLevel`                                                   | Unset                                  | JavaScript log level                                                  |
+| `preAuthenticateToInboxCallback`                                 | Unset                                  | Callback before a mobile identity signature request                   |
+| `waitForRegistrationVisible`                                     | Unset                                  | Deprecated; ignored. Registration always waits for backend visibility |
+| `maxDbPoolSize`, `minDbPoolSize`, `useSingleConnection`          | SDK defaults                           | Database connection tuning                                            |
+| `workerConfig`, `forkRecoveryOptions`, `unstableChangeCallbacks` | SDK defaults                           | Advanced worker and recovery behavior                                 |
+| `otelEndpoint`, `resourceAttributes`, `stdoutLoggingLevel`       | Unset                                  | Telemetry and log output                                              |
+| `debugEventsEnabled`, `performanceLogging`                       | `false`                                | Diagnostic output                                                     |
 
 `dbPath: null` creates an in-memory client. A string selects that exact path. Node also accepts a callback that receives the inbox ID. Browser does not accept the callback form.
 

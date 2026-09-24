@@ -455,9 +455,10 @@ impl Client {
     self.inner_client.inbox_id().to_string()
   }
 
+  /// Return false if registration state cannot be read.
   #[wasm_bindgen(getter, js_name = isRegistered)]
   pub fn is_registered(&self) -> bool {
-    self.inner_client.identity().is_ready()
+    self.inner_client.is_registration_visible().unwrap_or(false)
   }
 
   #[wasm_bindgen(getter, js_name = installationId)]

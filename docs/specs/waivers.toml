@@ -545,13 +545,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The send path does not check the content type, so an app can publish an application message under the group_updated or group_membership_change type. A mobile binding test sends both types and expects success."
 
 [[waiver]]
-id = "IDENT-072"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Registration reports complete on the publish receipt. The QueryNewest wait on the identity topic exists as a separate call that every binding runs only when the app opts in, and no test establishes that registration waits for it."
-
-[[waiver]]
 id = "EVENT-001"
 kind = "gap"
 owner = "protocol"

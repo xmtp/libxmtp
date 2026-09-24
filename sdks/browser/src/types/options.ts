@@ -119,9 +119,7 @@ export type OtherOptions = {
    */
   disableAutoRegister?: boolean;
   /**
-   * Options for waiting until client registration is visible on the network.
-   *
-   * When set, `registerIdentity` waits until the backend can read the registration.
+   * @deprecated Registration always waits; this option has no effect.
    */
   waitForRegistrationVisible?: VisibilityConfirmationOptions;
 };
