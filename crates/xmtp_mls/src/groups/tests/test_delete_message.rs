@@ -237,7 +237,7 @@ async fn test_out_of_order_deletion() {
 }
 
 /// Test deletion record stored before the original message arrives.
-// verifies: EVENT-001, EVENT-010
+// verifies: EVENT-001, EVENT-007, EVENT-010
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_true_out_of_order_deletion_by_sender() {
     use crate::context::XmtpSharedContext;
