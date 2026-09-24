@@ -139,6 +139,14 @@ where
                 }
             };
 
+        let encoded_content = match xmtp_content_types::compression::decompress(encoded_content) {
+            Ok(content) => content,
+            Err(err) => {
+                tracing::warn!(error = ?err, "Failed to decompress delete message, skipping");
+                return Ok(());
+            }
+        };
+
         let delete_msg = match DeleteMessage::decode(encoded_content.content.as_slice()) {
             Ok(msg) => msg,
             Err(err) => {

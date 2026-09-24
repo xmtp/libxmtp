@@ -3,9 +3,10 @@ use crate::groups::error::DeleteMessageError;
 use crate::groups::send_message_opts::SendMessageOpts;
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use crate::tester;
-use xmtp_content_types::{ContentCodec, text::TextCodec};
+use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
 use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
 use xmtp_db::message_deletion::QueryMessageDeletion;
+use xmtp_proto::xmtp::mls::message_contents::Compression;
 
 /// Test basic message deletion by the original sender
 #[xmtp_common::test(unwrap_try = true)]
@@ -56,6 +57,48 @@ async fn test_delete_message_by_sender() {
     let deletion = deletion.unwrap();
     assert_eq!(deletion.deleted_by_inbox_id, alix.inbox_id());
     assert!(!deletion.is_super_admin_deletion);
+}
+
+// verifies: CTYPE-024, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn compressed_delete_message_is_applied() {
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.sync_welcomes().await?.remove(0);
+
+    let text = TextCodec::encode("delete me".into())?;
+    let message_id = alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(text),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    bo_group.sync().await?;
+    assert!(!bo.context.db().is_message_deleted(&message_id)?);
+
+    let delete = DeleteMessageCodec::encode(DeleteMessage {
+        message_id: hex::encode(&message_id),
+    })?;
+    let delete = compress(delete, Compression::Deflate)?;
+    alix_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(delete),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    bo_group.sync().await?;
+
+    assert!(bo.context.db().is_message_deleted(&message_id)?);
+    let deletion = bo
+        .context
+        .db()
+        .get_deletion_by_deleted_message_id(&message_id)?;
+    assert!(deletion.is_some());
 }
 
 /// Test message deletion by super admin
