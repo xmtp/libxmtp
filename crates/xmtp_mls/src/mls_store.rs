@@ -147,20 +147,27 @@ where
                 envelope: envelope.encode_to_vec(),
             });
         }
-        let admitted = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let admitted = storage
-                .db()
-                .admit_ordered_batch(&topic, batch.after, &rows, limits)?;
-            if topic.kind == NetworkEntityKind::Welcome && admitted.inserted > 0 {
-                crate::worker::key_package_maintenance::queue_key_rotation_in(&storage)?;
-            }
-            Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(admitted))
-        })?
+        let admitted = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                let storage = tx.storage();
+                let admitted =
+                    storage
+                        .db()
+                        .admit_ordered_batch(&topic, batch.after, &rows, limits)?;
+                if topic.kind == NetworkEntityKind::Welcome && admitted.inserted > 0 {
+                    crate::worker::key_package_maintenance::queue_key_rotation_in(&storage)?;
+                    xmtp_events::EventWriter::emit(
+                        events,
+                        None,
+                        Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
+                    );
+                }
+                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(admitted))
+            },
+        )?
         .into_continued();
-        if topic.kind == NetworkEntityKind::Welcome && admitted.inserted > 0 {
-            self.context.task_channels().wake();
-        }
         Ok(admitted)
     }
 

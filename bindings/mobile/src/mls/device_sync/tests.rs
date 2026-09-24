@@ -836,11 +836,12 @@ async fn test_sync_consent() {
     alix2.inner_client.sync_welcomes().await.unwrap();
 
     // Update consent state
+    let sent_before_update = alix.worker().get(SyncMetric::ConsentSent);
     alix_group
         .update_consent_state(FfiConsentState::Denied)
         .unwrap();
     alix.worker()
-        .register_interest(SyncMetric::ConsentSent, 3)
+        .register_interest(SyncMetric::ConsentSent, sent_before_update + 1)
         .wait()
         .await
         .unwrap();

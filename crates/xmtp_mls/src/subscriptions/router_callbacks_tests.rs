@@ -492,16 +492,20 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn sync_group_messages_are_intercepted_not_delivered() {
     use crate::context::XmtpSharedContext;
-    use crate::subscriptions::SyncWorkerEvent;
+    use crate::subscriptions::internal::InternalEvent;
     use xmtp_db::prelude::*;
+    use xmtp_events::EventFilter;
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
-    let sync_group = xmtp_common::wait_for_some(|| async {
+    xmtp_common::wait_for_some(|| async {
         alix.client.context.db().primary_sync_group().ok().flatten()
     })
     .await
     .expect("the sync worker creates a sync group");
+    tester!(other, from: alix);
+    alix.test_has_same_sync_group_as(&other).await?;
+    let sync_group = other.device_sync_client().get_sync_group().await?;
     let group = alix.create_group(None, None)?;
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -515,11 +519,17 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
         || {},
     );
     handle.wait_for_ready().await;
-    let mut worker_events = alix.client.context.worker_events().subscribe();
+    let sync_events = alix.client.context.events().subscribe(
+        EventFilter::default().with_internal(|event| {
+            matches!(event, InternalEvent::MessageStored { is_sync: true, .. })
+        }),
+        Some(10),
+    );
 
-    // Into the sync group first — a leak would arrive ahead of the normal
-    // message below.
-    alix.group(&sync_group.id)?
+    // A message from another installation enters the external-message path.
+    // A leak would reach the app ahead of the normal message below.
+    other
+        .group(&sync_group.group_id)?
         .send_msg(b"internal sync payload")
         .await;
     group.send_msg(b"a normal message").await;
@@ -533,12 +543,17 @@ async fn sync_group_messages_are_intercepted_not_delivered() {
     // The intercepted message became a worker nudge instead.
     let nudged = tokio::time::timeout(WAIT, async {
         loop {
-            match worker_events.recv().await {
-                Ok(SyncWorkerEvent::NewSyncGroupMsg) => break,
-                Ok(_) => continue,
-                // Lagged is recoverable — keep draining for the nudge.
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                Err(e) => panic!("worker events channel closed: {e}"),
+            match sync_events.next().await {
+                Some(event)
+                    if matches!(
+                        event.internal,
+                        Some(InternalEvent::MessageStored { is_sync: true, .. })
+                    ) =>
+                {
+                    break;
+                }
+                Some(_) => continue,
+                None => panic!("worker subscription closed"),
             }
         }
     })

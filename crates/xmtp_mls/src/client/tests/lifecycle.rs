@@ -469,6 +469,101 @@ async fn close_stops_workers() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn reconnect_keeps_worker_subscription_open_for_queued_facts() {
+    use crate::subscriptions::internal::InternalEvent;
+    use crate::worker::WorkerKind;
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+    use xmtp_events::EventWriter;
+
+    tester!(alix, persistent_db);
+    let subscription = alix
+        .client
+        .workers
+        .subscription_for_test(WorkerKind::TaskRunner)
+        .expect("TaskRunner has a subscription");
+    let entered = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    *crate::worker::test_hooks::PAUSE_NEXT_SPAWN.lock() = Some((
+        alix.installation_id.to_vec(),
+        entered.clone(),
+        release.clone(),
+    ));
+    alix.client.reconnect_db()?;
+    xmtp_common::time::timeout(std::time::Duration::from_secs(10), entered.notified()).await?;
+    xmtp_common::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert!(!subscription.is_closed());
+
+    let (consumed, received) = tokio::sync::oneshot::channel();
+    *crate::worker::tasks::test_hooks::TASK_SCHEDULED_CONSUMED
+        .lock()
+        .unwrap() = Some((alix.installation_id.to_vec(), consumed));
+    alix.context
+        .events()
+        .emit(None, Some(InternalEvent::TaskScheduled));
+    release.notify_one();
+    xmtp_common::time::timeout(std::time::Duration::from_secs(10), received).await??;
+    assert!(!subscription.is_closed());
+}
+
+// verifies: EVENT-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn clients_sharing_a_database_receive_only_their_own_events() {
+    use xmtp_events::{EventFilter, EventKind};
+
+    tester!(alix, disable_workers);
+    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let first_events = alix
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+    let second_events = second
+        .context
+        .events()
+        .subscribe(EventFilter::new([EventKind::ConsentChanged]), Some(10));
+
+    alix.set_consent_states(&[StoredConsentRecord::new(
+        ConsentType::InboxId,
+        ConsentState::Allowed,
+        "from-first-client".into(),
+    )])
+    .await?;
+    assert_eq!(first_events.drain().len(), 1);
+    assert!(second_events.drain().is_empty());
+
+    second
+        .set_consent_states(&[StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            "from-second-client".into(),
+        )])
+        .await?;
+    assert!(first_events.drain().is_empty());
+    assert_eq!(second_events.drain().len(), 1);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn close_cleans_up_workers_when_delivery_release_fails() {
+    use crate::worker::WorkerKind;
+
+    tester!(alix);
+    let subscription = alix
+        .client
+        .workers
+        .subscription_for_test(WorkerKind::TaskRunner)
+        .expect("TaskRunner has a subscription");
+    *crate::context::FAIL_NEXT_DELIVERY_RELEASE.lock() = Some(alix.installation_id.to_vec());
+
+    assert!(alix.close().await.is_err());
+    assert!(!alix.client.workers.is_running());
+    assert!(subscription.is_closed());
+    assert!(alix.close().await.is_ok());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn close_is_idempotent() {
     tester!(client);
     client.close().await?;

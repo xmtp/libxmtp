@@ -3,12 +3,11 @@
 
 use std::collections::HashSet;
 
+use crate::groups::MetadataPermissionsError;
 use crate::groups::mls_ext::CommitLogStorer;
 use crate::groups::mls_ext::ResolvedWelcome;
-use crate::groups::mls_sync::DeferredEvents;
 use crate::groups::oneshot::Oneshot;
 use crate::groups::welcomes::WelcomeMembership;
-use crate::groups::{MetadataPermissionsError, mls_sync};
 use crate::identity_updates::{
     IdentityDependencyError, IdentityRequirement, InstallationDiffError,
 };
@@ -20,7 +19,6 @@ use crate::{
         GroupError, MlsGroup, ValidateGroupMembership, mls_ext::DecryptedWelcome, validate_dm_group,
     },
     intents::ProcessIntentError,
-    subscriptions::SyncWorkerEvent,
 };
 use derive_builder::Builder;
 use openmls::group::MlsGroup as OpenMlsGroup;
@@ -71,9 +69,6 @@ pub struct XmtpWelcome<'a, C, V> {
     /// Exact durable row to complete in the same transaction as the join.
     pending: StoredIncomingEnvelope,
     validator: V,
-    /// Events sent only after a successful join transaction commits.
-    #[builder(default = "Some(mls_sync::DeferredEvents::default())")]
-    events: Option<mls_sync::DeferredEvents>,
 }
 
 impl<'a, C, V> XmtpWelcome<'a, C, V> {
@@ -150,20 +145,14 @@ where
     // outcome; unexpected failures set status on mls.process_new_welcome above.
     #[tracing::instrument(skip_all, fields(operation = "mls.process_welcome"))]
     pub async fn process(self) -> Result<Option<MlsGroup<C>>, GroupError> {
-        let mut this = self.build()?;
+        let this = self.build()?;
         this.check_pending(&this.context.db())?;
 
         let (resolved, membership) = match this.validate_membership().await {
             Err(error) => return this.reject_or_retry(error),
             Ok(validated) => validated,
         };
-        // we only use take once
-        let mut events = this
-            .events
-            .take()
-            .expect("builder is built with events as Some");
-        let commit_result =
-            this.commit_or_fail_forever(&resolved, Some(&membership), None, &mut events)?;
+        let commit_result = this.commit_or_fail_forever(&resolved, Some(&membership), None)?;
         commit_result.into_result()
     }
 
@@ -174,9 +163,8 @@ where
         resolved: &ResolvedWelcome,
         missing_reference: Option<&IdentityRequirement>,
     ) -> Result<Option<MlsGroup<C>>, GroupError> {
-        let mut this = self.build()?;
-        let mut events = this.events.take().unwrap_or_default();
-        this.commit_or_fail_forever(resolved, None, missing_reference, &mut events)?
+        let this = self.build()?;
+        this.commit_or_fail_forever(resolved, None, missing_reference)?
             .into_result()
     }
 }
@@ -282,10 +270,8 @@ where
         resolved: &ResolvedWelcome,
         membership: Option<&WelcomeMembership>,
         missing_reference: Option<&IdentityRequirement>,
-        events: &mut DeferredEvents,
     ) -> Result<CommitResult<C>, GroupError> {
         tracing::debug!("attempting to commit welcome={}", &self.welcome.cursor);
-        let mut attempt_events = DeferredEvents::default();
         let commit_result = state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
@@ -295,14 +281,8 @@ where
                 // Savepoint transaction
                 let result = event_buffer.savepoint(|event_buffer| {
                     storage.savepoint(|conn| {
-                        self.commit(
-                            conn,
-                            &mut attempt_events,
-                            resolved,
-                            membership,
-                            event_buffer,
-                        )
-                        .map(Continue)
+                        self.commit(conn, resolved, membership, event_buffer)
+                            .map(Continue)
                     })
                 });
                 let db = storage.db();
@@ -334,6 +314,7 @@ where
                     Err(e) => Err(e),
                     Ok(Continue(group)) => {
                         db.complete_pending_envelope(&self.topic(), self.welcome.cursor)?;
+                        self.context.task_channels().mark_notification_changed();
                         Ok(Continue(CommitResult::Ok(group)))
                     }
                     Ok(Rollback) => {
@@ -343,11 +324,6 @@ where
             },
         )
         .map(TransactionOutcome::into_continued)?;
-        if matches!(&commit_result, CommitResult::Ok(_)) {
-            self.context.task_channels().wake_notifications();
-            attempt_events.send_all(&self.context);
-            events.send_all(&self.context);
-        }
         Ok(commit_result)
     }
 
@@ -358,7 +334,6 @@ where
     fn commit(
         &self,
         tx: &mut impl TransactionalKeyStore,
-        events: &mut DeferredEvents,
         resolved: &ResolvedWelcome,
         expected_membership: Option<&WelcomeMembership>,
         event_buffer: &EventBuffer<'_, InternalEvent>,
@@ -525,11 +500,6 @@ where
                     .build()?
             }
             ConversationType::Sync => {
-                // Let the DeviceSync worker know about the presence of a new
-                // sync group that came in from a welcome.3
-                let group_id = mls_group.group_id().to_vec();
-                events.add_worker_event(SyncWorkerEvent::NewSyncGroupFromWelcome(group_id));
-
                 // Sync groups are always Allowed.
                 group
                     .membership_state(GroupMembershipState::Allowed)
@@ -697,7 +667,11 @@ where
                     adder_inbox_id: Some(added_by_inbox_id.clone()),
                 })
             }),
-            Some(InternalEvent::GroupJoined(group.group_id)),
+            Some(InternalEvent::GroupJoined {
+                group_id: group.group_id,
+                is_sync: stored_group.conversation_type == ConversationType::Sync,
+                origin: crate::subscriptions::internal::GroupOrigin::Welcomed,
+            }),
         );
 
         tracing::debug!(
@@ -716,13 +690,6 @@ where
 
 #[cfg(test)]
 mod tests {
-    use xmtp_common::Generate;
-
-    use crate::{
-        groups::test::NoopValidator,
-        test::mock::{NewMockContext, context},
-    };
-
     use super::*;
     use crate::groups::InitialMembershipValidator;
     use crate::tester;
@@ -932,28 +899,5 @@ mod tests {
             .unwrap();
         }
         alix_group.test_can_talk_with(&bo_group).await.unwrap();
-    }
-
-    // Is async so that the async timeout from rstest is used in wasm (does not spawn thread)
-    #[rstest::rstest]
-    #[xmtp_common::test]
-    async fn welcome_builds_with_default_events(context: NewMockContext) {
-        let w = xmtp_proto::types::WelcomeMessage::generate();
-        let builder = XmtpWelcome::builder()
-            .context(context)
-            .welcome(&w)
-            .pending(StoredIncomingEnvelope {
-                entity_id: Vec::new(),
-                entity_kind: EntityKind::Welcome,
-                sequence_id: w.cursor.0 as i64,
-                envelope: Vec::new(),
-                retry_at_ns: 0,
-                blocked: false,
-                error_code: None,
-                retry_expires_at_ns: None,
-            })
-            .validator(NoopValidator)
-            .build();
-        assert!(builder.unwrap().events.is_some());
     }
 }

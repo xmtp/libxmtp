@@ -1,5 +1,6 @@
 use crate::{
     context::XmtpSharedContext,
+    subscriptions::internal::InternalEvent,
     worker::{
         NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, device_sync::DeviceSyncError,
         key_package_maintenance as kp,
@@ -9,8 +10,9 @@ use prost::Message;
 use std::sync::Arc;
 use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_db::prelude::{QueryIdentity, QueryKeyPackageHistory};
-use xmtp_db::tasks::{NewTask as DbNewTask, QueryTasks, Task as DbTask, TaskDataHash};
+use xmtp_db::tasks::{QueryTasks, Task as DbTask, TaskDataHash};
 use xmtp_db::{StorageError, diesel};
+use xmtp_events::Subscription;
 use xmtp_proto::xmtp::mls::database::Task as TaskProto;
 
 /// How far out to push a task whose kind this build does not understand. Long
@@ -32,6 +34,9 @@ pub(crate) mod test_hooks {
     /// `(target_data_hash, deadline)` → `run_task` returns `RescheduleAt(deadline)`
     /// for the matching task. Reset at test end; assumes process-per-test isolation.
     pub(crate) static RESCHEDULE_OVERRIDE: Mutex<Option<(Vec<u8>, i64)>> = Mutex::new(None);
+    pub(crate) static TASK_SCHEDULED_CONSUMED: Mutex<
+        Option<(Vec<u8>, tokio::sync::oneshot::Sender<()>)>,
+    > = Mutex::new(None);
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -52,8 +57,6 @@ pub enum TaskWorkerError {
         expected: String,
         got: String,
     },
-    #[error("task runner receiver locked")]
-    ReceiverLocked,
     #[error(transparent)]
     Conversion(#[from] xmtp_proto::ConversionError),
     #[error("identity error: {0}")]
@@ -79,7 +82,6 @@ impl NeedsDbReconnect for TaskWorkerError {
             TaskWorkerError::DeviceSync(_) => false,
             TaskWorkerError::InvalidTaskData { .. } => false,
             TaskWorkerError::InvalidHash { .. } => false,
-            TaskWorkerError::ReceiverLocked => false,
             TaskWorkerError::Conversion(_) => false,
             TaskWorkerError::Identity(e) => e.needs_db_reconnect(),
             TaskWorkerError::KeyPackageMaintenance(e) => e.needs_db_reconnect(),
@@ -94,22 +96,8 @@ impl NeedsDbReconnect for TaskWorkerError {
     }
 }
 
-/// Message to the TaskRunner loop.
-pub enum TaskMessage {
-    /// Persist a new durable task row.
-    New(DbNewTask),
-    /// No-op wake: the task row was already inserted directly in a DB
-    /// transaction; receiving this just makes the loop re-read the tasks table.
-    Wake,
-    /// Recompute notification work after a committed local change.
-    NotificationWake,
-}
-
 #[derive(Clone)]
 pub struct TaskWorkerChannels {
-    // Using unbounded to avoid potential issues with the receiver queue being full
-    pub task_sender: tokio::sync::mpsc::UnboundedSender<TaskMessage>,
-    pub task_receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<TaskMessage>>>,
     /// Serializes notification requests across inline calls and task turns.
     pub(crate) notification_request: Arc<tokio::sync::Mutex<()>>,
     /// Confirmed backend topics retained while local notifications are disabled.
@@ -121,7 +109,6 @@ pub struct TaskWorkerChannels {
         >,
     >,
     notification_revision: Arc<std::sync::atomic::AtomicUsize>,
-    notification_wake_pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for TaskWorkerChannels {
@@ -132,38 +119,16 @@ impl Default for TaskWorkerChannels {
 
 impl TaskWorkerChannels {
     pub fn new() -> Self {
-        let (task_sender, task_receiver) = tokio::sync::mpsc::unbounded_channel();
         Self {
-            task_sender,
-            task_receiver: Arc::new(tokio::sync::Mutex::new(task_receiver)),
             notification_request: Default::default(),
             notification_pending_topics: Default::default(),
             notification_revision: Default::default(),
-            notification_wake_pending: Default::default(),
         }
     }
-    pub fn send(&self, new_task: DbNewTask) {
-        self.task_sender
-            .send(TaskMessage::New(new_task))
-            .expect("Task receiver is owned by same struct");
-    }
-    /// Wake the TaskRunner to re-evaluate its next due task. Use after inserting
-    /// a task row directly in a DB transaction (best-effort; idempotent).
-    pub fn wake(&self) {
-        self.task_sender
-            .send(TaskMessage::Wake)
-            .expect("Task receiver is owned by same struct");
-    }
-
-    /// Send a memory hint only. The task runner owns durable notification scheduling.
-    pub fn wake_notifications(&self) {
+    /// Invalidate a prepared notification batch after a local change.
+    pub fn mark_notification_changed(&self) {
         use std::sync::atomic::Ordering;
-        // Every committed change invalidates a prepared batch, even when its
-        // scheduling hint coalesces with a hint already in the channel.
         self.notification_revision.fetch_add(1, Ordering::AcqRel);
-        if !self.notification_wake_pending.swap(true, Ordering::AcqRel) {
-            let _ = self.task_sender.send(TaskMessage::NotificationWake);
-        }
     }
 
     pub(crate) fn notification_revision(&self) -> usize {
@@ -172,8 +137,8 @@ impl TaskWorkerChannels {
     }
 }
 
-/// Durably enqueue a `PullInDeadline` for `target_data_hash`, then wake the loop.
-/// Row is committed before the wake; duplicates coalesce on data_hash. Lifetime is
+/// Durably enqueue a `PullInDeadline` for `target_data_hash`, then emit its fact.
+/// The row is committed before the event; duplicates coalesce on data_hash. Lifetime is
 /// bounded by `expires_at_ns` alone (pass `NEVER_EXPIRES` for critical nudges).
 /// Callers must commit the target row FIRST: a pull-in never waits for its target —
 /// a miss is dropped (debug-logged), since a missing target is normally a completed
@@ -199,7 +164,10 @@ pub(crate) fn enqueue_pull_in<Context: XmtpSharedContext>(
             )),
         })?;
     context.db().create_or_ignore_task(task)?;
-    context.task_channels().wake();
+    use xmtp_events::EventWriter;
+    context
+        .events()
+        .emit(None, Some(InternalEvent::TaskScheduled));
     Ok(())
 }
 
@@ -229,7 +197,7 @@ where
 
 pub struct TaskWorker<Context> {
     context: Context,
-    channels: TaskWorkerChannels,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
 }
 
 #[xmtp_common::async_trait]
@@ -239,6 +207,10 @@ where
 {
     fn kind(&self) -> WorkerKind {
         WorkerKind::TaskRunner
+    }
+
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
     }
 
     async fn run_tasks(&mut self) -> Result<(), Box<dyn NeedsDbReconnect>> {
@@ -259,32 +231,73 @@ where
     Context: XmtpSharedContext + 'static,
 {
     pub fn new(context: Context) -> Self {
-        let channels = context.task_channels().clone();
-        Self { context, channels }
+        Self {
+            context,
+            subscription: None,
+        }
     }
-    pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
-        let mut receiver = match self.channels.task_receiver.try_lock() {
-            Ok(receiver) => receiver,
-            Err(_) => return Err(TaskWorkerError::ReceiverLocked),
+
+    #[cfg(test)]
+    fn record_task_fact(&self, event: &xmtp_events::EventEnvelope<InternalEvent>) {
+        if !matches!(&event.internal, Some(InternalEvent::TaskScheduled)) {
+            return;
+        }
+        let witness = {
+            let mut hook = test_hooks::TASK_SCHEDULED_CONSUMED.lock().unwrap();
+            if hook.as_ref().is_some_and(|(installation, _)| {
+                installation.as_slice() == self.context.installation_id().to_vec().as_slice()
+            }) {
+                hook.take()
+            } else {
+                None
+            }
         };
+        if let Some((_, received)) = witness {
+            let _ = received.send(());
+        }
+    }
+
+    pub async fn run(&mut self) -> Result<(), TaskWorkerError> {
+        if self.subscription.is_none() {
+            let (filter, depth) = crate::worker::worker_event_filter(WorkerKind::TaskRunner)
+                .expect("task runner has an event filter");
+            self.subscription = Some(Arc::new(self.context.events().subscribe(filter, depth)));
+        }
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("subscription is initialized")
+            .clone();
         crate::worker::notifications::wake(&self.context)?;
         loop {
+            let drained = subscription.drain();
+            #[cfg(test)]
+            for event in &drained {
+                self.record_task_fact(event);
+            }
+            if drained
+                .into_iter()
+                .any(|event| !matches!(event.internal, Some(InternalEvent::TaskScheduled)))
+            {
+                crate::worker::notifications::wake(&self.context)?;
+            }
             let next_task = self.context.db().get_next_task()?;
             let next_wakeup = Self::next_wakeup(
                 next_task.as_ref().map(|t| t.next_attempt_at_ns),
                 xmtp_common::time::now_ns(),
             );
             tokio::select! {
-                msg = receiver.recv() => {
-                    // A Wake is a no-op here: its row is already in the DB, and
-                    // any recv loops back to recompute the next due task.
-                    match msg.expect("Task sender is owned by the task worker") {
-                        TaskMessage::New(task) => { self.context.db().create_task(task)?; }
-                        TaskMessage::NotificationWake => {
-                            self.channels.notification_wake_pending.store(false, std::sync::atomic::Ordering::Release);
-                            crate::worker::notifications::wake(&self.context)?;
-                        }
-                        TaskMessage::Wake => {}
+                event = subscription.next() => {
+                    let Some(event) = event else { break Ok(()); };
+                    #[cfg(test)]
+                    self.record_task_fact(&event);
+                    let more_notification_changes = subscription.drain().into_iter().any(|event| {
+                            !matches!(event.internal, Some(InternalEvent::TaskScheduled))
+                        });
+                    let notification_changed = !matches!(event.internal, Some(InternalEvent::TaskScheduled))
+                        || more_notification_changes;
+                    if notification_changed {
+                        crate::worker::notifications::wake(&self.context)?;
                     }
                 }
                 () = xmtp_common::time::sleep(next_wakeup) => {

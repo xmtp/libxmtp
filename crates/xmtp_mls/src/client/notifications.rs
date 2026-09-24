@@ -15,6 +15,15 @@ use xmtp_db::{
 };
 use xmtp_proto::backend_v1::{self, register_request::Delivery};
 
+fn notification_settings_changed(context: &impl XmtpSharedContext) {
+    context.task_channels().mark_notification_changed();
+    xmtp_events::EventWriter::emit(
+        context.events(),
+        None,
+        Some(crate::subscriptions::internal::InternalEvent::NotificationSettingsChanged),
+    );
+}
+
 /// The delivery endpoint. Credentials are omitted from debug output.
 #[derive(Clone, Serialize, Deserialize)]
 pub enum NotificationChannel {
@@ -312,7 +321,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             pending.clear();
             generation
         };
-        self.context.task_channels().wake_notifications();
+        notification_settings_changed(&self.context);
         let _guard = self
             .context
             .task_channels()
@@ -326,7 +335,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
                 worker::resume_after_registration(&self.context, generation)?;
             }
             drop(_guard);
-            self.context.task_channels().wake_notifications();
+            notification_settings_changed(&self.context);
             result?;
         }
         Ok(self.notification_state()?)
@@ -350,7 +359,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
             pending.extend(cleared.into_iter().map(|row| (row.topic.clone(), row)));
             record
         };
-        self.context.task_channels().wake_notifications();
+        notification_settings_changed(&self.context);
         if record.push_recipient_id.is_none() {
             return Ok(());
         }
@@ -363,7 +372,7 @@ impl<Context: XmtpSharedContext> Client<Context> {
         // A later disable still wants this recipient removed. The request
         // lock orders any subsequent enable's Register after Unregister.
         if self.context.db().notification_record()?.push_state != 0 {
-            self.context.task_channels().wake_notifications();
+            notification_settings_changed(&self.context);
             return Ok(());
         }
         let request = backend_v1::UnregisterRequest {
@@ -426,7 +435,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             )?;
             Ok::<_, StorageError>(Continue(()))
         })?;
-        self.context.task_channels().wake_notifications();
+        notification_settings_changed(&self.context);
         Ok(())
     }
 

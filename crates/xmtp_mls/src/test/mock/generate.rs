@@ -19,7 +19,6 @@ use rstest::*;
 
 #[fixture]
 pub fn context() -> NewMockContext {
-    let (worker_events, _) = tokio::sync::broadcast::channel(32);
     XmtpMlsLocalContext {
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
@@ -30,7 +29,6 @@ pub fn context() -> NewMockContext {
         version_info: VersionInfo::default(),
         server_configuration: Default::default(),
         events: xmtp_events::EventBus::new(),
-        worker_events,
         scw_verifier: Arc::new(Box::new(MockSmartContractSignatureVerifier::new(true))),
         device_sync: DeviceSync {
             mode: DeviceSyncMode::Disabled,
@@ -40,7 +38,6 @@ pub fn context() -> NewMockContext {
         worker_config: Default::default(),
         mls_storage: SqlKeyStore::new(MemoryStorage::new()),
         task_channels: TaskWorkerChannels::default(),
-        disappearing_channels: crate::worker::disappearing_messages::DisappearingChannels::new(),
         worker_metrics: Arc::default(),
         cancellation_token: tokio_util::sync::CancellationToken::new(),
         shutdown_complete: Arc::new(std::sync::atomic::AtomicBool::new(false)),

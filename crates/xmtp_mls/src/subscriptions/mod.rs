@@ -80,31 +80,6 @@ impl RetryableError for LocalEventError {
     }
 }
 
-#[derive(Clone)]
-pub enum SyncWorkerEvent {
-    NewSyncGroupFromWelcome(Vec<u8>),
-    NewSyncGroupMsg,
-    // The sync worker will auto-sync these with other devices.
-    SyncPreferences(Vec<PreferenceUpdate>),
-    CycleHMAC,
-    Tick,
-}
-
-impl std::fmt::Debug for SyncWorkerEvent {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::NewSyncGroupFromWelcome(arg0) => f
-                .debug_tuple("NewSyncGroupFromWelcome")
-                .field(&hex::encode(arg0))
-                .finish(),
-            Self::NewSyncGroupMsg => write!(f, "NewSyncGroupMsg"),
-            Self::SyncPreferences(arg0) => f.debug_tuple("SyncPreferences").field(arg0).finish(),
-            Self::CycleHMAC => write!(f, "CycleHMAC"),
-            Self::Tick => write!(f, "Tick"),
-        }
-    }
-}
-
 pub(crate) trait StreamMessages {
     fn stream_consent_updates(self) -> impl Stream<Item = Result<Vec<StoredConsentRecord>>>;
     fn stream_preference_updates(self) -> impl Stream<Item = Result<Vec<PreferenceUpdate>>>;

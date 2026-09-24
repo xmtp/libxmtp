@@ -428,7 +428,6 @@ where
         mls_group: &mut OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         envelope: &GroupMessage,
-        events: &mut DeferredEvents,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<ProcessedMessageOutcome, GroupMessageProcessingError> {
         let db = storage.db();
@@ -466,14 +465,12 @@ where
             let validated = self
                 .stage_and_validate_intent(&db, mls_group, &intent, envelope)
                 .map_err(|error| error.processing_error)?;
-            let mut disappearing_stored = false;
             let result = self.process_own_message(
                 mls_group,
                 validated,
                 &intent,
                 envelope,
                 storage,
-                &mut disappearing_stored,
                 event_writer,
             );
             match result {
@@ -490,17 +487,10 @@ where
             };
             ProcessedMessageOutcome {
                 group_active: mls_group.is_active(),
-                disappearing_message_stored: disappearing_stored,
                 app_data_change: None,
             }
         } else {
-            self.validate_and_process_external_message(
-                mls_group,
-                envelope,
-                storage,
-                events,
-                event_writer,
-            )?;
+            self.validate_and_process_external_message(mls_group, envelope, storage, event_writer)?;
             ProcessedMessageOutcome::new(mls_group.is_active())
         };
         // Removal is terminal for unaccepted outgoing work. Abandon it in the

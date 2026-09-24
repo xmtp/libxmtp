@@ -42,11 +42,12 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message_id: &[u8],
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) {
         if let Ok(Some(message)) = storage.db().get_group_message(message_id)
             && message.content_type == ContentType::LeaveRequest
         {
-            match self.process_leave_request_message(mls_group, storage, &message, None) {
+            match self.process_leave_request_message(mls_group, storage, &message, event_writer) {
                 Ok(()) => {
                     debug!("Successfully processed leave request message");
                 }
@@ -63,7 +64,7 @@ where
         mls_group: &OpenMlsGroup,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
-        deferred_events: Option<&mut DeferredEvents>,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
         let current_inbox_id = self.context.inbox_id().to_string();
 
@@ -102,11 +103,10 @@ where
         storage
             .db()
             .upsert_pending_self_remove_task(&self.group_id, task)?;
-        // Wake post-commit. The own-leave path has no DeferredEvents (its task is a
-        // no-op) — fine, it's picked up on the worker's next turn.
-        if let Some(deferred_events) = deferred_events {
-            deferred_events.wake_worker(WorkerKind::TaskRunner);
-        }
+        event_writer.emit(
+            None,
+            Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
+        );
 
         // If we reach here, the action was by another user or no validated commit
         // Only process admin actions if we're admin/super-admin

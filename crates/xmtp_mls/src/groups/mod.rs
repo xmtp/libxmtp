@@ -45,7 +45,6 @@ use crate::groups::{
     mls_ext::CommitLogStorer,
 };
 use crate::state_tx::state_write;
-use crate::subscriptions::SyncWorkerEvent;
 use crate::{client::ClientError, utils::id::calculate_message_id};
 use crate::{
     groups::send_message_opts::SendMessageOpts,

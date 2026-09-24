@@ -5,9 +5,8 @@ use super::{
 use crate::{
     context::XmtpSharedContext,
     subscriptions::{
-        SyncWorkerEvent,
         incoming::{IncomingCoordinator, IncomingScope},
-        internal::PreferenceOrigin,
+        internal::{GroupOrigin, InternalEvent, PreferenceOrigin},
     },
     worker::{
         BoxedWorker, DynMetrics, MetricsCasting, NeedsDbReconnect, Worker, WorkerFactory,
@@ -15,13 +14,21 @@ use crate::{
     },
 };
 use futures::TryFutureExt;
+use parking_lot::Mutex;
 use prost::Message;
-use std::{sync::Arc, time::Duration};
-use tokio::sync::{OnceCell, broadcast};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
+};
+use tokio::sync::OnceCell;
 use tracing::instrument;
 use xmtp_common::Event;
 use xmtp_db::group_message::StoredGroupMessage;
 use xmtp_db::prelude::*;
+use xmtp_events::{ClientEvent, Subscription};
 use xmtp_macro::log_event;
 use xmtp_proto::xmtp::{
     device_sync::content::{
@@ -32,10 +39,26 @@ use xmtp_proto::xmtp::{
 };
 
 const MAX_ATTEMPTS: i32 = 3;
+type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
+
+#[cfg(test)]
+pub(crate) mod test_hooks {
+    use std::sync::Arc;
+    use tokio::sync::Notify;
+
+    type BlockHook = (Vec<u8>, Arc<Notify>, Arc<Notify>);
+    pub(crate) static FAIL_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<
+        Option<(Vec<u8>, Arc<Notify>)>,
+    > = parking_lot::Mutex::new(None);
+    pub(crate) static BLOCK_NEXT_PREFERENCE_PUBLISH: parking_lot::Mutex<Option<BlockHook>> =
+        parking_lot::Mutex::new(None);
+}
 
 pub struct SyncWorker<Context> {
     client: DeviceSyncClient<Context>,
-    receiver: broadcast::Receiver<SyncWorkerEvent>,
+    subscription: Option<Arc<Subscription<InternalEvent>>>,
+    pending: PendingEvent,
+    next_event_id: Arc<AtomicU64>,
     init: OnceCell<()>,
     metrics: Arc<WorkerMetrics<SyncMetric>>,
 }
@@ -44,8 +67,12 @@ impl<Context> SyncWorker<Context>
 where
     Context: XmtpSharedContext + 'static,
 {
-    pub fn new(context: Context, metrics: Option<DynMetrics>) -> Self {
-        let receiver = context.worker_events().subscribe();
+    pub fn new(
+        context: Context,
+        metrics: Option<DynMetrics>,
+        pending: PendingEvent,
+        next_event_id: Arc<AtomicU64>,
+    ) -> Self {
         let metrics = metrics
             .and_then(|m| m.as_sync_metrics())
             .unwrap_or(Arc::new(WorkerMetrics::new(context.installation_id())));
@@ -53,7 +80,9 @@ where
 
         Self {
             client,
-            receiver,
+            subscription: None,
+            pending,
+            next_event_id,
             init: OnceCell::new(),
             metrics,
         }
@@ -62,6 +91,8 @@ where
 
 struct Factory<Context> {
     context: Context,
+    pending: PendingEvent,
+    next_event_id: Arc<AtomicU64>,
 }
 
 impl<Context> WorkerFactory for Factory<Context>
@@ -69,7 +100,12 @@ where
     Context: XmtpSharedContext + 'static,
 {
     fn create(&self, metrics: Option<DynMetrics>) -> (BoxedWorker, Option<DynMetrics>) {
-        let worker = SyncWorker::new(self.context.clone(), metrics);
+        let worker = SyncWorker::new(
+            self.context.clone(),
+            metrics,
+            self.pending.clone(),
+            self.next_event_id.clone(),
+        );
         let metrics = worker.metrics.clone();
 
         (Box::new(worker) as Box<_>, Some(metrics as Arc<_>))
@@ -89,6 +125,10 @@ where
         WorkerKind::DeviceSync
     }
 
+    fn set_subscription(&mut self, subscription: Arc<Subscription<InternalEvent>>) {
+        self.subscription = Some(subscription);
+    }
+
     fn metrics(&self) -> Option<DynMetrics> {
         Some(self.metrics.clone())
     }
@@ -97,7 +137,11 @@ where
     where
         C: XmtpSharedContext + 'static,
     {
-        Factory { context }
+        Factory {
+            context,
+            pending: Arc::default(),
+            next_event_id: Arc::new(AtomicU64::new(1)),
+        }
     }
 
     async fn run_tasks(&mut self) -> WorkerResult<()> {
@@ -116,87 +160,83 @@ where
             .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        let tick_fut = Self::tick(self.client.context.clone());
-        let run_fut = self.run_internal();
-
-        tokio::select! {
-            _ = tick_fut => Ok(()),
-            res = run_fut => res,
-        }
+        self.run_internal().await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
-        use tokio::sync::broadcast::error::RecvError;
+        use futures::StreamExt;
+        let (base, jitter) = self
+            .client
+            .context
+            .worker_interval(WorkerKind::DeviceSync, Duration::from_secs(20));
+        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
+        let _ = intervals.next().await;
+        let subscription = self
+            .subscription
+            .as_ref()
+            .expect("runner installs subscription")
+            .clone();
         loop {
-            let event = match self.receiver.recv().await {
-                Ok(event) => event,
-                Err(RecvError::Lagged(skipped)) => {
-                    // The skipped events may have included NewSyncGroupFromWelcome,
-                    // whose durable task rows were never created. Re-scheduling is
-                    // cheap and deduped, so recover level-triggered instead of
-                    // losing the edge; a Tick-equivalent sweep covers skipped
-                    // NewSyncGroupMsg events the same way.
-                    tracing::warn!(
-                        skipped,
-                        "sync worker receiver lagged; re-scheduling installation reconciliation"
-                    );
-                    self.client.schedule_add_installations_to_groups()?;
-                    self.evt_new_sync_group_msg(true).await?;
-                    continue;
-                }
-                Err(RecvError::Closed) => break,
-            };
-
-            // Tick is the internal timer heartbeat (every 20s): no real work, so
-            // dispatch it directly without opening a worker_turn span.
-            if matches!(event, SyncWorkerEvent::Tick) {
-                self.evt_new_sync_group_msg(true).await?;
+            let pending_event = { self.pending.lock().clone() };
+            if let Some((id, event)) = pending_event {
+                self.handle_pending_event(id, event).await?;
                 continue;
             }
+            tokio::select! {
+                event = subscription.next() => {
+                    let Some(event) = event else { break; };
+                    let id = self.next_event_id.fetch_add(1, Ordering::Relaxed);
+                    *self.pending.lock() = Some((id, event.clone()));
+                    self.handle_pending_event(id, event).await?;
+                }
+                _ = intervals.next() => self.evt_new_sync_group_msg(true).await?,
+            }
+        }
+        Ok(())
+    }
 
-            tracing::info!(
-                installation_id = %self.client.context.installation_id(),
-                "new sync worker event: {event:?}",
-            );
-            self.handle_event(event).await?;
+    async fn handle_pending_event(
+        &mut self,
+        id: u64,
+        event: xmtp_events::EventEnvelope<InternalEvent>,
+    ) -> Result<(), DeviceSyncError> {
+        self.handle_event(event.clone()).await?;
+        let mut pending = self.pending.lock();
+        if pending
+            .as_ref()
+            .is_some_and(|(pending_id, _)| *pending_id == id)
+        {
+            *pending = None;
         }
         Ok(())
     }
 
     #[tracing::instrument(skip_all, fields(worker = ?self.kind(), operation = "worker_turn", event = ?event))]
-    async fn handle_event(&mut self, event: SyncWorkerEvent) -> Result<(), DeviceSyncError> {
-        match event {
-            SyncWorkerEvent::NewSyncGroupFromWelcome(_group_id) => {
-                self.evt_new_sync_group_from_welcome().await
-            }
-            SyncWorkerEvent::NewSyncGroupMsg => self.evt_new_sync_group_msg(false).await,
-            SyncWorkerEvent::SyncPreferences(preference_updates) => {
-                self.evt_sync_preferences(preference_updates).await
-            }
-            SyncWorkerEvent::CycleHMAC => self.evt_cycle_hmac().await,
-            // Tick is intentionally filtered out in `run_internal` before reaching
-            // here, so it never opens a worker_turn span.
-            SyncWorkerEvent::Tick => unreachable!("Tick is handled before dispatch"),
+    async fn handle_event(
+        &mut self,
+        event: xmtp_events::EventEnvelope<InternalEvent>,
+    ) -> Result<(), DeviceSyncError> {
+        if matches!(
+            event.client,
+            Some(ClientEvent::IdentityOwnInstallationRevoked(_))
+        ) {
+            self.evt_cycle_hmac().await?;
         }
-    }
-
-    async fn tick(ctx: Context) {
-        use futures::StreamExt;
-        let (base, jitter) = ctx.worker_interval(
-            crate::worker::WorkerKind::DeviceSync,
-            Duration::from_secs(20),
-        );
-        let mut intervals = xmtp_common::time::jittered_interval_stream(base, jitter);
-        // The interval stream yields immediately on its first poll; skip that
-        // so the first Tick is sent only after a full interval, preserving the
-        // original sleep-then-send cadence.
-        let _ = intervals.next().await;
-        while intervals.next().await.is_some() {
-            // We don't need to worry about a mutex lock for device sync
-            // to ensure that a sync payload is not being processed by two
-            // threads at once because there should only ever be one sync worker
-            // and the sync worker processes all events in series.
-            let _ = ctx.worker_events().send(SyncWorkerEvent::Tick);
+        match event.internal {
+            Some(InternalEvent::GroupJoined {
+                is_sync: true,
+                origin: GroupOrigin::Welcomed,
+                ..
+            }) => self.evt_new_sync_group_from_welcome().await,
+            Some(
+                InternalEvent::MessageStored { is_sync: true, .. }
+                | InternalEvent::SyncMessagePublished,
+            ) => self.evt_new_sync_group_msg(false).await,
+            Some(InternalEvent::PreferencesChanged {
+                updates,
+                origin: PreferenceOrigin::Local,
+            }) => self.evt_sync_preferences(updates).await,
+            _ => Ok(()),
         }
     }
 
@@ -270,12 +310,42 @@ where
         &self,
         updates: Vec<PreferenceUpdate>,
     ) -> Result<(), DeviceSyncError> {
-        let updates = self.client.sync_preferences(updates).await?;
-
-        updates.iter().for_each(|update| match update {
-            PreferenceUpdate::Consent(_) => self.metrics.increment_metric(SyncMetric::ConsentSent),
-            PreferenceUpdate::Hmac { .. } => self.metrics.increment_metric(SyncMetric::HmacSent),
-        });
+        #[cfg(test)]
+        {
+            let blocked = {
+                let mut hook = test_hooks::BLOCK_NEXT_PREFERENCE_PUBLISH.lock();
+                if hook.as_ref().is_some_and(|(installation, _, _)| {
+                    installation.as_slice()
+                        == self.client.context.installation_id().to_vec().as_slice()
+                }) {
+                    hook.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((_, entered, release)) = blocked {
+                entered.notify_one();
+                release.notified().await;
+            }
+            let failed = {
+                let mut hook = test_hooks::FAIL_NEXT_PREFERENCE_PUBLISH.lock();
+                if hook.as_ref().is_some_and(|(installation, _)| {
+                    installation.as_slice()
+                        == self.client.context.installation_id().to_vec().as_slice()
+                }) {
+                    hook.take()
+                } else {
+                    None
+                }
+            };
+            if let Some((_, observed)) = failed {
+                observed.notify_one();
+                return Err(DeviceSyncError::IO(std::io::Error::other(
+                    "test preference publication failure",
+                )));
+            }
+        }
+        self.client.sync_preferences(updates).await?;
         Ok(())
     }
 
@@ -375,7 +445,7 @@ where
                     self.context.installation_id()
                 );
                 // We'll process even our own messages here. The sync group message ordering takes authority over our own here.
-                let updated = crate::state_tx::state_write_with_events(
+                crate::state_tx::state_write_with_events(
                     self.context.mls_storage(),
                     self.context.events(),
                     |tx, events| {
@@ -389,15 +459,15 @@ where
                             PreferenceOrigin::Sync,
                             &db,
                         )?;
+                        if !updated.legacy.is_empty() {
+                            self.context.task_channels().mark_notification_changed();
+                        }
                         Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(
                             updated.legacy,
                         ))
                     },
                 )?
                 .into_continued();
-                if !updated.is_empty() {
-                    self.context.task_channels().wake_notifications();
-                }
             }
             ContentProto::Acknowledge(DeviceSyncAcknowledge { .. }) => {
                 return Ok(());

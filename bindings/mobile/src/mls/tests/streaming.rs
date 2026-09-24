@@ -632,6 +632,7 @@ async fn test_stream_consent() {
     assert_eq!(consent_a, consent_b);
 
     // Now we'll allow Bo
+    let sent_before_allow = alix_a.worker().get(SyncMetric::ConsentSent);
     alix_a
         .set_consent_states(vec![FfiConsent {
             entity: bo.inbox_id(),
@@ -644,7 +645,7 @@ async fn test_stream_consent() {
     // Wait for alix_a to send out the consent on the sync group
     alix_a
         .worker()
-        .register_interest(SyncMetric::ConsentSent, 3)
+        .register_interest(SyncMetric::ConsentSent, sent_before_allow + 1)
         .wait()
         .await
         .unwrap();

@@ -176,21 +176,28 @@ pub(crate) fn sweep_expired<Context: XmtpSharedContext>(
 }
 
 /// Queue rotation within five seconds and persist its task in one transaction.
-/// Create the recurring task before its deadline update, then wake after commit.
+/// Create the recurring task before its deadline update, then emit after commit.
 pub(crate) fn queue_key_rotation<Context: XmtpSharedContext>(
     context: &Context,
 ) -> Result<(), StorageError> {
-    state_write(context.mls_storage(), |tx| {
-        queue_key_rotation_in(&tx.storage())?;
-        Ok::<_, StorageError>(Continue(()))
-    })?;
-    // In-memory only; must stay outside the transaction.
-    context.task_channels().wake();
+    crate::state_tx::state_write_with_events(
+        context.mls_storage(),
+        context.events(),
+        |tx, events| {
+            queue_key_rotation_in(&tx.storage())?;
+            xmtp_events::EventWriter::emit(
+                events,
+                None,
+                Some(crate::subscriptions::internal::InternalEvent::TaskScheduled),
+            );
+            Ok::<_, StorageError>(Continue(()))
+        },
+    )?;
     Ok(())
 }
 
 /// Queue rotation on the caller's writer so Welcome receipt can commit with it.
-/// The caller wakes TaskRunner only after commit. The task survives a lost wake.
+/// The caller emits the task fact in its event buffer.
 pub(crate) fn queue_key_rotation_in(
     storage: &impl XmtpMlsStorageProvider,
 ) -> Result<(), StorageError> {
@@ -548,6 +555,36 @@ mod tests {
             )
         });
         assert!(has_pull_in, "nudge must enqueue a rotation pull-in");
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn queued_rotation_is_visible_before_its_task_fact() {
+        use crate::context::XmtpSharedContext;
+        use crate::subscriptions::internal::InternalEvent;
+        use xmtp_events::EventFilter;
+
+        tester!(alix, worker_config: no_runner_cfg());
+        let subscription = alix.context.events().subscribe(
+            EventFilter::default()
+                .with_internal(|event| matches!(event, InternalEvent::TaskScheduled)),
+            Some(10),
+        );
+        let before = alix.context.events().subscribe(
+            EventFilter::default()
+                .with_internal(|event| matches!(event, InternalEvent::TaskScheduled)),
+            Some(10),
+        );
+        let hook = crate::state_tx::precommit_test_hook::install(move |_| {
+            assert!(before.drain().is_empty());
+        });
+        queue_key_rotation(&alix.context)?;
+        drop(hook);
+        assert!(row_by_hash(&alix.context.db(), kp_rotation_hash()).is_some());
+        assert!(matches!(
+            subscription.next().await.unwrap().internal,
+            Some(InternalEvent::TaskScheduled)
+        ));
     }
 
     /// Regression: welcome nudge must pull the parked rotation task in even when

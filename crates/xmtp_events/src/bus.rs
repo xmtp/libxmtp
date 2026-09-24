@@ -1,6 +1,7 @@
 use std::{
     cell::Cell,
     collections::VecDeque,
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Weak},
 };
 
@@ -11,6 +12,7 @@ use xmtp_common::{MaybeSend, MaybeSync};
 use crate::{ClientEvent, EventFilter, EventKind, Lagged};
 
 const UNBOUNDED_QUEUE_WARNING_DEPTH: usize = 10_000;
+const APP_QUEUE_DEPTH: usize = 1024;
 
 thread_local! {
     static FILTER_DEPTH: Cell<usize> = const { Cell::new(0) };
@@ -75,6 +77,8 @@ struct BusInner<I> {
     subscriptions: Mutex<Vec<Weak<SubscriptionInner<I>>>>,
     dispatch_lock: ReentrantMutex<()>,
     buffer_lock: ReentrantMutex<()>,
+    app_closed: AtomicBool,
+    internal_closed: AtomicBool,
 }
 
 /// One client's live event bus. The client owns this value and passes writers down.
@@ -103,22 +107,75 @@ impl<I> EventBus<I> {
                 subscriptions: Mutex::new(Vec::new()),
                 dispatch_lock: ReentrantMutex::new(()),
                 buffer_lock: ReentrantMutex::new(()),
+                app_closed: AtomicBool::new(false),
+                internal_closed: AtomicBool::new(false),
             }),
         }
     }
 
     /// Registers before returning. `None` gives an internal worker an unbounded queue.
     pub fn subscribe(&self, filter: EventFilter<I>, queue_depth: Option<usize>) -> Subscription<I> {
+        self.subscribe_with_role(filter, queue_depth, false)
+    }
+
+    /// Register an app listener while the client is open.
+    pub fn subscribe_app(&self, filter: EventFilter<I>) -> Option<Subscription<I>> {
+        if self.inner.app_closed.load(Ordering::Acquire) {
+            return None;
+        }
+        let subscription = self.subscribe_with_role(filter, Some(APP_QUEUE_DEPTH), true);
+        (!subscription.is_closed()).then_some(subscription)
+    }
+
+    fn subscribe_with_role(
+        &self,
+        filter: EventFilter<I>,
+        queue_depth: Option<usize>,
+        app: bool,
+    ) -> Subscription<I> {
         self.assert_not_dispatching();
         let _dispatch = self.inner.dispatch_lock.lock();
         let inner = Arc::new(SubscriptionInner {
             filter,
             queue_depth,
+            app,
             state: Mutex::new(QueueState::default()),
             changed: Notify::new(),
         });
+        if (app && self.inner.app_closed.load(Ordering::Acquire))
+            || (!app && self.inner.internal_closed.load(Ordering::Acquire))
+        {
+            inner.close();
+        }
         self.inner.subscriptions.lock().push(Arc::downgrade(&inner));
         Subscription { inner }
+    }
+
+    /// End app listeners before worker shutdown begins.
+    pub fn close_app_subscriptions(&self) {
+        self.inner.app_closed.store(true, Ordering::Release);
+        self.close_role(true);
+    }
+
+    /// End legacy and other internal listeners after worker shutdown.
+    pub fn close_internal_subscriptions(&self) {
+        self.inner.internal_closed.store(true, Ordering::Release);
+        self.close_role(false);
+    }
+
+    fn close_role(&self, app: bool) {
+        let _dispatch = self.inner.dispatch_lock.lock();
+        let mut subscriptions = self.inner.subscriptions.lock();
+        subscriptions.retain(|weak| {
+            if let Some(inner) = weak.upgrade() {
+                if inner.app == app {
+                    inner.close();
+                }
+                true
+            } else {
+                false
+            }
+        });
     }
 
     /// Runs one synchronous emitting write. Flush follows a successful commit only.
@@ -326,8 +383,20 @@ impl<I> Default for QueueState<I> {
 struct SubscriptionInner<I> {
     filter: EventFilter<I>,
     queue_depth: Option<usize>,
+    app: bool,
     state: Mutex<QueueState<I>>,
     changed: Notify,
+}
+
+impl<I> SubscriptionInner<I> {
+    fn close(&self) {
+        let mut state = self.state.lock();
+        state.closed = true;
+        state.items.clear();
+        state.discarded = 0;
+        drop(state);
+        self.changed.notify_waiters();
+    }
 }
 
 impl<I: Clone> SubscriptionInner<I> {
@@ -408,12 +477,7 @@ pub struct Subscription<I> {
 
 impl<I> Subscription<I> {
     pub fn close(&self) {
-        let mut state = self.inner.state.lock();
-        state.closed = true;
-        state.items.clear();
-        state.discarded = 0;
-        drop(state);
-        self.inner.changed.notify_waiters();
+        self.inner.close();
     }
 
     pub fn is_closed(&self) -> bool {

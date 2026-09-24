@@ -74,7 +74,7 @@ where
 
     #[tracing::instrument(skip_all, level = "trace")]
     pub fn update_consent_state(&self, state: ConsentState) -> Result<(), GroupError> {
-        let new_records = crate::state_tx::state_write_with_events(
+        crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
@@ -85,25 +85,19 @@ where
                     .into_iter()
                     .map(PreferenceUpdate::Consent)
                     .collect::<Vec<_>>();
+                if !updates.is_empty() {
+                    self.context.task_channels().mark_notification_changed();
+                }
                 crate::subscriptions::internal::emit_preference_updates(
                     events,
-                    updates.clone(),
+                    updates,
                     crate::subscriptions::internal::PreferenceOrigin::Local,
                     &db,
                 )?;
-                Ok::<_, GroupError>(Continue(updates))
+                Ok::<_, GroupError>(Continue(()))
             },
         )?
         .into_continued();
-
-        if !new_records.is_empty() {
-            self.context.task_channels().wake_notifications();
-            // Dispatch an update event so it can be synced across devices
-            let _ = self
-                .context
-                .worker_events()
-                .send(SyncWorkerEvent::SyncPreferences(new_records.clone()));
-        }
 
         Ok(())
     }

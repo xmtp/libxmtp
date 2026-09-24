@@ -5,7 +5,7 @@ use crate::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     },
     mls_store::{MlsStore, MlsStoreError},
-    subscriptions::{SubscribeError, SyncWorkerEvent},
+    subscriptions::{SubscribeError, internal::InternalEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
 use owo_colors::OwoColorize;
@@ -295,11 +295,11 @@ where
 
         sync_group.sync_until_last_intent_resolved().await?;
 
-        // Notify our own worker of our own message so it can process it.
-        let _ = self
-            .context
-            .worker_events()
-            .send(SyncWorkerEvent::NewSyncGroupMsg);
+        xmtp_events::EventWriter::emit(
+            self.context.events(),
+            None,
+            Some(InternalEvent::SyncMessagePublished),
+        );
 
         Ok(message_id)
     }
@@ -387,7 +387,11 @@ where
                 )),
             })?;
         self.context.db().create_or_ignore_task(task)?;
-        self.context.task_channels().wake();
+        xmtp_events::EventWriter::emit(
+            self.context.events(),
+            None,
+            Some(InternalEvent::TaskScheduled),
+        );
         Ok(())
     }
 }

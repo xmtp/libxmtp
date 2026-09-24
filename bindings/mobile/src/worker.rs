@@ -87,6 +87,7 @@ pub enum FfiWorkerKind {
     CommitLog,
     TaskRunner,
     ConfigurationRefresh,
+    HmacEpoch,
 }
 
 impl From<FfiWorkerKind> for WorkerKind {
@@ -98,6 +99,7 @@ impl From<FfiWorkerKind> for WorkerKind {
             FfiWorkerKind::CommitLog => Self::CommitLog,
             FfiWorkerKind::TaskRunner => Self::TaskRunner,
             FfiWorkerKind::ConfigurationRefresh => Self::ConfigurationRefresh,
+            FfiWorkerKind::HmacEpoch => Self::HmacEpoch,
         }
     }
 }
@@ -111,6 +113,7 @@ impl From<WorkerKind> for FfiWorkerKind {
             WorkerKind::CommitLog => Self::CommitLog,
             WorkerKind::TaskRunner => Self::TaskRunner,
             WorkerKind::ConfigurationRefresh => Self::ConfigurationRefresh,
+            WorkerKind::HmacEpoch => Self::HmacEpoch,
         }
     }
 }

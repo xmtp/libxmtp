@@ -4,10 +4,9 @@ use crate::builder::{DeviceSyncMode, ForkRecoveryOpts};
 use crate::client::DeviceSync;
 use crate::groups::change_callbacks::UnstableChangeCallbacks;
 use crate::server_configuration::ServerConfigurationHandle;
-use crate::subscriptions::{SyncWorkerEvent, internal::InternalEvent};
+use crate::subscriptions::internal::InternalEvent;
 use crate::utils::VersionInfo;
 use crate::worker::device_sync::worker::SyncMetric;
-use crate::worker::disappearing_messages::DisappearingChannels;
 use crate::worker::metrics::WorkerMetrics;
 use crate::worker::tasks::TaskWorkerChannels;
 use crate::worker::{DynMetrics, MetricsCasting, WorkerConfig, WorkerKind};
@@ -19,7 +18,6 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use xmtp_api::{ApiClientWrapper, XmtpApi};
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -30,6 +28,9 @@ use xmtp_events::EventBus;
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_id::{InboxIdRef, associations::builder::SignatureRequest};
 use xmtp_proto::types::InstallationId;
+
+#[cfg(test)]
+pub(crate) static FAIL_NEXT_DELIVERY_RELEASE: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 #[cfg(any(test, feature = "test-utils"))]
 use crate::worker::device_sync::DeviceSyncClient;
@@ -54,7 +55,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     pub(crate) server_configuration: ServerConfigurationHandle,
     pub(crate) events: EventBus<InternalEvent>,
     pub(crate) delivery_owner: Arc<Mutex<Option<xmtp_db::delivery::DeliveryOwner>>>,
-    pub(crate) worker_events: broadcast::Sender<SyncWorkerEvent>,
     pub(crate) scw_verifier: Arc<Box<dyn SmartContractSignatureVerifier>>,
     pub(crate) device_sync: DeviceSync,
     pub(crate) fork_recovery_opts: ForkRecoveryOpts,
@@ -67,7 +67,6 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // pub(crate) workers: Arc<WorkerRunner>,
     pub(crate) worker_metrics: Arc<Mutex<HashMap<WorkerKind, DynMetrics>>>,
     pub(crate) task_channels: TaskWorkerChannels,
-    pub(crate) disappearing_channels: DisappearingChannels,
     pub(crate) cancellation_token: CancellationToken,
     // Set only after a successful `Client::close` (workers stopped + DB
     // disconnected). The cancellation token tracks "shutdown initiated";
@@ -134,7 +133,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             server_configuration: self.server_configuration,
             events: self.events,
             delivery_owner: self.delivery_owner,
-            worker_events: self.worker_events,
             scw_verifier: self.scw_verifier,
             device_sync: self.device_sync,
             fork_recovery_opts: self.fork_recovery_opts,
@@ -144,7 +142,6 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             worker_config: self.worker_config,
             worker_metrics: self.worker_metrics,
             task_channels: self.task_channels,
-            disappearing_channels: self.disappearing_channels,
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
         }
@@ -265,7 +262,6 @@ where
     fn version_info(&self) -> &VersionInfo;
     /// The configuration snapshot every consumer reads.
     fn server_configuration(&self) -> &ServerConfigurationHandle;
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent>;
     fn events(&self) -> &EventBus<InternalEvent>;
     /// This context's default-consumer token; the database is the ownership authority.
     fn delivery_owner(&self) -> &Mutex<Option<xmtp_db::delivery::DeliveryOwner>>;
@@ -273,6 +269,14 @@ where
     /// Release this context's message consumer before disconnecting its database.
     fn close_message_delivery(&self) -> Result<(), xmtp_db::StorageError> {
         use xmtp_db::delivery::QueryDelivery;
+        #[cfg(test)]
+        {
+            let mut fail = FAIL_NEXT_DELIVERY_RELEASE.lock();
+            if fail.as_deref() == Some(self.installation_id().to_vec().as_slice()) {
+                *fail = None;
+                return Err(xmtp_db::StorageError::DbDeserialize);
+            }
+        }
         let mut registered = self.delivery_owner().lock();
         if let Some(owner) = *registered {
             self.db().release_delivery_owner(owner)?;
@@ -281,7 +285,6 @@ where
         Ok(())
     }
     fn task_channels(&self) -> &TaskWorkerChannels;
-    fn disappearing_channels(&self) -> &DisappearingChannels;
     /// Unstable: the host's registered group-change callbacks.
     fn change_callbacks(&self) -> &UnstableChangeCallbacks;
     /// Shared incoming runtime. Its limits and transport are internal client policy.
@@ -365,10 +368,6 @@ where
         &self.server_configuration
     }
 
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        &self.worker_events
-    }
-
     fn events(&self) -> &EventBus<InternalEvent> {
         &self.events
     }
@@ -384,10 +383,6 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         &self.task_channels
-    }
-
-    fn disappearing_channels(&self) -> &DisappearingChannels {
-        &self.disappearing_channels
     }
 
     fn change_callbacks(&self) -> &UnstableChangeCallbacks {
@@ -483,10 +478,6 @@ where
         <T as XmtpSharedContext>::server_configuration(self)
     }
 
-    fn worker_events(&self) -> &broadcast::Sender<SyncWorkerEvent> {
-        <T as XmtpSharedContext>::worker_events(self)
-    }
-
     fn events(&self) -> &EventBus<InternalEvent> {
         <T as XmtpSharedContext>::events(self)
     }
@@ -502,10 +493,6 @@ where
 
     fn task_channels(&self) -> &TaskWorkerChannels {
         <T as XmtpSharedContext>::task_channels(self)
-    }
-
-    fn disappearing_channels(&self) -> &DisappearingChannels {
-        <T as XmtpSharedContext>::disappearing_channels(self)
     }
 
     fn change_callbacks(&self) -> &UnstableChangeCallbacks {

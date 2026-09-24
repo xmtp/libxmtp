@@ -934,8 +934,8 @@ xmtp_common::if_native! {
         let now = time::now_ns();
         client.db().create_or_ignore_task(kp::kp_seed(kp::kp_rotation_proto(), now + 5 * NS_IN_SEC)?)?;
         peer.state.lock().pause_next = true;
-        let context = client.context.clone();
-        let runner = xmtp_common::spawn(None, async move { TaskWorker::new(context).run().await });
+        let mut task_worker = TaskWorker::new(client.context.clone());
+        let runner = xmtp_common::spawn(None, async move { task_worker.run().await });
         timeout(Duration::from_secs(5), peer.entered.notified()).await?;
         let entered_at = std::time::Instant::now();
         // Network waits cannot hold the database writer or the group state lock.

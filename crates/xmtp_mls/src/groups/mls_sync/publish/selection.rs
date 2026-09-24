@@ -323,7 +323,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         let identity = IdentityUpdates::new(&self.context);
         let mut active: HashMap<String, HashSet<Vec<u8>>> = HashMap::new();
         if !inboxes.is_empty() {
-            load_identity_updates(self.context.api(), &self.context.db(), &inboxes).await?;
+            load_identity_updates_for_client(&self.context, &self.context.db(), &inboxes).await?;
             for inbox in inboxes {
                 active.insert(
                     inbox.to_string(),
