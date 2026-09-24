@@ -1,0 +1,21 @@
+#!/usr/bin/env python3.11
+"""Check that the three SDK fork packages share the workspace pin."""
+
+from pathlib import Path
+import tomllib
+
+root = Path(__file__).resolve().parents[3]
+manifest = tomllib.loads((root / "Cargo.toml").read_text())
+lock = tomllib.loads((root / "Cargo.lock").read_text())
+expected = manifest["workspace"]["metadata"]["xmtp-sdk-fork"]["rev"]
+names = {"ubrn_bindgen", "ubrn_common", "uniffi-runtime-wasm"}
+packages = {item["name"]: item for item in lock["package"] if item["name"] in names}
+if set(packages) != names:
+    raise SystemExit(f"missing SDK fork packages: {names - set(packages)}")
+for name, package in packages.items():
+    source = package["source"]
+    if not source.startswith("git+https://github.com/neekolas/uniffi-bindgen-react-native.git"):
+        raise SystemExit(f"{name}: wrong git source: {source}")
+    if source.rsplit("#", 1)[-1] != expected:
+        raise SystemExit(f"{name}: git revision differs from workspace pin {expected}")
+print(f"SDK fork packages share revision {expected}")

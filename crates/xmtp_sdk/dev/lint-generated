@@ -5,6 +5,8 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 
 generated=target/sdk-generated
+crates/xmtp_sdk/dev/check-fork-pin
+dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
 crates/xmtp_sdk/dev/check-id-spelling \
   "$generated/swift" "$generated/kotlin" \
   "$generated/typescript-napi" "$generated/typescript-wasm"

@@ -61,5 +61,15 @@ if [ "$#" -eq 4 ]; then
   # façade names above must follow the SDK's ID spelling rule.
   check_dir "$3" '*.ts' false true
   check_dir "$4" '*.ts' false true
+  for directory in "$3" "$4"; do
+    if has_match "$directory" 'xmtp_sdk*.ts' '(^|[^[:alnum:]_])[[:alnum:]_]*(Inbox|Installation|Conversation|Message|ContentType|senderInbox|authority|type|chain)Ids?([^[:alnum:]_]|$)' true; then
+      echo "a façade-derived TypeScript identifier still ends in Id or Ids in $directory" >&2
+      exit 1
+    fi
+    if has_match "$directory" 'xmtp_sdk*.ts' '\{@link[[:space:]]+[[:alnum:]_]*(Inbox|Installation|Conversation|Message|ContentType)Ids?[[:space:]]*\}'; then
+      echo "a façade-derived TypeScript identifier still ends in Id or Ids in $directory" >&2
+      exit 1
+    fi
+  done
 fi
 echo "Generated ID spellings are correct"

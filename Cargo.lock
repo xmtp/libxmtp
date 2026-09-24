@@ -10871,7 +10871,7 @@ checksum = "214ca0b2191785cbc06209b9ca1861e048e39b5ba33574b3cedd58363d5bb5f6"
 [[package]]
 name = "ubrn_bindgen"
 version = "0.1.0"
-source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?rev=330f9edbc3c4d6e6e948f6d2eb2724358668b79a#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
+source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?branch=uniffi-0.32%2Fxmtp-embedding#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
 dependencies = [
  "anyhow",
  "askama 0.13.1",
@@ -10897,7 +10897,7 @@ dependencies = [
 [[package]]
 name = "ubrn_common"
 version = "0.1.0"
-source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?rev=330f9edbc3c4d6e6e948f6d2eb2724358668b79a#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
+source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?branch=uniffi-0.32%2Fxmtp-embedding#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
 dependencies = [
  "anyhow",
  "camino",
@@ -11033,7 +11033,7 @@ dependencies = [
 [[package]]
 name = "uniffi-runtime-wasm"
 version = "0.31.0-5"
-source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?rev=330f9edbc3c4d6e6e948f6d2eb2724358668b79a#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
+source = "git+https://github.com/neekolas/uniffi-bindgen-react-native.git?branch=uniffi-0.32%2Fxmtp-embedding#330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
 
 [[package]]
 name = "uniffi_bindgen"

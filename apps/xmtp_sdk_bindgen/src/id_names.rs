@@ -49,12 +49,11 @@ fn map_from_table(
         } else {
             (source.to_upper_camel_case(), renamed.to_upper_camel_case())
         };
-        if from != to {
-            if let Some(previous) = names.insert(from.clone(), to.clone()) {
-                if previous != to {
-                    bail!("{path}: conflicting TypeScript rename for {from}");
-                }
-            }
+        if from != to
+            && let Some(previous) = names.insert(from.clone(), to.clone())
+            && previous != to
+        {
+            bail!("{path}: conflicting TypeScript rename for {from}");
         }
     }
     Ok(names)
@@ -157,10 +156,14 @@ fn rewrite_code(
         let start = at;
         if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'/') {
             at = source[at..].find('\n').map_or(bytes.len(), |end| at + end);
+            out.push_str(&rewrite_link_targets(&source[start..at], names));
+            continue;
         } else if bytes[at] == b'/' && bytes.get(at + 1) == Some(&b'*') {
             at = source[at + 2..]
                 .find("*/")
                 .map_or(bytes.len(), |end| at + end + 4);
+            out.push_str(&rewrite_link_targets(&source[start..at], names));
+            continue;
         } else if bytes[at] == b'`' {
             at = rewrite_template(source, at, names, out);
             continue;
@@ -183,7 +186,7 @@ fn rewrite_code(
                 at += 1;
             }
             let identifier = &source[start..at];
-            out.push_str(names.get(identifier).map_or(identifier, String::as_str));
+            out.push_str(&renamed_identifier(identifier, names));
             continue;
         } else if interpolation && bytes[at] == b'{' {
             depth += 1;
@@ -232,6 +235,41 @@ fn rewrite_template(
     at
 }
 
+fn rewrite_link_targets(comment: &str, names: &BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(comment.len());
+    let mut remaining = comment;
+    while let Some(start) = remaining.find("{@link ") {
+        out.push_str(&remaining[..start]);
+        remaining = &remaining[start..];
+        let Some(end) = remaining.find('}') else {
+            break;
+        };
+        let link = &remaining["{@link ".len()..end];
+        out.push_str("{@link ");
+        out.push_str(names.get(link).map_or(link, String::as_str));
+        out.push('}');
+        remaining = &remaining[end + 1..];
+    }
+    out.push_str(remaining);
+    out
+}
+
+fn renamed_identifier<'a>(identifier: &'a str, names: &'a BTreeMap<String, String>) -> String {
+    if let Some(renamed) = names.get(identifier) {
+        return renamed.clone();
+    }
+    // UniFFI derives converter symbols from exported type names.
+    for (from, to) in names {
+        if from.starts_with(|character: char| character.is_ascii_uppercase())
+            && let Some(prefix) = identifier.strip_suffix(from)
+            && !prefix.is_empty()
+        {
+            return format!("{prefix}{to}");
+        }
+    }
+    identifier.to_owned()
+}
+
 fn is_identifier_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || matches!(byte, b'_' | b'$')
 }
@@ -251,8 +289,8 @@ mod tests {
         let paths = BTreeSet::from(["InboxID".into(), "Client.inbox_id".into()]);
         let names = map_from_table(&rename, &paths)?;
         assert_eq!(names.get("InboxId").map(String::as_str), Some("InboxID"));
-        let input = "const inboxId: InboxId = shapeId; // inboxId\nconst text = 'inboxId'; /* InboxId */\nconst template = `inboxId`;";
-        let expected = "const inboxID: InboxID = shapeId; // inboxId\nconst text = 'inboxId'; /* InboxId */\nconst template = `inboxId`;";
+        let input = "const inboxId: InboxId = shapeId; // inboxId\nconst text = 'inboxId'; /* InboxId */\nconst template = `inboxId`;\nconst FfiConverterTypeInboxId = 1;\n/** {@link InboxId} */";
+        let expected = "const inboxID: InboxID = shapeId; // inboxId\nconst text = 'inboxId'; /* InboxId */\nconst template = `inboxId`;\nconst FfiConverterTypeInboxID = 1;\n/** {@link InboxID} */";
         assert_eq!(rewrite_identifiers(input, &names), expected);
         assert!(!names.contains_key("shapeId"));
     }
