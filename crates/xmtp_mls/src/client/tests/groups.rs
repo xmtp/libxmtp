@@ -95,6 +95,39 @@ async fn test_double_dms() {
     assert_eq!(new_alice_dm.group_id, bob_dm.group_id);
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_with_group_resolves_stitched_dm() {
+    tester!(alice, disable_workers);
+    tester!(bob, disable_workers);
+
+    let alice_dm = alice
+        .create_dm_by_inbox_id(bob.inbox_id().to_string(), None)
+        .await?;
+    let old_message_id = alice_dm
+        .send_message(b"from alice", SendMessageOpts::default())
+        .await?;
+    let bob_dm = bob
+        .create_dm_by_inbox_id(alice.inbox_id().to_string(), None)
+        .await?;
+    alice.sync_welcomes().await?;
+    bob_dm
+        .send_message(b"from bob", SendMessageOpts::default())
+        .await?;
+    alice_dm.sync().await?;
+
+    let (message, group) = alice.message_with_group(&old_message_id).await?.unwrap();
+    assert_eq!(message.id, old_message_id);
+    assert_eq!(message.group_id, alice_dm.group_id);
+    assert_ne!(group.group_id, message.group_id);
+    assert_eq!(group.group_id, bob_dm.group_id);
+    assert!(
+        alice
+            .message_with_group(b"unknown message")
+            .await?
+            .is_none()
+    );
+}
+
 #[rstest::rstest]
 #[xmtp_common::test]
 async fn test_add_remove_then_add_again() {

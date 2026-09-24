@@ -56,7 +56,7 @@ use xmtp_db::{group::GroupQueryOrderBy, prelude::*};
 use xmtp_events::DeletionCause;
 use xmtp_id::key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2};
 use xmtp_id::{
-    AsIdRef, InboxId, InboxIdRef,
+    AsIdRef, InboxId, InboxIdRef, InboxOwner,
     associations::{
         AssociationError, AssociationState, Identifier, MemberIdentifier, SignatureError,
         builder::{SignatureRequest, SignatureRequestError},
@@ -1034,6 +1034,23 @@ where
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
 
+    /// Look up a stored message and its current conversation.
+    /// A message in a duplicate DM resolves to the stitched conversation.
+    pub async fn message_with_group(
+        &self,
+        id: &[u8],
+    ) -> Result<Option<(StoredGroupMessage, MlsGroup<Context>)>, ClientError> {
+        let message = match self.message(id.to_vec()) {
+            Ok(message) => message,
+            Err(ClientError::Storage(StorageError::NotFound(NotFound::MessageById(_)))) => {
+                return Ok(None);
+            }
+            Err(error) => return Err(error),
+        };
+        let group = self.stitched_group(&message.group_id)?;
+        Ok(Some((message, group)))
+    }
+
     /// Look up and enrich a message by its ID, returning a [`DecodedMessage`]
     /// Returns an error if the message is not found or if it cannot be decoded/enriched
     #[xmtp_common::mls_span]
@@ -1156,6 +1173,25 @@ where
                 }
             })
             .collect())
+    }
+
+    /// Register this installation with an inbox owner and wait until it is visible.
+    pub async fn register_with_owner(&self, owner: &impl InboxOwner) -> Result<(), ClientError> {
+        if self.identity().is_ready() {
+            return self.ensure_registration_visible().await;
+        }
+
+        let mut signature_request = self
+            .context
+            .signature_request()
+            .ok_or(SignatureRequestError::MissingSigner)?;
+        let signature = owner
+            .sign(&signature_request.signature_text())
+            .map_err(SignatureError::from)?;
+        signature_request
+            .add_signature(signature, self.scw_verifier())
+            .await?;
+        self.register_identity(signature_request).await
     }
 
     /// Upload the key package before the identity update exposes this installation.
