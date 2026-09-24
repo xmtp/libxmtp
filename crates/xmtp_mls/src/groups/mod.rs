@@ -231,63 +231,6 @@ pub enum UpdateAdminListType {
     RemoveSuper,
 }
 
-/// Options for [`MlsGroup::enable_proposals`].
-///
-/// Default (`EnableProposalsOptions::default()` or
-/// `EnableProposalsOptions { force: false, min_version: None }`) is
-/// the safe production setting: enforce the pre-flight capability
-/// check and write the standard
-/// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct EnableProposalsOptions {
-    /// Skip the pre-flight `all_members_support_proposals` check. The
-    /// key-package capability advertisement can be omitted when the
-    /// version floor guarantees that every member supports proposals. Setting `force = true` bypasses it on
-    /// both the pre-flight pass and the bootstrap-time re-check.
-    ///
-    /// Callers using this MUST be confident every member is at >=
-    /// `min_version` — there is no second gate.
-    pub force: bool,
-
-    /// Override the floor written into
-    /// `MIN_SUPPORTED_PROTOCOL_VERSION`. When `None`, defaults to
-    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] — the
-    /// release where proposals support first ships.
-    ///
-    /// Non-test builds clamp the override to
-    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] `<=
-    /// min_version <=` own `pkg_version`: the bootstrap encoder is
-    /// byte-frozen against receivers at or above that constant, so a
-    /// seeded floor below it would reopen the byte-compare fork the
-    /// pause path closes.
-    ///
-    /// Use cases:
-    /// - Tests that want a synthetic floor (e.g. `"99.0.0"` to force
-    ///   the pause path) or no floor (e.g. `"0.0.0"`) — below-floor
-    ///   values are accepted only in `test` / `test-utils` builds.
-    /// - Staged production rollouts that need a floor above the
-    ///   default.
-    pub min_version: Option<String>,
-}
-
-impl EnableProposalsOptions {
-    /// Test/dev-only constructor that sets the floor to `"0.0.0"` so
-    /// the migration never pauses any peer. Use in tests that aren't
-    /// specifically exercising the pause path — passing
-    /// [`EnableProposalsOptions::default()`] in a test environment
-    /// would write the production
-    /// [`xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`] floor,
-    /// which a test client running at the workspace `CARGO_PKG_VERSION`
-    /// (below that floor) would self-pause against.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub fn test_default() -> Self {
-        Self {
-            force: false,
-            min_version: Some("0.0.0".to_string()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 enum AdminListKind {
     Admin,

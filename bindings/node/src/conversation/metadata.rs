@@ -58,13 +58,6 @@ impl Conversation {
     Ok(())
   }
 
-  /// Proposals are available on every group at creation.
-  #[napi]
-  #[xmtp_common::err_span]
-  pub fn proposals_enabled(&self) -> Result<bool> {
-    Ok(true)
-  }
-
   #[napi]
   #[xmtp_common::err_span]
   pub fn group_description(&self) -> Result<String> {
@@ -134,8 +127,8 @@ impl Conversation {
 }
 
 /// Options for [`Conversation::update_app_data`]. An object (rather than
-/// a bare string parameter) so future knobs can be added without
-/// breaking callers — same pattern as [`super::unstable::EnableProposalsOptions`].
+/// a bare string parameter) so future fields can be added without
+/// breaking callers.
 /// New fields must be `Option` so the generated TS type stays non-breaking.
 #[napi(object)]
 #[derive(Clone, Default)]

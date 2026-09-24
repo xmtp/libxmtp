@@ -205,23 +205,6 @@ where
         Ok(true)
     }
 
-    /// Check published capabilities using immutable member IDs from one snapshot.
-    async fn ensure_members_support_proposals(&self) -> Result<(), GroupError> {
-        let (supported, installation_ids) =
-            self.with_group_snapshot(|group| Ok(self.proposal_support_snapshot(group)))?;
-        if self
-            .published_members_support_proposals(supported, installation_ids)
-            .await?
-        {
-            Ok(())
-        } else {
-            Err(GroupError::ProposalsNotSupported(
-                "Cannot enable proposals: not all members support the proposal extension"
-                    .to_string(),
-            ))
-        }
-    }
-
     /// Snapshot this group's membership capabilities: the extension types in
     /// the group context, plus the extension types each member installation
     /// advertises.
@@ -348,24 +331,6 @@ where
                 Some((id, extensions))
             })
             .collect())
-    }
-
-    /// Proposals are available on every group at creation.
-    pub async fn enable_proposals(
-        &self,
-        options: EnableProposalsOptions,
-    ) -> Result<(), GroupError> {
-        let min_version = options
-            .min_version
-            .unwrap_or_else(|| xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION.to_string());
-        LibXMTPVersion::parse(&min_version).map_err(|e| GroupError::InvalidMinVersion {
-            value: min_version.clone(),
-            reason: e.to_string(),
-        })?;
-        if !options.force {
-            self.ensure_members_support_proposals().await?;
-        }
-        self.with_group_snapshot(|_| Ok(()))
     }
 
     /// Validate that key packages support the AppData dictionary

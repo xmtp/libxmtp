@@ -364,36 +364,6 @@ impl FfiConversation {
         Ok(())
     }
 
-    /// Enable AppData-proposal-based metadata updates on this group.
-    ///
-    /// Builds and stages the bootstrap commit that migrates this
-    /// group's per-field metadata, admin lists, permissions, and
-    /// membership from the legacy `GroupContextExtensions` shape into
-    /// the unified OpenMLS `AppDataDictionary`. After it returns
-    /// successfully, all subsequent metadata updates flow as
-    /// `AppDataUpdate` proposals rather than GCE proposals.
-    ///
-    /// **Requires**: every existing member's latest key package must
-    /// advertise `ProposalType::AppDataUpdate`. Hosts should ramp
-    /// adoption with the migration code shipped before flipping any
-    /// group; the call hard-fails with `ProposalsNotSupported` if
-    /// any member lags. (The error currently surfaces a static
-    /// message; structured per-inbox lag info is a future
-    /// enhancement.)
-    ///
-    /// **One-way**: a migrated group cannot return to the legacy
-    /// path. Operationally treated as a flag day per group.
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub async fn enable_proposals(
-        &self,
-        options: FfiEnableProposalsOptions,
-    ) -> Result<(), FfiError> {
-        self.inner
-            .enable_proposals(options.into())
-            .await
-            .map_err(Into::into)
-    }
-
     #[tracing::instrument(level = "debug", skip_all)]
     pub fn group_name(&self) -> Result<String, FfiError> {
         let group_name = self.inner.group_name()?;
@@ -412,12 +382,6 @@ impl FfiConversation {
     pub fn app_data(&self) -> Result<String, FfiError> {
         let app_data = self.inner.app_data()?;
         Ok(app_data)
-    }
-
-    /// Proposals are available on every group at creation.
-    #[tracing::instrument(level = "debug", skip_all)]
-    pub fn proposals_enabled(&self) -> Result<bool, FfiError> {
-        Ok(true)
     }
 
     #[tracing::instrument(level = "debug", skip_all)]

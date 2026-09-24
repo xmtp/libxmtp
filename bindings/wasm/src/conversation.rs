@@ -110,70 +110,9 @@ impl SendMessageOpts {
   }
 }
 
-/// Options for [`Conversation::enableProposals`]. Mirrors
-/// [`xmtp_mls::groups::EnableProposalsOptions`].
-#[derive(Clone, Serialize, Deserialize, Tsify)]
-#[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(rename_all = "camelCase")]
-pub struct EnableProposalsOptions {
-  /// Skip the pre-flight key-package capability check. Post-d14n
-  /// every client supports proposals by version floor alone; set
-  /// `true` to bypass the per-member scan in that environment.
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub force: Option<bool>,
-  /// Override the `MIN_SUPPORTED_PROTOCOL_VERSION` floor. `None`
-  /// defaults to `xmtp_configuration::PROPOSALS_MIN_PROTOCOL_VERSION`.
-  #[tsify(optional)]
-  #[serde(skip_serializing_if = "Option::is_none")]
-  pub min_version: Option<String>,
-}
-
-impl From<EnableProposalsOptions> for xmtp_mls::groups::EnableProposalsOptions {
-  fn from(opts: EnableProposalsOptions) -> Self {
-    xmtp_mls::groups::EnableProposalsOptions {
-      force: opts.force.unwrap_or(false),
-      min_version: opts.min_version,
-    }
-  }
-}
-
-/// The pre-release surface of a [`Conversation`], reached through
-/// `conversation.unstable`.
-///
-/// Everything here is unstable: the API shape may still change and, in
-/// some cases (see [`UnstableConversation::enable_proposals`]), the
-/// effect is one-way and irreversible. Reaching into `.unstable` is the
-/// deliberate opt-in. When an API graduates it moves onto
-/// [`Conversation`] directly and is removed here, so callers of the
-/// `unstable` form get a compile-time break to migrate against.
-#[wasm_bindgen]
-pub struct UnstableConversation {
-  inner: Conversation,
-}
-
-#[wasm_bindgen]
-impl UnstableConversation {
-  /// Enable AppData-proposal-based metadata updates on this group.
-  ///
-  /// Stages the bootstrap commit that migrates the group's metadata
-  /// from the legacy GroupContextExtensions shape into the OpenMLS
-  /// AppData dictionary. Hard-fails if any member's latest key package
-  /// doesn't advertise `ProposalType::AppDataUpdate`. One-way:
-  /// migrated groups cannot return to the legacy path.
-  #[wasm_bindgen(js_name = enableProposals)]
-  pub async fn enable_proposals(&self, options: EnableProposalsOptions) -> Result<(), JsError> {
-    let group = self.inner.to_mls_group();
-    group
-      .enable_proposals(options.into())
-      .await
-      .map_err(ErrorWrapper::js)
-  }
-}
-
 /// Options for [`Conversation::updateAppData`]. An object (rather than
 /// a bare string parameter) so future knobs can be added without
-/// breaking callers — same pattern as [`EnableProposalsOptions`].
+/// breaking callers.
 /// New fields must be `Option` + `#[serde(default)]` to stay non-breaking.
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -725,21 +664,6 @@ impl Conversation {
       .map_err(ErrorWrapper::js)?;
 
     Ok(())
-  }
-
-  /// Pre-release APIs, gated behind an explicit `.unstable` opt-in.
-  /// See [`UnstableConversation`].
-  #[wasm_bindgen(getter)]
-  pub fn unstable(&self) -> UnstableConversation {
-    UnstableConversation {
-      inner: self.clone(),
-    }
-  }
-
-  /// Proposals are available on every group at creation.
-  #[wasm_bindgen(js_name = proposalsEnabled)]
-  pub fn proposals_enabled(&self) -> Result<bool, JsError> {
-    Ok(true)
   }
 
   #[wasm_bindgen(js_name = groupName)]

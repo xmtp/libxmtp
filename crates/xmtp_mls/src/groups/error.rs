@@ -229,11 +229,9 @@ pub enum GroupError {
     /// the gate. Not retryable.
     #[error("min_version {requested} would downgrade existing floor {current}")]
     MinVersionDowngrade { requested: String, current: String },
-    /// Caller passed a `min_version` string that doesn't parse as
-    /// semver. Surfaces from the send-side paths
-    /// (`enable_proposals`, `update_group_min_version`) so SDK
-    /// consumers can `match`-handle malformed input without parsing
-    /// string-flattened wrappers. Not retryable.
+    /// Caller passed a `min_version` string that does not parse as
+    /// semver. The `update_group_min_version` path returns this error
+    /// so SDK consumers can handle malformed input by code. Not retryable.
     #[error("invalid min_version {value:?}: {reason}")]
     InvalidMinVersion { value: String, reason: String },
     /// Component source error.
