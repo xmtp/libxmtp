@@ -321,7 +321,7 @@ where
 /// Why a subscription stopped, alongside the token that stops it.
 ///
 /// An ordinary close (the client shutting down) ends a stream silently, exactly
-/// as it always has. A close caused by a latched configuration failure —
+/// as it always has. A close caused by a blocked connection —
 /// another deployment answering, or a minimum version this build no
 /// longer meets — delivers that typed error to the callback first, so
 /// the app learns why its streams went away rather than seeing a bare close.
@@ -354,33 +354,36 @@ impl StreamCancel {
         self.token.cancelled()
     }
 
-    /// The reason this close carries, if the client latched one.
-    /// Returned as the latch rather than the error because
+    /// The reason this close carries, if the connection is blocked.
+    /// Returned as the blocked connection cause rather than the error because
     /// `SubscribeError` is not `Clone` and the reason is reported twice: once
     /// to the callback, once as the handle's result.
-    fn fatal(&self) -> Option<crate::server_configuration::ConfigurationLatch> {
-        self.configuration.as_ref()?.latched()
+    fn fatal(&self) -> Option<crate::server_configuration::BlockedConnection> {
+        self.configuration.as_ref()?.blocked_connection()
     }
 }
 
 /// The result a subscription loop ends with, once its loop has left.
 ///
 /// An ordinary close — the inner stream ending, or the client shutting down —
-/// is `Ok(())`. A cancellation the client latched a reason for
+/// is `Ok(())`. A cancellation with a blocked connection cause
 /// reports that typed error to the callback and returns it as the
 /// handle's result, so the app learns why its streams went away instead of
 /// seeing a bare close. Every callback subscription ends through this, so none
-/// of them can drift into swallowing a latched failure.
+/// of them can drift into swallowing a blocked connection failure.
 pub(crate) fn close_reason<T>(
     cancel: &StreamCancel,
     cancelled: bool,
     callback: &mut impl FnMut(Result<T, SubscribeError>),
 ) -> Result<(), SubscribeError> {
-    let Some(latch) = cancelled.then(|| cancel.fatal()).flatten() else {
+    let Some(blocked_connection) = cancelled.then(|| cancel.fatal()).flatten() else {
         return Ok(());
     };
-    let reported =
-        || SubscribeError::Configuration(Box::new(crate::client::ClientError::from(&latch)));
+    let reported = || {
+        SubscribeError::Configuration(Box::new(crate::client::ClientError::from(
+            &blocked_connection,
+        )))
+    };
     callback(Err(reported()));
     Err(reported())
 }
@@ -490,7 +493,7 @@ where
         };
         // Reconnect only on a watchdog stale-trip; a clean end or cancellation ends it.
         if cancelled || !stale {
-            // A latched client closes its streams *with*
+            // A client with a blocked connection closes its streams *with*
             // the reason, so the app sees the typed error and not a bare close.
             break 'reconnect close_reason(&cancel, cancelled, &mut callback);
         }
@@ -505,7 +508,7 @@ where
                 Err(e) => {
                     tracing::warn!(stream = label, "failed to recreate stream, will retry: {e}");
                     tokio::select! {
-                        // A latch that lands mid-reconnect
+                        // A connection block that lands mid-reconnect
                         // closes this stream with the reason too, not silently.
                         _ = cancel.cancelled() => {
                             break 'reconnect close_reason(&cancel, true, &mut callback);
@@ -518,7 +521,7 @@ where
         // Throttle: never resubscribe faster than the floor. A long-idle trip waits ~0;
         // only a tight loop is paced. `next` buffers during the wait.
         tokio::select! {
-            // Same during the throttle wait: the latch is the close reason.
+            // Same during the throttle wait: the blocked connection is the close reason.
             _ = cancel.cancelled() => break 'reconnect close_reason(&cancel, true, &mut callback),
             _ = WATCHDOG.reconnect_delay_since(attempt_started) => {}
         }
@@ -696,17 +699,17 @@ mod tests {
         assert!(polled.is_err(), "disabled watchdog should never trip");
     }
 
-    /// A latch that lands while the stream is between
+    /// A blocked connection that starts while the stream is between
     /// subscriptions — retrying a failed `subscribe()`, or waiting out the
     /// reconnect throttle — closes it with the reason, not as a clean end.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn a_latch_during_reconnect_closes_with_the_reason() {
-        use crate::server_configuration::{ConfigurationLatch, ServerConfigurationHandle};
+    async fn a_blocked_connection_during_reconnect_closes_with_the_reason() {
+        use crate::server_configuration::{BlockedConnection, ServerConfigurationHandle};
         use std::sync::atomic::AtomicUsize;
 
         for fail_resubscribe in [true, false] {
             let configuration = ServerConfigurationHandle::default();
-            configuration.latch(ConfigurationLatch::ClientVersionTooOld {
+            configuration.block_connection(BlockedConnection::ClientVersionTooOld {
                 client: "1.0.0".to_string(),
                 minimum: "9999.0.0".to_string(),
             });
@@ -732,7 +735,7 @@ mod tests {
                             return Ok(stream::iter(vec![Err(SubscribeError::StreamStale)])
                                 .chain(stream::pending()));
                         }
-                        // The refresh worker latches and cancels while we are here.
+                        // The refresh worker blocks the connection and cancels while we are here.
                         token.cancel();
                         if fail_resubscribe {
                             // Cancelled while retrying a failed subscription.
@@ -761,16 +764,16 @@ mod tests {
                 || {},
             )
             .await
-            .expect_err("a latched cancellation must not close cleanly");
+            .expect_err("a cancellation with a blocked connection must not close cleanly");
 
             assert!(
                 closed.to_string().contains("9999.0.0"),
-                "the handle must report the latch, got {closed}"
+                "the handle must report the blocked connection cause, got {closed}"
             );
             let reported = reported.lock().clone();
             assert!(
                 reported.iter().any(|error| error.contains("9999.0.0")),
-                "the callback must see the latch, got {reported:?}"
+                "the callback must see the blocked connection cause, got {reported:?}"
             );
         }
     }

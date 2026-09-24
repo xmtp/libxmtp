@@ -28,6 +28,7 @@ Out of scope: the backend's configuration file and its keys; credentials and aut
 | [AUTH](AUTH-backend-auth.md#6-client-credentials) | Owns what a credential is, when a client attaches one, and which failures are terminal. This spec owns only what is published about it. |
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns what the backend does when a request exceeds a limit, and the fixed transport ceiling. This spec owns the published values and what a client does before it sends. |
 | [OPS](OPS-backend-operations.md) | Owns retention enforcement, health, and the identifier's use in telemetry. |
+| `EVENT` | EVENT-016 keeps local event subscriptions open after a server rejection. EVENT-001 owns the `client.rejected_by_server` event. |
 
 ## Terms
 
@@ -40,7 +41,7 @@ Out of scope: the backend's configuration file and its keys; credentials and aut
 | Snapshot | The configuration a client resolves when it is created and reads for its life. |
 | Compiled default | The value in the defaults table of section 3 that a client uses for a field its snapshot does not carry. |
 | Advisory value | A published value the backend does not enforce, because only a client holds the state it is about. |
-| Latch | A condition that, once observed, fails every later operation for the life of the client. |
+| Blocked connection | A condition that, once observed, fails later network work for the life of the client. |
 | Refresh | A fetch of `GetConfiguration` by a client that already holds a snapshot, on its own schedule or when the app asks. |
 | Credential source | The callback or key an app gives a client so that it can obtain credentials. [AUTH section 6](AUTH-backend-auth.md#6-client-credentials) defines the credential. |
 
@@ -158,7 +159,7 @@ message GetConfigurationResponse {
 
 A client resolves its snapshot once, when it is created, and reads it for its life. The client configures itself from the values it receives from the server. A changed value takes effect for a client created afterwards.
 
-Two conditions stop a client: a different deployment answering, and a raised minimum version. Each is a latch held for the life of the client. It fails the operations that would reach the backend and closes every open stream with its error. Which latch a client reports when both arise is the implementation's choice. PROC-002 owns durable receipt and PROC-005 owns processed positions. Closing a stream can leave received work above the processed position; it does not erase that work.
+Two conditions block a client's connection: a different deployment answering, and a raised minimum version. The blocked connection lasts for the life of the client. It fails operations that would reach the backend and closes streams that hold network interest with its error. Local event subscriptions stay open under EVENT-016. Which cause the client reports when both arise is the implementation's choice. PROC-002 owns durable receipt and PROC-005 owns processed positions. Closing a stream can leave received work above the processed position; it does not erase that work.
 
 A field the snapshot does not carry, or carries as 0 or empty, takes the compiled default below, which is the value the backend defaults the same key to.
 
@@ -200,7 +201,7 @@ A field the snapshot does not carry, or carries as 0 or empty, takes the compile
 | --- | --- | --- | --- |
 | CONF-020 | One snapshot per client | The client MUST NOT replace its snapshot after it is created, whatever a later fetch returns. | |
 | CONF-025 | Absent means the compiled default | When a field of a snapshot is 0, empty, or absent, the client MUST use the value the table above gives for that field. | |
-| CONF-022 | A latch stops the client | While the client holds a latch, every operation that would publish an envelope, publish or apply an identity update, or sync a group MUST fail with the latch's error before any request is sent, and every open stream MUST close with that error. | A latched client has lost its binding or been refused by the deployment. Work it continues is work against a backend that will not honour it. |
+| CONF-075 | Blocked connection stops network work | While the client has a blocked connection, every operation that would publish an envelope, publish or apply an identity update, or sync a group MUST fail with the blocked connection's error before any request is sent, and every open stream that holds network interest MUST close with that error. | The client has lost its binding or been refused by the deployment. Network work against that deployment cannot succeed. |
 
 ## 4. Fetching, storing, and binding
 
@@ -218,7 +219,7 @@ An app may create a client that does no network work (CONF-034). A client told t
 | CONF-027 | Failed first fetch | If the fetch under CONF-026 or CONF-033 fails, or its answer cannot be stored, then the client MUST fail creation and MUST NOT use the compiled defaults in place of the answer. | Compiled defaults would bind the database to nothing and size every request to values this deployment never published. |
 | CONF-071 | Reject an unusable answer | If a `GetConfigurationResponse` carries an `identifier` that CONF-002 would refuse, a non-empty `min_libxmtp_version` that is not a version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2), a `smart_contract_wallet_chains` entry that does not match the syntax of [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md#syntax), or a `uint64` or `uint32` field of `retention`, `limits`, or `mls` greater than 9007199254740991, then the client MUST reject it and MUST NOT store it. | |
 | CONF-029 | Fetch carries no credential | When the client sends `GetConfiguration`, it MUST NOT attach a credential and MUST NOT invoke the app's credential source. | |
-| CONF-030 | Identifier binds the database | When a `GetConfigurationResponse` carries an `identifier` that differs from the stored copy's non-empty `identifier`, the client MUST record the received identifier as a conflict in the stored copy, MUST latch a backend mismatch naming both identifiers whether or not the record succeeded, and MUST NOT store the answer. | Stored positions, group state, and identity state are meaningful only against the deployment that issued them. |
+| CONF-030 | Identifier binds the database | When a `GetConfigurationResponse` carries an `identifier` that differs from the stored copy's non-empty `identifier`, the client MUST record the received identifier as a conflict in the stored copy, MUST block the connection with a backend mismatch naming both identifiers whether or not the record succeeded, and MUST NOT store the answer. | Stored positions, group state, and identity state are meaningful only against the deployment that issued them. |
 | CONF-072 | A recorded conflict fails creation | When a client is created on a database whose stored copy records a conflict, the client MUST fail creation with a backend mismatch naming the stored and the conflicting identifier, without sending any request. | |
 | CONF-031 | A conflict is permanent | The client MUST NOT clear a recorded conflict, including when a later answer's `identifier` equals the stored one. | A database that has seen two deployments cannot be shown to hold consistent state for either. Only a database created for the deployment in use can. |
 | CONF-033 | A moved deployment is re-checked | When a client that may reach the backend is created on a database whose stored copy carries a backend URL that differs from the client's backend URL, the client MUST send `GetConfiguration`, apply CONF-071 and CONF-030, and store the answer with the new URL, before it sends any other request. | |
@@ -233,7 +234,7 @@ The client refreshes on its own schedule, spread at random. The interval, the sp
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONF-040 | Refreshes are persisted | When a refresh returns an answer that passes CONF-071 and whose `identifier` equals the stored copy's, the client MUST replace the stored copy with that answer. | |
-| CONF-036 | A raised minimum | When a refresh returns a `min_libxmtp_version` that is greater than the client's version under CONF-050, the client MUST store the answer and MUST latch that it is too old, naming both versions. | |
+| CONF-036 | A raised minimum | When a refresh returns a `min_libxmtp_version` that is greater than the client's version under CONF-050, the client MUST store the answer and MUST block the connection because the client is too old, naming both versions. | |
 | CONF-037 | A failed refresh changes nothing | If a refresh does not return an answer that passes CONF-071, then the client MUST keep the stored copy unchanged and MUST NOT fail any other operation because of it. | |
 
 ## 6. Applying the snapshot

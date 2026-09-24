@@ -29,6 +29,7 @@ Out of scope: the join itself and its rejections (`JOIN`), component ids and enc
 | `PERM-005`, `PERM-009`, `PERM-011` | Own hardcoded authority and evaluation against each proposer's operation. This spec owns fixed DM policy values and the participant-add exception. |
 | `CONS-010`, `CONS-024` | Own consent conflict ordering and precedence over join defaults. DMS-010 owns inheritance across a DM's groups. |
 | `PROC-025`, `PROC-026`, `PROC-034` | Own stream eligibility and delivery order. DMS-009 owns the stitched scope and query ordering. |
+| `EVENT` | EVENT-020 selects events across the groups of one stitched DM. |
 
 ## Terms
 

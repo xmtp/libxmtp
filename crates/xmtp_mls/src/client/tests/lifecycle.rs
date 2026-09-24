@@ -1,6 +1,6 @@
 use super::*;
 
-// verifies: CONS-040
+// verifies: CONS-041
 #[xmtp_common::test(unwrap_try = true)]
 async fn should_stream_consent() {
     let alix = Tester::builder().sync_worker().build().await;

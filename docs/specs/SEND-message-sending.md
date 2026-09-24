@@ -31,6 +31,7 @@ Out of scope: publish atomicity and duplicate detection on the backend (API); re
 | API | Owns the publish RPC, the `message_hash` the backend assigns, and duplicate detection by that hash. This spec owns what the client sends and resends. |
 | GMOD | Owns the content and validation of commits. This spec owns how a commit intent is queued, published, and resolved. |
 | `META-065` | Owns the guard comparison for an app-data write. This spec owns what a guard miss does to the intent. |
+| EVENT | EVENT-001 reports a message status change; this spec owns when a sent message changes status. |
 
 ## Terms
 

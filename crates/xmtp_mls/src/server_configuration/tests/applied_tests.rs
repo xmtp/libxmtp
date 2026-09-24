@@ -317,11 +317,11 @@ async fn a_revocation_request_is_bound_to_the_accepted_chains() {
     );
 }
 
-// Once latched, every later call fails with the reason the
-// client latched, and the client's cancellation token closes its streams.
-// verifies: CONF-022
+// Once the connection is blocked, every later call fails with the reason,
+// and the client's cancellation token closes its streams.
+// verifies: CONF-075
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_latched_client_fails_every_later_call() {
+async fn a_client_with_blocked_connection_fails_every_later_call() {
     use crate::context::XmtpSharedContext;
     use xmtp_common::StreamHandle;
 
@@ -331,14 +331,14 @@ async fn a_latched_client_fails_every_later_call() {
         .send_message(b"before", SendMessageOpts::default())
         .await?;
 
-    alix.context
-        .server_configuration()
-        .latch(super::ConfigurationLatch::ClientVersionTooOld {
+    alix.context.server_configuration().block_connection(
+        super::BlockedConnection::ClientVersionTooOld {
             client: "1.0.0".to_owned(),
             minimum: "9999.0.0".to_owned(),
-        });
+        },
+    );
 
-    // The gates that report the latch verbatim: group sync and the client-level
+    // The gates that report the blocked connection cause: group sync and the client-level
     // readiness check every operation passes through.
     for error in [
         group.sync().await.unwrap_err().to_string(),
@@ -346,25 +346,25 @@ async fn a_latched_client_fails_every_later_call() {
     ] {
         assert!(
             error.contains("9999.0.0"),
-            "a latched client must report the latch, got {error}"
+            "a client with a blocked connection must report its cause, got {error}"
         );
     }
 
     // Sending still fails; the sync driver reports it as a publish failure
-    // rather than re-raising the latch, because the intent stays queued for a
+    // rather than re-raising the blocked connection cause, because the intent stays queued for a
     // client that can publish it.
     assert!(
         group
             .send_message(b"after", SendMessageOpts::default())
             .await
             .is_err(),
-        "a latched client must not send"
+        "a client with a blocked connection must not send"
     );
 
-    // The streams a latch closes are closed by cancelling the context token.
+    // The streams a blocked connection closes are closed by cancelling the context token.
     // The refresh worker does that; here the assertion is that cancelling is
     // all it takes, that a callback stream reports the reason rather than
-    // closing silently, and that the latch survives to explain why.
+    // closing silently, and that the blocked connection cause survives to explain why.
     let reported = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
     let sink = reported.clone();
     let mut handle = crate::Client::stream_consent_with_callback(
@@ -384,14 +384,14 @@ async fn a_latched_client_fails_every_later_call() {
     let closed = handle
         .join()
         .await?
-        .expect_err("a latched client must close its streams with the reason");
+        .expect_err("a client with a blocked connection must close its streams with the reason");
     assert!(
         closed.to_string().contains("9999.0.0"),
-        "a closing stream must report the latch, got {closed}"
+        "a closing stream must report the blocked connection cause, got {closed}"
     );
     let reported = reported.lock().clone();
     assert!(
         reported.iter().any(|error| error.contains("9999.0.0")),
-        "the callback must see the latch, got {reported:?}"
+        "the callback must see the blocked connection cause, got {reported:?}"
     );
 }

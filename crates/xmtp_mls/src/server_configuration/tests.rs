@@ -52,26 +52,25 @@ fn an_empty_minimum_requires_nothing() {
     check_minimum_version(&ServerConfiguration::default(), &version("0.0.1")).unwrap();
 }
 
-// The first latch is the one reported, and it is reported
-// by every later call.
+// The first blocked connection cause is reported by later network checks.
 #[xmtp_common::test(unwrap_try = true)]
-fn the_first_latch_wins_and_fails_every_later_call() {
+fn the_first_blocked_connection_cause_wins_for_network_checks() {
     let handle = ServerConfigurationHandle::default();
-    assert!(handle.latched().is_none());
+    assert!(handle.blocked_connection().is_none());
     handle.check().unwrap();
 
-    handle.latch(ConfigurationLatch::BackendMismatch {
+    handle.block_connection(BlockedConnection::BackendMismatch {
         stored: "org.example.one".to_owned(),
         received: "org.example.two".to_owned(),
     });
-    handle.latch(ConfigurationLatch::ClientVersionTooOld {
+    handle.block_connection(BlockedConnection::ClientVersionTooOld {
         client: "1.0.0".to_owned(),
         minimum: "2.0.0".to_owned(),
     });
 
     let error = handle.check().unwrap_err();
     let ClientError::BackendMismatch { stored, received } = error else {
-        panic!("a later latch displaced the first: {error}");
+        panic!("a later blocked connection cause displaced the first: {error}");
     };
     assert_eq!(stored, "org.example.one");
     assert_eq!(received, "org.example.two");
@@ -510,10 +509,10 @@ max_group_members = 23
     }
 
     // A refresh rewrites the stored copy, and a
-    // minimum this build no longer meets latches the client.
+    // minimum this build no longer meets blocks the connection.
     // verifies: CONF-036, CONF-040
     #[xmtp_common::test(unwrap_try = true)]
-    async fn a_refresh_that_raises_the_minimum_latches_the_client() {
+    async fn a_refresh_that_raises_the_minimum_blocks_the_connection() {
         let backend = EphemeralBackend::start(
             "[server]\nidentifier = \"org.example.future\"\nmin_libxmtp_version = \"9999.0.0\"\n",
         )
@@ -535,7 +534,13 @@ max_group_members = 23
             .unwrap()
             .build()
             .await?;
-        assert!(client.context.server_configuration().latched().is_none());
+        assert!(
+            client
+                .context
+                .server_configuration()
+                .blocked_connection()
+                .is_none()
+        );
         assert!(store.db().server_configuration()?.is_none());
 
         let mut worker =
@@ -547,21 +552,25 @@ max_group_members = 23
         assert_eq!(stored.identifier, "org.example.future");
         assert_eq!(stored.backend_url, backend.url());
 
-        // The client latched, and every later call reports why.
-        let latch = client.context.server_configuration().latched().unwrap();
+        // The connection is blocked, and every later call reports why.
+        let blocked_connection = client
+            .context
+            .server_configuration()
+            .blocked_connection()
+            .unwrap();
         assert!(
             matches!(
-                latch,
-                crate::server_configuration::ConfigurationLatch::ClientVersionTooOld { .. }
+                blocked_connection,
+                crate::server_configuration::BlockedConnection::ClientVersionTooOld { .. }
             ),
-            "expected a version latch, got {latch:?}"
+            "expected a version block, got {blocked_connection:?}"
         );
         let error = client.create_group(None, None).unwrap_err().to_string();
         assert!(error.contains("9999.0.0"), "unexpected error: {error}");
 
-        // The latch covers every later call, including the two client entry
+        // The blocked connection covers every later call, including the two client entry
         // points that reach the network without going through a group: a
-        // latched client neither looks an identifier up nor publishes a key
+        // client with a blocked connection neither looks an identifier up nor publishes a key
         // package.
         let error = client.can_message(&[]).await.unwrap_err().to_string();
         assert!(error.contains("9999.0.0"), "unexpected error: {error}");
@@ -575,11 +584,11 @@ max_group_members = 23
         backend.stop().await?;
     }
 
-    // A refresh that meets a different deployment latches
+    // A refresh that meets a different deployment blocks the connection
     // the client and records the conflict, rather than replacing the copy.
     // verifies: CONF-030
     #[xmtp_common::test(unwrap_try = true)]
-    async fn a_refresh_that_meets_another_deployment_latches_the_client() {
+    async fn a_refresh_that_meets_another_deployment_blocks_the_connection() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
 
         let owner = generate_local_wallet();
@@ -617,14 +626,18 @@ max_group_members = 23
             Some("org.example.distinct".to_owned())
         );
 
-        // The client latched on the mismatch.
-        let latch = client.context.server_configuration().latched().unwrap();
+        // The connection is blocked on the mismatch.
+        let blocked_connection = client
+            .context
+            .server_configuration()
+            .blocked_connection()
+            .unwrap();
         assert!(
             matches!(
-                latch,
-                crate::server_configuration::ConfigurationLatch::BackendMismatch { .. }
+                blocked_connection,
+                crate::server_configuration::BlockedConnection::BackendMismatch { .. }
             ),
-            "expected a mismatch latch, got {latch:?}"
+            "expected a mismatch block, got {blocked_connection:?}"
         );
 
         backend.stop().await?;
@@ -634,7 +647,7 @@ max_group_members = 23
     // deployment closes the open streams too. The worker cancels after its
     // turn; the refresh has to cancel on its own way out, or a database known
     // to belong elsewhere keeps serving its subscriptions.
-    // verifies: CONF-022
+    // verifies: CONF-075
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_explicit_refresh_that_meets_another_deployment_cancels_the_client() {
         use crate::subscriptions::SubscribeError;
@@ -714,7 +727,7 @@ max_group_members = 23
             assert!(futures::poll!(&mut pending_message).is_pending());
             assert!(futures::poll!(&mut pending_conversation).is_pending());
 
-            // A real GetConfiguration response sets the latch and wakes each read.
+            // A real GetConfiguration response blocks the connection and wakes each read.
             let error = client.refresh_server_configuration().await.unwrap_err();
             assert!(
                 matches!(error, crate::client::ClientError::BackendMismatch { .. }),
@@ -738,17 +751,21 @@ max_group_members = 23
         let reopened = client.stream_conversations_owned(None, false).await;
         assert_mismatch(match reopened {
             Err(error) => error,
-            Ok(_) => panic!("a latched client must not open another stream"),
+            Ok(_) => panic!("a client with a blocked connection must not open another stream"),
         });
 
-        // Latched, and the context cancelled so every open stream closes.
-        let latch = client.context.server_configuration().latched().unwrap();
+        // The connection is blocked, and the context is cancelled so every open stream closes.
+        let blocked_connection = client
+            .context
+            .server_configuration()
+            .blocked_connection()
+            .unwrap();
         assert!(
             matches!(
-                latch,
-                crate::server_configuration::ConfigurationLatch::BackendMismatch { .. }
+                blocked_connection,
+                crate::server_configuration::BlockedConnection::BackendMismatch { .. }
             ),
-            "expected a mismatch latch, got {latch:?}"
+            "expected a mismatch block, got {blocked_connection:?}"
         );
         assert!(client.context.cancellation_token().is_cancelled());
 

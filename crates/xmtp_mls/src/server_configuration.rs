@@ -45,26 +45,26 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
     }
 }
 
-/// A condition that, once observed, fails every later call for the life of the
-/// client.
+/// A condition that, once observed, fails later network work for the life of
+/// the client.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ConfigurationLatch {
+pub enum BlockedConnection {
     /// This database is bound to one deployment and another one answered.
     BackendMismatch { stored: String, received: String },
     /// The deployment now requires a newer client than this build.
     ClientVersionTooOld { client: String, minimum: String },
 }
 
-impl From<&ConfigurationLatch> for ClientError {
-    fn from(latch: &ConfigurationLatch) -> Self {
-        match latch {
-            ConfigurationLatch::BackendMismatch { stored, received } => {
+impl From<&BlockedConnection> for ClientError {
+    fn from(blocked_connection: &BlockedConnection) -> Self {
+        match blocked_connection {
+            BlockedConnection::BackendMismatch { stored, received } => {
                 ClientError::BackendMismatch {
                     stored: stored.clone(),
                     received: received.clone(),
                 }
             }
-            ConfigurationLatch::ClientVersionTooOld { client, minimum } => {
+            BlockedConnection::ClientVersionTooOld { client, minimum } => {
                 ClientError::ClientVersionTooOld {
                     client: client.clone(),
                     minimum: minimum.clone(),
@@ -74,14 +74,14 @@ impl From<&ConfigurationLatch> for ClientError {
     }
 }
 
-/// The snapshot the client was built with, plus the latch a refresh may set.
+/// The snapshot the client was built with, plus a blocked connection a refresh may set.
 ///
-/// Cloning shares both: every consumer sees the same latch the moment a
-/// refresh trips it.
+/// Cloning shares both: every consumer sees the blocked connection when a
+/// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
     provider: Arc<dyn ConfigProvider>,
-    latch: Arc<RwLock<Option<ConfigurationLatch>>>,
+    blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
     /// The chains an app-supplied smart contract wallet signature may name.
     /// `None` when the app supplied its own verifier.
     restricted_chains: Option<Arc<[String]>>,
@@ -91,7 +91,7 @@ impl std::fmt::Debug for ServerConfigurationHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServerConfigurationHandle")
             .field("identifier", &self.configuration().identifier)
-            .field("latch", &*self.latch.read())
+            .field("blocked_connection", &*self.blocked_connection.read())
             .finish()
     }
 }
@@ -126,7 +126,7 @@ impl ServerConfigurationHandle {
                 Some(configuration) => Arc::new(StoredConfigProvider::new(configuration)),
                 None => provider,
             },
-            latch: Arc::default(),
+            blocked_connection: Arc::default(),
             restricted_chains: None,
         }
     }
@@ -162,26 +162,26 @@ impl ServerConfigurationHandle {
         self.configuration().mls.commit_log_enabled()
     }
 
-    /// The latched failure, if one has been observed.
-    pub fn latched(&self) -> Option<ConfigurationLatch> {
-        self.latch.read().clone()
+    /// The blocked connection, if one has been observed.
+    pub fn blocked_connection(&self) -> Option<BlockedConnection> {
+        self.blocked_connection.read().clone()
     }
 
-    /// Fail when a latch is set. Every call that reaches the network goes
+    /// Fail when the connection is blocked. Every call that reaches the network goes
     /// through here.
-    // implements: CONF-022
+    // implements: CONF-075
     pub fn check(&self) -> Result<(), ClientError> {
-        match self.latch.read().as_ref() {
-            Some(latch) => Err(latch.into()),
+        match self.blocked_connection.read().as_ref() {
+            Some(blocked_connection) => Err(blocked_connection.into()),
             None => Ok(()),
         }
     }
 
-    /// Latch the first failure seen. A later one does not displace it: the
+    /// Block the connection on the first failure. A later one does not displace it: the
     /// first cause is the one worth reporting.
-    pub(crate) fn latch(&self, latch: ConfigurationLatch) -> ClientError {
-        let mut guard = self.latch.write();
-        let held = guard.get_or_insert(latch);
+    pub(crate) fn block_connection(&self, reason: BlockedConnection) -> ClientError {
+        let mut guard = self.blocked_connection.write();
+        let held = guard.get_or_insert(reason);
         ClientError::from(&*held)
     }
 }
@@ -249,12 +249,12 @@ where
             received = %configuration.identifier,
             "this database is bound to a different backend deployment"
         );
-        // A failure to record it keeps the in-memory latch, so this
+        // A failure to record it keeps the connection blocked in memory, so this
         // client still fails every later call.
         if let Err(error) = db.record_server_configuration_conflict(&configuration.identifier) {
             tracing::error!(%error, "could not record the conflicting backend identifier");
         }
-        return Err(handle.latch(ConfigurationLatch::BackendMismatch {
+        return Err(handle.block_connection(BlockedConnection::BackendMismatch {
             stored: stored.identifier.clone(),
             received: configuration.identifier.clone(),
         }));

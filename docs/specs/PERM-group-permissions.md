@@ -36,6 +36,7 @@ Out of scope: when the engine runs and what a rejected commit does to the group 
 | `GMOD` | Owns the commit validation pipeline that invokes this engine, the membership component, and the protocol-version floor. GMOD-001 states which proposal types reach the engine. |
 | `META` | Owns all component ids and ranges, the `ComponentMetadata` and `ComponentPermissions` messages, registry structure, and application of component deltas. |
 | `DMS` | DMS-002 owns the fixed policies and initial roles; DMS-004 owns the participant-add exception used in section 3. |
+| `EVENT` | EVENT-001 reports a changed policy set or admin list through `conversation.metadata_changed`. |
 
 ## Terms
 

@@ -90,7 +90,7 @@ Specs are written in waves, so one will often need an obligation another has not
 | --- | --- | --- |
 | Ubiquitous | The actor MUST ... | The backend MUST derive the topic of every envelope from its payload. |
 | Event-driven | When [event], the actor MUST ... | When a publish names more topics than the published limit, the backend MUST fail the request with `INVALID_ARGUMENT`. |
-| State-driven | While [state], the actor MUST ... | While a client is latched on a backend mismatch, the client MUST NOT send any request. |
+| State-driven | While [state], the actor MUST ... | While a client's connection is blocked by a backend mismatch, the client MUST NOT send any request. |
 | Optional feature | Where [feature is present], the actor MUST ... | Where the commit log is enabled, the client MUST publish an entry for every commit it applies. |
 | Unwanted behaviour | If [condition], then the actor MUST ... | If a Welcome names an epoch not later than the local epoch, then the client MUST discard it. |
 

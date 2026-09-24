@@ -262,7 +262,7 @@ where
                 _ = cancel.cancelled() => return close_reason(&cancel, true, &mut callback),
                 next = stream.next() => match next {
                     Some(item) => {
-                        // A latch can arrive while the local read is in progress.
+                        // The connection can become blocked while the local read is in progress.
                         // Report it before another item reaches the callback.
                         close_reason(&cancel, true, &mut callback)?;
                         let terminal = item.is_err();
