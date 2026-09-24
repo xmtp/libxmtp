@@ -23,7 +23,6 @@ import type {
 
 import type { DecodedMessage } from "@/DecodedMessage";
 
-/** @deprecated Registration always waits; this option has no effect. */
 export type VisibilityConfirmationOptions = WasmVisibilityConfirmationOptions;
 
 /** A backend credential. Include the `Bearer ` prefix when required. */

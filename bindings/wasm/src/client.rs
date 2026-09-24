@@ -222,9 +222,6 @@ impl From<xmtp_mls::groups::welcome_sync::GroupSyncSummary> for GroupSyncSummary
   }
 }
 
-/// Deprecated: registration always waits (IDENT-072); this option has no effect.
-/// Standalone visibility waits still use this timeout.
-/// @deprecated Registration always waits; registration options have no effect.
 /// Options for `waitForRegistrationVisible`.
 ///
 #[derive(Clone, Default, Serialize, Deserialize, Tsify)]
@@ -458,12 +455,10 @@ impl Client {
     self.inner_client.inbox_id().to_string()
   }
 
+  /// Return false if registration state cannot be read.
   #[wasm_bindgen(getter, js_name = isRegistered)]
-  pub fn is_registered(&self) -> Result<bool, JsError> {
-    self
-      .inner_client
-      .is_registration_visible()
-      .map_err(ErrorWrapper::js)
+  pub fn is_registered(&self) -> bool {
+    self.inner_client.is_registration_visible().unwrap_or(false)
   }
 
   #[wasm_bindgen(getter, js_name = installationId)]

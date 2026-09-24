@@ -19,14 +19,10 @@ impl Client {
     self.inner_client.inbox_id().to_string()
   }
 
+  /// Return false if registration state cannot be read.
   #[napi]
-  pub fn is_registered(&self) -> Result<bool> {
-    Ok(
-      self
-        .inner_client
-        .is_registration_visible()
-        .map_err(ErrorWrapper::from)?,
-    )
+  pub fn is_registered(&self) -> bool {
+    self.inner_client.is_registration_visible().unwrap_or(false)
   }
 
   #[napi]
@@ -124,7 +120,7 @@ mod tests {
       account_identifier: alix.builder.owner.get_identifier()?.into(),
       app_version: None,
     };
-    assert!(!client.is_registered()?);
+    assert!(!client.is_registered());
     assert!(
       xmtp_common::time::timeout(
         std::time::Duration::from_millis(200),
@@ -143,7 +139,7 @@ mod tests {
     set_registration_cursor_for_test(&client.inner_client.context.db(), receipt);
     // The SDK register path asks for a signature and receives None on reopen.
     assert!(client.create_inbox_signature_request().await?.is_none());
-    assert!(client.is_registered()?);
+    assert!(client.is_registered());
     let stored: StoredIdentity = client.inner_client.context.db().fetch(&())?.unwrap();
     assert_eq!(stored.registration_cursor_sequence_id, None);
     client

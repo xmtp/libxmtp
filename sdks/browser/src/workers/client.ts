@@ -401,11 +401,7 @@ self.onmessage = async (
         if (!signatureRequest) {
           throw new Error("Signature request not found");
         }
-        await client.registerIdentity(
-          data.signer,
-          signatureRequest,
-          data.waitForRegistrationVisible,
-        );
+        await client.registerIdentity(data.signer, signatureRequest);
         signatureRequests.delete(data.signatureRequestId);
         postMessage({ id, action, result: undefined });
         break;

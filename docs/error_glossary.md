@@ -411,7 +411,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `ClientError::MlsStore` | MLS store error. OpenMLS key store operation failed. Not retryable. |
 | `ClientError::EnrichMessage` | Message enrichment error. Failed to enrich message content. Not retryable. |
 | `ClientError::Conversion` | Conversion Error Data type failed to convert. Not retryable. |
-| `ClientError::RegistrationNotVisible` | Registration not visible. Registration has no publish cursor or is not visible before the timeout. Not retryable. |
+| `ClientError::RegistrationNotVisible` | Registration not visible. The registration receipt was invalid or was not visible before the timeout. Call `register_identity` again to retry a pending registration. |
 | `ClientError::AlreadyClosed` | Client is closed. Operation was attempted on a client that has been shut down via `Client::close`. Not retryable — build a new client instead. |
 | `ClientError::ConfigurationUnavailable` | Server configuration unavailable. The backend did not serve its configuration, or the answer could not be stored. A backend older than spec 006 answers `UNIMPLEMENTED`; there is no compatibility shim. Retryable exactly when the wrapped failure is: an unreachable backend is worth another attempt, `UNIMPLEMENTED` is not. |
 | `ClientError::ConfigurationInvalid` | Server configuration invalid. The backend published a configuration this client cannot use: a missing or malformed identifier, a minimum version that does not parse, or a chain that is not a CAIP-2 identifier. Not retryable. |

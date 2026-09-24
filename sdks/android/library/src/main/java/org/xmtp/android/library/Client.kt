@@ -118,7 +118,6 @@ data class ForkRecoveryOptions(
         )
 }
 
-@Deprecated("Registration always waits; this option has no effect.")
 data class VisibilityConfirmationOptions(
     val timeoutMs: ULong? = null,
 ) {
@@ -524,9 +523,10 @@ class Client(
                         it.invoke()
                     }
                 }
-                ffiClient.signatureRequest()?.let { signatureRequest ->
+                val signatureRequest = ffiClient.signatureRequest()
+                signatureRequest?.let { request ->
                     signingKey?.let {
-                        handleSignature(SignatureRequest(signatureRequest), it)
+                        handleSignature(SignatureRequest(request), it)
                     } ?: run {
                         Log.d("XMTP", "No signer provided. Logging DB context...")
                         Log.d("XMTP", "dbPath: $dbPath")
@@ -543,12 +543,15 @@ class Client(
                     }
 
                     ffiClient.registerIdentity(
-                        signatureRequest,
+                        request,
                         clientOptions.waitForRegistrationVisible?.toFfi(),
                     )
                 }
 
-                ffiClient.waitForRegistrationVisible(null)
+                if (signingKey != null && signatureRequest == null) {
+                    // A create call can resume a stored registration without a signature request.
+                    ffiClient.waitForRegistrationVisible(null)
+                }
 
                 val client =
                     Client(

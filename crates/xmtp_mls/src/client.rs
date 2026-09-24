@@ -199,7 +199,8 @@ pub enum ClientError {
     Conversion(#[from] xmtp_proto::ConversionError),
     /// Registration not visible.
     ///
-    /// Registration has no publish cursor or is not visible before the timeout. Not retryable.
+    /// The registration receipt was invalid or was not visible before the timeout.
+    /// Call `register_identity` again to retry a pending registration.
     #[error("Registration is not visible")]
     RegistrationNotVisible,
     /// Client is closed.
@@ -1269,6 +1270,7 @@ where
             .registration_event_pending()
             .store(true, Ordering::Release);
         self.identity().set_ready();
+        drop(_own_refresh);
         self.ensure_registration_visible().await
     }
 

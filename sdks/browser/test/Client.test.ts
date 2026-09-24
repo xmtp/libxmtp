@@ -64,6 +64,15 @@ describe("Client", () => {
     ).rejects.toThrow(new SignerUnavailableError());
   });
 
+  it("finishes a stored registration without a signer", async () => {
+    const { signer, identifier } = createSigner();
+    const registered = await createRegisteredClient(signer);
+    await registered.close();
+    const client = await buildClient(identifier);
+    await expect(client.register()).resolves.toBeUndefined();
+    expect(await client.isRegistered()).toBe(true);
+  });
+
   it("should return a version", async () => {
     const { signer } = createSigner();
     const client = await createRegisteredClient(signer);

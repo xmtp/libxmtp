@@ -2,9 +2,7 @@ use crate::ErrorWrapper;
 use crate::client::Client;
 use napi_derive::napi;
 
-/// Deprecated: registration always waits (IDENT-072); this option has no effect.
-/// Standalone visibility waits still use this timeout.
-/// @deprecated Registration always waits; registration options have no effect.
+/// Options for a standalone visibility wait.
 #[napi(object)]
 #[derive(Default)]
 pub struct VisibilityConfirmationOptions {

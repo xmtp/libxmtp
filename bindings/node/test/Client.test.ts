@@ -151,6 +151,8 @@ describe("Client", () => {
           message: await request.signatureText(),
         });
         await request.addEcdsaSignature(toBytes(signature));
+        expect(client.isRegistered()).toBe(false);
+        // A supplied zero timeout would expire while the receipt is pending.
         await client.registerIdentity(request, options);
         expect(client.isRegistered()).toBe(true);
         await client.registerIdentity(request, options);

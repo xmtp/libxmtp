@@ -70,7 +70,6 @@ public struct ForkRecoveryOptions {
 	}
 }
 
-@available(*, deprecated, message: "Registration always waits; this option has no effect.")
 public struct VisibilityConfirmationOptions {
 	public var timeoutMs: UInt64?
 
@@ -306,13 +305,17 @@ public final class Client {
 					try await handleSignature(
 						for: signatureRequest, signingKey: signingKey
 					)
+				} catch {
+					throw Client.signingFailure(error)
+				}
+				do {
 					try await client.ffiClient.registerIdentity(
 						signatureRequest: signatureRequest,
 						visibilityConfirmationOptions: options
 							.waitForRegistrationVisible?.toFfi()
 					)
 				} catch {
-					throw Client.signingFailure(error)
+					throw Client.registrationFailure(error)
 				}
 			} else {
 				// add log messages here for logging 1) dbDirectory, 2) number of files in dbDirectory, 3) dbPath
@@ -332,9 +335,14 @@ public final class Client {
 					"No signing key found, you must pass a SigningKey in order to create an MLS client"
 				)
 			}
+		} else if signingKey != nil {
+			// A create call can resume a stored registration without a signature request.
+			do {
+				try await client.ffiClient.waitForRegistrationVisible(options: nil)
+			} catch {
+				throw Client.registrationFailure(error)
+			}
 		}
-
-		try await client.ffiClient.waitForRegistrationVisible(options: nil)
 
 		// Register codecs
 		for codec in options.codecs {
@@ -562,13 +570,22 @@ public final class Client {
 	/// contract wallet chain outside ``ServerConfiguration/smartContractWalletChains``,
 	/// or a client whose connection the deployment has since blocked —
 	/// keeps its distinct type, so an app can `catch is ChainNotAcceptedError`.
-	/// Anything else stays the generic creation failure it has always been.
+	/// Other signing errors remain generic creation failures.
 	static func signingFailure(_ error: Error) -> Error {
 		if let configurationError = error.serverConfigurationError {
 			return configurationError
 		}
 		return ClientError.creationError(
 			"Failed to sign the message: \(error.localizedDescription)"
+		)
+	}
+
+	static func registrationFailure(_ error: Error) -> Error {
+		if let configurationError = error.serverConfigurationError {
+			return configurationError
+		}
+		return ClientError.creationError(
+			"Failed to complete registration: \(error.localizedDescription)"
 		)
 	}
 

@@ -259,6 +259,7 @@ pub async fn create_client(
     let store = EncryptedMessageStore::new(db)?;
 
     log::info!("Creating XMTP client");
+    let used_legacy_key = legacy_signed_private_key_proto.is_some();
     let identity_strategy = IdentityStrategy::new(
         inbox_id.clone(),
         ident.clone().try_into()?,
@@ -291,6 +292,9 @@ pub async fn create_client(
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
+    if used_legacy_key {
+        xmtp_client.ensure_registration_visible().await?;
+    }
 
     log::info!(
         "Created XMTP client for inbox_id: {}",

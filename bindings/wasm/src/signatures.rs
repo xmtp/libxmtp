@@ -376,3 +376,61 @@ impl Client {
     )
   }
 }
+
+#[cfg(test)]
+mod registration_tests {
+  use super::*;
+  use xmtp_db::{Fetch, identity::StoredIdentity, prelude::QueryIdentityUpdates};
+  use xmtp_id::associations::test_utils::WalletTestExt;
+  use xmtp_mls::utils::test::set_registration_cursor_for_test;
+
+  // verifies: IDENT-072
+  #[xmtp_common::test(unwrap_try = true)]
+  async fn register_after_unconfirmed_registration_waits() {
+    let mut client = crate::tests::create_test_client(None).await;
+    let db = client.inner_client().context.db();
+    let receipt = db.get_latest_sequence_id(&[client.inner_client().inbox_id()])?
+      [client.inner_client().inbox_id()];
+    let request = client
+      .inner_client()
+      .identity_updates()
+      .associate_identity(xmtp_cryptography::utils::generate_local_wallet().identifier())
+      .await?;
+    let handle = SignatureRequestHandle {
+      inner: Arc::new(Mutex::new(request)),
+      scw_verifier: client.inner_client().scw_verifier().clone(),
+    };
+    set_registration_cursor_for_test(&db, i64::MAX);
+    assert!(!client.is_registered());
+    assert!(
+      xmtp_common::time::timeout(
+        xmtp_common::time::Duration::from_millis(200),
+        client.register_identity(
+          handle,
+          Some(WasmVisibilityConfirmationOptions {
+            timeout_ms: Some(0)
+          }),
+        ),
+      )
+      .await
+      .is_err()
+    );
+    let stored: StoredIdentity = db.fetch(&())?.unwrap();
+    assert_eq!(stored.registration_cursor_sequence_id, Some(i64::MAX));
+    set_registration_cursor_for_test(&db, receipt);
+    let request = client
+      .inner_client()
+      .identity_updates()
+      .associate_identity(xmtp_cryptography::utils::generate_local_wallet().identifier())
+      .await?;
+    let handle = SignatureRequestHandle {
+      inner: Arc::new(Mutex::new(request)),
+      scw_verifier: client.inner_client().scw_verifier().clone(),
+    };
+    client.register_identity(handle, None).await?;
+    assert!(client.is_registered());
+    let stored: StoredIdentity = db.fetch(&())?.unwrap();
+    assert_eq!(stored.registration_cursor_sequence_id, None);
+    client.inner_client().close().await?;
+  }
+}
