@@ -44,19 +44,19 @@ lift = "Message({})"
 lower = "{}.data"
 
 [bindings.kotlin.custom_types.inbox_i_d]
-lift = "InboxID({})"
+lift = "InboxID.unchecked({})"
 lower = "{}.value"
 
 [bindings.kotlin.custom_types.installation_i_d]
-lift = "InstallationID({})"
+lift = "InstallationID.unchecked({})"
 lower = "{}.value"
 
 [bindings.kotlin.custom_types.conversation_i_d]
-lift = "ConversationID({})"
+lift = "ConversationID.unchecked({})"
 lower = "{}.value"
 
 [bindings.kotlin.custom_types.message_i_d]
-lift = "MessageID({})"
+lift = "MessageID.unchecked({})"
 lower = "{}.value"
 
 [bindings.kotlin.custom_types.Timestamp]

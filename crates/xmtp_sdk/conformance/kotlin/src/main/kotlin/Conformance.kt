@@ -60,6 +60,13 @@ fun main() =
     runBlocking {
         check(sdkVersion().startsWith("1.12.0"))
         check(MessageID.fromString("a".repeat(64)).toString().length == 64)
+        for (id in listOf(InboxID::class, InstallationID::class, ConversationID::class, MessageID::class)) {
+            // Kotlin adds a synthetic constructor so the companion can call the private one.
+            val callable = id.java.constructors.filterNot { it.isSynthetic }
+            check(callable.isEmpty() && id.java.methods.none { it.name == "copy" }) {
+                "${id.simpleName} can be built without fromString"
+            }
+        }
         println("Kotlin scenario 1: load, checksums, version passed")
 
         val signer = TestSigner()

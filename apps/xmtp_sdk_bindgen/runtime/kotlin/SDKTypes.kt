@@ -9,55 +9,82 @@ private fun validHex(
     bytes: Int,
 ): Boolean = value.length == bytes * 2 && value.all { it in '0'..'9' || it in 'a'..'f' }
 
-data class InboxID(
+// ID types have no public constructor or copy(), so a caller can only make
+// one through fromString. Generated lifts use the internal unchecked factory.
+
+class InboxID private constructor(
     val value: String,
 ) {
     override fun toString() = value
+
+    override fun equals(other: Any?) = other is InboxID && other.value == value
+
+    override fun hashCode() = value.hashCode()
 
     companion object {
         fun fromString(value: String): InboxID {
             require(value.isNotEmpty()) { "inbox ID is empty" }
             return InboxID(value)
         }
+
+        internal fun unchecked(value: String) = InboxID(value)
     }
 }
 
-data class InstallationID(
+class InstallationID private constructor(
     val value: String,
 ) {
     override fun toString() = value
+
+    override fun equals(other: Any?) = other is InstallationID && other.value == value
+
+    override fun hashCode() = value.hashCode()
 
     companion object {
         fun fromString(value: String): InstallationID {
             require(validHex(value, 32)) { "invalid lowercase hex ID" }
             return InstallationID(value)
         }
+
+        internal fun unchecked(value: String) = InstallationID(value)
     }
 }
 
-data class ConversationID(
+class ConversationID private constructor(
     val value: String,
 ) {
     override fun toString() = value
+
+    override fun equals(other: Any?) = other is ConversationID && other.value == value
+
+    override fun hashCode() = value.hashCode()
 
     companion object {
         fun fromString(value: String): ConversationID {
             require(validHex(value, 16)) { "invalid lowercase hex ID" }
             return ConversationID(value)
         }
+
+        internal fun unchecked(value: String) = ConversationID(value)
     }
 }
 
-data class MessageID(
+class MessageID private constructor(
     val value: String,
 ) {
     override fun toString() = value
+
+    override fun equals(other: Any?) = other is MessageID && other.value == value
+
+    override fun hashCode() = value.hashCode()
 
     companion object {
         fun fromString(value: String): MessageID {
             require(validHex(value, 32)) { "invalid lowercase hex ID" }
             return MessageID(value)
         }
+
+        internal fun unchecked(value: String) = MessageID(value)
     }
 }
 
