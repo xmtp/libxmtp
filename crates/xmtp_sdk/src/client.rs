@@ -303,7 +303,7 @@ impl Client {
                 request
                     .add_signature(UnverifiedSignature::new_recoverable_ecdsa(bytes), &verifier)
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_signature_request)?;
             }
             (
                 SignerKind::Passkey,
@@ -325,7 +325,7 @@ impl Client {
                         &verifier,
                     )
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_signature_request)?;
             }
             (
                 SignerKind::Scw { chain_id, .. },
@@ -346,7 +346,7 @@ impl Client {
                         &verifier,
                     )
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_signature_request)?;
             }
             _ => return Err(XmtpError::invalid("signature does not match signer kind")),
         }

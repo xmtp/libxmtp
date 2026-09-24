@@ -464,6 +464,16 @@ async fn static_revoke_rejects_unlisted_scw_chain() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_rejects_unlisted_scw_chain_with_typed_error() {
+    let result = Client::create(
+        Arc::new(UnlistedChainSigner(PrivateKeySigner::random())),
+        options(),
+    )
+    .await;
+    assert!(matches!(result, Err(XmtpError::ChainNotAccepted(_))));
+}
+
 #[xmtp_common::async_trait]
 impl Signer for WalletSigner {
     async fn identity(&self) -> Result<PublicIdentity, SignerError> {
