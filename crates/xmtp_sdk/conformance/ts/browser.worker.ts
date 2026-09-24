@@ -42,10 +42,12 @@ async function run(): Promise<void> {
   };
   const options = {
     backend: new sdk.BackendSource.Options({
-      url: import.meta.env.VITE_XMTP_BACKEND_URL,
-      appVersion: undefined,
-      credentials: undefined,
-      credential: undefined,
+      options: {
+        url: import.meta.env.VITE_XMTP_BACKEND_URL,
+        appVersion: undefined,
+        credentials: undefined,
+        credential: undefined,
+      },
     }),
     storage: {
       location: new sdk.StorageLocation.Directory("xmtp-sdk-conformance"),

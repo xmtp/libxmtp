@@ -55,3 +55,4 @@ wasm-bindgen-futures.workspace = true
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_configuration.workspace = true
+xmtp_logging = { workspace = true, features = ["test-utils"] }

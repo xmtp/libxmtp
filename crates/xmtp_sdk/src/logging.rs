@@ -135,6 +135,13 @@ mod native {
         1
     }
 
+    /// Read errors observed by Rust after direct host sink calls.
+    #[cfg(feature = "conformance")]
+    #[xmtp_macro::sdk_export]
+    pub fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
+        Ok(handle()?.sink_error_count())
+    }
+
     #[derive(Clone, Debug, uniffi::Record)]
     pub struct LogRecord {
         pub level: LogLevel,
@@ -289,16 +296,11 @@ mod native {
 
         #[xmtp_common::test]
         fn sink_throw_does_not_panic() {
-            let bridge = SinkBridge(Arc::new(Throwing));
-            let record = xmtp_logging::LogRecord {
-                level: xmtp_logging::Level::Error,
-                target: "xmtp_sdk".into(),
-                message: "test".into(),
-                fields: Default::default(),
-                timestamp_ns: 0,
-                dropped_records: 0,
-            };
-            assert!(bridge.on_record(record).is_err());
+            let bridge = Arc::new(SinkBridge(Arc::new(Throwing))) as Arc<dyn LogSinkTarget>;
+            let errors = xmtp_logging::test_logging::sink_errors_from_tracing(bridge, || {
+                tracing::error!(target: "xmtp_sdk::sink_test", "foreign sink error");
+            });
+            assert_eq!(errors, 1);
         }
     }
 }

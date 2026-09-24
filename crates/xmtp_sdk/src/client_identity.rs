@@ -85,7 +85,11 @@ impl Client {
     }
 
     pub fn app_version(&self) -> Option<String> {
-        self.options.backend.app_version()
+        self.options
+            .backend
+            .clone()
+            .unwrap_or_default()
+            .app_version()
     }
 
     pub fn options(&self) -> crate::ClientOptions {

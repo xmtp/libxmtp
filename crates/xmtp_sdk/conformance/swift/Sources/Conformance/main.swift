@@ -73,8 +73,9 @@ struct Conformance {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-sdk-conformance-\(UUID().uuidString)")
         let backendOptions = BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!)
+        precondition(ClientOptions(storage: StorageOptions(location: .inMemory)).backend == nil)
         let options = ClientOptions(
-            backend: .options(backendOptions),
+            backend: .options(options: backendOptions),
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
@@ -219,7 +220,7 @@ struct Conformance {
 
         let largeExpiry: Int64 = 9_007_199_254_740_993
         let credentialOptions = ClientOptions(
-            backend: .options(BackendOptions(
+            backend: .options(options: BackendOptions(
                 url: backendOptions.url,
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
             )),
@@ -229,7 +230,7 @@ struct Conformance {
         let credentialHost = try await SDKClient.build(
             identity: await signer.identity(), options: credentialOptions, inboxID: inboxID
         )
-        guard case let .options(savedBackend) = credentialHost.raw.options().backend,
+        guard case let .some(.options(options: savedBackend)) = credentialHost.raw.options().backend,
               savedBackend.credential?.expiresAtSeconds == largeExpiry
         else {
             throw ConformanceFailure("credential expiry lost 64-bit precision")
@@ -241,18 +242,21 @@ struct Conformance {
         print("Swift scenario 3: credential update and 64-bit value passed")
 
         let snapshot = reopened.serverConfiguration()
-        let fetched = try await fetchServerConfiguration(backend: .options(backendOptions))
+        let fetched = try await fetchServerConfiguration(backend: .options(options: backendOptions))
         let staticBackend = try await Backend.connect(options: backendOptions)
         let staticIdentity = try await signer.identity()
-        guard try await SDKClient.inboxID(for: staticIdentity, backend: staticBackend) == inboxID else {
+        guard try await SDKClient.inboxID(for: staticIdentity, backend: .connected(backend: staticBackend)) == inboxID else {
             throw ConformanceFailure("backend-only inbox lookup returned a different ID")
         }
-        guard try await SDKClient.canMessage([staticIdentity], backend: staticBackend).first?.canMessage == true else {
+        guard try await SDKClient.canMessage([staticIdentity], backend: .connected(backend: staticBackend)).first?.canMessage == true else {
             throw ConformanceFailure("backend-only canMessage did not find this inbox")
+        }
+        guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions)).first?.canMessage == true else {
+            throw ConformanceFailure("backend options canMessage did not find this inbox")
         }
         let connectedHost = try await SDKClient.build(
             identity: staticIdentity,
-            options: ClientOptions(backend: .connected(staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
+            options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
             inboxID: inboxID
         )
         try await connectedHost.end()
@@ -264,7 +268,7 @@ struct Conformance {
             throw ConformanceFailure("configuration refresh returned a different deployment")
         }
         do {
-            _ = try await fetchServerConfiguration(backend: .options(BackendOptions(url: "http://127.0.0.1:1")))
+            _ = try await fetchServerConfiguration(backend: .options(options: BackendOptions(url: "http://127.0.0.1:1")))
             throw ConformanceFailure("unavailable configuration request succeeded")
         } catch XmtpError.ConfigurationUnavailable {}
         print("Swift scenario 10: configuration and typed error passed")

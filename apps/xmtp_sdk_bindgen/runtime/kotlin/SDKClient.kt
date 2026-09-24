@@ -41,52 +41,52 @@ class SDKClient private constructor(
                 Client.build(identity, resolved(options, defaultDirectory), inboxID),
             ).also { ClientRegistry.register(it) }
 
-        suspend fun fetchServerConfiguration(options: BackendOptions): ServerConfiguration =
-            uniffi.xmtp_sdk.fetchServerConfiguration(BackendSource.Options(options))
+        suspend fun fetchServerConfiguration(backend: BackendSource): ServerConfiguration =
+            uniffi.xmtp_sdk.fetchServerConfiguration(backend)
 
         suspend fun canMessage(
             identities: List<PublicIdentity>,
-            backend: Backend,
-        ): List<CanMessageEntry> = canMessageWithBackend(BackendSource.Connected(backend), identities)
+            backend: BackendSource,
+        ): List<CanMessageEntry> = canMessageWithBackend(backend, identities)
 
         suspend fun inboxIDFor(
             identity: PublicIdentity,
-            backend: Backend,
-        ): InboxID = inboxIDForWithBackend(BackendSource.Connected(backend), identity)
+            backend: BackendSource,
+        ): InboxID = inboxIDForWithBackend(backend, identity)
 
         suspend fun inboxStates(
             ids: List<InboxID>,
-            backend: Backend,
-        ): List<InboxState> = inboxStatesWithBackend(BackendSource.Connected(backend), ids)
+            backend: BackendSource,
+        ): List<InboxState> = inboxStatesWithBackend(backend, ids)
 
         suspend fun keyPackageStatuses(
             ids: List<InstallationID>,
-            backend: Backend,
-        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(BackendSource.Connected(backend), ids)
+            backend: BackendSource,
+        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(backend, ids)
 
         suspend fun newestMessageMetadata(
             ids: List<ConversationID>,
-            backend: Backend,
-        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(BackendSource.Connected(backend), ids)
+            backend: BackendSource,
+        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(backend, ids)
 
         suspend fun revokeInstallations(
             signer: Signer,
             inboxID: InboxID,
             ids: List<InstallationID>,
-            backend: Backend,
-        ) = revokeInstallationsWithBackend(BackendSource.Connected(backend), signer, inboxID, ids)
+            backend: BackendSource,
+        ) = revokeInstallationsWithBackend(backend, signer, inboxID, ids)
 
         suspend fun isAddressAuthorized(
             address: String,
             inboxID: InboxID,
-            backend: Backend,
-        ): Boolean = isAddressAuthorizedWithBackend(BackendSource.Connected(backend), inboxID, address)
+            backend: BackendSource,
+        ): Boolean = isAddressAuthorizedWithBackend(backend, inboxID, address)
 
         suspend fun isInstallationAuthorized(
             installationID: InstallationID,
             inboxID: InboxID,
-            backend: Backend,
-        ): Boolean = isInstallationAuthorizedWithBackend(BackendSource.Connected(backend), inboxID, installationID)
+            backend: BackendSource,
+        ): Boolean = isInstallationAuthorizedWithBackend(backend, inboxID, installationID)
 
         suspend fun verifySignedWithPublicKey(
             text: String,

@@ -82,6 +82,7 @@ fun main() =
         val signer = TestSigner()
         val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
         val backendOptions = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL")))
+        check(ClientOptions(storage = StorageOptions(location = StorageLocation.InMemory)).backend == null)
         val options =
             ClientOptions(
                 backend = BackendSource.Options(backendOptions),
@@ -209,7 +210,7 @@ fun main() =
                 .options()
                 .backend
                 .let { it as BackendSource.Options }
-                .v1.credential
+                .options.credential
                 ?.expiresAtSeconds == largeExpiry,
         ) {
             "credential expiry lost 64-bit precision"
@@ -221,8 +222,11 @@ fun main() =
         val snapshot = reopened.serverConfiguration()
         val fetched = fetchServerConfiguration(BackendSource.Options(backendOptions))
         val staticBackend = Backend.connect(backendOptions)
-        check(SDKClient.inboxIDFor(signer.identity(), staticBackend) == inboxID)
-        check(SDKClient.canMessage(listOf(signer.identity()), staticBackend).first().canMessage)
+        check(SDKClient.inboxIDFor(signer.identity(), BackendSource.Connected(staticBackend)) == inboxID)
+        check(
+            SDKClient.canMessage(listOf(signer.identity()), BackendSource.Connected(staticBackend)).first().canMessage,
+        )
+        check(SDKClient.canMessage(listOf(signer.identity()), BackendSource.Options(backendOptions)).first().canMessage)
         SDKClient
             .build(
                 signer.identity(),
@@ -271,17 +275,21 @@ fun main() =
         setLogSink(orderedSink)
         sdkConformanceEmit(32u)
         check(orderedSink.sequence == (0 until 32).map(Int::toString)) { "inline log sink changed record order" }
-        var throwingSinkCalled = false
-        setLogSink(
-            object : LogSink {
-                override fun log(record: LogRecord) {
-                    throwingSinkCalled = true
-                    throw Error("foreign log sink failed")
-                }
-            },
-        )
-        sdkConformanceEmit(1u)
-        check(throwingSinkCalled) { "foreign log sink was not called" }
+        for (failure in listOf<Throwable>(Error("foreign log sink failed"), Exception("foreign log sink failed"))) {
+            var throwingSinkCalled = false
+            val before = sdkConformanceSinkErrorCount()
+            setLogSink(
+                object : LogSink {
+                    override fun log(record: LogRecord) {
+                        throwingSinkCalled = true
+                        throw failure
+                    }
+                },
+            )
+            sdkConformanceEmit(1u)
+            check(throwingSinkCalled) { "foreign log sink was not called" }
+            check(sdkConformanceSinkErrorCount() == before + 1uL) { "Rust did not observe the foreign sink error" }
+        }
         clearLogSink()
         check(sdkVersion().startsWith("1.12.0"))
         println("Kotlin logging: ordered records and throwing foreign sink passed")

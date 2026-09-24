@@ -27,6 +27,20 @@ mod otlp;
 #[cfg(not(target_arch = "wasm32"))]
 pub use otlp::{OtlpCollector, string_attribute};
 
+/// Send tracing events through the real sink layer for a focused host test.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn sink_errors_from_tracing(
+    target: std::sync::Arc<dyn crate::LogSinkTarget>,
+    emit: impl FnOnce(),
+) -> u64 {
+    use tracing_subscriber::layer::SubscriberExt;
+
+    let slot = crate::layers::sink::SinkSlot::default();
+    slot.set_sink(Some(target));
+    tracing::subscriber::with_default(tracing_subscriber::registry().with(slot.clone()), emit);
+    slot.error_count()
+}
+
 /// Build the test logging layer(s).
 ///
 /// Honors `STRUCTURED` (json) and `SHOW_SPAN_FIELDS`; otherwise emits a compact

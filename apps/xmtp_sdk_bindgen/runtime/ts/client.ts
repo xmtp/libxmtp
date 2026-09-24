@@ -1,6 +1,6 @@
 import {
   Client as RawClient,
-  BackendSource,
+  type BackendSource as BackendSourceLike,
   StorageLocation,
   StorageLocation_Tags,
   canMessageWithBackend,
@@ -13,8 +13,6 @@ import {
   newestMessageMetadataWithBackend,
   revokeInstallationsWithBackend,
   verifySignedWithPublicKey,
-  type BackendOptions,
-  type BackendLike,
   type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
@@ -87,91 +85,70 @@ export class Client {
   }
 
   static fetchServerConfiguration(
-    options: BackendOptions,
+    backend: BackendSourceLike,
   ): Promise<ServerConfiguration> {
-    return fetchServerConfiguration(new BackendSource.Options(options));
+    return fetchServerConfiguration(backend);
   }
 
   static canMessage(
     identities: PublicIdentity[],
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<CanMessageEntry[]> {
-    return canMessageWithBackend(
-      new BackendSource.Connected(backend),
-      identities,
-    );
+    return canMessageWithBackend(backend, identities);
   }
 
   static inboxIDFor(
     identity: PublicIdentity,
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<InboxID> {
-    return inboxIdForWithBackend(
-      new BackendSource.Connected(backend),
-      identity,
-    );
+    return inboxIdForWithBackend(backend, identity);
   }
 
   static inboxStates(
     ids: InboxID[],
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<InboxState[]> {
-    return inboxStatesWithBackend(new BackendSource.Connected(backend), ids);
+    return inboxStatesWithBackend(backend, ids);
   }
 
   static keyPackageStatuses(
     ids: InstallationID[],
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<KeyPackageStatusEntry[]> {
-    return keyPackageStatusesWithBackend(
-      new BackendSource.Connected(backend),
-      ids,
-    );
+    return keyPackageStatusesWithBackend(backend, ids);
   }
 
   static newestMessageMetadata(
     ids: ConversationID[],
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<MessageMetadataEntry[]> {
-    return newestMessageMetadataWithBackend(
-      new BackendSource.Connected(backend),
-      ids,
-    );
+    return newestMessageMetadataWithBackend(backend, ids);
   }
 
   static revokeInstallations(
     signer: Signer,
     inboxID: InboxID,
     ids: InstallationID[],
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<void> {
-    return revokeInstallationsWithBackend(
-      new BackendSource.Connected(backend),
-      signer,
-      inboxID,
-      ids,
-    );
+    return revokeInstallationsWithBackend(backend, signer, inboxID, ids);
   }
 
   static isAddressAuthorized(
     inboxID: InboxID,
     address: string,
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<boolean> {
-    return isAddressAuthorizedWithBackend(
-      new BackendSource.Connected(backend),
-      inboxID,
-      address,
-    );
+    return isAddressAuthorizedWithBackend(backend, inboxID, address);
   }
 
   static isInstallationAuthorized(
     inboxID: InboxID,
     installationID: InstallationID,
-    backend: BackendLike,
+    backend: BackendSourceLike,
   ): Promise<boolean> {
     return isInstallationAuthorizedWithBackend(
-      new BackendSource.Connected(backend),
+      backend,
       inboxID,
       installationID,
     );

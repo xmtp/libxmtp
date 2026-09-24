@@ -51,7 +51,7 @@ const backendOptions = {
   credential: undefined,
 };
 const options = {
-  backend: new sdk.BackendSource.Options(backendOptions),
+  backend: new sdk.BackendSource.Options({ options: backendOptions }),
   storage: {
     location: new sdk.StorageLocation.Directory(
       await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-")),
@@ -66,6 +66,10 @@ const options = {
   forkRecovery: undefined,
   workers: undefined,
 };
+assert.equal(
+  sdk.ClientOptions.create({ storage: options.storage }).backend,
+  undefined,
+);
 
 const client = await sdk.Client.create(signer, options);
 const inboxID = client.inboxID();
@@ -240,11 +244,13 @@ const largeExpiry = 9_007_199_254_740_993n;
 const credentialOptions = {
   ...options,
   backend: new sdk.BackendSource.Options({
-    ...backendOptions,
-    credential: {
-      name: undefined,
-      value: "Bearer initial",
-      expiresAtSeconds: largeExpiry,
+    options: {
+      ...backendOptions,
+      credential: {
+        name: undefined,
+        value: "Bearer initial",
+        expiresAtSeconds: largeExpiry,
+      },
     },
   }),
   storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
@@ -254,8 +260,10 @@ const credentialClient = await sdk.Client.build(
   credentialOptions,
   inboxID,
 );
+const savedBackend = credentialClient.raw.options().backend;
+assert.ok(savedBackend instanceof sdk.BackendSource.Options);
 assert.equal(
-  credentialClient.raw.options().backend.inner[0].credential?.expiresAtSeconds,
+  savedBackend.inner.options.credential?.expiresAtSeconds,
   largeExpiry,
 );
 await credentialClient.raw.setCredential({
@@ -270,15 +278,17 @@ const sourceClient = await sdk.Client.build(
   {
     ...credentialOptions,
     backend: new sdk.BackendSource.Options({
-      ...backendOptions,
-      credentials: {
-        async credential() {
-          sourceCalls += 1;
-          return {
-            name: undefined,
-            value: "Bearer source",
-            expiresAtSeconds: largeExpiry,
-          };
+      options: {
+        ...backendOptions,
+        credentials: {
+          async credential() {
+            sourceCalls += 1;
+            return {
+              name: undefined,
+              value: "Bearer source",
+              expiresAtSeconds: largeExpiry,
+            };
+          },
         },
       },
     }),
@@ -291,23 +301,42 @@ console.log("Node scenario 3: credential update and 64-bit value passed");
 
 const snapshot = reopened.raw.serverConfiguration();
 const fetched = await sdk.fetchServerConfiguration(
-  new sdk.BackendSource.Options(backendOptions),
+  new sdk.BackendSource.Options({ options: backendOptions }),
 );
 assert.equal(snapshot.identifier, fetched.identifier);
 const staticBackend = await sdk.Backend.connect(backendOptions);
 assert.equal(
-  (await sdk.Client.inboxIDFor(identity, staticBackend)).toString(),
+  (
+    await sdk.Client.inboxIDFor(
+      identity,
+      new sdk.BackendSource.Connected({ backend: staticBackend }),
+    )
+  ).toString(),
   inboxID.toString(),
 );
 assert.equal(
-  (await sdk.Client.canMessage([identity], staticBackend))[0]?.canMessage,
+  (
+    await sdk.Client.canMessage(
+      [identity],
+      new sdk.BackendSource.Connected({ backend: staticBackend }),
+    )
+  )[0]?.canMessage,
+  true,
+);
+assert.equal(
+  (
+    await sdk.Client.canMessage(
+      [identity],
+      new sdk.BackendSource.Options({ options: backendOptions }),
+    )
+  )[0]?.canMessage,
   true,
 );
 const connectedClient = await sdk.Client.build(
   identity,
   {
     ...options,
-    backend: new sdk.BackendSource.Connected(staticBackend),
+    backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
     storage: {
       ...options.storage,
       location: new sdk.StorageLocation.InMemory(),
@@ -323,8 +352,10 @@ assert.equal(
 await assert.rejects(
   sdk.fetchServerConfiguration(
     new sdk.BackendSource.Options({
-      ...backendOptions,
-      url: "http://127.0.0.1:1",
+      options: {
+        ...backendOptions,
+        url: "http://127.0.0.1:1",
+      },
     }),
   ),
   (error) => error instanceof sdk.XmtpError.ConfigurationUnavailable,

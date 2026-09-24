@@ -88,13 +88,17 @@ fn standard_content_decodes_text() {
 async fn client_configuration_and_credential_update() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let configured = client.server_configuration();
-    let fetched = crate::client_identity::fetch_server_configuration(options().backend).await?;
+    let fetched =
+        crate::client_identity::fetch_server_configuration(options().backend.unwrap()).await?;
     assert_eq!(configured.identifier, fetched.identifier);
     let refreshed = client.refresh_server_configuration().await?;
     assert_eq!(refreshed.identifier, configured.identifier);
     client.end().await?;
     let mut authenticated_options = options();
-    let BackendSource::Options(backend_options) = &mut authenticated_options.backend else {
+    let Some(BackendSource::Options {
+        options: backend_options,
+    }) = &mut authenticated_options.backend
+    else {
         panic!("test uses backend options");
     };
     backend_options.credential = Some(Credential {
@@ -122,6 +126,16 @@ async fn client_configuration_and_credential_update() {
         Err(XmtpError::InvalidInput(_))
     ));
     authenticated.end().await?;
+}
+
+#[xmtp_common::test]
+fn client_options_backend_default_keeps_empty_connection_options() {
+    let client_options = ClientOptions::default();
+    assert!(client_options.backend.is_none());
+    let BackendSource::Options { options } = client_options.backend.unwrap_or_default() else {
+        panic!("default backend must use connection options");
+    };
+    assert_eq!(options.url, "");
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -229,7 +243,7 @@ fn notification_and_auth_errors_keep_their_kinds() {
         N::ResourceExhausted,
         ResourceExhausted,
         ErrorCategory::Notification,
-        true
+        false
     );
     notification!(
         N::RequestTimeout,
@@ -323,11 +337,14 @@ fn out_of_range_installation_time_does_not_fail_inbox_state() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_only_identity_and_message_queries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let BackendSource::Options(backend_options) = options().backend else {
+    let Some(BackendSource::Options {
+        options: backend_options,
+    }) = options().backend
+    else {
         panic!("test uses backend options");
     };
     let backend = Arc::new(crate::Backend::connect(backend_options).await?);
-    let source = BackendSource::Connected(backend);
+    let source = BackendSource::Connected { backend };
     let identity = client.identity();
     let inbox =
         crate::static_helpers::inbox_id_for_with_backend(source.clone(), identity.clone()).await?;
@@ -367,7 +384,7 @@ async fn backend_only_identity_and_message_queries() {
     let connected_client = Client::build(
         client.identity(),
         ClientOptions {
-            backend: source,
+            backend: Some(source),
             ..options()
         },
         Some(client.inbox_id()),
@@ -411,11 +428,13 @@ impl Signer for WalletSigner {
 
 fn options() -> ClientOptions {
     ClientOptions {
-        backend: BackendSource::Options(BackendOptions {
-            url: xmtp_configuration::backend_test_url(),
-            app_version: None,
-            credentials: None,
-            credential: None,
+        backend: Some(BackendSource::Options {
+            options: BackendOptions {
+                url: xmtp_configuration::backend_test_url(),
+                app_version: None,
+                credentials: None,
+                credential: None,
+            },
         }),
         storage: StorageOptions {
             location: StorageLocation::InMemory,

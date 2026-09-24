@@ -343,7 +343,7 @@ impl XmtpError {
             NotificationError::ResourceExhausted => Self::ResourceExhausted(Self::details(
                 "ResourceExhausted",
                 ErrorCategory::Notification,
-                true,
+                false,
                 "notification topic limit reached",
             )),
             NotificationError::RequestTimeout => Self::RequestTimeout(Self::details(

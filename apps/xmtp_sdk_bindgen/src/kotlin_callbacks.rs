@@ -24,9 +24,21 @@ mod tests {
 
     #[test]
     fn catches_every_foreign_callback_throwable_and_is_idempotent() {
-        let input = "catch(e: kotlin.Exception)".repeat(4);
+        let helpers = [
+            "uniffiTraitInterfaceCall",
+            "uniffiTraitInterfaceCallWithError",
+            "uniffiTraitInterfaceCallAsync",
+            "uniffiTraitInterfaceCallAsyncWithError",
+        ];
+        let input = helpers
+            .iter()
+            .map(|name| format!("fun {name}() {{ catch(e: kotlin.Exception) }}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let output = rewrite(&input).unwrap();
-        assert_eq!(output.matches("catch(e: Throwable)").count(), 4);
+        for name in helpers {
+            assert!(output.contains(&format!("fun {name}() {{ catch(e: Throwable) }}")));
+        }
         assert_eq!(rewrite(&output).unwrap(), output);
         assert!(rewrite("no callback helpers").is_err());
     }

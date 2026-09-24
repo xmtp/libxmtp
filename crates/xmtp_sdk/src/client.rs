@@ -168,7 +168,9 @@ impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
 
 #[derive(Clone, uniffi::Record)]
 pub struct ClientOptions {
-    pub backend: BackendSource,
+    /// Omission uses empty connection options, as the old field default did.
+    #[uniffi(default = None)]
+    pub backend: Option<BackendSource>,
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
@@ -183,7 +185,7 @@ pub struct ClientOptions {
 impl Default for ClientOptions {
     fn default() -> Self {
         Self {
-            backend: BackendSource::default(),
+            backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
             registration: RegistrationOptions::default(),
@@ -213,7 +215,12 @@ impl Client {
             return Err(XmtpError::storage_location_required());
         }
         let identifier = identity.to_core()?;
-        let backend = options.backend.resolve().await?;
+        let backend = options
+            .backend
+            .clone()
+            .unwrap_or_default()
+            .resolve()
+            .await?;
         let auth_handle = backend.auth_handle.clone();
         let inbox_id = match inbox_id {
             Some(value) => value.0,

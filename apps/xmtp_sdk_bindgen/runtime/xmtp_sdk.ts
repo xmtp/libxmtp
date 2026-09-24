@@ -53,13 +53,14 @@ export type ClientOptions = {
     label?: string;
     encryptionKey?: ArrayBuffer;
   };
-  backend: object;
+  backend?: BackendSource;
   deviceSync: boolean;
 };
 export type PublicIdentity = object;
 export type Signer = object;
 export type BackendLike = object;
 export type BackendOptions = object;
+export type BackendSource = object;
 export declare const BackendSource: {
   Options: new (options: BackendOptions) => object;
   Connected: new (backend: BackendLike) => object;

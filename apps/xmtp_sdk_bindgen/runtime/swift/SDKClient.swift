@@ -34,40 +34,40 @@ public final class SDKClient: @unchecked Sendable {
         try await SDKClient(Client.build(identity: identity, options: resolved(options, appName: appName), inboxID: inboxID))
     }
 
-    public static func fetchServerConfiguration(options: BackendOptions) async throws -> ServerConfiguration {
-        try await XmtpSdk.fetchServerConfiguration(backend: .options(options))
+    public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {
+        try await XmtpSdk.fetchServerConfiguration(backend: backend)
     }
 
-    public static func canMessage(_ identities: [PublicIdentity], backend: Backend) async throws -> [CanMessageEntry] {
-        try await canMessageWithBackend(backend: .connected(backend), identities: identities)
+    public static func canMessage(_ identities: [PublicIdentity], backend: BackendSource) async throws -> [CanMessageEntry] {
+        try await canMessageWithBackend(backend: backend, identities: identities)
     }
 
-    public static func inboxID(for identity: PublicIdentity, backend: Backend) async throws -> InboxID {
-        try await inboxIDForWithBackend(backend: .connected(backend), identity: identity)
+    public static func inboxID(for identity: PublicIdentity, backend: BackendSource) async throws -> InboxID {
+        try await inboxIDForWithBackend(backend: backend, identity: identity)
     }
 
-    public static func inboxStates(_ ids: [InboxID], backend: Backend) async throws -> [InboxState] {
-        try await inboxStatesWithBackend(backend: .connected(backend), ids: ids)
+    public static func inboxStates(_ ids: [InboxID], backend: BackendSource) async throws -> [InboxState] {
+        try await inboxStatesWithBackend(backend: backend, ids: ids)
     }
 
-    public static func keyPackageStatuses(_ ids: [InstallationID], backend: Backend) async throws -> [KeyPackageStatusEntry] {
-        try await keyPackageStatusesWithBackend(backend: .connected(backend), ids: ids)
+    public static func keyPackageStatuses(_ ids: [InstallationID], backend: BackendSource) async throws -> [KeyPackageStatusEntry] {
+        try await keyPackageStatusesWithBackend(backend: backend, ids: ids)
     }
 
-    public static func newestMessageMetadata(_ ids: [ConversationID], backend: Backend) async throws -> [MessageMetadataEntry] {
-        try await newestMessageMetadataWithBackend(backend: .connected(backend), ids: ids)
+    public static func newestMessageMetadata(_ ids: [ConversationID], backend: BackendSource) async throws -> [MessageMetadataEntry] {
+        try await newestMessageMetadataWithBackend(backend: backend, ids: ids)
     }
 
-    public static func revokeInstallations(signer: Signer, inboxID: InboxID, ids: [InstallationID], backend: Backend) async throws {
-        try await revokeInstallationsWithBackend(backend: .connected(backend), signer: signer, inboxID: inboxID, ids: ids)
+    public static func revokeInstallations(signer: Signer, inboxID: InboxID, ids: [InstallationID], backend: BackendSource) async throws {
+        try await revokeInstallationsWithBackend(backend: backend, signer: signer, inboxID: inboxID, ids: ids)
     }
 
-    public static func isAddressAuthorized(_ address: String, inboxID: InboxID, backend: Backend) async throws -> Bool {
-        try await isAddressAuthorizedWithBackend(backend: .connected(backend), inboxID: inboxID, address: address)
+    public static func isAddressAuthorized(_ address: String, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
+        try await isAddressAuthorizedWithBackend(backend: backend, inboxID: inboxID, address: address)
     }
 
-    public static func isInstallationAuthorized(_ installationID: InstallationID, inboxID: InboxID, backend: Backend) async throws -> Bool {
-        try await isInstallationAuthorizedWithBackend(backend: .connected(backend), inboxID: inboxID, installationID: installationID)
+    public static func isInstallationAuthorized(_ installationID: InstallationID, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
+        try await isInstallationAuthorizedWithBackend(backend: backend, inboxID: inboxID, installationID: installationID)
     }
 
     public static func verifySignedWithPublicKey(_ text: String, signature: Data, publicKey: Data) async throws -> Bool {

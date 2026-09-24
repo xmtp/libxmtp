@@ -65,28 +65,30 @@ pub struct BackendOptions {
 /// Use connection options or an existing backend connection.
 #[derive(Clone, uniffi::Enum)]
 pub enum BackendSource {
-    Options(BackendOptions),
-    Connected(Arc<Backend>),
+    Options { options: BackendOptions },
+    Connected { backend: Arc<Backend> },
 }
 
 impl Default for BackendSource {
     fn default() -> Self {
-        Self::Options(BackendOptions::default())
+        Self::Options {
+            options: BackendOptions::default(),
+        }
     }
 }
 
 impl BackendSource {
     pub(crate) async fn resolve(&self) -> Result<Arc<Backend>, XmtpError> {
         match self {
-            Self::Options(options) => Ok(Arc::new(Backend::connect(options.clone()).await?)),
-            Self::Connected(backend) => Ok(backend.clone()),
+            Self::Options { options } => Ok(Arc::new(Backend::connect(options.clone()).await?)),
+            Self::Connected { backend } => Ok(backend.clone()),
         }
     }
 
     pub(crate) fn app_version(&self) -> Option<String> {
         match self {
-            Self::Options(options) => options.app_version.clone(),
-            Self::Connected(backend) => backend.options.app_version.clone(),
+            Self::Options { options } => options.app_version.clone(),
+            Self::Connected { backend } => backend.options.app_version.clone(),
         }
     }
 }
