@@ -53,6 +53,36 @@ async fn rollback_discards_events_and_releases_the_buffer() {
     assert_eq!(sub.drain(), vec![public(joined(2))]);
 }
 
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn received_message_that_expires_before_flush_keeps_its_internal_fact() {
+    let bus = EventBus::<u8>::new();
+    let app = bus.subscribe(EventFilter::new([EventKind::MessageReceived]), Some(10));
+    let worker = bus.subscribe(EventFilter::default().with_internal(|_| true), None);
+    let expires_at = xmtp_common::time::now_ns() + 5_000_000;
+    bus.with_buffer(|buffer| {
+        buffer.emit_with_context(
+            Some(received(1, 2, None)),
+            Some(7),
+            EventContext {
+                message_expires_at_ns: Some(expires_at),
+                ..Default::default()
+            },
+        );
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        Ok::<_, ()>(())
+    })?;
+    assert!(app.drain().is_empty());
+    assert!(matches!(
+        worker.drain().as_slice(),
+        [EventEnvelope {
+            client: None,
+            internal: Some(7),
+            ..
+        }]
+    ));
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_write_flushes_in_kind_table_order() {
     let bus = EventBus::<()>::new();

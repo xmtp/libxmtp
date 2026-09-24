@@ -162,27 +162,48 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     ) -> Result<bool, GroupError> {
         // The failed preparation transaction already rolled back its ratchets.
         // Only definite local request or authorization errors enter this path.
-        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.with_group(self.group_id, |group, storage| {
-                let db = storage.db();
-                let Some(current) =
-                    Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
-                else {
-                    return Ok(Continue(false));
-                };
-                if current.state != IntentState::ToPublish
-                    || current.data != requirements.intent.data
-                    || current.kind != requirements.intent.kind
-                    || PreparedBase::capture(group)? != requirements.base
-                    || db.prepared_envelopes(current.id)?.is_some()
-                {
-                    return Ok(Continue(false));
-                }
-                let message_id = calculate_message_id_for_intent(&current)?;
-                db.set_group_intent_error_and_fail_msg(&current, message_id)?;
-                Ok::<_, GroupError>(Continue(true))
-            })
-        })
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_writer| {
+                tx.with_group(self.group_id, |group, storage| {
+                    let db = storage.db();
+                    let Some(current) =
+                        Fetch::<StoredGroupIntent>::fetch(&db, &requirements.intent.id)?
+                    else {
+                        return Ok(Continue(false));
+                    };
+                    if current.state != IntentState::ToPublish
+                        || current.data != requirements.intent.data
+                        || current.kind != requirements.intent.kind
+                        || PreparedBase::capture(group)? != requirements.base
+                        || db.prepared_envelopes(current.id)?.is_some()
+                    {
+                        return Ok(Continue(false));
+                    }
+                    let message_id = calculate_message_id_for_intent(&current)?;
+                    let previous_status = message_id
+                        .as_ref()
+                        .map(|id| db.get_group_message(id))
+                        .transpose()?
+                        .flatten()
+                        .map(|message| message.delivery_status);
+                    let changed_id = message_id.clone();
+                    db.set_group_intent_error_and_fail_msg(&current, message_id)?;
+                    if previous_status == Some(DeliveryStatus::Unpublished)
+                        && let Some(id) = changed_id
+                    {
+                        self.emit_message_status_changed(
+                            id,
+                            xmtp_events::MessageStatus::Unpublished,
+                            xmtp_events::MessageStatus::Failed,
+                            event_writer,
+                        );
+                    }
+                    Ok::<_, GroupError>(Continue(true))
+                })
+            },
+        )
         .map(TransactionOutcome::into_continued)
     }
 

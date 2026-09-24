@@ -1,5 +1,7 @@
 //! The public event contract. Payloads contain identifiers and small values.
 
+pub use xmtp_common::types::ContentTypeId;
+
 /// The order is the order of the EVENT kind table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum EventKind {
@@ -162,12 +164,6 @@ pub struct MetadataChanged {
 pub struct ConversationPaused {
     pub group_id: Vec<u8>,
     pub floor: String,
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ContentTypeId {
-    pub authority_id: String,
-    pub type_id: String,
-    pub version_major: u32,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MessageReceived {

@@ -103,6 +103,24 @@ impl ComponentId {
         self.0
     }
 
+    /// Name this component in a metadata change event.
+    pub fn event_name(self) -> String {
+        if let Some(field) = super::component_source::component_id_to_metadata_field(self) {
+            return field.as_str().into();
+        }
+        match self {
+            Self::COMPONENT_REGISTRY => "COMPONENT_REGISTRY".into(),
+            Self::SUPER_ADMIN_LIST => "SUPER_ADMIN_LIST".into(),
+            Self::ADMIN_LIST => "ADMIN_LIST".into(),
+            Self::GROUP_MEMBERSHIP => "GROUP_MEMBERSHIP".into(),
+            Self::CONVERSATION_TYPE => "CONVERSATION_TYPE".into(),
+            Self::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
+            Self::DM_MEMBERS => "DM_MEMBERS".into(),
+            Self::ONESHOT_MESSAGE => "ONESHOT_MESSAGE".into(),
+            _ => format!("component:{:04x}", self.0),
+        }
+    }
+
     // === Range Helpers ===
 
     /// Returns true if the ID is in the component ID space (top half of u16).
@@ -230,6 +248,13 @@ impl Deserialize for ComponentId {
 mod tests {
     use super::*;
     use tls_codec::{Deserialize, Serialize};
+
+    #[xmtp_common::test]
+    fn event_names_cover_known_and_application_components() {
+        assert_eq!(ComponentId::GROUP_NAME.event_name(), "group_name");
+        assert_eq!(ComponentId::ADMIN_LIST.event_name(), "ADMIN_LIST");
+        assert_eq!(ComponentId::new(0xc123).event_name(), "component:c123");
+    }
 
     #[xmtp_common::test]
     fn test_well_known_ids_are_in_expected_ranges() {

@@ -241,9 +241,32 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error
                 {
+                    let already_paused = tx
+                        .storage()
+                        .db()
+                        .get_group_paused_version(&self.group_id)?;
                     tx.storage()
                         .db()
                         .set_group_paused(&self.group_id, version)?;
+                    if already_paused.is_none() && !self.conversation_type.is_virtual() {
+                        event_buffer.emit_with_context(
+                            Some(xmtp_events::ClientEvent::ConversationPaused(
+                                xmtp_events::ConversationPaused {
+                                    group_id: self.group_id.to_vec(),
+                                    floor: version.clone(),
+                                },
+                            )),
+                            None,
+                            xmtp_events::EventContext {
+                                dm_identifier: self
+                                    .dm_id
+                                    .as_ref()
+                                    .map(|id| id.as_bytes().to_vec()),
+                                references_own_messages: false,
+                                ..Default::default()
+                            },
+                        );
+                    }
                     return Ok(Continue(Err(GroupMessageProcessingError::GroupPaused)));
                 }
                 if error.is_safe_rejection() {
@@ -263,7 +286,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                         )
                                 });
                         }
-                        self.record_rejected_message(group, storage, envelope, &error)?;
+                        self.record_rejected_message(
+                            group,
+                            storage,
+                            envelope,
+                            &error,
+                            event_buffer,
+                        )?;
                         storage.db().record_terminal_rejection(
                             &topic,
                             envelope.cursor,

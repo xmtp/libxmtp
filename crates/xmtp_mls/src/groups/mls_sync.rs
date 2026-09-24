@@ -56,7 +56,7 @@ use prost::Message;
 use prost::bytes::Bytes;
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeSet, HashMap, HashSet},
     mem::{Discriminant, discriminant},
     ops::RangeInclusive,
     time::Duration,
@@ -91,7 +91,9 @@ use xmtp_db::{
     group_message::MsgQueryArgs,
     pending_remove::{PendingRemove, QueryPendingRemove},
 };
+use xmtp_events::{ClientEvent, EventContext, EventWriter};
 use xmtp_id::{InboxId, InboxIdRef};
+use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls_common::libxmtp_version::LibXMTPVersion;
 use xmtp_mls_common::mls_ext::payload_encryption::{
@@ -139,6 +141,115 @@ mod processing_policy;
 pub mod update_group_membership;
 pub(crate) use processing::GroupHeadOutcome;
 pub(crate) mod publish;
+
+impl<Context: XmtpSharedContext> MlsGroup<Context> {
+    fn metadata_changed_event(&self, commit: &ValidatedCommit) -> Option<ClientEvent> {
+        let changed: BTreeSet<_> = commit
+            .metadata_component_ids
+            .iter()
+            .copied()
+            .map(ComponentId::from)
+            .map(ComponentId::event_name)
+            .collect();
+        (!changed.is_empty()).then(|| {
+            ClientEvent::ConversationMetadataChanged(xmtp_events::MetadataChanged {
+                group_id: self.group_id.to_vec(),
+                changed: changed.into_iter().collect(),
+            })
+        })
+    }
+
+    fn emit_message_status_changed(
+        &self,
+        message_id: Vec<u8>,
+        previous: xmtp_events::MessageStatus,
+        current: xmtp_events::MessageStatus,
+        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) {
+        if self.conversation_type.is_virtual() || previous == current {
+            return;
+        }
+        writer.emit_with_context(
+            Some(ClientEvent::MessageStatusChanged(
+                xmtp_events::MessageStatusChanged {
+                    group_id: self.group_id.to_vec(),
+                    message_id,
+                    previous,
+                    current,
+                },
+            )),
+            None,
+            EventContext {
+                dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+                references_own_messages: false,
+                ..Default::default()
+            },
+        );
+    }
+
+    /// Queue the public changes of one applied commit in kind-table order.
+    fn emit_commit_events(
+        &self,
+        commit: &ValidatedCommit,
+        group_active: bool,
+        storage: &impl XmtpMlsStorageProvider,
+        writer: &impl EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupMessageProcessingError> {
+        if self.conversation_type.is_virtual() {
+            return Ok(());
+        }
+        let context = EventContext {
+            dm_identifier: self.dm_id.as_ref().map(|id| id.as_bytes().to_vec()),
+            references_own_messages: false,
+            ..Default::default()
+        };
+        if !group_active {
+            let left = storage
+                .db()
+                .get_pending_remove_users(&self.group_id)?
+                .contains(&self.context.inbox_id().to_string());
+            writer.emit_with_context(
+                Some(ClientEvent::ConversationRemoved(
+                    xmtp_events::ConversationRemoved {
+                        group_id: self.group_id.to_vec(),
+                        cause: if left {
+                            xmtp_events::RemovalCause::Left
+                        } else {
+                            xmtp_events::RemovalCause::Removed
+                        },
+                    },
+                )),
+                None,
+                context.clone(),
+            );
+        }
+        if !commit.added_inboxes.is_empty() || !commit.removed_inboxes.is_empty() {
+            writer.emit_with_context(
+                Some(ClientEvent::ConversationMembershipChanged(
+                    xmtp_events::MembershipChanged {
+                        group_id: self.group_id.to_vec(),
+                        added_inbox_ids: commit
+                            .added_inboxes
+                            .iter()
+                            .map(|inbox| inbox.inbox_id.clone())
+                            .collect(),
+                        removed_inbox_ids: commit
+                            .removed_inboxes
+                            .iter()
+                            .map(|inbox| inbox.inbox_id.clone())
+                            .collect(),
+                    },
+                )),
+                None,
+                context.clone(),
+            );
+        }
+        if let Some(event) = self.metadata_changed_event(commit) {
+            writer.emit_with_context(Some(event), None, context);
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum GroupMessageProcessingError {
