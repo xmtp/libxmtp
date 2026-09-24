@@ -96,7 +96,14 @@ jobs:
               - '**/*.nix'
               - 'flake.nix'
               - 'dev/**'
+              - 'justfile'
               - '.github/workflows/lint-config*'
+              # just lint-config checks the SDK API manifest against these.
+              - 'docs/self-hosted/sdk-api-manifest.md'
+              - 'sdks/ios/Sources/**'
+              - 'sdks/android/library/src/main/**'
+              - 'sdks/node/src/**'
+              - 'sdks/browser/src/**'
             proto:
               - 'proto/**'
               - 'justfile'
