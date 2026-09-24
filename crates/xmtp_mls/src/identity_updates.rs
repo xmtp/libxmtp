@@ -1038,7 +1038,7 @@ pub(crate) mod tests {
     fn cache_association_state() {
         use std::sync::Arc;
 
-        use xmtp_common::assert_logged;
+        use xmtp_common::{assert_logged, traced_test::LOG_BUFFER};
 
         use crate::{
             utils::LocalTester, worker::device_sync::DeviceSyncClient,
@@ -1090,15 +1090,18 @@ pub(crate) mod tests {
                 .await
                 .unwrap();
 
+            assert_logged!("Wrote association", 2);
+            // Count cache reads from the following calls.
+            LOG_BUFFER.with(|buf| buf.clear());
             get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 1);
-            assert_logged!("Wrote association", 2);
+            assert_logged!("Wrote association", 0);
 
             let association_state = get_association_state(&client, inbox_id).await;
 
             assert_logged!("Loaded association", 2);
-            assert_logged!("Wrote association", 2);
+            assert_logged!("Wrote association", 0);
 
             assert_eq!(association_state.members().len(), 3);
             assert_eq!(
