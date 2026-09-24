@@ -13,6 +13,7 @@ use crate::config::{FileConfig, Level, TelemetryConfig};
 use crate::error::Error;
 use crate::filter::filter_directive;
 use crate::layers::file::EmptyOrFileWriter;
+use crate::layers::sink::{LogSinkTarget, SinkSlot};
 #[cfg(feature = "sentry")]
 use crate::sentry::SentryConfig;
 use crate::telemetry::{self, TelemetryGuard};
@@ -98,6 +99,7 @@ pub struct LoggingHandle {
     native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
     file: reload::Handle<FileLayer, Registry>,
     telemetry: reload::Handle<Option<BoxLayer>, Registry>,
+    sink: SinkSlot,
     tracer: telemetry::switch::SwitchTracer,
     guards: Mutex<Guards>,
 }
@@ -111,6 +113,7 @@ impl LoggingHandle {
         native_filters: Vec<reload::Handle<EnvFilter, Registry>>,
         file: reload::Handle<FileLayer, Registry>,
         telemetry: reload::Handle<Option<BoxLayer>, Registry>,
+        sink: SinkSlot,
         tracer: telemetry::switch::SwitchTracer,
         guards: Guards,
     ) -> Self {
@@ -119,6 +122,7 @@ impl LoggingHandle {
             native_filters,
             file,
             telemetry,
+            sink,
             tracer,
             guards: Mutex::new(guards),
         }
@@ -128,6 +132,16 @@ impl LoggingHandle {
     pub fn set_level(&self, level: Level) -> Result<(), Error> {
         self.filter.reload(filter_directive(level.as_str()))?;
         Ok(())
+    }
+
+    /// Replace or clear the extra event sink. Native layers stay active.
+    pub fn set_sink(&self, target: Option<std::sync::Arc<dyn LogSinkTarget>>) {
+        self.sink.set_sink(target);
+    }
+
+    /// Number of errors or panics from a direct sink callback.
+    pub fn sink_error_count(&self) -> u64 {
+        self.sink.error_count()
     }
 
     /// Change the native (stdout / logcat / oslog) layer's level at runtime, on

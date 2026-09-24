@@ -23,6 +23,8 @@ pub use config::*;
 pub use error::Error;
 pub use filter::filter_directive;
 pub use handle::LoggingHandle;
+#[cfg(not(target_arch = "wasm32"))]
+pub use layers::sink::{BoundedSink, LogRecord, LogSinkTarget, SinkError};
 
 // OTLP trace export is native-only: `opentelemetry-otlp`/`tonic` do not build on
 // wasm, and the browser has no exporter.

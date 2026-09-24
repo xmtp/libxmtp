@@ -6,5 +6,7 @@ pub(crate) mod file;
 pub(crate) mod fmt;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod native;
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) mod sink;
 #[cfg(target_arch = "wasm32")]
 pub(crate) mod web;

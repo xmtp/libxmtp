@@ -98,6 +98,9 @@ impl XmtpLoggingBuilder {
         // Slot 4: reloadable telemetry layer (seeded with the pre-built exporter).
         let (otel_layer, otel_handle) = reload::Layer::new(otel_initial);
 
+        // Slot 5: one replaceable sink. The layer stays installed when empty.
+        let sink = crate::layers::sink::SinkSlot::default();
+
         // Reloading the OTel layer hides its context-access downcast. Keep it
         // fixed and replace its tracer when telemetry changes.
         let trace_filter = tracer.clone();
@@ -111,6 +114,7 @@ impl XmtpLoggingBuilder {
             primary_layer,
             file_layer.boxed(),
             otel_layer.boxed(),
+            sink.clone().boxed(),
             trace_layer.boxed(),
             #[cfg(feature = "metrics")]
             crate::span_metrics::SpanMetricsLayer.boxed(),
@@ -127,6 +131,7 @@ impl XmtpLoggingBuilder {
             native_filters,
             file_handle,
             otel_handle,
+            sink,
             tracer,
             guards,
         );
