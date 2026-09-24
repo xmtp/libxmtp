@@ -365,9 +365,9 @@ impl Client {
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
         let identity = signer::identity(signer.clone()).await?;
-        let kind = signer::kind(signer.clone()).await?;
         let mut client = Self::build_inner(identity, options, None).await?;
         if client.options.registration.auto {
+            let kind = signer::kind(signer.clone()).await?;
             client.register_with_signer(signer.clone(), kind).await?;
         }
         client.signer = Some(signer);

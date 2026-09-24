@@ -418,6 +418,35 @@ struct WalletSigner(PrivateKeySigner);
 
 struct UnlistedChainSigner(PrivateKeySigner);
 
+struct KindFailsSigner(PrivateKeySigner);
+
+#[xmtp_common::async_trait]
+impl Signer for KindFailsSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        WalletSigner(self.0.clone()).identity().await
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        Err(SignerError::Failed)
+    }
+
+    async fn sign(&self, _request: SigningRequest) -> Result<Signature, SignerError> {
+        Err(SignerError::Failed)
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_without_auto_registration_skips_signer_kind() {
+    let mut settings = options();
+    settings.registration.auto = false;
+    let client = Client::create(
+        Arc::new(KindFailsSigner(PrivateKeySigner::random())),
+        settings,
+    )
+    .await?;
+    client.end().await?;
+}
+
 #[xmtp_common::async_trait]
 impl Signer for UnlistedChainSigner {
     async fn identity(&self) -> Result<PublicIdentity, SignerError> {
