@@ -14,6 +14,85 @@
 "SignerKind.Scw.chain_id" = "chain_i_d"
 "Signature.Scw.chain_id" = "chain_i_d"
 
+# The stock generators index renamed custom types by their converter key.
+[bindings.swift.custom_types.Message]
+lift = "Message(data: {})"
+lower = "{}.data"
+
+[bindings.swift.custom_types.inbox_i_d]
+lift = "InboxID(value: {})"
+lower = "{}.value"
+
+[bindings.swift.custom_types.installation_i_d]
+lift = "InstallationID(value: {})"
+lower = "{}.value"
+
+[bindings.swift.custom_types.conversation_i_d]
+lift = "ConversationID(value: {})"
+lower = "{}.value"
+
+[bindings.swift.custom_types.message_i_d]
+lift = "MessageID(value: {})"
+lower = "{}.value"
+
+[bindings.swift.custom_types.Timestamp]
+lift = "Timestamp(ns: {})"
+lower = "{}.ns"
+
+[bindings.kotlin.custom_types.Message]
+lift = "Message({})"
+lower = "{}.data"
+
+[bindings.kotlin.custom_types.inbox_i_d]
+lift = "InboxID({})"
+lower = "{}.value"
+
+[bindings.kotlin.custom_types.installation_i_d]
+lift = "InstallationID({})"
+lower = "{}.value"
+
+[bindings.kotlin.custom_types.conversation_i_d]
+lift = "ConversationID({})"
+lower = "{}.value"
+
+[bindings.kotlin.custom_types.message_i_d]
+lift = "MessageID({})"
+lower = "{}.value"
+
+[bindings.kotlin.custom_types.Timestamp]
+lift = "Timestamp({})"
+lower = "{}.ns"
+
+[bindings.typescript.customTypes.Message]
+imports = [["Message", "./runtime"]]
+lift = "new Message({})"
+lower = "{}.data"
+
+[bindings.typescript.customTypes.InboxID]
+imports = [["InboxID", "./runtime"]]
+lift = "InboxID.fromString({})"
+lower = "{}.toString()"
+
+[bindings.typescript.customTypes.InstallationID]
+imports = [["InstallationID", "./runtime"]]
+lift = "InstallationID.fromString({})"
+lower = "{}.toString()"
+
+[bindings.typescript.customTypes.ConversationID]
+imports = [["ConversationID", "./runtime"]]
+lift = "ConversationID.fromString({})"
+lower = "{}.toString()"
+
+[bindings.typescript.customTypes.MessageID]
+imports = [["MessageID", "./runtime"]]
+lift = "MessageID.fromString({})"
+lower = "{}.toString()"
+
+[bindings.typescript.customTypes.Timestamp]
+imports = [["Timestamp", "./runtime"]]
+lift = "new Timestamp({})"
+lower = "{}.ns"
+
 [bindings.kotlin.rename]
 "InboxID" = "inbox_i_d"
 "InstallationID" = "installation_i_d"

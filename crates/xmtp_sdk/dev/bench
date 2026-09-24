@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+nix build --no-link .#ubjs-core .#ubjs-node .#node-bindings-fast
+core="$(nix path-info .#ubjs-core)"
+node="$(nix path-info .#ubjs-node)"
+native="$(nix path-info .#node-bindings-fast)"
+package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
+export SDK_NAPI_BIN="$(find "$native/dist" -maxdepth 1 -name '*.node' -print -quit)"
+test -n "$SDK_NAPI_BIN"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
+sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/ts/bench.mts

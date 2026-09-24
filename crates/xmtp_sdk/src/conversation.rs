@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
 use xmtp_db::group_message::MsgQueryArgs;
@@ -7,6 +8,23 @@ use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use crate::{
     ConversationID, InboxID, Message, MessageID, MessageReader, XmtpError, client::CoreClient,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, XmtpError>> + Send + 'static,
+{
+    tokio::spawn(work).await.map_err(XmtpError::unknown)?
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn on_sdk_worker<T, F>(work: F) -> Result<T, XmtpError>
+where
+    F: Future<Output = Result<T, XmtpError>>,
+{
+    work.await
+}
 
 #[derive(uniffi::Object)]
 pub struct Conversations {
@@ -21,11 +39,14 @@ impl Conversations {
             return Err(XmtpError::closed());
         }
         let members: Vec<String> = members.into_iter().map(|member| member.0).collect();
-        let group = self
-            .client
-            .create_group_with_members(&members, None, None)
-            .await
-            .map_err(XmtpError::unknown)?;
+        let client = self.client.clone();
+        let group = on_sdk_worker(async move {
+            client
+                .create_group_with_members(&members, None, None)
+                .await
+                .map_err(XmtpError::unknown)
+        })
+        .await?;
         Ok(Arc::new(Group {
             inner: group,
             client_key: self.client_key,
@@ -59,36 +80,43 @@ impl Group {
         self.ensure_open()?;
         let content = TextCodec::encode(text).map_err(XmtpError::unknown)?;
         let bytes = encoded_content_to_bytes(content);
-        let id = self
-            .inner
-            .send_message(
-                &bytes,
-                SendMessageOpts {
-                    should_push: true,
-                    idempotency_key: None,
-                },
-            )
-            .await
-            .map_err(XmtpError::unknown)?;
-        MessageID::from_bytes(&id)
+        let group = self.inner.clone();
+        on_sdk_worker(async move {
+            let id = group
+                .send_message(
+                    &bytes,
+                    SendMessageOpts {
+                        should_push: true,
+                        idempotency_key: None,
+                    },
+                )
+                .await
+                .map_err(XmtpError::unknown)?;
+            MessageID::from_bytes(&id)
+        })
+        .await
     }
 
     pub async fn messages(&self) -> Result<Vec<Message>, XmtpError> {
         self.ensure_open()?;
-        self.inner
-            .find_messages(&MsgQueryArgs::default())
-            .map_err(XmtpError::unknown)?
-            .into_iter()
-            .map(|message| Message::from_stored(message, self.client_key))
-            .collect()
+        let group = self.inner.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(async move {
+            group
+                .find_messages(&MsgQueryArgs::default())
+                .map_err(XmtpError::unknown)?
+                .into_iter()
+                .map(|message| Message::from_stored(message, client_key))
+                .collect()
+        })
+        .await
     }
 
     pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
         self.ensure_open()?;
-        MessageReader::open(
-            self.inner.context.clone(),
-            self.inner.group_id,
-            self.client_key,
-        )
+        let context = self.inner.context.clone();
+        let group_id = self.inner.group_id;
+        let client_key = self.client_key;
+        on_sdk_worker(async move { MessageReader::open(context, group_id, client_key) }).await
     }
 }

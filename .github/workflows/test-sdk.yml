@@ -1,6 +1,10 @@
 name: Test SDK façade
 on:
   workflow_call:
+    inputs:
+      run_swift:
+        type: boolean
+        default: false
 jobs:
   sdk:
     name: Generate and test SDK façade
@@ -36,7 +40,75 @@ jobs:
         run: just sdk wasm-init
       - name: Test SDK crate
         run: just test crate xmtp_sdk
+      - name: Node conformance
+        run: just sdk conformance node
+      - name: Kotlin JVM conformance
+        run: just sdk conformance kotlin
+      - name: Chromium worker conformance
+        run: just sdk conformance browser
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
-      # Task 9 adds Swift, Kotlin, Node, and browser conformance jobs.
+
+  swift:
+    name: Swift conformance
+    if: inputs.run_swift
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - run: just backend up
+      - run: just sdk generate
+      - run: just sdk conformance swift
+
+  windows-load:
+    name: Windows SDK load (win32-x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SQLX_OFFLINE: "true"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-pc-windows-msvc
+          workspaces: .
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install protoc
+      - name: Build xmtp_sdk and generator
+        run: cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
+      - name: Generate TypeScript bindings
+        shell: bash
+        run: |
+          mkdir -p target/sdk-generated/typescript-napi
+          target/debug/xmtp-sdk-bindgen.exe generate --lib target/debug/xmtp_sdk.dll --language typescript-napi --out target/sdk-generated/typescript-napi --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+          cp target/debug/xmtp_sdk.dll target/sdk-generated/typescript-napi/
+      - name: Build pinned @ubjs runtimes
+        shell: bash
+        run: |
+          git clone https://github.com/neekolas/uniffi-bindgen-react-native.git ubrn
+          fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
+          git -C ubrn checkout "$fork_rev"
+          npm ci --prefix ubrn/typescript --ignore-scripts
+          npm run build --prefix ubrn/typescript
+          npm ci --prefix ubrn/runtimes/napi --ignore-scripts
+          npm run build --prefix ubrn/runtimes/napi
+          mkdir -p target/sdk-generated/typescript-napi/node_modules/@ubjs
+          cp -R ubrn/typescript target/sdk-generated/typescript-napi/node_modules/@ubjs/core
+          cp -R ubrn/runtimes/napi target/sdk-generated/typescript-napi/node_modules/@ubjs/node
+      - name: Conformance scenario 1
+        run: npx --yes tsx crates/xmtp_sdk/conformance/ts/load.mts

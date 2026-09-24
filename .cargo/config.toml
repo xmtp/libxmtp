@@ -16,6 +16,9 @@ rustflags = [
   'getrandom_backend="wasm_js"',
   '-C',
   'target-feature=+bulk-memory,+mutable-globals',
+  # MLS group creation needs more than wasm-ld's 1 MiB default stack.
+  '-C',
+  'link-arg=-zstack-size=16777216',
 ]
 
 [target.aarch64-linux-android]

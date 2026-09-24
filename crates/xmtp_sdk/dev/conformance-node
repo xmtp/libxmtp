@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+nix build --no-link .#ubjs-core .#ubjs-node
+core="$(nix path-info .#ubjs-core)"
+node="$(nix path-info .#ubjs-node)"
+package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
+mkdir -p crates/xmtp_sdk/conformance/ts/node_modules
+ln -sfn "$root/sdks/node/node_modules/vitest" crates/xmtp_sdk/conformance/ts/node_modules/vitest
+sdks/node/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/ts/vitest.config.ts

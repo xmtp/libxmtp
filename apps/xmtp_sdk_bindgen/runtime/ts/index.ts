@@ -1,2 +1,10 @@
-// Task 9 adds the host runtime here.
-export {};
+export { Client, ClientRegistry } from "./client";
+export {
+  ConversationID,
+  InboxID,
+  InstallationID,
+  MessageID,
+  Timestamp,
+} from "./ids";
+export { Message } from "./message";
+export { MessageStream } from "./reader";

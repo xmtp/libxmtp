@@ -22,10 +22,13 @@ check-isolation:
     cd "{{ root }}" && crates/xmtp_sdk/dev/check-isolation
 
 conformance target:
-    echo "Conformance for {{ target }} is added by Task 9"
+    case "{{ target }}" in \
+      swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      *) echo "Expected swift, kotlin, node, or browser" >&2; exit 2 ;; \
+    esac
 
 manifest-check:
     echo "Manifest check is added when the SDK manifest exists"
 
 bench:
-    echo "SDK benchmark is added with the conformance suite"
+    bash "{{ root }}/crates/xmtp_sdk/dev/bench"

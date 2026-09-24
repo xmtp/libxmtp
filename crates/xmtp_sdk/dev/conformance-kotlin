@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+NIX_DEVSHELL=android dev/nix-shell 'export XMTP_WORKTREE_SLOT=41; export RUST_MIN_STACK=16777216; export SDK_SIGN_KEY="$(openssl rand -hex 32)"; export SDK_NODE_BIN="$(command -v node)"; export SDK_SIGN_SCRIPT="$PWD/crates/xmtp_sdk/conformance/ts/sign.mjs"; sdks/android/gradlew -p crates/xmtp_sdk/conformance/kotlin run --no-daemon'

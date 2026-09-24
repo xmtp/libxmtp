@@ -31,5 +31,10 @@ pub use signer::{
 
 uniffi::setup_scaffolding!();
 
+#[xmtp_macro::sdk_export]
+pub fn sdk_version() -> String {
+    env!("CARGO_PKG_VERSION").to_owned()
+}
+
 #[cfg(test)]
 mod tests;
