@@ -71,3 +71,6 @@ If you must loop, back off: 60s, then 120s, then 300s.
   `testCanStreamGroupMessages`.
 - Record the verdict in `## Findings` when you finish, so the next agent does
   not repeat the work.
+- "Re-run failed jobs" tests the same old merge commit again. When the fix
+  landed on the base branch after that commit, rebase the PR branch and push.
+  Do not re-run.
