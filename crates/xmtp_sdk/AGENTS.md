@@ -5,7 +5,10 @@ Run commands from the repository root in the Nix shell. Run
 
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
   and WASM bindings to `target/sdk-generated/`.
-- `just sdk lint` checks generated names and TypeScript source.
+- `just sdk lint` checks generated names and TypeScript source. It also
+  rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
+  benchmark exports in the default bindings and in
+  `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
 - `just sdk wasm-init` loads the staged WASM package in Node.
 - `just sdk conformance <swift|kotlin|node|browser>` runs scenarios 1, 2, and 7
   against this worktree's backend.

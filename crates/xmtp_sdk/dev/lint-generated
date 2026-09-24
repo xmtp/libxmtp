@@ -10,7 +10,8 @@ dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarn
 crates/xmtp_sdk/dev/check-id-spelling \
   "$generated/swift" "$generated/kotlin" \
   "$generated/typescript-napi" "$generated/typescript-wasm"
-crates/xmtp_sdk/dev/check-bench-exports "$generated"
+crates/xmtp_sdk/dev/check-test-hooks --self-test
+crates/xmtp_sdk/dev/check-test-hooks "$generated"
 
 echo "Stock generated TypeScript is excluded from Oxlint and Oxfmt: upstream templates emit any and as casts (95 no-explicit-any findings)."
 echo "Linting only the TypeScript runtime bridge maintained in this repository."

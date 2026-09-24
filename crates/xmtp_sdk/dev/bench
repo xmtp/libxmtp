@@ -24,7 +24,7 @@ target/debug/xmtp-sdk-bindgen generate \
   --lib "target/release/$library" --language typescript-napi \
   --out "$benchmark" --config apps/xmtp_sdk_bindgen/uniffi-global.toml
 cp "target/release/$library" "$benchmark/"
-crates/xmtp_sdk/dev/check-bench-exports --bench "$benchmark"
+crates/xmtp_sdk/dev/check-test-hooks --bench "$benchmark"
 echo 'Benchmark profile: release (workspace opt-level = s) on both native libraries; NODE_ENV=production'
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
