@@ -431,7 +431,6 @@ where
                 self.emit_commit_events(
                     &validated_commit,
                     mls_group.is_active(),
-                    None,
                     storage,
                     event_writer,
                 )?;

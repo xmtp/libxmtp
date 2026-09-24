@@ -515,8 +515,33 @@ where
         // same transaction that applies the removal, so no stranded intent can
         // preempt publishing after a later re-add.
         if !outcome.group_active {
+            let mut unpublished_messages = Vec::new();
+            if !self.conversation_type.is_virtual() {
+                for intent in db.find_group_intents(
+                    self.group_id,
+                    Some(vec![IntentState::ToPublish, IntentState::Published]),
+                    Some(IntentKind::all().collect()),
+                )? {
+                    if let Some(id) = calculate_message_id_for_intent(&intent)?
+                        && db.get_group_message(&id)?.is_some_and(|message| {
+                            message.delivery_status == DeliveryStatus::Unpublished
+                        })
+                    {
+                        unpublished_messages.push(id);
+                    }
+                }
+            }
             let superseded =
                 db.supersede_pending_intents_for_inactive_group(self.group_id.as_ref())?;
+            for id in unpublished_messages {
+                db.set_delivery_status_to_failed(&id)?;
+                self.emit_message_status_changed(
+                    id,
+                    xmtp_events::MessageStatus::Unpublished,
+                    xmtp_events::MessageStatus::Failed,
+                    event_writer,
+                );
+            }
             if superseded > 0 {
                 tracing::info!(
                     group_id = %self.group_id,

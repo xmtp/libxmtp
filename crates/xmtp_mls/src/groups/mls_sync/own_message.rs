@@ -293,7 +293,6 @@ where
             self.emit_commit_events(
                 &validated_commit,
                 mls_group.is_active(),
-                Some(intent.id),
                 storage,
                 event_writer,
             )
