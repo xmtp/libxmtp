@@ -132,7 +132,7 @@ jobs:
 
   cleanup-backend:
     needs: [deploy-backend, swift]
-    if: always() && needs.deploy-backend.result == 'success'
+    if: always() && needs.deploy-backend.result != 'skipped'
     runs-on: ubuntu-latest
     steps:
       - uses: superfly/flyctl-actions/setup-flyctl@master
