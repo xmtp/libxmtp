@@ -9,6 +9,7 @@ import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridg
 import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import {
   BridgeError,
+  assertCloneable,
   decodeError,
   encodeError,
   type WireEndpoint,
@@ -27,10 +28,14 @@ import {
 
 class Endpoint implements WireEndpoint {
   peer?: Endpoint;
+  readonly sent: WireMessage[] = [];
+  readonly transfers: Transferable[][] = [];
   private receive: (message: WireMessage) => void = () => {};
   private exitHandler: () => void = () => {};
 
-  postMessage(message: WireMessage): void {
+  postMessage(message: WireMessage, transfer: Transferable[] = []): void {
+    this.sent.push(message);
+    this.transfers.push(transfer);
     const copy = structuredClone(message);
     queueMicrotask(() => this.peer?.receive(copy));
   }
@@ -40,6 +45,9 @@ class Endpoint implements WireEndpoint {
   }
   onExit(handler: () => void): void {
     this.exitHandler = handler;
+  }
+  emitRaw(message: unknown): void {
+    this.receive(message as WireMessage);
   }
   exit(): void {
     this.exitHandler();
@@ -125,6 +133,60 @@ describe("browser bridge transport", () => {
     const shape = { kind: "object", name: "Group" } as const;
     const encoded = encoder.convert(shape, object);
     expect(decoder.convert(shape, structuredClone(encoded))).toBe(object);
+  });
+
+  it("uses a new epoch for each worker and rejects a proxy from another session", async () => {
+    const first = host(async () => undefined);
+    const second = host(async () => undefined);
+    await Promise.all([first.session.ready(), second.session.ready()]);
+    expect(first.engine.registry.epoch).not.toBe(second.engine.registry.epoch);
+    const proxy = new TestProxy(
+      first.session,
+      first.engine.registry.add({}, "Group"),
+    );
+    const encoder = new ValueCodec(
+      { records: {}, enums: {} },
+      "main",
+      "encode",
+      second.session,
+    );
+    expect(() =>
+      encoder.convert({ kind: "object", name: "Group" }, proxy),
+    ).toThrow("clientClosed");
+  });
+
+  it("batches release messages and transfers returned bytes", async () => {
+    const { main, worker, session } = host(async () => ({
+      bytes: new Uint8Array([1, 2, 3]),
+    }));
+    await session.ready();
+    session.release([11]);
+    session.release([12]);
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(main.sent.filter((message) => message.t === "release")).toEqual([
+      { t: "release", handles: [11, 12] },
+    ]);
+    await session.call("bytes", []);
+    expect(
+      worker.transfers.some((transfer) =>
+        transfer.some((item) => item instanceof ArrayBuffer),
+      ),
+    ).toBe(true);
+  });
+
+  it("accepts sets in cloneable wire values", () => {
+    expect(() =>
+      assertCloneable(new Set([1n, new Uint8Array([2])])),
+    ).not.toThrow();
+  });
+
+  it("fails pending calls on an unknown wire message", async () => {
+    const { main, session } = host(async () => new Promise<unknown>(() => {}));
+    await session.ready();
+    const pending = session.call("waiting", []);
+    await Promise.resolve();
+    main.emitRaw({ t: "futureMessage" });
+    await expect(pending).rejects.toMatchObject({ code: "contractMismatch" });
   });
 
   it("worker_death_settles_pending", async () => {
@@ -264,18 +326,130 @@ describe("browser bridge transport", () => {
       },
     };
     const locks = new PoolLocks(provider);
-    const [first, second] = await Promise.all([
-      locks.open("same-pool"),
-      locks.open("same-pool"),
-    ]);
-    expect([first, second]).toEqual([true, false]);
+    await Promise.all([locks.open("same-pool"), locks.open("same-pool")]);
     expect(requests).toBe(1);
     locks.attachOwner(1, "same-pool");
     locks.attachOwner(2, "same-pool");
     locks.closeOwner(1);
-    expect(await locks.open("same-pool")).toBe(false);
+    await locks.open("same-pool");
     locks.closeOwner(2);
-    expect(await locks.open("same-pool")).toBe(true);
+    locks.close("same-pool");
+    await locks.open("same-pool");
     locks.closeAll();
+  });
+
+  it("keeps a shared lock when one in-flight create fails", async () => {
+    const held = new Set<string>();
+    const provider: LockProvider = {
+      async request(name, _options, callback) {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({});
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    const first = new PoolLocks(provider);
+    const second = new PoolLocks(provider);
+    await Promise.all([first.open("race"), first.open("race")]);
+    first.close("race");
+    await expect(second.open("race")).rejects.toMatchObject({
+      code: "storageBusy",
+    });
+    first.attachOwner(7, "race");
+    first.closeOwner(7);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await second.open("race");
+    second.close("race");
+  });
+
+  it("keeps the lock when an owner ends during another create", async () => {
+    const held = new Set<string>();
+    const provider: LockProvider = {
+      async request(name, _options, callback) {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({});
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    const tab = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    await tab.open("pool");
+    tab.attachOwner(1, "pool");
+    await tab.open("pool");
+    tab.closeOwner(1);
+    await expect(otherTab.open("pool")).rejects.toMatchObject({
+      code: "storageBusy",
+    });
+    tab.attachOwner(2, "pool");
+    tab.closeOwner(2);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await otherTab.open("pool");
+    otherTab.close("pool");
+  });
+
+  it("cancels an opening pool lock when the worker closes", async () => {
+    const locks = new PoolLocks({
+      async request() {
+        await new Promise<void>(() => {});
+      },
+    });
+    const opening = locks.open("pending");
+    locks.closeAll();
+    await expect(opening).rejects.toMatchObject({ code: "workerTerminated" });
+  });
+
+  it("reports a gap before later events under constant flow", async () => {
+    const [main, worker] = pair();
+    const mainCallbacks = new MainCallbacks(main);
+    const workerCallbacks = new WorkerCallbacks(worker);
+    main.onMessage((message) => {
+      if (message.t === "callback") void mainCallbacks.receive(message);
+    });
+    worker.onMessage((message) => {
+      if (message.t === "callbackResult") workerCallbacks.receive(message);
+    });
+    const order: string[] = [];
+    const cb = mainCallbacks.register("EventListener", {
+      onEvent: (event) => {
+        order.push(`event:${event}`);
+      },
+      onLagged: (count) => {
+        order.push(`lagged:${count}`);
+      },
+    });
+    const listener = new BoundedListener(workerCallbacks, cb.cb);
+    for (let index = 0; index < 1030; index++) listener.push(index);
+    for (let index = 0; index < 100; index++) {
+      listener.push(2000 + index);
+      await Promise.resolve();
+    }
+    for (
+      let index = 0;
+      index < 10000 && !order.some((item) => item.startsWith("lagged:"));
+      index++
+    )
+      await Promise.resolve();
+    const gap = order.findIndex((item) => item.startsWith("lagged:"));
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(
+      order.slice(0, gap).every((item) => !/^event:2\d{3}$/.test(item)),
+    ).toBe(true);
+  });
+
+  it("rejects an already aborted call as cancelled", async () => {
+    const { session } = host(async () => undefined);
+    await session.ready();
+    const abort = new AbortController();
+    abort.abort();
+    await expect(
+      session.call("one", [], undefined, abort.signal),
+    ).rejects.toMatchObject({ code: "cancelled" });
   });
 });

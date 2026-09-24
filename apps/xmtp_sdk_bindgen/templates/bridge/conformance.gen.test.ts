@@ -2,34 +2,27 @@ import { serialize } from "node:v8";
 
 import { describe, expect, it } from "vitest";
 
-import { mainEncoder } from "./codec.main.gen.js";
-import { workerDecoder } from "./codec.worker.gen.js";
-import { ValueCodec, type Shape } from "./runtime/bridge/codec.js";
+import { mainDecoder, mainEncoder } from "./codec.main.gen.js";
+import { workerDecoder, workerEncoder } from "./codec.worker.gen.js";
+import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
+import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
-import {
-  BridgeError,
-  type WireEndpoint,
-  type WireMessage,
-} from "./runtime/bridge/wire.js";
+import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
 import { WorkerHost } from "./runtime/bridge/worker/host.js";
-import { WorkerRegistry } from "./runtime/bridge/worker/registry.js";
 import { BRIDGED_OBJECTS, FOREIGN_OBJECTS, LAYOUTS } from "./wire.gen.js";
+import * as B from "./xmtp_sdk.js";
 
 class Endpoint implements WireEndpoint {
   peer?: Endpoint;
   private receive: (message: WireMessage) => void = () => {};
-  private exitHandler: () => void = () => {};
-
   postMessage(message: WireMessage): void {
-    const clone = structuredClone(message);
-    queueMicrotask(() => this.peer?.receive(clone));
+    const copy = structuredClone(message);
+    queueMicrotask(() => this.peer?.receive(copy));
   }
   onMessage(handler: (message: WireMessage) => void): void {
     this.receive = handler;
   }
-  onExit(handler: () => void): void {
-    this.exitHandler = handler;
-  }
+  onExit(): void {}
 }
 
 function endpoints(): [Endpoint, Endpoint] {
@@ -40,148 +33,133 @@ function endpoints(): [Endpoint, Endpoint] {
   return [main, worker];
 }
 
-function sample(shape: Shape): unknown {
+function sample(shape: Shape, seed: number): unknown {
   switch (shape.kind) {
     case "value":
       switch (shape.type) {
         case "Boolean":
-          return true;
+          return seed % 2 === 0;
         case "String":
-          return "sample";
+          return `sample-${seed}`;
         case "Bytes":
-          return new Uint8Array([0, 1, 255]);
+          return new Uint8Array([seed, 0, 255]).buffer;
         case "UInt64":
         case "Int64":
-          return 9007199254740993n;
+          return 9007199254740993n + BigInt(seed);
         case "Timestamp":
-          return new Date(1700000000000);
+          return new Date(1700000000000 + seed);
         case "Duration":
-          return 1000;
+          return 1000 + seed;
         case undefined:
           return undefined;
         default:
-          return 17;
+          return seed + 17;
       }
     case "object":
     case "foreign":
     case "callback":
-      return { marker: shape.name };
+      return { marker: shape.name, seed };
     case "record": {
       const layout = LAYOUTS.records[shape.name];
       if (!layout) throw new Error(`unknown record ${shape.name}`);
-      return Object.fromEntries(
-        Object.entries(layout.fields).map(([name, field]) => [
-          name,
-          sample(field),
-        ]),
-      );
+      const result: Record<string, unknown> = {};
+      for (const [name, field] of Object.entries(layout.fields))
+        result[name] = sample(field, seed);
+      return result;
     }
     case "enum": {
       const layout = LAYOUTS.enums[shape.name];
       if (!layout) throw new Error(`unknown enum ${shape.name}`);
-      if (layout.error)
-        return new BridgeError("Test", "test", "unknown", false, "test", {
-          value: 1,
-        });
-      const first = Object.entries(layout.variants)[0];
-      if (!first) throw new Error(`empty enum ${shape.name}`);
-      return enumSample(first[0], first[1]);
+      const variants = Object.entries(layout.variants);
+      const entry = variants[seed % variants.length];
+      if (!entry) throw new Error(`empty enum ${shape.name}`);
+      if (layout.flat) return seed % variants.length;
+      if (layout.error) {
+        const fields = entry[1];
+        if (!Array.isArray(fields)) throw new Error("invalid error layout");
+        return enumFactory(B)(
+          shape.name,
+          entry[0],
+          fields[0] ? [sample(fields[0], seed)] : [],
+        );
+      }
+      return enumSample(shape.name, entry[0], entry[1], seed);
     }
     case "optional":
-      return undefined;
+      return seed % 2 === 0 ? sample(shape.inner, seed) : undefined;
     case "sequence":
-      return [sample(shape.inner)];
+      return [sample(shape.inner, seed), sample(shape.inner, seed + 2)];
     case "set":
-      return new Set([sample(shape.inner)]);
+      return new Set([sample(shape.inner, seed)]);
     case "map":
-      return new Map([[sample(shape.key), sample(shape.value)]]);
+      return new Map([[sample(shape.key, seed), sample(shape.value, seed)]]);
   }
 }
 
 function enumSample(
+  name: string,
   tag: string,
   fields: Record<string, Shape> | Shape[],
+  seed: number,
 ): unknown {
-  if (Array.isArray(fields)) return { tag, inner: fields.map(sample) };
-  const entries = Object.entries(fields);
-  return entries.length === 0
-    ? { tag }
-    : {
-        tag,
-        inner: Object.fromEntries(
-          entries.map(([name, shape]) => [name, sample(shape)]),
-        ),
-      };
-}
-
-function roundTrip(shape: Shape, value: unknown): void {
-  const registry = new WorkerRegistry(1);
-  const workerOut = new ValueCodec(
-    LAYOUTS,
-    "worker",
-    "encode",
-    undefined,
-    registry,
-  );
-  const workerIn = new ValueCodec(
-    LAYOUTS,
-    "worker",
-    "decode",
-    undefined,
-    registry,
-  );
-  const mainOut = new ValueCodec(LAYOUTS, "main", "encode");
-  const mainIn = new ValueCodec(LAYOUTS, "main", "decode");
-  const wire = workerOut.convert(shape, value);
-  const mainValue = mainIn.convert(shape, structuredClone(wire));
-  const returned = mainOut.convert(shape, mainValue);
-  const workerValue = workerIn.convert(shape, structuredClone(returned));
-  expect(serialize(workerOut.convert(shape, workerValue))).toEqual(
-    serialize(wire),
-  );
-}
-
-describe("generated bridge values", () => {
-  it("round trips a reentrant signer through generated stubs", async () => {
-    const [main, worker] = endpoints();
-    const host = new WorkerHost(
-      worker,
-      1,
-      "signer",
-      async () => {},
-      async (key) => key,
+  if (Array.isArray(fields))
+    return enumFactory(B)(
+      name,
+      tag,
+      fields.map((field) => sample(field, seed)),
     );
-    const session = new MainSession(main, 1, "signer");
-    await session.ready();
-    const shape: Shape = { kind: "foreign", name: "Signer" };
-    const handle = mainEncoder(session).convert(shape, {
-      async identity() {
-        return sample({ kind: "record", name: "PublicIdentity" });
-      },
-      async kind() {
-        return { tag: "Eoa" };
-      },
-      async sign(request: unknown) {
-        expect(request).toMatchObject({ text: "sample" });
-        expect(await session.call("inside", [])).toBe("inside");
-        return { tag: "Ecdsa", inner: [new Uint8Array([1, 2, 3])] };
-      },
-    });
-    const signer = workerDecoder(
-      host.registry,
-      host.callbacks,
-      (_name, tag, fields) => ({ tag, inner: fields }),
-    ).convert(shape, structuredClone(handle));
-    const sign: unknown = Reflect.get(signer, "sign");
-    if (typeof sign !== "function") throw new TypeError("sign stub missing");
-    const signature: unknown = await Reflect.apply(sign, signer, [
-      { text: "sample" },
-    ]);
-    expect(signature).toMatchObject({
-      tag: "Ecdsa",
-      inner: [new Uint8Array([1, 2, 3])],
-    });
-  });
+  const inner: Record<string, unknown> = {};
+  for (const [field, shape] of Object.entries(fields))
+    inner[field] = sample(shape, seed);
+  return enumFactory(B)(name, tag, inner);
+}
+
+async function roundTrip(
+  shape: Shape,
+  original: unknown,
+  mutate?: (wire: unknown) => unknown,
+  mutateRestored?: (value: unknown) => unknown,
+): Promise<void> {
+  const [main, worker] = endpoints();
+  const host = new WorkerHost(
+    worker,
+    1,
+    "conformance",
+    async () => {},
+    async () => undefined,
+  );
+  const session = new MainSession(main, 1, "conformance");
+  await session.ready();
+  const workerOut = workerEncoder(host.registry);
+  const workerIn = workerDecoder(host.registry, host.callbacks, enumFactory(B));
+  const mainOut = mainEncoder(session);
+  const mainIn = mainDecoder(
+    session,
+    enumFactory(B),
+    (handle) => session.proxy(handle) ?? new RemoteObject(session, handle),
+  );
+  const wire = workerOut.convert(shape, original);
+  const received = mutate
+    ? mutate(structuredClone(wire))
+    : structuredClone(wire);
+  const mainValue = mainIn.convert(shape, received);
+  const returned = mainOut.convert(shape, mainValue);
+  const decoded = workerIn.convert(shape, structuredClone(returned));
+  const restored = mutateRestored ? mutateRestored(decoded) : decoded;
+  const semantic = (value: unknown): unknown =>
+    value instanceof Error && "tag" in value
+      ? { tag: value.tag, inner: "inner" in value ? value.inner : undefined }
+      : value;
+  expect(
+    Buffer.compare(
+      serialize(semantic(restored)),
+      serialize(semantic(original)),
+    ),
+  ).toBe(0);
+  if (shape.kind === "object") expect(restored).toBe(original);
+}
+
+describe("generated bridge value conformance", () => {
   for (const type of [
     "UInt8",
     "Int8",
@@ -199,53 +177,117 @@ describe("generated bridge values", () => {
     "Timestamp",
     "Duration",
   ]) {
-    it(`round trips scalar ${type}`, () => {
+    it(`round trips ${type}`, async () => {
       const shape: Shape = { kind: "value", type };
-      roundTrip(shape, sample(shape));
+      for (let seed = 0; seed < 4; seed++)
+        await roundTrip(shape, sample(shape, seed));
     });
   }
   for (const name of Object.keys(LAYOUTS.records)) {
-    it(`round trips record ${name}`, () => {
+    it(`round trips every ${name} field with present and absent options`, async () => {
       const shape: Shape = { kind: "record", name };
-      roundTrip(shape, sample(shape));
+      for (let seed = 0; seed < 4; seed++)
+        await roundTrip(shape, sample(shape, seed));
     });
   }
   for (const [name, layout] of Object.entries(LAYOUTS.enums)) {
-    if (layout.error) {
-      it(`round trips error ${name}`, () => {
+    for (let seed = 0; seed < Object.keys(layout.variants).length; seed++) {
+      it(`round trips ${name} variant ${seed}`, async () => {
         const shape: Shape = { kind: "enum", name };
-        roundTrip(shape, sample(shape));
+        await roundTrip(shape, sample(shape, seed));
       });
-    } else {
-      for (const [tag, fields] of Object.entries(layout.variants)) {
-        it(`round trips ${name}.${tag}`, () => {
-          roundTrip({ kind: "enum", name }, enumSample(tag, fields));
-        });
-      }
     }
   }
-  for (const name of [...BRIDGED_OBJECTS, ...FOREIGN_OBJECTS]) {
-    it(`keeps ${name} behind its handle`, () => {
-      const registry = new WorkerRegistry(1);
-      const value = { id: 1 };
-      const out = new ValueCodec(
-        LAYOUTS,
-        "worker",
-        "encode",
-        undefined,
-        registry,
-      );
-      const back = new ValueCodec(
-        LAYOUTS,
-        "worker",
-        "decode",
-        undefined,
-        registry,
-      );
+  for (const name of BRIDGED_OBJECTS) {
+    it(`returns the live ${name} object through a handle`, async () => {
       const shape: Shape = { kind: "object", name };
-      expect(
-        back.convert(shape, structuredClone(out.convert(shape, value))),
-      ).toBe(value);
+      const original = sample(shape, 2);
+      await roundTrip(shape, original);
     });
   }
+  it("keeps foreign object handles live", async () => {
+    for (const name of FOREIGN_OBJECTS) {
+      const [main, worker] = endpoints();
+      const host = new WorkerHost(
+        worker,
+        1,
+        "foreign",
+        async () => {},
+        async () => undefined,
+      );
+      const session = new MainSession(main, 1, "foreign");
+      await session.ready();
+      const original = sample({ kind: "object", name }, 2);
+      const handle = workerEncoder(host.registry).convert(
+        { kind: "object", name },
+        original,
+      );
+      expect(
+        workerDecoder(host.registry, host.callbacks, enumFactory(B)).convert(
+          { kind: "object", name },
+          structuredClone(handle),
+        ),
+      ).toBe(original);
+    }
+  });
+  it("round trips nested records, options, maps, lists, and live objects", async () => {
+    const shape: Shape = { kind: "record", name: "BridgeProperty" };
+    LAYOUTS.records.BridgeProperty = {
+      fields: {
+        object: { kind: "object", name: "Group" },
+        option: { kind: "optional", inner: { kind: "object", name: "Group" } },
+        list: { kind: "sequence", inner: { kind: "object", name: "Group" } },
+        map: {
+          kind: "map",
+          key: { kind: "value", type: "String" },
+          value: { kind: "object", name: "Group" },
+        },
+        count: { kind: "value", type: "UInt64" },
+        bytes: { kind: "value", type: "Bytes" },
+      },
+    };
+    const object = { marker: "live" };
+    const original = {
+      object,
+      option: object,
+      list: [object],
+      map: new Map([["live", object]]),
+      count: 9007199254740995n,
+      bytes: new Uint8Array([0, 255]).buffer,
+    };
+    await roundTrip(shape, original);
+    delete LAYOUTS.records.BridgeProperty;
+  });
+  it("detects a codec that drops a field", async () => {
+    const shape: Shape = { kind: "record", name: "BackendOptions" };
+    const original = sample(shape, 2);
+    await expect(
+      roundTrip(shape, original, (wire) => {
+        if (wire && typeof wire === "object")
+          Reflect.deleteProperty(wire, "url");
+        return wire;
+      }),
+    ).rejects.toThrow();
+  });
+  it("detects a codec that drops credentials", async () => {
+    const shape: Shape = { kind: "record", name: "BackendOptions" };
+    const original = sample(shape, 2);
+    await expect(
+      roundTrip(shape, original, (wire) => {
+        if (wire && typeof wire === "object")
+          Reflect.deleteProperty(wire, "credentials");
+        return wire;
+      }),
+    ).rejects.toThrow();
+  });
+  it("detects a spread codec that keeps an unknown field", async () => {
+    const shape: Shape = { kind: "record", name: "BackendOptions" };
+    const original = sample(shape, 2);
+    await expect(
+      roundTrip(shape, original, undefined, (value) => ({
+        ...Object(value),
+        leaked: "spread",
+      })),
+    ).rejects.toThrow();
+  });
 });
