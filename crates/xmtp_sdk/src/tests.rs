@@ -1249,7 +1249,6 @@ async fn callback_errors_convert() {
     assert_from::<CredentialError>();
 }
 
-// verifies: CTYPE-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn conversation_list_state_and_last_activity() {
     use crate::{Conversation, ConversationOrder, ListConversationsOptions};
@@ -1285,6 +1284,15 @@ async fn conversation_list_state_and_last_activity() {
     assert_eq!(ids, core_ids);
     assert_eq!(ids.first(), Some(&older.id()));
     assert!(older.last_activity_at_ns(None).await?.0 > newer.last_activity_at_ns(None).await?.0);
+    assert_eq!(
+        older.last_activity_at_ns(Some(vec![])).await?,
+        older.created_at()
+    );
+    let text_type = crate::encode_text("filter".into())?.r#type;
+    assert_eq!(
+        older.last_activity_at_ns(Some(vec![text_type])).await?,
+        older.last_activity_at_ns(None).await?
+    );
 
     let ((snapshot, core_kv_reads), core_queries, core_writes) =
         count_sql_queries(|| count_kv_reads(|| older.inner.state_snapshot()));
@@ -1307,6 +1315,7 @@ async fn conversation_list_state_and_last_activity() {
     client.end().await?;
 }
 
+// verifies: CTYPE-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_actions_use_ids_and_compression_is_opt_in() {
     use crate::{
