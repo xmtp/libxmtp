@@ -812,10 +812,11 @@ describe("Conversations", () => {
         },
       )
       .toEqual([6, 2, 2, 2]);
+    // Closing can release ownership while a callback is still running.
+    expect(errors).toEqual([]);
     await Promise.all(
       [stream, stream2, stream3, stream4].map((value) => value.endAndWait()),
     );
-    expect(errors).toEqual([]);
     expectStreamedMessages(
       messages,
       [
