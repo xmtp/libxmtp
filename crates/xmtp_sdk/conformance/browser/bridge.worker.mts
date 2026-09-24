@@ -37,5 +37,21 @@ new WorkerHost(
   async () => {
     await uniffiInitAsync(wasm);
   },
-  dispatchGenerated,
+  async (key, args, context) => {
+    if (key === "__bridgeInner") return "inner result";
+    if (key === "__bridgeNever") return new Promise<unknown>(() => {});
+    if (key === "__bridgeReentrantSigner") {
+      const callback = args[0];
+      if (
+        callback === null ||
+        typeof callback !== "object" ||
+        !("cb" in callback) ||
+        typeof callback.cb !== "number"
+      ) {
+        throw new TypeError("invalid signer callback");
+      }
+      return context.callbacks.invoke(callback.cb, "sign", []);
+    }
+    return dispatchGenerated(key, args, context);
+  },
 );
