@@ -21,6 +21,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Docker builder
+        uses: useblacksmith/setup-docker-builder@v2
+        with:
+          cache-key: libxmtp/mls-validation-service
+
       - name: Install toml-cli
         run: cargo install toml-cli
 
