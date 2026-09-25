@@ -22,4 +22,5 @@ grep -q "cannot convert value of type 'MessageContent' to specified type 'Encode
 grep -q "cannot convert value of type 'Conversation' to specified type 'Group'" "$log"
 grep -q "cannot convert value of type 'String' to expected argument type 'MessageID'" "$log"
 grep -q "NonSendableCodec.*does not conform to protocol 'SDKContentCodec'" "$log"
+grep -q "stored property 'count' of 'Sendable'-conforming class 'MutableCodec' is mutable" "$log"
 echo "Swift ID, content, and Group/Dm consumer checks passed"
