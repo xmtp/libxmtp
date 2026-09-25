@@ -327,7 +327,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             let mut encryptor = GcmEncryptor::new(&material);
             let mut hash = Sha256::new();
             let mut encrypted = Vec::with_capacity(CHUNK + prefix.len());
-            encryptor.update(&prefix, &mut encrypted);
+            encryptor.update(&prefix, &mut encrypted)?;
             staged.write(&encrypted).await?;
             hash.update(&encrypted);
             encrypted.clear();
@@ -354,7 +354,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                                 return Err(AttachmentClientError::new(Cause::SourceUnreadable));
                             }
                             plain.write(&chunk[..count]).await?;
-                            encryptor.update(&chunk[..count], &mut encrypted);
+                            encryptor.update(&chunk[..count], &mut encrypted)?;
                             staged.write(&encrypted).await?;
                             hash.update(&encrypted);
                             encrypted.clear();
@@ -387,7 +387,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                                 return Err(AttachmentClientError::new(Cause::SourceUnreadable));
                             }
                             plain.write(&chunk).await?;
-                            encryptor.update(&chunk, &mut encrypted);
+                            encryptor.update(&chunk, &mut encrypted)?;
                             staged.write(&encrypted).await?;
                             hash.update(&encrypted);
                             encrypted.clear();
@@ -400,7 +400,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 AttachmentSource::Bytes { bytes, .. } => {
                     for chunk in bytes.chunks(CHUNK) {
                         plain.write(chunk).await?;
-                        encryptor.update(chunk, &mut encrypted);
+                        encryptor.update(chunk, &mut encrypted)?;
                         staged.write(&encrypted).await?;
                         hash.update(&encrypted);
                         encrypted.clear();
@@ -790,7 +790,7 @@ mod tests {
         let material = KeyMaterial::from_remote(remote)?;
         let mut decrypted = Vec::new();
         let mut decryptor = GcmDecryptor::new(&material);
-        decryptor.update(&staged, &mut decrypted);
+        decryptor.update(&staged, &mut decrypted)?;
         decryptor.finish()?;
         let mut encoded = encoded_prefix(Some("note.txt"), "text/plain", 18);
         encoded.extend_from_slice(b"attachment content");
@@ -843,7 +843,7 @@ mod tests {
         assert!(bo.client.attachments().list_pending().await?.is_empty());
     }
 
-    // verifies: ATCH-033
+    // verifies: ATCH-030
     #[xmtp_common::test(unwrap_try = true)]
     async fn exact_upload_limit_is_allowed() {
         let dir = tempfile::tempdir()?;
