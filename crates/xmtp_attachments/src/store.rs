@@ -142,6 +142,33 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
 }
 
 impl StagedFile {
+    #[cfg(target_arch = "wasm32")]
+    pub fn len(&self) -> u64 {
+        self.file.size() as u64
+    }
+
+    /// Read at most one chunk from an OPFS source file.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn read_chunk(
+        &self,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, AttachmentError> {
+        use wasm_bindgen_futures::JsFuture;
+        let end = offset.saturating_add(max_bytes as u64).min(self.len());
+        if offset >= end {
+            return Ok(Vec::new());
+        }
+        let slice = self
+            .file
+            .slice_with_f64_and_f64(offset as f64, end as f64)
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        let buffer = JsFuture::from(slice.array_buffer())
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+    }
+
     /// Hash the stored ciphertext in fixed-size chunks before upload.
     pub async fn sha256(&self) -> Result<([u8; 32], u64), AttachmentError> {
         use sha2::{Digest as _, Sha256};
@@ -168,20 +195,14 @@ impl StagedFile {
         }
         #[cfg(target_arch = "wasm32")]
         {
-            use wasm_bindgen_futures::JsFuture;
-            let size = self.file.size() as u64;
+            let size = self.len();
             while length < size {
-                let end = (length + CHUNK_SIZE as u64).min(size);
-                let slice = self
-                    .file
-                    .slice_with_f64_and_f64(length as f64, end as f64)
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-                let buffer = JsFuture::from(slice.array_buffer())
-                    .await
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-                let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+                let bytes = self.read_chunk(length, CHUNK_SIZE).await?;
+                if bytes.is_empty() {
+                    return Err(AttachmentError::new(Cause::LocalStorage));
+                }
                 hash.update(&bytes);
-                length = end;
+                length += bytes.len() as u64;
             }
         }
         Ok((hash.finalize().into(), length))

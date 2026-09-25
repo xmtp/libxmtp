@@ -274,8 +274,18 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             } => {
                 #[cfg(target_arch = "wasm32")]
                 {
-                    let _ = (path, filename, mime_type);
-                    return Err(AttachmentClientError::new(Cause::SourceUnreadable));
+                    let source_store = xmtp_attachments::OpfsStore::new_root()
+                        .await
+                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                    let source_path = path.to_string_lossy().into_owned();
+                    let file = source_store
+                        .open_read(&source_path)
+                        .await
+                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                    let fallback = path
+                        .file_name()
+                        .map(|name| name.to_string_lossy().into_owned());
+                    (filename.clone().or(fallback), mime_type.clone(), file.len())
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
@@ -351,8 +361,36 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     }
                     #[cfg(target_arch = "wasm32")]
                     {
-                        let _ = path;
-                        return Err(AttachmentClientError::new(Cause::SourceUnreadable));
+                        let source_store = xmtp_attachments::OpfsStore::new_root()
+                            .await
+                            .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                        let source_path = path.to_string_lossy().into_owned();
+                        let file = source_store
+                            .open_read(&source_path)
+                            .await
+                            .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                        let mut read_total = 0u64;
+                        loop {
+                            let chunk = file
+                                .read_chunk(read_total, CHUNK)
+                                .await
+                                .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                            if chunk.is_empty() {
+                                break;
+                            }
+                            read_total += chunk.len() as u64;
+                            if read_total > size {
+                                return Err(AttachmentClientError::new(Cause::SourceUnreadable));
+                            }
+                            plain.write(&chunk).await?;
+                            encryptor.update(&chunk, &mut encrypted);
+                            staged.write(&encrypted).await?;
+                            hash.update(&encrypted);
+                            encrypted.clear();
+                        }
+                        if read_total != size {
+                            return Err(AttachmentClientError::new(Cause::SourceUnreadable));
+                        }
                     }
                 }
                 AttachmentSource::Bytes { bytes, .. } => {

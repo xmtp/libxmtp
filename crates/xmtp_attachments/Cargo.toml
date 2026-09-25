@@ -99,4 +99,5 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
 tempfile.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+uuid = { workspace = true, features = ["js"] }
 wasm-bindgen-test.workspace = true
