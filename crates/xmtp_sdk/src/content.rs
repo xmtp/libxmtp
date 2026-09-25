@@ -750,13 +750,26 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
         StandardContentKind::Reply => {
             let value =
                 xmtp_content_types::reply::ReplyCodec::decode(encoded).map_err(codec_error)?;
+            // implements: CTYPE-012
+            let nested_type = value.content.r#type.as_ref().ok_or_else(|| {
+                crate::XmtpError::invalid("nested reply content has no content type")
+            })?;
+            if nested_type.authority_id.is_empty() || nested_type.type_id.is_empty() {
+                return Err(crate::XmtpError::invalid(
+                    "nested reply content has an empty content type",
+                ));
+            }
+            // implements: CTYPE-024
+            // implements: CTYPE-025
+            let nested = xmtp_content_types::compression::decompress(value.content)
+                .map_err(codec_error)?;
             StandardContent::Reply {
                 reference: crate::MessageID::try_from(value.reference)?,
                 reference_inbox_id: value
                     .reference_inbox_id
                     .map(crate::InboxID::try_from)
                     .transpose()?,
-                content: value.content.into(),
+                content: nested.into(),
             }
         }
         StandardContentKind::GroupUpdated => StandardContent::GroupUpdated(
@@ -1119,6 +1132,31 @@ pub(crate) mod pure_codec_tests {
             assert_eq!(facade.fallback, expected.fallback);
             let round_trip = encode_standard(decode_standard(facade)?)?;
             assert_eq!(round_trip.content, expected.content);
+        }
+    }
+
+    #[cfg(test)]
+    // verifies: CTYPE-012
+    // verifies: CTYPE-024
+    #[xmtp_common::test(unwrap_try = true)]
+    fn malformed_nested_reply_content_is_rejected() {
+        for nested in [
+            ProtoEncodedContent::default(),
+            ProtoEncodedContent {
+                r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+                compression: Some(99),
+                content: b"compressed text".to_vec(),
+                ..Default::default()
+            },
+        ] {
+            let outer = xmtp_content_types::reply::ReplyCodec::encode(
+                xmtp_content_types::reply::Reply {
+                    reference: "a".repeat(64),
+                    reference_inbox_id: None,
+                    content: nested,
+                },
+            )?;
+            assert!(decode_standard(outer.into()).is_err());
         }
     }
 
