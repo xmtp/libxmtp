@@ -10,6 +10,10 @@ use xmtp_configuration::{
     AttachmentsConfiguration, AuthConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
     LimitsConfiguration, MlsConfiguration, RetentionConfiguration, ServerConfiguration,
     SigningKeyDescription,
+    attachments::{
+        AttachmentConfigurationError, check_base_url, check_max_upload_bytes,
+        check_retention_seconds,
+    },
 };
 
 use crate::backend_v1;
@@ -130,63 +134,19 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
 
 // implements: ATCH-008, CONF-025
 impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration {
-    type Error = &'static str;
+    type Error = AttachmentConfigurationError;
 
     fn try_from(attachments: backend_v1::AttachmentsConfiguration) -> Result<Self, Self::Error> {
-        if attachments
-            .base_url
-            .bytes()
-            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace() || byte == b'\\')
-        {
-            return Err("base_url has whitespace, a control character, or a backslash");
-        }
-        let base_url = url::Url::parse(&attachments.base_url)
-            .map_err(|_| "base_url is not an absolute URL")?;
-        if base_url.host().is_none() {
-            return Err("base_url has no host");
-        }
-        let accepted_scheme = match base_url.scheme() {
-            "https" => true,
-            "http" => match base_url.host() {
-                Some(url::Host::Domain(host)) => host == "localhost",
-                Some(url::Host::Ipv4(address)) => address.is_loopback(),
-                Some(url::Host::Ipv6(address)) => address.is_loopback(),
-                None => false,
-            },
-            _ => false,
-        };
-        if !accepted_scheme {
-            return Err("base_url scheme or host is not allowed");
-        }
-        if base_url.query().is_some() || base_url.fragment().is_some() {
-            return Err("base_url has a query or fragment");
-        }
-        if attachments.base_url.ends_with('/') {
-            return Err("base_url has a trailing slash");
-        }
-        let (raw_scheme, authority_and_path) = attachments
-            .base_url
-            .split_once("://")
-            .ok_or("base_url changes when parsed")?;
-        if !raw_scheme.eq_ignore_ascii_case(base_url.scheme()) {
-            return Err("base_url changes when parsed");
-        }
-        let raw_path = authority_and_path
-            .find('/')
-            .map(|start| &authority_and_path[start..])
-            .unwrap_or("/");
-        if base_url.path() != raw_path {
-            return Err("base_url path changes when parsed");
-        }
-        if attachments.max_upload_bytes > u32::MAX as u64 {
-            return Err("max_upload_bytes exceeds the remote attachment limit");
-        }
+        let max_upload_bytes = or_default(
+            attachments.max_upload_bytes,
+            BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+        );
+        check_base_url(&attachments.base_url)?;
+        check_max_upload_bytes(max_upload_bytes)?;
+        check_retention_seconds(attachments.retention_seconds)?;
         Ok(Self {
             base_url: attachments.base_url,
-            max_upload_bytes: or_default(
-                attachments.max_upload_bytes,
-                BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
-            ),
+            max_upload_bytes,
             retention_seconds: attachments.retention_seconds,
         })
     }
@@ -198,7 +158,11 @@ impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
             match AttachmentsConfiguration::try_from(message) {
                 Ok(attachments) => Some(attachments),
                 Err(reason) => {
-                    tracing::warn!(reason, "ignoring unusable attachment storage offer");
+                    tracing::warn!(
+                        field = reason.field(),
+                        reason = reason.reason(),
+                        "ignoring unusable attachment storage offer"
+                    );
                     None
                 }
             }
