@@ -6,6 +6,7 @@ import {
   type Conversations,
   type EncodedContent,
   type Group,
+  type Message,
   type MessageContent,
   type MessageID,
   type Reaction,
@@ -40,4 +41,10 @@ export async function consumeOmittedSendOptions(
   await group.prepareMessage(encoded);
   await conversations.reactToMessage(id, reaction);
   await conversations.replyToMessage(id, encoded);
+}
+
+export async function consumeMessageConversation(
+  message: Message,
+): Promise<Conversation | undefined> {
+  return message.conversation();
 }
