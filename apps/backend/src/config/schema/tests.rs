@@ -100,7 +100,9 @@ fn load_dev_config(contents: &str) -> Result<Config, crate::config::ConfigError>
     let contents = contents
         .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
         .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
-        .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545");
+        .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545")
+        .replace("env:XMTP_S3_BASE_URL", "http://127.0.0.1:9067/attachments")
+        .replace("env:XMTP_S3_URL", "http://127.0.0.1:9067");
     Config::load_str(&contents)
 }
 
