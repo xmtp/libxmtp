@@ -351,6 +351,43 @@ mod tests {
         assert!(!store.exists("key/file").await?);
     }
 
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_plaintext_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            0o700
+        );
+        let mut writer = store.create_temp(".tmp/plaintext").await?;
+        writer.write(b"private").await?;
+        drop(writer);
+        for path in [".tmp", ".tmp/plaintext"] {
+            let mode = std::fs::metadata(directory.path().join(path))?
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, if path == ".tmp" { 0o700 } else { 0o600 });
+        }
+        store.rename(".tmp/plaintext", "key/plaintext").await?;
+        assert_eq!(
+            std::fs::metadata(directory.path().join("key"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(directory.path().join("key/plaintext"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_writer_reset_rewinds() {

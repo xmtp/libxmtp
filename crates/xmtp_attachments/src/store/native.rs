@@ -3,6 +3,30 @@ use std::path::{Path, PathBuf};
 use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
+async fn create_private_dir(path: &Path) -> Result<(), AttachmentError> {
+    #[cfg(unix)]
+    {
+        let path = path.to_path_buf();
+        xmtp_common::task::spawn_blocking(move || {
+            use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&path)?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        })
+        .await
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::create_dir_all(path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+}
+
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
 pub struct NativeStore {
@@ -17,9 +41,7 @@ impl NativeStore {
     pub async fn new(root: impl AsRef<Path>) -> Result<Self, AttachmentError> {
         let root = std::path::absolute(root.as_ref())
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        tokio::fs::create_dir_all(&root)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        create_private_dir(&root).await?;
         Ok(Self {
             root,
             #[cfg(test)]
@@ -79,12 +101,12 @@ impl LocalStore for NativeStore {
         let parent = path
             .parent()
             .ok_or(AttachmentError::new(Cause::Malformed))?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        let file = tokio::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
+        create_private_dir(parent).await?;
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let file = options
             .open(path)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
@@ -95,9 +117,7 @@ impl LocalStore for NativeStore {
         let from = self.path(from)?;
         let to = self.path(to)?;
         let parent = to.parent().ok_or(AttachmentError::new(Cause::Malformed))?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        create_private_dir(parent).await?;
         match self.hard_link(&from, &to).await {
             Ok(()) => match self.remove_source(&from).await {
                 Ok(()) => Ok(()),
@@ -166,9 +186,14 @@ impl LocalStore for NativeStore {
         xmtp_common::task::spawn_blocking(move || {
             let mut input = std::fs::File::open(source)
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-            let mut decoded = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut decoded = options
                 .open(output)
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
             let meta = decoder.finish(&mut input, &mut decoded)?;

@@ -1013,18 +1013,6 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Client-level test proves streaming (at most 2 MiB process growth for a 64 MiB attachment); the per-attachment 1,048,576-byte bound is not attributable in a test."
 [[waiver]]
-id = "ATCH-048"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "client-level wiring lands in the client.attachments() PR"
-[[waiver]]
-id = "ATCH-049"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "client-level wiring lands in the client.attachments() PR"
-[[waiver]]
 id = "ATCH-056"
 kind = "gap"
 owner = "attachments"
