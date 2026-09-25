@@ -12519,6 +12519,7 @@ dependencies = [
  "openmls",
  "semver 1.0.28",
  "thiserror 2.0.19",
+ "url",
  "xmtp_common",
  "xmtp_cryptography",
 ]

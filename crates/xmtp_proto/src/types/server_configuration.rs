@@ -7,8 +7,9 @@
 //! `Some(false)`.
 
 use xmtp_configuration::{
-    AuthConfiguration, LimitsConfiguration, MlsConfiguration, RetentionConfiguration,
-    ServerConfiguration, SigningKeyDescription,
+    AttachmentsConfiguration, AuthConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+    LimitsConfiguration, MlsConfiguration, RetentionConfiguration, ServerConfiguration,
+    SigningKeyDescription,
 };
 
 use crate::backend_v1;
@@ -127,8 +128,60 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
     }
 }
 
+// implements: ATCH-008, CONF-025
+impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration {
+    type Error = &'static str;
+
+    fn try_from(attachments: backend_v1::AttachmentsConfiguration) -> Result<Self, Self::Error> {
+        if attachments.base_url.ends_with('/') {
+            return Err("base_url has a trailing slash");
+        }
+        let base_url = url::Url::parse(&attachments.base_url)
+            .map_err(|_| "base_url is not an absolute URL")?;
+        if base_url.host().is_none() {
+            return Err("base_url has no host");
+        }
+        let accepted_scheme = match base_url.scheme() {
+            "https" => true,
+            "http" => match base_url.host() {
+                Some(url::Host::Domain(host)) => host == "localhost",
+                Some(url::Host::Ipv4(address)) => address.is_loopback(),
+                Some(url::Host::Ipv6(address)) => address.is_loopback(),
+                None => false,
+            },
+            _ => false,
+        };
+        if !accepted_scheme {
+            return Err("base_url scheme or host is not allowed");
+        }
+        if base_url.query().is_some() || base_url.fragment().is_some() {
+            return Err("base_url has a query or fragment");
+        }
+        if attachments.max_upload_bytes > u32::MAX as u64 {
+            return Err("max_upload_bytes exceeds the remote attachment limit");
+        }
+        Ok(Self {
+            base_url,
+            max_upload_bytes: or_default(
+                attachments.max_upload_bytes,
+                BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+            ),
+            retention_seconds: attachments.retention_seconds,
+        })
+    }
+}
+
 impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
     fn from(response: backend_v1::GetConfigurationResponse) -> Self {
+        let attachments = response.attachments.and_then(|message| {
+            match AttachmentsConfiguration::try_from(message) {
+                Ok(attachments) => Some(attachments),
+                Err(reason) => {
+                    tracing::warn!(reason, "ignoring unusable attachment storage offer");
+                    None
+                }
+            }
+        });
         Self {
             identifier: response.identifier,
             server_version: response.server_version,
@@ -137,6 +190,7 @@ impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
             retention: response.retention.unwrap_or_default().into(),
             limits: response.limits.unwrap_or_default().into(),
             mls: response.mls.unwrap_or_default().into(),
+            attachments,
             smart_contract_wallet_chains: response.smart_contract_wallet_chains,
         }
     }

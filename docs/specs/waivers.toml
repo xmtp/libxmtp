@@ -762,13 +762,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Attachment storage configuration is not published or validated yet."
 
 [[waiver]]
-id = "ATCH-008"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"

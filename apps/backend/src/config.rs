@@ -270,6 +270,7 @@ impl Config {
                 commit_log_enabled: Some(self.mls.commit_log_enabled),
             }),
             smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
+            attachments: None,
         }
     }
 
