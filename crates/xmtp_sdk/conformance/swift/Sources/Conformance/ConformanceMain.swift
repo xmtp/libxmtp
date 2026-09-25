@@ -333,7 +333,7 @@ struct Conformance {
         precondition(remaining?.id == secondID, "adapter did not acknowledge on next request")
         try await afterAck.end()
         let breakGroup = try await reopened.conversations().createGroup(members: [], options: nil)
-        let breakID = try await breakGroup.sendText(text: "close after break")
+        let breakID = try await breakGroup.sendText(text: "close after break", options: nil)
         let (breakClose, breakCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
         let retainedStream = try await reopenedHost.messages(
             in: breakGroup, onClose: { _ = breakCloseSignal.yield($0) }
