@@ -300,6 +300,20 @@ async fn event_filter_matches_stitched_dm_identifier() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn event_filter_accepts_unknown_conversation_id() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let unknown = xmtp_proto::types::GroupId::from([0xee; 16]);
+    let reader = client
+        .events(EventFilter {
+            conversation_ids: Some(vec![unknown.into()]),
+            ..event_filter(vec![EventKind::ConversationJoined])
+        })
+        .await?;
+    reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn event_filter_reports_storage_error_when_resolving_dm() {
     use xmtp_db::ConnectionExt;
 

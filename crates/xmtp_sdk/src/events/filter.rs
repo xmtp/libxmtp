@@ -1,5 +1,6 @@
 use crate::{ContentTypeId, ConversationID, XmtpError, client::CoreClient};
 use xmtp_mls::subscriptions::internal::InternalEvent;
+use xmtp_mls::{client::ClientError, mls_store::MlsStoreError};
 
 use super::EventKind;
 
@@ -21,9 +22,14 @@ impl EventFilter {
             let mut group_ids = Vec::with_capacity(ids.len());
             for id in ids {
                 let group_id: xmtp_proto::types::GroupId = id.clone().try_into()?;
-                let group = client.group(&group_id).map_err(XmtpError::from_client)?;
-                if let Some(dm_id) = group.dm_id {
-                    filter.dm_identifiers.push(dm_id.into_bytes());
+                match client.group(&group_id) {
+                    Ok(group) => {
+                        if let Some(dm_id) = group.dm_id {
+                            filter.dm_identifiers.push(dm_id.into_bytes());
+                        }
+                    }
+                    Err(ClientError::MlsStore(MlsStoreError::NotFound(_))) => {}
+                    Err(error) => return Err(XmtpError::from_client(error)),
                 }
                 group_ids.push(group_id.as_slice().to_vec());
             }
