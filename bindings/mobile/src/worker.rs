@@ -81,6 +81,7 @@ use xmtp_mls::worker::WorkerKind;
 
 #[derive(uniffi::Enum, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FfiWorkerKind {
+    AttachmentCleanup,
     DeviceSync,
     DisappearingMessages,
     KeyPackageCleaner,
@@ -93,6 +94,7 @@ pub enum FfiWorkerKind {
 impl From<FfiWorkerKind> for WorkerKind {
     fn from(k: FfiWorkerKind) -> Self {
         match k {
+            FfiWorkerKind::AttachmentCleanup => Self::AttachmentCleanup,
             FfiWorkerKind::DeviceSync => Self::DeviceSync,
             FfiWorkerKind::DisappearingMessages => Self::DisappearingMessages,
             FfiWorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,
@@ -107,6 +109,7 @@ impl From<FfiWorkerKind> for WorkerKind {
 impl From<WorkerKind> for FfiWorkerKind {
     fn from(k: WorkerKind) -> Self {
         match k {
+            WorkerKind::AttachmentCleanup => Self::AttachmentCleanup,
             WorkerKind::DeviceSync => Self::DeviceSync,
             WorkerKind::DisappearingMessages => Self::DisappearingMessages,
             WorkerKind::KeyPackageCleaner => Self::KeyPackageCleaner,

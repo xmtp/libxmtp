@@ -155,6 +155,14 @@ impl LocalStore for OpfsStore {
         Ok(())
     }
 
+    async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
+        let (parent, name) = self.parent(path, false).await?;
+        JsFuture::from(parent.remove_entry(&name))
+            .await
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
         validate_relative(path)?;
         let (parent_path, name) = path.rsplit_once('/').unwrap_or(("", path));
