@@ -40,10 +40,6 @@ new WorkerHost(
       ),
     ),
   async (key, args, context) => {
-    if (key === "__conformanceInner") return Promise.resolve("reentered");
-    if (key === "__conformanceWait") return new Promise<never>(() => {});
-    if (key === "__conformanceCrash")
-      throw new WebAssembly.RuntimeError("browser conformance worker trap");
     return dispatchGenerated(key, args, context);
   },
   browserPoolLocks(),

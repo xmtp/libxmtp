@@ -18,3 +18,4 @@ target/debug/xmtp-sdk-bindgen generate \
   --config apps/xmtp_sdk_bindgen/uniffi-global.toml
 target/debug/xmtp-sdk-bindgen stage-wasm --lib "$wasm" --out "$out"
 ln -sfn ../../sdk-generated/typescript-wasm/node_modules "$out/node_modules"
+ln -sfn ../sdk-generated/typescript-pure "$fixture/typescript-pure"

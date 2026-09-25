@@ -11,8 +11,8 @@ import {
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import {
   Backend,
-  Client,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import { Client, Message } from "../../../../target/sdk-generated/typescript-wasm/index";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -58,6 +58,7 @@ function connection(hash = CONTRACT_HASH): {
 function signer(
   session: MainSession,
   reenter = false,
+  backendURL?: string,
 ): {
   identity: () => Promise<B.PublicIdentity>;
   kind: () => Promise<B.SignerKind>;
@@ -78,9 +79,16 @@ function signer(
     },
     async sign(request) {
       if (reenter) {
+        if (!backendURL) throw new Error("missing backend for reentry");
+        const backend = await Backend.connect(session, {
+          url: backendURL,
+          appVersion: undefined,
+          credentials: undefined,
+          credential: undefined,
+        });
         equal(
-          await session.call("__conformanceInner", []),
-          "reentered",
+          backend.handle.type,
+          "Backend",
           "signer callback could not call the SDK worker",
         );
         reentered = true;
@@ -109,7 +117,6 @@ function options(
     storage: {
       location: B.StorageLocation.Path.new(path),
       label: path,
-      encryptionKey: undefined,
       pool: undefined,
       singleConnection: false,
     },
@@ -156,7 +163,7 @@ export async function runBrowserBridgeConformance(
 
     // Create the signer before the first client. Its sign method calls the SDK
     // worker while Rust waits for the callback.
-    const mainSigner = signer(session, true);
+    const mainSigner = signer(session, true, backendURL);
     const identity = await mainSigner.identity();
     const databasePath = `conformance-${crypto.randomUUID()}.db`;
     const clientOptions = options(databasePath, backendURL);
@@ -271,12 +278,16 @@ export async function runBrowserBridgeConformance(
     const reply = await reopened.conversations().getMessageByID(replyID);
     expect(parent, "parent message was not read");
     expect(reply, "reply message was not read");
+    expect(parent instanceof Message, "list message was not lifted to the host");
+    expect(reply instanceof Message, "optional message was not lifted to the host");
     equal(
       (await reopened.decodeContent(parent.encoded)).tag,
       Pure.StandardContent_Tags.Text,
       "pure WASM did not decode the message",
     );
     equal(parent.content.tag, B.MessageContent_Tags.Text, "host content changed");
+    if (parent.content.tag === B.MessageContent_Tags.Text)
+      equal(parent.content.inner[0], "parent", "host text was not decoded");
     const hostReactionID = await parent.react({
       content: "host",
       action: B.ReactionAction.Added,
@@ -296,6 +307,21 @@ export async function runBrowserBridgeConformance(
       parentID.toString(),
       "reply parent changed",
     );
+    equal(reply.replyContent?.tag, B.MessageBody_Tags.Text, "reply body changed");
+    if (reply.replyContent?.tag === B.MessageBody_Tags.Text)
+      equal(reply.replyContent.inner[0], "reply", "reply body was not decoded");
+    equal(
+      reply.inReplyToContent?.tag,
+      B.MessageBody_Tags.Text,
+      "parent content changed",
+    );
+    if (reply.inReplyToContent?.tag === B.MessageBody_Tags.Text)
+      equal(
+        reply.inReplyToContent.inner[0],
+        "parent",
+        "parent body was not decoded",
+      );
+    expect((await parent.reply("host reply")).toString().length > 0, "host reply did not send");
     results.push("scenario 5: text, markdown, receipt, reaction, and reply");
 
     const customType = B.ContentTypeID.create({
@@ -317,14 +343,34 @@ export async function runBrowserBridgeConformance(
         return new TextDecoder().decode(value.content);
       },
     };
-    const customOptions = { ...clientOptions, codecs: [customCodec] };
-    const customOwner = await Client.build(
-      session,
-      identity,
-      customOptions,
-      inboxID,
-    );
-    const customGroup = await customOwner.conversations().createGroup([]);
+    const failingType = B.ContentTypeID.create({
+      authorityID: "example.org",
+      typeID: "bridge-failing",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const failingCodec = {
+      type: failingType,
+      encode(value: string): B.EncodedContent {
+        return B.EncodedContent.create({
+          type: failingType,
+          content: new TextEncoder().encode(value).buffer,
+        });
+      },
+      decode(): string {
+        throw new Error("bad custom payload");
+      },
+    };
+    const customOptions = {
+      ...clientOptions,
+      storage: {
+        ...clientOptions.storage,
+        location: B.StorageLocation.InMemory.new(),
+      },
+      codecs: [customCodec, failingCodec],
+    };
+    const customOwner = await Client.create(session, signer(session), customOptions);
+    const customGroup = await customOwner.conversations().createGroup([], undefined);
     const customID = await customGroup.send(
       B.EncodedContent.create({
         type: customType,
@@ -336,17 +382,45 @@ export async function runBrowserBridgeConformance(
     );
     const custom = await customOwner.conversations().getMessageByID(customID);
     expect(custom, "custom message was not read");
+    expect(custom instanceof Message, "custom message was not lifted to the host");
     equal(custom.encoded.fallback, "custom", "custom fallback was lost");
     equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
     equal(new TextDecoder().decode(custom.encoded.content), "custom browser value", "custom bytes changed");
-    equal(
-      await customOwner.decodeContent(custom.encoded),
-      "custom browser value",
-      "custom codec failed",
-    );
     equal(custom.content.tag, B.MessageContent_Tags.Custom, "custom tag changed");
     if (custom.content.tag === B.MessageContent_Tags.Custom)
       equal(custom.content.inner.value, "custom browser value", "host custom content failed");
+    const customReplyID = await custom.reply(customCodec, "custom reply");
+    const customReply = await customOwner.conversations().getMessageByID(customReplyID);
+    expect(customReply instanceof Message, "custom reply was not lifted");
+    equal(customReply.replyContent?.tag, B.MessageBody_Tags.Custom, "custom reply tag changed");
+    if (customReply.replyContent?.tag === B.MessageBody_Tags.Custom)
+      equal(customReply.replyContent.inner.value, "custom reply", "custom reply decode failed");
+    const unknownType = B.ContentTypeID.create({
+      authorityID: "example.org",
+      typeID: "bridge-unknown",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const unknownID = await customGroup.send(
+      B.EncodedContent.create({
+        type: unknownType,
+        content: new Uint8Array([1, 2, 3]).buffer,
+      }),
+      undefined,
+    );
+    const unknown = await customOwner.conversations().getMessageByID(unknownID);
+    expect(unknown, "unknown content was not read");
+    expect(unknown instanceof Message, "unknown content was not lifted");
+    equal(unknown.content.tag, B.MessageContent_Tags.Custom, "unknown content tag changed");
+    if (unknown.content.tag === B.MessageContent_Tags.Custom)
+      equal(unknown.content.inner.value, undefined, "unknown codec produced a value");
+    const failingID = await customGroup.send(failingCodec.encode("bad"), undefined);
+    const failed = await customOwner.conversations().getMessageByID(failingID);
+    expect(failed, "failed custom content was not read");
+    expect(failed instanceof Message, "failed custom content was not lifted");
+    if (failed.content.tag === B.MessageContent_Tags.Custom)
+      expect(failed.content.inner.error?.includes("bad custom payload"), "codec error was lost");
+    else throw new Error("failed custom content changed tag");
     await customOwner.end();
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
@@ -356,8 +430,10 @@ export async function runBrowserBridgeConformance(
     const reader = await readerGroup.messageReader();
     const next = reader.next();
     const readerID = await readerGroup.sendText("raw reader smoke", undefined);
+    const nextMessage = await next;
+    expect(nextMessage instanceof Message, "reader message was not lifted to the host");
     equal(
-      (await next)?.id.toString(),
+      nextMessage?.id.toString(),
       readerID.toString(),
       "raw reader missed the message",
     );
@@ -385,6 +461,8 @@ export async function runBrowserBridgeConformance(
       config.identifier,
       "server configuration changed",
     );
+    const catchUp = await reopened.catchUpToLive(10_000n);
+    expect(typeof catchUp.completed === "boolean", "catch-up result is missing");
     const backend = await Backend.connect(session, {
       url: backendURL,
       appVersion: undefined,
@@ -453,15 +531,13 @@ export async function runBrowserBridgeConformance(
     await second.end();
     results.push("smoke: two page clients share the origin lock");
 
-    const waiting = session.call("__conformanceWait", []);
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
-    void session.call("__conformanceCrash", []).catch(() => {});
-    await checkError(
-      () => waiting,
-      (error) => Reflect.get(error, "code") === "workerTerminated",
-      "worker death left a call pending",
+  } catch (error) {
+    console.error(
+      "browser stage",
+      results.at(-1),
+      error && typeof error === "object" ? Reflect.get(error, "inner") : error,
     );
-    results.push("smoke: real WASM worker death settles pending calls");
+    throw error;
   } finally {
     if (reopened) await reopened.end();
     worker.terminate();
