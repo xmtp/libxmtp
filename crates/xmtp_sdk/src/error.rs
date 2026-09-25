@@ -32,6 +32,8 @@ pub enum XmtpError {
     InvalidInput(ErrorDetails),
     #[error("storage location required: {0:?}")]
     StorageLocationRequired(ErrorDetails),
+    #[error("storage pool busy: {0:?}")]
+    StorageBusy(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -94,6 +96,7 @@ pub enum XmtpError {
     Unknown(ErrorDetails),
 }
 
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl XmtpError {
     fn details(
         code: &str,
@@ -143,6 +146,16 @@ impl XmtpError {
             retryable: false,
             message: "the host must resolve the default storage location".into(),
         })
+    }
+
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
+        Self::StorageBusy(Self::details(
+            "storageBusy",
+            ErrorCategory::Storage,
+            true,
+            message,
+        ))
     }
 
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {
@@ -387,5 +400,20 @@ impl XmtpError {
                 source.to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorCategory, XmtpError};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn storage_busy_matches_browser_bridge_fields() {
+        let XmtpError::StorageBusy(details) = XmtpError::storage_busy("busy") else {
+            panic!("expected StorageBusy");
+        };
+        assert_eq!(details.code, "storageBusy");
+        assert!(matches!(details.category, ErrorCategory::Storage));
+        assert!(details.retryable);
     }
 }

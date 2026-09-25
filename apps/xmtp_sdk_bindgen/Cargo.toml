@@ -10,6 +10,7 @@ anyhow.workspace = true
 camino.workspace = true
 clap.workspace = true
 heck = "0.5"
+sha2.workspace = true
 tempfile = "3.27"
 toml.workspace = true
 ubrn_bindgen.workspace = true

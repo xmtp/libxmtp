@@ -17,7 +17,7 @@ import {
   type GroupUpdated,
   type LeaveRequest,
 } from "../xmtp_sdk";
-import type { ContentCodec } from "./client";
+import type { ContentCodec } from "./codec-type";
 
 function wrongValue(): never {
   throw new TypeError("wrong standard codec value");

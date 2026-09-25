@@ -99,9 +99,27 @@ pub fn get_sqlite() -> Option<Result<&'static OpfsSAHPoolUtil, &'static String>>
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
 pub async fn init_sqlite() {
-    let wrapper = SQLITE.get_or_init(init_opfs).await;
-    if let Err(e) = wrapper.as_ref() {
+    if let Err(e) = try_init_sqlite().await {
         tracing::error!("{e}");
+    }
+}
+
+/// A failed install does not enter the once cell. Another open can retry.
+pub async fn try_init_sqlite() -> Result<(), PlatformStorageError> {
+    let util = SQLITE.get_or_try_init(init_opfs).await?;
+    if let Ok(util) = &util.0 {
+        util.unpause_vfs().await?;
+    }
+    Ok(())
+}
+
+/// Give up OPFS access handles after the last SQLite file closes.
+/// A live database makes `pause_vfs` fail without changing the pool.
+pub fn pause_sqlite_if_idle() {
+    if let Some(Ok(util)) = get_sqlite()
+        && let Err(error) = util.pause_vfs()
+    {
+        tracing::debug!("OPFS pool stays open: {error}");
     }
 }
 
@@ -121,7 +139,7 @@ async fn maybe_resize() -> Result<(), PlatformStorageError> {
     Ok(())
 }
 
-pub async fn init_opfs() -> SyncOpfsUtil {
+pub async fn init_opfs() -> Result<SyncOpfsUtil, PlatformStorageError> {
     let cfg = OpfsSAHPoolCfg {
         vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
         directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
@@ -145,8 +163,8 @@ pub async fn init_opfs() -> SyncOpfsUtil {
         }
         tracing::warn!("Encountered possible vfs error {e}");
     }
-    // the error is not send or sync as required by tokio OnceCell
-    SyncOpfsUtil(r.map_err(|e| format!("{e}")))
+    r.map(|util| SyncOpfsUtil(Ok(util)))
+        .map_err(PlatformStorageError::SAH)
 }
 
 fn log_exception(e: &wasm_bindgen::JsValue) {
@@ -175,7 +193,7 @@ impl WasmDb {
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
-                init_sqlite().await;
+                try_init_sqlite().await?;
                 let _opening = restore::PendingOpen::acquire()?;
                 maybe_resize().await?;
                 tracing::debug!("creating persistent opfs db @{}", db_path);

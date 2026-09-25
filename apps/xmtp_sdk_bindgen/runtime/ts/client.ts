@@ -26,14 +26,9 @@ import {
   type Signer,
 } from "../xmtp_sdk";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
+export type { ContentCodec } from "./codec-type";
 
 declare const process: { cwd(): string } | undefined;
-
-export interface ContentCodec<T> {
-  readonly type: ContentTypeID;
-  encode(value: T): EncodedContent;
-  decode(encoded: EncodedContent): T;
-}
 
 type AnyCodec = {
   readonly type: ContentTypeID;

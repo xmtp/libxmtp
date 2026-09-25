@@ -13,6 +13,22 @@ pub(crate) fn typescript_rename_map(
     groups: &MetadataGroupMap,
     uniffi_config: &Utf8Path,
 ) -> Result<BTreeMap<String, String>> {
+    typescript_rename_map_inner(groups, uniffi_config, false)
+}
+
+/// A pure WASM module contains only a subset of the full SDK metadata.
+pub(crate) fn typescript_rename_map_partial(
+    groups: &MetadataGroupMap,
+    uniffi_config: &Utf8Path,
+) -> Result<BTreeMap<String, String>> {
+    typescript_rename_map_inner(groups, uniffi_config, true)
+}
+
+fn typescript_rename_map_inner(
+    groups: &MetadataGroupMap,
+    uniffi_config: &Utf8Path,
+    partial: bool,
+) -> Result<BTreeMap<String, String>> {
     let config: toml::Value = toml::from_str(
         &fs::read_to_string(uniffi_config).with_context(|| format!("read {uniffi_config}"))?,
     )?;
@@ -28,7 +44,17 @@ pub(crate) fn typescript_rename_map(
     if typescript != rename("swift")? || typescript != rename("kotlin")? {
         bail!("{uniffi_config}: TypeScript ID names differ from Swift or Kotlin");
     }
-    map_from_table(typescript, &metadata_paths(groups))
+    let paths = metadata_paths(groups);
+    if partial {
+        let subset = typescript
+            .iter()
+            .filter(|(name, _)| paths.contains(*name))
+            .map(|(name, value)| (name.clone(), value.clone()))
+            .collect();
+        map_from_table(&subset, &paths)
+    } else {
+        map_from_table(typescript, &paths)
+    }
 }
 
 fn map_from_table(

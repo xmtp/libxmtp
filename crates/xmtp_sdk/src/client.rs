@@ -429,7 +429,10 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
-        self.inner.close().await.map_err(XmtpError::from_client)
+        self.inner.close().await.map_err(XmtpError::from_client)?;
+        #[cfg(target_arch = "wasm32")]
+        xmtp_db::pause_sqlite_if_idle();
+        Ok(())
     }
 }
 
@@ -539,7 +542,10 @@ pub(crate) async fn open_store(
         ));
     }
     let location = wasm_store_location(options, inbox_id)?;
-    let db = WasmDb::new(&location).await.map_err(XmtpError::unknown)?;
+    let db = WasmDb::new(&location).await.map_err(|error| match error {
+        xmtp_db::PlatformStorageError::SAH(_) => XmtpError::storage_busy(error.to_string()),
+        other => XmtpError::unknown(other),
+    })?;
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
 }
 

@@ -8,8 +8,15 @@
     "typeAware": true,
     "reportUnusedDisableDirectives": "error"
   },
-  // Stock ubrn output has 95 no-explicit-any findings and as casts; see apps/xmtp_sdk_bindgen/GENERATED_LINT.md.
-  "ignorePatterns": ["**/dist/**", "**/coverage/**", "target/sdk-generated/**"],
+  // Stock ubrn output stays excluded. Generated bridge files are linted.
+  "ignorePatterns": [
+    "**/dist/**",
+    "**/coverage/**",
+    "target/sdk-generated/typescript-napi/**",
+    "target/sdk-generated/typescript-wasm/runtime/**",
+    "target/sdk-generated/typescript-wasm/xmtp_sdk*.ts",
+    "target/sdk-generated/typescript-wasm/index.ts"
+  ],
   "rules": {
     "no-array-constructor": "error",
     "no-unused-expressions": "error",
