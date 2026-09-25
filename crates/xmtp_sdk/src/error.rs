@@ -148,7 +148,7 @@ impl XmtpError {
         })
     }
 
-    #[cfg(target_arch = "wasm32")]
+    #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
         Self::StorageBusy(Self::details(
             "storageBusy",
@@ -400,5 +400,20 @@ impl XmtpError {
                 source.to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorCategory, XmtpError};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn storage_busy_matches_browser_bridge_fields() {
+        let XmtpError::StorageBusy(details) = XmtpError::storage_busy("busy") else {
+            panic!("expected StorageBusy");
+        };
+        assert_eq!(details.code, "storageBusy");
+        assert!(matches!(details.category, ErrorCategory::Storage));
+        assert!(details.retryable);
     }
 }

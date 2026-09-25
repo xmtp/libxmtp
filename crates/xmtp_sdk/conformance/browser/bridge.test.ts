@@ -10,6 +10,7 @@ import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge
 import {
   BridgeError,
   assertCloneable,
+  bridgeError,
   decodeError,
   encodeError,
   type WireEndpoint,
@@ -78,6 +79,14 @@ class TestProxy extends RemoteObject {
 }
 
 describe("browser bridge transport", () => {
+  it("uses the Rust StorageBusy fields for bridge lock errors", () => {
+    expect(bridgeError("storageBusy")).toMatchObject({
+      variant: "StorageBusy",
+      code: "storageBusy",
+      category: 2,
+      retryable: true,
+    });
+  });
   it("XmtpError keeps variant and detail fields", () => {
     const error = new BridgeError(
       "StorageBusy",
