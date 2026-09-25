@@ -1,4 +1,5 @@
 use prost::Message as _;
+use xmtp_content_types::{ContentCodec, reply::ReplyCodec};
 use xmtp_db::group_message::{
     DeliveryStatus as StoredDeliveryStatus, GroupMessageKind, StoredGroupMessage,
 };
@@ -95,7 +96,7 @@ impl MessageContent {
             CoreBody::Reaction(value) => Ok(Self::Reaction(crate::Reaction::from_proto(value))),
             CoreBody::Reply(value) => Ok(Self::Reply {
                 reference_id: MessageID::try_from(value.reference_id)?,
-                body: MessageBody::from_core(*value.content, content.into())?,
+                body: MessageBody::from_core(*value.content, nested_reply_content(content.into())?)?,
             }),
             CoreBody::Attachment(value) => Ok(Self::Attachment(value.into())),
             CoreBody::RemoteAttachment(value) => Ok(Self::RemoteAttachment(value.into())),
@@ -156,6 +157,12 @@ impl MessageBody {
             _ => Self::Unknown { encoded },
         })
     }
+}
+
+fn nested_reply_content(encoded: SdkEncodedContent) -> Result<SdkEncodedContent, XmtpError> {
+    ReplyCodec::decode(encoded.into())
+        .map(|reply| reply.content.into())
+        .map_err(XmtpError::unknown)
 }
 
 impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedBy {
@@ -352,7 +359,10 @@ impl Message {
             }
             CoreBody::Reply(reply) => MessageContent::Reply {
                 reference_id: MessageID::try_from(reply.reference_id)?,
-                body: MessageBody::from_core(*reply.content, message.0.encoded.clone())?,
+                body: MessageBody::from_core(
+                    *reply.content,
+                    nested_reply_content(message.0.encoded.clone())?,
+                )?,
             },
             _ => message.0.content,
         };
