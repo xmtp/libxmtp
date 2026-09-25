@@ -66,10 +66,22 @@ for sdk in ("Swift", "Kotlin"):
     add(
         sdk,
         client_owner,
-        "create build",
+        "create",
         "static runtime",
         ref,
         note="Host wrapper owns codecs and closures (11.1; plan Decisions).",
+    )
+    add(
+        sdk,
+        client_owner,
+        "build",
+        "static runtime",
+        ref,
+        note=(
+            "Host wrapper owns codecs and closures (11.1; plan Decisions). "
+            f"The new default fetches configuration with an inbox ID; the current {sdk} "
+            "build starts offline with an inbox ID."
+        ),
     )
     add(sdk, client_owner, "createInMemory", "approved removal", ref)
     add(

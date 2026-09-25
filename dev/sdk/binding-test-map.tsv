@@ -135,10 +135,10 @@ mls/tests/lifecycle.rs	bidi_suspend_and_resume_redelivers	binding only: reader a
 mls/tests/lifecycle.rs	bidi_catch_up_to_live_replays_and_is_idempotent	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress`
 mls/tests/lifecycle.rs	bidi_catch_up_to_live_bounded_run_is_cancel_safe	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress`
 mls/tests/networking.rs	radio_silence	binding only: mobile sync-worker stream radio-silence statistics; the façade does not expose that worker stream
-mls/tests/networking.rs	create_client_does_not_hit_network	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_uses_inbox_id`
+mls/tests/networking.rs	create_client_does_not_hit_network	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_is_explicit`
 mls/tests/networking.rs	ffi_api_stats_exposed_correctly	façade: `crates/xmtp_sdk/src/tests.rs::facade_api_statistics_track_and_clear_requests`
 mls/tests/networking.rs	test_is_connected_after_connect	binding only: mobile connection is_connected getter; the façade Backend has no connectivity getter
-mls/tests/networking.rs	backend_url_is_required	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_uses_inbox_id`
+mls/tests/networking.rs	backend_url_is_required	façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_is_explicit`
 mls/tests/networking.rs	api_client_cache_key_uses_backend_url_and_app_version	binding only: mobile API-client cache key getter; the façade Backend has no cache-key getter
 mls/tests/server_configuration.rs	server_configuration_exposes_every_published_field	façade: `crates/xmtp_sdk/src/configuration.rs::server_configuration_preserves_all_published_fields`
 mls/tests/server_configuration.rs	fetch_server_configuration_reads_the_shared_backend	façade: `crates/xmtp_sdk/src/tests.rs::client_configuration_and_credential_update`

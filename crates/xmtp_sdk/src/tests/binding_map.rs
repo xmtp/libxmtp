@@ -233,7 +233,9 @@ async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn backend_url_is_required_and_offline_choice_uses_inbox_id() {
+async fn backend_url_is_required_and_offline_choice_is_explicit() {
+    use xmtp_db::prelude::QueryServerConfiguration;
+
     assert!(
         crate::Backend::connect(BackendOptions::default())
             .await
@@ -263,17 +265,48 @@ async fn backend_url_is_required_and_offline_choice_uses_inbox_id() {
         .create_group(vec![], None)
         .await?
         .id();
+    let stored = online
+        .inner
+        .context
+        .db()
+        .server_configuration()?
+        .expect("first configuration");
+    let first_fetch = stored.fetched_at_ns;
+    online.inner.context.db().store_server_configuration(
+        &stored.identifier,
+        "http://127.0.0.1:2",
+        &stored.response,
+        first_fetch,
+    )?;
     online.end().await?;
     let identity = signer::identity(signer).await?;
-    settings.backend = Some(BackendSource::Connected { backend });
-    assert_eq!(settings.allow_offline, None);
-    settings.allow_offline = Some(false);
+    settings.backend = Some(BackendSource::Connected {
+        backend: backend.clone(),
+    });
+    assert!(!settings.allow_offline);
+    settings.allow_offline = false;
     assert!(matches!(
         Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await,
         Err(XmtpError::ConfigurationUnavailable(_))
     ));
-    settings.allow_offline = None;
+    settings.allow_offline = ClientOptions::default().allow_offline;
+    assert!(matches!(
+        Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await,
+        Err(XmtpError::ConfigurationUnavailable(_))
+    ));
+    settings.backend = options().backend;
     let client = Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await?;
+    let second_fetch = client
+        .inner
+        .context
+        .db()
+        .server_configuration()?
+        .expect("refetched configuration")
+        .fetched_at_ns;
+    assert!(
+        second_fetch > first_fetch,
+        "default build did not fetch configuration"
+    );
     assert_eq!(client.inbox_id(), inbox_id);
     assert!(
         client
@@ -289,7 +322,8 @@ async fn backend_url_is_required_and_offline_choice_uses_inbox_id() {
             })
     );
     client.end().await?;
-    settings.allow_offline = Some(true);
+    settings.backend = Some(BackendSource::Connected { backend });
+    settings.allow_offline = true;
     assert!(matches!(
         Client::build(identity.clone(), settings.clone(), None).await,
         Err(XmtpError::InvalidInput(_))

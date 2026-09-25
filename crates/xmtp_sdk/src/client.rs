@@ -200,8 +200,8 @@ pub struct ClientOptions {
     #[uniffi(default = true)]
     pub device_sync: bool,
     /// Permit startup from stored state when the backend is unavailable.
-    #[uniffi(default = None)]
-    pub allow_offline: Option<bool>,
+    #[uniffi(default = false)]
+    pub allow_offline: bool,
     #[uniffi(default)]
     pub registration: RegistrationOptions,
     #[uniffi(default = None)]
@@ -218,7 +218,7 @@ impl Default for ClientOptions {
             backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
-            allow_offline: None,
+            allow_offline: false,
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
@@ -246,10 +246,9 @@ impl Client {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
         }
-        if options.allow_offline == Some(true) && inbox_id.is_none() {
+        if options.allow_offline && inbox_id.is_none() {
             return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
         }
-        let allow_offline = options.allow_offline.unwrap_or(inbox_id.is_some());
         let identifier = identity.to_core()?;
         let backend = options
             .backend
@@ -287,7 +286,7 @@ impl Client {
             None,
         ))
         .api_client_with_streams(backend.api.clone())
-        .with_allow_offline(Some(allow_offline))
+        .with_allow_offline(Some(options.allow_offline))
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -422,8 +421,8 @@ impl Client {
         Ok(client)
     }
 
-    /// An inbox ID enables offline startup from a database with its identity.
-    /// Set `allowOffline` to true or false to override this choice.
+    /// Build fetches server configuration by default, including with an inbox ID.
+    /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,
