@@ -367,28 +367,33 @@ impl Message {
                 let CoreBody::Reaction(value) = reaction.content else {
                     return None;
                 };
-                Some((|| {
-                    Ok(ReactionMessage {
-                        id: MessageID::from_bytes(&reaction.metadata.id)?,
-                        sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id)?,
-                        sent_at: Timestamp(reaction.metadata.sent_at_ns),
-                        delivery_status: reaction.metadata.delivery_status.into(),
-                        reaction: crate::Reaction::from_proto(value),
-                    })
-                })())
+                Some(ReactionMessage {
+                    id: MessageID::from_bytes(&reaction.metadata.id).ok()?,
+                    sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id).ok()?,
+                    sent_at: Timestamp(reaction.metadata.sent_at_ns),
+                    delivery_status: reaction.metadata.delivery_status.into(),
+                    reaction: crate::Reaction::from_proto(value),
+                })
             })
-            .collect::<Result<_, XmtpError>>()?;
+            .collect();
         if let CoreBody::Reply(reply) = &enriched.content
             && let Some(parent) = &reply.in_reply_to
         {
             let parent = parent.as_ref();
-            if let Some(parent_stored) = parent_stored {
-                let parent_data = Self::from_stored_with_content(
+            if let Some(parent_data) = parent_stored.and_then(|parent_stored| {
+                Self::from_stored_with_content(
                     parent_stored,
                     client_key,
                     Some(parent.content.clone()),
-                )?
-                .0;
+                )
+                .ok()
+                .map(|message| message.0)
+            }) {
+                let parent_content =
+                    MessageBody::from_core(parent.content.clone(), parent_data.encoded.clone())
+                        .unwrap_or_else(|_| MessageBody::Unknown {
+                            encoded: parent_data.encoded.clone(),
+                        });
                 message.0.in_reply_to = Some(ReplyParent {
                     id: parent_data.id,
                     sender_inbox_id: parent_data.sender_inbox_id,
@@ -398,7 +403,7 @@ impl Message {
                     content_type: parent_data.content_type,
                     fallback: parent_data.fallback,
                     encoded: parent_data.encoded.clone(),
-                    content: MessageBody::from_core(parent.content.clone(), parent_data.encoded)?,
+                    content: parent_content,
                 });
             }
         }
