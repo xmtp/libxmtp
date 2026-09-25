@@ -97,6 +97,30 @@ fun main() =
         }
         println("Kotlin scenario 1: load, checksums, version passed")
 
+        val codecSamples = sdkConformanceStandardSamples()
+        check(codecSamples.size == 11) { "missing standard codec samples" }
+        for (sample in codecSamples) {
+            val (codec, value) =
+                when (val content = sample.value) {
+                    is StandardContent.Text -> TextCodec() to content.v1
+                    StandardContent.ReadReceipt -> ReadReceiptCodec() to Unit
+                    is StandardContent.Reaction -> ReactionV2Codec() to content
+                    is StandardContent.Attachment -> AttachmentCodec() to content.v1
+                    is StandardContent.RemoteAttachment -> RemoteAttachmentCodec() to content.v1
+                    is StandardContent.MultiRemoteAttachment -> MultiRemoteAttachmentCodec() to content.v1
+                    is StandardContent.TransactionReference -> TransactionReferenceCodec() to content.v1
+                    is StandardContent.Reply -> ReplyCodec() to content
+                    is StandardContent.GroupUpdated -> GroupUpdatedCodec() to content.v1
+                    is StandardContent.DeleteMessage -> DeleteMessageCodec() to content
+                    is StandardContent.LeaveRequest -> LeaveRequestCodec() to content.v1
+                }
+            val encoded = codec.encode(value)
+            check(encoded.content.contentEquals(sample.expected.content)) { "standard codec bytes differ from Rust" }
+            check(encoded.parameters == sample.expected.parameters && codec.type.typeID == sample.expected.type.typeID)
+            check(codec.encode(codec.decode(encoded)).content.contentEquals(sample.expected.content))
+        }
+        println("Kotlin P69: all 11 standard codecs match Rust bytes")
+
         val failingSigner =
             SDKForeign.signer(
                 object : Signer {

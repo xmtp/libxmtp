@@ -31,6 +31,42 @@ await sdk.uniffiInitAsync();
 assert.match(sdk.sdkVersion(), /^1\.12\.0/);
 console.log("Node scenario 1: load, checksums, version passed");
 
+const standardCodecs = new Map([
+  [sdk.StandardContent_Tags.Text, new sdk.TextCodec()],
+  [sdk.StandardContent_Tags.ReadReceipt, new sdk.ReadReceiptCodec()],
+  [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
+  [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
+  [sdk.StandardContent_Tags.RemoteAttachment, new sdk.RemoteAttachmentCodec()],
+  [sdk.StandardContent_Tags.MultiRemoteAttachment, new sdk.MultiRemoteAttachmentCodec()],
+  [sdk.StandardContent_Tags.TransactionReference, new sdk.TransactionReferenceCodec()],
+  [sdk.StandardContent_Tags.Reply, new sdk.ReplyCodec()],
+  [sdk.StandardContent_Tags.GroupUpdated, new sdk.GroupUpdatedCodec()],
+  [sdk.StandardContent_Tags.DeleteMessage, new sdk.DeleteMessageCodec()],
+  [sdk.StandardContent_Tags.LeaveRequest, new sdk.LeaveRequestCodec()],
+]);
+const codecSamples = sdk.sdkConformanceStandardSamples();
+assert.equal(codecSamples.length, 11);
+for (const sample of codecSamples) {
+  const codec = standardCodecs.get(sample.value.tag);
+  assert.ok(codec, `missing codec for ${sample.value.tag}`);
+  const value =
+    sample.value.tag === sdk.StandardContent_Tags.ReadReceipt
+      ? undefined
+      : sample.value.tag === sdk.StandardContent_Tags.Reaction ||
+          sample.value.tag === sdk.StandardContent_Tags.Reply ||
+          sample.value.tag === sdk.StandardContent_Tags.DeleteMessage
+        ? sample.value
+        : sample.value.inner[0];
+  const encoded = codec.encode(value);
+  assert.deepEqual(Buffer.from(encoded.content), Buffer.from(sample.expected.content));
+  assert.deepEqual(encoded.parameters, sample.expected.parameters);
+  assert.deepEqual(
+    Buffer.from(codec.encode(codec.decode(encoded)).content),
+    Buffer.from(sample.expected.content),
+  );
+}
+console.log("Node P69: all 11 standard codecs match Rust bytes");
+
 const account = privateKeyToAccount(generatePrivateKey());
 const identity = {
   identifier: account.address.toLowerCase(),
@@ -422,7 +458,7 @@ await assert.rejects(
 );
 console.log("Node scenario 10: configuration and typed error passed");
 
-sdk.initLogging({
+await sdk.initLogging({
   level: sdk.LogLevel.Error,
   structured: true,
   performance: false,

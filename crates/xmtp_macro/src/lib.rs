@@ -27,6 +27,9 @@ mod timeout_macro_test;
 /// `Result` record errors. An existing `#[tracing::instrument]` is kept.
 ///
 /// Use `native_only` or `wasm_only` to limit the whole item to one target.
+/// Use `pure` for a synchronous free function with value-only arguments.
+/// The SDK generator rejects object, client, and foreign-trait arguments on a
+/// pure export.
 /// The caller must depend on `uniffi` and `tracing`.
 ///
 /// ```ignore
