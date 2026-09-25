@@ -271,11 +271,7 @@ impl AttachmentDecoder {
         }
         let envelope = EncodedContent::decode(self.metadata.as_slice()).map_err(|_| invalid())?;
         let ty = envelope.r#type.ok_or_else(invalid)?;
-        if ty.authority_id != "xmtp.org"
-            || ty.type_id != "attachment"
-            || ty.version_major != 1
-            || ty.version_minor != 0
-        {
+        if ty.authority_id != "xmtp.org" || ty.type_id != "attachment" || ty.version_major != 1 {
             return Err(invalid());
         }
         let compressed = match envelope.compression {
@@ -492,6 +488,29 @@ mod tests {
             .insert("junk".to_owned(), "a".repeat(65_537));
         assert_eq!(
             decode(&large.encode_to_vec()).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+    }
+
+    // verifies: CTYPE-001, CTYPE-016
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn decoder_accepts_later_minor_versions() {
+        let mut value = envelope(b"file data".to_vec());
+        let ty = value.r#type.as_mut().expect("attachment type");
+        ty.version_minor = 3;
+        let (stored, decompressed, meta) = decode(&value.encode_to_vec())?;
+        assert_eq!(stored, b"file data");
+        assert!(decompressed.is_empty());
+        assert_eq!(meta.mime_type, "application/pdf");
+        assert_eq!(meta.filename.as_deref(), Some("report.pdf"));
+
+        value
+            .r#type
+            .as_mut()
+            .expect("attachment type")
+            .version_major = 2;
+        assert_eq!(
+            decode(&value.encode_to_vec()).unwrap_err().cause,
             AttachmentFailureCause::NotAnAttachment
         );
     }
