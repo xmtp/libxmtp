@@ -1,4 +1,6 @@
 //! Measure the live allocation added by each 64 MiB path transfer phase.
+//! Native only: it streams from and to the file system and uses a counting global allocator.
+#![cfg(not(target_arch = "wasm32"))]
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
