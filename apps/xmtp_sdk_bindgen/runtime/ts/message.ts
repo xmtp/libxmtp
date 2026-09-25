@@ -43,7 +43,12 @@ export class Message {
     | MessageContent
     | {
         tag: MessageContent_Tags.Custom;
-        inner: { encoded: EncodedContent; value?: unknown; error?: string };
+        inner: {
+          encoded: EncodedContent;
+          rawBytes: ArrayBuffer;
+          value?: unknown;
+          error?: string;
+        };
       };
   readonly inReplyToContent?: LiftedReplyBody;
   readonly replyContent?: LiftedReplyBody;
@@ -64,14 +69,19 @@ export class Message {
       return;
     }
     const encoded = content.inner.encoded;
+    const rawBytes = content.inner.rawBytes;
     const owner = ClientRegistry.get(data.clientKey);
     const decoded = owner?.decodeCustom(encoded);
     this.content =
       decoded === undefined && owner !== undefined
-        ? MessageContent.Unknown.new({ encoded, rawBytes: encoded.content })
+        ? MessageContent.Unknown.new({ encoded, rawBytes })
         : {
             tag: MessageContent_Tags.Custom,
-            inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
+            inner: {
+              encoded,
+              rawBytes,
+              ...(decoded ?? { error: "clientClosed" }),
+            },
           };
   }
 

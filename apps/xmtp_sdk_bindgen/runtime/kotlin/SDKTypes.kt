@@ -295,7 +295,9 @@ class Message(
 
                 is MessageContent.Custom -> {
                     val otherContent = other.data.content
-                    otherContent is MessageContent.Custom && value.encoded.deepEquals(otherContent.encoded)
+                    otherContent is MessageContent.Custom &&
+                        value.encoded.deepEquals(otherContent.encoded) &&
+                        value.rawBytes.contentEquals(otherContent.rawBytes)
                 }
 
                 is MessageContent.Unknown -> {
@@ -349,7 +351,7 @@ class Message(
                 }
 
                 is MessageContent.Custom -> {
-                    value.encoded.deepHashCode()
+                    31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()
                 }
 
                 is MessageContent.Unknown -> {
