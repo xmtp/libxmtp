@@ -90,6 +90,7 @@ xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 hyper = { workspace = true, features = ["server", "http1"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
 tempfile.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
