@@ -115,7 +115,11 @@ function decodeContent(
       ? { tag: B.MessageContent_Tags.Custom, inner: { encoded } }
       : { tag: B.MessageContent_Tags.Custom, inner: { encoded, ...result } };
   }
-  if (content.tag === B.MessageContent_Tags.Unknown) return content;
+  // Deleted messages keep their original encoded bytes. Keep the Rust marker.
+  if (
+    content.tag === B.MessageContent_Tags.Unknown ||
+    content.tag === B.MessageContent_Tags.DeletedMessage
+  ) return content;
 
   // Standard bytes are decoded by the main-thread pure WASM module.
   const standard = Pure.decodeStandard(encoded);
@@ -169,7 +173,11 @@ function decodeBody(
       ? { tag: B.MessageBody_Tags.Custom, inner: { encoded } }
       : { tag: B.MessageBody_Tags.Custom, inner: { encoded, ...result } };
   }
-  if (body.tag === B.MessageBody_Tags.Unknown) return body;
+  // A deleted reply parent also keeps its original encoded bytes.
+  if (
+    body.tag === B.MessageBody_Tags.Unknown ||
+    body.tag === B.MessageBody_Tags.DeletedMessage
+  ) return body;
   const standard = Pure.decodeStandard(encoded);
   switch (standard.tag) {
     case Pure.StandardContent_Tags.Text:

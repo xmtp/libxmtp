@@ -6,7 +6,7 @@ import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/no
 const server = await createServer({
   root: process.cwd(),
   configFile: false,
-  resolve: { preserveSymlinks: true },
+  resolve: { preserveSymlinks: false },
   server: { host: "127.0.0.1", port: 0, strictPort: false, fs: { strict: false } },
 });
 await server.listen();
@@ -18,14 +18,19 @@ try {
   await page.goto(
     `http://127.0.0.1:${address.port}/crates/xmtp_sdk/conformance/browser/bridge.chromium.html`,
   );
-  const result = await page.evaluate(async () => {
+  const backendURL = process.env.XMTP_BACKEND_URL;
+  assert.ok(backendURL, "missing worktree backend URL");
+  const result = await page.evaluate(async (url) => {
     const { checkWorkerFailure } = await import("./bridge.failure.chromium.ts");
     await checkWorkerFailure();
     const { checkPureCodecs } = await import("./pure-codecs.chromium.ts");
-    return checkPureCodecs();
-  });
+    const count = await checkPureCodecs();
+    const { checkDeletedMessages } = await import("./message.deleted.chromium.ts");
+    await checkDeletedMessages(url);
+    return count;
+  }, backendURL);
   assert.equal(result, 15);
-  console.log("Chromium worker failure and 15 pure codec proofs passed");
+  console.log("Chromium worker failure, 15 pure codecs, and deleted messages passed");
 } finally {
   await browser.close();
   await server.close();
