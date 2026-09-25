@@ -261,6 +261,32 @@ fn status_from_row(row: &StoredPendingAttachment, now: i64) -> PendingAttachment
     }
 }
 
+fn outcome_write_is_retryable(error: &xmtp_db::StorageError) -> bool {
+    use xmtp_db::diesel::result::{DatabaseErrorKind, Error};
+
+    if error.db_needs_connection() {
+        return true;
+    }
+    match error {
+        xmtp_db::StorageError::DieselConnect(_) => true,
+        xmtp_db::StorageError::DieselResult(Error::DatabaseError(
+            DatabaseErrorKind::ClosedConnection | DatabaseErrorKind::SerializationFailure,
+            _,
+        )) => true,
+        xmtp_db::StorageError::DieselResult(Error::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            info,
+        )) => {
+            let message = info.message().to_ascii_lowercase();
+            message.contains("database is locked")
+                || message.contains("database table is locked")
+                || message.contains("database schema is locked")
+                || message.contains("database is busy")
+        }
+        _ => false,
+    }
+}
+
 fn credential_kind_name(kind: CredentialFailureKind) -> &'static str {
     match kind {
         CredentialFailureKind::CredentialRejected => "credential_rejected",
@@ -274,6 +300,8 @@ struct PendingShared {
     state: AsyncMutex<()>,
     watch: watch::Sender<PendingAttachmentStatus>,
     lease: Mutex<Option<([u8; 16], i64)>>,
+    // A permanent database error leaves the lease in place, but local waiters need the result.
+    unrecorded_outcome: Mutex<Option<PendingAttachmentStatus>>,
     cancel: CancellationToken,
 }
 
@@ -284,6 +312,7 @@ impl PendingShared {
             state: AsyncMutex::new(()),
             watch,
             lease: Mutex::new(None),
+            unrecorded_outcome: Mutex::new(None),
             cancel: CancellationToken::new(),
         }
     }
@@ -360,6 +389,8 @@ pub struct AttachmentRuntime {
     #[cfg(test)]
     fail_next_outcome_write: AtomicBool,
     #[cfg(test)]
+    fail_next_outcome_constraint: AtomicBool,
+    #[cfg(test)]
     delay_before_create_upload: Mutex<Option<Duration>>,
 }
 
@@ -382,6 +413,8 @@ impl Default for AttachmentRuntime {
             fail_next_lease_extension: AtomicBool::new(false),
             #[cfg(test)]
             fail_next_outcome_write: AtomicBool::new(false),
+            #[cfg(test)]
+            fail_next_outcome_constraint: AtomicBool::new(false),
             #[cfg(test)]
             delay_before_create_upload: Mutex::new(None),
         }
@@ -419,6 +452,8 @@ impl AttachmentRuntime {
             fail_next_lease_extension: AtomicBool::new(false),
             #[cfg(test)]
             fail_next_outcome_write: AtomicBool::new(false),
+            #[cfg(test)]
+            fail_next_outcome_constraint: AtomicBool::new(false),
             #[cfg(test)]
             delay_before_create_upload: Mutex::new(None),
         })
@@ -1227,6 +1262,9 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     ) -> Result<PendingAttachmentStatus, AttachmentClientError> {
         let mut watch = self.shared.watch.subscribe();
         loop {
+            if let Some(outcome) = self.shared.unrecorded_outcome.lock().clone() {
+                return Ok(outcome);
+            }
             match self.record() {
                 Ok(Some(row)) => {
                     let status = status_from_row(&row, now_ns());
@@ -1300,6 +1338,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                             claim_missed = true;
                             false
                         } else {
+                            *self.shared.unrecorded_outcome.lock() = None;
                             *self.shared.lease.lock() =
                                 Some((token, now.saturating_add(timing.duration_ns())));
                             self.shared
@@ -1397,6 +1436,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
 
     async fn lost_lease(&self) {
         *self.shared.lease.lock() = None;
+        *self.shared.unrecorded_outcome.lock() = None;
         match self.record() {
             Ok(Some(row)) => {
                 self.shared
@@ -1439,10 +1479,27 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 if self
                     .context
                     .attachment_runtime()
+                    .fail_next_outcome_constraint
+                    .swap(false, AtomicOrdering::SeqCst)
+                {
+                    Err(xmtp_db::StorageError::DieselResult(
+                        xmtp_db::diesel::result::Error::DatabaseError(
+                            xmtp_db::diesel::result::DatabaseErrorKind::CheckViolation,
+                            Box::new("injected outcome CHECK failure".to_owned()),
+                        ),
+                    ))
+                } else if self
+                    .context
+                    .attachment_runtime()
                     .fail_next_outcome_write
                     .swap(false, AtomicOrdering::SeqCst)
                 {
-                    Err(xmtp_db::StorageError::DbDeserialize)
+                    Err(xmtp_db::StorageError::DieselResult(
+                        xmtp_db::diesel::result::Error::DatabaseError(
+                            xmtp_db::diesel::result::DatabaseErrorKind::Unknown,
+                            Box::new("database is locked".to_owned()),
+                        ),
+                    ))
                 } else {
                     self.context.db().finish_pending_attachment(
                         &self.remote.content_digest,
@@ -1469,22 +1526,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                     {
                         tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
                     }
-                    let next = match &result {
-                        Ok(()) => PendingAttachmentStatus::Complete,
-                        Err(error) => PendingAttachmentStatus::Failed(error.clone()),
-                    };
-                    self.shared.watch.send_replace(next);
-                    let reference = self.reference();
-                    let event = match &result {
-                        Ok(()) => ClientEvent::AttachmentUploadCompleted(reference),
-                        Err(error) => ClientEvent::AttachmentUploadFailed(AttachmentFailed {
-                            attachment_key: reference.attachment_key,
-                            url: reference.url,
-                            content_digest: reference.content_digest,
-                            cause: error.cause.as_str().to_owned(),
-                        }),
-                    };
-                    self.context.events().emit(Some(event), None);
+                    self.publish_upload_outcome(&result);
                     return;
                 }
                 Ok(_) => {
@@ -1492,12 +1534,43 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                     self.lost_lease().await;
                     return;
                 }
-                Err(error) => tracing::warn!(%error, "attachment outcome write will be retried"),
+                Err(error) if outcome_write_is_retryable(&error) => {
+                    tracing::warn!(%error, "attachment outcome write will be retried");
+                }
+                Err(error) => {
+                    tracing::error!(%error, "attachment outcome write cannot be retried");
+                    *self.shared.lease.lock() = None;
+                    *self.shared.unrecorded_outcome.lock() = Some(match &result {
+                        Ok(()) => PendingAttachmentStatus::Complete,
+                        Err(error) => PendingAttachmentStatus::Failed(error.clone()),
+                    });
+                    self.publish_upload_outcome(&result);
+                    return;
+                }
             }
             drop(_event_guard);
             xmtp_common::time::sleep(delay).await;
             delay = delay.saturating_mul(2).min(Duration::from_secs(5));
         }
+    }
+
+    fn publish_upload_outcome(&self, result: &Result<(), AttachmentClientError>) {
+        let next = match result {
+            Ok(()) => PendingAttachmentStatus::Complete,
+            Err(error) => PendingAttachmentStatus::Failed(error.clone()),
+        };
+        self.shared.watch.send_replace(next);
+        let reference = self.reference();
+        let event = match result {
+            Ok(()) => ClientEvent::AttachmentUploadCompleted(reference),
+            Err(error) => ClientEvent::AttachmentUploadFailed(AttachmentFailed {
+                attachment_key: reference.attachment_key,
+                url: reference.url,
+                content_digest: reference.content_digest,
+                cause: error.cause.as_str().to_owned(),
+            }),
+        };
+        self.context.events().emit(Some(event), None);
     }
 
     async fn upload_once(&self, token: &[u8; 16]) -> Result<(), AttachmentClientError> {
@@ -2725,6 +2798,92 @@ mod tests {
         assert_eq!(
             restarted.attachments().pending(&remote).await?.status(),
             PendingAttachmentStatus::Failed(error)
+        );
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_status_999_is_recorded() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(999).await;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = client.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        release.send(()).expect("release PUT response");
+        let error = tokio::time::timeout(Duration::from_secs(5), upload)
+            .await??
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::TargetRejected);
+        assert_eq!(error.http_status, Some(999));
+        let row = client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap();
+        assert_eq!(row.status, "failed");
+        assert_eq!(row.failure_http_status, Some(999));
+    }
+
+    // verifies: ATCH-025, ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn deterministic_outcome_error_is_not_retried() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(403).await;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        client
+            .context
+            .attachments
+            .fail_next_outcome_constraint
+            .store(true, AtomicOrdering::SeqCst);
+        let pending = client.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        release.send(()).expect("release PUT response");
+        let error = tokio::time::timeout(Duration::from_secs(5), upload)
+            .await??
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::TargetRejected);
+        assert_eq!(error.http_status, Some(403));
+        let row = client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap();
+        assert_eq!(row.status, "uploading");
+        assert_eq!(
+            row.effective_status(row.lease_expires_at_ns.unwrap().saturating_add(1)),
+            "waiting"
         );
     }
 
