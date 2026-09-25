@@ -117,14 +117,24 @@ fn target(
 }
 
 fn set_test_env(key: &str, value: impl AsRef<OsStr>) {
-    // SAFETY: Each caller sets variables before it creates a Tokio runtime or AWS provider.
-    // Nextest runs each test in a separate process.
+    assert_eq!(
+        std::env::var("NEXTEST_EXECUTION_MODE").as_deref(),
+        Ok("process-per-test"),
+        "run with nextest (`just test crate xmtp_attachments_server`)"
+    );
+    // SAFETY: The assertion requires a separate process for each test. Each caller
+    // sets variables before it creates a Tokio runtime or AWS provider.
     unsafe { std::env::set_var(key, value) };
 }
 
 fn remove_test_env(key: &str) {
-    // SAFETY: Each caller removes variables before it creates a Tokio runtime or AWS provider.
-    // Nextest runs each test in a separate process.
+    assert_eq!(
+        std::env::var("NEXTEST_EXECUTION_MODE").as_deref(),
+        Ok("process-per-test"),
+        "run with nextest (`just test crate xmtp_attachments_server`)"
+    );
+    // SAFETY: The assertion requires a separate process for each test. Each caller
+    // removes variables before it creates a Tokio runtime or AWS provider.
     unsafe { std::env::remove_var(key) };
 }
 
