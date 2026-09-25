@@ -246,7 +246,7 @@ async fn admission_table_order() -> TestResult {
     assert_eq!(status.code(), Code::Unavailable);
     let status: tonic::Status =
         crate::error::Error::from(xmtp_attachments_server::SignError::SigningFailed).into();
-    assert_eq!(status.code(), Code::Internal);
+    assert_eq!(status.code(), Code::Unavailable);
     configured.stop().await
 }
 

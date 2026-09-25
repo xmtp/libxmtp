@@ -52,7 +52,11 @@ impl From<Error> for Status {
                 xmtp_attachments_server::SignError::CredentialsUnavailable,
             ) => Self::unavailable("storage credentials unavailable"),
             Error::AttachmentSigning(xmtp_attachments_server::SignError::SigningFailed) => {
-                Self::internal("storage request could not be signed")
+                tracing::error!(
+                    signing_error_kind = "signing_failed",
+                    "attachment signing failed"
+                );
+                Self::unavailable("storage request could not be signed")
             }
             Error::PushRecipientMissing => Self::not_found("recipient is not registered"),
             Error::PushSecretInvalid => Self::permission_denied("recipient secret is not valid"),
