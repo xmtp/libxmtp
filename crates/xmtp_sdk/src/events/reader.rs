@@ -62,6 +62,7 @@ impl EventReader {
     pub async fn end(&self) -> Result<(), XmtpError> {
         *self.ended.lock() = true;
         self.subscription.close();
+        let _read = self.read_lock.lock().await;
         Ok(())
     }
 }

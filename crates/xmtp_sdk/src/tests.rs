@@ -173,6 +173,34 @@ async fn event_reader_stays_open_on_rejection_and_ends_on_close() {
     ));
 }
 
+// verifies: EVENT-053
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_reader_end_waits_for_in_flight_read() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    emit_hmac(&client);
+    let reading = reader.clone();
+    let read = tokio::spawn(async move { reading.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(5), gate.arrived.notified()).await?;
+    let ending = reader.clone();
+    let mut end = tokio::spawn(async move { ending.end().await });
+    let ended_before_read = tokio::time::timeout(Duration::from_millis(50), &mut end)
+        .await
+        .is_ok();
+    gate.release.notify_one();
+    assert!(!ended_before_read, "end returned during an in-flight read");
+    assert!(read.await??.is_none());
+    end.await??;
+    client.end().await?;
+}
+
 // verifies: EVENT-020
 // verifies: EVENT-021
 #[xmtp_common::test(unwrap_try = true)]
