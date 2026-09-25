@@ -10,6 +10,26 @@ pub struct Credential {
     pub expires_at_seconds: i64,
 }
 
+impl Credential {
+    pub(crate) fn to_backend(&self) -> Result<xmtp_api_backend::Credential, XmtpError> {
+        let name = self
+            .name
+            .as_deref()
+            .map(str::parse::<http::header::HeaderName>)
+            .transpose()
+            .map_err(|_| XmtpError::invalid("credential header name is invalid"))?;
+        let value = self
+            .value
+            .parse::<http::header::HeaderValue>()
+            .map_err(|_| XmtpError::invalid("credential header value is invalid"))?;
+        Ok(xmtp_api_backend::Credential::new(
+            name,
+            value,
+            self.expires_at_seconds,
+        ))
+    }
+}
+
 #[xmtp_macro::callback_error]
 #[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
 pub enum CredentialError {
@@ -38,6 +58,39 @@ pub struct BackendOptions {
     pub app_version: Option<String>,
     #[uniffi(default = None)]
     pub credentials: Option<Arc<dyn CredentialSource>>,
+    #[uniffi(default = None)]
+    pub credential: Option<Credential>,
+}
+
+/// Use connection options or an existing backend connection.
+#[derive(Clone, uniffi::Enum)]
+pub enum BackendSource {
+    Options { options: BackendOptions },
+    Connected { backend: Arc<Backend> },
+}
+
+impl Default for BackendSource {
+    fn default() -> Self {
+        Self::Options {
+            options: BackendOptions::default(),
+        }
+    }
+}
+
+impl BackendSource {
+    pub(crate) async fn resolve(&self) -> Result<Arc<Backend>, XmtpError> {
+        match self {
+            Self::Options { options } => Ok(Arc::new(Backend::connect(options.clone()).await?)),
+            Self::Connected { backend } => Ok(backend.clone()),
+        }
+    }
+
+    pub(crate) fn app_version(&self) -> Option<String> {
+        match self {
+            Self::Options { options } => options.app_version.clone(),
+            Self::Connected { backend } => backend.options.app_version.clone(),
+        }
+    }
 }
 
 pub(crate) struct AuthBridge {
@@ -78,22 +131,37 @@ impl xmtp_api_backend::AuthCallback for AuthBridge {
 #[derive(uniffi::Object)]
 pub struct Backend {
     pub(crate) api: xmtp_mls::XmtpApiClient,
+    pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
+    pub(crate) options: BackendOptions,
 }
 
 impl Backend {
     pub(crate) fn from_options(options: BackendOptions) -> Result<Self, XmtpError> {
         #[cfg(not(target_arch = "wasm32"))]
         xmtp_cryptography::install_crypto_provider();
+        let original_options = options.clone();
         let mut builder = xmtp_api_backend::MessageBackendBuilder::new();
         builder.host(&options.url);
         if let Some(version) = options.app_version {
             builder.app_version(version);
         }
+        // Keep a handle for a credential that the app sets after creation.
+        // An empty SDK handle does not satisfy a required-credential deployment.
+        let auth_handle = Some(
+            if options.credential.is_some() || options.credentials.is_some() {
+                xmtp_api_backend::AuthHandle::new()
+            } else {
+                xmtp_api_backend::AuthHandle::sdk_placeholder()
+            },
+        );
+        builder.maybe_auth_handle(auth_handle.clone());
         builder.maybe_auth_callback(options.credentials.map(|source| {
             Arc::new(AuthBridge::new(source)) as Arc<dyn xmtp_api_backend::AuthCallback>
         }));
         Ok(Self {
             api: builder.build().map_err(XmtpError::unknown)?,
+            auth_handle,
+            options: original_options,
         })
     }
 }
@@ -102,6 +170,11 @@ impl Backend {
 impl Backend {
     #[uniffi::constructor]
     pub async fn connect(options: BackendOptions) -> Result<Self, XmtpError> {
-        Self::from_options(options)
+        let initial = options.credential.clone();
+        let backend = Self::from_options(options)?;
+        if let (Some(handle), Some(credential)) = (&backend.auth_handle, initial) {
+            handle.set(credential.to_backend()?).await;
+        }
+        Ok(backend)
     }
 }

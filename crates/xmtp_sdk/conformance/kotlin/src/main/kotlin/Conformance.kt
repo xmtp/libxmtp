@@ -44,6 +44,16 @@ private class TestSigner : Signer {
     }
 }
 
+private class OrderedLogSink : LogSink {
+    val sequence = mutableListOf<String>()
+
+    override fun log(record: LogRecord) {
+        if (record.target == "xmtp_sdk::conformance") {
+            sequence.add(record.fields["sequence"] ?: "")
+        }
+    }
+}
+
 private suspend fun releasedMessage(
     identity: PublicIdentity,
     options: ClientOptions,
@@ -71,9 +81,11 @@ fun main() =
 
         val signer = TestSigner()
         val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
+        val backendOptions = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL")))
+        check(ClientOptions(storage = StorageOptions(location = StorageLocation.InMemory)).backend == null)
         val options =
             ClientOptions(
-                backend = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL"))),
+                backend = BackendSource.Options(backendOptions),
                 storage = StorageOptions(location = StorageLocation.Directory(directory.toString())),
                 deviceSync = false,
             )
@@ -178,6 +190,155 @@ fun main() =
         check(withTimeout(10_000) { lateReader.next() } == null) { "late reader was not ended" }
         val reopenedReader = protocolGroup.messageReader()
         reopenedReader.end()
-        reopenedHost.end()
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
+
+        val largeExpiry = 9_007_199_254_740_993L
+        val credentialOptions =
+            options.copy(
+                backend =
+                    BackendSource.Options(
+                        BackendOptions(
+                            url = backendOptions.url,
+                            credential = Credential(null, "Bearer initial", largeExpiry),
+                        ),
+                    ),
+                storage = StorageOptions(location = StorageLocation.InMemory),
+            )
+        val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxID)
+        check(
+            credentialHost.raw
+                .options()
+                .backend
+                .let { it as BackendSource.Options }
+                .options.credential
+                ?.expiresAtSeconds == largeExpiry,
+        ) {
+            "credential expiry lost 64-bit precision"
+        }
+        credentialHost.raw.setCredential(Credential(null, "Bearer renewed", largeExpiry))
+        credentialHost.end()
+        println("Kotlin scenario 3: credential update and 64-bit value passed")
+
+        val snapshot = reopened.serverConfiguration()
+        val fetched = fetchServerConfiguration(BackendSource.Options(backendOptions))
+        val staticBackend = Backend.connect(backendOptions)
+        check(SDKClient.inboxIDFor(signer.identity(), BackendSource.Connected(staticBackend)) == inboxID)
+        check(
+            SDKClient.canMessage(listOf(signer.identity()), BackendSource.Connected(staticBackend)).first().canMessage,
+        )
+        check(SDKClient.canMessage(listOf(signer.identity()), BackendSource.Options(backendOptions)).first().canMessage)
+        SDKClient
+            .build(
+                signer.identity(),
+                options.copy(
+                    backend = BackendSource.Connected(staticBackend),
+                    storage = StorageOptions(location = StorageLocation.InMemory),
+                ),
+                inboxID,
+            ).end()
+        check(fetched.identifier == snapshot.identifier)
+        check(reopened.refreshServerConfiguration().identifier == snapshot.identifier)
+        check(
+            runCatching { fetchServerConfiguration(BackendSource.Options(BackendOptions(url = "http://127.0.0.1:1"))) }
+                .exceptionOrNull() is XmtpException.ConfigurationUnavailable,
+        )
+        println("Kotlin scenario 10: configuration and typed error passed")
+
+        val local = generateLocalSigner()
+        val unsignedOptions =
+            options.copy(
+                storage = StorageOptions(location = StorageLocation.InMemory),
+                registration = RegistrationOptions(auto = false),
+            )
+        val unsignedHost = SDKClient.create(local, unsignedOptions)
+        check(!unsignedHost.raw.isRegistered())
+        val request = checkNotNull(unsignedHost.raw.unsafeCreateInboxSignatureRequest())
+        check(request.signatureText().isNotEmpty())
+        request.sign(local)
+        unsignedHost.raw.unsafeApplySignatureRequest(request)
+        check(unsignedHost.raw.isRegistered())
+        unsignedHost.end()
+        println("Kotlin scenario 11: local signer and signature request passed")
+
+        check(reopened.notificationState() == NotificationState.Disabled)
+        check(
+            runCatching {
+                reopened.enableNotifications(
+                    NotificationConfig(channel = NotificationChannel.Http("https://example.com", byteArrayOf(1))),
+                )
+            }.exceptionOrNull() is XmtpException.InvalidArgument,
+        )
+        println("Kotlin scenario 12: notification state and typed error passed")
+
+        initLogging(LoggingOptions(level = LogLevel.ERROR))
+        val orderedSink = OrderedLogSink()
+        setLogSink(orderedSink)
+        sdkConformanceEmit(32u)
+        check(orderedSink.sequence == (0 until 32).map(Int::toString)) { "inline log sink changed record order" }
+        for (failure in listOf<Throwable>(Error("foreign log sink failed"), Exception("foreign log sink failed"))) {
+            var throwingSinkCalled = false
+            val before = sdkConformanceSinkErrorCount()
+            setLogSink(
+                object : LogSink {
+                    override fun log(record: LogRecord) {
+                        throwingSinkCalled = true
+                        throw failure
+                    }
+                },
+            )
+            sdkConformanceEmit(1u)
+            check(throwingSinkCalled) { "foreign log sink was not called" }
+            check(sdkConformanceSinkErrorCount() == before + 1uL) { "Rust did not observe the foreign sink error" }
+        }
+        clearLogSink()
+        check(sdkVersion().startsWith("1.12.0"))
+        println("Kotlin logging: ordered records and throwing foreign sink passed")
+
+        val fresh = generateLocalSigner()
+        val errorSigner =
+            object : Signer {
+                override suspend fun identity() = fresh.identity()
+
+                override suspend fun kind() = fresh.kind()
+
+                override suspend fun sign(request: SigningRequest): Signature = throw Error("signer failed")
+            }
+        val errorHost = SDKClient.create(errorSigner, unsignedOptions)
+        check(
+            withTimeout(10_000) { runCatching { errorHost.raw.register() }.exceptionOrNull() } is XmtpException.Signer,
+        )
+        errorHost.end()
+        val unsignedErrorHost = SDKClient.create(generateLocalSigner(), unsignedOptions)
+        val errorRequest = checkNotNull(unsignedErrorHost.raw.unsafeCreateInboxSignatureRequest())
+        check(
+            withTimeout(10_000) { runCatching { errorRequest.sign(errorSigner) }.exceptionOrNull() }
+                is XmtpException.Signer,
+        )
+        unsignedErrorHost.end()
+        val failingSource =
+            object : CredentialSource {
+                override suspend fun credential(): Credential = throw Error("credential source failed")
+            }
+        val failedCredential =
+            withTimeout(10_000) {
+                runCatching {
+                    SDKClient.build(
+                        signer.identity(),
+                        options.copy(
+                            backend =
+                                BackendSource.Options(
+                                    BackendOptions(url = backendOptions.url, credentials = failingSource),
+                                ),
+                            storage = StorageOptions(location = StorageLocation.InMemory),
+                        ),
+                        inboxID,
+                    )
+                }.exceptionOrNull()
+            }
+        check(
+            failedCredential is XmtpException.CredentialCallbackFailed,
+        ) { "credential Error became $failedCredential" }
+        println("Kotlin signer Error: call failed without a hang")
+
+        reopenedHost.end()
     }

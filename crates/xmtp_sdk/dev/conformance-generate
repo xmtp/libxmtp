@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+
+dev/agent-run cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen --features xmtp_sdk/conformance
+case "$(uname -s)" in
+  Darwin) native=target/debug/libxmtp_sdk.dylib ;;
+  Linux) native=target/debug/libxmtp_sdk.so ;;
+  *) echo "unsupported host for SDK conformance" >&2; exit 1 ;;
+esac
+
+generated=target/sdk-conformance
+config=apps/xmtp_sdk_bindgen/uniffi-global.toml
+rm -rf -- "$generated"
+mkdir -p "$generated"
+for language in swift kotlin typescript-napi; do
+  target/debug/xmtp-sdk-bindgen generate \
+    --lib "$native" --language "$language" \
+    --out "$generated/$language" --config "$config"
+done
+cp "$native" "$generated/typescript-napi/"

@@ -10,8 +10,10 @@ use crate::{
     ConversationID, InboxID, Message, MessageID, MessageReader, XmtpError, client::CoreClient,
 };
 
-// Native calls run on an owned task in every profile. This gives nested MLS
-// work a fresh executor stack and lets it finish if the FFI call is cancelled.
+// Native calls run on an owned task in every profile. This keeps SQLite work
+// off the JavaScript thread, gives nested MLS work a fresh executor stack, and
+// lets work finish if the FFI call is cancelled. On wasm32, cancellation drops
+// the work because the target has no blocking thread pool.
 #[cfg(not(target_arch = "wasm32"))]
 async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where

@@ -8,3 +8,4 @@ export {
 } from "./ids";
 export { Message } from "./message";
 export { MessageStream } from "./reader";
+export { setLogSink } from "./logging";

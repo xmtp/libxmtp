@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+generated="${1:-target/sdk-generated}"
+for language in swift kotlin typescript-napi typescript-wasm; do
+  test -d "$generated/$language" || {
+    echo "missing generated $language bindings" >&2
+    exit 1
+  }
+done
+if rg -n 'KeyPackageCleaner' "$generated/swift" "$generated/kotlin" \
+    "$generated/typescript-napi" "$generated/typescript-wasm"; then
+  echo 'unused KeyPackageCleaner worker kind is exported' >&2
+  exit 1
+fi

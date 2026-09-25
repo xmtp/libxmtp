@@ -13,7 +13,7 @@ use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::XmtpTestDb;
 use xmtp_db::prelude::*;
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+use xmtp_proto::api_client::{ApiBuilder, XmtpBackendClient, XmtpTestClient};
 
 use crate::Client;
 use crate::builder::ClientBuilderError;
@@ -260,6 +260,45 @@ async fn a_deployment_requiring_authentication_refuses_a_client_with_no_credenti
         panic!("expected AuthRequired, got {error}");
     };
     assert_eq!(required_scopes, vec!["xmtp:write".to_owned()]);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_sdk_placeholder_does_not_count_as_a_credential_source() {
+    let owner = generate_local_wallet();
+    let mut transport = xmtp_api_backend::MessageBackendBuilder::new();
+    transport
+        .host(xmtp_configuration::backend_test_url())
+        .maybe_auth_handle(Some(xmtp_api_backend::AuthHandle::sdk_placeholder()));
+    let error = Client::builder(identity_setup(&owner))
+        .store(xmtp_db::TestDb::create_ephemeral_store().await)
+        .api_client_with_streams(transport.build()?)
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .with_disable_workers(true)
+        .config_provider(provider(|c| {
+            c.auth.enabled = true;
+            c.auth.required_scopes = vec!["xmtp:write".to_owned()];
+        }))
+        .default_mls_store()?
+        .build()
+        .await
+        .map(|_| ())
+        .expect_err("an SDK placeholder must not satisfy CONF-051");
+    let ClientBuilderError::ClientError(crate::client::ClientError::AuthRequired {
+        required_scopes,
+    }) = error
+    else {
+        panic!("expected AuthRequired, got {error}");
+    };
+    assert_eq!(required_scopes, vec!["xmtp:write".to_owned()]);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_app_supplied_empty_handle_counts_as_a_credential_source() {
+    let mut transport = xmtp_api_backend::MessageBackendBuilder::new();
+    transport
+        .host(xmtp_configuration::backend_test_url())
+        .maybe_auth_handle(Some(xmtp_api_backend::AuthHandle::new()));
+    assert!(transport.build()?.has_credential_source());
 }
 
 // Auth off with a callback configured is not an error. The client

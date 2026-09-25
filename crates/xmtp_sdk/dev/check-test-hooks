@@ -17,12 +17,7 @@ test_hooks='\b(\w*[a-z0-9]Test([A-Z0-9_]\w*)?|test[A-Z0-9_]\w*|\w*_test([A-Z0-9_
 test_sources=(--glob '!*.test.*' --glob '!**/tests/**' --glob '!**/src/test/**'
   --glob '!**/Tests/**')
 # Known hooks that an open change removes, as path:name. A stale entry fails.
-# nm/sdk-client-family (Task 15) moves this reader gate into the conformance
-# harness; remove both entries with it.
-allowed=(
-  apps/xmtp_sdk_bindgen/runtime/kotlin/SDKClient.kt:readerOpenedForTest
-  apps/xmtp_sdk_bindgen/runtime/swift/SDKClient.swift:readerOpenedForTest
-)
+allowed=()
 
 # Print path:name for each test hook under the given paths.
 hooks() {

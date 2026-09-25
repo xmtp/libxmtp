@@ -15,6 +15,11 @@ function checkHex(value: string, bytes: number): void {
 }
 
 export class InboxID extends StringID {
+  /** @internal Values lifted from Rust are already valid. */
+  static fromRust(value: string): InboxID {
+    return new InboxID(value);
+  }
+
   static fromString(value: string): InboxID {
     if (value.length === 0) throw new Error("inbox ID is empty");
     return new InboxID(value);
@@ -22,6 +27,11 @@ export class InboxID extends StringID {
 }
 
 export class InstallationID extends StringID {
+  /** @internal Values lifted from Rust are already valid. */
+  static fromRust(value: string): InstallationID {
+    return new InstallationID(value);
+  }
+
   static fromString(value: string): InstallationID {
     checkHex(value, 32);
     return new InstallationID(value);
@@ -29,6 +39,11 @@ export class InstallationID extends StringID {
 }
 
 export class ConversationID extends StringID {
+  /** @internal Values lifted from Rust are already valid. */
+  static fromRust(value: string): ConversationID {
+    return new ConversationID(value);
+  }
+
   static fromString(value: string): ConversationID {
     checkHex(value, 16);
     return new ConversationID(value);
@@ -36,6 +51,11 @@ export class ConversationID extends StringID {
 }
 
 export class MessageID extends StringID {
+  /** @internal Values lifted from Rust are already valid. */
+  static fromRust(value: string): MessageID {
+    return new MessageID(value);
+  }
+
   static fromString(value: string): MessageID {
     checkHex(value, 32);
     return new MessageID(value);

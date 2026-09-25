@@ -4,12 +4,29 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 stale=target/sdk-generated/swift/runtime/Stale.swift
+conformance_stale=target/sdk-conformance/swift/runtime/Stale.swift
+swift_copy_stale=crates/xmtp_sdk/conformance/swift/Sources/XmtpSdk/Stale.swift
 mkdir -p "$(dirname "$stale")"
 printf '%s\n' '// stale generated file' > "$stale"
-trap 'rm -f "$stale"' EXIT
+mkdir -p "$(dirname "$conformance_stale")" "$(dirname "$swift_copy_stale")"
+printf '%s\n' '// stale conformance file' > "$conformance_stale"
+printf '%s\n' '// stale Swift copy' > "$swift_copy_stale"
+trap 'rm -f "$stale" "$conformance_stale" "$swift_copy_stale"' EXIT
 
 bash crates/xmtp_sdk/dev/generate
 if [ -e "$stale" ]; then
   echo "SDK generation kept $stale" >&2
+  exit 1
+fi
+
+bash crates/xmtp_sdk/dev/conformance-generate
+if [ -e "$conformance_stale" ]; then
+  echo "SDK conformance generation kept $conformance_stale" >&2
+  exit 1
+fi
+
+bash crates/xmtp_sdk/dev/stage-conformance-swift
+if [ -e "$swift_copy_stale" ]; then
+  echo "Swift conformance staging kept $swift_copy_stale" >&2
   exit 1
 fi

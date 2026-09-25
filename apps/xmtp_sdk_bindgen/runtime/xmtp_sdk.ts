@@ -53,12 +53,77 @@ export type ClientOptions = {
     label?: string;
     encryptionKey?: ArrayBuffer;
   };
-  backend: object;
+  backend?: BackendSource;
   deviceSync: boolean;
 };
 export type PublicIdentity = object;
 export type Signer = object;
+export type BackendLike = object;
+export type BackendOptions = object;
+export type BackendSource = object;
+export declare const BackendSource: {
+  Options: new (options: BackendOptions) => object;
+  Connected: new (backend: BackendLike) => object;
+};
+export type CanMessageEntry = { identity: PublicIdentity; canMessage: boolean };
+export type InboxState = object;
+export type KeyPackageStatusEntry = object;
+export type MessageMetadataEntry = object;
+export type ServerConfiguration = object;
+export type LogRecord = {
+  level: number;
+  target: string;
+  message: string;
+  fields: Map<string, string>;
+  timestampNs: bigint;
+  droppedRecords: bigint;
+};
 export type ConversationsLike = object;
+
+export declare function fetchServerConfiguration(
+  options: BackendOptions,
+): Promise<ServerConfiguration>;
+export declare function canMessageWithBackend(
+  backend: BackendLike,
+  identities: PublicIdentity[],
+): Promise<CanMessageEntry[]>;
+export declare function inboxIdForWithBackend(
+  backend: BackendLike,
+  identity: PublicIdentity,
+): Promise<InboxID>;
+export declare function inboxStatesWithBackend(
+  backend: BackendLike,
+  ids: InboxID[],
+): Promise<InboxState[]>;
+export declare function keyPackageStatusesWithBackend(
+  backend: BackendLike,
+  ids: InstallationID[],
+): Promise<KeyPackageStatusEntry[]>;
+export declare function newestMessageMetadataWithBackend(
+  backend: BackendLike,
+  ids: ConversationID[],
+): Promise<MessageMetadataEntry[]>;
+export declare function revokeInstallationsWithBackend(
+  backend: BackendLike,
+  signer: Signer,
+  inboxID: InboxID,
+  ids: InstallationID[],
+): Promise<void>;
+export declare function isAddressAuthorizedWithBackend(
+  backend: BackendLike,
+  inboxID: InboxID,
+  address: string,
+): Promise<boolean>;
+export declare function isInstallationAuthorizedWithBackend(
+  backend: BackendLike,
+  inboxID: InboxID,
+  installationID: InstallationID,
+): Promise<boolean>;
+export declare function verifySignedWithPublicKey(
+  text: string,
+  signature: ArrayBuffer,
+  publicKey: ArrayBuffer,
+): Promise<boolean>;
 
 export interface ClientLike {
   clientKey(): bigint;

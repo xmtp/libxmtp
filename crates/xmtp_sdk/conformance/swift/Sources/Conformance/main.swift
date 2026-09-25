@@ -1,6 +1,14 @@
 import Foundation
 @testable import XmtpSdk
 
+struct ConformanceFailure: LocalizedError {
+    let errorDescription: String?
+
+    init(_ check: String) {
+        errorDescription = check
+    }
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -11,7 +19,7 @@ final class TestSigner: Signer, @unchecked Sendable {
         process.standardOutput = output
         try process.run()
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { throw SDKValueError.invalidID }
+        guard process.terminationStatus == 0 else { throw ConformanceFailure("sign command failed") }
         return String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)!
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -35,6 +43,24 @@ final class TestSigner: Signer, @unchecked Sendable {
     }
 }
 
+final class OrderedLogSink: LogSink, @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func log(record: LogRecord) throws {
+        guard record.target == "xmtp_sdk::conformance" else { return }
+        lock.lock()
+        values.append(record.fields["sequence"] ?? "")
+        lock.unlock()
+    }
+
+    func sequence() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -46,8 +72,10 @@ struct Conformance {
         let signer = TestSigner()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-sdk-conformance-\(UUID().uuidString)")
+        let backendOptions = BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!)
+        precondition(ClientOptions(storage: StorageOptions(location: .inMemory)).backend == nil)
         let options = ClientOptions(
-            backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!),
+            backend: .options(options: backendOptions),
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
@@ -85,7 +113,7 @@ struct Conformance {
         let defaultFolder = appFolder.appendingPathComponent("xmtp")
         let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
         guard defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("Default storage has no database file")
         }
         try await defaultHost.end()
         try FileManager.default.removeItem(at: appFolder)
@@ -174,21 +202,124 @@ struct Conformance {
         let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
         var openedIterator = opened.makeAsyncIterator()
         guard let lateReader = await openedIterator.next() else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("reader did not open before cancellation")
         }
         cancelledOpening.cancel()
         releaseSignal.yield(())
         do {
             _ = try await cancelledOpening.value
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("cancelled reader creation returned a stream")
         } catch is CancellationError {}
         SDKClient.readerOpenedForTest = nil
         guard try await lateReader.next() == nil else {
-            throw SDKValueError.invalidID
+            throw ConformanceFailure("late reader was not closed")
         }
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
-        try await reopenedHost.end()
         print("Swift scenario 7: durable stream and idle cancellation passed")
+
+        let largeExpiry: Int64 = 9_007_199_254_740_993
+        let credentialOptions = ClientOptions(
+            backend: .options(options: BackendOptions(
+                url: backendOptions.url,
+                credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
+            )),
+            storage: StorageOptions(location: .inMemory),
+            deviceSync: false
+        )
+        let credentialHost = try await SDKClient.build(
+            identity: await signer.identity(), options: credentialOptions, inboxID: inboxID
+        )
+        guard case let .some(.options(options: savedBackend)) = credentialHost.raw.options().backend,
+              savedBackend.credential?.expiresAtSeconds == largeExpiry
+        else {
+            throw ConformanceFailure("credential expiry lost 64-bit precision")
+        }
+        try await credentialHost.raw.setCredential(credential: Credential(
+            name: nil, value: "Bearer renewed", expiresAtSeconds: largeExpiry
+        ))
+        try await credentialHost.end()
+        print("Swift scenario 3: credential update and 64-bit value passed")
+
+        let snapshot = reopened.serverConfiguration()
+        let fetched = try await fetchServerConfiguration(backend: .options(options: backendOptions))
+        let staticBackend = try await Backend.connect(options: backendOptions)
+        let staticIdentity = try await signer.identity()
+        guard try await SDKClient.inboxID(for: staticIdentity, backend: .connected(backend: staticBackend)) == inboxID else {
+            throw ConformanceFailure("backend-only inbox lookup returned a different ID")
+        }
+        guard try await SDKClient.canMessage([staticIdentity], backend: .connected(backend: staticBackend)).first?.canMessage == true else {
+            throw ConformanceFailure("backend-only canMessage did not find this inbox")
+        }
+        guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions)).first?.canMessage == true else {
+            throw ConformanceFailure("backend options canMessage did not find this inbox")
+        }
+        let connectedHost = try await SDKClient.build(
+            identity: staticIdentity,
+            options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
+            inboxID: inboxID
+        )
+        try await connectedHost.end()
+        guard snapshot.identifier == fetched.identifier else {
+            throw ConformanceFailure("configuration fetch returned a different deployment")
+        }
+        let refreshed = try await reopened.refreshServerConfiguration()
+        guard refreshed.identifier == snapshot.identifier else {
+            throw ConformanceFailure("configuration refresh returned a different deployment")
+        }
+        do {
+            _ = try await fetchServerConfiguration(backend: .options(options: BackendOptions(url: "http://127.0.0.1:1")))
+            throw ConformanceFailure("unavailable configuration request succeeded")
+        } catch XmtpError.ConfigurationUnavailable {}
+        print("Swift scenario 10: configuration and typed error passed")
+
+        let local = await generateLocalSigner()
+        let unsignedOptions = ClientOptions(
+            backend: options.backend,
+            storage: StorageOptions(location: .inMemory),
+            deviceSync: false,
+            registration: RegistrationOptions(auto: false)
+        )
+        let unsignedHost = try await SDKClient.create(signer: local, options: unsignedOptions)
+        let unsigned = unsignedHost.raw
+        guard try await !unsigned.isRegistered() else {
+            throw ConformanceFailure("auto registration was not disabled")
+        }
+        guard let request = try await unsigned.unsafeCreateInboxSignatureRequest() else {
+            throw ConformanceFailure("new inbox has no signature request")
+        }
+        guard !(await request.signatureText()).isEmpty else {
+            throw ConformanceFailure("signature request has no text")
+        }
+        try await request.sign(signer: local)
+        try await unsigned.unsafeApplySignatureRequest(request: request)
+        guard try await unsigned.isRegistered() else {
+            throw ConformanceFailure("signed inbox was not registered")
+        }
+        try await unsignedHost.end()
+        print("Swift scenario 11: local signer and signature request passed")
+
+        guard try reopened.notificationState() == .disabled else {
+            throw ConformanceFailure("new client notification state was not disabled")
+        }
+        do {
+            _ = try await reopened.enableNotifications(config: NotificationConfig(
+                channel: .http(url: "https://example.com", signingKey: Data([1]))
+            ))
+            throw ConformanceFailure("invalid notification key was accepted")
+        } catch XmtpError.InvalidArgument {}
+        print("Swift scenario 12: notification state and typed error passed")
+
+        try initLogging(options: LoggingOptions(level: .error))
+        let orderedSink = OrderedLogSink()
+        try setLogSink(sink: orderedSink)
+        try await sdkConformanceEmit(count: 32)
+        guard orderedSink.sequence() == (0 ..< 32).map(String.init) else {
+            throw ConformanceFailure("inline log sink changed record order")
+        }
+        try clearLogSink()
+        print("Swift logging: inline records stayed in order")
+
+        try await reopenedHost.end()
     }
 }

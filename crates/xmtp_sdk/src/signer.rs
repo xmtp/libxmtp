@@ -1,5 +1,9 @@
+use alloy::signers::local::PrivateKeySigner;
+use std::sync::Arc;
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_id::associations::Identifier;
+use xmtp_id::associations::ident;
+use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
 
 use crate::{XmtpError, foreign};
 
@@ -22,6 +26,21 @@ impl PublicIdentity {
             PublicIdentityKind::Passkey => Identifier::passkey_str(&self.identifier, None),
         }
         .map_err(XmtpError::unknown)
+    }
+}
+
+impl From<Identifier> for PublicIdentity {
+    fn from(value: Identifier) -> Self {
+        match value {
+            Identifier::Ethereum(ident::Ethereum(identifier)) => Self {
+                identifier,
+                kind: PublicIdentityKind::Ethereum,
+            },
+            Identifier::Passkey(ident::Passkey { key, .. }) => Self {
+                identifier: hex::encode(key),
+                kind: PublicIdentityKind::Passkey,
+            },
+        }
     }
 }
 
@@ -77,6 +96,49 @@ pub trait Signer: MaybeSend + MaybeSync + 'static {
     async fn identity(&self) -> Result<PublicIdentity, SignerError>;
     async fn kind(&self) -> Result<SignerKind, SignerError>;
     async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError>;
+}
+
+struct LocalSigner(PrivateKeySigner);
+
+#[xmtp_common::async_trait]
+impl Signer for LocalSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        Ok(PublicIdentity {
+            identifier: self
+                .0
+                .get_identifier()
+                .map_err(|_| SignerError::Failed)?
+                .to_string(),
+            kind: PublicIdentityKind::Ethereum,
+        })
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        Ok(SignerKind::Eoa)
+    }
+
+    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError> {
+        let UnverifiedSignature::RecoverableEcdsa(signature) = self
+            .0
+            .sign(&request.text)
+            .map_err(|_| SignerError::Failed)?
+        else {
+            return Err(SignerError::Failed);
+        };
+        Ok(Signature::Ecdsa(signature.signature_bytes().to_vec()))
+    }
+}
+
+#[xmtp_macro::sdk_export]
+pub async fn generate_local_signer() -> Arc<dyn Signer> {
+    Arc::new(LocalSigner(PrivateKeySigner::random()))
+}
+
+#[xmtp_macro::sdk_export]
+pub async fn local_signer_from_private_key(key: Vec<u8>) -> Result<Arc<dyn Signer>, XmtpError> {
+    let signer = PrivateKeySigner::from_slice(&key)
+        .map_err(|_| XmtpError::invalid("invalid local signer private key"))?;
+    Ok(Arc::new(LocalSigner(signer)))
 }
 
 pub(crate) async fn identity(

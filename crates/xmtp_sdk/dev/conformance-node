@@ -5,10 +5,11 @@ root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/timestamp.test.mts
+bash crates/xmtp_sdk/dev/conformance-generate
 nix build --no-link .#ubjs-core .#ubjs-node
 core="$(nix path-info .#ubjs-core)"
 node="$(nix path-info .#ubjs-node)"
-package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+package_dir=target/sdk-conformance/typescript-napi/node_modules/@ubjs
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"

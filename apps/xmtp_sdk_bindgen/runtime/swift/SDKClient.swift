@@ -4,10 +4,6 @@ import Foundation
 public final class SDKClient: @unchecked Sendable {
     public let raw: Client
 
-    #if DEBUG
-        nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?
-    #endif
-
     private init(_ raw: Client) {
         self.raw = raw
         ClientRegistry.register(self)
@@ -38,6 +34,46 @@ public final class SDKClient: @unchecked Sendable {
         try await SDKClient(Client.build(identity: identity, options: resolved(options, appName: appName), inboxID: inboxID))
     }
 
+    public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {
+        try await XmtpSdk.fetchServerConfiguration(backend: backend)
+    }
+
+    public static func canMessage(_ identities: [PublicIdentity], backend: BackendSource) async throws -> [CanMessageEntry] {
+        try await canMessageWithBackend(backend: backend, identities: identities)
+    }
+
+    public static func inboxID(for identity: PublicIdentity, backend: BackendSource) async throws -> InboxID {
+        try await inboxIDForWithBackend(backend: backend, identity: identity)
+    }
+
+    public static func inboxStates(_ ids: [InboxID], backend: BackendSource) async throws -> [InboxState] {
+        try await inboxStatesWithBackend(backend: backend, ids: ids)
+    }
+
+    public static func keyPackageStatuses(_ ids: [InstallationID], backend: BackendSource) async throws -> [KeyPackageStatusEntry] {
+        try await keyPackageStatusesWithBackend(backend: backend, ids: ids)
+    }
+
+    public static func newestMessageMetadata(_ ids: [ConversationID], backend: BackendSource) async throws -> [MessageMetadataEntry] {
+        try await newestMessageMetadataWithBackend(backend: backend, ids: ids)
+    }
+
+    public static func revokeInstallations(signer: Signer, inboxID: InboxID, ids: [InstallationID], backend: BackendSource) async throws {
+        try await revokeInstallationsWithBackend(backend: backend, signer: signer, inboxID: inboxID, ids: ids)
+    }
+
+    public static func isAddressAuthorized(_ address: String, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
+        try await isAddressAuthorizedWithBackend(backend: backend, inboxID: inboxID, address: address)
+    }
+
+    public static func isInstallationAuthorized(_ installationID: InstallationID, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
+        try await isInstallationAuthorizedWithBackend(backend: backend, inboxID: inboxID, installationID: installationID)
+    }
+
+    public static func verifySignedWithPublicKey(_ text: String, signature: Data, publicKey: Data) async throws -> Bool {
+        try await XmtpSdk.verifySignedWithPublicKey(text: text, signature: signature, publicKey: publicKey)
+    }
+
     public func end() async throws {
         defer { ClientRegistry.remove(self) }
         try await raw.end()
@@ -46,9 +82,6 @@ public final class SDKClient: @unchecked Sendable {
     /// The reader acknowledges a value when the next read starts.
     public func messages(in group: Group) async throws -> SDKMessageStream {
         let reader = try await group.messageReader()
-        #if DEBUG
-            await Self.readerOpenedForTest?(reader)
-        #endif
         if Task.isCancelled {
             try? await reader.end()
             throw CancellationError()

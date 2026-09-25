@@ -226,6 +226,20 @@ async fn test_auth_middleware_with_no_callback_and_handle() {
     middleware.make_requests(Ok(())).await;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn sdk_placeholder_sends_a_credential_after_set() {
+    let handle = AuthHandle::sdk_placeholder();
+    let mut middleware = AuthMiddleware::new(TestClient::new(None), None, Some(handle.clone()));
+    assert!(!middleware.has_credential_source());
+    middleware.make_requests(Ok(())).await;
+
+    let credential = credential(100);
+    handle.set(credential.clone()).await;
+    assert!(middleware.has_credential_source());
+    middleware.inner.expected_credential = Some(credential);
+    middleware.make_requests(Ok(())).await;
+}
+
 // verifies: AUTH-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_auth_middleware_with_callback_and_no_handle() {

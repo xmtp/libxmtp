@@ -89,13 +89,25 @@ const signer = {
 const seedDirectory = await mkdtemp(join(tmpdir(), "xmtp-sdk-bench-seed-"));
 const url = process.env.XMTP_BACKEND_URL!;
 const options = (directory: string) => ({
-  backend: { url, appVersion: undefined, credentials: undefined },
+  backend: new sdk.BackendSource.Options({
+    options: {
+      url,
+      appVersion: undefined,
+      credentials: undefined,
+      credential: undefined,
+    },
+  }),
   storage: {
     location: new sdk.StorageLocation.Directory(directory),
     label: undefined,
     encryptionKey: undefined,
+    pool: undefined,
+    singleConnection: false,
   },
   deviceSync: false,
+  registration: { auto: true, nonce: undefined },
+  forkRecovery: undefined,
+  workers: undefined,
 });
 const seedClient = await sdk.Client.create(signer, options(seedDirectory));
 const seededPage = await seedClient.conversations().createGroup([]);
@@ -122,7 +134,9 @@ const nativeClient = await native.createClient(
   { level: native.LogLevel.Error },
 );
 const nativeGroup = nativeClient.conversations().getConversationById(pageID);
-const nativeEmptyGroup = nativeClient.conversations().getConversationById(emptyID);
+const nativeEmptyGroup = nativeClient
+  .conversations()
+  .getConversationById(emptyID);
 
 for (let i = 0; i < 10_000; i++) {
   await nativeGroup.sendText(`message ${i}`, {
@@ -142,8 +156,12 @@ const client = await sdk.Client.build(
   options(sdkDirectory),
   sdk.InboxID.fromString(inboxID),
 );
-const group = client.conversations().getGroup(sdk.ConversationID.fromString(pageID));
-const emptyGroup = client.conversations().getGroup(sdk.ConversationID.fromString(emptyID));
+const group = client
+  .conversations()
+  .getGroup(sdk.ConversationID.fromString(pageID));
+const emptyGroup = client
+  .conversations()
+  .getGroup(sdk.ConversationID.fromString(emptyID));
 const sdkEmptyCount = (await emptyGroup.messages()).length;
 const nativeEmptyCount = (await nativeEmptyGroup.listMessages()).length;
 if (sdkEmptyCount !== 0 || nativeEmptyCount !== 0) {
