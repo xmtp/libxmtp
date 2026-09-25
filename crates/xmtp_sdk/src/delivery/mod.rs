@@ -155,8 +155,10 @@ mod tests {
                 ApiClientError::Auth(AuthError::CredentialRejected { retryable: true }),
             )))),
         });
-        assert!(matches!(exhausted_with_auth, XmtpError::RecoveryExhausted(ref details)
-            if details.code == "recoveryExhausted" && details.retryable));
+        assert!(
+            matches!(exhausted_with_auth, XmtpError::RecoveryExhausted(ref details)
+            if details.code == "recoveryExhausted" && details.retryable)
+        );
         let storage = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::LocalReadCapacity { bytes: 2, limit: 1 },
         )));

@@ -1014,7 +1014,10 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
     group.send_text("invalid stored message".into()).await?;
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
-    assert!(reader.next().await.is_err(), "invalid ID must fail conversion");
+    assert!(
+        reader.next().await.is_err(),
+        "invalid ID must fail conversion"
+    );
     assert!(reader.is_ended_for_test(), "decode error left reader open");
     let replacement = group.message_reader().await?;
     replacement.end().await?;
@@ -1143,7 +1146,10 @@ async fn connection_state_across_toxiproxy_drop() {
         let pending_conversation = conversations.clone();
         let pending_read = tokio::spawn(async move { pending_conversation.next().await });
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!pending_read.is_finished(), "conversation read was not pending");
+        assert!(
+            !pending_read.is_finished(),
+            "conversation read was not pending"
+        );
         let state_messages = messages.clone();
         let state_conversations = conversations.clone();
         let pending_states = tokio::spawn(async move {
@@ -1153,7 +1159,10 @@ async fn connection_state_across_toxiproxy_drop() {
             )
         });
         tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(!pending_states.is_finished(), "state observer was not pending");
+        assert!(
+            !pending_states.is_finished(),
+            "state observer was not pending"
+        );
 
         proxy.disable().await.expect("disable proxy");
         let outage = AssertUnwindSafe(async {

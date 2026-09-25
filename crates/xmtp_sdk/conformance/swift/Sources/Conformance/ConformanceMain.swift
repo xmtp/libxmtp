@@ -363,10 +363,20 @@ struct Conformance {
             let conversationStream = try await reopenedHost.conversationStream()
             let conversationIterator = conversationStream.makeAsyncIterator()
             let conversationPending = Task { try await conversationIterator.next() }
+            let conversationDeadline = Task {
+                do { try await Task.sleep(for: .seconds(10)) }
+                catch { return }
+                conversationPending.cancel()
+            }
+            defer { conversationDeadline.cancel() }
             try await Task.sleep(for: .milliseconds(100))
             _ = try await reopened.conversations().createGroup(members: [], options: nil)
-            guard try await conversationPending.value != nil else {
-                throw ConformanceFailure("conversation stream missed a stored group")
+            do {
+                guard try await conversationPending.value != nil else {
+                    throw ConformanceFailure("conversation stream missed a stored group")
+                }
+            } catch is CancellationError {
+                throw ConformanceFailure("conversation stream did not deliver a group before the deadline")
             }
         }
         print("Swift scenario 7: durable stream and idle cancellation passed")

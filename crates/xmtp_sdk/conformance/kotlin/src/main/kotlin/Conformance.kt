@@ -357,7 +357,13 @@ fun main() =
         val breakID = breakGroup.sendText("close after take")
         val breakReasons = mutableListOf<SDKStreamCloseReason>()
         val retainedFlow = reopenedHost.messages(breakGroup, onClose = { breakReasons.add(it) })
-        check(retainedFlow.take(1).toList().single().id == breakID)
+        check(
+            retainedFlow
+                .take(1)
+                .toList()
+                .single()
+                .id == breakID,
+        )
         check(breakReasons == listOf(SDKStreamCloseReason.Closed)) { "take did not close the stored flow" }
         val breakReplay = breakGroup.messageReader()
         check(withTimeout(3_000) { breakReplay.next() }?.id == breakID) {
@@ -390,11 +396,20 @@ fun main() =
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaughtStateError.compareAndSet(null, error) }
         try {
-            val stateFlow = reopenedHost.messages(
-                stateGroup,
-                onConnectionStateChange = { _, _ -> throw IllegalStateException("state callback failed") },
+            val stateFlow =
+                reopenedHost.messages(
+                    stateGroup,
+                    onConnectionStateChange = { _, _ -> throw IllegalStateException("state callback failed") },
+                )
+            check(
+                withTimeout(3_000) {
+                    stateFlow
+                        .take(1)
+                        .toList()
+                        .single()
+                        .id
+                } == stateID,
             )
-            check(withTimeout(3_000) { stateFlow.take(1).toList().single().id } == stateID)
             delay(100)
             check(uncaughtStateError.get() == null) { "state callback crashed its coroutine" }
         } finally {
