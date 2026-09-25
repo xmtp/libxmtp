@@ -91,9 +91,9 @@ pub use identity::{
 };
 pub use ids::{ConversationID, InboxID, InstallationID, MessageID, Timestamp};
 #[cfg(not(feature = "pure-only"))]
-pub use logging::{LogLevel, LoggingOptions, OtelOptions};
+pub use logging::{LogLevel, LogRecord, LogSink, LogSinkError, LoggingOptions, OtelOptions};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
-pub use logging::{LogProcessType, LogRecord, LogRotation, LogSink, LogSinkError};
+pub use logging::{LogProcessType, LogRotation};
 #[cfg(not(feature = "pure-only"))]
 pub use message::{
     ContentTypeId, DeliveryStatus, Message, MessageBody, MessageContent, MessageData, MessageKind,

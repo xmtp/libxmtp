@@ -12691,6 +12691,7 @@ dependencies = [
  "futures",
  "hkdf 0.12.4",
  "http 1.4.2",
+ "js-sys",
  "metrics",
  "metrics-util",
  "opentelemetry",

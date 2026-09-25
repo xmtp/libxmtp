@@ -32,6 +32,8 @@ pub enum XmtpError {
     InvalidInput(ErrorDetails),
     #[error("storage location required: {0:?}")]
     StorageLocationRequired(ErrorDetails),
+    #[error("storage pool busy: {0:?}")]
+    StorageBusy(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -144,6 +146,16 @@ impl XmtpError {
             retryable: false,
             message: "the host must resolve the default storage location".into(),
         })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
+        Self::StorageBusy(Self::details(
+            "storageBusy",
+            ErrorCategory::Storage,
+            true,
+            message,
+        ))
     }
 
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {

@@ -7,10 +7,11 @@ use crate::error::Error;
 use crate::handle::LoggingHandle;
 
 impl XmtpLoggingBuilder {
-    /// Install the global subscriber (wasm). Only the level filter is reloadable;
-    /// file logging and telemetry are not available in the browser.
+    /// Install the global subscriber (wasm). The level filter and sink can
+    /// change. File logging and telemetry are not available in the browser.
     pub fn install(self) -> Result<LoggingHandle, Error> {
         use crate::filter::filter_directive;
+        use crate::layers::sink::SinkSlot;
         use crate::layers::web::{console_layer, perf_layer};
         use tracing_subscriber::prelude::*;
         use tracing_subscriber::reload;
@@ -31,14 +32,16 @@ impl XmtpLoggingBuilder {
             reload::Layer::new(filter_directive(cfg.level.as_str()));
 
         let perf = cfg.performance.then(|| perf_layer());
+        let sink = SinkSlot::default();
 
         tracing_subscriber::registry()
             .with(filter_layer)
             .with(console_layer())
             .with(perf)
+            .with(sink.clone())
             .try_init()
             .map_err(|_| Error::AlreadyInitialized)?;
 
-        Ok(LoggingHandle::new(filter_handle))
+        Ok(LoggingHandle::new(filter_handle, sink))
     }
 }

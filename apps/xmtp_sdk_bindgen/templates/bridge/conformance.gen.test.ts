@@ -90,15 +90,6 @@ function sample(shape: Shape, seed: number): unknown {
       const entry = variants[seed % variants.length];
       if (!entry) throw new Error(`empty enum ${shape.name}`);
       if (layout.flat) return seed % variants.length;
-      if (layout.error) {
-        const fields = entry[1];
-        if (!Array.isArray(fields)) throw new Error("invalid error layout");
-        return enumFactory(B)(
-          shape.name,
-          entry[0],
-          fields[0] ? [sample(fields[0], seed)] : [],
-        );
-      }
       return enumSample(shape.name, entry[0], entry[1], seed);
     }
     case "optional":
@@ -126,6 +117,7 @@ function enumSample(
       tag,
       fields.map((field) => sample(field, seed)),
     );
+  if (Object.keys(fields).length === 0) return enumFactory(B)(name, tag, []);
   const inner: Record<string, unknown> = {};
   for (const [field, shape] of Object.entries(fields))
     inner[field] = sample(shape, seed);
@@ -396,7 +388,13 @@ describe("generated bridge value conformance", () => {
   it("detects a codec that drops credentials", async () => {
     const shape: Shape = { kind: "record", name: "BackendOptions" };
     const [main, worker] = endpoints();
-    const host = new WorkerHost(worker, 1, "credentials", async () => {}, async () => undefined);
+    const host = new WorkerHost(
+      worker,
+      1,
+      "credentials",
+      async () => {},
+      async () => undefined,
+    );
     const session = new MainSession(main, 1, "credentials");
     await session.ready();
     const original = {
@@ -405,21 +403,34 @@ describe("generated bridge value conformance", () => {
       credential: undefined,
       credentials: {
         async credential() {
-          return { name: undefined, value: "token", expiresAtSeconds: 9007199254740993n };
+          return {
+            name: undefined,
+            value: "token",
+            expiresAtSeconds: 9007199254740993n,
+          };
         },
       },
     };
     const wire = mainEncoder(session).convert(shape, original);
     const invoke = async (value: unknown): Promise<unknown> => {
-      const decoded = workerDecoder(host.registry, host.callbacks, enumFactory(B)).convert(shape, value);
-      if (decoded === null || typeof decoded !== "object") throw new TypeError("missing options");
+      const decoded = workerDecoder(
+        host.registry,
+        host.callbacks,
+        enumFactory(B),
+      ).convert(shape, value);
+      if (decoded === null || typeof decoded !== "object")
+        throw new TypeError("missing options");
       const source: unknown = Reflect.get(decoded, "credentials");
-      if (source === null || typeof source !== "object") throw new TypeError("missing credentials");
+      if (source === null || typeof source !== "object")
+        throw new TypeError("missing credentials");
       const callback: unknown = Reflect.get(source, "credential");
-      if (typeof callback !== "function") throw new TypeError("missing credential callback");
+      if (typeof callback !== "function")
+        throw new TypeError("missing credential callback");
       return Reflect.apply(callback, source, []);
     };
-    expect(await invoke(structuredClone(wire))).toMatchObject({ value: "token" });
+    expect(await invoke(structuredClone(wire))).toMatchObject({
+      value: "token",
+    });
     const dropped = structuredClone(wire);
     if (dropped !== null && typeof dropped === "object")
       Reflect.deleteProperty(dropped, "credentials");

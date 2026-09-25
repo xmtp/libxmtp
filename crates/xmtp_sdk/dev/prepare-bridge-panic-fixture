@@ -11,7 +11,7 @@ mkdir -p "$fixture" "$out"
 
 dev/agent-run cargo build --locked -p xmtp_sdk \
   --target wasm32-unknown-unknown --target-dir "$fixture/build" \
-  --features bridge-panic-test
+  --features bridge-panic-test,conformance
 cp "$fixture/build/wasm32-unknown-unknown/debug/xmtp_sdk.wasm" "$wasm"
 target/debug/xmtp-sdk-bindgen generate \
   --lib "$wasm" --language typescript-wasm --out "$out" \

@@ -199,43 +199,42 @@ export class ValueCodec {
           return value;
         }
         if (layout.error) {
-          if (this.direction === "encode") {
-            const error = encodeError(value);
-            const variant = layout.variants[error.variant];
-            if (!variant || !Array.isArray(variant))
-              throw new TypeError(`unknown ${shape.name} error`);
-            const details = Array.isArray(error.details)
-              ? error.details
-              : error.details === undefined
-                ? []
-                : [error.details];
-            return {
-              variant: error.variant,
-              code: error.code,
-              category: error.category,
-              retryable: error.retryable,
-              message: error.message,
-              details: variant.map((field, index) =>
-                this.convert(field, details[index]),
-              ),
-            };
-          }
-          const error = errorWire(value);
+          const error =
+            this.direction === "encode" ? encodeError(value) : errorWire(value);
           const variant = layout.variants[error.variant];
-          if (!variant || !Array.isArray(variant))
-            throw new TypeError(`unknown ${shape.name} error`);
-          const details = error.details;
-          if (!Array.isArray(details))
-            throw new TypeError(`invalid ${shape.name} error details`);
-          if (!variant[0])
-            return (
-              this.enumFactory?.(shape.name, error.variant, []) ??
-              decodeError(error)
+          if (!variant) throw new TypeError(`unknown ${shape.name} error`);
+          const details = Array.isArray(error.details)
+            ? error.details
+            : error.details === undefined
+              ? []
+              : [error.details];
+          let converted: unknown[];
+          if (Array.isArray(variant)) {
+            converted = variant.map((field, index) =>
+              this.convert(field, details[index]),
             );
-          const detail = this.convert(variant[0], details[0]);
+          } else if (Object.keys(variant).length === 0) {
+            converted = [];
+          } else {
+            const fields = plain(details[0]);
+            const output: Record<string, unknown> = {};
+            for (const [name, field] of Object.entries(variant)) {
+              output[name] = this.convert(field, fields[name]);
+            }
+            converted = [output];
+          }
+          const convertedError: ErrorWire = {
+            variant: error.variant,
+            code: error.code,
+            category: error.category,
+            retryable: error.retryable,
+            message: error.message,
+            details: converted,
+          };
+          if (this.direction === "encode") return convertedError;
           return (
-            this.enumFactory?.(shape.name, error.variant, [detail]) ??
-            decodeError(error)
+            this.enumFactory?.(shape.name, error.variant, converted) ??
+            decodeError(convertedError)
           );
         }
         const fields = plain(value);

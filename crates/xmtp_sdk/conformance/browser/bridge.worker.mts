@@ -22,6 +22,7 @@ import type {
 import {
   PoolLocks,
   WorkerHost,
+  type LockProvider,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.ts";
 import { LAYOUTS } from "../../../../target/sdk-generated/typescript-wasm/wire.gen.ts";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts";
@@ -30,6 +31,27 @@ import { PROPERTY_LAYOUT } from "./bridge.value-layout.mts";
 LAYOUTS.records.BridgeProperty = PROPERTY_LAYOUT;
 const originals = new Map<number, { shape: Shape; value: unknown }>();
 let nextValue = 1;
+const held = new Set<string>();
+const lockProvider: LockProvider = {
+  async request(name, _options, callback) {
+    if (held.has(name)) return callback(null);
+    held.add(name);
+    try {
+      await callback({});
+    } finally {
+      held.delete(name);
+    }
+  },
+};
+const locks = new PoolLocks(lockProvider);
+const otherTab = new PoolLocks(lockProvider);
+let closeArmed = false;
+let closeEntered = false;
+let closeFinished = false;
+let allowClose: (() => void) | undefined;
+const closeGate = new Promise<void>((resolve) => {
+  allowClose = resolve;
+});
 
 function semantic(value: unknown): unknown {
   return value instanceof Error && "tag" in value
@@ -101,8 +123,44 @@ const host = new WorkerHost(
   CONTRACT_HASH,
   async () => {
     await uniffiInitAsync(wasm);
+    const end = B.Client.prototype.end;
+    B.Client.prototype.end = async function (...args) {
+      if (closeArmed) {
+        closeEntered = true;
+        await closeGate;
+      }
+      await Reflect.apply(end, this, args);
+      if (closeArmed) closeFinished = true;
+    };
   },
   async (key, args, context) => {
+    if (key === "__bridgeGcArm") {
+      const owner = args[0];
+      if (typeof owner !== "number") throw new TypeError("missing owner");
+      await locks.open("gc-db");
+      locks.attachOwner(owner, "gc-db");
+      closeArmed = true;
+      return undefined;
+    }
+    if (key === "__bridgeGcState") return { closeEntered, closeFinished };
+    if (key === "__bridgeGcAllowClose") {
+      allowClose?.();
+      return undefined;
+    }
+    if (key === "__bridgeGcOtherBusy") {
+      try {
+        await otherTab.open("gc-db");
+        otherTab.close("gc-db");
+        return false;
+      } catch (error) {
+        return (
+          error !== null &&
+          typeof error === "object" &&
+          "code" in error &&
+          error.code === "storageBusy"
+        );
+      }
+    }
     if (key === "__bridgeInner") return "inner result";
     if (key === "__bridgeNever") return new Promise<unknown>(() => {});
     if (key === "__bridgeValueObject") {
@@ -158,11 +216,7 @@ const host = new WorkerHost(
     }
     return dispatchGenerated(key, args, context);
   },
-  new PoolLocks({
-    async request(_name, _options, callback) {
-      await callback({});
-    },
-  }),
+  locks,
 );
 process.on("unhandledRejection", (error) => host.fatal(error));
 process.on("uncaughtException", (error) => host.fatal(error));
