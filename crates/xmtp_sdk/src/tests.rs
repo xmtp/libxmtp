@@ -541,13 +541,28 @@ async fn backend_only_identity_and_message_queries() {
     assert_eq!(metadata[0].conversation_id, group.id());
     assert!(metadata[0].created_at.0 > 0);
     let first_metadata = metadata[0].created_at.0;
+    let first_sequence_id = metadata[0].sequence_id;
     group.send_text("newer metadata".into()).await?;
-    let updated_metadata = crate::static_helpers::newest_message_metadata_with_backend(
-        source.clone(),
-        vec![group.id()],
-    )
-    .await?;
+    let updated_metadata = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let metadata = crate::static_helpers::newest_message_metadata_with_backend(
+                source.clone(),
+                vec![group.id()],
+            )
+            .await?;
+            if metadata
+                .first()
+                .is_some_and(|entry| entry.sequence_id > first_sequence_id)
+            {
+                return Ok::<_, XmtpError>(metadata);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("new message metadata was not visible")?;
     assert!(updated_metadata[0].created_at.0 >= first_metadata);
+    assert!(updated_metadata[0].sequence_id > first_sequence_id);
     let connected_client = Client::build(
         client.identity(),
         ClientOptions {
