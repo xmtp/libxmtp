@@ -87,8 +87,9 @@ impl LocalStore for NativeStore {
             }
             Err(_) => {
                 // Some file systems cannot make hard links. This check and
-                // rename are not atomic. ATCH-035/ATCH-058 keep each path
-                // single-flight, as with the OPFS check-then-move path.
+                // rename are not atomic. Callers keep each path single-flight
+                // (one pending attachment per digest, one fetch per path), as
+                // with the OPFS check-then-move path.
                 if tokio::fs::try_exists(&to)
                     .await
                     .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
