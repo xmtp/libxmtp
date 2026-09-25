@@ -357,7 +357,7 @@ fun main() =
         check(afterAck.next()?.id == secondID) { "adapter did not acknowledge on next request" }
         afterAck.end()
         val breakGroup = reopened.conversations().createGroup(emptyList(), null)
-        val breakID = breakGroup.sendText("close after take")
+        val breakID = breakGroup.sendText("close after take", null)
         val breakReasons = mutableListOf<SDKStreamCloseReason>()
         val retainedFlow = reopenedHost.messages(breakGroup, onClose = { breakReasons.add(it) })
         check(
@@ -394,7 +394,7 @@ fun main() =
         }
         thrownReplay.end()
         val stateGroup = reopened.conversations().createGroup(emptyList(), null)
-        val stateID = stateGroup.sendText("throwing state callback")
+        val stateID = stateGroup.sendText("throwing state callback", null)
         val uncaughtStateError = AtomicReference<Throwable?>()
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaughtStateError.compareAndSet(null, error) }
