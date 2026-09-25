@@ -565,7 +565,8 @@ const listenerID = await reopened.startListener(eventFilter, async () => {
   listenerCalls += 1;
 });
 await reopened.raw.conversations().createGroup([]);
-assert.ok(await eventReader.next());
+const sampleEvent = await eventReader.next();
+assert.ok(sampleEvent);
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
   await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(listenerCalls, 1);
@@ -586,6 +587,15 @@ for await (const event of eventStream) {
 }
 assert.equal(publicEvents, 1, "public EventStream missed the event");
 assert.deepEqual(await eventStream.next(), { done: true, value: undefined });
+let endedReaders = 0;
+const returnProbe = new sdk.EventStream({
+  next: async () => sampleEvent,
+  end: async () => {
+    endedReaders += 1;
+  },
+});
+for await (const _event of returnProbe) break;
+assert.equal(endedReaders, 1, "EventStream.return did not end its reader");
 console.log("Node public EventStream passed");
 
 // verifies: EVENT-053
