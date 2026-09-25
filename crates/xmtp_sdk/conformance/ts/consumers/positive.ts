@@ -4,6 +4,7 @@ import {
   type Conversation,
   type ConversationID,
   type EncodedContent,
+  type Message,
   type MessageContent,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
@@ -23,4 +24,10 @@ export function consume(
     return [id, content.inner.encoded];
   }
   return [id, undefined];
+}
+
+export async function consumeMessageConversation(
+  message: Message,
+): Promise<Conversation | undefined> {
+  return message.conversation();
 }

@@ -106,6 +106,7 @@ export type InboxState = object;
 export type KeyPackageStatusEntry = object;
 export type MessageMetadataEntry = object;
 export type ServerConfiguration = object;
+export type Conversation = object;
 export type LogRecord = {
   level: number;
   target: string;
@@ -116,7 +117,7 @@ export type LogRecord = {
 };
 export type ConversationsLike = {
   getMessageByID(id: MessageID): Promise<Message | undefined>;
-  getByID(id: ConversationID): Promise<object | undefined>;
+  getByID(id: ConversationID): Promise<Conversation | undefined>;
   deleteMessage(id: MessageID): Promise<MessageID>;
   deleteMessageLocally(id: MessageID): Promise<void>;
   reactToMessage(
