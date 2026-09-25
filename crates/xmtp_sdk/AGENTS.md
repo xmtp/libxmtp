@@ -21,6 +21,8 @@ Run commands from the repository root in the Nix shell. Run
   `bindings/`.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
+- `just sdk conformance browser` runs the browser bridge storage, worker
+  failure, and pure codec checks in Chromium.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
