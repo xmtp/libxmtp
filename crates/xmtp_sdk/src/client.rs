@@ -745,11 +745,38 @@ pub(crate) async fn open_store(
         ));
     }
     let location = wasm_store_location(options, inbox_id)?;
-    let db = WasmDb::new(&location).await.map_err(|error| match error {
-        xmtp_db::PlatformStorageError::SAH(_) => XmtpError::storage_busy(error.to_string()),
-        other => XmtpError::unknown(other),
-    })?;
+    if matches!(&location, xmtp_db::StorageOption::Persistent(_)) {
+        xmtp_db::try_init_sqlite()
+            .await
+            .map_err(map_wasm_storage_error)?;
+    }
+    let db = WasmDb::new(&location)
+        .await
+        .map_err(map_wasm_storage_error)?;
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn map_wasm_storage_error(error: xmtp_db::PlatformStorageError) -> XmtpError {
+    match error {
+        xmtp_db::PlatformStorageError::SAH(xmtp_db::OpfsSAHError::CreateSyncAccessHandle(_)) => {
+            XmtpError::storage_busy(error.to_string())
+        }
+        other => XmtpError::unknown(other),
+    }
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_storage_error_tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn unsupported_opfs_is_not_storage_busy() {
+        let error = map_wasm_storage_error(xmtp_db::PlatformStorageError::SAH(
+            xmtp_db::OpfsSAHError::NotSupported,
+        ));
+        assert!(matches!(error, XmtpError::Unknown(_)));
+    }
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]

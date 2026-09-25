@@ -193,7 +193,7 @@ impl WasmDb {
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
-                try_init_sqlite().await?;
+                init_sqlite().await;
                 let _opening = restore::PendingOpen::acquire()?;
                 maybe_resize().await?;
                 tracing::debug!("creating persistent opfs db @{}", db_path);

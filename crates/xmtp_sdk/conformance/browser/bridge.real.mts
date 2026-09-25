@@ -141,6 +141,52 @@ try {
   );
   assert.equal(kinds, 0, "storage failure occurs before signer kind");
 
+  await assert.rejects(
+    Client.create(
+      first.session,
+      {
+        async identity() {
+          return {
+            identifier: "0x0000000000000000000000000000000000000001",
+            kind: B.PublicIdentityKind.Ethereum,
+          };
+        },
+        async kind() {
+          return B.SignerKind.Eoa.new();
+        },
+        async sign() {
+          throw new Error("unexpected sign");
+        },
+      },
+      {
+        backend: new B.BackendSource.Options({
+          options: {
+            url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+            appVersion: undefined,
+            credentials: undefined,
+            credential: undefined,
+          },
+        }),
+        storage: {
+          location: B.StorageLocation.Path.new("unsupported-opfs.db"),
+          label: undefined,
+          encryptionKey: undefined,
+          pool: undefined,
+          singleConnection: false,
+        },
+        deviceSync: false,
+        registration: { auto: false, nonce: undefined },
+        forkRecovery: undefined,
+        workers: undefined,
+      },
+    ),
+    (error: unknown) => {
+      assert.ok(B.XmtpError.Unknown.instanceOf(error));
+      assert.ok(!B.XmtpError.StorageBusy.instanceOf(error));
+      return true;
+    },
+  );
+
   const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
   let liveIdentities = 0;
   let liveKinds = 0;
