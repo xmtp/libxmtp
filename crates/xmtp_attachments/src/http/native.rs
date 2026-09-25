@@ -630,6 +630,89 @@ mod tests {
         assert!(!followed.load(Ordering::Relaxed));
     }
 
+    async fn early_put_status(
+        status: StatusCode,
+    ) -> Result<Result<PutOutcome, AttachmentError>, Box<dyn Error + Send + Sync>> {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        const BODY_SIZE: usize = 8 * 1024 * 1024;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            let mut content_length = None;
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length: ") {
+                    content_length = Some(length.trim().parse::<usize>().unwrap());
+                }
+            }
+            assert_eq!(content_length, Some(BODY_SIZE));
+            reader
+                .get_mut()
+                .write_all(
+                    format!(
+                        "HTTP/1.1 {} {}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        status.as_u16(),
+                        status.canonical_reason().unwrap()
+                    )
+                    .as_bytes(),
+                )
+                .await
+                .unwrap();
+            let mut discarded = 0;
+            let mut buffer = [0_u8; 8192];
+            let _ = tokio::time::timeout(Duration::from_millis(200), async {
+                while discarded < 256 * 1024 {
+                    let read = reader.read(&mut buffer).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    discarded += read;
+                }
+            })
+            .await;
+            assert!(discarded <= 256 * 1024);
+        });
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
+        let result = tokio::time::timeout(
+            Duration::from_secs(3),
+            allowed().put(&upload(url), StagedFile { path }),
+        )
+        .await?;
+        tokio::time::timeout(Duration::from_secs(1), server).await??;
+        Ok(result)
+    }
+
+    // verifies: ATCH-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_early_412_with_large_body() {
+        assert_eq!(
+            early_put_status(StatusCode::PRECONDITION_FAILED).await??,
+            PutOutcome::AlreadyStored
+        );
+    }
+
+    // verifies: ATCH-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_early_403_with_large_body() {
+        assert_eq!(
+            early_put_status(StatusCode::FORBIDDEN)
+                .await?
+                .unwrap_err()
+                .cause,
+            Cause::TargetRejected
+        );
+    }
+
     // verifies: ATCH-054
     #[xmtp_common::test(unwrap_try = true)]
     async fn downloads_ignore_proxy_environment() {
@@ -1218,16 +1301,21 @@ mod tests {
             }
             assert_eq!(content_length, Some(BODY_SIZE));
             let mut remaining = BODY_SIZE;
+            let mut tail_started = false;
             let mut buffer = [0_u8; 8192];
             while remaining > 0 {
+                if remaining <= 512 * 1024 {
+                    if !tail_started {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        tail_started = true;
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
                 let limit = remaining.min(buffer.len());
                 let size = reader.read(&mut buffer[..limit]).await.unwrap();
                 assert!(size > 0);
                 assert!(buffer[..size].iter().all(|byte| *byte == 0x5a));
                 remaining -= size;
-                if BODY_SIZE - remaining <= 2 * 1024 * 1024 {
-                    tokio::time::sleep(Duration::from_millis(10)).await;
-                }
             }
             reader
                 .get_mut()

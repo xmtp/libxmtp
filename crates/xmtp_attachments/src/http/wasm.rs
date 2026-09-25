@@ -35,7 +35,7 @@ fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), A
     };
     if !options.allow_private_network
         && match host {
-            url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+            url::Host::Domain(name) => is_localhost_name(name),
             url::Host::Ipv4(ip) => is_private(IpAddr::V4(ip)),
             url::Host::Ipv6(ip) => is_private(IpAddr::V6(ip)),
         }
@@ -48,6 +48,14 @@ fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), A
         return Err(AttachmentError::new(Cause::InsecureUrl));
     }
     Ok(())
+}
+
+fn is_localhost_name(name: &str) -> bool {
+    let name = name.strip_suffix('.').unwrap_or(name);
+    name.eq_ignore_ascii_case("localhost")
+        || name
+            .rsplit_once('.')
+            .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("localhost"))
 }
 
 fn validate_upload_url(url: &str) -> Result<(), AttachmentError> {
@@ -346,6 +354,9 @@ mod tests {
             "https://[::1]/object",
             "https://LOCALHOST/object",
             "http://LOCALHOST/object",
+            "https://localhost./object",
+            "https://a.localhost/object",
+            "https://A.LOCALHOST./object",
             "https://[::ffff:10.0.0.1]/object",
             "https://[64:ff9b::a00:1]/object",
         ] {
