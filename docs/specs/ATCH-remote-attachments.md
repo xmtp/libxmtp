@@ -85,7 +85,7 @@ message AttachmentsConfiguration {
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | ATCH-001 | Offered exactly when configured | The backend MUST set `GetConfigurationResponse.attachments` if and only if a storage target is configured. | A client that sees no message never builds an attachment; one that sees a message for a target that does not exist builds attachments nobody can upload. |
-| ATCH-002 | Base URL form | When the configured base URL is not an absolute URL under [RFC 3986 §4.3](https://www.rfc-editor.org/rfc/rfc3986#section-4.3) whose scheme is `https`, or `http` with a host that is `localhost` or a loopback address, or when it carries userinfo, a query, a fragment, or a trailing `/`, the backend MUST refuse to start and name the key under CONF-065. | Every recipient would derive a download URL that no client may fetch under ATCH-053, one that discloses a credential, or one with a doubled separator. |
+| ATCH-002 | Base URL form | When the configured base URL is not an absolute URL under [RFC 3986 §4.3](https://www.rfc-editor.org/rfc/rfc3986#section-4.3) whose scheme is exactly lowercase `https`, or exactly lowercase `http` with a host that is `localhost` or a loopback address, or when it carries userinfo, a query, a fragment, or a trailing `/`, the backend MUST refuse to start and name the key under CONF-065. | Every recipient would derive a download URL that a content type decoder may reject under ATCH-011, that a client may not fetch under ATCH-053, that discloses a credential, or that has a doubled separator. |
 | ATCH-003 | Upload ceiling | When the configured upload ceiling is 0 or greater than the largest `contentLength` the CTYPE-014 parameters table admits, the backend MUST refuse to start. The backend MUST set `max_upload_bytes` to the ceiling it enforces under ATCH-021, which is the default the CONF defaults table gives for `attachments.max_upload_bytes` when the operator sets none. | A larger ceiling admits an attachment whose length no remote attachment can carry. |
 | ATCH-004 | Published retention | When the configured retention exceeds 9007199254740991 seconds, the backend MUST refuse to start and name the key under CONF-065. Otherwise, the backend MUST set `retention_seconds` to the configured retention, and to 0 when none is configured. | A larger value loses precision in clients that represent seconds as an IEEE 754 integer. |
 | ATCH-005 | Retention matches the target | An operator SHOULD configure a retention equal to the expiry rule of the storage target, and none when the target keeps objects without expiry. | An app that shows an attachment as available after its object expired shows a file no recipient can fetch. |
@@ -288,7 +288,7 @@ enum AttachmentFailureCause {
   "connection_blocked",   // ATCH-026
   "credential",           // CreateUpload failed with a client credential failure of AUTH section 6 (ATCH-061)
   "backend_rejected",     // CreateUpload failed with INVALID_ARGUMENT, OUT_OF_RANGE, or UNIMPLEMENTED
-  "backend_unavailable",  // CreateUpload failed with any other code, or did not reach the backend except under ATCH-070
+  "backend_unavailable",  // CreateUpload failed with any other code, or did not reach the backend
   "target_rejected",      // the storage target answered a status other than 2xx or 412
   "network",              // ATCH-070, or a request to a storage target or download host failed in transport
   "insecure_url",         // ATCH-053
@@ -308,7 +308,7 @@ enum AttachmentFailureCause {
 | --- | --- | --- | --- |
 | ATCH-060 | Typed failure causes | An SDK MUST report a failed creation, upload, download, or path derivation as an error that carries exactly one `AttachmentFailureCause`, the one whose comment in the block above names the failure. | An app that cannot tell `not_found` from `network` retries an expired object for ever, or gives up on a transient one. |
 | ATCH-061 | Credential failures keep their kind | When an upload fails with a client credential failure of AUTH section 6, an SDK MUST report the cause `credential` together with the failure kind AUTH-026 names and whether it is retryable. | An app that sees only an upload failure cannot tell a lockout that clears from a credential it must replace. |
-| ATCH-070 | Transfer deadlines | For `CreateUpload`, an upload PUT, and a download GET, the client MUST use a 30 s connect timeout and MUST end the upload or download as `failed` with the cause `network` when the connection does not complete in that time or no bytes are sent or received for 60 s. The client MUST NOT apply a total-time cap to those requests. | A stalled target or host would keep an upload `uploading` or a download joined under ATCH-058 forever. |
+| ATCH-070 | Transfer deadlines | Where the client opens its own connections, it MUST use a 30 s connect timeout for an upload PUT and a download GET, and MUST end the upload or download as `failed` with cause `network` when that timeout expires. Where the client opens its own connections and no bytes are sent or received for 60 s during an upload PUT, it MUST end the upload as `failed` with cause `network`; where the client can observe response reads and no response bytes are read for 60 s during a download GET, it MUST end the download as `failed` with cause `network`. The client MUST NOT apply a total-time cap to either request. | A stalled target or host would keep an upload `uploading` or a download joined under ATCH-058 forever. |
 
 ## Known limitations
 
@@ -324,7 +324,7 @@ A remote attachment forwarded unchanged in another message shares its plaintext 
 
 A failed upload or download starts again from the first byte. There is no multipart or ranged transfer, and the largest single upload is bounded by the target's own limit on one PUT as well as by `max_upload_bytes`.
 
-In a browser, the client neither opens its own connections nor follows redirects itself, so ATCH-054 and ATCH-055 do not apply and the browser's own rules for redirects and private network access apply instead. A download host that sends no CORS headers cannot serve a browser client.
+In a browser, the client neither opens its own connections nor follows redirects itself, so ATCH-054 and ATCH-055 do not apply and the browser's own rules for redirects and private network access apply instead. A browser client cannot set a connect timeout or observe upload progress of a fetch PUT, so its PUT has no deadline beyond the browser's own. The client can observe response reads of a download GET and applies ATCH-070 to them. A download host that sends no CORS headers cannot serve a browser client.
 
 A download sent through an HTTP proxy is checked against the address the client resolves. The proxy can resolve the host to another address.
 
