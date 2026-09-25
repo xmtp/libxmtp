@@ -49,9 +49,9 @@ private fun <T, R> readerFlow(
                         onConnectionStateChange(previous, current)
                         previous = current
                     }
-                    emitState(ConnectionState.CONNECTING)
-                    emitState(connectionState(active))
                     try {
+                        emitState(ConnectionState.CONNECTING)
+                        emitState(connectionState(active))
                         while (true) {
                             emitState(connectionStateChanged(active, previous!!))
                         }

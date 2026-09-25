@@ -385,6 +385,26 @@ assert.equal(
   true,
   "throwing failure callback skipped reader.end",
 );
+let stateCallbackCalls = 0;
+const throwingState = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {},
+    connectionState: () => sdk.ConnectionState.Connected,
+    connectionStateChanged: async () => sdk.ConnectionState.Closed,
+  }),
+  reopened,
+  {
+    onConnectionStateChange: () => {
+      stateCallbackCalls += 1;
+      throw new Error("state callback failed");
+    },
+  },
+);
+await throwingState.ready();
+await new Promise((resolve) => setTimeout(resolve, 10));
+assert.equal(stateCallbackCalls, 1);
+await throwingState.end();
 for (const code of [
   "recoveryExhausted",
   "storage",
