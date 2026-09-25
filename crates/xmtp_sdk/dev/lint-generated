@@ -14,6 +14,7 @@ crates/xmtp_sdk/dev/check-test-hooks --self-test
 crates/xmtp_sdk/dev/check-test-hooks "$generated"
 crates/xmtp_sdk/dev/check-conformance-exports "$generated"
 crates/xmtp_sdk/dev/check-worker-kinds "$generated"
+crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
 crates/xmtp_sdk/dev/check-consumer-types-ts
 
 echo "Stock generated TypeScript is excluded from Oxlint and Oxfmt: upstream templates emit any and as casts (95 no-explicit-any findings)."

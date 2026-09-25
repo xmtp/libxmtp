@@ -300,7 +300,7 @@ impl TryFrom<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpd
     }
 }
 
-/// Encoded content. Unknown compression values remain available to the host.
+/// Content at this boundary is uncompressed. Send options control wire compression.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct EncodedContent {
     pub r#type: ContentTypeId,
@@ -309,8 +309,6 @@ pub struct EncodedContent {
     #[uniffi(default = None)]
     pub fallback: Option<String>,
     pub content: Vec<u8>,
-    #[uniffi(default = None)]
-    pub compression: Option<i32>,
 }
 
 #[xmtp_macro::sdk_export]
@@ -332,7 +330,7 @@ impl From<EncodedContent> for ProtoEncodedContent {
             }),
             parameters: value.parameters,
             fallback: value.fallback,
-            compression: value.compression,
+            compression: None,
             content: value.content,
         }
     }
@@ -340,6 +338,17 @@ impl From<EncodedContent> for ProtoEncodedContent {
 
 impl From<ProtoEncodedContent> for EncodedContent {
     fn from(value: ProtoEncodedContent) -> Self {
+        let value = if value.compression.is_some() {
+            xmtp_content_types::compression::decompress(value.clone()).unwrap_or_else(|_| {
+                ProtoEncodedContent {
+                    content: Vec::new(),
+                    compression: None,
+                    ..value
+                }
+            })
+        } else {
+            value
+        };
         let kind = value.r#type.unwrap_or_default();
         Self {
             r#type: ContentTypeId {
@@ -350,7 +359,6 @@ impl From<ProtoEncodedContent> for EncodedContent {
             },
             parameters: value.parameters,
             fallback: value.fallback,
-            compression: value.compression,
             content: value.content,
         }
     }
