@@ -12943,6 +12943,7 @@ dependencies = [
  "uniffi",
  "uniffi-runtime-wasm",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_api",
  "xmtp_api_backend",
