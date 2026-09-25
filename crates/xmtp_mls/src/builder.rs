@@ -417,6 +417,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 .inbox_id()
                 .ok_or(StorageLocationError::InboxId)?;
             let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
+            if matches!(
+                location,
+                crate::storage_location::StorageLocation::DataDir(_)
+            ) && backend_url.trim_end_matches('/').is_empty()
+            {
+                return Err(StorageLocationError::BackendUrl.into());
+            }
             let recorder = location.recorder(&backend_url);
             let recorded = match &recorder {
                 Some(recorder) => recorder.lookup().await?,
