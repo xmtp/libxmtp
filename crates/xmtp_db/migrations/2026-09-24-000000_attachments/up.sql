@@ -14,7 +14,7 @@ CREATE TABLE pending_attachments (
   failure_credential_kind TEXT,
   failure_retryable       BOOLEAN,
   failure_missing_scope   BOOLEAN,
-  failure_http_status     INTEGER CHECK (failure_http_status BETWEEN 100 AND 599),
+  failure_http_status     INTEGER CHECK (failure_http_status BETWEEN 100 AND 999),
   lease_id                BLOB,
   lease_expires_at_ns     BIGINT,
   CHECK ((status = 'uploading') = (lease_id IS NOT NULL AND lease_expires_at_ns IS NOT NULL))
