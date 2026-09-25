@@ -3,6 +3,8 @@ use aws_credential_types::provider::{Result as CredentialResult, future};
 use std::{
     collections::VecDeque,
     ffi::OsStr,
+    future::Future,
+    io,
     sync::{
         Mutex as StdMutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
@@ -115,13 +117,29 @@ fn target(
 }
 
 fn set_test_env(key: &str, value: impl AsRef<OsStr>) {
-    // SAFETY: Nextest runs each test in its own process. Set variables before creating providers.
+    // SAFETY: Each caller sets variables before it creates a Tokio runtime or AWS provider.
+    // Nextest runs each test in a separate process.
     unsafe { std::env::set_var(key, value) };
 }
 
 fn remove_test_env(key: &str) {
-    // SAFETY: Nextest runs each test in its own process. Remove variables before creating providers.
+    // SAFETY: Each caller removes variables before it creates a Tokio runtime or AWS provider.
+    // Nextest runs each test in a separate process.
     unsafe { std::env::remove_var(key) };
+}
+
+fn run_after_env_setup(future: impl Future<Output = ()>) {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(future);
+}
+
+fn listener_before_runtime() -> io::Result<std::net::TcpListener> {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    listener.set_nonblocking(true)?;
+    Ok(listener)
 }
 
 async fn assert_resolves_to(
@@ -143,8 +161,8 @@ async fn assert_resolves_to(
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn every_credential_kind_builds() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn every_credential_kind_builds() {
     set_test_env("AWS_EC2_METADATA_DISABLED", "true");
     let kinds = [
         CredentialsConfig::Static {
@@ -176,39 +194,45 @@ async fn every_credential_kind_builds() {
             session_name: Some("attachment-test".into()),
         },
     ];
-    for credentials in kinds {
-        let mut config = config();
-        config.credentials = credentials;
-        assert!(
-            S3Target::new(&config).await.is_ok(),
-            "could not build {:?}",
-            config.credentials
-        );
-    }
+    run_after_env_setup(async {
+        for credentials in kinds {
+            let mut config = config();
+            config.credentials = credentials;
+            assert!(
+                S3Target::new(&config).await.is_ok(),
+                "could not build {:?}",
+                config.credentials
+            );
+        }
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn environment_credentials_resolve() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn environment_credentials_resolve() {
     set_test_env("AWS_ACCESS_KEY_ID", "ENV_KEY");
     set_test_env("AWS_SECRET_ACCESS_KEY", "ENV_SECRET");
     remove_test_env("AWS_SESSION_TOKEN");
-    assert_resolves_to(CredentialsConfig::Environment, "ENV_KEY").await?;
+    run_after_env_setup(async {
+        assert_resolves_to(CredentialsConfig::Environment, "ENV_KEY").await?;
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn default_chain_credentials_resolve_from_environment() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn default_chain_credentials_resolve_from_environment() {
     set_test_env("AWS_EC2_METADATA_DISABLED", "true");
     set_test_env("AWS_ACCESS_KEY_ID", "CHAIN_KEY");
     set_test_env("AWS_SECRET_ACCESS_KEY", "CHAIN_SECRET");
     remove_test_env("AWS_SESSION_TOKEN");
-    assert_resolves_to(CredentialsConfig::DefaultChain, "CHAIN_KEY").await?;
+    run_after_env_setup(async {
+        assert_resolves_to(CredentialsConfig::DefaultChain, "CHAIN_KEY").await?;
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn profile_credentials_resolve() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn profile_credentials_resolve() {
     let directory = tempfile::tempdir()?;
     let config_file = directory.path().join("config");
     let credentials_file = directory.path().join("credentials");
@@ -219,13 +243,15 @@ async fn profile_credentials_resolve() {
     )?;
     set_test_env("AWS_CONFIG_FILE", &config_file);
     set_test_env("AWS_SHARED_CREDENTIALS_FILE", &credentials_file);
-    assert_resolves_to(
-        CredentialsConfig::Profile {
-            name: "fixture".into(),
-        },
-        "PROFILE_KEY",
-    )
-    .await?;
+    run_after_env_setup(async {
+        assert_resolves_to(
+            CredentialsConfig::Profile {
+                name: "fixture".into(),
+            },
+            "PROFILE_KEY",
+        )
+        .await?;
+    });
 }
 
 // verifies: ATCH-073
@@ -241,37 +267,76 @@ async fn process_credentials_resolve() {
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn container_credentials_resolve() {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn container_credentials_resolve() {
+    let listener = listener_before_runtime()?;
     let url = format!("http://{}/credentials", listener.local_addr()?);
     remove_test_env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
     remove_test_env("AWS_CONTAINER_AUTHORIZATION_TOKEN");
     remove_test_env("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
     set_test_env("AWS_CONTAINER_CREDENTIALS_FULL_URI", url);
 
-    let serve = async {
-        let (mut stream, _) = listener.accept().await?;
-        let mut request = [0; 2048];
-        let size = stream.read(&mut request).await?;
-        assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET /credentials "));
-        let body = r#"{"AccessKeyId":"CONTAINER_KEY","SecretAccessKey":"CONTAINER_SECRET","Token":"CONTAINER_TOKEN","Expiration":"2099-01-01T00:00:00Z"}"#;
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-            body.len()
+    run_after_env_setup(async {
+        let listener = TcpListener::from_std(listener)?;
+        let serve = serve_credential_request(
+            &listener,
+            "GET /credentials ",
+            "application/json",
+            r#"{"AccessKeyId":"CONTAINER_KEY","SecretAccessKey":"CONTAINER_SECRET","Token":"CONTAINER_TOKEN","Expiration":"2099-01-01T00:00:00Z"}"#,
         );
-        stream.write_all(response.as_bytes()).await?;
-        Ok::<(), std::io::Error>(())
+        let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                assert_resolves_to(CredentialsConfig::Container, "CONTAINER_KEY"),
+                serve
+            )
+        })
+        .await?;
+        signed?;
+        served?;
+    });
+}
+
+async fn read_credential_request(stream: &mut tokio::net::TcpStream) -> io::Result<Vec<u8>> {
+    const MAX_REQUEST_BYTES: usize = 64 * 1024;
+    let mut request = Vec::new();
+    let mut chunk = [0; 2048];
+    let header_end = loop {
+        let size = stream.read(&mut chunk).await?;
+        if size == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        request.extend_from_slice(&chunk[..size]);
+        if request.len() > MAX_REQUEST_BYTES {
+            return Err(io::Error::from(io::ErrorKind::InvalidData));
+        }
+        if let Some(start) = request.windows(4).position(|bytes| bytes == b"\r\n\r\n") {
+            break start + 4;
+        }
     };
-    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(
-            assert_resolves_to(CredentialsConfig::Container, "CONTAINER_KEY"),
-            serve
-        )
-    })
-    .await?;
-    signed?;
-    served?;
+    let headers = std::str::from_utf8(&request[..header_end])
+        .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+    let mut content_length = 0;
+    for line in headers.lines() {
+        if let Some((name, value)) = line.split_once(':')
+            && name.eq_ignore_ascii_case("content-length")
+        {
+            content_length = value
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| io::Error::from(io::ErrorKind::InvalidData))?;
+        }
+    }
+    if content_length > MAX_REQUEST_BYTES - header_end {
+        return Err(io::Error::from(io::ErrorKind::InvalidData));
+    }
+    while request.len() < header_end + content_length {
+        let size = stream.read(&mut chunk).await?;
+        if size == 0 {
+            return Err(io::Error::from(io::ErrorKind::UnexpectedEof));
+        }
+        request.extend_from_slice(&chunk[..size]);
+    }
+    Ok(request)
 }
 
 async fn serve_credential_request(
@@ -281,10 +346,9 @@ async fn serve_credential_request(
     body: &str,
 ) -> std::io::Result<()> {
     let (mut stream, _) = listener.accept().await?;
-    let mut request = [0; 8192];
-    let size = stream.read(&mut request).await?;
+    let request = read_credential_request(&mut stream).await?;
     assert!(
-        String::from_utf8_lossy(&request[..size]).starts_with(request_prefix),
+        request.starts_with(request_prefix.as_bytes()),
         "credential provider sent an unexpected request"
     );
     let token_ttl = if request_prefix == "PUT /latest/api/token " {
@@ -297,6 +361,40 @@ async fn serve_credential_request(
         body.len()
     );
     stream.write_all(response.as_bytes()).await
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn credential_fake_waits_for_complete_request() {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let serve = serve_credential_request(&listener, "POST / ", "text/plain", "ok");
+    let send = async {
+        let mut stream = tokio::net::TcpStream::connect(address).await?;
+        let mut response_byte = [0; 1];
+        stream.write_all(b"PO").await?;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), stream.read(&mut response_byte))
+                .await
+                .is_err()
+        );
+        stream
+            .write_all(b"ST / HTTP/1.1\r\nContent-Length: 4\r\n\r\nab")
+            .await?;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(25), stream.read(&mut response_byte))
+                .await
+                .is_err()
+        );
+        stream.write_all(b"cd").await?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await?;
+        assert!(response.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        Ok::<(), io::Error>(())
+    };
+    let (served, sent) =
+        tokio::time::timeout(Duration::from_secs(10), async { tokio::join!(serve, send) }).await?;
+    served?;
+    sent?;
 }
 
 // verifies: ATCH-073
@@ -314,52 +412,55 @@ async fn static_credentials_resolve() {
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn instance_credentials_resolve() {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn instance_credentials_resolve() {
+    let listener = listener_before_runtime()?;
     set_test_env(
         "AWS_EC2_METADATA_SERVICE_ENDPOINT",
         format!("http://{}", listener.local_addr()?),
     );
     set_test_env("AWS_EC2_METADATA_DISABLED", "false");
-    let serve = async {
-        serve_credential_request(
-            &listener,
-            "PUT /latest/api/token ",
-            "text/plain",
-            "fixture-token",
-        )
+    run_after_env_setup(async {
+        let listener = TcpListener::from_std(listener)?;
+        let serve = async {
+            serve_credential_request(
+                &listener,
+                "PUT /latest/api/token ",
+                "text/plain",
+                "fixture-token",
+            )
+            .await?;
+            serve_credential_request(
+                &listener,
+                "GET /latest/meta-data/iam/security-credentials/ ",
+                "text/plain",
+                "fixture-role",
+            )
+            .await?;
+            serve_credential_request(
+                &listener,
+                "GET /latest/meta-data/iam/security-credentials/fixture-role ",
+                "application/json",
+                r#"{"Code":"Success","LastUpdated":"2026-01-01T00:00:00Z","Type":"AWS-HMAC","AccessKeyId":"INSTANCE_KEY","SecretAccessKey":"INSTANCE_SECRET","Token":"INSTANCE_TOKEN","Expiration":"2099-01-01T00:00:00Z"}"#,
+            )
+            .await
+        };
+        let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                assert_resolves_to(CredentialsConfig::Instance, "INSTANCE_KEY"),
+                serve
+            )
+        })
         .await?;
-        serve_credential_request(
-            &listener,
-            "GET /latest/meta-data/iam/security-credentials/ ",
-            "text/plain",
-            "fixture-role",
-        )
-        .await?;
-        serve_credential_request(
-            &listener,
-            "GET /latest/meta-data/iam/security-credentials/fixture-role ",
-            "application/json",
-            r#"{"Code":"Success","LastUpdated":"2026-01-01T00:00:00Z","Type":"AWS-HMAC","AccessKeyId":"INSTANCE_KEY","SecretAccessKey":"INSTANCE_SECRET","Token":"INSTANCE_TOKEN","Expiration":"2099-01-01T00:00:00Z"}"#,
-        )
-        .await
-    };
-    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(
-            assert_resolves_to(CredentialsConfig::Instance, "INSTANCE_KEY"),
-            serve
-        )
-    })
-    .await?;
-    signed?;
-    served?;
+        signed?;
+        served?;
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn assume_role_credentials_resolve() {
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn assume_role_credentials_resolve() {
+    let listener = listener_before_runtime()?;
     set_test_env(
         "AWS_ENDPOINT_URL_STS",
         format!("http://{}", listener.local_addr()?),
@@ -368,37 +469,40 @@ async fn assume_role_credentials_resolve() {
     set_test_env("AWS_SECRET_ACCESS_KEY", "SOURCE_SECRET");
     remove_test_env("AWS_SESSION_TOKEN");
     set_test_env("AWS_EC2_METADATA_DISABLED", "true");
-    let serve = serve_credential_request(
-        &listener,
-        "POST / ",
-        "text/xml",
-        r#"<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASSUME_KEY</AccessKeyId><SecretAccessKey>ASSUME_SECRET</SecretAccessKey><SessionToken>ASSUME_TOKEN</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>"#,
-    );
-    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(
-            assert_resolves_to(
-                CredentialsConfig::AssumeRole {
-                    role_arn: "arn:aws:iam::123456789012:role/attachments".into(),
-                    external_id: None,
-                    session_name: Some("attachment-test".into()),
-                },
-                "ASSUME_KEY",
-            ),
-            serve
-        )
-    })
-    .await?;
-    signed?;
-    served?;
+    run_after_env_setup(async {
+        let listener = TcpListener::from_std(listener)?;
+        let serve = serve_credential_request(
+            &listener,
+            "POST / ",
+            "text/xml",
+            r#"<AssumeRoleResponse><AssumeRoleResult><Credentials><AccessKeyId>ASSUME_KEY</AccessKeyId><SecretAccessKey>ASSUME_SECRET</SecretAccessKey><SessionToken>ASSUME_TOKEN</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleResult></AssumeRoleResponse>"#,
+        );
+        let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                assert_resolves_to(
+                    CredentialsConfig::AssumeRole {
+                        role_arn: "arn:aws:iam::123456789012:role/attachments".into(),
+                        external_id: None,
+                        session_name: Some("attachment-test".into()),
+                    },
+                    "ASSUME_KEY",
+                ),
+                serve
+            )
+        })
+        .await?;
+        signed?;
+        served?;
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn web_identity_credentials_resolve() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn web_identity_credentials_resolve() {
     let directory = tempfile::tempdir()?;
     let token_file = directory.path().join("token");
     std::fs::write(&token_file, "fixture-web-token")?;
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let listener = listener_before_runtime()?;
     set_test_env(
         "AWS_ENDPOINT_URL_STS",
         format!("http://{}", listener.local_addr()?),
@@ -406,26 +510,29 @@ async fn web_identity_credentials_resolve() {
     set_test_env("AWS_WEB_IDENTITY_TOKEN_FILE", &token_file);
     set_test_env("AWS_ROLE_ARN", "arn:aws:iam::123456789012:role/attachments");
     set_test_env("AWS_ROLE_SESSION_NAME", "attachment-test");
-    let serve = serve_credential_request(
-        &listener,
-        "POST / ",
-        "text/xml",
-        r#"<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials><AccessKeyId>WEB_KEY</AccessKeyId><SecretAccessKey>WEB_SECRET</SecretAccessKey><SessionToken>WEB_TOKEN</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>"#,
-    );
-    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(
-            assert_resolves_to(CredentialsConfig::WebIdentity, "WEB_KEY"),
-            serve
-        )
-    })
-    .await?;
-    signed?;
-    served?;
+    run_after_env_setup(async {
+        let listener = TcpListener::from_std(listener)?;
+        let serve = serve_credential_request(
+            &listener,
+            "POST / ",
+            "text/xml",
+            r#"<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult><Credentials><AccessKeyId>WEB_KEY</AccessKeyId><SecretAccessKey>WEB_SECRET</SecretAccessKey><SessionToken>WEB_TOKEN</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration></Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>"#,
+        );
+        let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                assert_resolves_to(CredentialsConfig::WebIdentity, "WEB_KEY"),
+                serve
+            )
+        })
+        .await?;
+        signed?;
+        served?;
+    });
 }
 
 // verifies: ATCH-073
-#[xmtp_common::test(unwrap_try = true)]
-async fn sso_credentials_resolve() {
+#[xmtp_common::test(unwrap_try = true, disable_logging = true)]
+fn sso_credentials_resolve() {
     let directory = tempfile::tempdir()?;
     let cache = directory.path().join(".aws/sso/cache");
     std::fs::create_dir_all(&cache)?;
@@ -435,36 +542,39 @@ async fn sso_credentials_resolve() {
         cache.join("13f9d35043871d073ab260e020f0ffde092cb14b.json"),
         r#"{"accessToken":"fixture-sso-token","expiresAt":"2099-01-01T00:00:00Z"}"#,
     )?;
-    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let listener = listener_before_runtime()?;
     set_test_env("HOME", directory.path());
     set_test_env(
         "AWS_ENDPOINT_URL_SSO",
         format!("http://{}", listener.local_addr()?),
     );
-    let serve = serve_credential_request(
-        &listener,
-        "GET /federation/credentials?",
-        "application/json",
-        r#"{"roleCredentials":{"accessKeyId":"SSO_KEY","secretAccessKey":"SSO_SECRET","sessionToken":"SSO_TOKEN","expiration":4070908800000}}"#,
-    );
-    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
-        tokio::join!(
-            assert_resolves_to(
-                CredentialsConfig::Sso {
-                    account_id: "123456789012".into(),
-                    region: "us-east-1".into(),
-                    role_name: "attachments".into(),
-                    start_url: start_url.into(),
-                    session_name: None,
-                },
-                "SSO_KEY",
-            ),
-            serve
-        )
-    })
-    .await?;
-    signed?;
-    served?;
+    run_after_env_setup(async {
+        let listener = TcpListener::from_std(listener)?;
+        let serve = serve_credential_request(
+            &listener,
+            "GET /federation/credentials?",
+            "application/json",
+            r#"{"roleCredentials":{"accessKeyId":"SSO_KEY","secretAccessKey":"SSO_SECRET","sessionToken":"SSO_TOKEN","expiration":4070908800000}}"#,
+        );
+        let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+            tokio::join!(
+                assert_resolves_to(
+                    CredentialsConfig::Sso {
+                        account_id: "123456789012".into(),
+                        region: "us-east-1".into(),
+                        role_name: "attachments".into(),
+                        start_url: start_url.into(),
+                        session_name: None,
+                    },
+                    "SSO_KEY",
+                ),
+                serve
+            )
+        })
+        .await?;
+        signed?;
+        served?;
+    });
 }
 
 // verifies: ATCH-023
