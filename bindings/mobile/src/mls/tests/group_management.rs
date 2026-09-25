@@ -1413,9 +1413,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[1] sends ReactionCodec message
     let reaction_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: ReactionCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: ReactionCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let reaction_encoded_content = EncodedContent {
@@ -1435,9 +1435,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[2] sends AttachmentCodec message
     let attachment_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: AttachmentCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: AttachmentCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let attachment_encoded_content = EncodedContent {
@@ -1457,9 +1457,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[3] sends RemoteAttachmentCodec message
     let remote_attachment_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: RemoteAttachmentCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: RemoteAttachmentCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let remote_attachment_encoded_content = EncodedContent {
@@ -1479,9 +1479,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[4] sends ReplyCodec message
     let reply_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: ReplyCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: ReplyCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let reply_encoded_content = EncodedContent {
@@ -1501,9 +1501,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[5] sends TransactionReferenceCodec message
     let transaction_reference_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: TransactionReferenceCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: TransactionReferenceCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let transaction_reference_encoded_content = EncodedContent {
@@ -1523,9 +1523,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[6] sends GroupUpdatedCodec message
     let group_updated_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: GroupUpdatedCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: GroupUpdatedCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let group_updated_encoded_content = EncodedContent {
@@ -1545,9 +1545,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[7] sends GroupMembershipUpdatedCodec message
     let group_membership_updated_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: GroupMembershipChangeCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: GroupMembershipChangeCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let group_membership_updated_encoded_content = EncodedContent {
@@ -1567,9 +1567,9 @@ async fn test_conversation_list_filters_readable_messages() {
 
     // group[8] sends ReadReceiptCodec message
     let read_receipt_content_type_id = ContentTypeId {
-        authority_id: "".to_string(),
+        authority_id: "xmtp.org".to_string(),
         type_id: ReadReceiptCodec::TYPE_ID.to_string(),
-        version_major: 0,
+        version_major: ReadReceiptCodec::MAJOR_VERSION,
         version_minor: 0,
     };
     let read_receipt_encoded_content = EncodedContent {
