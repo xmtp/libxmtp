@@ -324,6 +324,33 @@ describe("browser bridge transport", () => {
     expect(lagged).toEqual([6]);
   });
 
+  it("continues listener drain after a callback fails", async () => {
+    const [main, worker] = pair();
+    const mainCallbacks = new MainCallbacks(main);
+    const workerCallbacks = new WorkerCallbacks(worker);
+    main.onMessage((message) => {
+      if (message.t === "callback") void mainCallbacks.receive(message);
+    });
+    worker.onMessage((message) => {
+      if (message.t === "callbackResult") workerCallbacks.receive(message);
+    });
+    const received: number[] = [];
+    const callback = mainCallbacks.register("EventListener", {
+      onEvent: (event) => {
+        if (typeof event !== "number") throw new TypeError("event is not a number");
+        received.push(event);
+        if (event === 1) throw new Error("first event failed");
+      },
+    });
+    const listener = new BoundedListener(workerCallbacks, callback.cb);
+    listener.push(1);
+    listener.push(2);
+    for (let index = 0; index < 1000 && received.length < 2; index++)
+      await Promise.resolve();
+    expect(received).toEqual([1, 2]);
+    expect(listener.queued).toBe(0);
+  });
+
   it("log_window_busy_at_4096", () => {
     const [main, worker] = pair();
     const callbacks = new WorkerCallbacks(worker);

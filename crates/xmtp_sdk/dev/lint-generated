@@ -17,6 +17,7 @@ crates/xmtp_sdk/dev/check-worker-kinds "$generated"
 crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
 python3 crates/xmtp_sdk/dev/check-storage-path-async "$generated"
 crates/xmtp_sdk/dev/check-message-lifts "$generated"
+node crates/xmtp_sdk/dev/check-pure-wasm.mjs
 if rg -n '@xmtp-pure' "$generated" --glob '*.swift' --glob '*.kt' --glob '*.ts'; then
   echo 'pure metadata marker leaked into generated bindings' >&2
   exit 1
@@ -24,6 +25,7 @@ fi
 crates/xmtp_sdk/dev/check-consumer-types-ts
 
 echo "Linting bridge runtime and generated bridge files; stock ubrn output stays excluded."
+bash crates/xmtp_sdk/dev/check-wasm-init
 node_modules/.bin/oxlint --config .oxlintrc.json apps/xmtp_sdk_bindgen/runtime/ts
 node_modules/.bin/oxfmt --config .oxfmtrc.json --check apps/xmtp_sdk_bindgen/runtime/ts
 node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts

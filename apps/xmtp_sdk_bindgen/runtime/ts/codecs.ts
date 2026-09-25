@@ -19,7 +19,7 @@ import {
   type LeaveRequest,
   XmtpError,
 } from "../xmtp_sdk";
-import type { ContentCodec } from "./client";
+import type { ContentCodec } from "./codec-type";
 
 function wrongValue(): never {
   throw new XmtpError.InvalidArgument({

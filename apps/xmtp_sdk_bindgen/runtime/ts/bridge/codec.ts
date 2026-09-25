@@ -13,6 +13,7 @@ import type { WorkerRegistry } from "./worker/registry.js";
 
 export type Shape =
   | { kind: "value"; type?: string }
+  | { kind: "custom"; name: string; inner: Shape }
   | { kind: "object"; name: string }
   | { kind: "foreign"; name: string }
   | { kind: "callback"; name: string }
@@ -38,10 +39,11 @@ export interface Layouts {
 
 export interface EnumFactory {
   (name: string, tag: string, fields: unknown): unknown;
+  custom?(name: string, value: unknown): unknown;
 }
 
 export function enumFactory(binding: object): EnumFactory {
-  return (name, tag, fields) => {
+  const tagged: EnumFactory = (name, tag, fields) => {
     const enumeration: unknown = Reflect.get(binding, name);
     if (enumeration === null || typeof enumeration !== "object") {
       throw new TypeError(`unknown binding enum ${name}`);
@@ -55,6 +57,16 @@ export function enumFactory(binding: object): EnumFactory {
     );
     return constructed;
   };
+  tagged.custom = (name, value) => {
+    const host: unknown = Reflect.get(binding, name);
+    if (typeof host !== "function")
+      throw new TypeError(`unknown binding custom type ${name}`);
+    const fromRust: unknown = Reflect.get(host, "fromRust");
+    return typeof fromRust === "function"
+      ? Reflect.apply(fromRust, host, [value])
+      : Reflect.construct(host, [value]);
+  };
+  return tagged;
 }
 
 function plain(value: unknown): Record<string, unknown> {
@@ -138,6 +150,24 @@ export class ValueCodec {
           if (value instanceof ArrayBuffer) return value.slice(0);
         }
         return value;
+      case "custom": {
+        if (this.direction === "encode") {
+          if (value === null || typeof value !== "object")
+            throw new TypeError(`expected ${shape.name}`);
+          const stringify: unknown = Reflect.get(value, "toString");
+          if (typeof stringify !== "function")
+            throw new TypeError(`invalid ${shape.name}`);
+          const inner: unknown =
+            shape.name === "Message"
+              ? Reflect.get(value, "data")
+              : shape.name === "Timestamp"
+                ? Reflect.get(value, "ns")
+                : Reflect.apply(stringify, value, []);
+          return this.convert(shape.inner, inner);
+        }
+        const inner = this.convert(shape.inner, value);
+        return this.enumFactory?.custom?.(shape.name, inner) ?? inner;
+      }
       case "object":
         return this.object(shape.name, value);
       case "foreign":

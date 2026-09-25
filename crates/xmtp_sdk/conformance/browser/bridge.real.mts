@@ -67,9 +67,10 @@ const first = start();
 try {
   await first.session.ready();
   const backend = await Backend.connect(first.session, {
-    url: "http://127.0.0.1:9450",
+    url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
     appVersion: undefined,
     credentials: undefined,
+    credential: undefined,
   });
   assert.equal(backend.handle.type, "Backend");
   assert.equal(backend.handle.epoch, first.session.currentEpoch);
@@ -104,17 +105,23 @@ try {
         },
       },
       {
-        backend: {
-          url: "http://127.0.0.1:9450",
+        backend: new B.BackendSource.Options({ options: {
+          url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
           appVersion: undefined,
           credentials: undefined,
-        },
+          credential: undefined,
+        } }),
         storage: {
           location: B.StorageLocation.Default.new(),
           label: undefined,
           encryptionKey: undefined,
+          pool: undefined,
+          singleConnection: false,
         },
         deviceSync: false,
+        registration: { auto: true, nonce: undefined },
+        forkRecovery: undefined,
+        workers: undefined,
       },
     ),
     (error: unknown) => {
@@ -125,24 +132,24 @@ try {
       return true;
     },
   );
-  assert.equal(
-    identities,
-    1,
-    "real WASM must decode numeric PublicIdentityKind",
-  );
-  assert.equal(kinds, 1);
+  assert.equal(identities, 1, "real WASM must decode numeric PublicIdentityKind");
+  assert.equal(kinds, 0, "storage failure occurs before signer kind");
 
   const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
+  let liveIdentities = 0;
+  let liveKinds = 0;
   const live = await Client.create(
     first.session,
     {
       async identity() {
+        liveIdentities++;
         return {
           identifier: account.address,
           kind: B.PublicIdentityKind.Ethereum,
         };
       },
       async kind() {
+        liveKinds++;
         return B.SignerKind.Eoa.new();
       },
       async sign(request) {
@@ -153,19 +160,27 @@ try {
       },
     },
     {
-      backend: {
-        url: "http://127.0.0.1:9450",
+      backend: new B.BackendSource.Options({ options: {
+        url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
         appVersion: undefined,
         credentials: undefined,
-      },
+        credential: undefined,
+      } }),
       storage: {
         location: B.StorageLocation.InMemory.new(),
         label: undefined,
         encryptionKey: undefined,
+        pool: undefined,
+        singleConnection: false,
       },
       deviceSync: false,
+      registration: { auto: true, nonce: undefined },
+      forkRecovery: undefined,
+      workers: undefined,
     },
   );
+  assert.ok(liveIdentities > 0, "real WASM must decode numeric PublicIdentityKind");
+  assert.ok(liveKinds > 0);
   assert.strictEqual(live.conversations(), live.conversations());
   if (typeof global.gc === "function") {
     for (let attempt = 0; attempt < 20; attempt++) {

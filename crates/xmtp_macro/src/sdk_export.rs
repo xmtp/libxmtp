@@ -81,7 +81,11 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         }
     };
 
-    let export = if has_async {
+    let export = if pure {
+        quote! {
+            #[cfg_attr(any(not(target_arch = "wasm32"), feature = "pure-only"), uniffi::export)]
+        }
+    } else if has_async {
         quote! {
             #[cfg_attr(not(target_arch = "wasm32"), uniffi::export(async_runtime = "tokio"))]
             #[cfg_attr(target_arch = "wasm32", uniffi::export)]

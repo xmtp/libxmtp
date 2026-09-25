@@ -102,6 +102,7 @@ impl From<MessageID> for String {
 
 uniffi::custom_type!(MessageID, String);
 
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl MessageID {
     pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, XmtpError> {
         Self::try_from(hex::encode(bytes))
