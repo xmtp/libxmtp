@@ -776,6 +776,8 @@ mod push_default_tests {
             version_minor: 0,
         }));
     }
+}
+
 async fn send_standard(
     group: MlsGroup<xmtp_mls::MlsContext>,
     value: StandardContent,
