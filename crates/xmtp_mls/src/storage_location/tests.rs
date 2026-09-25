@@ -418,6 +418,7 @@ mod native {
     }
 
     // verifies: P19
+    #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn failed_record_keeps_the_prior_file() {
         use std::os::unix::fs::PermissionsExt;

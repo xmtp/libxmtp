@@ -371,6 +371,7 @@ mod tests {
         assert!(!store.exists("key/file").await?);
     }
 
+    // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_create_temp_rejects_symlinked_parent() {
@@ -552,6 +553,7 @@ mod tests {
         );
     }
 
+    // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn chmod_failure_does_not_stop_native_store() {

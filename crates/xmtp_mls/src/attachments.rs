@@ -1733,9 +1733,11 @@ mod wasm_tests {
             .attachments
             .fail_next_outcome_write
             .store(true, AtomicOrdering::SeqCst);
-        let error = xmtp_common::time::timeout(Duration::from_secs(5), pending.upload())
-            .await?
-            .unwrap_err();
+        let error =
+            match xmtp_common::time::timeout(Duration::from_secs(5), pending.upload()).await? {
+                Ok(()) => panic!("upload unexpectedly succeeded"),
+                Err(error) => error,
+            };
         assert_eq!(error.cause, Cause::BackendRejected);
         assert!(
             !client
@@ -2057,7 +2059,7 @@ mod tests {
         assert!(!downloader_request.contains(&hex::encode(bo.client.context.installation_id())));
     }
 
-    // verifies: ATCH-030, ATCH-031, ATCH-011, ATCH-012, ATCH-049
+    // verifies: ATCH-010, ATCH-030, ATCH-031, ATCH-011, ATCH-012, ATCH-049
     #[xmtp_common::test(unwrap_try = true)]
     async fn remote_attachment_before_request() {
         let dir = tempfile::tempdir()?;
@@ -2113,6 +2115,53 @@ mod tests {
             })
             .await?;
         assert_eq!(unnamed.remote_attachment().filename, None);
+        let unnamed_remote = unnamed.remote_attachment();
+        let unnamed_staged = tokio::fs::read(
+            dir.path()
+                .join(staged_path(&unnamed_remote.content_digest)?),
+        )
+        .await?;
+        let unnamed_material = KeyMaterial::from_remote(unnamed_remote)?;
+        let mut unnamed_plaintext = Vec::new();
+        let mut unnamed_decryptor = GcmDecryptor::new(&unnamed_material);
+        unnamed_decryptor.update(&unnamed_staged, &mut unnamed_plaintext)?;
+        unnamed_decryptor.finish()?;
+        let unnamed_encoded = xmtp_proto::xmtp::mls::message_contents::EncodedContent::decode(
+            unnamed_plaintext.as_slice(),
+        )?;
+        assert!(!unnamed_encoded.parameters.contains_key("filename"));
+        assert_eq!(unnamed_encoded.content, b"unnamed");
+    }
+
+    // verifies: ATCH-041, ATCH-042
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn local_path_uses_remote_material_and_name_table() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let filename = "folder/ ..CON?.txt ";
+        let pending = alix
+            .client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"path proof".to_vec(),
+                filename: Some(filename.into()),
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let remote = pending.remote_attachment();
+        assert_eq!(remote.filename.as_deref(), Some(filename));
+        let digest = hex::decode(&remote.content_digest)?;
+        let mut material = Vec::with_capacity(108);
+        material.extend_from_slice(&digest);
+        material.extend_from_slice(&remote.secret);
+        material.extend_from_slice(&remote.salt);
+        material.extend_from_slice(&remote.nonce);
+        assert_eq!(material.len(), 108);
+        let key = hex::encode(Sha256::digest(&material));
+        let expected = dir.path().join(key).join("_CON.txt");
+        assert_eq!(alix.client.attachments().local_path(remote)?, expected);
+        assert_eq!(pending.local_path()?, expected);
+        assert_eq!(tokio::fs::read(expected).await?, b"path proof");
     }
 
     // verifies: ATCH-030, ATCH-033
@@ -3954,7 +4003,7 @@ mod tests {
         assert!(!client.attachments().local_path(&remote)?.exists());
     }
 
-    // verifies: ATCH-046, ATCH-063, P22, P24
+    // verifies: ATCH-046, ATCH-063, ATCH-076, P22, P24
     #[xmtp_common::test(unwrap_try = true)]
     async fn reconcile_after_crash_points() {
         use std::time::UNIX_EPOCH;
@@ -3963,6 +4012,9 @@ mod tests {
         let pending = alix.client.attachments().create(bytes()).await?;
         let original = pending.local_path()?;
         let relative = plaintext_rel_path(pending.remote_attachment())?;
+        let adopted_mtime_ns = 1_234_567_000_000_000_i64;
+        std::fs::File::open(&original)?
+            .set_modified(UNIX_EPOCH + Duration::from_secs(1_234_567))?;
         alix.client
             .context
             .db()
@@ -4024,7 +4076,7 @@ mod tests {
         assert!(
             listed
                 .iter()
-                .any(|row| row.path == relative && row.created_at_ns > 0)
+                .any(|row| row.path == relative && row.created_at_ns == adopted_mtime_ns)
         );
         let adopted = next
             .attachments()
@@ -4034,7 +4086,7 @@ mod tests {
         assert_eq!(adopted.filename, None);
     }
 
-    // verifies: ATCH-063, P24
+    // verifies: ATCH-063, ATCH-076, P24
     #[xmtp_common::test(unwrap_try = true)]
     async fn reconcile_ignores_stray_and_nested_files() {
         let dir = tempfile::tempdir()?;
