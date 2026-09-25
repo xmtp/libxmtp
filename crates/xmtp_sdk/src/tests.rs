@@ -1437,21 +1437,26 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     let original = vec![0xff, 0x00, 0x80];
     stored.decrypted_message_bytes = original.clone();
     let message = crate::Message::from_stored(stored, client.client_key())?;
-    assert!(matches!(message.0.content, MessageContent::Unknown { .. }));
+    let MessageContent::Unknown { raw_bytes, .. } = &message.0.content else {
+        panic!("untyped bytes must remain unknown");
+    };
+    assert_eq!(raw_bytes, &original);
     assert_eq!(message.0.encoded.content, original);
 
     let mut stored = client.inner.message(hex::decode(&id.0)?)?;
     let mut proto = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     proto.compression = Some(12_345);
     let original_content = proto.content.clone();
-    stored.decrypted_message_bytes = proto.encode_to_vec();
+    let original_bytes = proto.encode_to_vec();
+    stored.decrypted_message_bytes = original_bytes.clone();
     let message = crate::Message::from_stored(stored, client.client_key())?;
-    let MessageContent::Unknown { encoded } = &message.0.content else {
+    let MessageContent::Unknown { encoded, raw_bytes } = &message.0.content else {
         panic!("unknown compression must remain unknown");
     };
-    assert_eq!(encoded.compression, Some(12_345));
-    assert_eq!(encoded.content, original_content);
-    assert_eq!(message.0.encoded.compression, Some(12_345));
+    assert_eq!(raw_bytes, &original_bytes);
+    assert!(encoded.content.is_empty());
+    assert!(message.0.encoded.content.is_empty());
+    assert!(!original_content.is_empty());
     client.end().await?;
 }
 

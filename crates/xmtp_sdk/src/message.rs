@@ -54,6 +54,7 @@ pub enum MessageContent {
     },
     Unknown {
         encoded: SdkEncodedContent,
+        raw_bytes: Vec<u8>,
     },
 }
 
@@ -79,10 +80,10 @@ pub enum MessageBody {
 impl MessageContent {
     pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
         let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::unknown)?;
-        Self::decode_proto(content)
+        Self::decode_proto(content, &encoded)
     }
 
-    fn decode_proto(content: EncodedContent) -> Result<Self, XmtpError> {
+    fn decode_proto(content: EncodedContent, raw_bytes: &[u8]) -> Result<Self, XmtpError> {
         // The shared bounded decoder validates nested content before any standard codec runs.
         let body = xmtp_mls::messages::decoded_message::MessageBody::try_from(content.clone())
             .map_err(XmtpError::unknown)?;
@@ -117,6 +118,7 @@ impl MessageContent {
             }),
             _ => Ok(Self::Unknown {
                 encoded: content.into(),
+                raw_bytes: raw_bytes.to_vec(),
             }),
         }
     }
@@ -235,7 +237,6 @@ impl Message {
             },
             parameters: Default::default(),
             fallback: None,
-            compression: None,
             content: value.decrypted_message_bytes.clone(),
         });
         let content_type = encoded
@@ -247,7 +248,7 @@ impl Message {
             .and_then(|content| content.fallback.clone());
         let content = encoded
             .clone()
-            .map(MessageContent::decode_proto)
+            .map(|content| MessageContent::decode_proto(content, &value.decrypted_message_bytes))
             .transpose()
             .unwrap_or(None)
             .unwrap_or_else(|| MessageContent::Unknown {
@@ -256,6 +257,7 @@ impl Message {
                     .map(Into::into)
                     .or_else(|| raw_fallback.clone())
                     .expect("parsed or raw content"),
+                raw_bytes: value.decrypted_message_bytes.clone(),
             });
         let kind = match value.kind {
             GroupMessageKind::Application => MessageKind::Application,
@@ -285,9 +287,6 @@ impl Message {
             },
             fallback,
             encoded: encoded
-                .map(|value| {
-                    xmtp_content_types::compression::decompress(value.clone()).unwrap_or(value)
-                })
                 .map(Into::into)
                 .or(raw_fallback)
                 .expect("parsed or raw content"),
