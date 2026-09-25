@@ -343,6 +343,48 @@ assert.deepEqual(
   closeReasons.map((reason) => reason.kind),
   ["closed"],
 );
+let endedAfterCloseThrow = false;
+const throwingClose = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {
+      endedAfterCloseThrow = true;
+    },
+  }),
+  reopened,
+  {
+    onClose: () => {
+      throw new Error("close callback failed");
+    },
+  },
+);
+await throwingClose.ready();
+await assert.rejects(throwingClose.end(), /close callback failed/);
+assert.equal(endedAfterCloseThrow, true, "throwing onClose skipped reader.end");
+let endedAfterFailureCloseThrow = false;
+const throwingFailureClose = new sdk.MessageStream(
+  async () => ({
+    next: async () => {
+      throw new Error("reader failed");
+    },
+    end: async () => {
+      endedAfterFailureCloseThrow = true;
+    },
+  }),
+  reopened,
+  {
+    onClose: () => {
+      throw new Error("failure callback failed");
+    },
+  },
+);
+await throwingFailureClose.ready();
+await assert.rejects(throwingFailureClose.next(), /failure callback failed/);
+assert.equal(
+  endedAfterFailureCloseThrow,
+  true,
+  "throwing failure callback skipped reader.end",
+);
 for (const code of [
   "recoveryExhausted",
   "storage",
