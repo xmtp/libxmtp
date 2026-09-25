@@ -1273,7 +1273,10 @@ def main() -> None:
         OUT.write_text(output)
     elif args.check:
         if OUT.read_text() != output:
-            raise SystemExit("manifest differs from source inventory")
+            raise SystemExit(
+                "manifest differs from source inventory; "
+                "run python3.11 dev/sdk/inventory.py --write"
+            )
     else:
         print(output)
 

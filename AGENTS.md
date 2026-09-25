@@ -59,6 +59,10 @@ and port block, so run `just backend status` for the checkout you are in. See th
 
 - Rust tests use `#[xmtp_common::test(unwrap_try = true)]`, not `#[test]`, unless
   the package documents an exception to avoid a dependency cycle.
+- Prove that a new test can fail, in any language. Break the behavior it
+  checks, or swap in the weaker implementation (revert the fix, widen a match
+  arm, drop the call). Run the test and see it fail. Then restore the code. A
+  test that passes either way is not coverage.
 - Update the relevant directory `AGENTS.md` when its commands change.
 - `CLAUDE.md` is only a pointer (`@AGENTS.md`). Content goes in `AGENTS.md`.
 - When a Ref plan is required, describe added or changed public types exposed

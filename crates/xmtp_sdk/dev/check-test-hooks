@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Reject test-only hooks and benchmark exports in shipped SDK code.
+#
+#   check-test-hooks [generated-dir]  default bindings and runtime sources
+#   check-test-hooks --bench <dir>    the benchmark binding keeps both exports
+#   check-test-hooks --self-test      prove that the check can fail
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+
+bench_exports='sdkEmptyCall|sdk_empty_call|getGroup|get_group'
+# An identifier with a Test or test word: readerOpenedForTest,
+# bridgeTestPanic, testHook, bridge_test_panic, is_ended_for_test. Words
+# such as latestInboxUpdatesCount or Testnet do not match.
+test_hooks='\b(\w*[a-z0-9]Test([A-Z0-9_]\w*)?|test[A-Z0-9_]\w*|\w*_test([A-Z0-9_]\w*)?)\b'
+# Test source sets are not shipped.
+test_sources=(--glob '!*.test.*' --glob '!**/tests/**' --glob '!**/src/test/**'
+  --glob '!**/Tests/**')
+# Known hooks that an open change removes, as path:name. A stale entry fails.
+# nm/sdk-client-family (Task 15) moves this reader gate into the conformance
+# harness; remove both entries with it.
+allowed=(
+  apps/xmtp_sdk_bindgen/runtime/kotlin/SDKClient.kt:readerOpenedForTest
+  apps/xmtp_sdk_bindgen/runtime/swift/SDKClient.swift:readerOpenedForTest
+)
+
+# Print path:name for each test hook under the given paths.
+hooks() {
+  rg -o -n --no-heading --with-filename "${test_sources[@]}" -e "$test_hooks" "$@" |
+    awk -F: '{ print $1 ":" $3 }' | sort -u || true
+}
+
+# check <generated-dir> <runtime-dir>...
+check() {
+  local generated="$1"
+  shift
+  local bindings=(
+    "$generated/swift/xmtp_sdk.swift"
+    "$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
+    "$generated/typescript-napi/xmtp_sdk.ts"
+    "$generated/typescript-wasm/xmtp_sdk.ts"
+  )
+  local binding found entry failed=0
+  for binding in "${bindings[@]}"; do
+    test -f "$binding"
+    if rg -n "$bench_exports" "$binding"; then
+      echo "Benchmark export leaked into $binding" >&2
+      failed=1
+    fi
+  done
+  found="$(hooks "${bindings[@]}" "$@")"
+  for entry in "${allowed[@]}"; do
+    if grep -qxF "$entry" <<<"$found"; then
+      found="$(grep -vxF "$entry" <<<"$found" || true)"
+    elif [[ "$*" == *apps/xmtp_sdk_bindgen/runtime* ]]; then
+      echo "Stale allowed hook $entry: remove it from $0" >&2
+      failed=1
+    fi
+  done
+  if [[ -n "$found" ]]; then
+    echo "Test-only hooks in shipped SDK code (move them to a test source set):" >&2
+    echo "$found" >&2
+    failed=1
+  fi
+  return "$failed"
+}
+
+# expect_failure <label> <generated-dir> <runtime-dir>
+expect_failure() {
+  if check "$2" "$3" >/dev/null 2>&1; then
+    echo "self-test: $1 was not rejected" >&2
+    exit 1
+  fi
+}
+
+self_test() {
+  fixture="$(mktemp -d)"
+  trap 'rm -rf "$fixture"' EXIT
+  local generated="$fixture/generated" runtime="$fixture/runtime"
+  local clean='func latestInboxUpdatesCount() {} // env Testnet'
+  local bindings=(swift/xmtp_sdk.swift kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt
+    typescript-napi/xmtp_sdk.ts typescript-wasm/xmtp_sdk.ts)
+  local binding name
+  for binding in "${bindings[@]}"; do
+    mkdir -p "$(dirname "$generated/$binding")"
+    echo "$clean" >"$generated/$binding"
+  done
+  mkdir -p "$runtime/src/test" "$runtime/src/main" "$runtime/Tests"
+  echo 'var readerOpenedForTest = null' >"$runtime/src/test/Hooks.kt"
+  echo 'static var readerOpenedForTest = nil' >"$runtime/Tests/Hooks.swift"
+  echo 'await bridgeTestPanic();' >"$runtime/src/main/bridge.test.ts"
+  if ! check "$generated" "$runtime" >/dev/null 2>&1; then
+    echo "self-test: the clean fixture was rejected" >&2
+    exit 1
+  fi
+  for name in readerOpenedForTest bridgeTestPanic bridge_test_panic \
+    is_ended_for_test testHook; do
+    echo "let x = $name" >"$runtime/src/main/Runtime.kt"
+    expect_failure "$name in a runtime" "$generated" "$runtime"
+    rm "$runtime/src/main/Runtime.kt"
+  done
+  for name in readerOpenedForTest bridge_test_panic sdkEmptyCall get_group; do
+    echo "func $name() {}" >>"$generated/typescript-wasm/xmtp_sdk.ts"
+    expect_failure "$name in a binding" "$generated" "$runtime"
+    echo "$clean" >"$generated/typescript-wasm/xmtp_sdk.ts"
+  done
+  echo "check-test-hooks self-test passes."
+}
+
+case "${1:-}" in
+  --bench)
+    binding="${2:?benchmark package path required}/xmtp_sdk.ts"
+    test -f "$binding"
+    rg -q 'sdkEmptyCall' "$binding"
+    rg -q 'getGroup' "$binding"
+    echo "Benchmark bindings contain both gated exports."
+    ;;
+  --self-test)
+    self_test
+    ;;
+  *)
+    cd "$root"
+    check "${1:-target/sdk-generated}" apps/xmtp_sdk_bindgen/runtime
+    echo "Default bindings and runtimes have no test hooks or benchmark exports."
+    ;;
+esac

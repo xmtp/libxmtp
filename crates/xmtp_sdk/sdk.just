@@ -11,7 +11,7 @@ generate:
 check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
 
-# Check generated names and the TypeScript bridge we maintain.
+# Check generated names, test hooks, and the TypeScript bridge we maintain.
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
@@ -29,7 +29,7 @@ conformance target:
     esac
 
 manifest-check:
-    echo "Manifest check is added when the SDK manifest exists"
+    cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
 
 bench:
     {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"

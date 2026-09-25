@@ -85,8 +85,12 @@ lint-rust:
     cargo hakari generate --diff
     cargo hakari manage-deps --dry-run
 
-# Config linting: TOML, Nix, shell scripts
-lint-config: lint-treefmt
+# Config linting: TOML, Nix, shell scripts, and the SDK API manifest
+lint-config: lint-treefmt sdk-manifest-check
+
+# Fail if docs/self-hosted/sdk-api-manifest.md differs from the SDK sources.
+sdk-manifest-check:
+    python3.11 dev/sdk/inventory.py --check
 
 lint-toml:
     taplo format --check --diff
