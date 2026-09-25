@@ -41,7 +41,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                     if matches!(
                         record.name.as_str(),
                         "MessageData" | "ReactionMessage" | "ReplyParent"
-                    ) && contains_object(&field.ty)
+                    ) && contains_object(&field.ty, &items, &mut HashSet::new())
                     {
                         bail!(
                             "{}.{}: message record contains an object",
@@ -124,16 +124,50 @@ fn type_names_record(ty: &Type, name: &str) -> bool {
     }
 }
 
-fn contains_object(ty: &Type) -> bool {
+fn contains_object(
+    ty: &Type,
+    items: &[&Metadata],
+    visited: &mut HashSet<(String, String)>,
+) -> bool {
     match ty {
         Type::Object { .. } => true,
         Type::Optional { inner_type }
         | Type::Sequence { inner_type }
-        | Type::Box { inner_type } => contains_object(inner_type),
+        | Type::Set { inner_type }
+        | Type::Box { inner_type } => contains_object(inner_type, items, visited),
         Type::Map {
             key_type,
             value_type,
-        } => contains_object(key_type) || contains_object(value_type),
+        } => {
+            contains_object(key_type, items, visited) || contains_object(value_type, items, visited)
+        }
+        Type::Custom { builtin, .. } => contains_object(builtin, items, visited),
+        Type::Record { module_path, name } | Type::Enum { module_path, name } => {
+            if !visited.insert((module_path.clone(), name.clone())) {
+                return false;
+            }
+            items.iter().any(|item| match item {
+                Metadata::Record(record)
+                    if record.module_path == *module_path && record.name == *name =>
+                {
+                    record
+                        .fields
+                        .iter()
+                        .any(|field| contains_object(&field.ty, items, visited))
+                }
+                Metadata::Enum(enumeration)
+                    if enumeration.module_path == *module_path && enumeration.name == *name =>
+                {
+                    enumeration.variants.iter().any(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .any(|field| contains_object(&field.ty, items, visited))
+                    })
+                }
+                _ => false,
+            })
+        }
         _ => false,
     }
 }
@@ -178,8 +212,9 @@ fn check_error_type(item_name: &str, thrown: Option<&Type>) -> Result<()> {
 mod tests {
     use super::*;
     use uniffi_meta::{
-        CallbackInterfaceMetadata, FieldMetadata, FnMetadata, FnParamMetadata, MethodMetadata,
-        ObjectImpl, ObjectMetadata, RecordMetadata, TraitKind, TraitMethodMetadata,
+        CallbackInterfaceMetadata, EnumMetadata, EnumShape, FieldMetadata, FnMetadata,
+        FnParamMetadata, MethodMetadata, ObjectImpl, ObjectMetadata, RecordMetadata, TraitKind,
+        TraitMethodMetadata, VariantMetadata,
     };
 
     fn object(name: &str, imp: ObjectImpl) -> Metadata {
@@ -390,6 +425,73 @@ mod tests {
             .contains("self-typed optional")
         );
         Ok(())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_objects_nested_in_message_records() {
+        let object = Type::Object {
+            module_path: "test".into(),
+            name: "Handle".into(),
+            imp: ObjectImpl::Struct,
+        };
+        let field = |name: &str, ty| FieldMetadata {
+            name: name.into(),
+            orig_name: None,
+            ty,
+            default: None,
+            docstring: None,
+        };
+        let attachment = Metadata::Record(RecordMetadata {
+            module_path: "test".into(),
+            name: "Attachment".into(),
+            orig_name: None,
+            remote: false,
+            fields: vec![field("handle", object.clone())],
+            docstring: None,
+        });
+        let content = Metadata::Enum(EnumMetadata {
+            module_path: "test".into(),
+            name: "MessageContent".into(),
+            orig_name: None,
+            shape: EnumShape::Enum,
+            remote: false,
+            variants: vec![VariantMetadata {
+                name: "Attachment".into(),
+                orig_name: None,
+                discr: None,
+                fields: vec![field(
+                    "attachment",
+                    Type::Record {
+                        module_path: "test".into(),
+                        name: "Attachment".into(),
+                    },
+                )],
+                docstring: None,
+            }],
+            discr_type: None,
+            non_exhaustive: false,
+            docstring: None,
+        });
+        let message = Metadata::Record(RecordMetadata {
+            module_path: "test".into(),
+            name: "MessageData".into(),
+            orig_name: None,
+            remote: false,
+            fields: vec![field(
+                "content",
+                Type::Enum {
+                    module_path: "test".into(),
+                    name: "MessageContent".into(),
+                },
+            )],
+            docstring: None,
+        });
+        let error = validate_items(&[attachment, content, message]).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("MessageData.content: message record contains an object")
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
