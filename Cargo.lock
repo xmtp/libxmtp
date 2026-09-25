@@ -12820,6 +12820,7 @@ dependencies = [
  "flate2",
  "futures-util",
  "ghash",
+ "gloo-timers",
  "http-body-util",
  "hyper 1.11.0",
  "hyper-util",
