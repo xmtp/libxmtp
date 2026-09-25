@@ -37,6 +37,22 @@ fn network() -> AttachmentError {
     AttachmentError::new(Cause::Network)
 }
 
+fn tls_config() -> Result<rustls::ClientConfig, AttachmentError> {
+    #[cfg(target_os = "android")]
+    {
+        Ok(rustls::ClientConfig::builder()
+            .with_root_certificates(rustls::RootCertStore {
+                roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
+            })
+            .with_no_client_auth())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use rustls_platform_verifier::ConfigVerifierExt;
+        rustls::ClientConfig::with_platform_verifier().map_err(|_| network())
+    }
+}
+
 trait SocketIo: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> SocketIo for T {}
 
@@ -146,17 +162,23 @@ async fn connect(
         return Ok(Box::new(stream));
     }
     xmtp_cryptography::install_crypto_provider();
-    #[cfg(target_os = "android")]
-    let config = rustls::ClientConfig::builder()
-        .with_root_certificates(rustls::RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.to_vec(),
-        })
-        .with_no_client_auth();
-    #[cfg(not(target_os = "android"))]
-    let config = {
-        use rustls_platform_verifier::ConfigVerifierExt;
-        rustls::ClientConfig::with_platform_verifier().map_err(|_| network())?
+    let mut config = {
+        #[cfg(test)]
+        {
+            if let Some(roots) = &transfer.upload_test_roots {
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(roots.clone())
+                    .with_no_client_auth()
+            } else {
+                tls_config()?
+            }
+        }
+        #[cfg(not(test))]
+        {
+            tls_config()?
+        }
     };
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
     let server_name = match url.host().ok_or_else(network)? {
         url::Host::Domain(host) => ServerName::try_from(host.to_owned()).map_err(|_| network())?,
         url::Host::Ipv4(ip) => ServerName::IpAddress(IpAddr::V4(ip).into()),

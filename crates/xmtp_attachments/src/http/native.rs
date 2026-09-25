@@ -141,6 +141,8 @@ fn redirect_target(
 pub struct Transfer {
     client: Client,
     upload_resolver: Arc<dyn Resolve>,
+    #[cfg(test)]
+    upload_test_roots: Option<rustls::RootCertStore>,
     options: AttachmentOptions,
     connect_timeout: Duration,
     idle_timeout: Duration,
@@ -178,6 +180,8 @@ impl Transfer {
         Ok(Self {
             client,
             upload_resolver: upstream,
+            #[cfg(test)]
+            upload_test_roots: None,
             options,
             connect_timeout,
             idle_timeout,
@@ -535,6 +539,181 @@ mod tests {
             headers: vec![],
             expires_in_seconds: 60,
         }
+    }
+
+    struct SeenTlsPut {
+        method: Method,
+        uri: String,
+        headers: reqwest::header::HeaderMap,
+        body: Bytes,
+        alpn: Option<Vec<u8>>,
+    }
+
+    struct TlsPutServer {
+        address: SocketAddr,
+        root: rustls::pki_types::CertificateDer<'static>,
+        task: tokio::task::JoinHandle<(bool, Option<SeenTlsPut>)>,
+    }
+
+    async fn tls_put_server() -> Result<TlsPutServer, Box<dyn Error + Send + Sync>> {
+        xmtp_cryptography::install_crypto_provider();
+        let ca_key = rcgen::KeyPair::generate()?;
+        let mut ca_params = rcgen::CertificateParams::new(vec!["Attachment test CA".into()])?;
+        ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+        ca_params.key_usages = vec![
+            rcgen::KeyUsagePurpose::DigitalSignature,
+            rcgen::KeyUsagePurpose::KeyCertSign,
+        ];
+        let ca = rcgen::CertifiedIssuer::self_signed(ca_params, ca_key)?;
+        let leaf_key = rcgen::KeyPair::generate()?;
+        let mut leaf_params = rcgen::CertificateParams::new(vec!["localhost".into()])?;
+        leaf_params.is_ca = rcgen::IsCa::ExplicitNoCa;
+        leaf_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+        leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+        let leaf = leaf_params.signed_by(&leaf_key, &ca)?;
+        let mut tls = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![leaf.der().clone(), ca.der().clone()],
+                rustls::pki_types::PrivatePkcs8KeyDer::from(leaf_key.serialize_der()).into(),
+            )?;
+        tls.alpn_protocols = vec![b"http/1.1".to_vec()];
+        let acceptor = tokio_rustls::TlsAcceptor::from(Arc::new(tls));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let task = tokio::spawn(async move {
+            use http_body_util::BodyExt;
+
+            let (socket, _) = listener.accept().await.unwrap();
+            let Ok(tls) = acceptor.accept(socket).await else {
+                return (false, None);
+            };
+            let alpn = tls.get_ref().1.alpn_protocol().map(<[u8]>::to_vec);
+            let seen = Arc::new(std::sync::Mutex::new(None));
+            let captured = seen.clone();
+            let service = service_fn(move |request: Request<Incoming>| {
+                let captured = captured.clone();
+                let alpn = alpn.clone();
+                async move {
+                    let (parts, body) = request.into_parts();
+                    let body = body.collect().await.unwrap().to_bytes();
+                    *captured.lock().unwrap() = Some(SeenTlsPut {
+                        method: parts.method,
+                        uri: parts.uri.to_string(),
+                        headers: parts.headers,
+                        body,
+                        alpn,
+                    });
+                    Ok::<_, std::convert::Infallible>(answer(StatusCode::CREATED, ""))
+                }
+            });
+            let _ = http1::Builder::new()
+                .serve_connection(TokioIo::new(tls), service)
+                .await;
+            let observed = seen.lock().unwrap().take();
+            (true, observed)
+        });
+        Ok(TlsPutServer {
+            address,
+            root: ca.der().clone(),
+            task,
+        })
+    }
+
+    fn trusted_upload(server: &TlsPutServer) -> Result<Transfer, Box<dyn Error + Send + Sync>> {
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(server.root.clone())?;
+        let mut transfer = Transfer::with_resolver(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(vec![server.address])),
+        )?;
+        transfer.upload_test_roots = Some(roots);
+        Ok(transfer)
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn https_put_uses_trusted_ca_and_preserves_signed_request() {
+        let server = tls_put_server().await?;
+        let transfer = trusted_upload(&server)?;
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        let payload = vec![0x5a; 2 * CHUNK_SIZE];
+        std::fs::write(&path, &payload)?;
+        let mut request = upload(format!(
+            "https://localhost:{}/signed/object?signature=test",
+            server.address.port()
+        ));
+        request.headers = vec![
+            ("content-type".into(), "application/octet-stream".into()),
+            ("content-length".into(), payload.len().to_string()),
+            ("x-amz-meta-request".into(), "signed-value".into()),
+        ];
+        assert_eq!(
+            tokio::time::timeout(
+                Duration::from_secs(3),
+                transfer.put(&request, StagedFile { path })
+            )
+            .await??,
+            PutOutcome::Stored
+        );
+        let (handshake, seen) = tokio::time::timeout(Duration::from_secs(3), server.task).await??;
+        assert!(handshake);
+        let seen = seen.expect("server received the PUT");
+        assert_eq!(seen.method, Method::PUT);
+        assert_eq!(seen.uri, "/signed/object?signature=test");
+        assert_eq!(seen.headers["content-type"], "application/octet-stream");
+        assert_eq!(
+            seen.headers["content-length"].to_str()?,
+            payload.len().to_string()
+        );
+        assert_eq!(seen.headers["x-amz-meta-request"], "signed-value");
+        assert_eq!(seen.body, payload);
+        assert_eq!(seen.alpn.as_deref(), Some(&b"http/1.1"[..]));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn https_put_rejects_untrusted_certificate() {
+        let server = tls_put_server().await?;
+        let transfer = Transfer::with_resolver(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(vec![server.address])),
+        )?;
+        let (_directory, body) = staged_body()?;
+        let request = upload(format!(
+            "https://localhost:{}/object",
+            server.address.port()
+        ));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), transfer.put(&request, body))
+                .await?
+                .unwrap_err()
+                .cause,
+            Cause::Network
+        );
+        let (handshake, seen) = tokio::time::timeout(Duration::from_secs(3), server.task).await??;
+        assert!(!handshake);
+        assert!(seen.is_none());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn https_put_rejects_wrong_hostname() {
+        let server = tls_put_server().await?;
+        let transfer = trusted_upload(&server)?;
+        let (_directory, body) = staged_body()?;
+        let request = upload(format!(
+            "https://wrong.example:{}/object",
+            server.address.port()
+        ));
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(3), transfer.put(&request, body))
+                .await?
+                .unwrap_err()
+                .cause,
+            Cause::Network
+        );
+        let (handshake, seen) = tokio::time::timeout(Duration::from_secs(3), server.task).await??;
+        assert!(!handshake);
+        assert!(seen.is_none());
     }
 
     // verifies: ATCH-071

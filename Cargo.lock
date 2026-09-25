@@ -12825,6 +12825,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "prost",
+ "rcgen",
  "reqwest 0.13.4",
  "rustls",
  "rustls-platform-verifier",
