@@ -90,6 +90,34 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn reaction_with_compression_only_does_not_push() {
+    use crate::{Compression, Reaction, ReactionAction, ReactionSchema, SendOptions};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reference = group.send_text("reference".into(), None).await?;
+    let reaction = group
+        .send_reaction(
+            reference,
+            Some(client.inbox_id()),
+            Reaction {
+                content: "👍".into(),
+                action: ReactionAction::Added,
+                schema: ReactionSchema::Unicode,
+            },
+            Some(SendOptions {
+                should_push: None,
+                compression: Some(Compression::Gzip),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let stored = client.inner.message(hex::decode(&reaction.0)?)?;
+    assert!(!stored.should_push);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(
         crate::local_signer_from_private_key(vec![0; 31]).await,
