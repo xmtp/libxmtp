@@ -5,6 +5,11 @@ pub fn local_file_name(filename: Option<&str>) -> String {
 
 /// Apply steps 2 to 8 of the file name table to a path component.
 pub fn sanitize_path_component(value: &str) -> String {
+    sanitize_path_component_with_limit(value, 255)
+}
+
+/// Apply the file name table with a caller-selected UTF-8 byte limit.
+pub fn sanitize_path_component_with_limit(value: &str, limit: usize) -> String {
     let part = value.rsplit(['/', '\\']).next().unwrap_or_default();
     let clean_ascii = part.bytes().all(|byte| {
         matches!(byte, 0x20..=0x7e)
@@ -27,18 +32,18 @@ pub fn sanitize_path_component(value: &str) -> String {
     if is_reserved_device_name(&name) {
         name.insert(0, '_');
     }
-    if name.len() > 255 {
+    if name.len() > limit {
         name = match name.rfind('.') {
             Some(dot) if dot > 0 => {
                 let suffix = &name[dot..];
-                if suffix.len() >= 255 {
-                    truncate_bytes(suffix, 255).to_owned()
+                if suffix.len() >= limit {
+                    truncate_bytes(suffix, limit).to_owned()
                 } else {
-                    let stem = truncate_bytes(&name[..dot], 255 - suffix.len());
+                    let stem = truncate_bytes(&name[..dot], limit - suffix.len());
                     format!("{stem}{suffix}")
                 }
             }
-            _ => truncate_bytes(&name, 255).to_owned(),
+            _ => truncate_bytes(&name, limit).to_owned(),
         };
     }
     let name = name.trim_matches(['.', ' ']);

@@ -17,6 +17,7 @@ pub mod mls_store;
 mod mutex_registry;
 pub mod server_configuration;
 mod state_tx;
+pub mod storage_location;
 pub use client::VisibilityConfirmationOptions;
 pub mod subscriptions;
 pub mod utils;

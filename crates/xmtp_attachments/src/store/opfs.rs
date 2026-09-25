@@ -173,6 +173,28 @@ impl OpfsStore {
             .map_err(storage_error)?;
         Ok(StoreWriter { handle, offset: 0 })
     }
+
+    /// Atomically replace one OPFS file with a completed temporary file.
+    pub async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+        let source = self.file_handle(from, false).await?;
+        let (target_parent, target_name) = self.parent(to, true).await?;
+        let move_method = js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))
+            .map_err(storage_error)?;
+        let move_method = move_method
+            .dyn_ref::<js_sys::Function>()
+            .ok_or(AttachmentError::new(Cause::LocalStorage))?;
+        let promise = move_method
+            .call2(
+                source.as_ref(),
+                target_parent.as_ref(),
+                &JsValue::from_str(&target_name),
+            )
+            .map_err(storage_error)?
+            .dyn_into::<js_sys::Promise>()
+            .map_err(storage_error)?;
+        JsFuture::from(promise).await.map_err(storage_error)?;
+        Ok(())
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -195,24 +217,7 @@ impl LocalStore for OpfsStore {
         if self.exists(to).await? {
             return Err(AttachmentError::new(Cause::LocalStorage));
         }
-        let source = self.file_handle(from, false).await?;
-        let (target_parent, target_name) = self.parent(to, true).await?;
-        let move_method = js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))
-            .map_err(storage_error)?;
-        let move_method = move_method
-            .dyn_ref::<js_sys::Function>()
-            .ok_or(AttachmentError::new(Cause::LocalStorage))?;
-        let promise = move_method
-            .call2(
-                source.as_ref(),
-                target_parent.as_ref(),
-                &JsValue::from_str(&target_name),
-            )
-            .map_err(storage_error)?
-            .dyn_into::<js_sys::Promise>()
-            .map_err(storage_error)?;
-        JsFuture::from(promise).await.map_err(storage_error)?;
-        Ok(())
+        self.replace(from, to).await
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
