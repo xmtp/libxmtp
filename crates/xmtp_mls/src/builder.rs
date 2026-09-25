@@ -203,7 +203,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db>
 where
     ApiClient: Clone,

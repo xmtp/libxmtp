@@ -149,6 +149,8 @@ diesel::table! {
     local_attachments (path) {
         path -> Text,
         created_at_ns -> BigInt,
+        mime_type -> Nullable<Text>,
+        filename -> Nullable<Text>,
     }
 }
 
