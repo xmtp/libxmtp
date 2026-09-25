@@ -1864,6 +1864,21 @@ async fn get_message_by_id_errors_on_unconvertible_row() {
     client.end().await?;
 }
 
+// verifies: CTYPE-007
+#[xmtp_common::test(unwrap_try = true)]
+fn decode_standard_rejects_out_of_range_actions_expiry() {
+    use xmtp_content_types::{
+        ContentCodec,
+        actions::{Actions, ActionsCodec},
+    };
+
+    let actions: Actions = serde_json::from_str(
+        r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One","expiresAt":"9999-12-31T23:59:59.999Z"}]}"#,
+    )?;
+    let encoded = ActionsCodec::encode(actions)?;
+    assert!(crate::decode_standard(encoded.into()).is_err());
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
