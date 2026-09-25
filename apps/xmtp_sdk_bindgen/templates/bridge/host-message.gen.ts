@@ -73,9 +73,12 @@ type CustomBody = {
   tag: B.MessageBody_Tags.Custom;
   inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
 };
+type LiftedReplyBody =
+  | Exclude<B.MessageBody, { tag: B.MessageBody_Tags.Custom }>
+  | CustomBody;
 type HostReply = {
   tag: B.MessageContent_Tags.Reply;
-  inner: { referenceID: B.MessageID; body: B.MessageBody | CustomBody };
+  inner: { referenceID: B.MessageID; body: LiftedReplyBody };
 };
 type HostContent =
   | Exclude<
@@ -159,7 +162,7 @@ function decodeBody(
   key: bigint,
   body: B.MessageBody,
   encoded: B.EncodedContent,
-): B.MessageBody | CustomBody {
+): LiftedReplyBody {
   if (body.tag === B.MessageBody_Tags.Custom) {
     const result = decodeCustom(owner(session, key), encoded);
     return result === undefined
@@ -202,8 +205,8 @@ function decodeBody(
 
 export class Message extends B.Message {
   readonly content: HostContent;
-  readonly inReplyToContent?: B.MessageBody | CustomBody;
-  readonly replyContent?: B.MessageBody | CustomBody;
+  readonly inReplyToContent?: LiftedReplyBody;
+  readonly replyContent?: LiftedReplyBody;
 
   constructor(data: B.MessageData, private readonly session: MainSession) {
     super(data);
@@ -248,9 +251,23 @@ export class Message extends B.Message {
   react(reaction: B.Reaction, options?: B.SendOptions): Promise<B.MessageID> {
     return this.client().conversations().reactToMessage(this.id, reaction, options);
   }
-  reply(content: string | B.EncodedContent, options?: B.SendOptions): Promise<B.MessageID> {
+  reply(content: string | B.EncodedContent, options?: B.SendOptions): Promise<B.MessageID>;
+  reply<T>(codec: ContentCodec<T>, value: T, options?: B.SendOptions): Promise<B.MessageID>;
+  reply(
+    content: string | B.EncodedContent | ContentCodec<unknown>,
+    valueOrOptions?: unknown,
+    options?: B.SendOptions,
+  ): Promise<B.MessageID> {
+    if (typeof content !== "string" && "encode" in content)
+      return this.client().conversations().replyToMessage(
+        this.id,
+        content.encode(valueOrOptions),
+        options,
+      );
+    if (!isSendOptions(valueOrOptions))
+      throw new TypeError("invalid send options");
     const encoded = typeof content === "string" ? Pure.encodeText(content) : content;
-    return this.client().conversations().replyToMessage(this.id, encoded, options);
+    return this.client().conversations().replyToMessage(this.id, encoded, valueOrOptions);
   }
   async parent(): Promise<Message | undefined> {
     const id = this.inReplyTo?.id;
@@ -261,4 +278,11 @@ export class Message extends B.Message {
   conversation(): Promise<B.Conversation | undefined> {
     return this.client().conversations().getByID(this.conversationID);
   }
+}
+
+function isSendOptions(value: unknown): value is B.SendOptions | undefined {
+  return value === undefined || (
+    value !== null && typeof value === "object" &&
+    "optimistic" in value && typeof value.optimistic === "boolean"
+  );
 }
