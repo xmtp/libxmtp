@@ -1522,7 +1522,7 @@ async fn consent_archive_storage_and_diagnostics() {
         preferences.consent_state(entity).await?,
         ConsentState::Allowed
     ));
-    assert!(client.storage().path()?.is_none());
+    assert!(client.storage().path().await?.is_none());
     client.diagnostics().clear_statistics().await?;
     let stats = client.diagnostics().api_statistics().await?;
     assert_eq!(stats.query, 0);
