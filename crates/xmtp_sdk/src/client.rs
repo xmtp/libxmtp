@@ -106,7 +106,6 @@ impl From<ForkRecoveryOptions> for ForkRecoveryOpts {
 pub enum WorkerKind {
     DeviceSync,
     DisappearingMessages,
-    KeyPackageCleaner,
     CommitLog,
     TaskRunner,
     ConfigurationRefresh,
@@ -119,7 +118,6 @@ impl From<WorkerKind> for xmtp_mls::worker::WorkerKind {
         match value {
             WorkerKind::DeviceSync => CoreKind::DeviceSync,
             WorkerKind::DisappearingMessages => CoreKind::DisappearingMessages,
-            WorkerKind::KeyPackageCleaner => CoreKind::KeyPackageCleaner,
             WorkerKind::CommitLog => CoreKind::CommitLog,
             WorkerKind::TaskRunner => CoreKind::TaskRunner,
             WorkerKind::ConfigurationRefresh => CoreKind::ConfigurationRefresh,
